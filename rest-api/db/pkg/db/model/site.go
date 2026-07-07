@@ -378,7 +378,7 @@ func (ssd SiteSQLDAO) GetCount(ctx context.Context, tx *db.Tx, filter SiteFilter
 // Create creates a Site from the given parameters
 func (ssd SiteSQLDAO) Create(ctx context.Context, tx *db.Tx, input SiteCreateInput) (*Site, error) {
 	// Create a child span and set the attributes for current request
-	ctx, stDAOSpan := ssd.tracerSpan.CreateChildInCurrentContext(ctx, "SiteDAO.CreateFromParams")
+	ctx, stDAOSpan := ssd.tracerSpan.CreateChildInCurrentContext(ctx, "SiteDAO.Create")
 	if stDAOSpan != nil {
 		defer stDAOSpan.End()
 

@@ -53,6 +53,13 @@ impl BiosBuilder {
         self.apply_patch(json!({"Attributes": value}))
     }
 
+    /// libredfish's HPE `Bios` model requires `@odata.context` (real iLOs
+    /// always send it); without it the machine controller's lockdown check
+    /// fails to deserialize the response.
+    pub fn odata_context(self, value: &str) -> Self {
+        self.apply_patch(json!({"@odata.context": value}))
+    }
+
     pub fn build(self) -> serde_json::Value {
         self.value
     }

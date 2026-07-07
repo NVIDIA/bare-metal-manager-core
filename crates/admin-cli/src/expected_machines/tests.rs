@@ -651,3 +651,171 @@ fn validate_patch_with_dpu_mode_only() {
         _ => panic!("expected Patch variant"),
     }
 }
+
+// `--bmc-ip-allocation` is optional on `add`; unset is treated downstream as the
+// server default (`auto`), which retains an auto-allocated BMC address.
+#[test]
+fn parse_add_without_bmc_ip_allocation() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--chassis-serial-number",
+        "SN12345",
+    ])
+    .expect("should parse without --bmc-ip-allocation");
+
+    match cmd {
+        Cmd::Add(args) => {
+            assert!(
+                args.bmc_ip_allocation.is_none(),
+                "--bmc-ip-allocation should be optional"
+            );
+        }
+        _ => panic!("expected Add variant"),
+    }
+}
+
+// `--bmc-ip-allocation <value>` parses to the matching BmcIpAllocationType variant
+// on both `add` and `patch`. The closure pulls bmc_ip_allocation off whichever
+// variant parsed; each row pins the parsed `Some(variant)`.
+#[test]
+fn parse_bmc_ip_allocation_to_its_variant() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Add(args) => args.bmc_ip_allocation,
+                    Cmd::Patch(args) => args.bmc_ip_allocation,
+                    _ => panic!("expected Add or Patch variant"),
+                })
+                .map_err(drop)
+        };
+        "add --bmc-ip-allocation retained" {
+            &[
+                "expected-machine",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--bmc-ip-allocation",
+                "retained",
+            ][..] => Yields(Some(rpc::forge::BmcIpAllocationType::Retained)),
+        }
+
+        "add --bmc-ip-allocation dynamic" {
+            &[
+                "expected-machine",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--bmc-ip-allocation",
+                "dynamic",
+            ][..] => Yields(Some(rpc::forge::BmcIpAllocationType::Dynamic)),
+        }
+
+        "add --bmc-ip-allocation auto" {
+            &[
+                "expected-machine",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--bmc-ip-allocation",
+                "auto",
+            ][..] => Yields(Some(rpc::forge::BmcIpAllocationType::Auto)),
+        }
+
+        "patch --bmc-ip-allocation retained" {
+            &[
+                "expected-machine",
+                "patch",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-ip-allocation",
+                "retained",
+            ][..] => Yields(Some(rpc::forge::BmcIpAllocationType::Retained)),
+        }
+
+        "patch --bmc-ip-allocation fixed" {
+            &[
+                "expected-machine",
+                "patch",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-ip-allocation",
+                "fixed",
+            ][..] => Yields(Some(rpc::forge::BmcIpAllocationType::Fixed)),
+        }
+    );
+}
+
+// clap rejects `--bmc-ip-allocation` values that don't match the enum.
+#[test]
+fn parse_add_rejects_invalid_bmc_ip_allocation() {
+    let result = Cmd::try_parse_from([
+        "expected-machine",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--chassis-serial-number",
+        "SN12345",
+        "--bmc-ip-allocation",
+        "garbage",
+    ]);
+    assert!(
+        result.is_err(),
+        "clap should reject --bmc-ip-allocation with an invalid value"
+    );
+}
+
+// `patch --bmc-ip-allocation retained` alone (no other patchable fields) must
+// satisfy clap's ArgGroup and `Args::validate()`'s "at least one field" check.
+// A patch that sets only this field.
+#[test]
+fn validate_patch_with_bmc_ip_allocation_only() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "patch",
+        "--bmc-mac-address",
+        "00:00:00:00:00:00",
+        "--bmc-ip-allocation",
+        "retained",
+    ])
+    .expect("patch --bmc-ip-allocation alone should parse (ArgGroup)");
+
+    match cmd {
+        Cmd::Patch(args) => {
+            assert!(
+                args.validate().is_ok(),
+                "patch --bmc-ip-allocation alone should validate"
+            );
+        }
+        _ => panic!("expected Patch variant"),
+    }
+}

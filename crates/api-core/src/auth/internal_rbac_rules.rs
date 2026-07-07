@@ -270,6 +270,7 @@ impl InternalRBACRules {
             "GetSiteExplorationReport",
             vec![ForgeAdminCLI, Machineatron],
         );
+        x.perm("GetSiteExplorerLastRun", vec![ForgeAdminCLI, Machineatron]);
         x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI]);
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
         x.perm("Explore", vec![ForgeAdminCLI, Flow]);
@@ -311,6 +312,8 @@ impl InternalRBACRules {
         x.perm("FindNetworkDevicesByDeviceIds", vec![ForgeAdminCLI]);
         x.perm("CreateCredential", vec![ForgeAdminCLI]);
         x.perm("DeleteCredential", vec![ForgeAdminCLI]);
+        x.perm("RotateCredential", vec![ForgeAdminCLI]);
+        x.perm("GetCredentialRotationStatus", vec![ForgeAdminCLI]);
         x.perm("GetRouteServers", vec![ForgeAdminCLI]);
         x.perm("AddRouteServers", vec![ForgeAdminCLI]);
         x.perm("RemoveRouteServers", vec![ForgeAdminCLI]);
@@ -499,6 +502,7 @@ impl InternalRBACRules {
             "GetMachineValidationAttempt",
             vec![ForgeAdminCLI, SiteAgent],
         );
+        x.perm("HeartbeatMachineValidationRun", vec![Scout, SiteAgent]);
         x.perm("AdminBmcReset", vec![ForgeAdminCLI]);
         x.perm("AdminPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("DisableSecureBoot", vec![ForgeAdminCLI]);
@@ -596,6 +600,8 @@ impl InternalRBACRules {
             "GetDesiredFirmwareVersions",
             vec![ForgeAdminCLI, Machineatron, Flow],
         );
+        x.perm("UpsertHostFirmwareConfig", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteHostFirmwareConfig", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateSku", vec![ForgeAdminCLI]);
         x.perm("GenerateSkuFromMachine", vec![ForgeAdminCLI]);
         x.perm("AssignSkuToMachine", vec![ForgeAdminCLI]);
@@ -880,6 +886,10 @@ impl InternalRBACRules {
         x.perm("ComponentPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("GetComponentInventory", vec![ForgeAdminCLI, Flow]);
         x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Flow]);
+        x.perm(
+            "ComponentConfigureSwitchCertificate",
+            vec![ForgeAdminCLI, Flow],
+        );
         x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Flow]);
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
         x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);

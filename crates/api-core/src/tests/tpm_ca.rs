@@ -952,7 +952,7 @@ pub mod tests {
         });
         env.api.tpm_delete_ca_cert(delete_ca_certs_request).await?;
 
-        // verify - the delete must be succesful and the matched ek should become unmatched
+        // verify - the delete must be successful and the matched ek should become unmatched
         // make sure we have two unmatched eks
         let show_unmatched_ek_certs_request = tonic::Request::new(());
         let ek_statuses = env

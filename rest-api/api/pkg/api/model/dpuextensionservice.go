@@ -438,7 +438,9 @@ type APIDpuExtensionServiceObservabilityConfigPrometheus struct {
 // Validate ensures that the prometheus observability config is valid
 func (desop APIDpuExtensionServiceObservabilityConfigPrometheus) Validate() error {
 	err := validation.ValidateStruct(&desop,
-		validation.Field(&desop.ScrapeIntervalSeconds, validation.Min(uint32(1)).Error("must be greater than 0")),
+		validation.Field(&desop.ScrapeIntervalSeconds,
+			validation.Required.Error("must be greater than 0"),
+			validation.Min(uint32(1)).Error("must be greater than 0")),
 		validation.Field(&desop.Endpoint, validation.Required.Error(validationErrorValueRequired)),
 		validation.Field(&desop.Endpoint, validation.Length(0, DpuExtensionServiceMaxObservabilityPropertyLength).Error(fmt.Sprintf("length must not exceed %d", DpuExtensionServiceMaxObservabilityPropertyLength))),
 	)

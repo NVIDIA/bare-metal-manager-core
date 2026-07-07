@@ -739,7 +739,6 @@ async fn instance_reprov_start(
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
             instance_id: tinstance.id.into(),
-            machine_id: None,
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -965,7 +964,6 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
             instance_id: tinstance.id.into(),
-            machine_id: None,
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -1012,7 +1010,6 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
         env.api
             .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
                 instance_id: tinstance.id.into(),
-                machine_id: None,
                 apply_updates_on_reboot: true,
                 boot_with_custom_ipxe: false,
                 operation: 0,
@@ -1923,7 +1920,6 @@ async fn test_instance_reprov_restart_failed_impl(pool: sqlx::PgPool) {
     env.api
         .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
             instance_id: tinstance.id.into(),
-            machine_id: None,
             apply_updates_on_reboot: true,
             boot_with_custom_ipxe: false,
             operation: 0,
@@ -1974,7 +1970,6 @@ async fn test_instance_reprov_restart_failed_impl(pool: sqlx::PgPool) {
         env.api
             .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
                 instance_id: tinstance.id.into(),
-                machine_id: None,
                 apply_updates_on_reboot: true,
                 boot_with_custom_ipxe: false,
                 operation: 0,

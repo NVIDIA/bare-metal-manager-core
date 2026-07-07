@@ -123,6 +123,7 @@ pub async fn create(
         status: None,
         deleted: None,
         bmc_mac_address: new_power_shelf.bmc_mac_address,
+        bmc_info: None,
         controller_state: Versioned {
             value: state,
             version: controller_state_version,
@@ -234,11 +235,41 @@ pub async fn find_ids(
         .map_err(|e| DatabaseError::new("power_shelf::find_ids", e))
 }
 
+/// Base relation for loading power shelves. Wraps the `power_shelves` table in a
+/// derived table (aliased `power_shelves`) that adds a `bmc_info` JSON column
+/// resolved from the `Bmc` machine_interface linked back to the shelf --
+/// mirroring how the machine snapshot query materializes `bmc_info` (see
+/// `sql/machine_snapshots.sql.template`). Keeping the alias `power_shelves` lets
+/// the generic `FilterableQueryBuilder` filters reference unqualified columns.
+const POWER_SHELVES_WITH_BMC_INFO: &str = r#"SELECT * FROM (
+    SELECT ps.*, bmc.json AS bmc_info
+    FROM power_shelves ps
+    LEFT JOIN LATERAL (
+        SELECT jsonb_strip_nulls(jsonb_build_object(
+            'machine_interface_id', bmc_i.id,
+            'ip', host(bmc_addr.address),
+            'mac', bmc_i.mac_address::text
+        )) AS json
+        FROM machine_interfaces bmc_i
+        LEFT JOIN LATERAL (
+            SELECT a.address
+            FROM machine_interface_addresses a
+            WHERE a.interface_id = bmc_i.id
+            ORDER BY family(a.address), a.address
+            LIMIT 1
+        ) AS bmc_addr ON true
+        WHERE bmc_i.power_shelf_id = ps.id
+          AND bmc_i.interface_type = 'Bmc'
+        ORDER BY bmc_i.created ASC
+        LIMIT 1
+    ) AS bmc ON true
+) AS power_shelves"#;
+
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = PowerShelf>>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
 ) -> DatabaseResult<Vec<PowerShelf>> {
-    let mut query = FilterableQueryBuilder::new("SELECT * FROM power_shelves").filter(&filter);
+    let mut query = FilterableQueryBuilder::new(POWER_SHELVES_WITH_BMC_INFO).filter(&filter);
 
     query
         .build_query_as()
@@ -463,31 +494,6 @@ pub async fn update_metadata(
     }
 }
 
-/// Resolve PowerShelfIds to BMC MAC + IP via machine_interfaces.
-pub async fn find_bmc_info_by_power_shelf_ids(
-    db: impl crate::db_read::DbReader<'_>,
-    power_shelf_ids: &[PowerShelfId],
-) -> DatabaseResult<Vec<PowerShelfEndpointRow>> {
-    let sql = r#"
-        SELECT DISTINCT ON (mi.power_shelf_id)
-            mi.power_shelf_id  AS power_shelf_id,
-            mi.mac_address     AS pmc_mac,
-            mia.address        AS pmc_ip
-        FROM machine_interfaces mi
-        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
-        JOIN network_segments ns ON ns.id = mi.segment_id
-        WHERE mi.power_shelf_id = ANY($1)
-          AND ns.network_segment_type = 'underlay'
-        ORDER BY mi.power_shelf_id
-    "#;
-
-    sqlx::query_as(sql)
-        .bind(power_shelf_ids)
-        .fetch_all(db)
-        .await
-        .map_err(|err| DatabaseError::new("power_shelf::find_bmc_info_by_power_shelf_ids", err))
-}
-
 /// A power shelf resolved by its BMC MAC address, along with the rack it
 /// belongs to. Used by the Component Manager state controller wrapper to
 /// build a rack-level `MaintenanceScope` for the power shelves it's been
@@ -618,6 +624,99 @@ mod tests {
             rack_id: None,
         };
         create(txn, &new_power_shelf).await
+    }
+
+    /// The power-shelf load query must surface `bmc_info` (PMC MAC + IP +
+    /// machine-interface id) resolved from the BMC machine_interface linked
+    /// back to the shelf (`power_shelf_id` + `interface_type = 'Bmc'`),
+    /// regardless of which network segment the interface lives on. A shelf with
+    /// only a non-BMC interface must load with `bmc_info == None`.
+    #[crate::sqlx_test]
+    async fn test_find_by_populates_bmc_info(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use carbide_uuid::machine::MachineInterfaceId;
+        use carbide_uuid::network::NetworkSegmentId;
+        use model::allocation_type::AllocationType;
+
+        let mut txn = pool.begin().await?;
+
+        let shelf = create_test_power_shelf(&mut txn, 10, "BMC info shelf").await?;
+        let other = create_test_power_shelf(&mut txn, 11, "Data-only shelf").await?;
+
+        // A non-underlay segment on purpose: resolution must not depend on the
+        // segment type, only on the BMC link back to the shelf.
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version, network_segment_type)
+             VALUES ($1, 'V1-T0', 'tenant') RETURNING id",
+        )
+        .bind("power-shelf-bmc-info")
+        .fetch_one(txn.as_mut())
+        .await?;
+
+        let pmc_mac = "02:00:00:00:0a:01";
+        let pmc_ip: IpAddr = "10.20.30.40".parse()?;
+        let bmc_interface_id: MachineInterfaceId = sqlx::query_scalar(
+            "INSERT INTO machine_interfaces
+                 (power_shelf_id, association_type, segment_id, mac_address,
+                  primary_interface, hostname, interface_type)
+             VALUES ($1, 'PowerShelf', $2, $3::macaddr, false, 'pmc', 'Bmc')
+             RETURNING id",
+        )
+        .bind(shelf.id)
+        .bind(segment_id)
+        .bind(pmc_mac)
+        .fetch_one(txn.as_mut())
+        .await?;
+        crate::machine_interface_address::insert(
+            txn.as_mut(),
+            bmc_interface_id,
+            pmc_ip,
+            AllocationType::Dhcp,
+        )
+        .await?;
+
+        // A 'Data' interface linked to a different shelf must be ignored.
+        let data_interface_id: MachineInterfaceId = sqlx::query_scalar(
+            "INSERT INTO machine_interfaces
+                 (power_shelf_id, association_type, segment_id, mac_address,
+                  primary_interface, hostname, interface_type)
+             VALUES ($1, 'PowerShelf', $2, $3::macaddr, false, 'data', 'Data')
+             RETURNING id",
+        )
+        .bind(other.id)
+        .bind(segment_id)
+        .bind("02:00:00:00:0a:02")
+        .fetch_one(txn.as_mut())
+        .await?;
+        crate::machine_interface_address::insert(
+            txn.as_mut(),
+            data_interface_id,
+            "10.20.30.41".parse::<IpAddr>()?,
+            AllocationType::Dhcp,
+        )
+        .await?;
+
+        let loaded = find_by_id(&mut txn, &shelf.id)
+            .await?
+            .expect("power shelf should exist");
+        let bmc_info = loaded
+            .bmc_info
+            .expect("shelf load should populate bmc_info from the BMC interface");
+        assert_eq!(bmc_info.machine_interface_id, Some(bmc_interface_id));
+        assert_eq!(bmc_info.mac, Some(pmc_mac.parse()?));
+        assert_eq!(bmc_info.ip, Some(pmc_ip));
+
+        // The shelf whose only interface is `Data` must load without bmc_info.
+        let other_loaded = find_by_id(&mut txn, &other.id)
+            .await?
+            .expect("power shelf should exist");
+        assert!(
+            other_loaded.bmc_info.is_none(),
+            "a shelf with only a non-BMC interface must not surface bmc_info"
+        );
+
+        Ok(())
     }
 
     #[crate::sqlx_test]

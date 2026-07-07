@@ -169,7 +169,7 @@ func DeleteInstanceV2(ctx workflow.Context, request *cwssaws.InstanceReleaseRequ
 
 // RebootInstance is a workflow to reboot Instances using the RebootInstanceOnSite activity
 func RebootInstance(ctx workflow.Context, request *cwssaws.InstancePowerRequest) error {
-	logger := log.With().Str("Workflow", "Instance").Str("Action", "Reboot").Str("Machine ID", request.MachineId.Id).Logger()
+	logger := log.With().Str("Workflow", "Instance").Str("Action", "Reboot").Str("Instance ID", request.InstanceId.Value).Logger()
 
 	logger.Info().Msg("Starting workflow")
 

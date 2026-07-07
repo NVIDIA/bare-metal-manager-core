@@ -22,18 +22,16 @@ use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use carbide_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
-use eyre::eyre;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::dpa_interface::{
-    DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkConfig, NewDpaInterface,
+    DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkConfig, DpaSearchConfig,
+    NewDpaInterface,
 };
-use model::machine::LoadSnapshotOptions;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
 use crate::db_read::DbReader;
-use crate::managed_host;
 
 pub async fn persist(
     value: NewDpaInterface,
@@ -284,14 +282,35 @@ pub async fn update_card_state(
 pub async fn find_by_machine_id(
     txn: impl DbReader<'_>,
     machine_id: MachineId,
+    search_config: DpaSearchConfig,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
-    let query = "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = $1) m";
+    if search_config.only_svpc && search_config.only_astra {
+        return Err(DatabaseError::Internal {
+            message: "only_svpc and only_astra cannot be true at the same time".to_string(),
+        });
+    }
+
+    let mut builder = sqlx::QueryBuilder::new(
+        "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = $1",
+    );
+
+    if search_config.only_svpc {
+        builder.push(" AND interface_type = 'Svpc'");
+    }
+
+    if search_config.only_astra {
+        builder.push(" AND interface_type = 'Astra'");
+    }
+
+    builder.push(") m");
+
     let results: Vec<DpaInterface> = {
-        sqlx::query_as(query)
+        builder
+            .build_query_as()
             .bind(machine_id)
             .fetch_all(txn)
             .await
-            .map_err(|e| DatabaseError::query(query, e))?
+            .map_err(|e| DatabaseError::query(builder.sql(), e))?
     };
 
     Ok(results)
@@ -306,8 +325,8 @@ pub async fn find_by_ids(
         sqlx::QueryBuilder::new("select row_to_json(m.*) from
                 (SELECT si.*, COALESCE(history_agg.json, '[]'::json) AS history FROM dpa_interfaces si
                 LEFT JOIN LATERAL (
-                SELECT h.interface_id, json_agg(json_build_object('interface_id', h.interface_id, 'state', h.state::text, 'state_version', h.state_version,
-                'timestamp', h.timestamp)) AS json FROM dpa_interface_state_history h WHERE h.interface_id = si.id GROUP BY h.interface_id ) AS history_agg ON true
+                SELECT h.object_id, json_agg(json_build_object('interface_id', h.object_id, 'state', h.state::text, 'state_version', h.state_version,
+                'timestamp', h.timestamp) ORDER BY h.id ASC) AS json FROM dpa_interface_state_history h WHERE h.object_id = si.id::text GROUP BY h.object_id ) AS history_agg ON true
                 WHERE deleted is NULL")
     } else {
         sqlx::QueryBuilder::new(
@@ -411,13 +430,6 @@ pub async fn update_controller_state_outcome(
 }
 
 pub async fn delete(value: DpaInterface, txn: &mut PgConnection) -> Result<(), DatabaseError> {
-    let query = "delete from dpa_interface_state_history where interface_id=$1";
-    sqlx::query(query)
-        .bind(value.id)
-        .execute(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
     let query = "delete from dpa_interfaces where id=$1";
     sqlx::query(query)
         .bind(value.id)
@@ -425,55 +437,6 @@ pub async fn delete(value: DpaInterface, txn: &mut PgConnection) -> Result<(), D
         .await
         .map_err(|e| DatabaseError::query(query, e))
         .map(|_| ())
-}
-
-// get_dpa_vni figures out the VNI to be used for this DPA interface
-// when we are transitioning to ASSIGNED state. This happens when we are
-// moving from Ready to WaitingForSetVNI or when we are still in WaitingForSetVNI
-// states.
-//
-// Given the DPA Interface, we know its associated machine ID. From that, we need
-// to find the VPC the machine belongs to. From the VPC, we can find the DPA VNI,
-// which is just the VPC VNI.
-pub async fn get_dpa_vni<DB>(state: &mut DpaInterface, txn: &mut DB) -> Result<i32, eyre::Report>
-where
-    for<'db> &'db mut DB: DbReader<'db>,
-{
-    let machine_id = state.machine_id;
-
-    let maybe_snapshot =
-        managed_host::load_snapshot(&mut *txn, &machine_id, LoadSnapshotOptions::default()).await?;
-
-    let snapshot = match maybe_snapshot {
-        Some(sn) => sn,
-        None => return Err(eyre!("machine {machine_id} snapshot not found")),
-    };
-
-    let instance = match snapshot.instance {
-        Some(inst) => inst,
-        None => {
-            return Err(eyre!("Expected an instance and found none"));
-        }
-    };
-
-    let interfaces = &instance.config.network.interfaces;
-    let Some(network_segment_id) = interfaces[0].network_segment_id else {
-        // Network segment allocation is done before persisting record in db. So if still
-        // network segment is empty, return error.
-        return Err(eyre!("Expected Network Segment"));
-    };
-
-    let vpc = crate::vpc::find_by_segment(txn, network_segment_id).await?;
-
-    match vpc.as_ref().and_then(|vpc| vpc.status.vni) {
-        Some(vni) => {
-            if vni == 0 {
-                tracing::warn!("Did not expect DPA VNI to be zero");
-            }
-            Ok(vni)
-        }
-        None => Err(eyre!("Expected VNI. Found none")),
-    }
 }
 
 pub async fn is_machine_dpa_capable(
@@ -548,7 +511,9 @@ mod test {
     use carbide_libmlx_model::device::info::MlxDeviceInfo;
     use carbide_uuid::machine::MachineId;
     use mac_address::MacAddress;
-    use model::dpa_interface::{DpaInterfaceType, NewDpaInterface};
+    use model::dpa_interface::{
+        DpaInterfaceControllerState, DpaInterfaceType, DpaSearchConfig, NewDpaInterface,
+    };
     use model::machine::ManagedHostState;
 
     use crate::machine;
@@ -582,6 +547,155 @@ mod test {
 
         assert_eq!(db_intf.len(), 1);
         assert_eq!(db_intf[0].id, intf.id);
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn deleting_interface_retains_state_history(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        machine::create(
+            &mut txn,
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+
+        let interface = crate::dpa_interface::persist(
+            NewDpaInterface {
+                mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
+                machine_id,
+                device_type: "Bluefield 3".to_string(),
+                pci_name: "5e:00.0".to_string(),
+                device_description: None,
+                interface_type: DpaInterfaceType::Svpc,
+            },
+            &mut txn,
+        )
+        .await?;
+        crate::state_history::persist(
+            &mut txn,
+            crate::state_history::StateHistoryTableId::DpaInterface,
+            &interface.id,
+            &DpaInterfaceControllerState::Provisioning,
+            config_version::ConfigVersion::initial(),
+        )
+        .await?;
+        crate::state_history::persist(
+            &mut txn,
+            crate::state_history::StateHistoryTableId::DpaInterface,
+            &interface.id,
+            &DpaInterfaceControllerState::Ready,
+            config_version::ConfigVersion::new(2),
+        )
+        .await?;
+
+        let expected_history = crate::state_history::for_object(
+            txn.as_mut(),
+            crate::state_history::StateHistoryTableId::DpaInterface,
+            &interface.id,
+        )
+        .await?;
+
+        let interfaces_with_history =
+            crate::dpa_interface::find_by_ids(txn.as_mut(), &[interface.id], true).await?;
+        assert_eq!(interfaces_with_history.len(), 1);
+        assert_eq!(
+            interfaces_with_history[0]
+                .history
+                .iter()
+                .map(|record| record.state.as_str())
+                .collect::<Vec<_>>(),
+            expected_history
+                .iter()
+                .map(|record| record.state.as_str())
+                .collect::<Vec<_>>(),
+            "DPA include-history query should use the shared object_id column and ordering",
+        );
+
+        crate::dpa_interface::delete(interface.clone(), &mut txn).await?;
+
+        assert!(
+            crate::dpa_interface::find_by_ids(txn.as_mut(), &[interface.id], false)
+                .await?
+                .is_empty(),
+            "DPA interface should be deleted",
+        );
+        let history = crate::state_history::for_object(
+            txn.as_mut(),
+            crate::state_history::StateHistoryTableId::DpaInterface,
+            &interface.id,
+        )
+        .await?;
+        assert_eq!(history.len(), 2, "DPA state history should be retained");
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn deleting_machine_retains_dpa_interface_state_history(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        machine::create(
+            &mut txn,
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+
+        let interface = crate::dpa_interface::persist(
+            NewDpaInterface {
+                mac_address: MacAddress::from_str("00:11:22:33:44:55")?,
+                machine_id,
+                device_type: "Bluefield 3".to_string(),
+                pci_name: "5e:00.0".to_string(),
+                device_description: None,
+                interface_type: DpaInterfaceType::Svpc,
+            },
+            &mut txn,
+        )
+        .await?;
+        crate::state_history::persist(
+            &mut txn,
+            crate::state_history::StateHistoryTableId::DpaInterface,
+            &interface.id,
+            &DpaInterfaceControllerState::Provisioning,
+            config_version::ConfigVersion::initial(),
+        )
+        .await?;
+
+        machine::force_cleanup(&mut txn, &machine_id).await?;
+
+        assert!(
+            crate::dpa_interface::find_by_ids(txn.as_mut(), &[interface.id], false)
+                .await?
+                .is_empty(),
+            "DPA interface should be deleted with its machine",
+        );
+        let history = crate::state_history::for_object(
+            txn.as_mut(),
+            crate::state_history::StateHistoryTableId::DpaInterface,
+            &interface.id,
+        )
+        .await?;
+        assert_eq!(
+            history.len(),
+            1,
+            "DPA state history should survive machine cleanup",
+        );
 
         Ok(())
     }
@@ -679,7 +793,13 @@ mod test {
         // Verify device_info starts as None, because in this case,
         // one hasn't been reported yet (and also allows for backwards
         // compatibility checks from before this existed).
-        let intfs = crate::dpa_interface::find_by_machine_id(txn.as_mut(), machine_id).await?;
+        let dpa_search_config = DpaSearchConfig {
+            only_svpc: true,
+            only_astra: false,
+        };
+        let intfs =
+            crate::dpa_interface::find_by_machine_id(txn.as_mut(), machine_id, dpa_search_config)
+                .await?;
         assert_eq!(intfs.len(), 1);
         assert!(intfs[0].device_info.is_none());
         assert!(intfs[0].device_info_ts.is_none());
@@ -707,7 +827,13 @@ mod test {
 
         // Read back and verify everything we put into
         // the database came back as we originally put it.
-        let intfs = crate::dpa_interface::find_by_machine_id(txn.as_mut(), machine_id).await?;
+        let dpa_search_config = DpaSearchConfig {
+            only_svpc: true,
+            only_astra: false,
+        };
+        let intfs =
+            crate::dpa_interface::find_by_machine_id(txn.as_mut(), machine_id, dpa_search_config)
+                .await?;
         assert_eq!(intfs.len(), 1);
 
         let info = intfs[0]

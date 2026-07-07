@@ -5,6 +5,7 @@ package manager
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -15,12 +16,11 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/planner"
-	operationrunstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/store"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 )
 
-var _ operationrunstore.Store = (*mockStore)(nil)
+var _ Store = (*mockStore)(nil)
 var _ planner.TargetLookup = (*mockTargetLookup)(nil)
 
 func TestCreatePersistsRunAndPlannedTargets(t *testing.T) {
@@ -81,6 +81,39 @@ func TestNewRejectsMissingDependencies(t *testing.T) {
 	require.ErrorContains(t, err, "operation run planner is required")
 }
 
+func TestGetMapsStoreNoRowsToNotFound(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	store := &mockStore{
+		getErr: fmt.Errorf("operation run %s not found: %w", runID, sql.ErrNoRows),
+	}
+	manager := newTestManager(t, store, planner.New(&mockTargetLookup{}, planner.Config{}))
+
+	got, err := manager.Get(context.Background(), runID)
+
+	require.Nil(t, got)
+	require.ErrorIs(t, err, ErrOperationRunNotFound)
+	require.ErrorContains(t, err, runID.String())
+}
+
+func TestListTargetsMapsStoreNoRowsToNotFound(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	store := &mockStore{
+		listTargetsErr: fmt.Errorf("operation run %s not found: %w", runID, sql.ErrNoRows),
+	}
+	manager := newTestManager(t, store, planner.New(&mockTargetLookup{}, planner.Config{}))
+
+	targets, total, err := manager.ListTargets(
+		context.Background(),
+		runID,
+		operationrun.TargetListOptions{},
+	)
+
+	require.Nil(t, targets)
+	require.Zero(t, total)
+	require.ErrorIs(t, err, ErrOperationRunNotFound)
+	require.ErrorContains(t, err, runID.String())
+}
+
 type mockStore struct {
 	runID uuid.UUID
 
@@ -89,11 +122,13 @@ type mockStore struct {
 	createTargetsCalls int
 	createdRun         *operationrun.OperationRun
 	createdTargets     []*operationrun.OperationRunTarget
+	getErr             error
+	listTargetsErr     error
 }
 
 func newTestManager(
 	t *testing.T,
-	store operationrunstore.Store,
+	store Store,
 	plan planner.Planner,
 ) *ManagerImpl {
 	t.Helper()
@@ -116,6 +151,10 @@ func (m *mockStore) Get(
 	ctx context.Context,
 	id uuid.UUID,
 ) (*operationrun.OperationRun, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+
 	return nil, fmt.Errorf("not implemented")
 }
 
@@ -147,6 +186,10 @@ func (m *mockStore) ListTargets(
 	runID uuid.UUID,
 	opts operationrun.TargetListOptions,
 ) ([]*operationrun.OperationRunTarget, int32, error) {
+	if m.listTargetsErr != nil {
+		return nil, 0, m.listTargetsErr
+	}
+
 	return nil, 0, fmt.Errorf("not implemented")
 }
 

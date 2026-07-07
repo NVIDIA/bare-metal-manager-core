@@ -363,6 +363,13 @@ impl DpuMachineHandle {
                 || matches!(live_state.booted_os.0, Some(OsImage::DpuAgent)))
     }
 
+    /// Whether this DPU's BlueField has flipped to NIC mode (a `Mode.Set` applied
+    /// on a power cycle). The owning host polls this to converge -- detaching its
+    /// DPU DHCP relay -- once a managed DPU becomes a plain NIC.
+    pub fn flipped_to_nic_mode(&self) -> bool {
+        self.0.live_state.read().unwrap().dpu_flipped_to_nic_mode
+    }
+
     pub async fn wait_until_machine_up_with_api_state(
         &self,
         state: &str,

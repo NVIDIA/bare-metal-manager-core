@@ -1186,11 +1186,14 @@ message OperationRunStateFilter {
 
 enum OperationRunTargetPhaseScope {
     OPERATION_RUN_TARGET_PHASE_SCOPE_UNKNOWN = 0;
-    // Default. Targets in the latest materialized phase.
+    // Default. Targets in the first materialized phase with non-terminal
+    // targets.
     OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_PHASE = 1;
-    // Targets in materialized phases before the current phase.
+    // Targets in materialized phases before the current phase. If no current
+    // phase exists, every materialized phase is completed.
     OPERATION_RUN_TARGET_PHASE_SCOPE_COMPLETED_PHASES = 2;
-    // All materialized targets through the current phase.
+    // All materialized targets through the current phase. If no current phase
+    // exists, this includes every materialized phase.
     OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_AND_COMPLETED_PHASES = 3;
 }
 
@@ -1411,6 +1414,7 @@ enum OperationRunStatus {
     OPERATION_RUN_STATUS_COMPLETED = 4;
     OPERATION_RUN_STATUS_CANCELLED = 5;
     OPERATION_RUN_STATUS_FAILED = 6;
+    OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES = 7;
 }
 
 enum OperationRunStatusReason {
@@ -1485,6 +1489,7 @@ enum OperationRunTargetStatus {
     OPERATION_RUN_TARGET_STATUS_FAILED = 5;
     OPERATION_RUN_TARGET_STATUS_TERMINATED = 6;
     OPERATION_RUN_TARGET_STATUS_SKIPPED = 7;
+    OPERATION_RUN_TARGET_STATUS_CLAIMED = 8;
 }
 
 message OperationRunTarget {

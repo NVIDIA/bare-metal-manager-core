@@ -30,6 +30,7 @@ use crate::context::SwitchStateHandlerContextObjects;
 use crate::created::handle_created;
 use crate::deleting::handle_deleting;
 use crate::error_state::handle_error;
+use crate::fetch_info::handle_fetch_info;
 use crate::initializing::handle_initializing;
 use crate::maintenance::handle_maintenance;
 use crate::ready::handle_ready;
@@ -77,6 +78,7 @@ impl SwitchStateHandler {
             SwitchControllerState::Configuring { .. } => {
                 handle_configuring(switch_id, state, ctx).await
             }
+            SwitchControllerState::FetchInfo => handle_fetch_info(switch_id, state, ctx).await,
             SwitchControllerState::Validating { .. } => {
                 handle_validating(switch_id, state, ctx).await
             }

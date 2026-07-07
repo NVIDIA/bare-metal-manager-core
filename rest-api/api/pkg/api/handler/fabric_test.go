@@ -109,7 +109,7 @@ func testFabricBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID strin
 
 func testFabricBuildStatusDetail(t *testing.T, dbSession *cdb.Session, entityID string, status string) {
 	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
-	ssd, err := sdDAO.CreateFromParams(context.Background(), nil, entityID, status, nil)
+	ssd, err := sdDAO.Create(context.Background(), nil, cdbm.StatusDetailCreateInput{EntityID: entityID, Status: status, Message: nil})
 	assert.Nil(t, err)
 	assert.NotNil(t, ssd)
 	assert.Equal(t, entityID, ssd.EntityID)

@@ -636,6 +636,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         bmc_ip_address: None,
         bmc_retain_credentials: None,
         dpu_mode: None,
+        bmc_ip_allocation: None,
         host_lifecycle_profile: None,
         #[allow(deprecated)]
         dpf_enabled: true,
@@ -2851,6 +2852,95 @@ async fn test_update_changes_dpu_mode(
             "update to {mode:?} should persist and round-trip on the wire"
         );
     }
+
+    Ok(())
+}
+
+/// `ExpectedMachine.bmc_ip_allocation` round-trips through the API: a non-default
+/// value (`Dynamic`, `Retained`) set on the wire persists to the DB and reads back
+/// unchanged (the default/unset case is covered separately below). `Dynamic`/`Retained`
+/// are used here because they're valid with no `bmc_ip_address` (which these requests
+/// omit); `Fixed` requires an address and is exercised by the validation tests.
+#[crate::sqlx_test]
+async fn test_bmc_ip_allocation_round_trip_for_non_default_values(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    for (idx, mode) in [
+        rpc::forge::BmcIpAllocationType::Dynamic,
+        rpc::forge::BmcIpAllocationType::Retained,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let mac = format!("5A:5B:5C:5D:5F:{idx:02X}");
+        let request = rpc::forge::ExpectedMachine {
+            bmc_mac_address: mac.clone(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: format!("EM-BMC-ALLOC-{idx}"),
+            bmc_ip_allocation: Some(*mode as i32),
+            ..Default::default()
+        };
+
+        env.api
+            .add_expected_machine(tonic::Request::new(request))
+            .await?;
+
+        let retrieved = env
+            .api
+            .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: mac.clone(),
+                id: None,
+            }))
+            .await?
+            .into_inner();
+
+        assert_eq!(
+            retrieved.bmc_ip_allocation,
+            Some(*mode as i32),
+            "bmc_ip_allocation {mode:?} should survive DB round-trip unchanged"
+        );
+    }
+
+    Ok(())
+}
+
+/// Default-case round-trip for `bmc_ip_allocation`: when the operator omits it on
+/// the wire, the server persists the Postgres default (`Auto`) and returns `None`
+/// on the wire, so old clients see exactly what they sent.
+#[crate::sqlx_test]
+async fn test_bmc_ip_allocation_default_value_omitted_on_wire(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let mac = "5A:5B:5C:5D:5F:FF";
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: mac.into(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-BMC-ALLOC-DEFAULT".into(),
+            bmc_ip_allocation: None,
+            ..Default::default()
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: mac.into(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.bmc_ip_allocation, None,
+        "default bmc_ip_allocation should not be emitted on the wire for stable round-trips"
+    );
 
     Ok(())
 }

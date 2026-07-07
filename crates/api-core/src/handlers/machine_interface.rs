@@ -183,30 +183,39 @@ pub(crate) async fn find_bmc_ips(
                 return Ok(Response::new(rpc::BmcIpList::default()));
             };
 
-            // Get the machine topology for this machine
-            let Some(machine_topology) = api
+            // Resolve the BMC IP from the live interface, not the discovery topology
+            // snapshot, so a released or changed lease can't surface a stale IP.
+            let Some(bmc_ip) = api
                 .with_txn(|txn| {
                     async move {
-                        db::machine_topology::find_latest_by_machine_ids(txn, &[machine_id]).await
+                        db::machine_topology::find_machine_bmc_pairs_by_machine_id(
+                            txn,
+                            vec![machine_id],
+                        )
+                        .await
                     }
                     .boxed()
                 })
                 .await??
-                .into_values()
-                .next()
+                .into_iter()
+                .find_map(|(_, ip)| ip)
             else {
                 return Ok(Response::new(rpc::BmcIpList::default()));
             };
 
-            // Get the BMC IP out of the machine topology
-            let bmc_ip = match machine_topology.topology.bmc_info.ip {
-                Some(ip) => ip,
-                None => {
+            // The address comes from a Postgres `inet` column, so it parses today --
+            // but don't silently swallow the error if that ever changes: warn and skip.
+            match bmc_ip.parse::<IpAddr>() {
+                Ok(ip) => vec![ip],
+                Err(e) => {
+                    tracing::warn!(
+                        %bmc_ip,
+                        error = %e,
+                        "BMC IP from machine_interfaces did not parse; skipping"
+                    );
                     return Ok(Response::new(rpc::BmcIpList::default()));
                 }
-            };
-
-            vec![bmc_ip]
+            }
         }
         None => return Err(CarbideError::MissingArgument("lookup_by").into()),
     };

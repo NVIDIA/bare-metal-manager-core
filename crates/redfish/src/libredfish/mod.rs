@@ -108,25 +108,21 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 
     // clear_host_uefi_password updates the UEFI password from Forge's sitewide password to an empty string
     // The assumption is that this function will only be called on a machine that already updated the UEFI password to match the Forge sitewide password.
+    //
+    // `current_device_credentials` is the credential the device currently
+    // carries (the host UEFI password to authenticate the clear with). The
+    // caller resolves it -- this low-level crate intentionally knows nothing
+    // about credential versions or the rotation table; it just applies the
+    // password it is handed.
     async fn clear_host_uefi_password(
         &self,
         client: &dyn Redfish,
+        current_device_credentials: Credentials,
     ) -> Result<Option<String>, RedfishClientCreationError> {
-        let credential_key = CredentialKey::HostUefi {
-            credential_type: CredentialType::SiteDefault,
-        };
-
-        let credentials = self
-            .credential_reader()
-            .get_credentials(&credential_key)
-            .await?
-            .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
-                key: credential_key.to_key_str().to_string(),
-            })?;
-
-        let (_, current_password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
+        let Credentials::UsernamePassword {
+            password: current_password,
+            ..
+        } = current_device_credentials;
 
         client
             .clear_uefi_password(current_password.as_str())
@@ -135,13 +131,23 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             .map_err(RedfishClientCreationError::RedfishError)
     }
 
+    // `sitewide_uefi_credentials` is the site-wide UEFI credential to set on the
+    // device (host_uefi when `dpu` is false, dpu_uefi when true). The caller
+    // resolves it -- this crate knows nothing about credential versions or the
+    // rotation table. The DPU's factory-default password (the credential the
+    // device still carries before this runs) is a hardware constant, so it is
+    // still read here.
     async fn uefi_setup(
         &self,
         client: &dyn Redfish,
         dpu: bool,
+        sitewide_uefi_credentials: Credentials,
     ) -> Result<Option<String>, RedfishClientCreationError> {
+        let Credentials::UsernamePassword {
+            password: new_password,
+            ..
+        } = sitewide_uefi_credentials;
         let mut current_password = String::new();
-        let new_password: String;
         if dpu {
             let bios_attrs = client
                 .bios()
@@ -182,10 +188,10 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 },
             }
 
-            // Replace DPU UEFI default password with site default
-            // default password is taken from DpuUefi:factory_default key
-            // site password is taken from DpuUefi:site_default key
-            //
+            // Replace the DPU UEFI default password with the site default.
+            // The current (factory) password is taken from the DpuUefi factory
+            // default key -- a hardware constant, not a versioned/site credential
+            // -- so it is read here; the new (site) password was handed in.
             let credentials = self
                 .credential_reader()
                 .get_credentials(&CredentialKey::DpuUefi {
@@ -200,39 +206,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             (_, current_password) = match credentials {
                 Credentials::UsernamePassword { username, password } => (username, password),
             };
-
-            let credential_key = CredentialKey::DpuUefi {
-                credential_type: CredentialType::SiteDefault,
-            };
-            let credentials = self
-                .credential_reader()
-                .get_credentials(&credential_key)
-                .await?
-                .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
-                    key: credential_key.to_key_str().to_string(),
-                })?;
-
-            (_, new_password) = match credentials {
-                Credentials::UsernamePassword { username, password } => (username, password),
-            };
         } else {
-            // For hosts, first try with empty current password (assuming no password is set)
-            let credential_key = CredentialKey::HostUefi {
-                credential_type: CredentialType::SiteDefault,
-            };
-            let credentials = self
-                .credential_reader()
-                .get_credentials(&credential_key)
-                .await?
-                .ok_or_else(|| RedfishClientCreationError::MissingCredentials {
-                    key: credential_key.to_key_str().to_string(),
-                })?;
-
-            (_, new_password) = match credentials {
-                Credentials::UsernamePassword { username, password } => (username, password),
-            };
-
-            // Try with empty password first (no password set on host)
+            // For hosts, first try with empty current password (assuming no
+            // password is set), using the site default handed in by the caller.
             match client
                 .change_uefi_password(current_password.as_str(), new_password.as_str())
                 .await

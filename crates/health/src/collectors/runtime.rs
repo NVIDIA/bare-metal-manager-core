@@ -76,6 +76,22 @@ pub trait PeriodicCollector<B: Bmc>: Send + 'static {
 
 pub type EventStream<'a> = BoxStream<'a, Result<CollectorEvent, HealthError>>;
 
+/// Result of opening a streaming collector connection.
+pub enum StreamingConnectResult<'a> {
+    /// The stream is accepted and should be treated as connected.
+    Connected(EventStream<'a>),
+
+    /// The connection failed before it should be marked connected, but the
+    /// collector produced events that still need to reach sinks.
+    Failed {
+        /// Events to emit before surfacing the connection failure.
+        events: Vec<CollectorEvent>,
+
+        /// Error that should drive reconnect/backoff behavior.
+        error: HealthError,
+    },
+}
+
 /// Trait for collectors that maintain a long-lived stream (SSE, gRPC, etc.)
 /// runtime.rs creates the BMC client and injects it, the collector opens the stream and maps payloads to events
 #[async_trait]
@@ -91,7 +107,7 @@ pub trait StreamingCollector<B: Bmc>: Send + 'static {
         Self: Sized;
 
     /// Open or reopen the streaming connection using the injected BMC.
-    async fn connect(&mut self) -> Result<EventStream<'_>, HealthError>;
+    async fn connect(&mut self) -> Result<StreamingConnectResult<'_>, HealthError>;
 
     fn collector_type(&self) -> &'static str;
 }
@@ -467,7 +483,26 @@ impl Collector {
                             return;
                         }
                     }
-                    Ok(mut stream) => {
+                    Ok(StreamingConnectResult::Failed { events, error }) => {
+                        metrics.reconnections_total.inc();
+
+                        for event in events {
+                            metrics.items_processed_total.inc();
+                            data_sink.handle_event(&event_context, &event);
+                        }
+
+                        tracing::error!(
+                            error = ?error,
+                            collector_type,
+                            endpoint = ?endpoint.addr,
+                            "streaming collector connection failed"
+                        );
+
+                        if !on_connect_result(Err(&error)) {
+                            return;
+                        }
+                    }
+                    Ok(StreamingConnectResult::Connected(mut stream)) => {
                         // the guard lives exactly as long as we hold an open stream; Drop
                         // handles dec for every exit path (shutdown, error, stream end).
                         let _conn_guard = StreamingConnectionGuard::inc(metrics.connected.clone());
@@ -560,5 +595,116 @@ impl Collector {
 
     pub fn is_finished(&self) -> bool {
         self.handle.is_finished()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use super::*;
+    use crate::endpoint::test_support::{mac, test_endpoint};
+    use crate::metrics::MetricsManager;
+    use crate::sink::LogRecord;
+
+    #[derive(Default)]
+    struct CountingSink(AtomicUsize);
+
+    impl CountingSink {
+        fn log_count(&self) -> usize {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    impl DataSink for CountingSink {
+        fn sink_type(&self) -> &'static str {
+            "counting_sink"
+        }
+
+        fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            if matches!(event, CollectorEvent::Log(_)) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    struct TestStreamingCollector;
+
+    #[async_trait]
+    impl StreamingCollector<BmcClient> for TestStreamingCollector {
+        type Config = ();
+
+        fn new_runner(
+            _bmc: Arc<BmcClient>,
+            _endpoint: Arc<BmcEndpoint>,
+            _config: Self::Config,
+        ) -> Result<Self, HealthError> {
+            Ok(Self)
+        }
+
+        async fn connect(&mut self) -> Result<StreamingConnectResult<'_>, HealthError> {
+            let event = CollectorEvent::Log(Box::new(LogRecord {
+                body: "pre-connected rejection".to_string(),
+                severity: "ERROR".to_string(),
+                attributes: Vec::new(),
+                diagnostic_record: None,
+            }));
+
+            Ok(StreamingConnectResult::Failed {
+                events: vec![event],
+                error: HealthError::GenericError("pre-connected failure".to_string()),
+            })
+        }
+
+        fn collector_type(&self) -> &'static str {
+            "test_streaming_collector"
+        }
+    }
+
+    #[tokio::test]
+    async fn streaming_collector_emits_pre_connected_failure_events_without_connected_callback()
+    -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let endpoint = Arc::new(test_endpoint(mac("00:11:22:33:44:66")));
+        let bmc = Arc::clone(endpoint.bmc());
+        let metrics_manager = MetricsManager::new("test_streaming_runtime_preconnect_failure")?;
+
+        let collector_registry = Arc::new(metrics_manager.create_collector_registry(
+            "streaming_collector_preconnect_failure_test".to_string(),
+            "test_streaming_runtime_preconnect_failure",
+        )?);
+
+        let sink = Arc::new(CountingSink::default());
+        let data_sink: Arc<dyn DataSink> = sink.clone();
+        let (callback_tx, callback_rx) = tokio::sync::oneshot::channel();
+        let mut callback_tx = Some(callback_tx);
+
+        let collector = Collector::start_streaming::<TestStreamingCollector, _>(
+            endpoint,
+            bmc,
+            (),
+            data_sink,
+            StreamingCollectorStartContext {
+                backoff_config: BackoffConfig::default(),
+                collector_registry,
+            },
+            move |result| {
+                if let Some(tx) = callback_tx.take() {
+                    let _ = tx.send(result.is_ok());
+                }
+
+                false
+            },
+        )?;
+
+        let connected_callback =
+            tokio::time::timeout(Duration::from_secs(1), callback_rx).await??;
+
+        collector.stop().await;
+
+        assert!(!connected_callback);
+        assert_eq!(sink.log_count(), 1);
+
+        Ok(())
     }
 }

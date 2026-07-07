@@ -130,6 +130,7 @@ impl OtlpSink {
             config.endpoint.clone(),
             config.batch_size,
             config.flush_interval,
+            prefix.to_string(),
         );
 
         handle.spawn(metrics_drain.run());

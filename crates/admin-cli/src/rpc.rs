@@ -664,6 +664,7 @@ impl ApiClient {
         &self,
         page_size: usize,
     ) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
+        let last_run = self.get_site_explorer_last_run().await?;
         // grab endpoints
         let endpoint_ids = match self.0.find_explored_endpoint_ids().await {
             Ok(endpoint_ids) => endpoint_ids,
@@ -698,7 +699,18 @@ impl ApiClient {
         Ok(::rpc::site_explorer::SiteExplorationReport {
             endpoints: all_endpoints.endpoints,
             managed_hosts: all_hosts,
+            last_run,
         })
+    }
+
+    pub async fn get_site_explorer_last_run(
+        &self,
+    ) -> CarbideCliResult<Option<::rpc::site_explorer::SiteExplorerLastRun>> {
+        match self.0.get_site_explorer_last_run().await {
+            Ok(response) => Ok(response.last_run),
+            Err(status) if maybe_unimplemented(&status) => Ok(None),
+            Err(status) => Err(status.into()),
+        }
     }
 
     pub async fn get_explored_endpoints_by_ids(
@@ -817,6 +829,7 @@ impl ApiClient {
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
         dpu_mode: Option<::rpc::forge::DpuMode>,
+        bmc_ip_allocation: Option<::rpc::forge::BmcIpAllocationType>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
@@ -900,6 +913,11 @@ impl ApiClient {
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
             dpu_mode: dpu_mode.map(|m| m as i32).or(expected_machine.dpu_mode),
+            // Use the flag value if given, else preserve the stored per-host
+            // value (patch semantics).
+            bmc_ip_allocation: bmc_ip_allocation
+                .map(|m| m as i32)
+                .or(expected_machine.bmc_ip_allocation),
             host_lifecycle_profile: host_lifecycle_profile
                 .or(expected_machine.host_lifecycle_profile),
         };
@@ -937,6 +955,7 @@ impl ApiClient {
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
                     dpu_mode: machine.dpu_mode.map(|m| m as i32),
+                    bmc_ip_allocation: machine.bmc_ip_allocation.map(|m| m as i32),
                     host_lifecycle_profile: machine.host_lifecycle_profile.map(|hlp| {
                         ::rpc::forge::HostLifecycleProfile {
                             disable_lockdown: hlp.disable_lockdown,
@@ -1150,6 +1169,81 @@ impl ApiClient {
                 svi_ip: None,
             }],
             segment_type: NetworkSegmentType::Tenant as i32,
+            id: Some(id),
+        };
+        Ok(self.0.create_network_segment(request).await?)
+    }
+
+    pub async fn create_flat_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
+        Ok(self
+            .0
+            .create_vpc(VpcCreationRequest {
+                vni: None,
+                routing_profile_type: None,
+                tenant_organization_id: "devenv_test_org".to_string(),
+                tenant_keyset_id: None,
+                network_virtualization_type: Some(VpcVirtualizationType::Flat.into()),
+                id: Some(vpc_id),
+                metadata: Some(rpc::Metadata {
+                    name: name.to_string(),
+                    description: "Flat VPC for zero-DPU HostInband segments".to_string(),
+                    labels: vec![],
+                }),
+                network_security_group_id: None,
+                default_nvlink_logical_partition_id: None,
+            })
+            .await?)
+    }
+
+    pub async fn create_host_inband_segment(
+        &self,
+        id: NetworkSegmentId,
+        vpc_id: VpcId,
+        name: String,
+        prefix: String,
+        gateway: Option<String>,
+        reserve_first: i32,
+    ) -> CarbideCliResult<NetworkSegment> {
+        // Without a subdomain_id link the machine_dhcp_records view's inner
+        // join on `domains` drops every interface created on this segment,
+        // and Kea can't issue OFFERs. Require exactly one domain rather than
+        // silently creating a segment that cannot DHCP or binding to an
+        // arbitrary domain when several exist.
+        let mut domain_ids = self
+            .get_domains(None)
+            .await?
+            .domains
+            .into_iter()
+            .filter_map(|d| d.id);
+        let subdomain_id = match (domain_ids.next(), domain_ids.next()) {
+            (Some(id), None) => Some(id),
+            (None, _) => {
+                return Err(CarbideCliError::GenericError(
+                    "no domain available for HostInband segment, create a domain first".to_string(),
+                ));
+            }
+            (Some(_), Some(_)) => {
+                return Err(CarbideCliError::GenericError(
+                    "multiple domains found, cannot pick one for the HostInband segment"
+                        .to_string(),
+                ));
+            }
+        };
+        let request = NetworkSegmentCreationRequest {
+            vpc_id: Some(vpc_id),
+            name,
+            subdomain_id,
+            mtu: Some(1500),
+            prefixes: vec![NetworkPrefix {
+                id: None,
+                prefix,
+                gateway,
+                reserve_first,
+                // computed by the server, ignored on create
+                free_ip_count: 1,
+                svi_ip: None,
+            }],
+            segment_type: NetworkSegmentType::HostInband as i32,
             id: Some(id),
         };
         Ok(self.0.create_network_segment(request).await?)

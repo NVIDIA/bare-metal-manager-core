@@ -213,7 +213,7 @@ pub async fn delete_rack(
 
 /// Force deletes a rack from the database.
 /// Unlike `delete_rack` (soft delete), this immediately hard-deletes the rack
-/// and its state history.
+/// while retaining its state history.
 pub async fn admin_force_delete_rack(
     api: &Api,
     request: Request<rpc::AdminForceDeleteRackRequest>,
@@ -241,14 +241,6 @@ pub async fn admin_force_delete_rack(
         }
         .into());
     }
-
-    db::state_history::delete_by_object_id(
-        &mut txn,
-        db::state_history::StateHistoryTableId::Rack,
-        &rack_id,
-    )
-    .await
-    .map_err(CarbideError::from)?;
 
     db_rack::final_delete(&mut txn, &rack_id)
         .await

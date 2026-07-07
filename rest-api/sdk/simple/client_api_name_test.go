@@ -55,7 +55,7 @@ func TestAuthenticateUsesConfiguredAPIName(t *testing.T) {
 	assert.Equal(t, 1, visitedPaths["/v2/org/test-org/nico/tenant/current"])
 	assert.Equal(t, 1, visitedPaths["/v2/org/test-org/nico/site"])
 	assert.Equal(t, 1, visitedPaths["/v2/org/test-org/nico/vpc"])
-	assert.Zero(t, visitedPaths["/v2/org/test-org/nico/metadata"])
+	assert.Zero(t, visitedPaths["/v2/org/test-org/carbide/metadata"])
 }
 
 func TestNewClientFromEnvReadsAPIName(t *testing.T) {

@@ -147,7 +147,11 @@ nico-api:
 
       [pools.vpc-vni]
       type = "integer"
-      ranges = []                                # REQUIRED: your VPC VNI range, e.g. [{ start = "0", end = "100" }]
+      # REQUIRED: your VPC VNI range. FNN sites: use the range allocated by your network team —
+      # must match the config on your FNN gateways and must NOT be expanded without coordinating
+      # with your network team. The range must also NOT include the fixed admin_vpc vpc_vni
+      # value set in [fnn.admin_vpc] below. Example for non-FNN: [{ start = "0", end = "100" }]
+      ranges = []
 
       # -----------------------------------------------------------------------
       # Networks — named L3 segments visible to nico-api.
@@ -297,14 +301,9 @@ nico-api:
         { start = "10.255.247.3", end = "10.255.247.255" },  # Default pool added from VpcVrfLoopbackPrefix 10.255.247.0/24
       ]
 
-      [pools.vpc-vni]
-      type = "integer"
-      # Change 61326 and 61424 to the actual VNI values. Range should be sufficient to cover all VPCs that will be needed at the site.
-      ranges = [{ start = "61326", end = "61424" }]
-
-      #
-      # This pool MUST NOT be expanded without coordination with GNI.
-      # The range used here must have matching config on our FNN GWs.
+      # NOTE: [pools.vpc-vni] is defined in the required pools section above — set it there.
+      # It MUST NOT be expanded without coordinating with your network team and must match
+      # config on your FNN gateways.
       #
       [pools.external-vpc-vni]
       type = "integer"

@@ -114,12 +114,22 @@ pub struct StaticBmcEndpoint {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StaticMachineEndpoint {
+    /// Stable NICo machine ID for this BMC endpoint.
     pub id: String,
+
+    /// Optional chassis serial to emit as machine telemetry metadata.
     pub serial: Option<String>,
+
+    /// Optional uniform GPU driver version to emit for local/static validation.
+    pub driver_version: Option<String>,
+
     #[serde(alias = "physical_slot_number")]
     pub slot_number: Option<i32>,
+
     #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
+
+    /// Optional NVLink domain UUID associated with this machine.
     pub nvlink_domain_uuid: Option<String>,
 }
 
@@ -154,6 +164,8 @@ pub struct StaticSwitchEndpoint {
     pub endpoint_role: StaticSwitchEndpointRole,
     #[serde(default)]
     pub is_primary: bool,
+    #[serde(default)]
+    pub nmxc_enabled: Option<bool>,
     #[serde(default)]
     pub nmxt_enabled: Option<bool>,
 }
@@ -259,6 +271,11 @@ impl Default for SinksConfig {
 }
 
 impl SinksConfig {
+    /// Returns true when at least one enabled sink consumes log events.
+    pub fn includes_log_events(&self) -> bool {
+        self.tracing.is_enabled() || self.log_file.is_enabled() || self.otlp.is_enabled()
+    }
+
     /// Returns true when at least one diagnostic-capable sink opts in.
     pub fn includes_log_diagnostics(&self) -> bool {
         self.tracing
@@ -527,6 +544,9 @@ pub struct CollectorsConfig {
     /// Switch NMX-T collector configuration (if present, nmxt collector is enabled)
     pub nmxt: Configurable<NmxtCollectorConfig>,
 
+    /// NMX-C streaming collector configuration.
+    pub nmxc: Configurable<NmxcCollectorConfig>,
+
     /// NVUE collector configuration for direct NVUE HTTP(s) polling of NVLink switches
     pub nvue: Configurable<NvueCollectorConfig>,
 }
@@ -541,6 +561,7 @@ impl Default for CollectorsConfig {
             leak_detector: Configurable::Enabled(LeakDetectorCollectorConfig::default()),
             logs: Configurable::Disabled,
             nmxt: Configurable::Disabled,
+            nmxc: Configurable::Disabled,
             nvue: Configurable::Disabled,
         }
     }
@@ -917,6 +938,11 @@ pub struct NmxtCollectorConfig {
     /// Timeout for individual NMX-T HTTP requests.
     #[serde(with = "humantime_serde")]
     pub request_timeout: Duration,
+
+    /// Dangerously disable TLS certificate verification for NMX-T HTTPS requests.
+    ///
+    /// Defaults to false so strict TLS verification remains the default.
+    pub dangerously_skip_tls_verification: bool,
 }
 
 impl Default for NmxtCollectorConfig {
@@ -924,7 +950,114 @@ impl Default for NmxtCollectorConfig {
         Self {
             scrape_interval: Duration::from_secs(60),
             request_timeout: Duration::from_secs(30),
+            dangerously_skip_tls_verification: false,
         }
+    }
+}
+
+const DEFAULT_NMX_C_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_NMX_C_RPC_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Configuration for streaming NMX-C controller notifications from switch hosts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NmxcCollectorConfig {
+    /// NMX-C gRPC port on switch host endpoints.
+    pub grpc_port: u16,
+
+    /// `gateway_id` value sent in NMX-C requests.
+    pub gateway_id: String,
+
+    /// Whether NMX-C should notify this client about changes caused by this gateway.
+    pub notify_on_self_change: bool,
+
+    /// Heartbeat rate value sent to `Subscribe`; NMX-C uses it to send `DomainStateInfo`.
+    pub heartbeat_rate: u32,
+
+    /// Optional TCP connect timeout for the switch-host NMX-C gRPC endpoint.
+    #[serde(with = "humantime_serde::option", default)]
+    pub connect_timeout: Option<Duration>,
+
+    /// Optional timeout for NMX-C Hello, Subscribe, and initial Subscribe acknowledgement.
+    #[serde(with = "humantime_serde::option", default)]
+    pub rpc_timeout: Option<Duration>,
+
+    /// Initial retry backoff after a streaming connection failure.
+    #[serde(with = "humantime_serde")]
+    pub initial_backoff: Duration,
+
+    /// Maximum retry backoff after repeated streaming connection failures.
+    #[serde(with = "humantime_serde")]
+    pub max_backoff: Duration,
+}
+
+impl Default for NmxcCollectorConfig {
+    fn default() -> Self {
+        Self {
+            grpc_port: 9370,
+            gateway_id: "hw-health".to_string(),
+            notify_on_self_change: false,
+            heartbeat_rate: 30,
+            connect_timeout: None,
+            rpc_timeout: None,
+            initial_backoff: Duration::from_secs(1),
+            max_backoff: Duration::from_secs(30),
+        }
+    }
+}
+
+impl NmxcCollectorConfig {
+    /// Returns the configured NMX-C connect timeout, or the default when unset.
+    pub(crate) fn connect_timeout(&self) -> Duration {
+        self.connect_timeout
+            .unwrap_or(DEFAULT_NMX_C_CONNECT_TIMEOUT)
+    }
+
+    /// Returns the configured NMX-C RPC timeout, or the default when unset.
+    pub(crate) fn rpc_timeout(&self) -> Duration {
+        self.rpc_timeout.unwrap_or(DEFAULT_NMX_C_RPC_TIMEOUT)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.grpc_port == 0 {
+            return Err("[collectors.nmxc].grpc_port must be greater than 0".to_string());
+        }
+
+        if self.gateway_id.trim().is_empty() {
+            return Err("[collectors.nmxc].gateway_id must not be empty".to_string());
+        }
+
+        if self.heartbeat_rate == 0 {
+            return Err("[collectors.nmxc].heartbeat_rate must be greater than 0".to_string());
+        }
+
+        if self
+            .connect_timeout
+            .is_some_and(|timeout| timeout.is_zero())
+        {
+            return Err("[collectors.nmxc].connect_timeout must be greater than 0".to_string());
+        }
+
+        if self.rpc_timeout.is_some_and(|timeout| timeout.is_zero()) {
+            return Err("[collectors.nmxc].rpc_timeout must be greater than 0".to_string());
+        }
+
+        if self.initial_backoff.is_zero() {
+            return Err("[collectors.nmxc].initial_backoff must be greater than 0".to_string());
+        }
+
+        if self.max_backoff.is_zero() {
+            return Err("[collectors.nmxc].max_backoff must be greater than 0".to_string());
+        }
+
+        if self.max_backoff < self.initial_backoff {
+            return Err(
+                "[collectors.nmxc].max_backoff must be greater than or equal to initial_backoff"
+                    .to_string(),
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -958,6 +1091,11 @@ pub struct NvueGnmiConfig {
     #[serde(with = "humantime_serde")]
     pub request_timeout: Duration,
 
+    /// Dangerously disable TLS certificate and hostname verification for NVUE gNMI.
+    ///
+    /// Defaults to false so strict TLS verification remains the default.
+    pub dangerously_skip_tls_verification: bool,
+
     /// Enable gNMI ON_CHANGE subscription for live system-event messages.
     #[serde(alias = "system_events_subscription_enabled", alias = "events_enabled")]
     pub system_events_enabled: bool,
@@ -972,6 +1110,7 @@ impl Default for NvueGnmiConfig {
             gnmi_port: 9339,
             sample_interval: Duration::from_secs(300),
             request_timeout: Duration::from_secs(30),
+            dangerously_skip_tls_verification: false,
             system_events_enabled: true,
             paths: NvueGnmiPaths::default(),
         }
@@ -983,6 +1122,7 @@ impl Default for NvueGnmiConfig {
 pub struct NvueGnmiPaths {
     pub components_enabled: bool,
     pub interfaces_enabled: bool,
+    pub platform_general_enabled: bool,
 }
 
 impl Default for NvueGnmiPaths {
@@ -990,6 +1130,7 @@ impl Default for NvueGnmiPaths {
         Self {
             components_enabled: true,
             interfaces_enabled: true,
+            platform_general_enabled: true,
         }
     }
 }
@@ -1021,25 +1162,45 @@ impl Default for NvueRestConfig {
 
 /// Supported NVUE REST API paths.
 /// - system_health_enabled: Poll `/nvue_v1/system/health`.
+/// - system_reboot_reason_enabled: Poll `/nvue_v1/system/reboot/reason`.
 /// - cluster_apps_enabled: Poll `/nvue_v1/cluster/apps`.
 /// - sdn_partitions_enabled: Poll `/nvue_v1/sdn/partition` (including per-partition details)
 /// - interfaces_enabled: Poll `/nvue_v1/interface`.
+/// - platform_environment_fan_enabled: Poll `/nvue_v1/platform/environment/fan`.
+/// - platform_environment_temperature_enabled: Poll `/nvue_v1/platform/environment/temperature`.
+/// - platform_environment_leakage_enabled: Poll `/nvue_v1/platform/environment/leakage`.
+/// - platform_environment_status_enabled: Poll `/nvue_v1/platform/environment` parent
+///   summary for the aggregate `FAN_STATUS` LED state.
+///
+/// Disabling a flag skips the HTTP request. This is separate from leakage
+/// returning top-level JSON `null`, which still means the path was polled and
+/// should produce an explicit health-report result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NvueRestPaths {
     pub system_health_enabled: bool,
+    pub system_reboot_reason_enabled: bool,
     pub cluster_apps_enabled: bool,
     pub sdn_partitions_enabled: bool,
     pub interfaces_enabled: bool,
+    pub platform_environment_fan_enabled: bool,
+    pub platform_environment_temperature_enabled: bool,
+    pub platform_environment_leakage_enabled: bool,
+    pub platform_environment_status_enabled: bool,
 }
 
 impl Default for NvueRestPaths {
     fn default() -> Self {
         Self {
             system_health_enabled: true,
+            system_reboot_reason_enabled: true,
             cluster_apps_enabled: true,
             sdn_partitions_enabled: true,
             interfaces_enabled: true,
+            platform_environment_fan_enabled: true,
+            platform_environment_temperature_enabled: true,
+            platform_environment_leakage_enabled: true,
+            platform_environment_status_enabled: true,
         }
     }
 }
@@ -1169,6 +1330,10 @@ impl Config {
             logs.validate()?;
         }
 
+        if let Configurable::Enabled(nmxc) = &self.collectors.nmxc {
+            nmxc.validate()?;
+        }
+
         if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
             tonic::transport::Channel::from_shared(otlp.endpoint.clone())
                 .map_err(|_| format!("invalid sinks.otlp.endpoint: {}", otlp.endpoint))?;
@@ -1239,6 +1404,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
@@ -1290,6 +1457,7 @@ mod tests {
         assert!(config.collectors.leak_detector.is_enabled());
         assert!(config.collectors.logs.is_enabled());
         assert!(config.collectors.nvue.is_enabled());
+        assert!(!config.collectors.nmxc.is_enabled());
         assert!(!config.sinks.tracing.is_enabled());
         assert!(config.sinks.prometheus.is_enabled());
 
@@ -1356,6 +1524,7 @@ mod tests {
                 assert_eq!(gnmi.gnmi_port, 9339);
                 assert_eq!(gnmi.sample_interval, Duration::from_secs(300));
                 assert_eq!(gnmi.request_timeout, Duration::from_secs(30));
+                assert!(!gnmi.dangerously_skip_tls_verification);
                 assert!(gnmi.system_events_enabled);
             } else {
                 panic!("nvue gnmi config should be enabled in example config");
@@ -1436,6 +1605,7 @@ cache_size = 50
         assert!(!config.collectors.firmware.is_enabled());
         assert!(config.collectors.leak_detector.is_enabled());
         assert!(!config.collectors.logs.is_enabled());
+        assert!(!config.collectors.nmxc.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
 
         config.validate().expect("config should be valid");
@@ -1568,6 +1738,43 @@ username = "root"
         config.collectors.logs = Configurable::Disabled;
         assert!(config.validate().is_ok());
 
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            grpc_port: 0,
+            ..NmxcCollectorConfig::default()
+        });
+
+        assert!(config.validate().is_err());
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            gateway_id: " ".to_string(),
+            ..NmxcCollectorConfig::default()
+        });
+
+        assert!(config.validate().is_err());
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            heartbeat_rate: 0,
+            ..NmxcCollectorConfig::default()
+        });
+
+        assert!(config.validate().is_err());
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig {
+            max_backoff: Duration::from_millis(500),
+            initial_backoff: Duration::from_secs(1),
+            ..NmxcCollectorConfig::default()
+        });
+
+        assert!(config.validate().is_err());
+
+        config.collectors.nmxc = Configurable::Enabled(NmxcCollectorConfig::default());
+
+        assert!(config.validate().is_ok());
+
+        config.collectors.nmxc = Configurable::Disabled;
+
+        assert!(config.validate().is_ok());
+
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
             endpoint: "not a valid uri\n".to_string(),
             ..OtlpSinkConfig::default()
@@ -1656,6 +1863,42 @@ username = "root"
         }
     }
 
+    /// Verifies log-only collectors run only when a sink consumes log events.
+    #[test]
+    fn test_sinks_config_includes_log_events() {
+        let cases = [
+            ("default", SinksConfig::default(), false),
+            (
+                "tracing",
+                SinksConfig {
+                    tracing: Configurable::Enabled(TracingSinkConfig::default()),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+            (
+                "log-file",
+                SinksConfig {
+                    log_file: Configurable::Enabled(LogFileSinkConfig::default()),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+            (
+                "otlp",
+                SinksConfig {
+                    otlp: Configurable::Enabled(OtlpSinkConfig::default()),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+        ];
+
+        for (name, sinks, expected) in cases {
+            assert_eq!(sinks.includes_log_events(), expected, "{name}");
+        }
+    }
+
     #[test]
     fn test_load_defaults() {
         let config = Config::load(None).expect("should load defaults");
@@ -1666,6 +1909,7 @@ username = "root"
         assert!(config.rate_limit.is_enabled());
         assert!(config.processors.leak_detection.is_enabled());
         assert!(config.collectors.leak_detector.is_enabled());
+        assert!(!config.collectors.nmxc.is_enabled());
         assert!(!config.collectors.nvue.is_enabled());
         if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
             assert!(health_report.skip_empty_reports);
@@ -1703,10 +1947,107 @@ skip_empty_reports = false
             assert_eq!(rest.poll_interval, Duration::from_secs(300));
             assert_eq!(rest.request_timeout, Duration::from_secs(30));
             assert!(rest.paths.system_health_enabled);
+            assert!(rest.paths.system_reboot_reason_enabled);
             assert!(rest.paths.cluster_apps_enabled);
             assert!(rest.paths.sdn_partitions_enabled);
             assert!(rest.paths.interfaces_enabled);
+            assert!(rest.paths.platform_environment_leakage_enabled);
         }
+    }
+
+    #[test]
+    fn test_nmxc_config_defaults() {
+        let defaults = NmxcCollectorConfig::default();
+
+        assert_eq!(defaults.grpc_port, 9370);
+        assert_eq!(defaults.gateway_id, "hw-health");
+        assert!(!defaults.notify_on_self_change);
+        assert_eq!(defaults.heartbeat_rate, 30);
+        assert_eq!(defaults.connect_timeout, None);
+        assert_eq!(defaults.rpc_timeout, None);
+        assert_eq!(defaults.connect_timeout(), Duration::from_secs(10));
+        assert_eq!(defaults.rpc_timeout(), Duration::from_secs(10));
+        assert_eq!(defaults.initial_backoff, Duration::from_secs(1));
+        assert_eq!(defaults.max_backoff, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_nmxc_config_parsing() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nmxc]
+grpc_port = 9602
+gateway_id = "health-service"
+notify_on_self_change = true
+heartbeat_rate = 15
+connect_timeout = "3s"
+rpc_timeout = "4s"
+initial_backoff = "2s"
+max_backoff = "20s"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse nmxc config");
+
+        if let Configurable::Enabled(ref nmxc) = config.collectors.nmxc {
+            assert_eq!(nmxc.grpc_port, 9602);
+            assert_eq!(nmxc.gateway_id, "health-service");
+            assert!(nmxc.notify_on_self_change);
+            assert_eq!(nmxc.heartbeat_rate, 15);
+            assert_eq!(nmxc.connect_timeout, Some(Duration::from_secs(3)));
+            assert_eq!(nmxc.rpc_timeout, Some(Duration::from_secs(4)));
+            assert_eq!(nmxc.connect_timeout(), Duration::from_secs(3));
+            assert_eq!(nmxc.rpc_timeout(), Duration::from_secs(4));
+            assert_eq!(nmxc.initial_backoff, Duration::from_secs(2));
+            assert_eq!(nmxc.max_backoff, Duration::from_secs(20));
+        } else {
+            panic!("nmxc config should be enabled");
+        }
+    }
+
+    #[test]
+    fn test_nmxc_transport_config_validation() {
+        value_scenarios!(
+            run = |config: NmxcCollectorConfig| config.validate().is_ok();
+
+            "NMX-C transport validation" {
+                NmxcCollectorConfig::default() => true,
+
+                NmxcCollectorConfig {
+                    connect_timeout: Some(Duration::ZERO),
+                    ..NmxcCollectorConfig::default()
+                } => false,
+
+                NmxcCollectorConfig {
+                    rpc_timeout: Some(Duration::ZERO),
+                    ..NmxcCollectorConfig::default()
+                } => false,
+
+                NmxcCollectorConfig {
+                    initial_backoff: Duration::ZERO,
+                    ..NmxcCollectorConfig::default()
+                } => false,
+
+                NmxcCollectorConfig {
+                    max_backoff: Duration::ZERO,
+                    ..NmxcCollectorConfig::default()
+                } => false,
+
+                NmxcCollectorConfig {
+                    initial_backoff: Duration::from_secs(30),
+                    max_backoff: Duration::from_secs(1),
+                    ..NmxcCollectorConfig::default()
+                } => false,
+            }
+        );
     }
 
     #[test]
@@ -1736,6 +2077,8 @@ request_timeout = "45s"
                 assert_eq!(rest.poll_interval, Duration::from_secs(120));
                 assert_eq!(rest.request_timeout, Duration::from_secs(45));
                 assert!(rest.paths.system_health_enabled);
+                assert!(rest.paths.system_reboot_reason_enabled);
+                assert!(rest.paths.platform_environment_leakage_enabled);
             } else {
                 panic!("nvue rest config should be enabled");
             }
@@ -1811,9 +2154,11 @@ poll_interval = "1m"
 
 [collectors.nvue.rest.paths]
 system_health_enabled = true
+system_reboot_reason_enabled = false
 cluster_apps_enabled = false
 sdn_partitions_enabled = true
 interfaces_enabled = false
+platform_environment_leakage_enabled = false
 "#;
 
         let config: Config = Figment::new()
@@ -1825,9 +2170,11 @@ interfaces_enabled = false
         if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
             if let Configurable::Enabled(ref rest) = nvue.rest {
                 assert!(rest.paths.system_health_enabled);
+                assert!(!rest.paths.system_reboot_reason_enabled);
                 assert!(!rest.paths.cluster_apps_enabled);
                 assert!(rest.paths.sdn_partitions_enabled);
                 assert!(!rest.paths.interfaces_enabled);
+                assert!(!rest.paths.platform_environment_leakage_enabled);
             } else {
                 panic!("nvue rest config should be enabled");
             }
@@ -1865,6 +2212,108 @@ system_events_enabled = false
         } else {
             panic!("nvue config should be enabled");
         }
+    }
+
+    #[test]
+    fn test_nmxt_dangerous_tls_skip_defaults_false_and_parses_true() {
+        assert!(!NmxtCollectorConfig::default().dangerously_skip_tls_verification);
+
+        let omitted = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nmxt]
+"#;
+        let enabled = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nmxt]
+dangerously_skip_tls_verification = true
+"#;
+
+        for (toml, expected) in [(omitted, false), (enabled, true)] {
+            let config: Config = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(toml))
+                .extract()
+                .expect("failed to parse NMX-T TLS flag");
+            let Configurable::Enabled(nmxt) = config.collectors.nmxt else {
+                panic!("nmxt config should be enabled");
+            };
+            assert_eq!(nmxt.dangerously_skip_tls_verification, expected);
+        }
+    }
+
+    #[test]
+    fn test_example_config_documents_platform_environment_fan_toggle() {
+        let toml_content = include_str!("../example/config.example.toml");
+
+        assert!(
+            toml_content
+                .lines()
+                .any(|line| line == "platform_environment_fan_enabled = true")
+        );
+    }
+
+    #[test]
+    fn test_nvue_gnmi_dangerous_tls_skip_defaults_false_and_parses_true() {
+        let omitted = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nvue.gnmi]
+gnmi_port = 9339
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(omitted))
+            .extract()
+            .expect("failed to parse omitted tls flag");
+
+        let Configurable::Enabled(nvue) = config.collectors.nvue else {
+            panic!("nvue config should be enabled");
+        };
+        let Configurable::Enabled(gnmi) = nvue.gnmi else {
+            panic!("gnmi config should be enabled");
+        };
+        assert!(!gnmi.dangerously_skip_tls_verification);
+
+        let enabled = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[collectors.nvue.gnmi]
+gnmi_port = 9339
+dangerously_skip_tls_verification = true
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(enabled))
+            .extract()
+            .expect("failed to parse enabled tls flag");
+
+        let Configurable::Enabled(nvue) = config.collectors.nvue else {
+            panic!("nvue config should be enabled");
+        };
+        let Configurable::Enabled(gnmi) = nvue.gnmi else {
+            panic!("gnmi config should be enabled");
+        };
+        assert!(gnmi.dangerously_skip_tls_verification);
     }
 
     #[test]
@@ -2007,11 +2456,12 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
         assert_eq!(switch.endpoint_role, StaticSwitchEndpointRole::Host);
         assert!(switch.is_primary);
+        assert_eq!(switch.nmxc_enabled, None);
         assert_eq!(switch.nmxt_enabled, None);
     }
 
     #[test]
-    fn test_static_switch_host_accepts_nmxt_override() {
+    fn test_static_switch_host_accepts_nmx_collector_overrides() {
         let toml_content = r#"
 [endpoint_sources.carbide_api]
 enabled = false
@@ -2021,7 +2471,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:77"
 username = "admin"
 password = "pass"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxt_enabled = true }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxc_enabled = true, nmxt_enabled = true }
 "#;
 
         let config: Config = Figment::new()
@@ -2037,6 +2487,7 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
         assert_eq!(switch.endpoint_role, StaticSwitchEndpointRole::Host);
         assert!(!switch.is_primary);
+        assert_eq!(switch.nmxc_enabled, Some(true));
         assert_eq!(switch.nmxt_enabled, Some(true));
     }
 
@@ -2051,7 +2502,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:11"
 username = "admin"
 password = "pass"
-machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
+machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", driver_version = "570.82", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
 "#;
 
         let config: Config = Figment::new()
@@ -2067,6 +2518,7 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
 
         assert_eq!(machine.slot_number, Some(15));
         assert_eq!(machine.tray_index, Some(5));
+        assert_eq!(machine.driver_version.as_deref(), Some("570.82"));
         assert_eq!(
             machine.nvlink_domain_uuid.as_deref(),
             Some("00000000-0000-0000-0000-000000000000")

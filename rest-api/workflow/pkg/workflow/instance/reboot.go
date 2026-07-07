@@ -43,8 +43,8 @@ func RebootInstanceByID(ctx workflow.Context, instanceID uuid.UUID, rebootWithCu
 	var instanceManager instanceActivity.ManageInstance
 
 	request := &cwssaws.InstancePowerRequest{
-		MachineId: &cwssaws.MachineId{
-			Id: instanceID.String(),
+		InstanceId: &cwssaws.InstanceId{
+			Value: instanceID.String(),
 		},
 		BootWithCustomIpxe:   rebootWithCustomIpxe,
 		ApplyUpdatesOnReboot: applyUpdatesOnReboot,

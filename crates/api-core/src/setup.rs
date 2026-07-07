@@ -22,6 +22,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use carbide_dpa::DpaInfo;
 use carbide_dpa_manager::DpaMonitor;
+use carbide_dpf::DpuDeploymentType;
 use carbide_firmware::FirmwareDownloader;
 use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_ib_fabric::IbFabricMonitor;
@@ -39,7 +40,7 @@ use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
-use carbide_nvlink_manager::NvLinkManager;
+use carbide_nvlink_manager::{NvLinkManager, NvLinkManagerArgs};
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -53,7 +54,7 @@ use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader};
-use carbide_site_explorer::SiteExplorer;
+use carbide_site_explorer::{EndpointExplorationLocks, SiteExplorer};
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -392,6 +393,10 @@ pub async fn start_api(
         // lockdown key without operator action. No-op once seeded or if the BMC
         // root is not yet configured.
         crate::dpa::lockdown::ensure_lockdown_ikm_seeded(&*credential_manager).await?;
+
+        // Initial credential-rotation bookkeeping is backfilled by the
+        // `*_credential_rotation_backfill` data migration (see its header for the
+        // ordering invariants), not seeded here.
     };
 
     let common_pools =
@@ -471,7 +476,11 @@ pub async fn start_api(
             .rotate_switch_nvos_credentials
             .clone(),
         carbide_config.site_explorer.explore_mode,
+        db_pool.clone(),
     );
+    // Shared between the API's `RefreshEndpointReport` handler and the site-explorer loop so they
+    // never probe the same endpoint at once. In-process only; see `EndpointExplorationLocks`.
+    let endpoint_exploration_locks = EndpointExplorationLocks::default();
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
 
@@ -484,59 +493,13 @@ pub async fn start_api(
         .map_err(|e| eyre::eyre!("Failed to build NMX-C client pool: {e}"))?;
     let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
 
-    // Create DPF SDK and initialize CRs if enabled
-    // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
-    let dpf_sdk: Option<Arc<dyn DpfOperations>> = if carbide_config.dpf.enabled {
-        tracing::info!("Initializing DPF SDK");
-        let repo = carbide_dpf::KubeRepository::new()
-            .await
-            .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
-
-        let provider = CarbideBmcPasswordProvider::new(credential_manager.clone());
-
-        let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
-        let dpf_mandatory_services = vec![
-            crate::dpf_services::dts_service(&mandatory_services.dts),
-            crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
-            crate::dpf_services::dhcp_server_service(&mandatory_services.dhcp_server),
-            crate::dpf_services::dpu_agent_service(&mandatory_services.dpu_agent),
-            crate::dpf_services::fmds_service(&mandatory_services.fmds),
-            crate::dpf_services::otelcol_service(&mandatory_services.otel),
-        ];
-
-        // This is just temparary code until we make v2 only option. (just 2 weeks)
-        // Soon v2 flag will be removed and will become only mode for dpf handling.
-        let init_config = carbide_dpf::InitDpfResourcesConfig {
-            bfb_url: carbide_config.dpf.bfb_url.clone(),
-            flavor_name: carbide_config.dpf.flavor_name.clone(),
-            deployment_name: carbide_config.dpf.deployment_name.clone(),
-            services: dpf_mandatory_services,
-            proxy: carbide_config.dpf.proxy.clone(),
-        };
-
-        let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
-            .with_labeler(CarbideDPFLabeler::new(
-                carbide_config.dpf.node_label_key.clone(),
-            ))
-            .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
-            .with_join_set(join_set)
-            .initialize(&init_config)
-            .await
-            .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
-
-        Some(Arc::new(DpfSdkOps::new(
-            Arc::new(sdk),
-            db_pool.clone(),
-            join_set,
-        )?))
-    } else {
-        tracing::warn!(
-            removed_in = "v2.1",
-            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
-            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
-        );
-        None
-    };
+    let dpf_sdk = initialize_dpf_sdk(
+        &carbide_config,
+        credential_manager.clone(),
+        db_pool.clone(),
+        join_set,
+    )
+    .await?;
 
     let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
         match component_manager::component_manager::build_component_manager(
@@ -602,6 +565,7 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxc_client_pool: shared_nmxc_pool.clone(),
         work_lock_manager_handle,
+        endpoint_exploration_locks: endpoint_exploration_locks.clone(),
         dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
@@ -659,6 +623,120 @@ pub async fn start_api(
         .ok();
 
     Ok(())
+}
+
+/// Initialize the DPF SDK and create all required Kubernetes CRs.
+///
+/// Returns `None` (with a deprecation warning) when DPF is disabled.
+async fn initialize_dpf_sdk(
+    carbide_config: &CarbideConfig,
+    credential_manager: Arc<dyn CredentialManager>,
+    db_pool: PgPool,
+    join_set: &mut JoinSet<()>,
+) -> eyre::Result<Option<Arc<dyn DpfOperations>>> {
+    if !carbide_config.dpf.enabled {
+        tracing::warn!(
+            removed_in = "v2.1",
+            docs = "https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/dpf-setup",
+            "iPXE provisioning strategy (internally) is deprecated; enable DPF management for DPUs to migrate"
+        );
+        return Ok(None);
+    }
+
+    tracing::info!("Initializing DPF SDK");
+
+    let repo = carbide_dpf::KubeRepository::new()
+        .await
+        .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
+
+    let provider = CarbideBmcPasswordProvider::new(credential_manager, db_pool.clone());
+
+    carbide_config
+        .dpf
+        .deployments
+        .validate_unique_identifiers()
+        .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
+
+    let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
+
+    // This is just temporary code until we make v2 only option. (just 2 weeks)
+    // Soon v2 flag will be removed and will become only mode for dpf handling.
+    let deployment_type_labels = build_deployment_type_labels(carbide_config);
+
+    let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
+        .with_labeler(
+            CarbideDPFLabeler::new(carbide_config.dpf.deployments.bf3.node_label_key.clone())
+                .with_deployment_type_labels(deployment_type_labels),
+        )
+        .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
+        .with_join_set(join_set)
+        .build_without_resources()
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
+
+    let make_init_config = |deployment: &crate::cfg::file::DpfDeploymentConfig,
+                            deployment_type: DpuDeploymentType| {
+        carbide_dpf::InitDpfResourcesConfig {
+            bfb_url: deployment.bfb_url.clone(),
+            flavor_name: deployment.flavor_name.clone(),
+            deployment_name: deployment.deployment_name.clone(),
+            services: crate::dpf_services::mandatory_services(&mandatory_services),
+            proxy: carbide_config.dpf.proxy.clone(),
+            deployment_type,
+        }
+    };
+
+    sdk.create_initialization_objects(&make_init_config(
+        &carbide_config.dpf.deployments.bf3,
+        DpuDeploymentType::Bf3,
+    ))
+    .await
+    .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
+
+    if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
+        sdk.create_initialization_objects(&make_init_config(bf4, DpuDeploymentType::Bf4Generic))
+            .await
+            .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
+    }
+
+    Ok(Some(Arc::new(DpfSdkOps::new(
+        Arc::new(sdk),
+        db_pool,
+        join_set,
+    )?)))
+}
+
+/// Build per-deployment-type node selector labels for the DPF labeler registry.
+///
+/// Each deployment gets two labels: the shared `dpu-enabled` marker and its
+/// own deployment-specific key. BF3 is always included;
+/// BF4Generic is added when configured.
+fn build_deployment_type_labels(
+    carbide_config: &CarbideConfig,
+) -> std::collections::BTreeMap<DpuDeploymentType, std::collections::BTreeMap<String, String>> {
+    let make_labels = |key: &str| {
+        std::collections::BTreeMap::from([
+            (
+                "feature.node.kubernetes.io/dpu-enabled".to_string(),
+                "true".to_string(),
+            ),
+            (key.to_string(), "true".to_string()),
+        ])
+    };
+
+    let mut map = std::collections::BTreeMap::from([(
+        DpuDeploymentType::Bf3,
+        make_labels(&carbide_config.dpf.deployments.bf3.node_label_key),
+    )]);
+
+    if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
+        map.insert(
+            DpuDeploymentType::Bf4Generic,
+            make_labels(&bf4.node_label_key),
+        );
+    }
+
+    map
 }
 
 #[derive(Debug)]
@@ -863,6 +941,7 @@ async fn initialize_and_start_controllers<'a>(
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
         work_lock_manager_handle,
+        endpoint_exploration_locks,
         rms_client,
         component_manager,
         dpf_sdk,
@@ -1338,6 +1417,10 @@ async fn initialize_and_start_controllers<'a>(
                 .into(),
                 switch_system_image_rms_client,
                 credential_manager: credential_manager.clone(),
+                component_manager: component_manager.clone().map(Arc::new),
+                nmx_cluster_switch_mtls_services: carbide_config
+                    .rack_state_controller
+                    .effective_nmx_cluster_switch_mtls_services_as_i32(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1355,6 +1438,9 @@ async fn initialize_and_start_controllers<'a>(
                 db_pool: db_pool.clone(),
                 component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
+                switch_mtls_services: carbide_config
+                    .switch_state_controller
+                    .effective_switch_mtls_services_as_i32(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1378,14 +1464,17 @@ async fn initialize_and_start_controllers<'a>(
     )
     .start(join_set, cancel_token.clone())?;
 
-    NvLinkManager::new(
-        db_pool.clone(),
-        api_service.nmxc_client_pool.clone(),
-        meter.clone(),
-        carbide_config.nvlink_config.clone().unwrap_or_default(),
-        carbide_config.host_health,
-        work_lock_manager_handle.clone(),
-    )
+    NvLinkManager::new(NvLinkManagerArgs {
+        db_pool: db_pool.clone(),
+        nmxc_client_pool: api_service.nmxc_client_pool.clone(),
+        meter: meter.clone(),
+        config: carbide_config.nvlink_config.clone().unwrap_or_default(),
+        host_health: carbide_config.host_health,
+        rms_client: api_service.rms_client.clone(),
+        credential_manager: api_service.credential_manager.clone(),
+        rack_profiles: carbide_config.rack_profiles.clone(),
+        work_lock_manager_handle: work_lock_manager_handle.clone(),
+    })
     .start(join_set, cancel_token.clone())?;
 
     if carbide_config.is_dpa_enabled() {
@@ -1442,6 +1531,7 @@ async fn initialize_and_start_controllers<'a>(
         Arc::new(carbide_config.get_firmware_config()),
         common_pools.clone(),
         work_lock_manager_handle.clone(),
+        endpoint_exploration_locks.clone(),
         carbide_config.rack_profiles.clone(),
         rms_client.clone(),
         credential_manager.clone(),

@@ -95,11 +95,11 @@ macro_rules! network_segment_snapshot_with_history_query {
         GROUP BY np.segment_id
      ) AS prefixes_agg ON true
      LEFT JOIN LATERAL (
-        SELECT h.segment_id,
-            json_agg(json_build_object('segment_id', h.segment_id, 'state', h.state::text, 'state_version', h.state_version, 'timestamp', h."timestamp")) AS json
+        SELECT h.object_id,
+            json_agg(json_build_object('segment_id', h.object_id, 'state', h.state::text, 'state_version', h.state_version, 'timestamp', h."timestamp")) AS json
         FROM network_segment_state_history h
-        WHERE h.segment_id = ns.id
-        GROUP BY h.segment_id
+        WHERE h.object_id = ns.id::text
+        GROUP BY h.object_id
      ) AS history_agg ON true
 "#
     };

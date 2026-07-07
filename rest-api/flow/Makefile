@@ -20,10 +20,11 @@ gen-nicoapi-pb: ## Generate protobuf files for nico-api access, only needed for 
 # The protodefs are a bit unclean, and we need to make some tweaks to make them usable.
 	cd internal/nicoapi && ./tweak_protodefs.sh
 # Specify version of buf for consistency in pipeline builds
-	which buf || go install github.com/bufbuild/buf/cmd/buf@v1.57.2
+	which buf || go install github.com/bufbuild/buf/cmd/buf@v1.70.0
 # Clean old generated files before regenerating
 	rm -f internal/nicoapi/gen/*.pb.go
 	cd internal/nicoapi && buf generate
+	cd ../ && python3 scripts/check_source_headers.py --fix
 
 gen-doc: ## Generate gRPC API documentation (Markdown for GitLab, HTML for local)
 	@which protoc-gen-doc > /dev/null || go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
@@ -36,7 +37,7 @@ gen-doc: ## Generate gRPC API documentation (Markdown for GitLab, HTML for local
 
 flow:
 	mkdir -p build
-	VERSION=$$(grep -v -e '^#' -e "^$$" ../VERSION) && \
+	VERSION=$$(git describe --tags --first-parent --always --long) && \
 	BUILD_TIME=$$(date -u +"%Y-%m-%dT%H:%M:%SZ") && \
 	GIT_COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
 	go build -C build \
@@ -46,7 +47,7 @@ flow:
 		..
 
 container: flow
-	docker build -t nico-flow:$$(grep -v -e '^#' -e "^$$" ../VERSION)-$(CURDATE)-$$(git rev-parse HEAD) -t nico-flow:latest .
+	docker build -t nico-flow:$$(git describe --tags --first-parent --always --long)-$(CURDATE)-$$(git rev-parse HEAD) -t nico-flow:latest .
 
 # test-local runs tests locally with a postgres container
 # Requires: ./scripts/start-test-postgres.sh to be running

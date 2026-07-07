@@ -394,6 +394,12 @@ fn switch_details_text(switch: &Switch) -> CarbideCliResult<String> {
     writeln!(&mut lines, "\nBMC:")?;
     if let Some(bmc) = &switch.bmc_info {
         let bmc_data: Vec<(&str, String)> = vec![
+            (
+                "Machine Interface ID",
+                bmc.machine_interface_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+            ),
             ("IP", bmc.ip.clone().unwrap_or_else(|| "N/A".to_string())),
             ("MAC", bmc.mac.clone().unwrap_or_else(|| "N/A".to_string())),
             (

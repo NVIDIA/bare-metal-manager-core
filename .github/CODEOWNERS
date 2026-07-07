@@ -20,6 +20,8 @@
 # Documentation (To be re-enabled once as have a doc reviewer)
 #/docs/ @CoCo-Ben
 #/fern/ @CoCo-Ben
+/docs/ @polarweasel
+/fern/ @polarweasel
 
 # Network IP module
 /common/network/src/ip/ @DrewBloechl

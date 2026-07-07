@@ -159,7 +159,7 @@ SLAs are defined per Machine lifecycle state. When a Machine remains in a given 
 
 **What validation is performed after an Instance reports `Ready`?**
 
-NICo runs both in-band validation tests (executed on the host while it is not leased to a tenant) and out-of-band validation tests (executed against the BMC). The in-band tests ("machine-validation tests") are configurable by the site administrator and are implemented as shell scripts; NICo evaluates the exit code to determine pass or fail. The results of all health checks are aggregated into the `health` property of the `Machine` object. Refer to the [health aggregation architecture documentation](../architecture/health_aggregation.md) for a full list of checks.
+NICo runs both in-band validation tests (executed on the host while it is not leased to a tenant) and out-of-band validation tests (executed against the BMC). The in-band tests ("machine-validation tests") are configurable by the site administrator and are implemented as shell scripts; NICo evaluates the exit code to determine pass or fail. The results of all health checks are aggregated into the `health` property of the `Machine` object. Refer to the [health aggregation architecture documentation](architecture/health_aggregation.md) for a full list of checks.
 
 **How can network security group (NSG) and SSH key sync status be verified after Instance creation?**
 
@@ -218,6 +218,6 @@ Deletion is accepted immediately but the Instance must run through all defined d
 
 **What metrics and dashboards are available for monitoring NICo deployments?**
 
-A subset of NICo metrics is documented in the [Core Metrics reference](../observability/core_metrics.md). Key metrics for operational monitoring include per-state machine counts and `nico_machines_per_state_above_sla`.
+A subset of NICo metrics is documented in the [Core Metrics reference](observability/core_metrics.md). Key metrics for operational monitoring include per-state machine counts and `nico_machines_per_state_above_sla`.
 
 Grafana dashboard definitions for NICo deployments are maintained separately from the open-source package. A dashboard JSON for deployment on a site-local Grafana Instance is available in the NICo Helm chart distribution.

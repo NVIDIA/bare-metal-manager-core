@@ -454,11 +454,12 @@ func (f *NICoServerImpl) FindInstancesByIds(ctx context.Context, req *cwssaws.In
 
 // InvokeInstancePower implements interface NICoServer
 func (f *NICoServerImpl) InvokeInstancePower(c context.Context, req *cwssaws.InstancePowerRequest) (*cwssaws.InstancePowerResult, error) {
-	if req == nil {
+	if req == nil || req.GetInstanceId().GetValue() == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "Invalid request argument")
 	}
 
-	_, ok := f.m[req.MachineId.Id]
+	instanceID := req.GetInstanceId().GetValue()
+	_, ok := f.ins[instanceID]
 	if ok {
 		if req.Operation == cwssaws.InstancePowerRequest_POWER_RESET {
 			return &cwssaws.InstancePowerResult{}, nil
@@ -467,7 +468,7 @@ func (f *NICoServerImpl) InvokeInstancePower(c context.Context, req *cwssaws.Ins
 		return &cwssaws.InstancePowerResult{}, status.Errorf(codes.InvalidArgument, "Invalid operation in request")
 	}
 
-	return nil, status.Errorf(codes.NotFound, "Machine with ID %q not found", req.MachineId.Id)
+	return nil, status.Errorf(codes.NotFound, "Instance with ID %q not found", instanceID)
 }
 
 func (f *NICoServerImpl) FindMachineIds(ctx context.Context, req *cwssaws.MachineSearchConfig) (*cwssaws.MachineIdList, error) {

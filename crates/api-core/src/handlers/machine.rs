@@ -516,12 +516,50 @@ pub(crate) async fn admin_force_delete_machine(
                         }
 
                         if machine.bios_password_set_time.is_some() {
-                            if let Err(e) = api
-                                .redfish_pool
-                                .clear_host_uefi_password(client.as_ref())
-                                .await
-                            {
-                                tracing::warn!(%machine_id, error = %e, "Failed to clear host UEFI password while force deleting machine");
+                            // Resolve the credential the device currently carries to
+                            // authenticate the clear (table-driven). Best effort: if it
+                            // cannot be resolved, skip the clear rather than aborting the
+                            // force-delete.
+                            let clear_credentials = match api.txn_begin().await {
+                                Ok(mut txn) => {
+                                    let credentials =
+                                        crate::handlers::uefi::host_uefi_clear_credentials(
+                                            &mut txn,
+                                            api.redfish_pool.credential_reader(),
+                                            bmc_mac_address,
+                                        )
+                                        .await;
+                                    let _ = txn.commit().await;
+                                    credentials.ok()
+                                }
+                                Err(_) => None,
+                            };
+                            if let Some(clear_credentials) = clear_credentials {
+                                match api
+                                    .redfish_pool
+                                    .clear_host_uefi_password(client.as_ref(), clear_credentials)
+                                    .await
+                                {
+                                    Ok(_) => {
+                                        // The UEFI password was reset on the device, so the host no
+                                        // longer carries the site-wide UEFI value: drop the host_uefi
+                                        // convergence marker (keyed by the host BMC MAC, mirroring where
+                                        // it is recorded when the password is set). Best-effort like the
+                                        // clear itself -- the machine row is being deleted anyway, so a
+                                        // surviving marker would be neutralized by the rotation engine's
+                                        // live-device join regardless.
+                                        if let Err(e) =
+                                            forget_host_uefi_convergence(api, bmc_mac_address).await
+                                        {
+                                            tracing::warn!(%machine_id, error = %e, "Cleared host UEFI password but failed to delete its credential-rotation marker");
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(%machine_id, error = %e, "Failed to clear host UEFI password while force deleting machine");
+                                    }
+                                }
+                            } else {
+                                tracing::warn!(%machine_id, "Could not resolve host UEFI credentials to clear while force deleting machine; skipping clear");
                             }
 
                             // TODO (spyda): have libredfish return whether the client needs to reboot the host after clearing the host uefi password
@@ -764,6 +802,24 @@ async fn clear_bmc_credentials(api: &Api, machine: &Machine) -> Result<(), Carbi
         crate::handlers::credential::delete_bmc_root_credentials_by_mac(api, mac_address).await?;
     }
 
+    Ok(())
+}
+
+/// Deletes the `host_uefi` credential-rotation convergence marker for a host,
+/// keyed by its BMC MAC. Called after force-delete resets the host UEFI password
+/// on the device, where the host no longer carries the site-wide UEFI value.
+async fn forget_host_uefi_convergence(
+    api: &Api,
+    bmc_mac_address: mac_address::MacAddress,
+) -> Result<(), CarbideError> {
+    let mut txn = api.txn_begin().await?;
+    db::credential_rotation::delete_device_converged(
+        &mut txn,
+        bmc_mac_address,
+        db::credential_rotation::CredentialRotationType::HostUefi,
+    )
+    .await?;
+    txn.commit().await?;
     Ok(())
 }
 

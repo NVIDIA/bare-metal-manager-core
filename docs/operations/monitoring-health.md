@@ -49,7 +49,7 @@ NICo monitors hardware through the hardware health service. The Helm chart is
 The service discovers BMC endpoints from NICo and queries them through Redfish.
 It monitors host BMCs, DPU BMCs, and configured switch or power-shelf BMCs. The
 primary monitoring path is sensor collection. Additional collectors can gather
-firmware, log, NMX-T, NVUE REST, and leak-related data when configured.
+firmware, log, NMX-T, NMX-C, NVUE REST, and leak-related data when configured.
 
 ### Helm Configuration
 
@@ -125,12 +125,27 @@ Collector defaults from the example config:
 | Sensor collector | `include_sensor_thresholds` | `true` | Include BMC threshold data when available. |
 | Firmware collector | `firmware_refresh_interval` | `"30m"` | Firmware refresh cadence. |
 | Logs collector | `mode` | `"sse"` | Preferred BMC log collection mode. |
+| NMX-C collector | `grpc_port` | `9370` | Switch-host NMX-C gRPC endpoint port. |
+| NMX-C collector | `heartbeat_rate` | `30` | Subscribe heartbeat for NMX-C `DomainStateInfo` updates. |
+| NMX-C collector | `connect_timeout` | `"10s"` | TCP connect timeout for the NMX-C gRPC endpoint. |
+| NMX-C collector | `rpc_timeout` | `"10s"` | Timeout for NMX-C Hello, Subscribe, and initial Subscribe acknowledgement. |
 | NMX-T collector | `scrape_interval` | `"1m"` | Switch telemetry scrape cadence. |
 | NVUE REST collector | `poll_interval` | `"1m"` | NVUE REST polling cadence. |
 | Leak processor | `minimum_alerts_per_report` | `1` | Leak alert threshold for health reports. |
 | Rack leak processor | `leaking_tray_threshold` | `2` | Rack-level leak threshold. |
 | Metrics | `endpoint` | `"0.0.0.0:9009"` | Metrics listener. |
 | Metrics | `prefix` | `"carbide_hardware_health"` | Hardware-health metric prefix. |
+
+NMX-C connects directly to eligible primary switch-host gRPC endpoints whose
+switch config has NMX-C enabled; it does not use BMC or NICo API TLS material.
+For static switch-host endpoints, `switch.nmxc_enabled` controls this target
+eligibility after the `endpoint_role = "host"` and `is_primary = true` checks;
+it defaults to `switch.is_primary` when omitted.
+NMX-C notifications emit log events for tracing, log-file, and OTLP
+log sinks only; Prometheus metrics and switch health reports are separate scope.
+
+NMX-C collection uses plaintext gRPC over HTTP/2. TLS, certificate
+bypass, custom certificate loading, and mTLS are intentionally separate scope; do not model them with the NICo API SPIFFE certificate fields.
 
 ### BMC Proxy
 

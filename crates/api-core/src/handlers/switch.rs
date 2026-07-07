@@ -89,17 +89,13 @@ pub async fn find_switch(
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
         .map(|s| {
-            let endpoint_info = endpoint_info_map.get(&s.id);
+            let id = s.id;
+            let endpoint_info = endpoint_info_map.get(&id);
 
+            // `bmc_info` is populated by the switch load query and carried
+            // through the model->rpc conversion; only nvos_info is stitched in
+            // here from the endpoint lookup.
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
-                rpc_switch.bmc_info = endpoint_info.map(|row| rpc::BmcInfo {
-                    ip: Some(row.bmc_ip.to_string()),
-                    mac: Some(row.bmc_mac.to_string()),
-                    version: None,
-                    firmware_version: None,
-                    port: None,
-                    machine_interface_id: None,
-                });
                 rpc_switch.nvos_info = endpoint_info.and_then(|row| {
                     let (Some(nvos_mac), Some(nvos_ip)) =
                         (row.nvos_mac.as_ref(), row.nvos_ip.as_ref())
@@ -180,17 +176,13 @@ pub async fn find_by_ids(
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
         .map(|s| {
-            let endpoint_info = endpoint_info_map.get(&s.id);
+            let id = s.id;
+            let endpoint_info = endpoint_info_map.get(&id);
 
+            // `bmc_info` is populated by the switch load query and carried
+            // through the model->rpc conversion; only nvos_info is stitched in
+            // here from the endpoint lookup.
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
-                rpc_switch.bmc_info = endpoint_info.map(|row| rpc::BmcInfo {
-                    ip: Some(row.bmc_ip.to_string()),
-                    mac: Some(row.bmc_mac.to_string()),
-                    version: None,
-                    firmware_version: None,
-                    port: None,
-                    machine_interface_id: None,
-                });
                 rpc_switch.nvos_info = endpoint_info.and_then(|row| {
                     let (Some(nvos_mac), Some(nvos_ip)) =
                         (row.nvos_mac.as_ref(), row.nvos_ip.as_ref())
@@ -314,8 +306,8 @@ pub async fn delete_switch(
 }
 
 /// Force deletes a switch and optionally its associated interfaces from the database.
-/// Unlike `delete_switch` (soft delete), this immediately hard-deletes the switch,
-/// its state history, and optionally its machine interfaces.
+/// Unlike `delete_switch` (soft delete), this immediately hard-deletes the switch
+/// while retaining its state history.
 pub async fn admin_force_delete_switch(
     api: &Api,
     request: Request<rpc::AdminForceDeleteSwitchRequest>,
@@ -358,15 +350,6 @@ pub async fn admin_force_delete_switch(
         }
         interfaces_deleted = interface_ids.len() as u32;
     }
-
-    // Delete state history.
-    db::state_history::delete_by_object_id(
-        &mut txn,
-        db::state_history::StateHistoryTableId::Switch,
-        &switch_id,
-    )
-    .await
-    .map_err(CarbideError::from)?;
 
     // Hard-delete the switch.
     db_switch::final_delete(switch_id, &mut txn)

@@ -24,11 +24,34 @@ use nv_redfish::core::{Bmc, EntityTypeRef, ToSnakeCase};
 use nv_redfish::sensor::SensorLink;
 
 use crate::HealthError;
+use crate::bmc::CollectorSweep;
 use crate::collectors::inventory::{DiscoveredEntity, SharedInventory};
 use crate::collectors::runtime::{IterationResult, PeriodicCollector};
 use crate::endpoint::BmcEndpoint;
-use crate::metrics::sanitize_unit;
+use crate::metrics::{MetricLabel, sanitize_unit};
 use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample, SensorThresholdContext};
+
+#[derive(Clone, Copy)]
+enum SensorRangeKind {
+    Max,
+    Min,
+}
+
+impl SensorRangeKind {
+    fn metric_suffix(self) -> &'static str {
+        match self {
+            Self::Max => "range_max",
+            Self::Min => "range_min",
+        }
+    }
+
+    fn label_value(self) -> &'static str {
+        match self {
+            Self::Max => "reading_range_max",
+            Self::Min => "reading_range_min",
+        }
+    }
+}
 
 /// Configuration for the sensor collector.
 pub struct SensorCollectorConfig<B: Bmc> {
@@ -80,11 +103,33 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
             });
         };
 
+        // Consult the endpoint's connection circuit breaker. When the BMC is
+        // unreachable, firing one request per sensor would block on a connect
+        // timeout apiece and log a warning apiece. So: skip entirely while the
+        // backoff window is open, and once it elapses send a *single* probe
+        // instead of the full fan-out — a still-dead BMC then costs one request,
+        // not hundreds, and one fetch is enough to let the breaker self-heal.
+        // See NVBug 6036327.
+        let sweep = self.endpoint.bmc.collector_sweep();
+        if sweep == CollectorSweep::Skip {
+            tracing::debug!(
+                bmc_addr = ?self.endpoint.addr,
+                "BMC connection circuit is open; skipping sensor iteration"
+            );
+            return Ok(IterationResult {
+                refresh_triggered: false,
+                entity_count: None,
+                fetch_failures: 0,
+            });
+        }
+        let probe_only = sweep == CollectorSweep::Probe;
+
         tracing::debug!(
             bmc_addr = ?self.endpoint.addr,
             generation = inventory.generation,
             inventory_age_secs = inventory.discovered_at.elapsed().as_secs(),
             entity_count = inventory.entities.len(),
+            probe_only,
             "Reading entity inventory snapshot for sensor iteration"
         );
 
@@ -92,26 +137,32 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         self.emit_event(CollectorEvent::MetricCollectionStart);
 
         // Entity-level derived metrics (drive media life, PSU capacity), once
-        // per entity.
-        for entity in &inventory.entities {
-            self.emit_derived_metrics(entity);
+        // per entity. Skipped while probing — they would emit metrics from stale
+        // inventory for a BMC we already believe is down.
+        if !probe_only {
+            for entity in &inventory.entities {
+                self.emit_derived_metrics(entity);
+            }
         }
 
         // Build the fetch futures borrowing from the shared snapshot, then
         // drive them concurrently. Each future borrows `&self`, the entity, and
-        // its sensor (all alive for as long as `inventory` is held here).
+        // its sensor (all alive for as long as `inventory` is held here). When
+        // probing, take just the first sensor: one fetch is enough to test
+        // reachability and re-arm or clear the breaker.
         let this = &*self;
         let failures = &fetch_failures;
-        let futures: Vec<_> = inventory
-            .entities
-            .iter()
-            .flat_map(|entity| {
-                entity
-                    .sensors()
-                    .iter()
-                    .map(move |sensor| this.update_sensor(entity, sensor, failures))
-            })
-            .collect();
+        let fetches = inventory.entities.iter().flat_map(|entity| {
+            entity
+                .sensors()
+                .iter()
+                .map(move |sensor| this.update_sensor(entity, sensor, failures))
+        });
+        let futures: Vec<_> = if probe_only {
+            fetches.take(1).collect()
+        } else {
+            fetches.collect()
+        };
 
         let processed: usize = stream::iter(futures)
             .buffer_unordered(self.sensor_fetch_concurrency)
@@ -256,6 +307,8 @@ impl<B: Bmc + 'static> SensorCollector<B> {
 
         let metric_type = reading_type.to_snake_case().to_string();
         let unit = sanitize_unit(&unit);
+        let range_max = sensor.reading_range_max.flatten();
+        let range_min = sensor.reading_range_min.flatten();
 
         let (
             upper_fatal,
@@ -299,10 +352,10 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             MetricSample {
                 key: sensor.odata_id().to_string(),
                 name: "hw_sensor".to_string(),
-                metric_type,
-                unit,
+                metric_type: metric_type.clone(),
+                unit: unit.clone(),
                 value: reading,
-                labels: attributes,
+                labels: attributes.clone(),
                 context: Some(SensorThresholdContext {
                     entity_type: entity.entity_type().to_string(),
                     sensor_id: sensor.base.id.clone(),
@@ -312,14 +365,88 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     lower_critical,
                     upper_caution,
                     lower_caution,
-                    range_max: sensor.reading_range_max.flatten(),
-                    range_min: sensor.reading_range_min.flatten(),
+                    range_max,
+                    range_min,
                     bmc_health,
                 }),
             }
             .into(),
         ));
 
+        if self.include_sensor_thresholds {
+            self.emit_sensor_range_metric(
+                sensor.odata_id().to_string(),
+                &metric_type,
+                &unit,
+                &attributes,
+                SensorRangeKind::Max,
+                range_max,
+            );
+            self.emit_sensor_range_metric(
+                sensor.odata_id().to_string(),
+                &metric_type,
+                &unit,
+                &attributes,
+                SensorRangeKind::Min,
+                range_min,
+            );
+        }
+
         1
+    }
+
+    fn emit_sensor_range_metric(
+        &self,
+        sensor_key: String,
+        reading_type: &str,
+        unit: &str,
+        attributes: &[MetricLabel],
+        range_kind: SensorRangeKind,
+        value: Option<f64>,
+    ) {
+        let Some(value) = value else { return };
+        let metric_suffix = range_kind.metric_suffix();
+        let mut labels = attributes.to_vec();
+        labels.push((
+            Cow::Borrowed("sensor_range"),
+            range_kind.label_value().to_string(),
+        ));
+        self.emit_event(CollectorEvent::Metric(
+            MetricSample {
+                key: format!("{sensor_key}/{metric_suffix}"),
+                name: "hw_sensor".to_string(),
+                metric_type: format!("{reading_type}_{metric_suffix}"),
+                unit: unit.to_string(),
+                value,
+                labels,
+                context: None,
+            }
+            .into(),
+        ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sensor_range_kind_uses_documented_metric_suffixes_and_label_values() {
+        assert_eq!(SensorRangeKind::Max.metric_suffix(), "range_max");
+        assert_eq!(SensorRangeKind::Max.label_value(), "reading_range_max");
+        assert_eq!(SensorRangeKind::Min.metric_suffix(), "range_min");
+        assert_eq!(SensorRangeKind::Min.label_value(), "reading_range_min");
+    }
+
+    #[test]
+    fn sensor_range_metric_contract_matches_matrix_surface() {
+        let reading_type = "fan_speed";
+        let range_kind = SensorRangeKind::Max;
+
+        assert_eq!(
+            format!("{reading_type}_{}", range_kind.metric_suffix()),
+            "fan_speed_range_max"
+        );
+        assert_eq!(range_kind.label_value(), "reading_range_max");
     }
 }

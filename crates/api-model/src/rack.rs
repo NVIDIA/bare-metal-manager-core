@@ -172,6 +172,7 @@ pub struct FirmwareUpgradeDeviceInfo {
     pub os_ip: Option<String>,
     pub os_username: Option<String>,
     pub os_password: Option<String>,
+    pub os_hostname: Option<String>,
 }
 
 /// Per-device status tracked inside `FirmwareUpgradeJob`.
@@ -456,24 +457,52 @@ impl Display for RackMaintenanceState {
 
 /// Sub-states of `RackMaintenanceState::ConfigureNmxCluster`.
 ///
-/// `Start` advances into the NMX cluster sequence. `DisableScaleUpFabricState`
-/// disables ScaleUpFabric state on all scoped switches before
-/// `ConfigureScaleUpFabricManager` selects, persists, and configures only the
-/// primary switch. `WaitForFabricStatus` polls
+/// `Start` advances into certificate configuration for ScaleUpFabric services.
+/// `ConfigureCertificates` installs mTLS certificates on the primary switch via
+/// Component Manager before fabric operations begin.
+/// `DisableScaleUpFabricState` disables ScaleUpFabric state on all scoped
+/// switches before `ConfigureScaleUpFabricManager` selects, persists, and
+/// configures only the primary switch. `WaitForFabricStatus` polls
 /// `BatchGetScaleUpFabricServiceStatus` and persists the per-switch
 /// `fabric_manager_status` before advancing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigureNmxClusterState {
     Start,
+    ConfigureCertificates {
+        configure_certificate: ConfigureNmxClusterCertificateState,
+    },
     DisableScaleUpFabricState,
     ConfigureScaleUpFabricManager,
     WaitForFabricStatus,
+}
+
+/// Sub-states of `ConfigureNmxClusterState::ConfigureCertificates`.
+///
+/// `Start` submits a certificate configuration job for the primary switch.
+/// `WaitForComplete` polls the returned RMS job id until it finishes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConfigureNmxClusterCertificateState {
+    Start,
+    WaitForComplete {
+        jobs: Vec<SwitchConfigureCertificateJob>,
+    },
+}
+
+/// Tracks an in-flight switch certificate configuration job during NMX cluster
+/// maintenance.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwitchConfigureCertificateJob {
+    pub switch_id: SwitchId,
+    pub job_id: String,
 }
 
 impl Display for ConfigureNmxClusterState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ConfigureNmxClusterState::Start => write!(f, "Start"),
+            ConfigureNmxClusterState::ConfigureCertificates {
+                configure_certificate,
+            } => write!(f, "ConfigureCertificates({configure_certificate})"),
             ConfigureNmxClusterState::DisableScaleUpFabricState => {
                 write!(f, "DisableScaleUpFabricState")
             }
@@ -481,6 +510,17 @@ impl Display for ConfigureNmxClusterState {
                 write!(f, "ConfigureScaleUpFabricManager")
             }
             ConfigureNmxClusterState::WaitForFabricStatus => write!(f, "WaitForFabricStatus"),
+        }
+    }
+}
+
+impl Display for ConfigureNmxClusterCertificateState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigureNmxClusterCertificateState::Start => write!(f, "Start"),
+            ConfigureNmxClusterCertificateState::WaitForComplete { jobs } => {
+                write!(f, "WaitForComplete({} jobs)", jobs.len())
+            }
         }
     }
 }

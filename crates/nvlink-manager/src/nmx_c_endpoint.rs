@@ -24,7 +24,7 @@ use db::{self, DatabaseResult};
 use crate::config::NvLinkConfig;
 
 /// Default NMX-C gRPC port when switch NVOS info does not specify one.
-pub const NMX_C_DEFAULT_GRPC_PORT: u16 = 9601;
+pub const NMX_C_DEFAULT_GRPC_PORT: u16 = 9370;
 
 fn nmx_c_endpoint_uses_tls(config: &NvLinkConfig) -> bool {
     config.nmx_c_tls_client_cert_path.is_some() && config.nmx_c_tls_client_key_path.is_some()
@@ -48,7 +48,8 @@ pub fn nmx_c_endpoint_url_from_nvos_ip(
         "{}://{}:{}",
         nmx_c_endpoint_scheme(config),
         ip,
-        port.unwrap_or(NMX_C_DEFAULT_GRPC_PORT)
+        port.or(config.nmx_c_endpoint_port)
+            .unwrap_or(NMX_C_DEFAULT_GRPC_PORT)
     )
 }
 
@@ -113,13 +114,25 @@ mod tests {
         };
         assert_eq!(
             nmx_c_endpoint_url_from_nvos_ip(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), None, &config),
-            "http://10.0.0.1:9601"
+            "http://10.0.0.1:9370"
         );
     }
 
     #[test]
     fn endpoint_url_uses_https_by_default() {
         let config = NvLinkConfig::default();
+        assert_eq!(
+            nmx_c_endpoint_url_from_nvos_ip(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), None, &config),
+            "https://10.0.0.1:9370"
+        );
+    }
+
+    #[test]
+    fn endpoint_url_uses_configured_port() {
+        let config = NvLinkConfig {
+            nmx_c_endpoint_port: Some(9601),
+            ..Default::default()
+        };
         assert_eq!(
             nmx_c_endpoint_url_from_nvos_ip(&IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), None, &config),
             "https://10.0.0.1:9601"

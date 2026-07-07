@@ -218,7 +218,7 @@ func (cmith CreateMachineInstanceTypeHandler) Handle(c echo.Context) error {
 			}
 
 			// check for association with any instance type
-			emits, _, derr := mitDAO.GetAll(ctx, tx, &machineID, nil, nil, nil, nil, nil)
+			emits, _, derr := mitDAO.GetAll(ctx, tx, cdbm.MachineInstanceTypeFilterInput{MachineID: &machineID}, paginator.PageInput{}, nil)
 			if derr != nil {
 				slogger.Error().Err(derr).Msg("error retrieving Machine/InstanceType association from DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to check for existing Instance Type association for Machine: %v", machineID), nil)
@@ -230,7 +230,10 @@ func (cmith CreateMachineInstanceTypeHandler) Handle(c echo.Context) error {
 			}
 
 			// Create Machine/InstanceType association
-			mit, derr := mitDAO.CreateFromParams(ctx, tx, machineID, itID)
+			mit, derr := mitDAO.Create(ctx, tx, cdbm.MachineInstanceTypeCreateInput{
+				MachineID:      machineID,
+				InstanceTypeID: itID,
+			})
 			if derr != nil {
 				slogger.Error().Err(derr).Msg("error creating Machine/InstanceType association")
 				return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to create Instance Type association for Machine: %v", machineID), nil)
@@ -436,7 +439,13 @@ func (gamith GetAllMachineInstanceTypeHandler) Handle(c echo.Context) error {
 	// Get all Machine/InstanceType associations
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(gamith.dbSession)
 
-	emits, total, err := mitDAO.GetAll(ctx, nil, nil, []uuid.UUID{itID}, nil, pageRequest.Offset, pageRequest.Limit, pageRequest.OrderBy)
+	emits, total, err := mitDAO.GetAll(ctx, nil, cdbm.MachineInstanceTypeFilterInput{
+		InstanceTypeIDs: []uuid.UUID{itID},
+	}, paginator.PageInput{
+		Offset:  pageRequest.Offset,
+		Limit:   pageRequest.Limit,
+		OrderBy: pageRequest.OrderBy,
+	}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Machine/InstanceType associations from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine/Instance Type associations", nil)
@@ -593,7 +602,10 @@ func (dmith DeleteMachineInstanceTypeHandler) Handle(c echo.Context) error {
 	}
 
 	if mit == nil {
-		mits, _, err := mitDAO.GetAll(ctx, nil, &machineOrAssociationID, []uuid.UUID{itID}, nil, nil, nil, nil)
+		mits, _, err := mitDAO.GetAll(ctx, nil, cdbm.MachineInstanceTypeFilterInput{
+			MachineID:       &machineOrAssociationID,
+			InstanceTypeIDs: []uuid.UUID{itID},
+		}, paginator.PageInput{}, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error retrieving Machine/InstanceType association by Machine ID from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine/Instance Type associations", nil)
@@ -648,7 +660,7 @@ func (dmith DeleteMachineInstanceTypeHandler) Handle(c echo.Context) error {
 		}
 
 		// Delete Machine/InstanceType association
-		derr = mitDAO.DeleteByID(ctx, tx, mit.ID, false)
+		derr = mitDAO.Delete(ctx, tx, mit.ID, false)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error deleting Machine/InstanceType association from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Machine/Instance Type association", nil)

@@ -638,6 +638,17 @@ async fn test_force_delete_power_shelf_success(
     )
     .await?;
 
+    let mut txn = env.pool.begin().await?;
+    db::state_history::persist(
+        &mut txn,
+        db::state_history::StateHistoryTableId::PowerShelf,
+        &power_shelf_id,
+        &"retained-before-force-delete",
+        config_version::ConfigVersion::initial(),
+    )
+    .await?;
+    txn.commit().await?;
+
     // Force delete without deleting interfaces.
     let response = env
         .api
@@ -664,6 +675,20 @@ async fn test_force_delete_power_shelf_success(
     assert!(
         find_result.power_shelves.is_empty(),
         "Power shelf should be hard-deleted"
+    );
+
+    let mut conn = env.pool.acquire().await?;
+    let history = db::state_history::for_object(
+        &mut conn,
+        db::state_history::StateHistoryTableId::PowerShelf,
+        &power_shelf_id,
+    )
+    .await?;
+    assert!(
+        history
+            .iter()
+            .any(|record| record.state == r#""retained-before-force-delete""#),
+        "Power shelf state history should be retained",
     );
 
     Ok(())

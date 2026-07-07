@@ -4,6 +4,7 @@
 package coregrpc
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -50,8 +51,15 @@ func makeGrpcClientMetrics() client.Metrics {
 	return metrics
 }
 
-func (m *grpcClientMetrics) RecordRpcResponse(method, code string, duration time.Duration) {
-	ManagerAccess.Data.EB.Log.Debug().Msgf("method=%s, code=%s, duration=%v", method, code, duration)
+func (m *grpcClientMetrics) RecordRpcResponse(ctx context.Context, method, code string, duration time.Duration) {
+	event := ManagerAccess.Data.EB.Log.Debug()
+	// Tag the log with the RPC's trace id so an operator can thread this call back to the
+	// workflow that issued it. Omitted when the call carries no span (TraceIDFromContext is
+	// panic-safe and returns "" in that case).
+	if traceID := client.TraceIDFromContext(ctx); traceID != "" {
+		event = event.Str("trace_id", traceID)
+	}
+	event.Msgf("method=%s, code=%s, duration=%v", method, code, duration)
 	m.responseLatency.WithLabelValues(method, code).Observe(duration.Seconds())
 }
 

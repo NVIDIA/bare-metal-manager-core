@@ -560,25 +560,34 @@ fn kvp<K, V>(key: K, value: V) -> Kvp<K, V> {
     Kvp { key, value }
 }
 
+/// Returns `true` if [`str::escape_debug`] would rewrite `c` into something
+/// other than the character itself (e.g. `\`, `"`, `'`, or a control
+/// character). Such characters are only safe inside a quoted value: an escaped
+/// character emitted in an unquoted token would be read back literally,
+/// corrupting the value.
+fn char_is_escaped(c: char) -> bool {
+    let mut escaped = c.escape_debug();
+    escaped.next() != Some(c) || escaped.next().is_some()
+}
+
 impl<K: AsRef<str>, V: AsRef<str>> std::fmt::Display for Kvp<K, V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let escaped_key = escape_key_name(self.key.as_ref());
+        let value = self.value.as_ref();
 
-        if self
-            .value
-            .as_ref()
-            .as_bytes()
-            .iter()
-            .any(|c| *c <= b' ' || matches!(*c, b'=' | b'"'))
+        // Quote the value if it contains whitespace or `=` (which would break
+        // an unquoted token), or any character that `escape_debug` rewrites.
+        // Escaping is only meaningful inside quotes, so a value that needs
+        // escaping must also be quoted; previously such values (e.g. those
+        // containing a backslash but no whitespace) were escaped yet left
+        // unquoted, which corrupts them when read back.
+        if value
+            .chars()
+            .any(|c| c <= ' ' || c == '=' || char_is_escaped(c))
         {
-            write!(
-                f,
-                r#"{}="{}""#,
-                escaped_key,
-                self.value.as_ref().escape_debug()
-            )?;
+            write!(f, r#"{}="{}""#, escaped_key, value.escape_debug())?;
         } else {
-            write!(f, "{}={}", escaped_key, self.value.as_ref().escape_debug())?;
+            write!(f, "{}={}", escaped_key, value)?;
         }
 
         Ok(())
@@ -1443,5 +1452,25 @@ mod tests {
             event_line.contains("service=deep-comp"),
             "deeply nested span did not inherit service: {event_line}"
         );
+    }
+
+    #[test]
+    fn values_needing_escapes_are_quoted() {
+        use super::kvp;
+
+        // A backslash (with no whitespace) must be quoted: an escaped value
+        // emitted unquoted would be read back literally and corrupted.
+        assert_eq!(kvp("path", r"a\b").to_string(), r#"path="a\\b""#);
+        // Apostrophes and embedded quotes likewise require quoting.
+        assert_eq!(kvp("name", "O'Brien").to_string(), r#"name="O\'Brien""#);
+        assert_eq!(kvp("q", "a\"b").to_string(), r#"q="a\"b""#);
+
+        // Clean single-token values stay unquoted and unescaped.
+        assert_eq!(kvp("plain", "hello").to_string(), "plain=hello");
+        assert_eq!(kvp("unicode", "café").to_string(), "unicode=café");
+
+        // Whitespace and `=` still force quoting.
+        assert_eq!(kvp("k", "a b").to_string(), r#"k="a b""#);
+        assert_eq!(kvp("k", "a=b").to_string(), r#"k="a=b""#);
     }
 }

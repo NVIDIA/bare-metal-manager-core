@@ -234,13 +234,13 @@ func (csh CreateVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		createdSSD, derr := sdDAO.CreateFromParams(ctx, tx, vpcPrefix.ID.String(), status, &statusMsg)
+		createdSSD, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: vpcPrefix.ID.String(), Status: *cutil.GetPtr(status), Message: cutil.GetPtr(statusMsg)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC prefix", nil)
 		}
 		if createdSSD == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for VPC prefix", nil)
 		}
 		ssd = createdSSD
@@ -854,7 +854,7 @@ func (ush UpdateVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 
 		// get status details for the response
-		fetchedSSDs, _, derr := sdDAO.GetAllByEntityID(ctx, tx, updated.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		fetchedSSDs, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{updated.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for VPC prefix from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for VPC prefix", nil)
@@ -1079,7 +1079,7 @@ func (dsh DeleteVpcPrefixHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update VPC prefix status, DB error", nil)
 		}
 
-		_, derr = sdDAO.CreateFromParams(ctx, tx, vpcPrefix.ID.String(), status, &statusMsg)
+		_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: vpcPrefix.ID.String(), Status: status, Message: &statusMsg})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail for VPC prefix")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create VPC prefix status detail, DB error", nil)

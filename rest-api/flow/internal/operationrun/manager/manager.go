@@ -14,7 +14,6 @@ import (
 
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	operationrunplanner "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/planner"
-	operationrunstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/store"
 )
 
 // Manager is the operation-run business logic boundary used by service code.
@@ -36,13 +35,13 @@ var _ Manager = (*ManagerImpl)(nil)
 
 // ManagerImpl implements Manager.
 type ManagerImpl struct {
-	store   operationrunstore.Store
+	store   Store
 	planner operationrunplanner.Planner
 }
 
 // New creates an operation-run manager.
 func New(
-	store operationrunstore.Store,
+	store Store,
 	planner operationrunplanner.Planner,
 ) (*ManagerImpl, error) {
 	manager := &ManagerImpl{store: store, planner: planner}

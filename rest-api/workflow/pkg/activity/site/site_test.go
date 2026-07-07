@@ -1305,7 +1305,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_CreatesMissingBlocks(t 
 
 	statusDetailDAO := cdbm.NewStatusDetailDAO(resources.dbSession)
 	for _, ipBlock := range ipBlocks {
-		statusDetails, total, err := statusDetailDAO.GetAllByEntityID(ctx, nil, ipBlock.ID.String(), nil, nil, nil)
+		statusDetails, total, err := statusDetailDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{ipBlock.ID.String()}}, cdbp.PageInput{})
 		require.NoError(t, err)
 		require.Equal(t, 1, total)
 		require.Len(t, statusDetails, 1)
@@ -1329,7 +1329,7 @@ func TestManageSite_UpdateIPBlocksInDBFromFabricPrefixes_IsIdempotent(t *testing
 
 	statusDetailDAO := cdbm.NewStatusDetailDAO(resources.dbSession)
 	for _, ipBlock := range ipBlocks {
-		_, total, err := statusDetailDAO.GetAllByEntityID(ctx, nil, ipBlock.ID.String(), nil, nil, nil)
+		_, total, err := statusDetailDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{ipBlock.ID.String()}}, cdbp.PageInput{})
 		require.NoError(t, err)
 		assert.Equal(t, 1, total)
 	}

@@ -21,10 +21,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::DiscoveryIterationStats;
-use super::cleanup::stop_removed_bmc_collectors;
+use super::cleanup::{stop_ineligible_nmxc_collectors, stop_removed_bmc_collectors};
 use super::context::{CollectorKind, DiscoveryLoopContext};
-use super::spawn::spawn_collectors_for_endpoint;
+use super::spawn::{spawn_collectors_for_endpoint, switch_supports_nmxc_subscription};
 use crate::HealthError;
+use crate::config::Configurable;
 use crate::endpoint::{BmcEndpoint, EndpointSource};
 use crate::sharding::ShardManager;
 use crate::sink::DataSink;
@@ -32,6 +33,15 @@ use crate::sink::DataSink;
 fn active_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow<'static, str>> {
     sharded_endpoints
         .iter()
+        .map(|endpoint| Cow::Owned(endpoint.key()))
+        .collect()
+}
+
+/// Returns active endpoint keys that remain eligible for NMX-C Subscribe collection.
+fn nmxc_subscription_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow<'static, str>> {
+    sharded_endpoints
+        .iter()
+        .filter(|endpoint| switch_supports_nmxc_subscription(endpoint))
         .map(|endpoint| Cow::Owned(endpoint.key()))
         .collect()
 }
@@ -80,6 +90,19 @@ pub async fn run_discovery_iteration(
         spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix)?;
     }
 
+    if matches!(&ctx.nmxc_config, Configurable::Enabled(_)) {
+        // Endpoints can remain active while Carbide API changes primary or
+        // NMX-C desired-state flags. Reconcile existing streams against the
+        // same target policy used for spawn before generic removed-endpoint
+        // cleanup runs.
+        let nmxc_eligible_endpoints = nmxc_subscription_keys(&sharded_endpoints);
+        stop_ineligible_nmxc_collectors(ctx, &nmxc_eligible_endpoints);
+    } else {
+        // If config disables NMX-C after streams already started, no endpoint
+        // remains eligible even though the endpoint keys may still be active.
+        stop_ineligible_nmxc_collectors(ctx, &HashSet::new());
+    }
+
     let active_endpoints = active_keys(&sharded_endpoints);
     stop_removed_bmc_collectors(ctx, &active_endpoints);
 
@@ -108,6 +131,7 @@ mod tests {
         BmcAddr, BmcCredentials, EndpointMetadata, SwitchData, SwitchEndpointRole,
     };
 
+    /// Builds a generic endpoint fixture for discovery iteration tests.
     fn endpoint(mac: MacAddress, switch: bool, rack_id: Option<RackId>) -> Arc<BmcEndpoint> {
         let metadata = switch.then(|| {
             EndpointMetadata::Switch(SwitchData {
@@ -117,6 +141,7 @@ mod tests {
                 tray_index: None,
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: false,
+                nmxc_enabled: false,
                 nmxt_enabled: false,
             })
         });
@@ -132,6 +157,42 @@ mod tests {
             },
             metadata,
             rack_id,
+        ))
+    }
+
+    /// Builds a switch-host endpoint with primary and NMX-C desired-state flags.
+    fn switch_endpoint(mac: MacAddress, is_primary: bool, nmxc_enabled: bool) -> Arc<BmcEndpoint> {
+        switch_endpoint_with_role(mac, SwitchEndpointRole::Host, is_primary, nmxc_enabled)
+    }
+
+    /// Builds a switch endpoint with an explicit endpoint role.
+    fn switch_endpoint_with_role(
+        mac: MacAddress,
+        endpoint_role: SwitchEndpointRole,
+        is_primary: bool,
+        nmxc_enabled: bool,
+    ) -> Arc<BmcEndpoint> {
+        Arc::new(endpoint_with_creds(
+            BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                port: Some(443),
+                mac,
+            },
+            BmcCredentials::UsernamePassword {
+                username: "user".to_string(),
+                password: Some("pass".to_string()),
+            },
+            Some(EndpointMetadata::Switch(SwitchData {
+                id: None,
+                serial: format!("serial-{mac}"),
+                slot_number: None,
+                tray_index: None,
+                endpoint_role,
+                is_primary,
+                nmxc_enabled,
+                nmxt_enabled: false,
+            })),
+            None,
         ))
     }
 
@@ -155,5 +216,52 @@ mod tests {
             HashSet::from([Cow::Owned(ep1.key()), Cow::Owned(ep2.key())])
         );
         assert_ne!(ep1.hash_key(), Cow::<str>::Owned(ep1.key()));
+    }
+
+    #[tokio::test]
+    /// Verifies NMX-C eligibility cleanup keys include only primary enabled switch hosts.
+    async fn test_nmxc_subscription_keys_only_include_primary_enabled_switch_hosts() {
+        let primary_enabled = switch_endpoint(
+            MacAddress::from_str("00:00:00:00:00:11").unwrap(),
+            true,
+            true,
+        );
+
+        let secondary_enabled = switch_endpoint(
+            MacAddress::from_str("00:00:00:00:00:12").unwrap(),
+            false,
+            true,
+        );
+
+        let primary_disabled = switch_endpoint(
+            MacAddress::from_str("00:00:00:00:00:13").unwrap(),
+            true,
+            false,
+        );
+
+        let primary_bmc_enabled = switch_endpoint_with_role(
+            MacAddress::from_str("00:00:00:00:00:14").unwrap(),
+            SwitchEndpointRole::Bmc,
+            true,
+            true,
+        );
+
+        let non_switch = endpoint(
+            MacAddress::from_str("00:00:00:00:00:15").unwrap(),
+            false,
+            None,
+        );
+
+        let expected_key = Cow::Owned(primary_enabled.key());
+
+        let keys = nmxc_subscription_keys(&[
+            primary_enabled,
+            secondary_enabled,
+            primary_disabled,
+            primary_bmc_enabled,
+            non_switch,
+        ]);
+
+        assert_eq!(keys, HashSet::from([expected_key]));
     }
 }

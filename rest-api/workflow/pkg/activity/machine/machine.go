@@ -162,7 +162,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		}
 
 		sdDAO := cdbm.NewStatusDetailDAO(mm.dbSession)
-		_, serr = sdDAO.CreateFromParams(ctx, nil, site.ID.String(), status, &statusMessage)
+		_, serr = sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: site.ID.String(), Status: status, Message: &statusMessage})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry for Site")
 		}
@@ -357,7 +357,10 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			}
 
 			if controllerInstanceTypeID != nil {
-				_, serr = mitDAO.CreateFromParams(ctx, txn, newMachine.ID, *controllerInstanceTypeID)
+				_, serr = mitDAO.Create(ctx, txn, cdbm.MachineInstanceTypeCreateInput{
+					MachineID:      newMachine.ID,
+					InstanceTypeID: *controllerInstanceTypeID,
+				})
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to create MachineInstanceType DB record for new Machine")
 					txn.Rollback()
@@ -369,7 +372,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			txn.Commit()
 
 			// Create status detail
-			_, serr = sdDAO.CreateFromParams(ctx, nil, newMachine.ID, machineStatus, &statusMessage)
+			_, serr = sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: newMachine.ID, Status: machineStatus, Message: &statusMessage})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			}
@@ -474,7 +477,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			// and fix empty/stale state even when Machine.InstanceTypeID already matches.
 			clearInstanceTypeID := controllerInstanceTypeID == nil && existingCloudMachine.InstanceTypeID != nil
 
-			machineInstanceTypes, _, err := mitDAO.GetAll(ctx, txn, &existingCloudMachine.ID, nil, nil, nil, cwutil.GetPtr(cdbp.TotalLimit), nil)
+			machineInstanceTypes, _, err := mitDAO.GetAll(ctx, txn, cdbm.MachineInstanceTypeFilterInput{MachineID: &existingCloudMachine.ID}, cdbp.PageInput{Limit: cwutil.GetPtr(cdbp.TotalLimit)}, nil)
 			if err != nil {
 				slogger.Error().Err(err).Msg("failed to get MachineInstanceTypes for reconciliation")
 				txn.Rollback()
@@ -492,7 +495,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 
 			if needsMitReconcile {
 				for _, mit := range machineInstanceTypes {
-					err = mitDAO.DeleteByID(ctx, txn, mit.ID, false)
+					err = mitDAO.Delete(ctx, txn, mit.ID, false)
 					if err != nil {
 						slogger.Error().Err(err).Msg("failed to delete MachineInstanceType during reconciliation")
 						break
@@ -504,7 +507,10 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 				}
 
 				if controllerInstanceTypeID != nil {
-					_, serr = mitDAO.CreateFromParams(ctx, txn, existingCloudMachine.ID, *controllerInstanceTypeID)
+					_, serr = mitDAO.Create(ctx, txn, cdbm.MachineInstanceTypeCreateInput{
+						MachineID:      existingCloudMachine.ID,
+						InstanceTypeID: *controllerInstanceTypeID,
+					})
 					if serr != nil {
 						slogger.Error().Err(serr).Msg("failed to create MachineInstanceType during reconciliation")
 						txn.Rollback()
@@ -543,7 +549,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			} else {
 				// Check if the latest status detail message is different from the current status message
 				// Leave orderBy nil since the result is sorted by create timestamp by default
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, existingCloudMachine.ID, nil, cwutil.GetPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{existingCloudMachine.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(1)})
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Machine")
 				} else if len(latestsd) == 0 || (latestsd[0].Message != nil && *latestsd[0].Message != statusMessage) {
@@ -552,7 +558,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			}
 
 			if createStatusDetail {
-				_, serr = sdDAO.CreateFromParams(ctx, nil, existingCloudMachine.ID, machineStatus, &statusMessage)
+				_, serr = sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: existingCloudMachine.ID, Status: machineStatus, Message: &statusMessage})
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error creating Status Detail for Machine DB entry")
 				}
@@ -697,7 +703,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 
 			// Update machine status/create status detail if it doesn't have this error recorded already
 			if status == existingMachine.Status {
-				latestsd, _, serr := sdDAO.GetAllByEntityID(ctx, nil, existingMachine.ID, nil, cwutil.GetPtr(1), nil)
+				latestsd, _, serr := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{existingMachine.ID}}, cdbp.PageInput{Limit: cwutil.GetPtr(1)})
 				if serr != nil {
 					slogger.Error().Err(serr).Msg("failed to retrieve latest Status Detail for Machine")
 					continue
@@ -716,7 +722,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			}
 
 			// Create status detail
-			_, serr = sdDAO.CreateFromParams(ctx, nil, existingMachine.ID, status, &statusMessage)
+			_, serr = sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: existingMachine.ID, Status: status, Message: &statusMessage})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("error creating Status Detail for Machine in DB")
 				continue

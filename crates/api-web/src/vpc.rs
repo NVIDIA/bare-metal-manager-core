@@ -174,6 +174,11 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
     Ok(vpcs)
 }
 
+struct VpcPeeringRow {
+    id: String,
+    peer_vpc_id: String,
+}
+
 #[derive(Template)]
 #[template(path = "vpc_detail.html")]
 struct VpcDetail {
@@ -184,6 +189,7 @@ struct VpcDetail {
     routing_profile_type: String,
     vni: String,
     metadata_detail: super::MetadataDetail,
+    peerings: Vec<VpcPeeringRow>,
 }
 
 impl From<forgerpc::Vpc> for VpcDetail {
@@ -205,6 +211,7 @@ impl From<forgerpc::Vpc> for VpcDetail {
                 metadata: vpc.metadata.clone().unwrap_or_default(),
                 metadata_version: vpc.version,
             },
+            peerings: Vec::new(),
         }
     }
 }
@@ -259,8 +266,80 @@ pub async fn detail(
         return (StatusCode::OK, Json(vpc)).into_response();
     }
 
-    let tmpl: VpcDetail = vpc.into();
+    let mut tmpl: VpcDetail = vpc.into();
+
+    let peerings = fetch_vpc_peerings(state, vpc_id_string).await;
+    tmpl.peerings = peerings;
+
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+async fn fetch_vpc_peerings(state: Arc<Api>, vpc_id_string: String) -> Vec<VpcPeeringRow> {
+    let Ok(vpc_id) = vpc_id_string.parse() else {
+        return Vec::new();
+    };
+
+    // Get the peering IDs for the VPC
+    let peering_ids = match state
+        .find_vpc_peering_ids(tonic::Request::new(forgerpc::VpcPeeringSearchFilter {
+            vpc_id: Some(vpc_id),
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(id_list) => id_list.vpc_peering_ids,
+        Err(err) => {
+            tracing::error!(%err, "find_vpc_peering_ids");
+            return Vec::new();
+        }
+    };
+
+    // Short circuit if there are no peerings
+    if peering_ids.is_empty() {
+        return Vec::new();
+    }
+
+    // Get the peerings by IDs
+    let peerings = match state
+        .find_vpc_peerings_by_ids(tonic::Request::new(forgerpc::VpcPeeringsByIdsRequest {
+            vpc_peering_ids: peering_ids,
+        }))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(peerings) => peerings.vpc_peerings,
+        Err(err) => {
+            tracing::error!(%err, "find_vpc_peerings_by_ids");
+            Vec::new()
+        }
+    };
+
+    peerings
+        .into_iter()
+        .map(|p| {
+            let vpc_id_str = p
+                .vpc_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            let peer_vpc_id_str = p
+                .peer_vpc_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            // The search filter may return peerings where the current VPC is on
+            // either side; resolve to whichever side is not the current VPC.
+            let peer_vpc_id = if vpc_id_str == vpc_id_string {
+                peer_vpc_id_str
+            } else {
+                vpc_id_str
+            };
+            VpcPeeringRow {
+                id: p.id.map(|id| id.to_string()).unwrap_or_default(),
+                peer_vpc_id,
+            }
+        })
+        .collect()
 }
 
 impl super::Base for VpcShow {}

@@ -108,8 +108,8 @@ Because there is no Redfish task to poll, NICo monitors the network install indi
 During normal ingestion no manual action is required. Operators can monitor the state with:
 
 ```bash
-nico-admin-cli -c <api-url> managed-host show --all
-nico-admin-cli -c <api-url> managed-host show <machine-id>
+nico-admin-cli -a <api-url> managed-host show --all
+nico-admin-cli -a <api-url> managed-host show <machine-id>
 ```
 
 For Redfish BFB installs, the handler outcome reports install percentage. For UEFI HTTP Boot installs, the handler outcome reports DPU discovery and reboot status.
@@ -164,7 +164,7 @@ A DPU update is treated as a host-level maintenance event because the host and i
 Operators can inspect DPU firmware status with:
 
 ```bash
-nico-admin-cli -c <api-url> dpu versions
+nico-admin-cli -a <api-url> dpu versions
 ```
 
 ## Containerized Cumulus and NVUE
@@ -216,8 +216,8 @@ NICo uses DPU health to gate state transitions and allocation:
 When a DPU becomes unhealthy, inspect the managed host state and DPU health report:
 
 ```bash
-nico-admin-cli -c <api-url> managed-host show <machine-id>
-nico-admin-cli -c <api-url> machine network status
+nico-admin-cli -a <api-url> managed-host show <machine-id>
+nico-admin-cli -a <api-url> machine network status
 ```
 
 Key fields to check in the output:
@@ -252,7 +252,7 @@ Automatic DPU reprovisioning is triggered when Machine Update Manager selects an
 The API requires a `HostUpdateInProgress` health alert on the host before it accepts a reprovisioning request. Use `--update-message` to apply this alert:
 
 ```bash
-nico-admin-cli -c <api-url> dpu reprovision set \
+nico-admin-cli -a <api-url> dpu reprovision set \
   --id <host-or-dpu-machine-id> \
   --update-message "<maintenance-reference>"
 ```
@@ -262,8 +262,8 @@ Firmware is always verified and updated during reprovisioning regardless of whet
 ### Monitoring Reprovisioning Progress
 
 ```bash
-nico-admin-cli -c <api-url> dpu reprovision list
-nico-admin-cli -c <api-url> managed-host show <machine-id>
+nico-admin-cli -a <api-url> dpu reprovision list
+nico-admin-cli -a <api-url> managed-host show <machine-id>
 ```
 
 The `managed-host show` output displays the current reprovisioning substate, percent complete for BFB installation (when available), and any handler errors.
@@ -273,13 +273,13 @@ The `managed-host show` output displays the current reprovisioning substate, per
 To restart a DPU reprovisioning flow for all DPUs on a host:
 
 ```bash
-nico-admin-cli -c <api-url> dpu reprovision restart --id <host-machine-id>
+nico-admin-cli -a <api-url> dpu reprovision restart --id <host-machine-id>
 ```
 
 To clear a pending reprovisioning request that has not started:
 
 ```bash
-nico-admin-cli -c <api-url> dpu reprovision clear --id <host-or-dpu-machine-id>
+nico-admin-cli -a <api-url> dpu reprovision clear --id <host-or-dpu-machine-id>
 ```
 
 For the complete reprovisioning state machine, see [DPU Reprovision State Details](../architecture/state_machines/managedhost.md#dpu-reprovision-state-details-dpureprovisionstate).

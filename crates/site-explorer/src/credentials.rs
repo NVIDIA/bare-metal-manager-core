@@ -27,10 +27,6 @@ use model::site_explorer::EndpointExplorationError;
 
 use super::metrics::SiteExplorationMetrics;
 
-const SITEWIDE_BMC_ROOT_CREDENTIAL_KEY: CredentialKey = CredentialKey::BmcCredentials {
-    credential_type: carbide_secrets::credentials::BmcCredentialType::SiteWideRoot,
-};
-
 pub fn get_bmc_root_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {
     CredentialKey::BmcCredentials {
         credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
@@ -116,15 +112,13 @@ impl CredentialClient {
 
     pub async fn check_preconditions(
         &self,
-        metrics: &mut SiteExplorationMetrics,
+        _metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError> {
         // The required site-wide default credentials (site-wide BMC root, DPU
         // UEFI, host UEFI) come from the shared canonical list so this check and
         // the admin UI's "default credentials not set" warning cannot drift.
         for credential_key in REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS {
             if let Some(e) = self.get_credentials(&credential_key).await.err() {
-                let credential_key_str = credential_key.to_key_str();
-                metrics.increment_credential_missing(&credential_key_str);
                 return Err(EndpointExplorationError::MissingCredentials {
                     key: credential_key.to_key_str().to_string(),
                     cause: e.to_string(),
@@ -135,11 +129,20 @@ impl CredentialClient {
         Ok(())
     }
 
+    /// Read the site-wide BMC root credential at `version`. The caller resolves
+    /// the current version from `sitewide_credential_rotation.target_version`
+    /// (see [`super::bmc_endpoint_explorer::BmcEndpointExplorer`]); version 0 is
+    /// the legacy unversioned path. There is no unversioned "current" alias --
+    /// the rotation table is the single source of truth for which version is
+    /// live.
     pub async fn get_sitewide_bmc_root_credentials(
         &self,
+        version: u32,
     ) -> Result<Credentials, EndpointExplorationError> {
-        self.get_credentials(&SITEWIDE_BMC_ROOT_CREDENTIAL_KEY)
-            .await
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::site_wide_root(version),
+        };
+        self.get_credentials(&key).await
     }
 
     pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
@@ -185,5 +188,35 @@ impl CredentialClient {
         let bmc_nvos_admin_credential_key = get_bmc_nvos_admin_credential_key(bmc_mac_address);
         self.set_credentials(&bmc_nvos_admin_credential_key, credentials)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
+    use model::site_explorer::EndpointExplorationError;
+
+    use super::CredentialClient;
+    use crate::metrics::SiteExplorationMetrics;
+
+    #[tokio::test]
+    async fn check_preconditions_should_not_count_missing_credentials_as_endpoint_failures() {
+        let credential_client = CredentialClient::new(Arc::new(TestCredentialManager::default()));
+        let mut metrics = SiteExplorationMetrics::new();
+
+        let error = credential_client
+            .check_preconditions(&mut metrics)
+            .await
+            .expect_err("missing site credentials should fail preconditions");
+
+        assert!(matches!(
+            error,
+            EndpointExplorationError::MissingCredentials { .. }
+        ));
+        assert_eq!(metrics.endpoint_explorations, 0);
+        assert_eq!(metrics.endpoint_explorations_success, 0);
+        assert!(metrics.endpoint_explorations_failures_by_type.is_empty());
     }
 }

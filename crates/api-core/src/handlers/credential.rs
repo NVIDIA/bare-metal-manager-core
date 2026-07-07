@@ -620,6 +620,21 @@ pub(crate) async fn delete_bmc_root_credentials_by_mac(
             CarbideError::internal(format!("Error deleting credential for BMC: {e:?} "))
         })?;
 
+    // Drop the bmc convergence marker alongside the Vault secret it depends on:
+    // once NICo discards the per-device BMC secret it can no longer authenticate
+    // or rotate the device, so tracking convergence is meaningless. (The rotation
+    // engine also joins device_credential_rotation to the live device tables, so
+    // a row orphaned by device deletion is never acted on -- this just keeps the
+    // table tidy at the chokepoint where the secret actually goes away.)
+    let mut txn = api.txn_begin().await?;
+    db::credential_rotation::delete_device_converged(
+        &mut txn,
+        bmc_mac_address,
+        db::credential_rotation::CredentialRotationType::Bmc,
+    )
+    .await?;
+    txn.commit().await?;
+
     api.bmc_session_manager.flush_mac(bmc_mac_address).await;
 
     Ok(())

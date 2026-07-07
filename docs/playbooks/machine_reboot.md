@@ -34,12 +34,12 @@ the NICo site controller.
 
 **Example:**
 
-```
-/opt/nico/nico-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --machine-id="60cef902-9779-4666-8362-c9bb4b37184f"
+```bash
+/opt/nico/nico-admin-cli -a https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --machine-id="60cef902-9779-4666-8362-c9bb4b37184f"
 ```
 
 or using username and password:
 
-```
-/opt/nico/nico-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --username myhost --password mypassword
+```bash
+/opt/nico/nico-admin-cli -a https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --username myhost --password mypassword
 ```

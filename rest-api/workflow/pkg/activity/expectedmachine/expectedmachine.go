@@ -153,6 +153,7 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 				FallbackDpuSerialNumbers: reported.FallbackDpuSerialNumbers,
 				Labels:                   reported.Labels,
 				MachineID:                reported.MachineID,
+				IsDpfEnabled:             reported.IsDpfEnabled,
 				CreatedBy:                siteID, /* This would normally be a user ID, but that isn't something NICo provides */
 			})
 			if cerr != nil {
@@ -167,7 +168,8 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 			!util.PtrsEqual(cur.SkuID, reported.SkuID) ||
 			!util.PtrsEqual(cur.MachineID, reported.MachineID) ||
 			!reflect.DeepEqual(cur.FallbackDpuSerialNumbers, reported.FallbackDpuSerialNumbers) ||
-			!reflect.DeepEqual(cur.Labels, reported.Labels) {
+			!reflect.DeepEqual(cur.Labels, reported.Labels) ||
+			!util.PtrsEqual(cur.IsDpfEnabled, reported.IsDpfEnabled) {
 			// nil labels in nico can mean we need to clear out existing labels in DB
 			// but a nil value will not trigger an update in the DAO layer. We could use `Clear` but an empty map
 			// will save a call to the DB.
@@ -183,6 +185,7 @@ func (mei ManageExpectedMachine) UpdateExpectedMachinesInDB(ctx context.Context,
 				MachineID:                reported.MachineID,
 				FallbackDpuSerialNumbers: reported.FallbackDpuSerialNumbers,
 				Labels:                   labels,
+				IsDpfEnabled:             reported.IsDpfEnabled,
 			})
 			if uerr != nil {
 				logger.Error().Err(uerr).Str("ExpectedMachineID", cur.ID.String()).Msg("failed to update ExpectedMachine in DB")

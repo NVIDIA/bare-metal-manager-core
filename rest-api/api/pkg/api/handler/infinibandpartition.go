@@ -226,14 +226,13 @@ func (cibph CreateInfiniBandPartitionHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		newSSD, derr := sdDAO.CreateFromParams(ctx, tx, ibp.ID.String(), string(cdbm.InfiniBandPartitionStatusPending),
-			cutil.GetPtr("received InfiniBand Partition creation request, pending"))
+		newSSD, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ibp.ID.String(), Status: string(cdbm.InfiniBandPartitionStatusPending), Message: cutil.GetPtr("received InfiniBand Partition creation request, pending")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for InfiniBand Partition", nil)
 		}
 		if newSSD == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for InfiniBand Partition", nil)
 		}
 		ssd = newSSD
@@ -865,7 +864,7 @@ func (uibph UpdateInfiniBandPartitionHandler) Handle(c echo.Context) error {
 		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous update InfiniBand Partition workflow")
 
 		// get status details for the response
-		curSSDs, _, derr := sdDAO.GetAllByEntityID(ctx, tx, uipb.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		curSSDs, _, derr := sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{uipb.ID.String()}}, paginator.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for InfiniBand Partition from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for InfiniBand Partition", nil)
@@ -1045,8 +1044,7 @@ func (dibph DeleteInfiniBandPartitionHandler) Handle(c echo.Context) error {
 		}
 
 		// Create status detail
-		if _, derr := sdDAO.CreateFromParams(ctx, tx, ibp.ID.String(), string(deletingStatus),
-			cutil.GetPtr("Received request for deletion, pending processing")); derr != nil {
+		if _, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ibp.ID.String(), Status: string(deletingStatus), Message: cutil.GetPtr("Received request for deletion, pending processing")}); derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for InfiniBand Partition deletion", nil)
 		}

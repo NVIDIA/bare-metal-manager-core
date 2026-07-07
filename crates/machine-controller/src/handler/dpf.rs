@@ -202,12 +202,25 @@ async fn create_and_register_dpudevices_and_dpunode(
             serial_number: serial_number.to_string(),
             dpu_machine_id: dpu.id.to_string(),
             is_primary: dpu.id == primary_dpu_id,
+            deployment_type: dpf_sdk.deployment_type_for_dpu(dpu).map_err(dpf_error)?,
         };
         dpf_sdk
             .register_dpu_device(device_info)
             .await
             .map_err(dpf_error)?;
     }
+
+    let primary_dpu = state
+        .dpu_snapshots
+        .iter()
+        .find(|dpu| dpu.id == primary_dpu_id)
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: state.host_snapshot.id.to_string(),
+            missing: "primary_dpu_snapshot",
+        })?;
+    let deployment_type = dpf_sdk
+        .deployment_type_for_dpu(primary_dpu)
+        .map_err(dpf_error)?;
 
     let device_ids: Vec<String> = state
         .dpu_snapshots
@@ -218,6 +231,7 @@ async fn create_and_register_dpudevices_and_dpunode(
         node_id: dpf_id(&state.host_snapshot)?,
         host_bmc_ip: bmc_ip(&state.host_snapshot)?,
         device_ids,
+        deployment_type,
     };
     dpf_sdk
         .register_dpu_node(node_info)
@@ -227,23 +241,45 @@ async fn create_and_register_dpudevices_and_dpunode(
     Ok(())
 }
 
-fn dpf_cr_creation_failed(
+/// Build the correct failure state depending on whether the host is currently
+/// `Assigned` (DPU reprovision path). When `Assigned`, we preserve the outer
+/// state and embed the failure as `InstanceState::Failed`; otherwise we use
+/// the top-level `ManagedHostState::Failed`.
+fn make_failure_state(
+    state: &ManagedHostStateSnapshot,
+    details: FailureDetails,
     machine_id: MachineId,
+) -> ManagedHostState {
+    if matches!(state.managed_state, ManagedHostState::Assigned { .. }) {
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Failed {
+                details,
+                machine_id,
+            },
+        }
+    } else {
+        ManagedHostState::Failed {
+            details,
+            machine_id,
+            retry_count: 0,
+        }
+    }
+}
+
+fn dpf_cr_creation_failed(
+    state: &ManagedHostStateSnapshot,
     err: &StateHandlerError,
 ) -> StateHandlerOutcome<ManagedHostState> {
-    StateHandlerOutcome::transition(ManagedHostState::Failed {
-        details: FailureDetails {
-            cause: FailureCause::DpfProvisioning {
-                err: format!(
-                    "DPUDevice/DPUNode creation failed. Force-delete again to clean old values. Wait until DPU CR are deleted. {err}"
-                ),
-            },
-            failed_at: chrono::Utc::now(),
-            source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+    let details = FailureDetails {
+        cause: FailureCause::DpfProvisioning {
+            err: format!(
+                "DPUDevice/DPUNode creation failed. Force-delete/restart reprovisioning (reprovisioning case) to clean old values. Wait until DPU CR are deleted. {err}"
+            ),
         },
-        machine_id,
-        retry_count: 0,
-    })
+        failed_at: chrono::Utc::now(),
+        source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+    };
+    StateHandlerOutcome::transition(make_failure_state(state, details, state.host_snapshot.id))
 }
 
 /// Handle DpfState::Provisioning: register all DPU devices and the node, then
@@ -253,7 +289,7 @@ async fn handle_dpf_provisioning(
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
-        return Ok(dpf_cr_creation_failed(state.host_snapshot.id, &err));
+        return Ok(dpf_cr_creation_failed(state, &err));
     }
 
     let next =
@@ -349,20 +385,21 @@ async fn handle_dpf_waiting_for_ready(
             dpu = %dpu_snapshot.id,
             "DPU entered error phase during DPF provisioning"
         );
-        return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
-            details: FailureDetails {
-                cause: FailureCause::DpfProvisioning {
-                    err: format!(
-                        "DPU {} entered error phase during DPF provisioning",
-                        dpu_snapshot.id
-                    ),
-                },
-                failed_at: chrono::Utc::now(),
-                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+        let details = FailureDetails {
+            cause: FailureCause::DpfProvisioning {
+                err: format!(
+                    "DPU {} entered error phase during DPF provisioning",
+                    dpu_snapshot.id
+                ),
             },
-            machine_id: dpu_snapshot.id,
-            retry_count: 0,
-        }));
+            failed_at: chrono::Utc::now(),
+            source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+        };
+        return Ok(StateHandlerOutcome::transition(make_failure_state(
+            state,
+            details,
+            dpu_snapshot.id,
+        )));
     }
     // wait for dpf to report that the dpu is ready
     if current_phase != carbide_dpf::DpuPhase::Ready {
@@ -415,7 +452,7 @@ async fn handle_dpf_reprovisioning(
             "DPUDevice/DPUNode CRs do not exist, creating them before reprovisioning"
         );
         if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
-            return Ok(dpf_cr_creation_failed(state.host_snapshot.id, &err));
+            return Ok(dpf_cr_creation_failed(state, &err));
         }
         let next = transition_all_dpus_to_dpf_state(
             DpfState::WaitingForReady { phase_detail: None },
@@ -456,8 +493,11 @@ pub async fn handle_dpf_state(
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+    let deployment_type = dpf_sdk
+        .deployment_type_for_dpu(dpu_snapshot)
+        .map_err(dpf_error)?;
     if !dpf_sdk
-        .verify_node_labels(&node_name)
+        .verify_node_labels(&node_name, deployment_type)
         .await
         .map_err(dpf_error)?
     {
@@ -466,20 +506,21 @@ pub async fn handle_dpf_state(
             node = %node_name,
             "DPUNode has stale labels, failing for reprovisioning"
         );
-        return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
-            details: FailureDetails {
-                cause: FailureCause::DpfProvisioning {
-                    err: format!(
-                        "DPUNode {node_name} has stale labels; \
-                         must be deleted and reprovisioned"
-                    ),
-                },
-                failed_at: chrono::Utc::now(),
-                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+        let details = FailureDetails {
+            cause: FailureCause::DpfProvisioning {
+                err: format!(
+                    "DPUNode {node_name} has stale labels; \
+                     must be deleted and reprovisioned"
+                ),
             },
-            machine_id: state.host_snapshot.id,
-            retry_count: 0,
-        }));
+            failed_at: chrono::Utc::now(),
+            source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+        };
+        return Ok(StateHandlerOutcome::transition(make_failure_state(
+            state,
+            details,
+            state.host_snapshot.id,
+        )));
     }
 
     match dpf_state {

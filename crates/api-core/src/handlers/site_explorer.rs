@@ -150,6 +150,21 @@ pub(crate) async fn get_site_exploration_report(
     Ok(tonic::Response::new(report.into()))
 }
 
+pub(crate) async fn get_site_explorer_last_run(
+    api: &Api,
+    request: tonic::Request<()>,
+) -> Result<Response<::rpc::site_explorer::SiteExplorerLastRunResponse>, Status> {
+    log_request_data(&request);
+
+    let last_run = db::site_explorer_run_status::fetch(&mut api.db_reader()).await?;
+
+    Ok(tonic::Response::new(
+        ::rpc::site_explorer::SiteExplorerLastRunResponse {
+            last_run: last_run.map(Into::into),
+        },
+    ))
+}
+
 pub(crate) async fn find_explored_mlx_device_host_ids(
     api: &Api,
     request: Request<::rpc::site_explorer::ExploredMlxDeviceHostSearchFilter>,
@@ -304,19 +319,11 @@ pub(crate) async fn re_explore_endpoint(
     Ok(Response::new(()))
 }
 
-// Short-circuited: adhoc endpoint refresh is temporarily disabled. The probe
-// path below is retained but unreachable until the feature is re-enabled.
-#[allow(unreachable_code, unused_variables)]
 pub(crate) async fn refresh_endpoint_report(
     api: &Api,
     request: Request<rpc::RefreshEndpointReportRequest>,
 ) -> Result<Response<::rpc::site_explorer::ExploredEndpoint>, tonic::Status> {
     log_request_data(&request);
-
-    return Err(CarbideError::UnavailableError(
-        "Endpoint refresh is temporarily unavailable".to_string(),
-    )
-    .into());
 
     let req = request.into_inner();
 
@@ -360,14 +367,29 @@ pub(crate) async fn refresh_endpoint_report(
             .map(ExpectedEntity::PowerShelf)
     };
 
-    // Run the probe + persist on a detached tokio task. Awaiting the JoinHandle
-    // preserves the synchronous UX. Even if the caller navigates away mid-fetch,
-    // the probe will still run to completion.
+    // Claim the per-endpoint exploration lock before probing. If the periodic site-explorer loop or
+    // another concurrent refresh is already probing this endpoint, return immediately rather than
+    // running a redundant Redfish call.
+    let endpoint_guard = match api.endpoint_exploration_locks.try_claim(bmc_ip) {
+        Some(guard) => guard,
+        None => {
+            return Err(CarbideError::AlreadyInProgress(format!(
+                "Endpoint refresh already in progress for {bmc_ip}"
+            ))
+            .into());
+        }
+    };
+
+    // Run the probe + persist on a detached tokio task that owns the endpoint guard. Awaiting the
+    // JoinHandle preserves the synchronous UX. Even if the caller navigates away mid-fetch, the
+    // probe will still run to completion.
     let endpoint_explorer = api.endpoint_explorer.clone();
     let database_connection = api.database_connection.clone();
     let runtime_config = api.runtime_config.clone();
 
     let join_handle = tokio::spawn(async move {
+        let _endpoint_guard = endpoint_guard;
+
         let start = std::time::Instant::now();
         let result = endpoint_explorer
             .explore_endpoint(
@@ -382,7 +404,11 @@ pub(crate) async fn refresh_endpoint_report(
         let report = match result {
             Ok(mut report) => {
                 report.last_exploration_latency = Some(start.elapsed());
-                let fw_config_snapshot = runtime_config.get_firmware_config().create_snapshot();
+                let host_firmware_configs =
+                    db::host_firmware_config::list_configs(&database_connection).await?;
+                let fw_config_snapshot = runtime_config
+                    .get_firmware_config()
+                    .create_snapshot_with_overrides(host_firmware_configs);
                 enrich_endpoint_exploration_report(&mut report, &fw_config_snapshot);
                 report
             }

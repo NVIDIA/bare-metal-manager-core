@@ -16,7 +16,7 @@
  */
 
 use std::borrow::Cow;
-use std::sync::{Arc, atomic};
+use std::sync::{Arc, Mutex, atomic};
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -132,6 +132,17 @@ impl ManagerBuilder {
                     }
                 }
             })),
+            // bmc-explorer's HPE lockdown check reads
+            // Oem.Hpe.VirtualNICEnabled; false is the locked-down state.
+            Oem::Hpe => self.apply_patch(json!({
+                "Oem": {
+                    "Hpe": {
+                        "@odata.context": "/redfish/v1/$metadata#HpeiLO.HpeiLO",
+                        "@odata.type": "#HpeiLO.v2_11_0.HpeiLO",
+                        "VirtualNICEnabled": false,
+                    }
+                }
+            })),
         }
     }
 
@@ -161,7 +172,10 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
     const ETH_ID: &str = "{ethernet_id}";
     const HOST_IF_ID: &str = "{hostif_id}";
     r.route(&collection().odata_id, get(get_manager_collection))
-        .route(&resource(MGR_ID).odata_id, get(get_manager))
+        .route(
+            &resource(MGR_ID).odata_id,
+            get(get_manager).patch(patch_manager),
+        )
         .route(
             &redfish::ethernet_interface::manager_collection(MGR_ID).odata_id,
             get(get_ethernet_interface_collection),
@@ -192,6 +206,7 @@ pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
 #[derive(Clone, Copy)]
 pub enum Oem {
     Dell,
+    Hpe,
 }
 
 impl AsRef<Oem> for Oem {
@@ -237,6 +252,9 @@ pub struct SingleManagerState {
     id: &'static str,
     ipmi_enabled: Arc<atomic::AtomicBool>,
     config: SingleConfig,
+    // PATCHes applied to the manager resource (e.g. HPE lockdown flips
+    // Oem.Hpe.VirtualNICEnabled); merged over the built JSON on GET.
+    overrides: Arc<Mutex<serde_json::Value>>,
 }
 
 impl SingleManagerState {
@@ -245,6 +263,7 @@ impl SingleManagerState {
             id: config.id,
             config: config.clone(),
             ipmi_enabled: Arc::new(false.into()),
+            overrides: Arc::new(Mutex::new(json!({}))),
         }
     }
 }
@@ -299,7 +318,21 @@ async fn get_manager(State(state): State<BmcState>, Path(manager_id): Path<Strin
             &this.config.firmware_version,
         )
         .build()
+        .patch(this.overrides.lock().expect("mutex poisoned").clone())
         .into_ok_response()
+}
+
+async fn patch_manager(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+    Json(patch_request): Json<serde_json::Value>,
+) -> Response {
+    let Some(this) = state.manager.find(&manager_id) else {
+        return http::not_found();
+    };
+    let mut overrides = this.overrides.lock().expect("mutex poisoned");
+    *overrides = overrides.clone().patch(patch_request);
+    json!({}).into_ok_response()
 }
 
 async fn get_ethernet_interface_collection(

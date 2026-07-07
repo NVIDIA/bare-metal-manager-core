@@ -194,8 +194,11 @@ async fn resolve_http(
         tracing::debug!(credential_type = %credential_type_name(creds), "Using HTTP credentials");
     }
 
-    // Build the HTTP request with optional credentials.
-    let client = reqwest::Client::new();
+    // Build the HTTP request with optional credentials. The `reqwest-tracing` middleware injects
+    // the current span's W3C trace context into the outgoing request (#2438).
+    let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+        .with(reqwest_tracing::TracingMiddleware::default())
+        .build();
     let mut request = client.get(url);
 
     if let Some(creds) = credentials {

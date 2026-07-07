@@ -56,6 +56,8 @@ pub struct Config<'a, B: Bmc> {
     // This is expected to be fixed in BMC firmware 24.10-39, which adds
     // internal retries.
     pub retry_404_on_eth_interfaces: bool,
+    // Collect boot options (if set to false then assume that they are empty).
+    pub need_boot_options: bool,
     pub explore: &'a ExploreConfig<'a, B>,
 }
 
@@ -73,10 +75,11 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         system: ComputerSystem<B>,
         config: &Config<'_, B>,
     ) -> Result<Self, Error<B>> {
-        let boot_options = if let Some(collection) = system
-            .boot_options()
-            .await
-            .map_err(Error::nv_redfish("boot options"))?
+        let boot_options = if config.need_boot_options
+            && let Some(collection) = system
+                .boot_options()
+                .await
+                .map_err(Error::nv_redfish("boot options"))?
         {
             collection
                 .members()

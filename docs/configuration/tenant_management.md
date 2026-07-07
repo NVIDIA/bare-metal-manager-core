@@ -231,8 +231,8 @@ The detail view for an instance type includes an `allocationStats` section showi
 Instance type creation is a gRPC operation via nico-admin-cli:
 
 ```
-nico-admin-cli -c <core-api-url> instance-type create --name "GB200-NVL72" --gpu-count 72
-nico-admin-cli -c <core-api-url> instance-type associate --instance-type-id <id> --machine-id <machine-id>
+nico-admin-cli -a <core-api-url> instance-type create --name "GB200-NVL72" --gpu-count 72
+nico-admin-cli -a <core-api-url> instance-type associate --instance-type-id <id> --machine-id <machine-id>
 ```
 
 See the Quick Start Guide, Step 7 for nico-admin-cli access patterns. The REST API exposes instance type CRUD endpoints, but machine association management is currently gRPC-only.
@@ -690,10 +690,10 @@ For stuck or unresponsive machines that cannot be managed through the instance A
 
 ```
 # Force-reboot via BMC
-nico-admin-cli -c <core-api-url> machine reboot --machine-id="<machine-id>"
+nico-admin-cli -a <core-api-url> machine reboot --machine-id="<machine-id>"
 
 # Force-delete a stuck machine (destructive -- wipes machine state)
-nico-admin-cli -c <core-api-url> machine force-delete --machine="<machine-id>"
+nico-admin-cli -a <core-api-url> machine force-delete --machine="<machine-id>"
 ```
 
 See the [Machine Reboot](../playbooks/machine_reboot.md) and [Force Delete](../playbooks/force_delete.md) playbooks in the core documentation for detailed procedures.

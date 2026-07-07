@@ -78,6 +78,7 @@ ARG CI_COMMIT_SHORT_SHA
 ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
 RUN mkdir -p /opt/carbide/migrations && \
   mkdir -p /opt/carbide/pxe/templates && \
+  mkdir -p /opt/carbide/scout-firmware-scripts && \
   mkdir -p /opt/carbide/static
 
 RUN echo "$(date): Start runtime container build"
@@ -91,6 +92,7 @@ RUN echo "$(date): Finished copies"
 
 COPY crates/api-db/migrations/ /opt/carbide/migrations/
 COPY pxe/templates/*  /opt/carbide/pxe/templates/
+COPY pxe/scout-firmware-scripts/ /opt/carbide/scout-firmware-scripts/
 COPY crates/api/casbin-policy.csv /opt/carbide/
 
 ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv

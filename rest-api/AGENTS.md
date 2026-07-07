@@ -181,6 +181,10 @@ verification expectations.
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
 - OpenAPI schema in `openapi/spec.yaml` must be updated whenever API
   endpoints are added or modified.
+- When adding a request/response field to a resource that has both single-item
+  and batch endpoints, update the full surface together: single create/update
+  DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
+  OpenAPI, SDK, and tests. Do not stop after the single handler path.
 - PUT endpoints that create or replace a resource should use
   `CreateOrUpdate` naming consistently across handlers, summaries,
   operation IDs, and generated SDK methods.
@@ -193,10 +197,21 @@ verification expectations.
   implementation details.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
   values, for example `SiteWideRoot` and `BMCRoot`.
+- For disruptive machine operations, decide and encode the attached-Instance
+  behavior explicitly. If an operation can power-cycle or otherwise disrupt a
+  tenant workload, check `Machine.IsAssigned` (or the equivalent association)
+  and reject unless the product requirement explicitly allows Provider Admins
+  to override tenant attachment.
+
+### REST endpoints through the Core gRPC proxy
+
+When building or converting a REST endpoint that calls on-site NICo Core through
+the generic gRPC proxy, follow
+[`skills/rest-core-grpc-proxy/SKILL.md`](skills/rest-core-grpc-proxy/SKILL.md).
 
 ### Prefer range-based iteration over C-style `for` loops
 
-The module is on Go 1.25.11, so reach for range-based iteration before the
+The module is on Go 1.26.4, so reach for range-based iteration before the
 three-clause `for i := 0; i < n; i++` / `i--` form. Range-over-integer and
 range-over-function iterators (`slices.Backward`, `slices.All`,
 `slices.Values`, `maps.Keys`, `maps.Values`, …) drop the manual index
@@ -280,6 +295,24 @@ predictable and every entity has the same surface:
    double-check — width casts on bounded request fields, enum-value
    checks, cross-field structural rules — belongs in `Validate`
    instead, so the translation step stays a focused mapper.
+
+   If a Core proto request needs values from both the URL path and the
+   JSON body, assemble those values on the API request object before
+   conversion. Use non-JSON fields, for example a `MachineID` field
+   tagged with `json:"-"`, for path-derived context. Set those fields
+   explicitly in the handler, then call `req.ToProto()` with no hidden
+   path-parameter arguments. Avoid
+   call sites like `req.ToProto(machineID)` when `req` came from the
+   body; they make readers re-discover where each proto field came from.
+   Name the file, handler, request/response DTOs, and OpenAPI schemas
+   after the REST resource and operation (`machinepower`,
+   `MachinePowerControlHandler`, `APIMachinePowerControlRequest`), not an
+   internal Core method or authorization concept. Prefer typed string enums
+   with receiver conversion methods such as `(MachinePowerAction).ToProto()`
+   over free conversion helpers. For simple response shapes, build the
+   response inline in the handler; reserve constructor helpers for real
+   construction logic. Shared handler helpers should return `*cutil.APIError`
+   when callers need to preserve client-facing status codes and messages.
 
    **What stays in the handler:** authorization (RBAC, tenant
    privileges, cross-resource ownership lookups), and validation that
@@ -537,6 +570,34 @@ complete reference. SSH Key Group's Create handler is the cleanest example
 of rule 3 (validation reads hoisted out of the tx). NVLink Logical
 Partition's Delete handler shows the rule 5 `timeoutResp`-gating pattern
 in its simplest form.
+
+### Bulk updates must not clobber omitted (PATCH-preserved) columns
+
+`UpdateMultiple`-style DAOs build one shared column list and apply it to every
+row in a single bulk `UPDATE`. Any column added to that shared `columnsSet` is
+written for **every** row in the batch — including rows whose input omitted the
+field, which carry the model's zero value. For a field whose API contract is
+"omitting it preserves the existing value" (PATCH semantics), folding it into
+the shared set silently clears the stored value on untouched rows in a mixed
+batch.
+
+When adding such a field to a bulk-update DAO:
+
+- Do **not** add it to the shared `columnsSet`.
+- Apply it only to rows that provided it (carry per-row presence through the SQL
+  shape), or split the batch by identical column set. For flat JSONB
+  patch-style structs, prefer the Site config pattern:
+  `column = column || ?::jsonb`; an empty object is a no-op and future fields
+  can be partial-patched without replacing the whole stored object.
+- Keep create vs. update straight: on create, an omitted optional field is
+  stored as its zero/empty value; on update, an omitted field must be left
+  untouched.
+- Add a mixed-batch test: some rows set the field, others omit it, and assert
+  the omitted rows keep their prior value.
+
+`ExpectedMachine.UpdateMultiple` (`db/pkg/db/model/expectedmachine.go`) applies
+`host_lifecycle_profile` this way and is the reference;
+`TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile` is the guard.
 
 ## Git Workflow
 

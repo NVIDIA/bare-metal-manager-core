@@ -19,6 +19,7 @@ use std::backtrace::{Backtrace, BacktraceStatus};
 use ::rpc::errors::RpcDataConversionError;
 use carbide_ib_fabric::errors::IbError;
 use carbide_redfish::libredfish::RedfishClientCreationError;
+use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
 use db::ip_allocator::DhcpError;
@@ -27,13 +28,15 @@ use db::resource_pool::ResourcePoolDatabaseError;
 use db::{AnnotatedSqlxError, DatabaseError};
 use librms::RackManagerError;
 use mac_address::MacAddress;
-use model::errors::ModelError;
+use model::errors::{ErrorCode, ErrorSubsystem, ModelError, OperatorError, OperatorErrorSchema};
 use model::hardware_info::HardwareInfoError;
 use model::network_devices::LldpError;
+use model::site_explorer::EndpointExplorationError;
 use model::tenant::TenantError;
 use model::vpc::VpcCapabilityError;
 use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
+use tonic::metadata::MetadataValue;
 
 /// Represents various Errors that can occur throughout the system.
 ///
@@ -293,6 +296,13 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::InvalidArgument(e) => InvalidArgument(e),
             DatabaseError::InvalidConfiguration(e) => InvalidConfiguration(e),
             DatabaseError::MissingArgument(e) => MissingArgument(e),
+            // A corrupted/absent site-wide rotation invariant is an internal
+            // state error, not a client-correctable one.
+            DatabaseError::MissingSitewideRotationTarget(credential_type) => Internal {
+                message: format!(
+                    "no site-wide rotation target for credential type: {credential_type:?}"
+                ),
+            },
             DatabaseError::NetworkParseError(e) => NetworkParseError(e),
             DatabaseError::NetworkSegmentDelete(e) => NetworkSegmentDelete(e),
             DatabaseError::NetworkSegmentDuplicateMacAddress(e) => {
@@ -337,6 +347,63 @@ impl CarbideError {
     }
 }
 
+impl OperatorError for CarbideError {
+    fn operator_error_code(&self) -> ErrorCode {
+        use ErrorSubsystem::{Api, Redfish};
+        match self {
+            CarbideError::InvalidArgument(_)
+            | CarbideError::VpcCapability(_)
+            | CarbideError::InvalidConfiguration(_)
+            | CarbideError::RpcDataConversionError(_)
+            | CarbideError::MissingArgument(_)
+            | CarbideError::NetworkSegmentDelete(_)
+            | CarbideError::BmcMacIpMismatch { .. } => ErrorCode::nico(Api, 400),
+            CarbideError::ClientCertificateMissingInformation(_) => ErrorCode::nico(Api, 401),
+            CarbideError::PermissionDeniedError(_) => ErrorCode::nico(Api, 403),
+            CarbideError::NotFoundError { .. } => ErrorCode::nico(Api, 404),
+            CarbideError::AlreadyFoundError { .. } | CarbideError::AlreadyInProgress(_) => {
+                ErrorCode::nico(Api, 409)
+            }
+            CarbideError::MaintenanceMode
+            | CarbideError::UnhealthyHost
+            | CarbideError::ConcurrentModificationError(_, _)
+            | CarbideError::FailedPrecondition(_)
+            | CarbideError::AddressAlreadyInUse(_) => ErrorCode::nico(Api, 412),
+            CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => {
+                ErrorCode::nico(Api, 429)
+            }
+            CarbideError::UnavailableError(_) => ErrorCode::nico(Api, 503),
+            CarbideError::RedfishError(error) if is_dpu_bios_attributes_not_ready(error) => {
+                EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
+            }
+            CarbideError::RedfishError(_) | CarbideError::RedfishClientCreation { .. } => {
+                ErrorCode::nico(Redfish, 500)
+            }
+            _ => ErrorCode::nico(Api, 500),
+        }
+    }
+
+    fn operator_mitigation(&self) -> Option<&'static str> {
+        match self {
+            CarbideError::RedfishError(error) if is_dpu_bios_attributes_not_ready(error) => {
+                Some(EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
+            }
+            CarbideError::RedfishError(_) | CarbideError::RedfishClientCreation { .. } => {
+                Some("Check BMC reachability, credentials, and Redfish service health.")
+            }
+            CarbideError::UnavailableError(_) => Some(
+                "A dependent NICo service is temporarily unavailable. Retry the same request \
+                 once it recovers: re-run the Admin CLI command, REST API call, or client \
+                 integration that failed, backing off briefly between attempts.",
+            ),
+            CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => {
+                Some("Check configured resource pools and available capacity.")
+            }
+            _ => None,
+        }
+    }
+}
+
 #[test]
 fn test_carbide_error() {
     let error = crate::CarbideError::internal(String::from("unable to yeet foo into the sun"));
@@ -354,71 +421,149 @@ impl From<::measured_boot::Error> for CarbideError {
 
 impl From<CarbideError> for tonic::Status {
     fn from(from: CarbideError) -> Self {
-        // If env RUST_BACKTRACE is set extract handler and err location
-        // If it's not set `Backtrace::capture()` is very cheap to call
-        let mut printed = false;
-        let b = Backtrace::capture();
-        if b.status() == BacktraceStatus::Captured {
-            let b_str = b.to_string();
-            let f = b_str
-                .lines()
-                .skip(1)
-                .skip_while(|l| !l.contains("carbide"))
-                .take(2)
-                .collect::<Vec<&str>>();
-            if f.len() == 2 {
-                let handler = f[0].trim();
-                let location = f[1].trim().replace("at ", "");
-                tracing::error!("{from} location={location} handler='{handler}'");
-                printed = true;
-            }
-        }
-        if !printed {
-            match from {
-                CarbideError::NotImplemented => {}
-                _ => tracing::error!("{from}"),
-            }
+        let schema = from.operator_error_schema();
+        log_carbide_error(&from, &schema);
+
+        let status = status_from_carbide_error(&from);
+        status_with_operator_error_schema(status, &schema)
+    }
+}
+
+fn log_carbide_error(error: &CarbideError, schema: &OperatorErrorSchema) {
+    if matches!(error, CarbideError::NotImplemented) {
+        return;
+    }
+
+    if let Some((handler, location)) = carbide_backtrace_location() {
+        tracing::error!(
+            error = %error,
+            error_code = %schema.error_code,
+            mitigation = %schema.mitigation_for_log(),
+            text = %schema.text,
+            location = %location,
+            handler = %handler,
+            "Request failed"
+        );
+    } else {
+        tracing::error!(
+            error = %error,
+            error_code = %schema.error_code,
+            mitigation = %schema.mitigation_for_log(),
+            text = %schema.text,
+            "Request failed"
+        );
+    }
+}
+
+fn carbide_backtrace_location() -> Option<(String, String)> {
+    // If env RUST_BACKTRACE is set extract handler and err location.
+    // If it's not set, `Backtrace::capture()` is very cheap to call.
+    let backtrace = Backtrace::capture();
+    if backtrace.status() != BacktraceStatus::Captured {
+        return None;
+    }
+
+    let rendered = backtrace.to_string();
+    parse_carbide_backtrace_location(&rendered)
+        .map(|(handler, location)| (handler.to_owned(), location.to_owned()))
+}
+
+fn parse_carbide_backtrace_location(backtrace: &str) -> Option<(&str, &str)> {
+    const ERROR_MODULE_PATH: &str = "crates/api-core/src/errors.rs:";
+    const ERROR_MODULE_SYMBOL: &str = "carbide_api_core::errors";
+
+    let mut lines = backtrace.lines().peekable();
+    while let Some(handler) = lines.next() {
+        let handler = handler.trim();
+        let Some(location) = lines
+            .peek()
+            .and_then(|line| line.trim().strip_prefix("at "))
+        else {
+            continue;
+        };
+        lines.next();
+
+        // Conversion frames can be sourced from this module or from core while
+        // still naming CarbideError in the symbol. Neither identifies the RPC handler.
+        if !handler.contains("carbide")
+            || handler.contains(ERROR_MODULE_SYMBOL)
+            || location.contains(ERROR_MODULE_PATH)
+        {
+            continue;
         }
 
-        // TODO: There's many more mapped to `Status::internal` which are likely
-        // user errors instead
-        match &from {
-            e @ CarbideError::Internal { .. } => Status::internal(e.to_string()),
-            CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
-            error @ CarbideError::VpcCapability(_) => Status::invalid_argument(error.to_string()),
-            CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
-            CarbideError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
-            e @ CarbideError::DhcpError(_) => Status::resource_exhausted(e.to_string()),
-            CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
-            CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
-            CarbideError::NotFoundError { kind, id } => {
-                Status::not_found(format!("{kind} not found: {id}"))
-            }
-            CarbideError::AlreadyFoundError { kind, id } => {
-                Status::already_exists(format!("{kind} already exists: {id}"))
-            }
-            CarbideError::MaintenanceMode => {
-                Status::failed_precondition("MaintenanceMode".to_string())
-            }
-            e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
-            CarbideError::UnhealthyHost => Status::failed_precondition(from.to_string()),
-            CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
-            error @ CarbideError::ConcurrentModificationError(_, _) => {
-                Status::failed_precondition(error.to_string())
-            }
-            error @ CarbideError::FailedPrecondition(_) => {
-                Status::failed_precondition(error.to_string())
-            }
-            error @ CarbideError::AddressAlreadyInUse(_) => {
-                Status::failed_precondition(error.to_string())
-            }
-            error @ CarbideError::ClientCertificateMissingInformation(_) => {
-                Status::unauthenticated(error.to_string())
-            }
-            CarbideError::UnavailableError(msg) => Status::unavailable(msg),
-            CarbideError::PermissionDeniedError(msg) => Status::permission_denied(msg),
-            CarbideError::AlreadyInProgress(msg) => Status::already_exists(msg),
-            other => Status::internal(other.to_string()),
+        return Some((handler, location));
+    }
+
+    None
+}
+
+fn status_from_carbide_error(error: &CarbideError) -> Status {
+    // TODO: There's many more mapped to `Status::internal` which are likely
+    // user errors instead
+    match error {
+        e @ CarbideError::Internal { .. } => Status::internal(e.to_string()),
+        CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
+        error @ CarbideError::VpcCapability(_) => Status::invalid_argument(error.to_string()),
+        CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
+        CarbideError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
+        e @ CarbideError::DhcpError(_) => Status::resource_exhausted(e.to_string()),
+        CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
+        CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
+        CarbideError::NotFoundError { kind, id } => {
+            Status::not_found(format!("{kind} not found: {id}"))
+        }
+        CarbideError::AlreadyFoundError { kind, id } => {
+            Status::already_exists(format!("{kind} already exists: {id}"))
+        }
+        CarbideError::MaintenanceMode => Status::failed_precondition("MaintenanceMode".to_string()),
+        e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
+        CarbideError::UnhealthyHost => Status::failed_precondition(error.to_string()),
+        CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
+        error @ CarbideError::ConcurrentModificationError(_, _) => {
+            Status::failed_precondition(error.to_string())
+        }
+        error @ CarbideError::FailedPrecondition(_) => {
+            Status::failed_precondition(error.to_string())
+        }
+        error @ CarbideError::AddressAlreadyInUse(_) => {
+            Status::failed_precondition(error.to_string())
+        }
+        error @ CarbideError::ClientCertificateMissingInformation(_) => {
+            Status::unauthenticated(error.to_string())
+        }
+        CarbideError::UnavailableError(msg) => Status::unavailable(msg),
+        CarbideError::PermissionDeniedError(msg) => Status::permission_denied(msg),
+        CarbideError::AlreadyInProgress(msg) => Status::already_exists(msg),
+        other => Status::internal(other.to_string()),
+    }
+}
+
+fn status_with_operator_error_schema(mut status: Status, schema: &OperatorErrorSchema) -> Status {
+    insert_ascii_metadata(
+        &mut status,
+        "nico-error-code",
+        &schema.error_code.to_string(),
+    );
+    insert_ascii_metadata(&mut status, "nico-error-text", &schema.text);
+    if let Some(mitigation) = &schema.mitigation {
+        insert_ascii_metadata(&mut status, "nico-error-mitigation", mitigation);
+    }
+
+    status
+}
+
+fn insert_ascii_metadata(status: &mut Status, key: &'static str, value: &str) {
+    match MetadataValue::try_from(value) {
+        Ok(value) => {
+            status.metadata_mut().insert(key, value);
+        }
+        Err(error) => {
+            tracing::warn!(
+                metadata_key = key,
+                error = %error,
+                "Operator error metadata was rejected because it contains non-ASCII content"
+            );
         }
     }
 }
@@ -452,6 +597,97 @@ fn test_unavailable_error_maps_to_unavailable_status() {
     let err = CarbideError::UnavailableError("service down".into());
     let status: tonic::Status = err.into();
     assert_eq!(status.code(), tonic::Code::Unavailable);
+}
+
+#[test]
+fn unavailable_error_schema_describes_who_should_retry() {
+    let schema = CarbideError::UnavailableError("service down".into()).operator_error_schema();
+
+    let mitigation = schema.mitigation.expect("has a mitigation");
+    assert!(mitigation.contains("Admin CLI"));
+    assert!(mitigation.contains("REST API"));
+}
+
+#[test]
+fn backtrace_location_skips_error_conversion_frames() {
+    use carbide_test_support::value_scenarios;
+
+    const WITH_OUTER_HANDLER: &str = r#"
+   3: carbide_api_core::errors::carbide_backtrace_location
+             at ./crates/api-core/src/errors.rs:461:13
+   4: carbide_api_core::errors::log_carbide_error
+             at /workspace/infra-controller/crates/api-core/src/errors.rs:437:9
+   5: <tonic::status::Status as core::convert::From<carbide_api_core::errors::CarbideError>>::from
+             at ./crates/api-core/src/errors.rs:425:9
+   6: <carbide_api_core::errors::CarbideError as core::convert::Into<tonic::status::Status>>::into
+             at /rustc/library/core/src/convert/mod.rs:761:9
+   7: carbide_api_core::handlers::machine::create_machine
+             at ./crates/api-core/src/handlers/machine.rs:412:24
+"#;
+    const ERROR_FRAMES_ONLY: &str = r#"
+   3: carbide_api_core::errors::carbide_backtrace_location
+             at ./crates/api-core/src/errors.rs:461:13
+   4: carbide_api_core::errors::log_carbide_error
+             at ./crates/api-core/src/errors.rs:437:9
+   5: <tonic::status::Status as core::convert::From<carbide_api_core::errors::CarbideError>>::from
+             at ./crates/api-core/src/errors.rs:425:9
+"#;
+
+    value_scenarios!(
+        run = parse_carbide_backtrace_location;
+        "frame selection" {
+            WITH_OUTER_HANDLER => Some((
+                "7: carbide_api_core::handlers::machine::create_machine",
+                "./crates/api-core/src/handlers/machine.rs:412:24",
+            )),
+            ERROR_FRAMES_ONLY => None,
+        }
+    );
+}
+
+#[test]
+fn invalid_argument_status_includes_operator_schema_metadata() {
+    let err = CarbideError::InvalidArgument("bad input".into());
+    let status: tonic::Status = err.into();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        status
+            .metadata()
+            .get("nico-error-code")
+            .expect("metadata should include operator error code")
+            .to_str()
+            .expect("operator error code should be ASCII"),
+        "NICO-API-400"
+    );
+    assert_eq!(
+        status
+            .metadata()
+            .get("nico-error-text")
+            .expect("metadata should include operator error text")
+            .to_str()
+            .expect("operator error text should be ASCII"),
+        "Argument is invalid: bad input"
+    );
+}
+
+#[test]
+fn dpu_bios_redfish_error_uses_dpu_operator_schema() {
+    let err = CarbideError::RedfishError(libredfish::RedfishError::MissingKey {
+        key: "HostPrivilegeLevel".to_string(),
+        url: "Systems/{}/Bios".to_string(),
+    });
+
+    let schema = err.operator_error_schema();
+
+    assert_eq!(
+        schema.error_code,
+        EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
+    );
+    assert_eq!(
+        schema.mitigation.as_deref(),
+        Some(EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
+    );
 }
 
 #[test]

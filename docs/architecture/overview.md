@@ -43,7 +43,7 @@ NICo deploys a set of binaries on these hosts during various points of their lif
 [dpu-agent](https://github.com/NVIDIA/infra-controller/blob/main/crates/agent) is an agent that NICo runs exclusively on DPUS managed by NICo as a daemon.
 
 DPU agent performs the following tasks:
-- Configuring the DPU as required at any state during the hosts lifecycle. This process is described more in depth in [DPU configuration](dpu_configuration.md).
+- Configuring the DPU as required at any state during the hosts lifecycle. This process is described more in depth in [DPU configuration](../dpu-management/dpu_configuration.md).
 - Executing periodic health-checks on the DPU
 - Running the NICo metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance. Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.
 - Enabling auto-updates of the dpu-agent itself

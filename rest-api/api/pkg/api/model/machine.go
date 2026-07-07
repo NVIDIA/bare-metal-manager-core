@@ -336,6 +336,10 @@ type APIMachine struct {
 	MachineCapabilities []APIMachineCapability `json:"machineCapabilities"`
 	// MachineInterfaces is the list of admin interfaces of the machine
 	MachineInterfaces []APIMachineInterface `json:"machineInterfaces"`
+	// AssociatedDpuMachineIds are the IDs of the DPU Machines attached to this (host) Machine
+	AssociatedDpuMachineIds []string `json:"associatedDpuMachineIds"`
+	// PlacementInRack is the physical placement of the Machine within its Rack
+	PlacementInRack *APIPlacementInRack `json:"placementInRack"`
 	// MaintenanceMessage is the message to display during maintenance mode
 	MaintenanceMessage *string `json:"maintenanceMessage"`
 	// Metadata contains additional metadata about the machine
@@ -356,6 +360,14 @@ type APIMachine struct {
 	Updated time.Time `json:"updated"`
 	// Deprecations is the list of deprecation messages denoting fields which are being deprecated
 	Deprecations []APIDeprecation `json:"deprecations,omitempty"`
+}
+
+// APIPlacementInRack captures the physical placement of a Machine within its Rack
+type APIPlacementInRack struct {
+	// SlotNumber is the rack slot the Machine occupies
+	SlotNumber *int32 `json:"slotNumber"`
+	// TrayIndex is the index of the Machine's tray within its slot
+	TrayIndex *int32 `json:"trayIndex"`
 }
 
 // APIDMIData is the data structure to capture API representation of a Machine's DMIData
@@ -380,6 +392,22 @@ type APIDMIData struct {
 	SysVendor *string `json:"sysVendor"`
 }
 
+// FromProto populates an APIDMIData from its protobuf form.
+func (admi *APIDMIData) FromProto(protoDMIData *cwssaws.DmiData) {
+	if protoDMIData == nil {
+		return
+	}
+	admi.BoardName = &protoDMIData.BoardName
+	admi.BoardSerial = &protoDMIData.BoardSerial
+	admi.BoardVersion = &protoDMIData.BoardVersion
+	admi.BiosDate = &protoDMIData.BiosDate
+	admi.BiosVersion = &protoDMIData.BiosVersion
+	admi.ProductSerial = &protoDMIData.ProductSerial
+	admi.ChassisSerial = &protoDMIData.ChassisSerial
+	admi.ProductName = &protoDMIData.ProductName
+	admi.SysVendor = &protoDMIData.SysVendor
+}
+
 // APIBMCInfo is the data structure to capture API representation of a Machine's BMC Info
 type APIBMCInfo struct {
 	// IP is the IP Address of the Machine's BMI
@@ -390,6 +418,17 @@ type APIBMCInfo struct {
 	Version *string `json:"version"`
 	// firmwareRevision is the firmare version revision of the Machine's BMI
 	FirmwareRevision *string `json:"firmwareRevision"`
+}
+
+// FromProto populates an APIBMCInfo from its protobuf form.
+func (abmc *APIBMCInfo) FromProto(protoBmcInfo *cwssaws.BmcInfo) {
+	if protoBmcInfo == nil {
+		return
+	}
+	abmc.IP = protoBmcInfo.Ip
+	abmc.Mac = protoBmcInfo.Mac
+	abmc.Version = protoBmcInfo.Version
+	abmc.FirmwareRevision = protoBmcInfo.FirmwareVersion
 }
 
 // APIMachineGPUInfo is the data structure to capture API representation of a Machine's GPU Info
@@ -412,6 +451,21 @@ type APIMachineGPUInfo struct {
 	PciBusId *string `json:"pciBusId"`
 }
 
+// FromProto populates an APIMachineGPUInfo from its protobuf form.
+func (gpu *APIMachineGPUInfo) FromProto(protoGpu *cwssaws.Gpu) {
+	if protoGpu == nil {
+		return
+	}
+	gpu.Name = &protoGpu.Name
+	gpu.Serial = &protoGpu.Serial
+	gpu.DriverVersion = &protoGpu.DriverVersion
+	gpu.VbiosVersion = &protoGpu.VbiosVersion
+	gpu.InforomVersion = &protoGpu.InforomVersion
+	gpu.TotalMemory = &protoGpu.TotalMemory
+	gpu.Frequency = &protoGpu.Frequency
+	gpu.PciBusId = &protoGpu.PciBusId
+}
+
 // APIMachineNetworkInterface is the data structure to capture API representation of a Machine's Network Interface Info
 type APIMachineNetworkInterface struct {
 	// Name of the Machine's NetworkInterface
@@ -428,6 +482,22 @@ type APIMachineNetworkInterface struct {
 	Description *string `json:"description"`
 	// Slot is the slot number of the Machine's NetworkInterface
 	Slot *string `json:"slot"`
+}
+
+// FromProto populates an APIMachineNetworkInterface from its protobuf form.
+func (ni *APIMachineNetworkInterface) FromProto(protoNI *cwssaws.NetworkInterface) {
+	if protoNI == nil {
+		return
+	}
+	ni.MacAddress = &protoNI.MacAddress
+	if protoNI.PciProperties != nil {
+		ni.Vendor = &protoNI.PciProperties.Vendor
+		ni.Device = &protoNI.PciProperties.Device
+		ni.Path = &protoNI.PciProperties.Path
+		ni.NumaNode = &protoNI.PciProperties.NumaNode
+		ni.Description = protoNI.PciProperties.Description
+		ni.Slot = protoNI.PciProperties.Slot
+	}
 }
 
 // APIMachineInfiniBandInterface is the data structure to capture API representation of a Machine's InfiniBand Interface Info
@@ -448,6 +518,22 @@ type APIMachineInfiniBandInterface struct {
 	Slot *string `json:"slot"`
 }
 
+// FromProto populates an APIMachineInfiniBandInterface from its protobuf form.
+func (ib *APIMachineInfiniBandInterface) FromProto(protoIB *cwssaws.InfinibandInterface) {
+	if protoIB == nil {
+		return
+	}
+	ib.Guid = &protoIB.Guid
+	if protoIB.PciProperties != nil {
+		ib.Vendor = &protoIB.PciProperties.Vendor
+		ib.Device = &protoIB.PciProperties.Device
+		ib.Path = &protoIB.PciProperties.Path
+		ib.NumaNode = &protoIB.PciProperties.NumaNode
+		ib.Description = protoIB.PciProperties.Description
+		ib.Slot = protoIB.PciProperties.Slot
+	}
+}
+
 // APIMachineMetadata is the data structure to capture API representation of a Machine's Metadata Info
 type APIMachineMetadata struct {
 	// DMIData is the DMI data of the machine
@@ -460,29 +546,6 @@ type APIMachineMetadata struct {
 	NetworkInterfaces []APIMachineNetworkInterface `json:"networkInterfaces,omitempty"`
 	// InfiniBandInterfaces is the list of InfiniBand interfaces of the machine
 	InfiniBandInterfaces []APIMachineInfiniBandInterface `json:"infinibandInterfaces,omitempty"`
-}
-
-// APIMachineHealth is the data structure to capture API representation of a Machine's health Info
-type APIMachineHealth struct {
-	Source               string                         `json:"source"`
-	ObservedAt           *string                        `json:"observedAt"`
-	ObservedAtDeprecated *string                        `json:"observed_at"`
-	Successes            []APIMachineHealthProbeSuccess `json:"successes"`
-	Alerts               []APIMachineHealthProbeAlert   `json:"alerts"`
-}
-
-type APIMachineHealthProbeSuccess struct {
-	ID     string  `json:"id"`
-	Target *string `json:"target"`
-}
-
-type APIMachineHealthProbeAlert struct {
-	ID              string   `json:"id"`
-	Target          *string  `json:"target"`
-	InAlertSince    *string  `json:"inAlertSince"`
-	Message         string   `json:"message"`
-	TenantMessage   *string  `json:"tenantMessage"`
-	Classifications []string `json:"classifications"`
 }
 
 // NewAPIMachine accepts a DB layer Machine object and returns an API object
@@ -540,6 +603,24 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 		apim.SerialNumber = dbm.SerialNumber
 	}
 
+	// The host's attached DPU machine IDs and rack placement are sourced from the
+	// controller Machine metadata proto. They are not sensitive, so they are
+	// surfaced regardless of the includeMetadata / provider gate below.
+	apim.AssociatedDpuMachineIds = []string{}
+	if dbm.Metadata != nil {
+		for _, dpuID := range dbm.Metadata.GetAssociatedDpuMachineIds() {
+			if id := dpuID.GetId(); id != "" {
+				apim.AssociatedDpuMachineIds = append(apim.AssociatedDpuMachineIds, id)
+			}
+		}
+		if placement := dbm.Metadata.GetPlacementInRack(); placement != nil {
+			apim.PlacementInRack = &APIPlacementInRack{
+				SlotNumber: placement.SlotNumber,
+				TrayIndex:  placement.TrayIndex,
+			}
+		}
+	}
+
 	// Only Provider Admin can see the metadata
 	if dbm.Metadata != nil && includeMetadata && isProviderOrPrivilegedTenant {
 
@@ -549,45 +630,23 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 		machine := dbm.Metadata
 		// BMCInfo
 		if machine.BmcInfo != nil {
-			apim.Metadata.BMCInfo = &APIBMCInfo{
-				IP:               machine.BmcInfo.Ip,
-				Mac:              machine.BmcInfo.Mac,
-				Version:          machine.BmcInfo.Version,
-				FirmwareRevision: machine.BmcInfo.FirmwareVersion,
-			}
+			apim.Metadata.BMCInfo = &APIBMCInfo{}
+			apim.Metadata.BMCInfo.FromProto(machine.BmcInfo)
 		}
 
 		if machine.DiscoveryInfo != nil {
 			// DMIData
 			if machine.DiscoveryInfo.DmiData != nil {
-				apim.Metadata.DMIData = &APIDMIData{
-					BoardName:     &machine.DiscoveryInfo.DmiData.BoardName,
-					BoardVersion:  &machine.DiscoveryInfo.DmiData.BoardVersion,
-					BiosDate:      &machine.DiscoveryInfo.DmiData.BiosDate,
-					BiosVersion:   &machine.DiscoveryInfo.DmiData.BiosVersion,
-					ProductName:   &machine.DiscoveryInfo.DmiData.ProductName,
-					ProductSerial: &machine.DiscoveryInfo.DmiData.ProductSerial,
-					BoardSerial:   &machine.DiscoveryInfo.DmiData.BoardSerial,
-					ChassisSerial: &machine.DiscoveryInfo.DmiData.ChassisSerial,
-					SysVendor:     &machine.DiscoveryInfo.DmiData.SysVendor,
-				}
+				apim.Metadata.DMIData = &APIDMIData{}
+				apim.Metadata.DMIData.FromProto(machine.DiscoveryInfo.DmiData)
 			}
 
 			// GPUInfo
 			if len(machine.DiscoveryInfo.Gpus) > 0 {
 				apim.Metadata.GPUs = []APIMachineGPUInfo{}
 				for _, gpuInfo := range machine.DiscoveryInfo.Gpus {
-					cgpuInfo := gpuInfo
-					lgpuInfo := APIMachineGPUInfo{
-						Name:           &cgpuInfo.Name,
-						Serial:         &cgpuInfo.Serial,
-						DriverVersion:  &cgpuInfo.DriverVersion,
-						VbiosVersion:   &cgpuInfo.VbiosVersion,
-						InforomVersion: &cgpuInfo.InforomVersion,
-						TotalMemory:    &cgpuInfo.TotalMemory,
-						Frequency:      &cgpuInfo.Frequency,
-						PciBusId:       &cgpuInfo.PciBusId,
-					}
+					lgpuInfo := APIMachineGPUInfo{}
+					lgpuInfo.FromProto(gpuInfo)
 					apim.Metadata.GPUs = append(apim.Metadata.GPUs, lgpuInfo)
 				}
 			}
@@ -596,18 +655,8 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 			if len(machine.DiscoveryInfo.NetworkInterfaces) > 0 {
 				apim.Metadata.NetworkInterfaces = []APIMachineNetworkInterface{}
 				for _, nwiInfo := range machine.DiscoveryInfo.NetworkInterfaces {
-					cnwiInfo := nwiInfo
-					lnwiInfo := APIMachineNetworkInterface{
-						MacAddress: &cnwiInfo.MacAddress,
-					}
-					if cnwiInfo.PciProperties != nil {
-						lnwiInfo.Vendor = &cnwiInfo.PciProperties.Vendor
-						lnwiInfo.Device = &cnwiInfo.PciProperties.Device
-						lnwiInfo.Path = &cnwiInfo.PciProperties.Path
-						lnwiInfo.NumaNode = &cnwiInfo.PciProperties.NumaNode
-						lnwiInfo.Description = cnwiInfo.PciProperties.Description
-						lnwiInfo.Slot = cnwiInfo.PciProperties.Slot
-					}
+					lnwiInfo := APIMachineNetworkInterface{}
+					lnwiInfo.FromProto(nwiInfo)
 					apim.Metadata.NetworkInterfaces = append(apim.Metadata.NetworkInterfaces, lnwiInfo)
 				}
 			}
@@ -616,18 +665,8 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 			if len(machine.DiscoveryInfo.InfinibandInterfaces) > 0 {
 				apim.Metadata.InfiniBandInterfaces = []APIMachineInfiniBandInterface{}
 				for _, ibiInfo := range machine.DiscoveryInfo.InfinibandInterfaces {
-					cibiInfo := ibiInfo
-					libiInfo := APIMachineInfiniBandInterface{
-						Guid: &cibiInfo.Guid,
-					}
-					if cibiInfo.PciProperties != nil {
-						libiInfo.Vendor = &cibiInfo.PciProperties.Vendor
-						libiInfo.Device = &cibiInfo.PciProperties.Device
-						libiInfo.Path = &cibiInfo.PciProperties.Path
-						libiInfo.NumaNode = &cibiInfo.PciProperties.NumaNode
-						libiInfo.Description = cibiInfo.PciProperties.Description
-						libiInfo.Slot = cibiInfo.PciProperties.Slot
-					}
+					libiInfo := APIMachineInfiniBandInterface{}
+					libiInfo.FromProto(ibiInfo)
 					apim.Metadata.InfiniBandInterfaces = append(apim.Metadata.InfiniBandInterfaces, libiInfo)
 				}
 			}
@@ -639,46 +678,11 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 
 	// Report health info only provider requested
 	if dbm.Health != nil && isProviderOrPrivilegedTenant {
-		var machineHealth *cdbm.MachineHealth
-
-		apim.Health = &APIMachineHealth{}
-
 		// Get the Machine Health json body
 		machineHealth, err := dbm.GetHealth()
 		if err == nil && machineHealth != nil {
-
-			apim.Health.Source = machineHealth.Source
-			apim.Health.ObservedAt = machineHealth.ObservedAt
-			apim.Health.ObservedAtDeprecated = machineHealth.ObservedAt
-
-			// Machine Health Alert info
-			if len(machineHealth.Alerts) > 0 {
-				apim.Health.Alerts = []APIMachineHealthProbeAlert{}
-				for _, alert := range machineHealth.Alerts {
-					lcalert := alert
-					alertInfo := APIMachineHealthProbeAlert{
-						ID:              lcalert.Id,
-						Target:          lcalert.Target,
-						Message:         lcalert.Message,
-						InAlertSince:    lcalert.InAlertSince,
-						TenantMessage:   lcalert.TenantMessage,
-						Classifications: lcalert.Classifications,
-					}
-					apim.Health.Alerts = append(apim.Health.Alerts, alertInfo)
-				}
-			}
-
-			// Machine Health Success Prob info
-			if len(machineHealth.Successes) > 0 {
-				apim.Health.Successes = []APIMachineHealthProbeSuccess{}
-				for _, success := range machineHealth.Successes {
-					lcsuccess := success
-					successProbInfo := APIMachineHealthProbeSuccess{}
-					successProbInfo.ID = lcsuccess.Id
-					successProbInfo.Target = lcsuccess.Target
-					apim.Health.Successes = append(apim.Health.Successes, successProbInfo)
-				}
-			}
+			apim.Health = &APIMachineHealth{}
+			apim.Health.FromDBModel(machineHealth)
 		}
 	}
 	apim.MachineInterfaces = []APIMachineInterface{}

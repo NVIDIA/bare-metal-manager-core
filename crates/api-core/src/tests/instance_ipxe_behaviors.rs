@@ -124,33 +124,22 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     assert!(pxe.pxe_script.contains(
         "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
     ));
+}
 
-    // A reboot should also be possible with just MachineId
-    // TODO: Remove these assertions after the `machine_id` based reboots are removed.
-    env.api
-        .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
-            instance_id: None,
-            machine_id: Some(mh.id),
-            operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
-            boot_with_custom_ipxe: false,
-            apply_updates_on_reboot: false,
-        }))
-        .await
-        .unwrap();
+#[crate::sqlx_test]
+async fn invoke_instance_power_requires_instance_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
 
-    // A request with mismatching Machine and InstanceId should fail
     let err = env
         .api
-        .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
-            instance_id: Some(tinstance.id),
-            machine_id: Some(mh.dpu_ids[0]),
-            operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
-            boot_with_custom_ipxe: false,
-            apply_updates_on_reboot: false,
-        }))
+        .invoke_instance_power(tonic::Request::new(
+            rpc::forge::InstancePowerRequest::default(),
+        ))
         .await
         .unwrap_err();
+
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("instance_id"));
 }
 
 #[crate::sqlx_test]
@@ -201,7 +190,6 @@ async fn invoke_instance_power(
     env.api
         .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
             instance_id: Some(instance_id),
-            machine_id: None,
             operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
             boot_with_custom_ipxe,
             apply_updates_on_reboot: false,

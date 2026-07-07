@@ -99,7 +99,6 @@ async fn poll_power_state(
     let endpoint = match build_power_shelf_endpoint(
         power_shelf_id,
         state,
-        &ctx.services.db_pool,
         ctx.services.credential_manager.as_ref(),
     )
     .await

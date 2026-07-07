@@ -63,6 +63,8 @@ pub struct InitDpfResourcesConfig {
     pub services: Vec<ServiceDefinition>,
 
     pub proxy: Option<DpfProxyDetails>,
+    /// Deployment type — determines which DPUFlavor spec to build.
+    pub deployment_type: DpuDeploymentType,
 }
 
 impl Default for InitDpfResourcesConfig {
@@ -73,6 +75,7 @@ impl Default for InitDpfResourcesConfig {
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
             proxy: None,
+            deployment_type: DpuDeploymentType::Bf3,
         }
     }
 }
@@ -239,6 +242,14 @@ pub struct DpuFlavorBridgeDefinition {
     pub vf_intercept_bridge_sf: String,
 }
 
+/// Deployment type of a DPU — used to route devices to the correct
+/// DPUDeployment and select the appropriate DPUFlavor configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DpuDeploymentType {
+    Bf3,
+    Bf4Generic,
+}
+
 /// Information about a DPU device (DPUDevice CR).
 #[derive(Debug, Clone)]
 pub struct DpuDeviceInfo {
@@ -256,6 +267,8 @@ pub struct DpuDeviceInfo {
     pub dpu_machine_id: String,
     /// is _primary dpu?
     pub is_primary: bool,
+    /// Deployment type for this DPU — used to look up deployment-specific labels.
+    pub deployment_type: DpuDeploymentType,
 }
 
 /// Information about a DPU node (host with DPUs).
@@ -268,6 +281,8 @@ pub struct DpuNodeInfo {
     pub host_bmc_ip: IpAddr,
     /// Identifiers of each device attached to this node.
     pub device_ids: Vec<String>,
+    /// Deployment type for the DPUs on this node — used to look up deployment-specific labels.
+    pub deployment_type: DpuDeploymentType,
 }
 
 /// Phase of DPU lifecycle.

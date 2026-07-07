@@ -24,6 +24,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 /// The escape sequence for IPMI is vendor-independent since it's specific to ipmitool.
 pub static IPMITOOL_ESCAPE_SEQUENCE: EscapeSequence =
     EscapeSequence::Pair((b'~', &[b'.', b'B', b'?', 0x1a, 0x18]));
+const LENOVO_SOL_PRIMARY_FAILURE: &[u8] = b"The command line contains extraneous arguments";
+const LENOVO_SOL_FALLBACK_ACTIVATE_COMMANDS: &[&[u8]] = &[b"console kill", b"console start"];
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BmcVendor {
@@ -171,6 +173,35 @@ impl SshBmcVendor {
         }
     }
 
+    pub fn fallback_serial_activate_commands_if_needed(
+        &self,
+        prompt_buf: &[u8],
+        fallback_sent: bool,
+    ) -> Option<&'static [&'static [u8]]> {
+        match self {
+            SshBmcVendor::Lenovo
+                if !fallback_sent
+                    && bytes_contains(prompt_buf, LENOVO_SOL_PRIMARY_FAILURE)
+                    && self
+                        .bmc_prompt()
+                        .is_some_and(|prompt| bytes_contains(prompt_buf, prompt)) =>
+            {
+                Some(LENOVO_SOL_FALLBACK_ACTIVATE_COMMANDS)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn should_accept_sol_activation_output(
+        &self,
+        prompt_buf: &[u8],
+        skip_data_read_len: usize,
+    ) -> bool {
+        let lenovo_failure_pending = matches!(self, SshBmcVendor::Lenovo)
+            && bytes_contains(prompt_buf, LENOVO_SOL_PRIMARY_FAILURE);
+        !lenovo_failure_pending && prompt_buf.len() > skip_data_read_len
+    }
+
     pub fn filter_escape_sequences<'a>(
         &self,
         input: &'a [u8],
@@ -200,6 +231,10 @@ impl SshBmcVendor {
             SshBmcVendor::Dpu => "dpu",
         }
     }
+}
+
+fn bytes_contains(buf: &[u8], pat: &[u8]) -> bool {
+    !pat.is_empty() && buf.windows(pat.len()).any(|window| window == pat)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -330,6 +365,18 @@ mod tests {
         escape: EscapeSequence,
         input: &'static [u8],
         prev_pending: bool,
+    }
+
+    struct FallbackCase {
+        vendor: SshBmcVendor,
+        output: &'static [u8],
+        fallback_sent: bool,
+    }
+
+    struct AcceptActivationCase {
+        vendor: SshBmcVendor,
+        output: &'static [u8],
+        skip_data_read_len: usize,
     }
 
     /// The Lenovo/HPE two-byte escape (`ESC (`), used by most filtering rows.
@@ -493,6 +540,75 @@ mod tests {
             let deserialized: Wrap = toml::from_str(&serialized).expect("deserialize");
             assert_eq!(deserialized, wrap, "{label}");
         }
+    }
+
+    #[test]
+    fn fallback_serial_activate_commands_if_needed_detects_lenovo_failure() {
+        let lenovo_primary_failure =
+            b"console kill 1\r\nThe command line contains extraneous arguments\r\nsystem>";
+
+        value_scenarios!(
+            run = |case: FallbackCase| case.vendor
+                .fallback_serial_activate_commands_if_needed(case.output, case.fallback_sent)
+                .is_some();
+
+            "Lenovo SR650 v4 fallback" {
+                FallbackCase { vendor: SshBmcVendor::Lenovo, output: lenovo_primary_failure, fallback_sent: false } => true,
+                FallbackCase { vendor: SshBmcVendor::Lenovo, output: b"console kill 1\r\nThe command line contains extraneous arguments\r\n", fallback_sent: false } => false,
+                FallbackCase { vendor: SshBmcVendor::Lenovo, output: lenovo_primary_failure, fallback_sent: true } => false,
+                FallbackCase { vendor: SshBmcVendor::Dell, output: lenovo_primary_failure, fallback_sent: false } => false,
+            }
+        );
+
+        let commands = SshBmcVendor::Lenovo
+            .fallback_serial_activate_commands_if_needed(lenovo_primary_failure, false)
+            .expect("Lenovo failure should provide fallback commands");
+        assert_eq!(
+            commands,
+            &[b"console kill".as_slice(), b"console start".as_slice()]
+        );
+    }
+
+    #[test]
+    fn should_accept_sol_activation_output_handles_fallback_cases() {
+        let bmc_prompt = SshBmcVendor::Lenovo.bmc_prompt().unwrap();
+        let lenovo_primary_skip_len = bmc_prompt.len()
+            + SshBmcVendor::Lenovo
+                .serial_activate_command()
+                .unwrap()
+                .len();
+        let lenovo_start_skip_len = bmc_prompt.len() + b"console start".len();
+
+        value_scenarios!(
+            run = |case: AcceptActivationCase| case.vendor.should_accept_sol_activation_output(
+                case.output,
+                case.skip_data_read_len,
+            );
+
+            "Lenovo primary failure waits for fallback" {
+                AcceptActivationCase {
+                    vendor: SshBmcVendor::Lenovo,
+                    output: b"console kill 1\r\nThe command line contains extraneous arguments\r\n",
+                    skip_data_read_len: lenovo_primary_skip_len,
+                } => false,
+            }
+
+            "Lenovo fallback start succeeds by byte count" {
+                AcceptActivationCase {
+                    vendor: SshBmcVendor::Lenovo,
+                    output: b"console start\r\nroot@host # ",
+                    skip_data_read_len: lenovo_start_skip_len,
+                } => true,
+            }
+
+            "non-Lenovo activation still succeeds by byte count" {
+                AcceptActivationCase {
+                    vendor: SshBmcVendor::Dell,
+                    output: b"connect com2\r\nready",
+                    skip_data_read_len: b"connect com2".len(),
+                } => true,
+            }
+        );
     }
 
     #[test]

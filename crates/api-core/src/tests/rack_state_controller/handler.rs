@@ -33,10 +33,10 @@ use librms::protos::rack_manager as rms;
 use model::expected_machine::ExpectedMachineData;
 use model::expected_rack::ExpectedRack;
 use model::rack::{
-    ConfigureNmxClusterState, FirmwareUpgradeDeviceStatus, FirmwareUpgradeJob,
-    FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope, NvosUpdateState,
-    NvosUpdateSwitchStatus, Rack, RackConfig, RackFirmwareUpgradeState, RackMaintenanceState,
-    RackPowerState, RackState, RackValidationState,
+    ConfigureNmxClusterCertificateState, ConfigureNmxClusterState, FirmwareUpgradeDeviceStatus,
+    FirmwareUpgradeJob, FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope,
+    NvosUpdateState, NvosUpdateSwitchStatus, Rack, RackConfig, RackFirmwareUpgradeState,
+    RackMaintenanceState, RackPowerState, RackState, RackValidationState,
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
@@ -2296,11 +2296,14 @@ async fn test_configure_nmx_cluster_start_advances_to_disable_scale_up_fabric_st
                     RackState::Maintenance {
                         maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
                             configure_nmx_cluster:
-                                ConfigureNmxClusterState::DisableScaleUpFabricState,
+                                ConfigureNmxClusterState::ConfigureCertificates {
+                                    configure_certificate:
+                                        ConfigureNmxClusterCertificateState::Start,
+                                },
                         },
                     }
                 ),
-                "ConfigureNmxCluster(Start) should transition to DisableScaleUpFabricState, got {:?}",
+                "ConfigureNmxCluster(Start) should transition to ConfigureCertificates(Start), got {:?}",
                 next_state
             );
         }
@@ -2666,25 +2669,29 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
             },
         ))
         .await;
+    let device_info_response = rms::BatchGetNodeDeviceInfoResponse {
+        status: rms::ReturnCode::Success as i32,
+        node_device_details: vec![
+            rms::NodeDeviceInfo {
+                node_id: secondary_switch_id.to_string(),
+                tray_index: Some(2),
+                slot_number: Some(2),
+                ..Default::default()
+            },
+            rms::NodeDeviceInfo {
+                node_id: primary_switch_id.to_string(),
+                tray_index: Some(1),
+                slot_number: Some(1),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
     env.rms_sim
-        .queue_batch_get_node_device_info_response(Ok(rms::BatchGetNodeDeviceInfoResponse {
-            status: rms::ReturnCode::Success as i32,
-            node_device_details: vec![
-                rms::NodeDeviceInfo {
-                    node_id: secondary_switch_id.to_string(),
-                    tray_index: Some(2),
-                    slot_number: Some(2),
-                    ..Default::default()
-                },
-                rms::NodeDeviceInfo {
-                    node_id: primary_switch_id.to_string(),
-                    tray_index: Some(1),
-                    slot_number: Some(1),
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        }))
+        .queue_batch_get_node_device_info_response(Ok(device_info_response.clone()))
+        .await;
+    env.rms_sim
+        .queue_batch_get_node_device_info_response(Ok(device_info_response))
         .await;
     env.rms_sim
         .queue_configure_scale_up_fabric_manager_response(Ok(
@@ -2693,6 +2700,39 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
                 topology_used: topology_type.clone(),
                 scale_up_fabric_state_enabled: false,
                 grpc_enabled: true,
+                ..Default::default()
+            },
+        ))
+        .await;
+    const NMX_CLUSTER_CERT_JOB_ID: &str = "nmx-cluster-cert-job";
+    env.rms_sim
+        .queue_configure_switch_certificate_response(Ok(rms::ConfigureSwitchCertificateResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                stats: Some(rms::NodeOperationStats {
+                    total_nodes: 1,
+                    successful_nodes: 1,
+                    failed_nodes: 0,
+                }),
+                node_results: vec![rms::NodeOperationResult {
+                    node_id: primary_switch_id.to_string(),
+                    status: rms::ReturnCode::Success as i32,
+                    error_message: String::new(),
+                }],
+                ..Default::default()
+            }),
+            jobs: vec![rms::ConfigureSwitchCertificateJobInfo {
+                node_id: primary_switch_id.to_string(),
+                job_id: NMX_CLUSTER_CERT_JOB_ID.to_string(),
+            }],
+        }))
+        .await;
+    env.rms_sim
+        .queue_get_configure_switch_certificate_job_status_response(Ok(
+            rms::GetConfigureSwitchCertificateJobStatusResponse {
+                status: rms::ReturnCode::Success as i32,
+                state: "completed".to_string(),
+                job_id: NMX_CLUSTER_CERT_JOB_ID.to_string(),
                 ..Default::default()
             },
         ))
@@ -2718,7 +2758,7 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
     let outcome = handler_instance
         .handle_object_state(&rack_id, &mut rack, &start_state, &mut ctx)
         .await?;
-    let disable_state = match outcome {
+    let cert_start_state = match outcome {
         StateHandlerOutcome::Transition { next_state, .. } => {
             assert!(
                 matches!(
@@ -2726,11 +2766,14 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
                     RackState::Maintenance {
                         maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
                             configure_nmx_cluster:
-                                ConfigureNmxClusterState::DisableScaleUpFabricState,
+                                ConfigureNmxClusterState::ConfigureCertificates {
+                                    configure_certificate:
+                                        ConfigureNmxClusterCertificateState::Start,
+                                },
                         },
                     }
                 ),
-                "ConfigureNmxCluster(Start) should transition to DisableScaleUpFabricState, got {:?}",
+                "ConfigureNmxCluster(Start) should transition to ConfigureCertificates(Start), got {:?}",
                 next_state
             );
             next_state
@@ -2759,6 +2802,81 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
             .await
             .is_empty()
     );
+
+    let outcome = handler_instance
+        .handle_object_state(&rack_id, &mut rack, &cert_start_state, &mut ctx)
+        .await?;
+    let cert_wait_state = match outcome {
+        StateHandlerOutcome::Transition { next_state, .. } => {
+            assert!(
+                matches!(
+                    next_state,
+                    RackState::Maintenance {
+                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                            configure_nmx_cluster:
+                                ConfigureNmxClusterState::ConfigureCertificates {
+                                    configure_certificate:
+                                        ConfigureNmxClusterCertificateState::WaitForComplete {
+                                            ref jobs
+                                        },
+                                },
+                        },
+                    } if jobs.len() == 1 && jobs[0].switch_id == primary_switch_id
+                ),
+                "ConfigureCertificates(Start) should configure only the primary switch, got {:?}",
+                next_state
+            );
+            next_state
+        }
+        other => panic!(
+            "Expected Transition, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    };
+
+    let device_info_requests = env
+        .rms_sim
+        .submitted_batch_get_node_device_info_requests()
+        .await;
+    assert_eq!(device_info_requests.len(), 1);
+    assert!(
+        env.rms_sim
+            .submitted_batch_set_scale_up_fabric_state_requests()
+            .await
+            .is_empty()
+    );
+    assert!(
+        env.rms_sim
+            .submitted_configure_scale_up_fabric_manager_requests()
+            .await
+            .is_empty()
+    );
+
+    let outcome = handler_instance
+        .handle_object_state(&rack_id, &mut rack, &cert_wait_state, &mut ctx)
+        .await?;
+    let disable_state = match outcome {
+        StateHandlerOutcome::Transition { next_state, .. } => {
+            assert!(
+                matches!(
+                    next_state,
+                    RackState::Maintenance {
+                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                            configure_nmx_cluster:
+                                ConfigureNmxClusterState::DisableScaleUpFabricState,
+                        },
+                    }
+                ),
+                "ConfigureCertificates(WaitForComplete) should transition to DisableScaleUpFabricState, got {:?}",
+                next_state
+            );
+            next_state
+        }
+        other => panic!(
+            "Expected Transition, got {:?}",
+            std::mem::discriminant(&other)
+        ),
+    };
 
     let outcome = handler_instance
         .handle_object_state(&rack_id, &mut rack, &disable_state, &mut ctx)
@@ -2820,7 +2938,8 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
         env.rms_sim
             .submitted_batch_get_node_device_info_requests()
             .await
-            .is_empty()
+            .len()
+            == 1
     );
     assert!(
         env.rms_sim
@@ -2858,8 +2977,8 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
         .rms_sim
         .submitted_batch_get_node_device_info_requests()
         .await;
-    assert_eq!(device_info_requests.len(), 1);
-    let device_info_devices = device_info_requests[0]
+    assert_eq!(device_info_requests.len(), 2);
+    let device_info_devices = device_info_requests[1]
         .nodes
         .as_ref()
         .expect("device-info request should include nodes")

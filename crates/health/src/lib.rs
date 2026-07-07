@@ -92,6 +92,9 @@ pub enum HealthError {
 
     #[error("gNMI RPC failed: {0}")]
     GnmiStatus(tonic::Status),
+
+    #[error("NMX-C RPC failed: {0}")]
+    NmxcStatus(tonic::Status),
 }
 
 impl From<String> for HealthError {

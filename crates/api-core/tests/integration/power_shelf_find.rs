@@ -1,0 +1,214 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use carbide_test_harness::prelude::*;
+
+#[sqlx_test]
+async fn test_find_power_shelf_ids_and_by_ids(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
+
+    // FindPowerShelfIds should return both power shelves
+    let power_shelf_ids = env
+        .api()
+        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+            ..Default::default()
+        }))
+        .await?
+        .into_inner()
+        .ids;
+    assert!(power_shelf_ids.contains(&ps_id1));
+    assert!(power_shelf_ids.contains(&ps_id2));
+
+    // FindPowerShelvesByIds should return the requested power shelf
+    let power_shelves = env
+        .api()
+        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+            power_shelf_ids: vec![ps_id1],
+        }))
+        .await?
+        .into_inner()
+        .power_shelves;
+    assert_eq!(power_shelves.len(), 1);
+    assert_eq!(power_shelves[0].id, Some(ps_id1));
+
+    // FindPowerShelvesByIds should return both when requested
+    let power_shelves = env
+        .api()
+        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+            power_shelf_ids: vec![ps_id1, ps_id2],
+        }))
+        .await?
+        .into_inner()
+        .power_shelves;
+    assert_eq!(power_shelves.len(), 2);
+
+    Ok(())
+}
+
+// The empty-list and over-max guards for `find_power_shelves_by_ids` are shared
+// API-layer code, proven once across representative RPCs in
+// `tests::find_by_ids_guards`.
+
+#[sqlx_test]
+async fn test_find_power_shelf_ids_excludes_deleted(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
+
+    // Delete ps2
+    env.api()
+        .delete_power_shelf(tonic::Request::new(rpc::forge::PowerShelfDeletionRequest {
+            id: Some(ps_id2),
+        }))
+        .await?;
+
+    // FindPowerShelfIds should only return the non-deleted power shelf
+    let power_shelf_ids = env
+        .api()
+        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+            ..Default::default()
+        }))
+        .await?
+        .into_inner()
+        .ids;
+    assert!(power_shelf_ids.contains(&ps_id1));
+    assert!(!power_shelf_ids.contains(&ps_id2));
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_find_power_shelf_ids_deleted_only(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id1 } = env.create_power_shelf().await;
+    let TestPowerShelf { id: ps_id2 } = env.create_power_shelf().await;
+
+    env.api()
+        .delete_power_shelf(tonic::Request::new(rpc::forge::PowerShelfDeletionRequest {
+            id: Some(ps_id2),
+        }))
+        .await?;
+
+    // DELETED_FILTER_ONLY (1) should return only the deleted power shelf
+    let power_shelf_ids = env
+        .api()
+        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+            deleted: 1,
+            ..Default::default()
+        }))
+        .await?
+        .into_inner()
+        .ids;
+    assert!(!power_shelf_ids.contains(&ps_id1));
+    assert!(power_shelf_ids.contains(&ps_id2));
+
+    // DELETED_FILTER_INCLUDE (2) should return both
+    let power_shelf_ids = env
+        .api()
+        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+            deleted: 2,
+            ..Default::default()
+        }))
+        .await?
+        .into_inner()
+        .ids;
+    assert!(power_shelf_ids.contains(&ps_id1));
+    assert!(power_shelf_ids.contains(&ps_id2));
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_find_power_shelf_ids_by_controller_state(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id } = env.create_power_shelf().await;
+
+    // New power shelves start in "initializing" state
+    let power_shelf_ids = env
+        .api()
+        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+            controller_state: Some("initializing".to_string()),
+            ..Default::default()
+        }))
+        .await?
+        .into_inner()
+        .ids;
+    assert!(power_shelf_ids.contains(&ps_id));
+
+    // Filter for a state that doesn't match
+    let power_shelf_ids = env
+        .api()
+        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+            controller_state: Some("ready".to_string()),
+            ..Default::default()
+        }))
+        .await?
+        .into_inner()
+        .ids;
+    assert!(!power_shelf_ids.contains(&ps_id));
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_find_power_shelves_by_ids_response_fields(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+    let TestPowerShelf { id: ps_id } = env.create_power_shelf().await;
+
+    let power_shelves = env
+        .api()
+        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+            power_shelf_ids: vec![ps_id],
+        }))
+        .await?
+        .into_inner()
+        .power_shelves;
+    assert_eq!(power_shelves.len(), 1);
+
+    let ps = &power_shelves[0];
+
+    // controller_state should be populated both on the top-level and in status
+    assert!(!ps.controller_state.is_empty());
+    let status = ps.status.as_ref().expect("status should be present");
+    assert_eq!(
+        status.controller_state.as_deref(),
+        Some(ps.controller_state.as_str()),
+    );
+
+    // state_version should be populated
+    assert!(!ps.state_version.is_empty());
+
+    // bmc_info is None when no machine_interface discovery data exists
+    assert!(
+        ps.bmc_info.is_none(),
+        "bmc_info should be None when no discovery data exists"
+    );
+
+    Ok(())
+}

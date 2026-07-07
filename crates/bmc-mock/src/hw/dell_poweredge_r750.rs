@@ -24,7 +24,7 @@ use mac_address::MacAddress;
 use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, MemoryDevice};
 use serde_json::json;
 
-use crate::{BootOptionKind, Callbacks, hw, redfish};
+use crate::{BootOptionKind, Callbacks, LogService, LogServices, hw, redfish};
 
 pub struct DellPowerEdgeR750<'a> {
     pub bmc_mac_address: MacAddress,
@@ -36,6 +36,42 @@ pub struct DellPowerEdgeR750<'a> {
 pub struct EmbeddedNic {
     pub port_1: MacAddress,
     pub port_2: MacAddress,
+}
+
+struct DellEventLog {
+    entries: Vec<String>,
+}
+
+impl LogService for DellEventLog {
+    fn id(&self) -> &str {
+        "EventLog"
+    }
+
+    fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value> {
+        self.entries
+            .iter()
+            .enumerate()
+            .map(|(idx, entry)| {
+                redfish::log_service::event_entry(collection, &idx.to_string())
+                    .message(entry)
+                    // Severity + Created are not required by the Redfish spec but
+                    // libredfish expects them (mirrors the BlueField event log).
+                    .severity("OK")
+                    .created("2026-02-12T02:06:58+00:00")
+                    .build()
+            })
+            .collect()
+    }
+}
+
+struct DellLogServices {
+    event_log: DellEventLog,
+}
+
+impl LogServices for DellLogServices {
+    fn services(&self) -> Vec<&(dyn LogService + '_)> {
+        vec![&self.event_log as &dyn LogService]
+    }
 }
 
 impl DellPowerEdgeR750<'_> {
@@ -128,7 +164,7 @@ impl DellPowerEdgeR750<'_> {
                     .display_name(&display_name)
                     .build()
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         redfish::computer_system::Config {
             systems: vec![redfish::computer_system::SingleSystemConfig {
@@ -140,10 +176,17 @@ impl DellPowerEdgeR750<'_> {
                 boot_order_mode: redfish::computer_system::BootOrderMode::DellOem,
                 callbacks,
                 chassis: vec!["System.Embedded.1".into()],
-                boot_options: Some(boot_options),
+                boot_options: Some(boot_options.into()),
                 bios_mode: redfish::computer_system::BiosMode::DellOem,
                 oem: redfish::computer_system::Oem::Generic,
-                log_services: None,
+                log_services: Some(Arc::new(DellLogServices {
+                    event_log: DellEventLog {
+                        // Always report a completed reboot so the controller's
+                        // restart verification (which reads the host BMC event
+                        // log) can confirm reboots for this host.
+                        entries: vec!["Server reset.".to_string()],
+                    },
+                })),
                 // Today carbide need for any Dell to have storage
                 // collection. It tries to find BOSS controller
                 // there. So we provide empty collection to avoid 404

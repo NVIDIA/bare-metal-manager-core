@@ -155,7 +155,8 @@ pub fn bmc_vendor(r: libredfish::model::service_root::RedfishVendor) -> BMCVendo
         | RedfishVendor::NvidiaGBx00
         | RedfishVendor::NvidiaGH200
         | RedfishVendor::NvidiaGBSwitch
-        | RedfishVendor::P3809 => BMCVendor::Nvidia,
+        | RedfishVendor::P3809
+        | RedfishVendor::VeraRubin => BMCVendor::Nvidia,
         RedfishVendor::Dell => BMCVendor::Dell,
         RedfishVendor::Hpe => BMCVendor::Hpe,
         RedfishVendor::Lenovo => BMCVendor::Lenovo,

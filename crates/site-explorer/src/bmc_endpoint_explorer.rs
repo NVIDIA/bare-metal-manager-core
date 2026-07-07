@@ -35,6 +35,7 @@ use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, LockdownStatus, NicMode,
 };
+use sqlx::PgPool;
 
 use super::EndpointExplorer;
 use super::config::SiteExplorerExploreMode;
@@ -51,6 +52,12 @@ pub struct BmcEndpointExplorer {
     credential_client: CredentialClient,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
+    /// Used to record per-device BMC rotation convergence at the moment the
+    /// device is moved onto the site-wide BMC root (see
+    /// [`Self::set_bmc_root_credentials`]). `None` only for the standalone
+    /// `bmc-explorer-cli` debug tool, which runs against an in-memory credential
+    /// store and no database; in that case the rotation bookkeeping is skipped.
+    database_connection: Option<PgPool>,
 }
 
 impl BmcEndpointExplorer {
@@ -61,6 +68,7 @@ impl BmcEndpointExplorer {
         credential_manager: Arc<dyn CredentialManager>,
         rotate_switch_nvos_credentials: Arc<AtomicBool>,
         mode: SiteExplorerExploreMode,
+        database_connection: Option<PgPool>,
     ) -> Self {
         Self {
             redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
@@ -68,13 +76,15 @@ impl BmcEndpointExplorer {
             credential_client: CredentialClient::new(credential_manager),
             rotate_switch_nvos_credentials,
             mode,
+            database_connection,
         }
     }
 
     pub async fn get_sitewide_bmc_password(&self) -> Result<String, EndpointExplorationError> {
+        let version = self.current_sitewide_bmc_version().await?;
         let credentials = self
             .credential_client
-            .get_sitewide_bmc_root_credentials()
+            .get_sitewide_bmc_root_credentials(version)
             .await?;
 
         let (_, password) = match credentials {
@@ -82,6 +92,58 @@ impl BmcEndpointExplorer {
         };
 
         Ok(password)
+    }
+
+    /// Resolve which site-wide BMC root version is currently live from
+    /// `sitewide_credential_rotation.target_version`. This is the table-driven
+    /// "current site-wide credential" lookup: rather than reading a fixed
+    /// unversioned alias, ingestion consults the rotation table so a device
+    /// ingested after a rotation lands on the version the fleet moved to (and is
+    /// then recorded at that version by [`Self::set_bmc_root_credentials`]).
+    ///
+    /// A `target_version` of 0 means "no rotation yet" (the legacy unversioned
+    /// path). The backfill migration seeds a row at version 0 for every active
+    /// credential type, so a *missing* row is a broken/unmigrated database and is
+    /// surfaced as an error rather than silently assuming 0 (matching the write
+    /// path in [`Self::set_bmc_root_credentials`] and the rest of the rotation
+    /// code, which never guess a version). The only 0 fallback is the standalone
+    /// `bmc-explorer-cli` debug tool, which has no database at all.
+    async fn current_sitewide_bmc_version(&self) -> Result<u32, EndpointExplorationError> {
+        let Some(database_connection) = &self.database_connection else {
+            return Ok(0);
+        };
+        let read_err = |cause: String| EndpointExplorationError::Other {
+            details: format!("failed to read site-wide BMC rotation target: {cause}"),
+        };
+        // Single read; needs no transaction (the convergence write in
+        // set_bmc_root_credentials uses one because it commits a row).
+        let mut conn = database_connection
+            .acquire()
+            .await
+            .map_err(|e| read_err(e.to_string()))?;
+        let target_version = db::credential_rotation::current_target_version(
+            &mut conn,
+            db::credential_rotation::CredentialRotationType::Bmc,
+        )
+        .await
+        .map_err(|e| read_err(e.to_string()))?
+        .ok_or_else(|| {
+            read_err(
+                "no site-wide BMC rotation target row exists; the backfill migration seeds one \
+                 for every active credential type, so a missing row indicates a broken or \
+                 unmigrated database"
+                    .to_string(),
+            )
+        })?;
+        // The column is constrained non-negative, so a failed conversion means a
+        // corrupt value, not "no rotation" -- surface it rather than masking it as
+        // the legacy v0 path.
+        u32::try_from(target_version).map_err(|_| {
+            read_err(format!(
+                "site-wide BMC rotation target version {target_version} is negative; the column \
+                 is constrained non-negative, so this indicates a corrupt database"
+            ))
+        })
     }
 
     fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
@@ -114,7 +176,34 @@ impl BmcEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         self.credential_client
             .set_bmc_root_credentials(bmc_mac_address, credentials)
+            .await?;
+
+        // The device is now on the site-wide BMC root (just changed on the
+        // hardware, or validated as already-set on reingest) and its per-device
+        // secret is in Vault. Record bmc convergence at the current site-wide
+        // target version so the rotation engine tracks every host, DPU, switch,
+        // and power shelf from the moment NICo owns its BMC password. Idempotent,
+        // so reexploration of an already-recorded device is a no-op. Skipped only
+        // by the no-database `bmc-explorer-cli` debug tool.
+        if let Some(database_connection) = &self.database_connection {
+            let record_err = |cause: String| EndpointExplorationError::SetCredentials {
+                key: format!("device_credential_rotation/bmc/{bmc_mac_address}"),
+                cause,
+            };
+            let mut txn = db::Transaction::begin(database_connection)
+                .await
+                .map_err(|e| record_err(e.to_string()))?;
+            db::credential_rotation::record_device_converged(
+                &mut txn,
+                bmc_mac_address,
+                db::credential_rotation::CredentialRotationType::Bmc,
+            )
             .await
+            .map_err(|e| record_err(e.to_string()))?;
+            txn.commit().await.map_err(|e| record_err(e.to_string()))?;
+        }
+
+        Ok(())
     }
 
     pub async fn set_bmc_root_password(
@@ -277,9 +366,10 @@ impl BmcEndpointExplorer {
             "Attempting sitewide BMC root credentials fallback for possible reingested hardware"
         );
 
+        let version = self.current_sitewide_bmc_version().await?;
         let sitewide_credentials = self
             .credential_client
-            .get_sitewide_bmc_root_credentials()
+            .get_sitewide_bmc_root_credentials(version)
             .await?;
         let Credentials::UsernamePassword { password, .. } = sitewide_credentials;
         let credentials = Credentials::UsernamePassword {

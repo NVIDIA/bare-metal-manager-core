@@ -187,6 +187,7 @@ struct GnmiClientProvider {
     switch_ip: String,
     port: u16,
     request_timeout: Duration,
+    dangerously_skip_tls_verification: bool,
     credentials: Arc<GnmiCredentialCache>,
 }
 
@@ -215,6 +216,7 @@ impl GnmiClientProvider {
                 credentials.username,
                 credentials.password,
                 self.request_timeout,
+                self.dangerously_skip_tls_verification,
             ),
             generation,
         ))
@@ -459,6 +461,7 @@ pub fn spawn_gnmi_collector(
         switch_ip,
         port: gnmi_config.gnmi_port,
         request_timeout: gnmi_config.request_timeout,
+        dangerously_skip_tls_verification: gnmi_config.dangerously_skip_tls_verification,
         credentials: Arc::new(GnmiCredentialCache::new(
             credential_provider,
             endpoint.addr.clone(),
@@ -846,6 +849,7 @@ mod tests {
             switch_ip: addr.ip.to_string(),
             port: 9339,
             request_timeout: Duration::from_secs(1),
+            dangerously_skip_tls_verification: false,
             credentials: Arc::new(GnmiCredentialCache::new(provider, addr)),
         }
     }

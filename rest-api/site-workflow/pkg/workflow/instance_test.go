@@ -452,13 +452,13 @@ func (s *RebootInstanceTestSuite) Test_RebootInstance_Success() {
 	var machineManager iActivity.ManageInstance
 
 	request := &cwssaws.InstancePowerRequest{
-		MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-		Operation: cwssaws.InstancePowerRequest_POWER_RESET,
+		InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
+		Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
 	}
 
 	// Mock RebootInstanceOnSiteActivity activity
 	s.env.RegisterActivity(machineManager.RebootInstanceOnSite)
-	s.env.OnActivity(machineManager.RebootInstanceOnSite, mock.Anything, mock.Anything).Return(nil)
+	s.env.OnActivity(machineManager.RebootInstanceOnSite, mock.Anything, request).Return(nil)
 
 	// execute workflow
 	s.env.ExecuteWorkflow(RebootInstance, request)
@@ -470,15 +470,15 @@ func (s *RebootInstanceTestSuite) Test_RebootInstance_Failure() {
 	var machineManager iActivity.ManageInstance
 
 	request := &cwssaws.InstancePowerRequest{
-		MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-		Operation: cwssaws.InstancePowerRequest_POWER_RESET,
+		InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
+		Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
 	}
 
 	errMsg := "Site Controller communication error"
 
 	// Mock RebootInstanceOnSiteActivity activity
 	s.env.RegisterActivity(machineManager.RebootInstanceOnSite)
-	s.env.OnActivity(machineManager.RebootInstanceOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
+	s.env.OnActivity(machineManager.RebootInstanceOnSite, mock.Anything, request).Return(errors.New(errMsg))
 
 	// execute RebootMachineInventory workflow
 	s.env.ExecuteWorkflow(RebootInstance, request)

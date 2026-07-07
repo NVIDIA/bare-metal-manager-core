@@ -19,7 +19,7 @@ use rpc::forge::forge_server::Forge;
 use rpc::forge::{DpaInterfaceCreationRequest, DpaInterfaceType, DpaInterfacesByIdsRequest};
 use rpc::forge_agent_control_response::{self as fac, Action};
 
-use crate::handlers::dpa::process_scout_req;
+use crate::handlers::svpc::process_scout_req;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[crate::sqlx_test]

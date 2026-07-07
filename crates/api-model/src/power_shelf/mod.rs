@@ -27,6 +27,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::StateSla;
+use crate::bmc_info::BmcInfo;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
@@ -73,6 +74,13 @@ pub struct PowerShelf {
 
     pub bmc_mac_address: Option<MacAddress>,
 
+    /// BMC/PMC endpoint (MAC/IP + machine-interface id) resolved from the `Bmc`
+    /// machine_interface linked back to this power shelf. Populated by the
+    /// standard power-shelf load query, so every consumer (handlers, state
+    /// machines) gets it without re-resolving. `None` when no BMC interface is
+    /// linked yet.
+    pub bmc_info: Option<BmcInfo>,
+
     /// The rack that this power shelf is associated with.
     pub rack_id: Option<RackId>,
 
@@ -108,12 +116,18 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             description: row.try_get("description")?,
             labels: labels.0,
         };
+        let bmc_info = row
+            .try_get::<Option<sqlx::types::Json<BmcInfo>>, _>("bmc_info")
+            .ok()
+            .flatten()
+            .map(|j| j.0);
         Ok(PowerShelf {
             id: row.try_get("id")?,
             config: config.0,
             status: status.map(|s| s.0),
             deleted: row.try_get("deleted")?,
             bmc_mac_address: row.try_get("bmc_mac_address").ok().flatten(),
+            bmc_info,
             controller_state: Versioned {
                 value: controller_state.0,
                 version: row.try_get("controller_state_version")?,

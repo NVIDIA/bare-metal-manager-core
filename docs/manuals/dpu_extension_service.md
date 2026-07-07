@@ -64,7 +64,7 @@ To create a service definition of type `KubernetesPod`, prepare a Pod manifest a
 **Admin CLI:**
 
 ```bash
-carbide-admin-cli extension-service create \
+nico-admin-cli extension-service create \
   --id <<some UUID>>  \
   --name test1 \
   --type 0 \
@@ -76,7 +76,7 @@ To include private registry credentials, add a `credentials` object to the reque
 
 ```bash
 # With private registry credentials
-carbide-admin-cli extension-service create \
+nico-admin-cli extension-service create \
   --id <service_uuid>  \
   --name test1 \
   --type 0 \
@@ -97,7 +97,7 @@ Optional query parameters: `siteId`, `status`, `query`, `includeRelation`, `page
 **Admin CLI:**
 
 ```bash
-carbide-admin-cli extension-service show
+nico-admin-cli extension-service show
 ```
 
 Optional filters: `--type`, `--name`, `--tenant-organization-id`.
@@ -111,7 +111,7 @@ Retrieve a single service, including its latest version and list of active versi
 **Admin CLI:**
 
 ```bash
-carbide-admin-cli extension-service show --id <service-id>
+nico-admin-cli extension-service show --id <service-id>
 ```
 
 ### Get a DPU Extension Service Version
@@ -123,7 +123,7 @@ Retrieve the Pod manifest and metadata for a specific version.
 **Admin CLI:**
 
 ```bash
-carbide-admin-cli extension-service get-version --id <service-id> --version <version>
+nico-admin-cli extension-service get-version --id <service-id> --version <version>
 ```
 
 ### Update a DPU Extension Service
@@ -143,7 +143,7 @@ Optional fields: `name`, `description`, `credentials`, and `observability`. Omit
 **Admin CLI:**
 
 ```bash
-carbide-admin-cli extension-service update \
+nico-admin-cli extension-service update \
   --id <service-id> \
   --data "$(cat pod-v2.yaml)" \
   --if-version-ctr-match 2
@@ -165,10 +165,10 @@ Deletion succeeds only when no Instance is using the version being deleted. If a
 
 ```bash
 # Delete the entire service (all versions)
-carbide-admin-cli extension-service delete --id <service-id>
+nico-admin-cli extension-service delete --id <service-id>
 
 # Delete specific versions
-carbide-admin-cli extension-service delete --id <service-id> --version <version1>,<version2>,...
+nico-admin-cli extension-service delete --id <service-id> --version <version1>,<version2>,...
 ```
 
 
@@ -228,7 +228,7 @@ The response includes `dpuExtensionServiceDeployments` with per-service deployme
 **Admin CLI:**
 
 ```bash
-carbide-admin-cli extension-service show-instances --id <service-id>
+nico-admin-cli extension-service show-instances --id <service-id>
 ```
 
 Optionally filter by version: `--version <version>`.

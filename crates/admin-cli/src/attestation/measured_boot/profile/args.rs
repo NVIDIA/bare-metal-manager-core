@@ -44,13 +44,14 @@ use clap::Parser;
 use crate::attestation::measured_boot::global::cmds::{
     IdNameIdentifier, IdentifierType, get_identifier,
 };
+use crate::cfg::dispatch::Dispatch;
 use crate::cfg::measurement::{KvPair as CfgKvPair, parse_colon_pairs};
 use crate::errors::CarbideCliError;
 
 // CmdProfile provides a container for the `profile`
 // subcommand, which itself contains other subcommands
 // for working with profiles.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 pub enum CmdProfile {
     #[clap(
         about = "Create a new profile with a given config.",
@@ -72,6 +73,7 @@ pub enum CmdProfile {
         about = "List profiles by various ways.",
         visible_alias = "l"
     )]
+    #[dispatch]
     List(List),
 }
 
@@ -225,7 +227,7 @@ impl IdNameIdentifier for Show {
 }
 
 /// List provides a few ways to list things.
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Dispatch)]
 #[command(after_long_help = "\
 EXAMPLES:
 

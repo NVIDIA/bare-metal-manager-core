@@ -54,7 +54,8 @@ use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
 use carbide_secrets::credentials::{
-    CompositeCredentialManager, CredentialManager, CredentialReader,
+    CompositeCredentialManager, CredentialKey, CredentialManager, CredentialReader, CredentialType,
+    Credentials,
 };
 use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
@@ -184,6 +185,7 @@ pub struct TestEnvOverrides {
     pub redfish_overrides: Option<RedfishOverrides>,
     pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
     pub vpc_prefixes_drain_period: Option<chrono::Duration>,
+    pub dhcp_lease_expiry_handling: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -366,6 +368,11 @@ impl TestEnv {
             .into(),
             switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
             credential_manager: self.test_credential_manager.clone(),
+            component_manager: self.test_component_manager.clone(),
+            nmx_cluster_switch_mtls_services:
+                component_manager::config::switch_mtls_services_as_i32(
+                    &component_manager::config::effective_nmx_cluster_switch_mtls_services(&[]),
+                ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
         }
     }
@@ -1263,6 +1270,32 @@ pub async fn create_test_env_with_overrides(
         Arc::new(RedfishSim::default())
     };
 
+    // Seed the site-wide host and DPU UEFI site-default credentials (version 0).
+    // These are written during site setup in production; tests don't run that.
+    // UEFI setup resolves and reads the site-wide credential in the controller
+    // (`resolve_site_uefi_credentials`) through `redfish_client_pool`'s reader --
+    // which in tests is the `RedfishSim`'s own store -- before calling the
+    // (mocked) `uefi_setup`, so a missing credential surfaces as a hard error.
+    // Seed centrally so every machine-driving test has them regardless of fixture.
+    for key in [
+        CredentialKey::HostUefi {
+            credential_type: CredentialType::SiteDefault,
+        },
+        CredentialKey::DpuUefi {
+            credential_type: CredentialType::SiteDefault,
+        },
+    ] {
+        redfish_sim
+            .seed_credential(
+                &key,
+                &Credentials::UsernamePassword {
+                    username: "".to_string(),
+                    password: "notforprod".to_string(),
+                },
+            )
+            .await;
+    }
+
     let nvlink_for_nmxc_sim = overrides
         .config
         .as_ref()
@@ -1303,6 +1336,10 @@ pub async fn create_test_env_with_overrides(
 
     config.compute_allocation_enforcement =
         overrides.compute_allocation_enforcement.unwrap_or_default();
+
+    if let Some(val) = overrides.dhcp_lease_expiry_handling {
+        config.dhcp_lease_expiry_handling = val;
+    }
 
     let config = Arc::new(config);
 
@@ -1366,6 +1403,7 @@ pub async fn create_test_env_with_overrides(
     .await
     .expect("test component manager should build");
     let test_component_manager = Some(Arc::new(test_component_manager));
+    let fake_endpoint_explorer = MockEndpointExplorer::default();
 
     let mut api_builder = TestApiBuilder::new(
         db_pool.clone(),
@@ -1378,7 +1416,8 @@ pub async fn create_test_env_with_overrides(
     .with_nmxc_client_pool(nmxc_sim.clone())
     .with_metric_emitter(ApiMetricsEmitter::new(&test_meter.meter()))
     .with_redfish_pool(redfish_sim.clone())
-    .with_ib_fabric_manager(ib_fabric_manager.clone());
+    .with_ib_fabric_manager(ib_fabric_manager.clone())
+    .with_endpoint_explorer(fake_endpoint_explorer.clone());
 
     if let Some(rms_client) = rms_sim.as_rms_client() {
         api_builder = api_builder.with_rms_client(rms_client);
@@ -1416,6 +1455,9 @@ pub async fn create_test_env_with_overrides(
         db_pool.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
+        rms_sim.as_rms_client(),
+        composite_manager.clone(),
+        config.rack_profiles.clone(),
         api.work_lock_manager_handle.clone(),
     );
 
@@ -1615,6 +1657,9 @@ pub async fn create_test_env_with_overrides(
                 db_pool: db_pool.clone(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
+                switch_mtls_services: component_manager::config::switch_mtls_services_as_i32(
+                    &component_manager::config::effective_switch_mtls_services(&[]),
+                ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1639,6 +1684,11 @@ pub async fn create_test_env_with_overrides(
                 .into(),
                 switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
                 credential_manager: credential_manager.clone(),
+                component_manager: test_component_manager.clone(),
+                nmx_cluster_switch_mtls_services:
+                    component_manager::config::switch_mtls_services_as_i32(
+                        &component_manager::config::effective_nmx_cluster_switch_mtls_services(&[]),
+                    ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1646,15 +1696,6 @@ pub async fn create_test_env_with_overrides(
         .state_handler(Arc::new(RackStateHandler::default()))
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build RackStateController");
-
-    let fake_endpoint_explorer = MockEndpointExplorer {
-        reports: Arc::new(std::sync::Mutex::new(Default::default())),
-        power_states: Arc::new(std::sync::Mutex::new(Default::default())),
-        redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-        power_control_failures: Arc::new(std::sync::Mutex::new(Default::default())),
-        set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-        explore_endpoint_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-    };
 
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one
     // on its own. TestEnv's site_explorer is a separate instance talking to the same database that
@@ -1689,10 +1730,11 @@ pub async fn create_test_env_with_overrides(
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },
         test_meter.meter(),
-        Arc::new(fake_endpoint_explorer.clone()),
+        api.endpoint_explorer.clone(),
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
         api.work_lock_manager_handle.clone(),
+        api.endpoint_exploration_locks.clone(),
         site_explorer_rack_profiles,
         rms_sim.as_rms_client(),
         credential_manager.clone(),
@@ -2263,6 +2305,7 @@ pub async fn network_configured_with_health_and_ext_services(
             .instance
             .map(|instance| instance.dpu_extension_service_version),
         dpu_extension_services,
+        astra_config_status: None,
     };
     tracing::trace!(
         "network_configured machine={} instance_network={} instance={}",
