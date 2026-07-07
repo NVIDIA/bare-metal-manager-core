@@ -22,13 +22,16 @@ use std::sync::Arc;
 use std::time::{self, Duration};
 
 use ::carbide_utils::HostPortPair;
-use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
+use ::machine_a_tron::{
+    BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig, RackConfig,
+};
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,
 };
 use bmc_mock::test_support::TEST_MAC_POOL;
 use bmc_mock::{HostHardwareType, ListenerOrAddress};
+use carbide_uuid::rack::{RackId, RackProfileId};
 use eyre::ContextCompat;
 use futures::FutureExt;
 use futures::future::join_all;
@@ -155,6 +158,12 @@ async fn test_integration() -> eyre::Result<()> {
             &bmc_address_registry,
             &managed_segment_id,
             // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_rack(
+            &test_env,
+            &bmc_address_registry,
             Ipv4Addr::new(172, 20, 0, 2),
         )
         .boxed(),
@@ -415,6 +424,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
         1,
         1,
         false,
+        None,
         &test_env,
         &bmc_address_registry,
         Ipv4Addr::new(172, 20, 0, 1),
@@ -562,6 +572,7 @@ async fn test_machine_a_tron_multidpu(
         1,
         2,
         false,
+        None,
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -633,6 +644,71 @@ async fn test_machine_a_tron_multidpu(
     .await
 }
 
+#[derive(Clone)]
+struct TestRackConfig {
+    rack_id: RackId,
+    rack_profile_id: RackProfileId,
+}
+
+async fn test_machine_a_tron_rack(
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    admin_dhcp_relay_address: Ipv4Addr,
+) -> eyre::Result<()> {
+    let rack_id = RackId::new("machine-a-tron-nvl72");
+    run_machine_a_tron_test(
+        HostHardwareType::WiwynnGB200Nvl,
+        18,
+        2,
+        false,
+        Some(TestRackConfig {
+            rack_id: rack_id.clone(),
+            rack_profile_id: RackProfileId::new("NVL72"),
+        }),
+        test_env,
+        bmc_mock_registry,
+        admin_dhcp_relay_address,
+        |machine_handle| {
+            let db_pool = test_env.db_pool.clone();
+            let rack_id = rack_id.clone();
+            async move {
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(240))
+                    .await?;
+                let machine_id = machine_handle
+                    .observed_machine_id()
+                    .expect("Machine ID should be set if host is ready")
+                    .to_string();
+
+                let managed_rack_id: Option<String> =
+                    sqlx::query_scalar("SELECT rack_id FROM machines WHERE id = $1")
+                        .bind(machine_id)
+                        .fetch_one(&db_pool)
+                        .await?;
+                assert_eq!(managed_rack_id.as_deref(), Some(rack_id.as_str()));
+
+                let expected_machine_count: i64 =
+                    sqlx::query_scalar("SELECT COUNT(*) FROM expected_machines WHERE rack_id = $1")
+                        .bind(rack_id.as_str())
+                        .fetch_one(&db_pool)
+                        .await?;
+                assert_eq!(expected_machine_count, 18);
+
+                let rack_profile_id: String = sqlx::query_scalar(
+                    "SELECT rack_profile_id FROM expected_racks WHERE rack_id = $1",
+                )
+                .bind(rack_id.as_str())
+                .fetch_one(&db_pool)
+                .await?;
+                assert_eq!(rack_profile_id, "NVL72");
+
+                Ok::<(), eyre::Report>(())
+            }
+        },
+    )
+    .await
+}
+
 async fn test_machine_a_tron_zerodpu(
     hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
@@ -644,6 +720,7 @@ async fn test_machine_a_tron_zerodpu(
         1,
         0,
         false,
+        None,
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -704,6 +781,7 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         1,
         1,
         true,
+        None,
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -778,6 +856,7 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
         // Start in DPU mode: the host comes up as a managed-DPU machine, and we
         // flip it to NIC mode below.
         false,
+        None,
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -943,6 +1022,7 @@ async fn test_machine_a_tron_dual_stack(
         1,
         1,
         false,
+        None,
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -1050,6 +1130,7 @@ async fn test_machine_a_tron_dual_stack_l2(
         1,
         1,
         false,
+        None,
         test_env,
         bmc_mock_registry,
         admin_dhcp_relay_address,
@@ -1110,6 +1191,7 @@ async fn run_machine_a_tron_test<F, O>(
     host_count: u32,
     dpu_per_host_count: u32,
     dpus_in_nic_mode: bool,
+    rack: Option<TestRackConfig>,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     admin_dhcp_relay_address: Ipv4Addr,
@@ -1128,10 +1210,26 @@ where
         .iter()
         .map(|a| format!("https://{}:{}", a.ip(), a.port()))
         .collect();
+    let (racks, rack_id) = rack
+        .map(|rack| {
+            let rack_id = rack.rack_id;
+            (
+                BTreeMap::from([(
+                    rack_id.clone(),
+                    RackConfig {
+                        rack_profile_id: rack.rack_profile_id,
+                    },
+                )]),
+                Some(rack_id),
+            )
+        })
+        .unwrap_or_default();
     let mat_config = MachineATronConfig {
+        racks,
         machines: BTreeMap::from([(
             "config".to_string(),
             Arc::new(MachineConfig {
+                rack_id,
                 hw_type,
                 host_count,
                 dpu_per_host_count,
