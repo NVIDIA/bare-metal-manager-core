@@ -268,15 +268,15 @@ core-proto:
 
 core-proto-clean:
 	@echo "Cleaning up Core proto and protobuf files"
-	rm -rf workflow-schema/site-agent/workflows/v1/*_nico.proto
-	rm -rf workflow-schema/schema/site-agent/workflows/v1/*.pb.go
+	rm -rf workflow-schema/core/proto/v1/*_nico.proto
+	rm -rf workflow-schema/core/protobuf/v1/*.pb.go
 
 core-proto-fetch:
 	@for file in ../crates/rpc/proto/*.proto; do \
-		cp "$$file" "workflow-schema/site-agent/workflows/v1/$$(basename "$$file" .proto)_nico.proto"; \
+		cp "$$file" "workflow-schema/core/proto/v1/$$(basename "$$file" .proto)_nico.proto"; \
 		echo "Copied: $$file"; \
 	done
-	mv workflow-schema/site-agent/workflows/v1/forge_nico.proto workflow-schema/site-agent/workflows/v1/nico_nico.proto
+	mv workflow-schema/core/proto/v1/forge_nico.proto workflow-schema/core/proto/v1/nico_nico.proto
 	echo "Successfully copied Core protobuf files"
 
 core-proto-fmt:
@@ -305,7 +305,7 @@ core-protogen:
 		exit 1; \
 	fi
 	echo "Generating protobuf for Core"
-	cd workflow-schema && buf generate
+	cd workflow-schema/core && buf generate
 	go fmt ./...
 
 flow-proto:

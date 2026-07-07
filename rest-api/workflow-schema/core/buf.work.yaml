@@ -4,4 +4,4 @@
 ---
 version: v1
 directories:
-  - site-agent/workflows/v1
+  - proto/v1

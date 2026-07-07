@@ -440,7 +440,7 @@ func indentBlock(s string) string {
 }
 
 func main() {
-	workflowsDir := filepath.Join("..", "..", "site-agent", "workflows", "v1")
+	workflowsDir := filepath.Join("..", "..", "core", "proto", "v1")
 	nicoProtoFiles := filepath.Join(workflowsDir, "*_nico.proto")
 	protoFiles, err := filepath.Glob(nicoProtoFiles)
 	if err != nil {
