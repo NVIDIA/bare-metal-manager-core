@@ -46,7 +46,7 @@ use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 
 use crate::cfg::file::{PeriodicStateRepublishConfig, RepublishScope};
-use crate::mqtt_state_change_hook::message::ManagedHostStateChangeMessage;
+use crate::mqtt_state_change_hook::message::ManagedHostStateMessage;
 
 const REPUBLISH_WORK_KEY: &str = "managed_host_state_republisher::iteration";
 
@@ -297,7 +297,7 @@ async fn publish_state<P: MqttPublisher>(
     state: &ManagedHostState,
     timestamp: DateTime<Utc>,
 ) {
-    let message = ManagedHostStateChangeMessage {
+    let message = ManagedHostStateMessage {
         machine_id,
         managed_host_state: state,
         timestamp,
