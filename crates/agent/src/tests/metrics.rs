@@ -47,45 +47,24 @@ fn test_metrics() {
             .parse()
             .unwrap(),
     );
-    network_monitor_metrics.record_network_loss_percent(
-        0.5,
-        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0"
-            .parse()
-            .unwrap(),
-        "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0"
-            .parse()
-            .unwrap(),
-    );
-    network_monitor_metrics.record_monitor_error(
-        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0"
-            .parse()
-            .unwrap(),
-        NetworkMonitorError::PingError.to_string(),
-    );
-    network_monitor_metrics.record_network_latency(
-        Duration::from_millis(2),
-        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0"
-            .parse()
-            .unwrap(),
-        "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0"
-            .parse()
-            .unwrap(),
-    );
-    network_monitor_metrics.record_communication_error(
-        "fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0"
-            .parse()
-            .unwrap(),
-        "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0"
-            .parse()
-            .unwrap(),
-        NetworkMonitorError::PingError.to_string(),
-    );
-    network_monitor_metrics.update_network_reachable_map(HashMap::from([(
-        "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0"
-            .parse()
-            .unwrap(),
-        true,
-    )]));
+    network_monitor_metrics.record_network_loss_percent(0.5);
+    network_monitor_metrics.record_monitor_error(NetworkMonitorError::PingError.to_string());
+    network_monitor_metrics.record_network_latency(Duration::from_millis(2));
+    network_monitor_metrics.record_communication_error(NetworkMonitorError::PingError.to_string());
+    network_monitor_metrics.update_network_reachable_map(HashMap::from([
+        (
+            "fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0"
+                .parse()
+                .unwrap(),
+            true,
+        ),
+        (
+            "fm100dsvstfujf6mis0gpsoi81tadmllicv7rqo4s7gc16gi0t2478672vg"
+                .parse()
+                .unwrap(),
+            false,
+        ),
+    ]));
 
     let mut buffer = vec![];
     let encoder = TextEncoder::new();

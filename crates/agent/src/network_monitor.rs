@@ -186,16 +186,8 @@ impl NetworkMonitor {
                         for result in results {
                             reachable_map.insert(result.dpu_info.id, result.reachable());
                             if let Some(latency) = result.average_latency {
-                                metrics.record_network_latency(
-                                    latency,
-                                    self.machine_id,
-                                    result.dpu_info.id,
-                                );
-                                metrics.record_network_loss_percent(
-                                    result.loss_percent(),
-                                    self.machine_id,
-                                    result.dpu_info.id,
-                                );
+                                metrics.record_network_latency(latency);
+                                metrics.record_network_loss_percent(result.loss_percent());
                             }
                         }
                         metrics.update_network_reachable_map(reachable_map);
@@ -367,20 +359,21 @@ impl NetworkMonitor {
         Ok((dpu_info, peer_dpus))
     }
 
-    /// Helper function for recording different types of error metrics
+    /// Helper function for recording different types of error metrics.
+    /// Communication errors also log the peer involved: the error counter is
+    /// labeled by source DPU only, so the logs hold the per-peer detail.
     fn record_error_metrics(
         &self,
         error_type: NetworkMonitorError,
         dest_dpu_id: Option<MachineId>,
     ) {
-        if let Some(metrics) = &self.metrics.clone() {
+        if let Some(dest_dpu_id) = dest_dpu_id {
+            tracing::warn!(%dest_dpu_id, %error_type, "Network monitor communication error");
+        }
+        if let Some(metrics) = &self.metrics {
             match dest_dpu_id {
-                Some(dest_dpu_id) => metrics.record_communication_error(
-                    self.machine_id,
-                    dest_dpu_id,
-                    error_type.to_string(),
-                ),
-                None => metrics.record_monitor_error(self.machine_id, error_type.to_string()),
+                Some(_) => metrics.record_communication_error(error_type.to_string()),
+                None => metrics.record_monitor_error(error_type.to_string()),
             };
         }
     }

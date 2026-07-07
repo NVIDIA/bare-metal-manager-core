@@ -110,7 +110,7 @@ pub fn get_dpu_agent_meter() -> Meter {
 /// that track the exact amount of retry attempts up to 3, and 2 additional
 /// buckets up to 10. This is more useful than the default histogram range where
 /// the lowest sets of buckets are 0, 5, 10, 25
-fn create_retry_histogram_view() -> carbide_metrics_utils::Result<OtelView> {
+pub(crate) fn create_retry_histogram_view() -> carbide_metrics_utils::Result<OtelView> {
     carbide_metrics_utils::new_view(
         "*_(attempts|retries)_*",
         Some(InstrumentKind::Histogram),
@@ -121,7 +121,7 @@ fn create_retry_histogram_view() -> carbide_metrics_utils::Result<OtelView> {
     )
 }
 
-fn create_network_latency_view() -> carbide_metrics_utils::Result<OtelView> {
+pub(crate) fn create_network_latency_view() -> carbide_metrics_utils::Result<OtelView> {
     carbide_metrics_utils::new_view(
         "*_network_latency*",
         None,
@@ -134,7 +134,7 @@ fn create_network_latency_view() -> carbide_metrics_utils::Result<OtelView> {
     )
 }
 
-fn create_network_loss_view() -> carbide_metrics_utils::Result<OtelView> {
+pub(crate) fn create_network_loss_view() -> carbide_metrics_utils::Result<OtelView> {
     carbide_metrics_utils::new_view(
         "*_network_loss_percentage*",
         None,

@@ -524,11 +524,12 @@ DPU metrics:
 | `carbide_dpu_health_check_failed_count` | Failed DPU health checks by probe. |
 | `carbide_dpu_agent_version_count` | DPU-agent version distribution. |
 | `carbide_dpu_firmware_version_count` | DPU firmware version distribution. |
-| `forge_dpu_agent_network_reachable` | DPU-to-DPU reachability. |
-| `forge_dpu_agent_network_latency` | DPU-to-DPU latency. |
-| `forge_dpu_agent_network_loss_percentage` | Packet loss in a DPU network check cycle. |
+| `forge_dpu_agent_network_reachable_peers_count` | Peer DPUs the source DPU reached in its latest network check. |
+| `forge_dpu_agent_network_unreachable_peers_count` | Peer DPUs the source DPU could not reach in its latest network check. Per-peer transitions are in the DPU-agent logs. |
+| `forge_dpu_agent_network_latency` | Latency distribution from a source DPU across all of its peer probes. |
+| `forge_dpu_agent_network_loss_percentage` | Packet-loss distribution from a source DPU across all of its peer probes. |
 | `forge_dpu_agent_network_monitor_error` | Network monitor errors unrelated to connectivity. |
-| `forge_dpu_agent_network_communication_error` | Communication errors to a destination DPU. |
+| `forge_dpu_agent_network_communication_error` | Communication errors from a source DPU, by error type. The affected peer is in the DPU-agent logs. |
 
 ## API Health and Availability
 

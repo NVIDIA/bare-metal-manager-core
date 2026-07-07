@@ -187,10 +187,14 @@ async fn handler(uri: Uri) -> impl IntoResponse {
 }
 
 fn verify_metrics(test_meter: &TestMeter) {
-    let attribute = format!("{{dest_dpu_id=\"{DEST_DPU_ID}\",source_dpu_id=\"{DPU_ID}\"}}");
+    // Network metrics are per-source rollups: one series for this DPU,
+    // aggregated across every probed peer.
+    let attribute = format!("{{source_dpu_id=\"{DPU_ID}\"}}");
 
     let expected_network_latency_count = format!("{attribute} 1");
     let expected_network_loss_percentage_sum = format!("{attribute} 0.8");
+    let expected_reachable_peers_count = format!("{attribute} 1");
+    let expected_unreachable_peers_count = format!("{attribute} 0");
 
     // Verify network_latency_count
     match test_meter.formatted_metric("forge_dpu_agent_network_latency_milliseconds_count") {
@@ -212,6 +216,28 @@ fn verify_metrics(test_meter: &TestMeter) {
             );
         }
         None => panic!("forge_dpu_agent_network_loss_percentage_sum metric not found"),
+    }
+
+    // Verify the peer-count gauges: the mock fleet has one peer DPU and the
+    // mock pinger reaches it.
+    match test_meter.formatted_metric("forge_dpu_agent_network_reachable_peers_count") {
+        Some(reachable_peers_count) => {
+            assert_eq!(
+                reachable_peers_count, expected_reachable_peers_count,
+                "forge_dpu_agent_network_reachable_peers_count does not match"
+            );
+        }
+        None => panic!("forge_dpu_agent_network_reachable_peers_count metric not found"),
+    }
+
+    match test_meter.formatted_metric("forge_dpu_agent_network_unreachable_peers_count") {
+        Some(unreachable_peers_count) => {
+            assert_eq!(
+                unreachable_peers_count, expected_unreachable_peers_count,
+                "forge_dpu_agent_network_unreachable_peers_count does not match"
+            );
+        }
+        None => panic!("forge_dpu_agent_network_unreachable_peers_count metric not found"),
     }
 }
 
@@ -284,8 +310,10 @@ impl Default for TestMeter {
             .build()
             .unwrap();
         let view = carbide_metrics_utils::new_view(
-            "*_network_*", // Match all instruments with "network" in their name
-            None,
+            "*_network_*", // Match all histograms with "network" in their name
+            // Only reshape histograms: the network peer-count gauges must
+            // stay gauges.
+            Some(metrics::InstrumentKind::Histogram),
             metrics::Aggregation::ExplicitBucketHistogram {
                 boundaries: vec![0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0],
                 record_min_max: true,

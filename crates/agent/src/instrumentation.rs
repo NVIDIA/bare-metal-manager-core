@@ -95,7 +95,13 @@ pub struct NetworkMonitorMetricsState {
     network_monitor_error: Counter<u64>,
     network_communication_error: Counter<u64>,
 
-    // Fields used for network_reachable observations
+    // Every sample this agent records is for the same source DPU, so the
+    // label sets are rendered once here instead of once per recorded sample.
+    source_attributes: [KeyValue; 1],
+    dpu_id_attribute: KeyValue,
+
+    // Reachability results from the latest network check, the input for the
+    // reachable/unreachable peer-count gauges.
     network_reachable_map: NetworkReachableMap,
 }
 
@@ -104,28 +110,47 @@ type NetworkReachableMap = Arc<Mutex<Option<HashMap<MachineId, bool>>>>;
 impl NetworkMonitorMetricsState {
     pub fn initialize(meter: Meter, machine_id: MachineId) -> Arc<Self> {
         let network_reachable_map = NetworkReachableMap::default();
+        let machine_id_label = machine_id.to_string();
+        let source_attributes = [KeyValue::new("source_dpu_id", machine_id_label.clone())];
+        let dpu_id_attribute = KeyValue::new("dpu_id", machine_id_label);
 
+        // Peer reachability is exported as two per-source counts rather than
+        // one 0/1 series per (source, dest) pair: every agent probes every
+        // other DPU, so per-pair series multiply into O(N^2) fleet-wide
+        // cardinality. Per-peer detail is logged on reachability transitions
+        // instead (see `update_network_reachable_map`).
         {
             let network_reachable_map = network_reachable_map.clone();
+            let attributes = source_attributes.clone();
             meter
-                .u64_observable_gauge("forge_dpu_agent_network_reachable")
+                .u64_observable_gauge("forge_dpu_agent_network_reachable_peers_count")
                 .with_description(
-                    "Network reachability status (1 for reachable, 0 for unreachable)",
+                    "Number of peer DPUs this DPU could reach in its latest network check",
                 )
                 .with_callback(move |observer| {
                     let network_reachable_map = network_reachable_map.lock().unwrap();
                     if let Some(map) = network_reachable_map.as_ref() {
-                        // Export reachability metrics from the map
-                        for (dpu_id, reachable) in map.iter() {
-                            let reachability = if *reachable { 1 } else { 0 };
-                            observer.observe(
-                                reachability,
-                                &[
-                                    KeyValue::new("source_dpu_id", machine_id.to_string()),
-                                    KeyValue::new("dest_dpu_id", dpu_id.to_string()),
-                                ],
-                            );
-                        }
+                        let reachable_peers =
+                            map.values().filter(|reachable| **reachable).count() as u64;
+                        observer.observe(reachable_peers, &attributes);
+                    }
+                })
+                .build();
+        }
+        {
+            let network_reachable_map = network_reachable_map.clone();
+            let attributes = source_attributes.clone();
+            meter
+                .u64_observable_gauge("forge_dpu_agent_network_unreachable_peers_count")
+                .with_description(
+                    "Number of peer DPUs this DPU could not reach in its latest network check",
+                )
+                .with_callback(move |observer| {
+                    let network_reachable_map = network_reachable_map.lock().unwrap();
+                    if let Some(map) = network_reachable_map.as_ref() {
+                        let unreachable_peers =
+                            map.values().filter(|reachable| !**reachable).count() as u64;
+                        observer.observe(unreachable_peers, &attributes);
                     }
                 })
                 .build();
@@ -153,73 +178,53 @@ impl NetworkMonitorMetricsState {
             network_loss_percent,
             network_monitor_error,
             network_communication_error,
+            source_attributes,
+            dpu_id_attribute,
             network_reachable_map,
         })
     }
 
-    /// Records network latency between two DPUs as milliseconds.
+    /// Records one peer probe's network latency in milliseconds.
     ///
-    /// # Parameters
-    /// - `latency`: Network latency between the two DPUs.
-    /// - `source_dpu_id`: The ID of source DPU.
-    /// - `dest_dpu_id`: The ID of destination DPU.
-    pub fn record_network_latency(
-        &self,
-        latency: Duration,
-        source_dpu_id: MachineId,
-        dest_dpu_id: MachineId,
-    ) {
-        let attributes = [
-            KeyValue::new("source_dpu_id", source_dpu_id.to_string()),
-            KeyValue::new("dest_dpu_id", dest_dpu_id.to_string()),
-        ];
+    /// The sample lands in this DPU's single per-source histogram, which
+    /// aggregates the latency distribution across all probed peers.
+    pub fn record_network_latency(&self, latency: Duration) {
         self.network_latency
-            .record(latency.as_secs_f64() * 1000.0, &attributes);
+            .record(latency.as_secs_f64() * 1000.0, &self.source_attributes);
     }
 
-    /// Record network loss percent out of total number of pings sent during one network check.
+    /// Records one peer probe's loss percentage out of the total number of
+    /// pings sent during one network check.
     ///
-    /// # Parameters
-    /// - `loss_percent`: Percentage of loss out of total pings sent.
-    /// - `source_dpu_id`: The ID of source DPU.
-    /// - `dest_dpu_id`: The ID of destination DPU.
-    pub fn record_network_loss_percent(
-        &self,
-        loss_percent: f64,
-        source_dpu_id: MachineId,
-        dest_dpu_id: MachineId,
-    ) {
-        let attributes = [
-            KeyValue::new("source_dpu_id", source_dpu_id.to_string()),
-            KeyValue::new("dest_dpu_id", dest_dpu_id.to_string()),
-        ];
-        self.network_loss_percent.record(loss_percent, &attributes);
+    /// The sample lands in this DPU's single per-source histogram, which
+    /// aggregates the loss distribution across all probed peers.
+    pub fn record_network_loss_percent(&self, loss_percent: f64) {
+        self.network_loss_percent
+            .record(loss_percent, &self.source_attributes);
     }
 
-    /// Overwrites the network reachable map with a new map.
+    /// Replaces the reachability results of the latest network check.
+    ///
+    /// Peers whose reachability changed since the previous check are logged
+    /// here, so per-peer detail stays available in the logs while the
+    /// exported metrics stay per-source counts.
     ///
     /// # Parameters
-    /// - `new_reachable_map`: Records reachability between DPUs where the key is ID of destination DPU
-    ///   and value is reachability as bool
+    /// - `new_reachable_map`: Reachability keyed by the ID of the probed peer
+    ///   DPU, with reachability as the bool value
     pub fn update_network_reachable_map(&self, new_reachable_map: HashMap<MachineId, bool>) {
-        *self.network_reachable_map.lock().unwrap() = Some(new_reachable_map);
+        let mut network_reachable_map = self.network_reachable_map.lock().unwrap();
+        log_peer_reachability_transitions(network_reachable_map.as_ref(), &new_reachable_map);
+        *network_reachable_map = Some(new_reachable_map);
     }
 
-    /// Records an error related to network communication with a DPU.
+    /// Records an error related to network communication with a peer DPU.
     ///
     /// # Parameters
-    /// - `source_dpu_id`: The ID of this DPU, which starts the communication.
-    /// - `dest_dpu_id`: The destination DPU id to which communication error happened.
     /// - `error_type`: A string describing the type of communication error.
-    pub fn record_communication_error(
-        &self,
-        source_dpu_id: MachineId,
-        dest_dpu_id: MachineId,
-        error_type: String,
-    ) {
+    pub fn record_communication_error(&self, error_type: String) {
         let attributes = [
-            KeyValue::new("source_dpu_id", source_dpu_id.to_string()),
-            KeyValue::new("dest_dpu_id", dest_dpu_id.to_string()),
+            self.source_attributes[0].clone(),
             KeyValue::new("error_type", error_type),
         ];
         self.network_communication_error.add(1, &attributes);
@@ -228,14 +233,46 @@ impl NetworkMonitorMetricsState {
     /// Records an error related to network monitoring that is unrelated to connectivity.
     ///
     /// # Parameters
-    /// - `machine_id`: The ID of this machine
     /// - `error_type`: A string describing the type of network monitor error.
-    pub fn record_monitor_error(&self, machine_id: MachineId, error_type: String) {
+    pub fn record_monitor_error(&self, error_type: String) {
         let attributes = [
-            KeyValue::new("dpu_id", machine_id.to_string()),
+            self.dpu_id_attribute.clone(),
             KeyValue::new("error_type", error_type),
         ];
         self.network_monitor_error.add(1, &attributes);
+    }
+}
+
+/// Logs every peer whose reachability changed between the previous network
+/// check and the current one. Steady-state results (a peer that stayed
+/// reachable or stayed unreachable, or a newly discovered reachable peer) are
+/// not logged, so a stable fleet produces no output here.
+fn log_peer_reachability_transitions(
+    previous: Option<&HashMap<MachineId, bool>>,
+    current: &HashMap<MachineId, bool>,
+) {
+    for (peer_dpu_id, reachable) in current {
+        let previously_reachable = previous.and_then(|map| map.get(peer_dpu_id)).copied();
+        match (previously_reachable, *reachable) {
+            (Some(true), false) => {
+                tracing::warn!(%peer_dpu_id, "Peer DPU became unreachable");
+            }
+            (Some(false), true) => {
+                tracing::info!(%peer_dpu_id, "Peer DPU became reachable");
+            }
+            (None, false) => {
+                tracing::warn!(%peer_dpu_id, "Peer DPU is unreachable at its first network check");
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(previous) = previous {
+        for peer_dpu_id in previous.keys() {
+            if !current.contains_key(peer_dpu_id) {
+                tracing::debug!(%peer_dpu_id, "Peer DPU is no longer in the monitored set");
+            }
+        }
     }
 }
 
