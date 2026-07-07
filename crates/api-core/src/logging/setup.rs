@@ -46,7 +46,9 @@ pub struct Logging {
     pub filter: Arc<ActiveLevel>,
     pub tracing_enabled: Arc<AtomicBool>,
     pub spancount_reader: Option<spancounter::SpanCountReader>,
-    /// Log stream used to feed the admin web UI.
+    /// Log stream used to feed the admin web UI. Only fed when the admin UI is
+    /// enabled (`enable_admin_ui`); otherwise no [`LogStreamLayer`] is
+    /// installed and the stream stays empty.
     pub log_stream: LogStream,
 }
 
@@ -75,11 +77,25 @@ pub fn dep_log_filter(env_filter: EnvFilter) -> EnvFilter {
         .unwrap_or_else(|err| panic!("could not reparse combined filter '{combined}': {err}"))
 }
 
+/// The admin-UI log-stream layer, or `None` when the admin UI is disabled.
+/// The layer's only consumer is the web UI's log viewer: with the UI off there
+/// is no subscriber, so installing it would spend per-event work (a second
+/// field visit, timestamp/target strings, ring-buffer churn under a mutex) on
+/// lines nothing reads. Composed into the registry as an `Option`, which
+/// `tracing-subscriber` treats as a no-op layer when `None`.
+fn admin_ui_log_stream_layer(
+    enable_admin_ui: bool,
+    log_stream: &LogStream,
+) -> Option<LogStreamLayer> {
+    enable_admin_ui.then(|| LogStreamLayer::new(log_stream.clone()))
+}
+
 pub fn setup_logging(
     debug: u8,
     extra_logfmt_event_fields: Vec<String>,
     override_logging_subscriber: Option<impl SubscriberInitExt>,
     log_history_max_bytes: usize,
+    enable_admin_ui: bool,
     tracing_config: &TracingConfig,
 ) -> eyre::Result<Logging> {
     // Install the global W3C trace-context propagator so NICo can extract inbound and inject
@@ -170,12 +186,17 @@ pub fn setup_logging(
                 }
             };
 
+        // Installed only when the admin UI can consume it; `None` keeps this
+        // second per-event consumer out of the subscriber stack entirely.
+        let log_stream_layer = admin_ui_log_stream_layer(enable_admin_ui, &log_stream)
+            .map(|layer| layer.with_filter(initial_log_filter.clone()));
+
         tracing_subscriber::registry()
             .with(log_events.layer().with_filter(initial_log_filter.clone()))
             .with(spancount_layer.with_filter(log_level))
             .with(maybe_otel_tracing_layer)
             .with(logfmt_stdout_formatter.with_filter(logfmt_stdout_filter))
-            .with(LogStreamLayer::new(log_stream.clone()).with_filter(initial_log_filter.clone()))
+            .with(log_stream_layer)
             .with(sqlx_query_tracing::create_sqlx_query_tracing_layer())
             .try_init()
             .wrap_err("new tracing subscriber try_init()")?;
@@ -672,6 +693,49 @@ mod tests {
                 assert!(!encoded.contains(r#"mygauge{error="ErrC",state="mystate"} 1"#));
             }
         }
+    }
+
+    #[test]
+    fn log_stream_layer_absent_when_admin_ui_disabled() {
+        use tracing_subscriber::prelude::*;
+
+        let stream = LogStream::new(8, 64 * 1024);
+        let layer = admin_ui_log_stream_layer(false, &stream);
+        assert!(layer.is_none(), "disabled admin UI must not build a layer");
+
+        // Composed the way `setup_logging` composes it, the `None` layer is a
+        // no-op: events reach neither live subscribers nor the replay ring.
+        let mut rx = stream.subscribe();
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!("not streamed");
+        });
+        assert!(
+            rx.try_recv().is_err(),
+            "no line may be broadcast with the admin UI disabled"
+        );
+        assert!(
+            stream.latest(10).is_empty(),
+            "no history may be retained with the admin UI disabled"
+        );
+    }
+
+    #[test]
+    fn log_stream_layer_present_when_admin_ui_enabled() {
+        use tracing_subscriber::prelude::*;
+
+        let stream = LogStream::new(8, 64 * 1024);
+        let mut rx = stream.subscribe();
+        let layer = admin_ui_log_stream_layer(true, &stream);
+        assert!(layer.is_some(), "enabled admin UI must build the layer");
+
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!("streamed");
+        });
+        let line = rx.try_recv().expect("a line should have been broadcast");
+        assert_eq!(line.message, "streamed");
+        assert_eq!(stream.latest(10).len(), 1);
     }
 
     /// Install `dep_log_filter(user_directives)` as the thread-local subscriber

@@ -70,7 +70,9 @@ fn vault_config_for_site(vault: &VaultConfig, carbide_config: &CarbideConfig) ->
 /// Note: even when `Some` is passed, the admin UI is only mounted if the
 /// `enable_admin_ui` config flag is true (the default). When it's false,
 /// `start_api` drops the builder and serves gRPC only — so `Some` here means
-/// "offer the UI", not "force it on".
+/// "offer the UI", not "force it on". The flag also gates the log-stream
+/// layer feeding the UI's live log viewer: with the UI off, no per-event
+/// work is spent collecting lines nothing can read.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     debug: u8,
@@ -121,6 +123,7 @@ pub async fn run(
             carbide_machine_controller::extra_logfmt_logging_fields(),
             None::<NoSubscriber>,
             log_history_max_bytes,
+            carbide_config.enable_admin_ui,
             &carbide_config.tracing,
         )
         .wrap_err("setup_telemetry")?
