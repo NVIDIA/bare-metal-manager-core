@@ -25,6 +25,29 @@ use tower_http::auth::AsyncAuthorizeRequest;
 use crate::auth::internal_rbac_rules::InternalRBACRules;
 use crate::auth::{AuthContext, CasbinAuthorizer, Predicate};
 
+/// A caller was denied by the Casbin authorizer -- the canonical security
+/// signal. The denial rate is the alert; the denied method and principals
+/// ride the log line. (The method is deliberately NOT a metric label: the
+/// path segment is caller-supplied, so it would mint unbounded series. A
+/// per-method label needs a real method registry to bucket against.)
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_auth_denied_total",
+    component = "nico-api",
+    log = info,
+    metric = counter,
+    message = "Denied a call to Forge method",
+    describe = "The amount of Forge calls denied by the authorizer"
+)]
+struct AuthorizationDenied {
+    #[context]
+    method: String,
+    #[context]
+    principals: String,
+    #[context]
+    reason: String,
+}
+
 // An authorization handler to plug into tower_http::auth::AsyncAuthorizeRequest.
 // According to the docs for AsyncAuthorizeRequest, we're _supposed_ to use the
 // HTTP Authorization header to perform our custom logic, but as far as I can
@@ -89,11 +112,18 @@ where
                             true
                         }
                         Err(e) => {
-                            tracing::info!(
-                                method_name,
-                                ?principals,
-                                "Denied a call to Forge method because of authorizer result '{e}'"
-                            );
+                            carbide_instrument::emit(AuthorizationDenied {
+                                method: method_name,
+                                // as_identifier() is the authorizer's view of each
+                                // principal (e.g. external-role/<group>) and keeps
+                                // ExternalUserInfo payloads out of the log line.
+                                principals: principals
+                                    .iter()
+                                    .map(Principal::as_identifier)
+                                    .collect::<Vec<_>>()
+                                    .join(","),
+                                reason: e.to_string(),
+                            });
                             false
                         }
                     }
@@ -229,5 +259,74 @@ where
                     .unwrap()),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use futures_util::FutureExt as _;
+
+    use super::*;
+    use crate::auth::{Authorization, AuthorizationError, PolicyEngine};
+
+    /// Denies everything, standing in for a Casbin policy with no matching rule.
+    struct DenyAll;
+
+    impl PolicyEngine for DenyAll {
+        fn authorize(
+            &self,
+            _principals: &[Principal],
+            _predicate: Predicate,
+        ) -> Result<Authorization, AuthorizationError> {
+            Err(AuthorizationError::Unauthorized)
+        }
+    }
+
+    /// The denial branch is a contract: one emit writes the log line (method,
+    /// principals, reason) AND moves carbide_auth_denied_total, and the caller
+    /// gets 403.
+    #[test]
+    fn denied_forge_call_logs_and_counts() {
+        let metrics = MetricsCapture::start();
+        let mut handler = CasbinHandler::new(Arc::new(CasbinAuthorizer::new(Arc::new(DenyAll))));
+
+        let logs = capture_logs(|| {
+            let mut request = Request::builder()
+                .uri("/forge.Forge/PowerControl")
+                .body(())
+                .expect("request");
+            request.extensions_mut().insert(AuthContext {
+                principals: vec![Principal::TrustedCertificate],
+                authorization: None,
+            });
+
+            let result = handler
+                .authorize(request)
+                .now_or_never()
+                .expect("the authorization future has no awaits");
+            let response = result.expect_err("DenyAll must reject the call");
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        });
+
+        let denial = logs
+            .iter()
+            .find(|log| log.message == "Denied a call to Forge method")
+            .expect("the denial log line");
+        let field = |name: &str| {
+            denial
+                .fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(field("method"), Some("PowerControl"));
+        assert_eq!(field("principals"), Some("trusted-certificate"));
+        assert_eq!(
+            field("reason").expect("reason field"),
+            AuthorizationError::Unauthorized.to_string()
+        );
+
+        assert_eq!(metrics.counter_delta("carbide_auth_denied_total", &[]), 1.0);
     }
 }

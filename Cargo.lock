@@ -1170,6 +1170,7 @@ dependencies = [
  "carbide-host-support",
  "carbide-ib-fabric",
  "carbide-ib-partition-controller",
+ "carbide-instrument",
  "carbide-ipmi",
  "carbide-ipxe-renderer",
  "carbide-kms-provider",
@@ -2136,6 +2137,31 @@ dependencies = [
  "sqlx",
  "state-controller",
  "tracing",
+]
+
+[[package]]
+name = "carbide-instrument"
+version = "0.0.0"
+dependencies = [
+ "carbide-instrument",
+ "carbide-instrument-macros",
+ "carbide-test-support",
+ "ctor",
+ "opentelemetry 0.32.0",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "carbide-instrument-macros"
+version = "0.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

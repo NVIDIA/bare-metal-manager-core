@@ -41,6 +41,7 @@ carbide-dpf = { path = "../dpf" }
 carbide-firmware = { path = "../firmware" }
 carbide-health-metrics = { path = "../health-metrics" }
 carbide-health-report = { path = "../health-report" }
+carbide-instrument = { path = "../instrument" }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-ib-fabric = { path = "../ib-fabric" }
 carbide-ib-partition-controller = { path = "../ib-partition-controller" }
@@ -224,6 +225,7 @@ carbide-api-model = { path = "../api-model", default-features = false, features 
 ] }
 carbide-firmware = { path = "../firmware", features = ["test-support"] }
 carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-machine-controller = { path = "../machine-controller", features = [
   "test-support",
 ] }

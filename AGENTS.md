@@ -166,6 +166,43 @@ and can't be exhaustively checked by the compiler. See
 `ErrorSystem`/`ErrorSubsystem` parts plus a `code`, rendered to the wire string
 in one place. Reserve raw strings for genuinely open-ended values.
 
+### Instrumentation: logs and metrics
+
+The decision rule:
+
+- **Just logging words?** Use plain `tracing::` macros with structured fields
+  (`warn!(%machine_id, error = %e, "...")`). Most log sites are and stay this.
+- **Does the event deserve a count, rate, or duration** (a failure you'd alert
+  on, an outcome you'd trend, a hot-path rate)? Declare it once as a
+  `carbide_instrument::Event` and `emit()` it — that produces the metric and
+  (optionally) the log line together, correlated by `span_id`:
+
+  ```rust
+  #[derive(carbide_instrument::Event)]
+  #[event(name = "carbide_power_control_total", component = "component_manager",
+          log = warn, metric = counter, message = "power control failed")]
+  struct PowerControlFailed {
+      #[label]   backend: Backend,  // bounded via LabelValue — enums, usually
+      #[context] error: String,     // high-cardinality — log line only
+  }
+  ```
+
+  `log = off, metric = counter` counts a hot-path event with no log line at
+  all; `metric = none` is a typed log. Never put `machine_id`/IPs/error text
+  in a `#[label]` — that's what `#[context]` is for, and `String` doesn't
+  implement `LabelValue` precisely to stop it. A bounded-but-not-enum value
+  (a vendor, a SKU) can get a manual `LabelValue` impl on a newtype — the
+  reviewed escape hatch — but only when the value is bounded *at the call
+  site*; anything caller-supplied stays in `#[context]`.
+- **Point-in-time state** ("how many machines are in state X") stays on the
+  existing observable-gauge / `SharedMetricsHolder` pattern — the kit models
+  occurrences, not state.
+
+New metric names are validated at compile time (`carbide_` prefix, `_total`
+counters, unit-suffixed histograms) and the name in the attribute is the
+exposed name, verbatim. Existing metric names never change. The full standard
+lives in [`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
+
 ## Further Reading
 
 - [`README.md`](README.md) — Project overview and getting started
