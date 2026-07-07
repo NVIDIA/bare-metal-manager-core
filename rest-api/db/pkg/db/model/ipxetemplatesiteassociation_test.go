@@ -126,4 +126,16 @@ func TestIpxeTemplateSiteAssociationSQLDAO_GetAllAndUniqueness(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Len(t, rows, 1)
+
+	// A non-nil but empty filter slice is treated as a no-match rather than
+	// being ignored (mirrors IpxeTemplateSQLDAO.GetAll).
+	rows, total, err = dao.GetAll(ctx, nil, IpxeTemplateSiteAssociationFilterInput{IpxeTemplateIDs: []uuid.UUID{}}, paginator.PageInput{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, total)
+	assert.Len(t, rows, 0)
+
+	rows, total, err = dao.GetAll(ctx, nil, IpxeTemplateSiteAssociationFilterInput{SiteIDs: []uuid.UUID{}}, paginator.PageInput{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, total)
+	assert.Len(t, rows, 0)
 }

@@ -150,11 +150,13 @@ func TestIpxeTemplateSQLDAO_GetAll(t *testing.T) {
 		expectedTotal *int
 	}{
 		{desc: "no filter returns all", expectedCount: 3, expectedTotal: cutil.GetPtr(3)},
-		{desc: "filter by id", filter: IpxeTemplateFilterInput{IDs: []uuid.UUID{t1.ID}}, expectedCount: 1},
+		{desc: "filter by id", filter: IpxeTemplateFilterInput{IpxeTemplateIDs: []uuid.UUID{t1.ID}}, expectedCount: 1},
 		{desc: "filter by name", filter: IpxeTemplateFilterInput{Names: []string{"kernel-initrd"}}, expectedCount: 1},
 		{desc: "limit applies", page: paginator.PageInput{Offset: cutil.GetPtr(0), Limit: cutil.GetPtr(2)}, expectedCount: 2, expectedTotal: cutil.GetPtr(3)},
 		{desc: "offset applies", page: paginator.PageInput{Offset: cutil.GetPtr(1)}, expectedCount: 2, expectedTotal: cutil.GetPtr(3)},
-		{desc: "unknown id returns empty", filter: IpxeTemplateFilterInput{IDs: []uuid.UUID{uuid.New()}}, expectedCount: 0},
+		{desc: "unknown id returns empty", filter: IpxeTemplateFilterInput{IpxeTemplateIDs: []uuid.UUID{uuid.New()}}, expectedCount: 0},
+		{desc: "explicit empty ids returns empty", filter: IpxeTemplateFilterInput{IpxeTemplateIDs: []uuid.UUID{}}, expectedCount: 0, expectedTotal: cutil.GetPtr(0)},
+		{desc: "explicit empty names returns empty", filter: IpxeTemplateFilterInput{Names: []string{}}, expectedCount: 0, expectedTotal: cutil.GetPtr(0)},
 	}
 
 	for _, tc := range tests {

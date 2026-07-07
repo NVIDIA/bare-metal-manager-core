@@ -87,11 +87,11 @@ type IpxeTemplateUpdateInput struct {
 // Note: only `Public`-scoped templates are ever propagated into REST (see the
 // workflow activity `UpdateIpxeTemplatesInDB`), so there is no scope filter.
 //
-// IDs filters on the template's primary key (which equals core's TemplateID).
+// IpxeTemplateIDs filters on the template's primary key (which equals core's TemplateID).
 // Names filters on the unique template name.
 type IpxeTemplateFilterInput struct {
-	IDs   []uuid.UUID
-	Names []string
+	IpxeTemplateIDs []uuid.UUID
+	Names           []string
 }
 
 var _ bun.BeforeAppendModelHook = (*IpxeTemplate)(nil)
@@ -178,10 +178,10 @@ func (itd IpxeTemplateSQLDAO) Get(ctx context.Context, tx *db.Tx, id uuid.UUID) 
 
 // setQueryWithFilter populates the lookup query based on the specified filter
 func (itd IpxeTemplateSQLDAO) setQueryWithFilter(filter IpxeTemplateFilterInput, query *bun.SelectQuery, span *stracer.CurrentContextSpan) (*bun.SelectQuery, error) {
-	if len(filter.IDs) > 0 {
-		query = query.Where("ipxet.id IN (?)", bun.In(filter.IDs))
+	if len(filter.IpxeTemplateIDs) > 0 {
+		query = query.Where("ipxet.id IN (?)", bun.In(filter.IpxeTemplateIDs))
 		if span != nil {
-			itd.tracerSpan.SetAttribute(span, "ids", filter.IDs)
+			itd.tracerSpan.SetAttribute(span, "ids", filter.IpxeTemplateIDs)
 		}
 	}
 
@@ -205,7 +205,11 @@ func (itd IpxeTemplateSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter Ipxe
 
 	templates := []IpxeTemplate{}
 
-	if filter.IDs != nil && len(filter.IDs) == 0 {
+	if filter.IpxeTemplateIDs != nil && len(filter.IpxeTemplateIDs) == 0 {
+		return templates, 0, nil
+	}
+
+	if filter.Names != nil && len(filter.Names) == 0 {
 		return templates, 0, nil
 	}
 

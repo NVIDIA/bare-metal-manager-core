@@ -198,6 +198,14 @@ func (itsasd IpxeTemplateSiteAssociationSQLDAO) GetAll(ctx context.Context, tx *
 
 	itsas := []IpxeTemplateSiteAssociation{}
 
+	if filter.IpxeTemplateIDs != nil && len(filter.IpxeTemplateIDs) == 0 {
+		return itsas, 0, nil
+	}
+
+	if filter.SiteIDs != nil && len(filter.SiteIDs) == 0 {
+		return itsas, 0, nil
+	}
+
 	query := db.GetIDB(tx, itsasd.dbSession).NewSelect().Model(&itsas)
 	if len(filter.IpxeTemplateIDs) > 0 {
 		query = query.Where("itsa.ipxe_template_id IN (?)", bun.In(filter.IpxeTemplateIDs))
