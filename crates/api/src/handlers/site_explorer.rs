@@ -224,7 +224,7 @@ pub(crate) async fn re_explore_endpoint(
 
 // Short-circuited: adhoc endpoint refresh is temporarily disabled. The probe
 // path below is retained but unreachable until the feature is re-enabled.
-#[allow(unreachable_code, unused_variables)]
+#[allow(unreachable_code, unused_variables, txn_without_commit)]
 pub(crate) async fn refresh_endpoint_report(
     api: &Api,
     request: Request<rpc::RefreshEndpointReportRequest>,
