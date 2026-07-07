@@ -240,7 +240,7 @@ pub async fn find_by_name(txn: impl DbReader<'_>, name: &str) -> Result<Vec<Vpc>
 pub async fn find_by_segment(
     txn: impl DbReader<'_>,
     segment_id: NetworkSegmentId,
-) -> Result<Vpc, DatabaseError> {
+) -> Result<Option<Vpc>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(
         "SELECT v.* from vpcs v INNER JOIN network_segments s ON v.id = s.vpc_id",
     )
@@ -252,7 +252,7 @@ pub async fn find_by_segment(
 
     query
         .build_query_as()
-        .fetch_one(txn)
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))
 }
@@ -272,7 +272,7 @@ pub async fn try_delete(txn: &mut PgConnection, id: VpcId) -> Result<Option<Vpc>
     let vpc_prefix_count_query = "SELECT count(*) FROM network_vpc_prefixes
         WHERE vpc_id=$1
         AND EXISTS (SELECT 1 FROM vpcs WHERE id=$1 AND deleted IS NULL)";
-    let (vpc_prefix_count,): (i64,) = sqlx::query_as(vpc_prefix_count_query)
+    let vpc_prefix_count: i64 = sqlx::query_scalar(vpc_prefix_count_query)
         .bind(id)
         .fetch_one(&mut *txn)
         .await
@@ -280,6 +280,21 @@ pub async fn try_delete(txn: &mut PgConnection, id: VpcId) -> Result<Option<Vpc>
     if vpc_prefix_count > 0 {
         return Err(DatabaseError::FailedPrecondition(format!(
             "VPC {id} cannot be deleted while {vpc_prefix_count} VPC prefixes still exist or are pending deletion"
+        )));
+    }
+
+    // No need to check "deleted IS NULL" because there are no "legacy" cases (this field was
+    // introduced at the same time as this check: deleted will not be set unless there are no
+    // instance_addresses in the first place.)
+    let instance_address_count_query = "SELECT count(*) FROM instance_addresses WHERE vpc_id=$1";
+    let instance_address_count: i64 = sqlx::query_scalar(instance_address_count_query)
+        .bind(id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(instance_address_count_query, e))?;
+    if instance_address_count > 0 {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "VPC {id} cannot be deleted while {instance_address_count} instance addresses still reference it"
         )));
     }
 

@@ -14,6 +14,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/prometheus/client_golang/prometheus"
@@ -606,7 +607,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create status detail for instance 10
-	_, err = sdDAO.CreateFromParams(ctx, nil, instance10.ID.String(), instance10.Status, cutil.GetPtr("Instance is missing on Site"))
+	_, err = sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: instance10.ID.String(), Status: instance10.Status, Message: cutil.GetPtr("Instance is missing on Site")})
 	assert.NoError(t, err)
 
 	// Instance 11 receives updates from Site Controller, namely status update and Instance VPC Prefix status, attribute updates
@@ -2083,7 +2084,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 					assert.True(t, ui.IsMissingOnSite)
 					assert.Equal(t, cdbm.InstanceStatusError, ui.Status)
 
-					sds, _, err := sdDAO.GetAllByEntityID(ctx, nil, instance.ID.String(), nil, nil, nil)
+					sds, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{instance.ID.String()}}, cdbp.PageInput{})
 					assert.Nil(t, err)
 					assert.Equal(t, 1, len(sds), instance.Name)
 				} else {
@@ -2115,7 +2116,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 
 			for _, instance := range tc.unchangedInstances {
 				// Check that no new status detail has been created for Instance
-				sds, _, err := sdDAO.GetAllByEntityID(ctx, nil, instance.ID.String(), nil, nil, nil)
+				sds, _, err := sdDAO.GetAll(ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{instance.ID.String()}}, cdbp.PageInput{})
 				assert.Nil(t, err)
 				assert.Equal(t, 1, len(sds))
 			}

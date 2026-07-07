@@ -93,9 +93,13 @@ navigation:
               path: architecture/state_machines/managedhost.md
             - page: Switch
               path: architecture/state_machines/switch.md
+            - page: Switch Certificate Configuration
+              path: architecture/state_machines/switch_configure_certificate.md
             - page: Power Shelf
               path: architecture/state_machines/power_shelf.md
-            - page: Rack State Machine
+            - page: Rack (Machine / Switch / Power Shelf)
+              path: architecture/state_machines/rackstatemachine.md
+            - page: On-Demand Rack Maintenance
               path: architecture/state_machines/rack.md
         - page: SuperNIC Lockdown Key Management
           path: architecture/supernic_lockdown_key_management.md
@@ -108,6 +112,8 @@ navigation:
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
           path: provisioning/ingesting-hosts-rest-api.md
+        - page: Boot Interfaces and DPU Modes
+          path: provisioning/boot-interfaces-and-dpu-modes.md
         - page: Machine Validation
           path: provisioning/machine-validation.md
         - page: SKU Validation
@@ -200,10 +206,12 @@ navigation:
           contents:
             - page: Core Metrics
               path: observability/core_metrics.md
-            - page: Traces
-              path: observability/tracing.md
             - page: Logging
               path: observability/logging.md
+            - page: Machines and DPU Logging
+              path: observability/machine-dpu-logs.md
+            - page: Traces
+              path: observability/tracing.md
         - page: NICo Debug WebUI
           path: operations/debug_webui.md
         - section: Playbooks
@@ -253,6 +261,8 @@ navigation:
           path: hcl.md
         - page: Release Notes
           path: release-notes.md
+        - page: Release and QA Process
+          path: development/release_and_qa_process.md
         - page: FAQs
           path: faq.md
         - section: Development
@@ -292,8 +302,11 @@ navigation:
     - page: Authentication and Authorization
       path: ../rest-api/openapi/auth.md
       icon: key
+    - page: Resource Overview
+      path: ../rest-api/openapi/resource-overview.md
+      icon: layer-group
     - page: Example REST API Workflows
-      path: ../rest-api/openapi/example_workflows.md
+      path: ../rest-api/openapi/example-workflows.md
       icon: gear
     - page: Deprecations
       path: ../rest-api/openapi/deprecations.md

@@ -636,6 +636,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         bmc_ip_address: None,
         bmc_retain_credentials: None,
         dpu_mode: None,
+        bmc_ip_allocation: None,
         host_lifecycle_profile: None,
         #[allow(deprecated)]
         dpf_enabled: true,
@@ -2851,6 +2852,337 @@ async fn test_update_changes_dpu_mode(
             "update to {mode:?} should persist and round-trip on the wire"
         );
     }
+
+    Ok(())
+}
+
+/// `ExpectedMachine.bmc_ip_allocation` round-trips through the API: a non-default
+/// value (`Dynamic`, `Retained`) set on the wire persists to the DB and reads back
+/// unchanged (the default/unset case is covered separately below). `Dynamic`/`Retained`
+/// are used here because they're valid with no `bmc_ip_address` (which these requests
+/// omit); `Fixed` requires an address and is exercised by the validation tests.
+#[crate::sqlx_test]
+async fn test_bmc_ip_allocation_round_trip_for_non_default_values(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    for (idx, mode) in [
+        rpc::forge::BmcIpAllocationType::Dynamic,
+        rpc::forge::BmcIpAllocationType::Retained,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let mac = format!("5A:5B:5C:5D:5F:{idx:02X}");
+        let request = rpc::forge::ExpectedMachine {
+            bmc_mac_address: mac.clone(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: format!("EM-BMC-ALLOC-{idx}"),
+            bmc_ip_allocation: Some(*mode as i32),
+            ..Default::default()
+        };
+
+        env.api
+            .add_expected_machine(tonic::Request::new(request))
+            .await?;
+
+        let retrieved = env
+            .api
+            .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: mac.clone(),
+                id: None,
+            }))
+            .await?
+            .into_inner();
+
+        assert_eq!(
+            retrieved.bmc_ip_allocation,
+            Some(*mode as i32),
+            "bmc_ip_allocation {mode:?} should survive DB round-trip unchanged"
+        );
+    }
+
+    Ok(())
+}
+
+/// Default-case round-trip for `bmc_ip_allocation`: when the operator omits it on
+/// the wire, the server persists the Postgres default (`Auto`) and returns `None`
+/// on the wire, so old clients see exactly what they sent.
+#[crate::sqlx_test]
+async fn test_bmc_ip_allocation_default_value_omitted_on_wire(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let mac = "5A:5B:5C:5D:5F:FF";
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: mac.into(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-BMC-ALLOC-DEFAULT".into(),
+            bmc_ip_allocation: None,
+            ..Default::default()
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: mac.into(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.bmc_ip_allocation, None,
+        "default bmc_ip_allocation should not be emitted on the wire for stable round-trips"
+    );
+
+    Ok(())
+}
+
+/// Every `bmc_ip_allocation` x `bmc_ip_address` combination driven through the
+/// real handlers: `add_expected_machine` accepts the six valid pairings and
+/// refuses the three invalid ones, and `update_expected_machine` refuses the
+/// same invalid pairings on an existing machine. Rejection is `InvalidArgument`
+/// and names `bmc_ip_allocation` so the operator knows which knob to fix, and a
+/// rejected update leaves the stored machine untouched. The combination table
+/// itself is unit-tested in api-model -- these rows pin the handler wiring that
+/// enforces it at the API boundary.
+#[crate::sqlx_test]
+async fn test_bmc_ip_allocation_combinations_enforced_at_the_api_boundary(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_test_support::Outcome::{FailsWith, Yields};
+    use carbide_test_support::{Case, check_cases_async};
+    use rpc::forge::BmcIpAllocationType::{Auto, Dynamic, Fixed, Retained};
+
+    let env = create_test_env(pool).await;
+
+    /// One `add_expected_machine` request: the allocation/address pairing under
+    /// test, plus the unique per-machine identity the API requires.
+    struct AddRequest {
+        mode: Option<rpc::forge::BmcIpAllocationType>,
+        bmc_ip_address: Option<&'static str>,
+        mac: &'static str,
+        serial: &'static str,
+    }
+
+    // Rejections are projected to (status code, "the error names
+    // bmc_ip_allocation") so each failing row pins both.
+    check_cases_async(
+        [
+            Case {
+                scenario: "add: unset with no address is accepted (defaults to auto)",
+                input: AddRequest {
+                    mode: None,
+                    bmc_ip_address: None,
+                    mac: "5A:5B:5C:5D:61:01",
+                    serial: "EM-BMC-ALLOC-API-01",
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "add: auto with no address is accepted (retains)",
+                input: AddRequest {
+                    mode: Some(Auto),
+                    bmc_ip_address: None,
+                    mac: "5A:5B:5C:5D:61:02",
+                    serial: "EM-BMC-ALLOC-API-02",
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "add: auto with an address is accepted (fixed)",
+                input: AddRequest {
+                    mode: Some(Auto),
+                    bmc_ip_address: Some("192.0.2.61"),
+                    mac: "5A:5B:5C:5D:61:03",
+                    serial: "EM-BMC-ALLOC-API-03",
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "add: dynamic with no address is accepted",
+                input: AddRequest {
+                    mode: Some(Dynamic),
+                    bmc_ip_address: None,
+                    mac: "5A:5B:5C:5D:61:04",
+                    serial: "EM-BMC-ALLOC-API-04",
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "add: fixed with an address is accepted",
+                input: AddRequest {
+                    mode: Some(Fixed),
+                    bmc_ip_address: Some("192.0.2.62"),
+                    mac: "5A:5B:5C:5D:61:05",
+                    serial: "EM-BMC-ALLOC-API-05",
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "add: retained with no address is accepted",
+                input: AddRequest {
+                    mode: Some(Retained),
+                    bmc_ip_address: None,
+                    mac: "5A:5B:5C:5D:61:06",
+                    serial: "EM-BMC-ALLOC-API-06",
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "add: fixed with no address is rejected",
+                input: AddRequest {
+                    mode: Some(Fixed),
+                    bmc_ip_address: None,
+                    mac: "5A:5B:5C:5D:61:07",
+                    serial: "EM-BMC-ALLOC-API-07",
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+            Case {
+                scenario: "add: dynamic with an address is rejected",
+                input: AddRequest {
+                    mode: Some(Dynamic),
+                    bmc_ip_address: Some("192.0.2.63"),
+                    mac: "5A:5B:5C:5D:61:08",
+                    serial: "EM-BMC-ALLOC-API-08",
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+            Case {
+                scenario: "add: retained with an address is rejected",
+                input: AddRequest {
+                    mode: Some(Retained),
+                    bmc_ip_address: Some("192.0.2.64"),
+                    mac: "5A:5B:5C:5D:61:09",
+                    serial: "EM-BMC-ALLOC-API-09",
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+        ],
+        |req| {
+            let env = &env;
+            async move {
+                env.api
+                    .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                        bmc_mac_address: req.mac.into(),
+                        bmc_username: "ADMIN".into(),
+                        bmc_password: "PASS".into(),
+                        chassis_serial_number: req.serial.into(),
+                        bmc_ip_allocation: req.mode.map(|m| m as i32),
+                        bmc_ip_address: req.bmc_ip_address.map(Into::into),
+                        ..Default::default()
+                    }))
+                    .await
+                    .map(|_| ())
+                    .map_err(|status| {
+                        (
+                            status.code(),
+                            status.message().contains("bmc_ip_allocation"),
+                        )
+                    })
+            }
+        },
+    )
+    .await;
+
+    // The same invalid pairings through update_expected_machine, against one
+    // existing machine.
+    let mac = "5A:5B:5C:5D:61:10";
+    let base = rpc::forge::ExpectedMachine {
+        bmc_mac_address: mac.into(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "EM-BMC-ALLOC-API-10".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        ..Default::default()
+    };
+    env.api
+        .add_expected_machine(tonic::Request::new(base.clone()))
+        .await?;
+
+    /// One `update_expected_machine` request: the invalid pairing sent for the
+    /// machine created above.
+    struct UpdateRequest {
+        mode: rpc::forge::BmcIpAllocationType,
+        bmc_ip_address: Option<&'static str>,
+    }
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "update: fixed with no address is rejected",
+                input: UpdateRequest {
+                    mode: Fixed,
+                    bmc_ip_address: None,
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+            Case {
+                scenario: "update: dynamic with an address is rejected",
+                input: UpdateRequest {
+                    mode: Dynamic,
+                    bmc_ip_address: Some("192.0.2.65"),
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+            Case {
+                scenario: "update: retained with an address is rejected",
+                input: UpdateRequest {
+                    mode: Retained,
+                    bmc_ip_address: Some("192.0.2.66"),
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+        ],
+        |req| {
+            let env = &env;
+            let base = &base;
+            async move {
+                env.api
+                    .update_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                        bmc_ip_allocation: Some(req.mode as i32),
+                        bmc_ip_address: req.bmc_ip_address.map(Into::into),
+                        ..base.clone()
+                    }))
+                    .await
+                    .map(|_| ())
+                    .map_err(|status| {
+                        (
+                            status.code(),
+                            status.message().contains("bmc_ip_allocation"),
+                        )
+                    })
+            }
+        },
+    )
+    .await;
+
+    // Every rejected update happened before any write: the stored machine still
+    // has the default allocation and no address.
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: mac.into(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(
+        retrieved.bmc_ip_allocation, None,
+        "rejected updates should leave the stored allocation untouched"
+    );
+    assert_eq!(
+        retrieved.bmc_ip_address, None,
+        "rejected updates should not store a bmc_ip_address"
+    );
 
     Ok(())
 }

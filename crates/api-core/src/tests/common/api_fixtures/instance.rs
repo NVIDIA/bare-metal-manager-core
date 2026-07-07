@@ -207,7 +207,9 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 
@@ -244,7 +246,9 @@ pub fn single_interface_network_config_with_vfs(
 
     rpc::InstanceNetworkConfig {
         interfaces,
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 
@@ -269,7 +273,9 @@ pub fn interface_network_config_with_devices(
         .collect();
     rpc::InstanceNetworkConfig {
         interfaces,
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 
@@ -288,7 +294,9 @@ pub fn single_interface_network_config_with_vpc_prefix(
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     }
 }
 
@@ -442,6 +450,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
             id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
+            delete_attribution: None,
         }))
         .await
         .expect("Delete instance failed.");

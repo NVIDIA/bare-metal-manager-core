@@ -74,4 +74,14 @@ impl BmcState {
             v.apply_pending_mode();
         }
     }
+
+    /// The BlueField's current NIC-mode flag, or `None` for a BMC that does not
+    /// mock a BlueField (e.g. the host iDRAC). Lets machine-a-tron observe a DPU
+    /// that flipped to NIC mode on a power cycle and converge to NIC behavior.
+    pub fn bluefield_nic_mode(&self) -> Option<bool> {
+        match &self.oem_state {
+            redfish::oem::State::NvidiaBluefield(v) => Some(v.nic_mode()),
+            _ => None,
+        }
+    }
 }

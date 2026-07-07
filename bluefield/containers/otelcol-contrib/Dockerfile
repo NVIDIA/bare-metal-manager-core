@@ -29,8 +29,8 @@
 # its libraries are present (see journaldreceiver/examples/container/README.md
 # in opentelemetry-collector-contrib).
 
-ARG GO_VERSION=1.25.11
-ARG OTELCOL_VERSION=0.101.0
+ARG GO_VERSION=1.26.4
+ARG OTELCOL_VERSION=0.155.0
 
 # ---------------------------------------------------------------------------
 # Builder (host-native Go, cross-compiles to arm64)

@@ -21,7 +21,9 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{HeaderMap, Method, Request, StatusCode};
 use http_body_util::BodyExt;
-use nv_redfish::bmc_http::{BmcCredentials, CacheableError, HttpClient};
+use nv_redfish::bmc_http::{
+    BmcCredentials, CacheableError, HttpClient, RejectedUriReferenceError, RequestError,
+};
 use nv_redfish::core::upload::{MultipartUpdateRequest, UploadReader};
 use nv_redfish::core::{BoxTryStream, ModificationResponse, ODataETag, SessionCreateResponse};
 use serde::Serialize;
@@ -39,6 +41,7 @@ pub enum Error {
     Json(serde_json::Error),
     Http(axum::http::Error),
     Cache(String),
+    RejectedUriReference(String),
     NotSupported(&'static str),
 }
 
@@ -51,12 +54,21 @@ impl fmt::Display for Error {
             Self::Json(err) => write!(f, "json error: {err}"),
             Self::Http(err) => write!(f, "http build error: {err}"),
             Self::Cache(reason) => write!(f, "cache error: {reason}"),
+            Self::RejectedUriReference(reason) => {
+                write!(f, "rejected URI reference: {reason}")
+            }
             Self::NotSupported(what) => write!(f, "not supported in test client: {what}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+impl RequestError for Error {
+    fn rejected_uri_reference(error: RejectedUriReferenceError) -> Self {
+        Self::RejectedUriReference(error.reason)
+    }
+}
 
 impl CacheableError for Error {
     fn is_cached(&self) -> bool {

@@ -257,7 +257,7 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "test invalid Interface device and deviceInterface request",
+			name: "test invalid Interface virtual function ID above range",
 			fields: fields{
 				VpcPrefixID:       cutil.GetPtr(uuid.New().String()),
 				IPAddress:         cutil.GetPtr("192.0.2.11"),
@@ -269,13 +269,46 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "test valid Interface device and deviceInterface request",
+			name: "test valid Interface virtual function ID lower bound",
 			fields: fields{
 				VpcPrefixID:       cutil.GetPtr(uuid.New().String()),
 				IsPhysical:        false,
 				Device:            cutil.GetPtr("test-device"),
 				DeviceInstance:    cutil.GetPtr(1),
-				VirtualFunctionID: cutil.GetPtr(1),
+				VirtualFunctionID: cutil.GetPtr(0),
+			},
+			wantErr: false,
+		},
+		{
+			name: "test valid Interface virtual function ID upper bound",
+			fields: fields{
+				VpcPrefixID:       cutil.GetPtr(uuid.New().String()),
+				IsPhysical:        false,
+				Device:            cutil.GetPtr("test-device"),
+				DeviceInstance:    cutil.GetPtr(1),
+				VirtualFunctionID: cutil.GetPtr(15),
+			},
+			wantErr: false,
+		},
+		{
+			name: "test invalid Interface virtual function ID at old upper bound",
+			fields: fields{
+				VpcPrefixID:       cutil.GetPtr(uuid.New().String()),
+				IsPhysical:        false,
+				Device:            cutil.GetPtr("test-device"),
+				DeviceInstance:    cutil.GetPtr(1),
+				VirtualFunctionID: cutil.GetPtr(16),
+			},
+			wantErr: true,
+		},
+		{
+			name: "test invalid Interface virtual function ID below range",
+			fields: fields{
+				VpcPrefixID:       cutil.GetPtr(uuid.New().String()),
+				IsPhysical:        false,
+				Device:            cutil.GetPtr("test-device"),
+				DeviceInstance:    cutil.GetPtr(1),
+				VirtualFunctionID: cutil.GetPtr(-1),
 			},
 			wantErr: true,
 		},
@@ -349,12 +382,13 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iscr := APIInterfaceCreateOrUpdateRequest{
-				SubnetID:       tt.fields.SubnetID,
-				VpcPrefixID:    tt.fields.VpcPrefixID,
-				IPAddress:      tt.fields.IPAddress,
-				IsPhysical:     tt.fields.IsPhysical,
-				Device:         tt.fields.Device,
-				DeviceInstance: tt.fields.DeviceInstance,
+				SubnetID:          tt.fields.SubnetID,
+				VpcPrefixID:       tt.fields.VpcPrefixID,
+				IPAddress:         tt.fields.IPAddress,
+				IsPhysical:        tt.fields.IsPhysical,
+				Device:            tt.fields.Device,
+				DeviceInstance:    tt.fields.DeviceInstance,
+				VirtualFunctionID: tt.fields.VirtualFunctionID,
 			}
 			err := iscr.Validate()
 			if (err != nil) != tt.wantErr {

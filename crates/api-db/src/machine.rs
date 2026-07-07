@@ -2727,11 +2727,122 @@ pub fn count_healthy_unhealthy_host_machines(
 
 #[cfg(test)]
 mod test {
+    use std::net::IpAddr;
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+    use carbide_uuid::network::NetworkSegmentId;
+    use model::allocation_type::AllocationType;
+    use model::bmc_info::BmcInfo;
+    use model::hardware_info::HardwareInfo;
     use model::machine::ManagedHostState;
     use model::machine::machine_search_config::MachineSearchConfig;
+    use model::machine::topology::{DiscoveryData, TopologyData};
+
+    /// The machine snapshot reports the BMC IP from the *live* `machine_interface_addresses`
+    /// row, and reports `None` once that address is gone -- it must never fall back to the
+    /// stale copy cached in `machine_topologies.topology.bmc_info.ip`.
+    ///
+    /// Exercises the BMC subquery in `machine_snapshots.sql.template`, which now reads
+    /// `host(bmc_addr.address)` directly instead of coalescing onto the topology copy.
+    #[crate::sqlx_test]
+    async fn test_snapshot_bmc_ip_follows_live_interface_not_stale_topology(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let live_bmc_ip: IpAddr = "10.1.2.3".parse()?;
+        // A different value in the topology copy makes a fallback observable: if the
+        // snapshot ever read the stale copy we'd see this instead of the live address.
+        let stale_topology_ip: IpAddr = "10.9.9.9".parse()?;
+
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        super::create(
+            txn.as_mut(),
+            None,
+            &machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+
+        // A BMC interface attached to the machine, plus its live address (a DHCP lease).
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version) VALUES ($1, 'V1-T0') RETURNING id",
+        )
+        .bind("bmc-live-vs-stale")
+        .fetch_one(txn.as_mut())
+        .await?;
+        let bmc_interface_id: MachineInterfaceId = sqlx::query_scalar(
+            "INSERT INTO machine_interfaces
+                 (machine_id, association_type, segment_id, mac_address,
+                  primary_interface, hostname, interface_type)
+             VALUES ($1, 'Machine', $2, $3::macaddr, false, 'bmc-live-vs-stale', 'Bmc')
+             RETURNING id",
+        )
+        .bind(machine_id)
+        .bind(segment_id)
+        .bind("02:00:00:00:00:01")
+        .fetch_one(txn.as_mut())
+        .await?;
+        crate::machine_interface_address::insert(
+            txn.as_mut(),
+            bmc_interface_id,
+            live_bmc_ip,
+            AllocationType::Dhcp,
+        )
+        .await?;
+
+        // A topology row that *also* carries a (stale) BMC IP -- the removed fallback.
+        let topology = TopologyData {
+            discovery_data: DiscoveryData {
+                info: HardwareInfo::default(),
+            },
+            bmc_info: BmcInfo {
+                ip: Some(stale_topology_ip),
+                ..Default::default()
+            },
+        };
+        sqlx::query("INSERT INTO machine_topologies (machine_id, topology) VALUES ($1, $2::jsonb)")
+            .bind(machine_id)
+            .bind(sqlx::types::Json(&topology))
+            .execute(txn.as_mut())
+            .await?;
+
+        // With a live address present, the snapshot reports it.
+        let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
+            .await?
+            .expect("machine snapshot should load");
+        assert_eq!(machine.bmc_info.ip, Some(live_bmc_ip));
+
+        // Release the lease: drop the live address but keep the interface and the topology
+        // row (with its stale bmc_info.ip) intact.
+        crate::machine_interface_address::delete(txn.as_mut(), &bmc_interface_id).await?;
+
+        // The key assertion: with no live address, the snapshot reports None rather than
+        // falling back to the stale topology copy.
+        let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
+            .await?
+            .expect("machine snapshot should load");
+        assert_eq!(machine.bmc_info.ip, None);
+
+        // Now drop the BMC interface row entirely; the topology row (with its stale
+        // bmc_info.ip) stays. Even with no live BMC interface at all, the snapshot must
+        // still report None -- it must not fall back to the stale copy via the outer COALESCE.
+        sqlx::query("DELETE FROM machine_interfaces WHERE id = $1")
+            .bind(bmc_interface_id)
+            .execute(txn.as_mut())
+            .await?;
+        let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
+            .await?
+            .expect("machine snapshot should load");
+        assert_eq!(machine.bmc_info.ip, None);
+
+        txn.rollback().await?;
+        Ok(())
+    }
 
     #[crate::sqlx_test]
 

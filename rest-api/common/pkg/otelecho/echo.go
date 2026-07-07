@@ -53,7 +53,7 @@ func Middleware(service string, opts ...upstreamotelecho.Option) echo.Middleware
 			// We log from created span (child span), which inherits the same trace ID
 			scc := span.SpanContext()
 			traceID := scc.TraceID().String()
-			log.Info().Msgf("span traceid: %s", traceID)
+			log.Info().Str("trace_id", traceID).Msg("span traceid")
 			c.Response().Header().Set(TraceHdr, traceID)
 
 			// Always store tracer in context for use by other packages (like util/tracer.go)

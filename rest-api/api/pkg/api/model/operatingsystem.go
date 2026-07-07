@@ -27,6 +27,11 @@ const (
 	errMsgNotEmpty                                   = "cannot be empty"
 )
 
+// IsCloudInitFromUserData reports whether non-empty user data is present.
+func IsCloudInitFromUserData(userData *string) bool {
+	return userData != nil && *userData != ""
+}
+
 // APIOperatingSystemCreateRequest is the data structure to capture user request to create a new OperatingSystem
 type APIOperatingSystemCreateRequest struct {
 	// Name is the name of the OperatingSystem
@@ -59,7 +64,7 @@ type APIOperatingSystemCreateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
 	UserData *string `json:"userData"`
-	// IsCloudInit indicates if the Operating System needs cloud init
+	// IsCloudInit is deprecated and ignored; derived from value of userData.
 	IsCloudInit bool `json:"isCloudInit"`
 	// AllowOverride indicates if overrides are allowed
 	AllowOverride bool `json:"allowOverride"`
@@ -271,7 +276,7 @@ type APIOperatingSystemUpdateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
 	UserData *string `json:"userData"`
-	// IsCloudInit indicates if the Operating System needs cloud init
+	// IsCloudInit is deprecated and ignored; derived from value of userData.
 	IsCloudInit *bool `json:"isCloudInit"`
 	// AllowOverride indicates if overrides are allowed
 	AllowOverride *bool `json:"allowOverride"`
@@ -567,7 +572,8 @@ type APIOperatingSystem struct {
 	PhoneHomeEnabled bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
 	UserData *string `json:"userData"`
-	// IsCloudInit indicates if the Operating System needs cloud init
+	// IsCloudInit indicates if the Operating System is cloud-init based -- convenience field that is only returned in API response
+	// and is derived from value of userData
 	IsCloudInit bool `json:"isCloudInit"`
 	// AllowOverride indicates if overrides are allowed
 	AllowOverride bool `json:"allowOverride"`
@@ -589,7 +595,7 @@ type APIOperatingSystem struct {
 	Updated time.Time `json:"updated"`
 }
 
-// NewAPIOperatingSystem accepts a DB layer objects and returns an API layer object
+// NewAPIOperatingSystem accepts a DB layer object and returns an API layer object
 func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail, ossas []cdbm.OperatingSystemSiteAssociation, sttsmap map[uuid.UUID]*cdbm.TenantSite) *APIOperatingSystem {
 	apiOperatingSystem := APIOperatingSystem{
 		ID:                 dbOS.ID.String(),
@@ -606,7 +612,7 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		IpxeScript:         dbOS.IpxeScript,
 		PhoneHomeEnabled:   dbOS.PhoneHomeEnabled,
 		UserData:           dbOS.UserData,
-		IsCloudInit:        dbOS.IsCloudInit,
+		IsCloudInit:        IsCloudInitFromUserData(dbOS.UserData),
 		AllowOverride:      dbOS.AllowOverride,
 		EnableBlockStorage: dbOS.EnableBlockStorage,
 		IsActive:           dbOS.IsActive,
@@ -637,6 +643,7 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		curVal := ossa
 		apiOperatingSystem.SiteAssociations = append(apiOperatingSystem.SiteAssociations, *NewAPIOperatingSystemSiteAssociation(&curVal, ts))
 	}
+
 	return &apiOperatingSystem
 }
 

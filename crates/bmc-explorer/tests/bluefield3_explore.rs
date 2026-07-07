@@ -70,6 +70,32 @@ async fn explore_bluefield3_without_system_eth_interfaces() {
 }
 
 #[test]
+async fn explore_bluefield3_recovers_oob_interface_from_boot_options() {
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
+    h.state.injection.put(vec![bmc_mock::injection::Rule {
+        id: "missing_system_eth_interfaces".into(),
+        selector: bmc_mock::injection::Selector::Path {
+            method: Some("GET".into()),
+            glob: "/redfish/v1/Systems/Bluefield/EthernetInterfaces".into(),
+        },
+        action: bmc_mock::injection::Action::JsonMerge(serde_json::json!({
+            "Members": [],
+            "Members@odata.count": 0,
+        })),
+        remaining: None,
+    }]);
+
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
+        .await
+        .unwrap();
+    let system = report.systems.first().expect("systems must be present");
+
+    assert!(system.ethernet_interfaces.iter().any(|interface| {
+        interface.id.as_deref() == Some("oob_net0") && interface.mac_address.is_some()
+    }));
+}
+
+#[test]
 async fn explore_bluefield3_retries_transient_404_on_system_eth_interfaces() {
     let settings = DpuSettings::default();
 

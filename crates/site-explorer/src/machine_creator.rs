@@ -36,6 +36,7 @@ use model::machine::{
     CURRENT_STATE_MODEL_VERSION, DpuDiscoveringState, DpuDiscoveringStates, Machine,
     MachineInterfaceSnapshot, ManagedHostState,
 };
+use model::machine_interface::InterfaceType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
@@ -301,6 +302,7 @@ impl MachineCreator {
                             interface: Some(rms::NetworkInterface {
                                 ip_address: explored_host.host_bmc_ip.to_string(),
                                 mac_address: expected_machine.bmc_mac_address.to_string(),
+                                host_name: None,
                             }),
                             port: 443,
                             credentials: bmc_credentials.map(|(username, password)| {
@@ -435,12 +437,38 @@ impl MachineCreator {
         // choice authoritative regardless of DHCP arrival order, and keeps exactly
         // one primary per machine -- so adopting several NICs that leased before
         // ingestion never trips the `one_primary_interface_per_machine` index.
+        // The host's primary (boot) interface is a declared `ExpectedHostNic.primary`
+        // when set, otherwise the boot interface preserved across `--delete-interfaces`
+        // in `retained_boot_interfaces`. The retained fallback lets a host with no
+        // declared primary -- a DPU flipped to NIC mode is the common case -- re-ingest
+        // with a settled boot interface, so the controller has a boot target to
+        // provision from instead of parking with no primary at all.
         let declared_primary = machine_data.and_then(|data| data.declared_primary_mac());
+        let primary_mac = match declared_primary {
+            Some(declared) => Some(declared),
+            None => {
+                let mut recovered = None;
+                for mac_address in &mac_addresses {
+                    if db::retained_boot_interface::find_by_mac(
+                        &mut *txn,
+                        *mac_address,
+                        self.config.retained_boot_interface_window,
+                    )
+                    .await?
+                    .is_some()
+                    {
+                        recovered = Some(*mac_address);
+                        break;
+                    }
+                }
+                recovered
+            }
+        };
 
         // Create and attach a non-DPU machine_interface to the host for every MAC address we see in
         // the exploration report
         for mac_address in mac_addresses {
-            let is_declared_primary = declared_primary == Some(mac_address);
+            let is_primary = primary_mac == Some(mac_address);
             if let Some(machine_interface) =
                 db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
                     .await?
@@ -449,9 +477,26 @@ impl MachineCreator {
             {
                 // There's already a machine_interface with this MAC...
                 if let Some(existing_machine_id) = machine_interface.machine_id {
-                    // ...If it has a MachineId, something's gone wrong. We already checked db::machine::find_by_mac()
-                    // above for all mac addresses, and returned Ok(false) if any were found. Finding an interface
-                    // with this MAC with a non-nil machine_id is a contradiction.
+                    // Same machine_id means the preallocated BMC interface row we
+                    // just attached via update_machine_topology(), not a contradiction.
+                    if existing_machine_id == *machine_id {
+                        // Reconcile its primary flag like the anonymous path
+                        // below, so a stale primary does not collide when the
+                        // real primary NIC is adopted. A BMC interface is never
+                        // primary, even when it shares the host NIC MAC.
+                        let want_primary =
+                            is_primary && machine_interface.interface_type != InterfaceType::Bmc;
+                        if machine_interface.primary_interface != want_primary {
+                            db::machine_interface::set_primary_interface(
+                                &machine_interface.id,
+                                want_primary,
+                                txn,
+                            )
+                            .await?;
+                        }
+                        continue;
+                    }
+                    // Different machine_id contradicts the find_by_mac() above.
                     tracing::error!(
                         %mac_address,
                         %machine_id,
@@ -467,10 +512,10 @@ impl MachineCreator {
                     // Reconcile its primary flag to the declaration before adopting it: an anonymous
                     // DHCP row defaults to primary=true, so without this two pre-ingestion leases
                     // would both arrive primary and collide on association.
-                    if machine_interface.primary_interface != is_declared_primary {
+                    if machine_interface.primary_interface != is_primary {
                         db::machine_interface::set_primary_interface(
                             &machine_interface.id,
-                            is_declared_primary,
+                            is_primary,
                             txn,
                         )
                         .await?;
@@ -502,7 +547,7 @@ impl MachineCreator {
                         mac_address,
                         expected_network_segment_type: NetworkSegmentType::HostInband,
                         boot_interface_id,
-                        primary_interface: is_declared_primary,
+                        primary_interface: is_primary,
                     },
                     txn,
                 )

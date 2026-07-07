@@ -20,16 +20,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_site_explorer::config::SiteExplorerConfig;
-use carbide_site_explorer::endpoint_exploration_work_key;
 use common::api_fixtures::TestEnv;
 use db::{self, ObjectColumnFilter};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostStateSnapshot;
-use model::site_explorer::{
-    Chassis, EndpointExplorationError, EndpointExplorationReport, ExploredEndpoint,
-};
+use model::site_explorer::{Chassis, EndpointExplorationError, EndpointExplorationReport};
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
@@ -731,13 +728,13 @@ async fn host_bmc_ip(
 async fn explored_endpoint(
     env: &TestEnv,
     bmc_ip: IpAddr,
-) -> Result<ExploredEndpoint, Box<dyn std::error::Error>> {
+) -> Result<model::site_explorer::ExploredEndpoint, Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
-    let endpoint = db::explored_endpoints::find_by_ips(txn.as_mut(), vec![bmc_ip])
+    let endpoint = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn)
         .await?
         .into_iter()
         .next()
-        .unwrap();
+        .ok_or_else(|| format!("expected endpoint {bmc_ip} to exist"))?;
     txn.commit().await?;
     Ok(endpoint)
 }
@@ -748,7 +745,7 @@ fn endpoint_explore_call_count(env: &TestEnv, bmc_ip: IpAddr) -> usize {
         .lock()
         .unwrap()
         .iter()
-        .filter(|ip| **ip == bmc_ip)
+        .filter(|called_ip| **called_ip == bmc_ip)
         .count()
 }
 
@@ -806,9 +803,9 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
     let bmc_ip = host_bmc_ip(&env, &mh).await?;
     let _endpoint_lock = env
         .api
-        .work_lock_manager_handle
-        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip))
-        .await?;
+        .endpoint_exploration_locks
+        .try_claim(bmc_ip)
+        .expect("test should be able to claim the endpoint exploration lock");
 
     let err = env
         .api
@@ -819,6 +816,10 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
         .unwrap_err();
 
     assert_eq!(err.code(), tonic::Code::AlreadyExists);
+    assert!(
+        err.message().contains(&bmc_ip.to_string()),
+        "error should identify the locked endpoint"
+    );
 
     Ok(())
 }
@@ -841,9 +842,9 @@ async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
     let calls_before = endpoint_explore_call_count(&env, bmc_ip);
     let _endpoint_lock = env
         .api
-        .work_lock_manager_handle
-        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip))
-        .await?;
+        .endpoint_exploration_locks
+        .try_claim(bmc_ip)
+        .expect("test should be able to claim the endpoint exploration lock");
 
     env.run_site_explorer_iteration().await;
 
@@ -870,6 +871,7 @@ async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
             details: Some("refresh failure".to_string()),
         }),
     );
+
     env.api
         .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
             ip_address: bmc_ip.to_string(),
@@ -931,9 +933,9 @@ async fn test_refresh_endpoint_report_lock_is_per_endpoint(
     let initial_version_b = explored_endpoint(&env, bmc_ip_b).await?.report_version;
     let _endpoint_lock = env
         .api
-        .work_lock_manager_handle
-        .try_acquire_lock(endpoint_exploration_work_key(bmc_ip_a))
-        .await?;
+        .endpoint_exploration_locks
+        .try_claim(bmc_ip_a)
+        .expect("test should be able to claim the endpoint exploration lock");
 
     env.api
         .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {

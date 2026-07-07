@@ -37,7 +37,7 @@ pub async fn create(
     );
 
     let mut tenant = serde_json::json!({
-        "tenant_organization_id": "MyOrg",
+        "tenant_organization_id": "tenant_organization",
         "tenantKeysetIds": keyset_ids,
     });
 
@@ -104,7 +104,7 @@ pub async fn create(
         let before_phone = get_instance_state(addrs, &instance_id).await?;
         assert_eq!(before_phone, "PROVISIONING");
         // Phone home to transition to the ready state
-        phone_home(addrs, &instance_id).await?;
+        phone_home(addrs, &instance_id, host_machine_id).await?;
         wait_for_instance_state(addrs, &instance_id, "READY").await?;
         let after_phone = get_instance_state(addrs, &instance_id).await?;
         assert_eq!(after_phone, "READY");
@@ -230,12 +230,16 @@ pub async fn release(
     Ok(())
 }
 
-pub async fn phone_home(addrs: &[SocketAddr], instance_id: &str) -> eyre::Result<()> {
+pub async fn phone_home(
+    addrs: &[SocketAddr],
+    instance_id: &str,
+    host_machine_id: &MachineId,
+) -> eyre::Result<()> {
     let data = serde_json::json!({
         "instance_id": {"value": instance_id},
     });
 
-    tracing::info!("Phoning home with data: {data}");
+    tracing::info!(%host_machine_id, "Phoning home for instance {instance_id}");
 
     grpcurl(addrs, "UpdateInstancePhoneHomeLastContact", Some(&data)).await?;
 

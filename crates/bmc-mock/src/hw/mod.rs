@@ -24,11 +24,20 @@ pub mod nic;
 /// Support of NVIDIA Bluefield3 DPU.
 pub mod bluefield3;
 
+/// Support of NVIDIA Bluefield4 DPU.
+pub mod bluefield4;
+
 /// Generic AMI server.
 pub mod generic_ami;
 
+/// Support of HPE ProLiant DL380a Gen11 servers (iLO 6).
+pub mod hpe_proliant_dl380a_gen11;
+
 /// Support of Dell PowerEdge R750 servers.
 pub mod dell_poweredge_r750;
+
+/// Support of Dell PowerEdge R760 server with Bluefield4 installed.
+pub mod dell_poweredge_r760_bf4;
 
 /// Support of Wiwynn GB200 NVL servers.
 pub mod wiwynn_gb200_nvl;
@@ -41,6 +50,9 @@ pub mod dgx_gb300_nvl;
 
 /// Support of Supermicro (SMC) GB300 NVL servers (Supermicro OpenBMC host).
 pub mod supermicro_gb300_nvl;
+
+/// Support of DGX VR NVL servers.
+pub mod dgx_vr_nvl;
 
 /// Support of LiteOn Power Shelf.
 pub mod liteon_power_shelf;

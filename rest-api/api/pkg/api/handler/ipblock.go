@@ -216,14 +216,13 @@ func (cipbh CreateIPBlockHandler) Handle(c echo.Context) error {
 		// Create a status detail record for the IPBlock
 		sdDAO := cdbm.NewStatusDetailDAO(cipbh.dbSession)
 		var serr error
-		ssd, serr = sdDAO.CreateFromParams(ctx, tx, ipb.ID.String(), *cutil.GetPtr(cdbm.IPBlockStatusReady),
-			cutil.GetPtr("IP Block is ready for use"))
+		ssd, serr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ipb.ID.String(), Status: *cutil.GetPtr(cdbm.IPBlockStatusReady), Message: cutil.GetPtr("IP Block is ready for use")})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for IPBlock", nil)
 		}
 		if ssd == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for IPBlock", nil)
 		}
 		return nil
@@ -1012,7 +1011,7 @@ func (uipbh UpdateIPBlockHandler) Handle(c echo.Context) error {
 
 		sdDAO := cdbm.NewStatusDetailDAO(uipbh.dbSession)
 		var sderr error
-		ssds, _, sderr = sdDAO.GetAllByEntityID(ctx, tx, updated.ID.String(), nil, cutil.GetPtr(pagination.MaxPageSize), nil)
+		ssds, _, sderr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{updated.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(pagination.MaxPageSize)})
 		if sderr != nil {
 			logger.Error().Err(sderr).Msg("error retrieving Status Details for IPBlock from DB")
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for IPBlock", nil)

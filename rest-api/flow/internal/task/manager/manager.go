@@ -5,6 +5,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -31,6 +32,10 @@ const (
 	defaultMaxWaitingPerRack = 5
 	defaultQueueTimeout      = time.Hour
 )
+
+// ErrRackConflict marks a rejected task submission caused by an active
+// conflicting task on the target rack.
+var ErrRackConflict = errors.New("rack conflict")
 
 // Config holds the configuration for the task manager.
 type Config struct {
@@ -314,8 +319,8 @@ func (m *ManagerImpl) createAndExecuteTask(
 			if hasConflict {
 				if req.ConflictStrategy != operation.ConflictStrategyQueue {
 					return fmt.Errorf(
-						"rack %s already has a conflicting task",
-						targetRack.Info.ID,
+						"rack %s already has a conflicting task: %w",
+						targetRack.Info.ID, ErrRackConflict,
 					)
 				}
 

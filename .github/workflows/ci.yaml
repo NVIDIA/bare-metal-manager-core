@@ -94,11 +94,25 @@ jobs:
     runs-on: linux-amd64-cpu4
     outputs:
       version: ${{ steps.version.outputs.version }}
+      image_registry: ${{ steps.registry.outputs.registry }}
+      source_registry_host: ${{ steps.registry.outputs.source_registry_host }}
+      bases_rebuilt: ${{ steps.base-container-gate.outputs.build_container_x86_64_run == 'true' || steps.base-container-gate.outputs.runtime_container_x86_64_run == 'true' || steps.base-container-gate.outputs.build_container_aarch64_run == 'true' || steps.base-container-gate.outputs.runtime_container_aarch64_run == 'true' || steps.base-container-gate.outputs.build_artifacts_container_x86_64_run == 'true' || steps.base-container-gate.outputs.build_artifacts_container_aarch64_run == 'true' }}
+      publish_images: ${{ steps.release-gate.outputs.publish_built_container }}
+      lint_container_ref: ${{ steps.release-gate.outputs.lint_container_ref }}
+      target_ngc_path: ${{ steps.registry.outputs.target_ngc_path }}
+      registry_host: ${{ steps.registry.outputs.registry_host }}
+      prod_image_registry: ${{ steps.registry.outputs.prod_registry }}
       helm_version: ${{ steps.version.outputs.helm_version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
       extras_container_ref: ${{ steps.resolve-extras.outputs.extras_container_ref }}
       build_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
       build_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
+      build_container_x86_64_ref: ${{ steps.base-container-gate.outputs.build_container_x86_64_ref }}
+      runtime_container_x86_64_ref: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_ref }}
+      build_container_aarch64_ref: ${{ steps.base-container-gate.outputs.build_container_aarch64_ref }}
+      runtime_container_aarch64_ref: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_ref }}
+      build_artifacts_container_x86_64_ref: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_ref }}
+      build_artifacts_container_aarch64_ref: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_ref }}
       runtime_container_x86_64_run: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_run }}
       runtime_container_x86_64_version: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
       build_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_container_aarch64_run }}
@@ -110,6 +124,7 @@ jobs:
       runtime_container_aarch64_run: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_run }}
       runtime_container_aarch64_version: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_version }}
       proto_files_changed: ${{ steps.base-container-gate.outputs.proto_files_changed }}
+      core_rpc_proto_files_changed: ${{ steps.base-container-gate.outputs.core_rpc_proto_files_changed }}
       source_files_changed: ${{ steps.base-container-gate.outputs.source_files_changed }}
       release_build_args: ${{ steps.release-metadata.outputs.build_args }}
       release_build_args_aarch64: ${{ steps.release-metadata.outputs.build_args_aarch64 }}
@@ -139,6 +154,8 @@ jobs:
               - 'dev/docker/Dockerfile.build-artifacts-container-aarch64'
             proto_files:
               - '**/*.proto'
+            core_rpc_proto_files:
+              - 'crates/rpc/proto/**'
             source_files:
               - 'crates/**'
               - 'Cargo.toml'
@@ -173,16 +190,107 @@ jobs:
           echo "| VERSION | \`${VERSION}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| HELM_VERSION | \`${HELM_VERSION}\` |" >> $GITHUB_STEP_SUMMARY
 
+      # Single definition point for registries. The canonical repo keeps
+      # upstream defaults; any other repo must set NICO_TARGET_IMAGE_REGISTRY
+      # and may not target the canonical registries (fail closed for mirrors).
+      # Source registry = read-only dependencies (extras, non-rebuilt base
+      # containers); target registry = everything this run publishes.
+      - name: Resolve container registries
+        id: registry
+        env:
+          TARGET_OVERRIDE: ${{ vars.NICO_TARGET_IMAGE_REGISTRY }}
+          SOURCE_OVERRIDE: ${{ vars.NICO_SOURCE_IMAGE_REGISTRY }}
+          EXTRAS_OVERRIDE: ${{ vars.NICO_EXTRAS_IMAGE }}
+          NGC_PATH_OVERRIDE: ${{ vars.NICO_TARGET_NGC_PATH }}
+          HAS_SOURCE_TOKEN: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN != '' }}
+          HAS_SOURCE_USERNAME: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME != '' }}
+        run: |
+          set -euo pipefail
+          CANONICAL_DEV="nvcr.io/0837451325059433/carbide-dev"
+          CANONICAL_PROD="nvcr.io/0837451325059433/carbide"
+          for V in "${TARGET_OVERRIDE}" "${SOURCE_OVERRIDE}" "${EXTRAS_OVERRIDE}" "${NGC_PATH_OVERRIDE}"; do
+            if [[ "${V}" == *$'\n'* || "${V}" == *$'\r'* ]]; then
+              echo "::error::registry variables must be single-line values"
+              exit 1
+            fi
+          done
+          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
+            # canonical endpoints are constants: repository variables must not
+            # be able to redirect canonical credentials without a workflow diff
+            TARGET="${CANONICAL_DEV}"
+            PROD="${CANONICAL_PROD}"
+          else
+            if [[ -z "${TARGET_OVERRIDE}" ]]; then
+              echo "::error::NICO_TARGET_IMAGE_REGISTRY repository variable is required outside NVIDIA/infra-controller"
+              exit 1
+            fi
+            TARGET="${TARGET_OVERRIDE}"
+            PROD="${TARGET}"
+            # normalize host (case, default port) before the canonical denylist
+            normalize() {
+              local x="${1%/}" h p
+              h="${x%%/*}"; p="${x#*/}"
+              h="${h,,}"; h="${h%:443}"
+              printf '%s/%s' "${h}" "${p,,}"
+            }
+            for R in "${TARGET}" "${PROD}"; do
+              N="$(normalize "${R}")"
+              if [[ "${N}" == "${CANONICAL_DEV}" || "${N}" == "${CANONICAL_PROD}" ]]; then
+                echo "::error::this repository must not target the canonical registry ${R}"
+                exit 1
+              fi
+            done
+          fi
+          TARGET="${TARGET%/}"
+          PROD="${PROD%/}"
+          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
+            SOURCE="${CANONICAL_DEV}"
+            EXTRAS="${SOURCE}/nvmetal-carbide-extras:latest"
+          else
+            SOURCE="${SOURCE_OVERRIDE:-${CANONICAL_DEV}}"
+            SOURCE="${SOURCE%/}"
+            EXTRAS="${EXTRAS_OVERRIDE:-${SOURCE}/nvmetal-carbide-extras:latest}"
+          fi
+          if [[ "${EXTRAS%%/*}" != "${SOURCE%%/*}" ]]; then
+            echo "::error::NICO_EXTRAS_IMAGE must live on the source registry host (${SOURCE%%/*}); refusing to send source credentials to ${EXTRAS%%/*}"
+            exit 1
+          fi
+          if [[ "${GITHUB_REPOSITORY}" == "NVIDIA/infra-controller" ]]; then
+            NGC_PATH="${TARGET#*/}"
+          else
+            NGC_PATH="${NGC_PATH_OVERRIDE:-}"
+            case "${NGC_PATH%/}" in
+              "${CANONICAL_DEV#*/}"|"${CANONICAL_PROD#*/}")
+                echo "::error::this repository must not publish helm/resources to the canonical NGC path ${NGC_PATH}"
+                exit 1;;
+            esac
+          fi
+          if [[ "${SOURCE%%/*}" != "nvcr.io" && ( "${HAS_SOURCE_TOKEN}" != "true" || "${HAS_SOURCE_USERNAME}" != "true" ) ]]; then
+            echo "::error::non-NVCR source registry requires NICO_SOURCE_REGISTRY_* secrets (refusing to send NVCR credentials elsewhere)"
+            exit 1
+          fi
+          {
+            echo "registry=${TARGET}"
+            echo "registry_host=${TARGET%%/*}"
+            echo "source_registry=${SOURCE}"
+            echo "source_registry_host=${SOURCE%%/*}"
+            echo "extras_image=${EXTRAS}"
+            echo "prod_registry=${PROD}"
+            echo "target_ngc_path=${NGC_PATH}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Registries: target=${TARGET} source=${SOURCE} prod=${PROD}"
+
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
         with:
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          registry: ${{ steps.registry.outputs.source_registry_host }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Resolve pinned carbide-extras image digest
         id: resolve-extras
         env:
-          EXTRAS_IMAGE: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-extras:latest
+          EXTRAS_IMAGE: ${{ steps.registry.outputs.extras_image }}
         run: |
           set -euo pipefail
           docker pull "${EXTRAS_IMAGE}"
@@ -204,6 +312,8 @@ jobs:
       - name: Decide if build-container-x86_64 must run
         id: base-container-gate
         env:
+          TARGET_REGISTRY: ${{ steps.registry.outputs.registry }}
+          SOURCE_REGISTRY: ${{ steps.registry.outputs.source_registry }}
           EVENT_NAME: ${{ github.event_name }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -214,6 +324,7 @@ jobs:
           BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
           BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
           PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.proto_files }}
+          CORE_RPC_PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.core_rpc_proto_files }}
           SOURCE_FILES_CHANGED: ${{ steps.build-container-changes.outputs.source_files }}
         run: |
           build_container_x86_64_run=false
@@ -223,6 +334,7 @@ jobs:
           build_artifacts_container_x86_64_run=false
           build_artifacts_container_aarch64_run=false
           proto_files_changed=false
+          core_rpc_proto_files_changed=false
           source_files_changed=false
 
           if [[ "${COMMIT_MESSAGE}" =~ ci-rebuild-base-containers ]]; then
@@ -238,6 +350,10 @@ jobs:
 
           if [[ "${PROTO_FILES_CHANGED}" == "true" ]]; then
              proto_files_changed=true
+          fi
+
+          if [[ "${CORE_RPC_PROTO_FILES_CHANGED}" == "true" ]]; then
+             core_rpc_proto_files_changed=true
           fi
 
           if [[ "${SOURCE_FILES_CHANGED}" == "true" ]]; then
@@ -271,47 +387,66 @@ jobs:
           echo "build_artifacts_container_x86_64_run=${build_artifacts_container_x86_64_run}" >> "$GITHUB_OUTPUT"
           echo "build_artifacts_container_aarch64_run=${build_artifacts_container_aarch64_run}" >> "$GITHUB_OUTPUT"
           echo "proto_files_changed=${proto_files_changed}" >> "$GITHUB_OUTPUT"
+          echo "core_rpc_proto_files_changed=${core_rpc_proto_files_changed}" >> "$GITHUB_OUTPUT"
           echo "source_files_changed=${source_files_changed}" >> "$GITHUB_OUTPUT"
 
           if [[ "$build_container_x86_64_run" == "true" ]]; then
             echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_ref=${TARGET_REGISTRY}/build-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$runtime_container_x86_64_run" == "true" ]]; then
             echo "runtime_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_x86_64_ref=${TARGET_REGISTRY}/runtime-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_x86_64_ref=${SOURCE_REGISTRY}/runtime-container-x86_64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_container_aarch64_run" == "true" ]]; then
             echo "build_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_ref=${TARGET_REGISTRY}/build-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_ref=${SOURCE_REGISTRY}/build-container-aarch64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$runtime_container_aarch64_run" == "true" ]]; then
             echo "runtime_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_aarch64_ref=${TARGET_REGISTRY}/runtime-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_aarch64_ref=${SOURCE_REGISTRY}/runtime-container-aarch64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_artifacts_container_x86_64_run" == "true" ]]; then
             echo "build_artifacts_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_x86_64_ref=${TARGET_REGISTRY}/build-artifacts-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_artifacts_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_x86_64_ref=${SOURCE_REGISTRY}/build-artifacts-container-x86_64:latest" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_artifacts_container_aarch64_run" == "true" ]]; then
             echo "build_artifacts_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_aarch64_ref=${TARGET_REGISTRY}/build-artifacts-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
           else
             echo "build_artifacts_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_aarch64_ref=${SOURCE_REGISTRY}/build-artifacts-container-aarch64:latest" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Decide release container publish strategy
         id: release-gate
         env:
+          TARGET_REGISTRY: ${{ steps.registry.outputs.registry }}
+          HAS_TARGET_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN != '' }}
+          BUILD_X86_RUN: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
+          BUILD_X86_REF: ${{ steps.base-container-gate.outputs.build_container_x86_64_ref }}
+          SOURCE_REGISTRY: ${{ steps.registry.outputs.source_registry }}
+          HAS_TARGET_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME != '' }}
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
@@ -324,11 +459,27 @@ jobs:
             PUBLISH=true
           fi
 
+          TARGET_HOST="${TARGET_REGISTRY%%/*}"
+          if [[ "${PUBLISH}" == "true" && "${TARGET_HOST}" != "nvcr.io" && ( "${HAS_TARGET_TOKEN}" != "true" || "${HAS_TARGET_USERNAME}" != "true" ) ]]; then
+            echo "::error::publishing to a non-NVCR target requires NICO_TARGET_REGISTRY_* secrets (refusing to send NVCR credentials elsewhere)"
+            exit 1
+          fi
           echo "publish_built_container=${PUBLISH}" >> "$GITHUB_OUTPUT"
+          # job containers log in before any step runs, so the lint job must
+          # never point at a target ref that was not published (mirror PRs)
+          if [[ "${BUILD_X86_RUN}" == "true" && "${GITHUB_REPOSITORY}" != "NVIDIA/infra-controller" && "${PUBLISH}" != "true" ]]; then
+            echo "lint_container_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "lint_container_ref=${BUILD_X86_REF}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Prepare release container build args
         id: release-metadata
         env:
+          BUILD_REF: ${{ steps.base-container-gate.outputs.build_container_x86_64_ref }}
+          RUNTIME_REF: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_ref }}
+          BUILD_REF_AARCH64: ${{ steps.base-container-gate.outputs.build_container_aarch64_ref }}
+          RUNTIME_REF_AARCH64: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_ref }}
           VERSION: ${{ steps.version.outputs.version }}
           SHORT_SHA: ${{ steps.version.outputs.short_sha }}
           BUILD_VERSION: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
@@ -339,8 +490,6 @@ jobs:
           set -euo pipefail
 
           # x86_64 build args
-          BUILD_REF="nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:${BUILD_VERSION}"
-          RUNTIME_REF="nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${RUNTIME_VERSION}"
 
           BUILD_ARGS=$(jq -n -c \
             --arg VERSION "$VERSION" \
@@ -352,8 +501,6 @@ jobs:
           echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
 
           # aarch64 build args
-          BUILD_REF_AARCH64="nvcr.io/0837451325059433/carbide-dev/build-container-aarch64:${BUILD_VERSION_AARCH64}"
-          RUNTIME_REF_AARCH64="nvcr.io/0837451325059433/carbide-dev/runtime-container-aarch64:${RUNTIME_VERSION_AARCH64}"
 
           BUILD_ARGS_AARCH64=$(jq -n -c \
             --arg VERSION "$VERSION" \
@@ -374,12 +521,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.build-container-x86_64
-      image_name: nvcr.io/0837451325059433/carbide-dev/build-container-x86_64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/build-container-x86_64
       image_tag: ${{ needs.prepare.outputs.build_container_x86_64_version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -390,12 +538,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.build-container-aarch64
-      image_name: nvcr.io/0837451325059433/carbide-dev/build-container-aarch64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/build-container-aarch64
       image_tag: ${{ needs.prepare.outputs.build_container_aarch64_version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -406,12 +555,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.runtime-container-x86_64
-      image_name: nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/runtime-container-x86_64
       image_tag: ${{ needs.prepare.outputs.runtime_container_x86_64_version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -422,12 +572,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.runtime-container-aarch64
-      image_name: nvcr.io/0837451325059433/carbide-dev/runtime-container-aarch64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/runtime-container-aarch64
       image_tag: ${{ needs.prepare.outputs.runtime_container_aarch64_version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -438,12 +589,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-x86_64
-      image_name: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-x86_64
       image_tag: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: true
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -454,12 +606,13 @@ jobs:
       - prepare
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-aarch64
-      image_name: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-aarch64
       image_tag: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: true
+      push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: ${{ github.ref == 'refs/heads/main' }}
     secrets: inherit
@@ -468,21 +621,34 @@ jobs:
   # BUILD STAGE - Release Container
   # ============================================================================
   build-release-container-x86_64:
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'schedule'
+        && needs.prepare.result == 'success'
+        && contains('success,skipped', needs.build-container-x86_64.result)
+        && contains('success,skipped', needs.build-runtime-container-x86_64.result)
+        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
+        && contains('success,skipped', needs.lint-police.result)
+      }}
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
+      - check-rest-core-proto-sync
+      - lint-police
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-container-x86_64
       context_path: .
       build_args: ${{ needs.prepare.outputs.release_build_args }}
-      image_name: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
+      image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/amd64
       runner: linux-amd64-cpu16
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
       tag_latest: false
@@ -490,31 +656,89 @@ jobs:
     secrets: inherit
 
   build-release-container-aarch64:
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'schedule'
+        && needs.prepare.result == 'success'
+        && contains('success,skipped', needs.build-container-aarch64.result)
+        && contains('success,skipped', needs.build-runtime-container-aarch64.result)
+        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
+      }}
     needs:
       - prepare
       - build-container-aarch64
       - build-runtime-container-aarch64
+      - check-rest-core-proto-sync
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-container-aarch64
       context_path: .
       build_args: ${{ needs.prepare.outputs.release_build_args_aarch64 }}
-      image_name: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide-aarch64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu16
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       tag_latest: false
     secrets: inherit
 
+  # Combine the per-arch nvmetal-carbide images into a single multi-arch manifest
+  # at the bare tag, so the carbide control plane can be scheduled on both amd64
+  # and arm64 nodes. The per-arch images are still pushed individually
+  # (nvmetal-carbide = amd64, nvmetal-carbide-aarch64 = arm64). Sources are
+  # referenced by digest so re-runs are idempotent. Push refs only.
+  merge-manifests-nvmetal-carbide:
+    needs:
+      - prepare
+      - build-release-container-x86_64
+      - build-release-container-aarch64
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' && needs.build-release-container-x86_64.result == 'success' && needs.build-release-container-aarch64.result == 'success' }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to NVCR
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ needs.prepare.outputs.registry_host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08
+        with:
+          max_attempts: 3
+          timeout_minutes: 10
+          retry_wait_seconds: 20
+          command: |
+            docker buildx imagetools create -t \
+              ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide:${{ needs.prepare.outputs.version }} \
+              ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide@${{ needs.build-release-container-x86_64.outputs.image_digest }} \
+              ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64@${{ needs.build-release-container-aarch64.outputs.image_digest }}
+
   test-release-container-services:
-    if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'schedule'
+        && needs.prepare.result == 'success'
+        && contains('success,skipped', needs.build-container-x86_64.result)
+        && contains('success,skipped', needs.build-runtime-container-x86_64.result)
+        && contains('success,skipped', needs.check-rest-core-proto-sync.result)
+      }}
     needs:
       - prepare
       - build-container-x86_64
       - build-runtime-container-x86_64
+      - check-rest-core-proto-sync
     runs-on: linux-amd64-cpu16
     steps:
       - name: Checkout code
@@ -523,12 +747,23 @@ jobs:
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
         with:
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          registry: ${{ needs.prepare.outputs.source_registry_host }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      # base refs may point at the target registry after a rebuild; log in
+      # there too when it is a different host (same-host uses one credential).
+      - name: Login to target registry
+        if: ${{ needs.prepare.outputs.publish_images == 'true' && needs.prepare.outputs.registry_host != needs.prepare.outputs.source_registry_host }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ needs.prepare.outputs.registry_host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Run release-container service tests
         env:
-          BUILD_CONTAINER: nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:${{ needs.prepare.outputs.build_container_x86_64_version }}
+          BUILD_CONTAINER: ${{ needs.prepare.outputs.build_container_x86_64_ref }}
           CI_COMMIT_SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
@@ -559,6 +794,9 @@ jobs:
               cargo make test-release-container-services
             '
 
+      - name: Final repository clean check
+        run: bash scripts/check-repo-clean.sh "release-container service tests"
+
   # ============================================================================
   # BUILD STAGE - Forge CLI (Multi-arch)
   # ============================================================================
@@ -569,13 +807,15 @@ jobs:
     if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
-      image_name: nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
     secrets: inherit
@@ -587,13 +827,15 @@ jobs:
     if: ${{ always() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
-      image_name: nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}"}'
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
     secrets: inherit
 
@@ -602,7 +844,7 @@ jobs:
       - prepare
       - build-forge-cli-x86_64
       - build-forge-cli-aarch64
-    if: ${{ !cancelled() && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') && needs.build-forge-cli-x86_64.result == 'success' && needs.build-forge-cli-aarch64.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' && needs.build-forge-cli-x86_64.result == 'success' && needs.build-forge-cli-aarch64.result == 'success' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
@@ -614,8 +856,9 @@ jobs:
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
         with:
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          registry: ${{ needs.prepare.outputs.registry_host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Create and push multi-arch manifest
         uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08
@@ -625,14 +868,14 @@ jobs:
           retry_wait_seconds: 20
           command: |
             docker buildx imagetools create -t \
-              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:${{ needs.prepare.outputs.version }} \
-              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
-              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli:${{ needs.prepare.outputs.version }} \
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
 
             docker buildx imagetools create -t \
-              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli:latest \
-              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
-              nvcr.io/0837451325059433/carbide-dev/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli:latest \
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
 
   # ============================================================================
   # BUILD STAGE - Boot Artifacts
@@ -645,10 +888,11 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-x86_64.result) }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
       arch: x86_64
       build_type: boot
       cargo_make_task: build-boot-artifacts-x86-host-ci
-      build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-x86_64:${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
+      build_container: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}
       runner: linux-amd64-cpu4
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
@@ -663,10 +907,11 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-artifacts-container-aarch64.result) }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
       arch: aarch64
       build_type: boot
       cargo_make_task: build-boot-artifacts-bfb-ci
-      build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
+      build_container: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}
       runner: linux-arm64-cpu16
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
@@ -687,6 +932,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-x86.result == 'success' }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
       arch: x86_64
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-x86-host-ci
@@ -706,6 +952,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-bfb.result == 'success' }}
     uses: ./.github/workflows/build-boot-artifacts.yml
     with:
+      target_login: ${{ needs.prepare.outputs.publish_images == 'true' }}
       arch: aarch64
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-arm-host-ci
@@ -730,12 +977,19 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-x86.result == 'success' && needs.build-boot-artifacts-ephemeral-image-x86-host.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
-      image_name: nvcr.io/0837451325059433/carbide-dev/boot-artifacts-x86_64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
-      platforms: linux/amd64
+      # Multi-arch on push so this x86_64 boot-artifacts carrier can run as an
+      # init container on both amd64 and arm64 control-plane nodes; the payload
+      # it ships is unchanged (x86_64 boot blobs). The Dockerfile has no RUN
+      # steps (FROM alpine + COPY only), so no QEMU is needed. Single-arch on PR
+      # so the image loads to the daemon for the Grype scan.
+      platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
@@ -756,12 +1010,19 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-boot-artifacts-bfb.result == 'success' && needs.build-boot-artifacts-ephemeral-image-arm-host.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
-      image_name: nvcr.io/0837451325059433/carbide-dev/boot-artifacts-aarch64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
-      platforms: linux/amd64  # Note: aarch64 artifacts packaged in x86_64 image
+      # Container arch is independent of the payload: this carrier always ships
+      # the aarch64 boot blobs as files. Build it multi-arch on push so it can
+      # run as an init container on both amd64 and arm64 control-plane nodes. The
+      # Dockerfile has no RUN steps (FROM alpine + COPY only), so no QEMU is
+      # needed. Single-arch on PR so the image loads to the daemon for Grype.
+      platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true
       scan: true
       download_artifacts: true  # Download boot and ephemeral artifacts for packaging
@@ -838,13 +1099,15 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-runtime-container-x86_64.result) }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.machine-validation-runner
-      image_name: nvcr.io/0837451325059433/carbide-dev/machine-validation-runner
+      image_name: ${{ needs.prepare.outputs.image_registry }}/machine-validation-runner
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${{ needs.prepare.outputs.runtime_container_x86_64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"${{ needs.prepare.outputs.runtime_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
@@ -856,16 +1119,80 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-release-machine-validation-runner.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config
-      image_name: nvcr.io/0837451325059433/carbide-dev/machine_validation
+      image_name: ${{ needs.prepare.outputs.image_registry }}/machine_validation
       image_tag: ${{ needs.prepare.outputs.version }}
-      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"nvcr.io/0837451325059433/carbide-dev/runtime-container-x86_64:${{ needs.prepare.outputs.runtime_container_x86_64_version }}"}'
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"${{ needs.prepare.outputs.runtime_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: true  # load to daemon so the Grype scan can read it on PR builds
       scan: true
     secrets: inherit
+
+  # arm64 container build of the machine-validation config carrier, so it can run
+  # as an init container on arm64 control-plane nodes. FROM the aarch64 runtime
+  # base; pushed as machine_validation-aarch64 and merged into the bare
+  # machine_validation tag below. (The bundled validation runner payload staying
+  # arm64-capable is tracked separately — this only makes the carrier runnable on
+  # arm64 nodes.)
+  build-release-machine-validation-artifacts-arm-host:
+    needs:
+      - prepare
+      - build-runtime-container-aarch64
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && contains('success,skipped', needs.build-runtime-container-aarch64.result) }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
+      target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
+      dockerfile_path: dev/docker/Dockerfile.machine-validation-config-aarch64
+      image_name: ${{ needs.prepare.outputs.image_registry }}/machine_validation-aarch64
+      image_tag: ${{ needs.prepare.outputs.version }}
+      build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_AARCH64":"${{ needs.prepare.outputs.runtime_container_aarch64_ref }}"}'
+      platforms: linux/arm64
+      runner: linux-arm64-cpu4
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
+      load: true  # load to daemon so the Grype scan can read it on PR builds
+      scan: true
+    secrets: inherit
+
+  # Combine machine_validation (amd64) and machine_validation-aarch64 into a
+  # single multi-arch manifest at the bare machine_validation tag. Sources are
+  # referenced by digest so re-runs are idempotent. Push refs only.
+  merge-manifests-machine-validation:
+    needs:
+      - prepare
+      - build-release-machine-validation-artifacts-x86-host
+      - build-release-machine-validation-artifacts-arm-host
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' && needs.build-release-machine-validation-artifacts-x86-host.result == 'success' && needs.build-release-machine-validation-artifacts-arm-host.result == 'success' }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to NVCR
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ needs.prepare.outputs.registry_host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08
+        with:
+          max_attempts: 3
+          timeout_minutes: 10
+          retry_wait_seconds: 20
+          command: |
+            docker buildx imagetools create -t \
+              ${{ needs.prepare.outputs.image_registry }}/machine_validation:${{ needs.prepare.outputs.version }} \
+              ${{ needs.prepare.outputs.image_registry }}/machine_validation@${{ needs.build-release-machine-validation-artifacts-x86-host.outputs.image_digest }} \
+              ${{ needs.prepare.outputs.image_registry }}/machine_validation-aarch64@${{ needs.build-release-machine-validation-artifacts-arm-host.outputs.image_digest }}
 
   proto-police:
     needs:
@@ -888,7 +1215,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required: Buf needs the history to compare against main
+          fetch-depth: 0 # Required to compute the merge-base against main
 
       - name: Install Buf CLI
         run: |
@@ -898,9 +1225,54 @@ jobs:
 
       - name: Check for Breaking Changes
         run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          MERGE_BASE="$(git merge-base HEAD origin/main)"
+          BASE_PROTO_DIR="$(mktemp -d)"
+          trap 'rm -rf "${BASE_PROTO_DIR}"' EXIT
+
+          echo "Comparing protobuf changes against merge-base ${MERGE_BASE}"
+          git archive "${MERGE_BASE}" crates/rpc/proto | tar -x -C "${BASE_PROTO_DIR}"
+
           buf breaking crates/rpc/proto \
-            --against 'https://github.com/${{ github.repository }}.git#branch=main,subdir=crates/rpc/proto' \
+            --against "${BASE_PROTO_DIR}/crates/rpc/proto" \
             --error-format=github-actions
+
+  check-rest-core-proto-sync:
+    name: Check REST Core Proto Sync
+    permissions:
+      contents: read
+    needs:
+      - prepare
+    if: ${{ needs.prepare.outputs.core_rpc_proto_files_changed == 'true' }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+          cache-dependency-path: rest-api/go.sum
+
+      - name: Install buf and protoc plugins
+        run: |
+          go install github.com/bufbuild/buf/cmd/buf@v1.70.0
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+
+      - name: Regenerate REST protos from Core protos
+        run: |
+          make -C rest-api core-proto
+          make -C rest-api/flow gen-nicoapi-pb
+
+      - name: Check repository is clean
+        run: bash scripts/check-repo-clean.sh "REST Core protobuf sync"
 
   lint-police:
     needs:
@@ -909,10 +1281,10 @@ jobs:
     if: ${{ !failure() && !cancelled() && needs.prepare.outputs.source_files_changed == 'true' && contains(github.ref, 'pull-request/') }}
     runs-on: linux-amd64-cpu16
     container:
-      image: nvcr.io/0837451325059433/carbide-dev/build-container-x86_64:${{ needs.prepare.outputs.build_container_x86_64_version }}
+      image: ${{ needs.prepare.outputs.lint_container_ref }}
       credentials:
-        username: ${{ secrets.NVCR_USERNAME }}
-        password: ${{ secrets.NVCR_TOKEN }}
+        username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+        password: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -948,8 +1320,8 @@ jobs:
       - name: Check bans
         run: cargo make --no-workspace check-bans
 
-      - name: Check isolated package builds
-        run: cargo xtask check-isolated-package-builds
+      - name: Check repository is clean
+        run: bash scripts/check-repo-clean.sh "Core pre-build checks"
 
   # ============================================================================
   # BUILD STAGE - Helm Chart
@@ -975,21 +1347,22 @@ jobs:
     needs:
       - prepare
       - build-validate-helm-chart
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-chart.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-chart.result == 'success' && needs.prepare.outputs.publish_images == 'true' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Package and push Helm chart to NGC
+        if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
+          ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
   build-validate-helm-prereqs-chart:
@@ -1012,21 +1385,22 @@ jobs:
     needs:
       - prepare
       - build-validate-helm-prereqs-chart
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-prereqs-chart.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-prereqs-chart.result == 'success' && needs.prepare.outputs.publish_images == 'true' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Package and push Helm prereqs chart to NGC
+        if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm-prereqs
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
+          ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
   # ============================================================================
@@ -1046,11 +1420,22 @@ jobs:
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
         with:
-          username: ${{ secrets.NVCR_USERNAME }}
-          token: ${{ secrets.NVCR_TOKEN }}
+          registry: ${{ needs.prepare.outputs.source_registry_host }}
+          username: ${{ secrets.NICO_SOURCE_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_SOURCE_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
+
+      # base refs may point at the target registry after a rebuild; log in
+      # there too when it is a different host (same-host uses one credential).
+      - name: Login to target registry
+        if: ${{ needs.prepare.outputs.publish_images == 'true' && needs.prepare.outputs.registry_host != needs.prepare.outputs.source_registry_host }}
+        uses: ./.github/actions/docker-auth
+        with:
+          registry: ${{ needs.prepare.outputs.registry_host }}
+          username: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME || secrets.NVCR_USERNAME }}
+          token: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN || secrets.NVCR_TOKEN }}
 
       - name: Pull build container
-        run: docker pull nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
+        run: docker pull ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}
 
       - name: Compile bluefield Rust binaries
         run: |
@@ -1060,7 +1445,7 @@ jobs:
             -e CARGO_HOME=/workspace/cargo \
             -e CARGO_INCREMENTAL=0 \
             -e CARGO_BUILD_TARGET=aarch64-unknown-linux-gnu \
-            nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }} \
+            ${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }} \
             bash -c "git config --global --add safe.directory /workspace && \
               cargo make --cwd bluefield build-dpu-agent-and-dhcp-server-ci && \
               cargo make --cwd bluefield build-fmds-ci && \
@@ -1084,13 +1469,15 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/otelcol-contrib/Dockerfile
       context_path: .
-      image_name: nvcr.io/0837451325059433/carbide-dev/otelcol-contrib
+      image_name: ${{ needs.prepare.outputs.image_registry }}/otelcol-contrib
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
     secrets: inherit
 
@@ -1100,13 +1487,15 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/transceiver-exporter/Dockerfile
       context_path: .
-      image_name: nvcr.io/0837451325059433/carbide-dev/transceiver-exporter
+      image_name: ${{ needs.prepare.outputs.image_registry }}/transceiver-exporter
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
     secrets: inherit
 
@@ -1135,12 +1524,14 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' && needs.download-mft-aarch64.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/forge-dpu-agent/Dockerfile
-      image_name: nvcr.io/0837451325059433/carbide-dev/forge-dpu-agent
+      image_name: ${{ needs.prepare.outputs.image_registry }}/forge-dpu-agent
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
     secrets: inherit
@@ -1152,12 +1543,14 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/forge-dhcp-server/Dockerfile
-      image_name: nvcr.io/0837451325059433/carbide-dev/forge-dhcp-server
+      image_name: ${{ needs.prepare.outputs.image_registry }}/forge-dhcp-server
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
     secrets: inherit
@@ -1169,12 +1562,14 @@ jobs:
     if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
+      # public bases only: skip source login so anonymous nvcr pulls keep working
+      source_registry_host: ''
       dockerfile_path: bluefield/containers/carbide-fmds/Dockerfile
-      image_name: nvcr.io/0837451325059433/carbide-dev/carbide-fmds
+      image_name: ${{ needs.prepare.outputs.image_registry }}/carbide-fmds
       image_tag: ${{ needs.prepare.outputs.version }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
       load: false
       download_artifacts: true
     secrets: inherit
@@ -1224,54 +1619,58 @@ jobs:
     needs:
       - prepare
       - build-validate-bluefield-helm-charts
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-bluefield-helm-charts.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-bluefield-helm-charts.result == 'success' && needs.prepare.outputs.publish_images == 'true' }}
     runs-on: linux-amd64-cpu4
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Package and push nico-otelcol chart
+        if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-otelcol
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
+          ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
       - name: Package and push nico-dpu-agent chart
+        if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-dpu-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
+          ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
       - name: Package and push nico-dhcp-server chart
+        if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-dhcp-server
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
+          ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
       - name: Package and push nico-fmds chart
+        if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-fmds
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
+          ngc-key: ${{ secrets.NICO_NGC_TOKEN || secrets.NVCR_TOKEN }}
+          ngc-path: ${{ needs.prepare.outputs.target_ngc_path }}
           ngc-duplicate: fail
 
   build-summary:
@@ -1358,15 +1757,15 @@ jobs:
 
   promote-to-be-scanned-image:
     # Skip for pull-request/* branches (main, release/*, and tags are allowed by workflow trigger)
-    if: ${{ !cancelled() && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && !contains(github.ref, 'pull-request/') }}
+    if: ${{ !cancelled() && github.repository == 'NVIDIA/infra-controller' && needs.build-release-container-x86_64.result == 'success' && github.event_name != 'schedule' && needs.prepare.outputs.publish_images == 'true' }}
     needs:
       - prepare
       - build-release-container-x86_64
     uses: NVIDIA/dsx-github-actions/.github/workflows/promote-image.yml@760d2d7964b479fde431cd3e0b980bc6b6a26ccd
     with:
-      source: nvcr.io/0837451325059433/carbide-dev/nvmetal-carbide
+      source: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
       source_tag: ${{ needs.prepare.outputs.version }}
-      destination: nvcr.io/0837451325059433/carbide/nvmetal-carbide
+      destination: ${{ needs.prepare.outputs.prod_image_registry }}/nvmetal-carbide
       destination_tag: "to-be-scanned"
     secrets:
       SOURCE_USERNAME: ${{ secrets.NVCR_USERNAME }}
@@ -1459,11 +1858,13 @@ jobs:
   # ============================================================================
   # AGGREGATOR — single required check for branch protection
   # ============================================================================
-  # Fails iff any leaf job's result is `failure` or `cancelled`.
+  # Fails iff any required job listed in `needs` is `failure` or `cancelled`.
   # `skipped` counts as pass — that's how rest-only PRs unblock when the
   # `changes` gate intentionally skips the core pipeline.
-  # `changes` + `prepare` are in needs so a gate or prepare failure doesn't
-  # silently pass (downstream leaves become SKIPPED in those cases).
+  # Every stage of each gated release chain is listed so an upstream failure
+  # cannot be hidden when its downstream jobs become SKIPPED.
+  # `changes` + `prepare` are also included so a gate or prepare failure doesn't
+  # silently pass.
   # Branch protection ruleset should require ONLY this aggregator + rest-ci-pass.
   core-ci-pass:
     name: core-ci-pass
@@ -1472,11 +1873,28 @@ jobs:
     needs:
       - changes
       - prepare
+      # x86_64 release-container chain
+      - build-container-x86_64
+      - build-runtime-container-x86_64
       - build-release-container-x86_64
+      # aarch64 release-container chain
+      - build-container-aarch64
+      - build-runtime-container-aarch64
       - build-release-container-aarch64
       - test-release-container-services
+      # x86_64 release-artifact chain
+      - build-artifacts-container-x86_64
+      - build-boot-artifacts-x86
+      - build-boot-artifacts-ephemeral-image-x86-host
+      - build-release-artifacts-x86-host
+      # aarch64 release-artifact chain
+      - build-artifacts-container-aarch64
+      - build-boot-artifacts-bfb
+      - build-boot-artifacts-ephemeral-image-arm-host
+      - build-release-artifacts-arm-host
       - security-secret-scan
       - lint-police
+      - check-rest-core-proto-sync
     steps:
       - name: Decide pass/fail
         env:

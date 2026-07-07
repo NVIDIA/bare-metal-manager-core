@@ -51,7 +51,17 @@ pub async fn run(
     let mut att_key_handle_opt: Option<KeyHandle> = None;
     let mut tss_ctx_opt: Option<Context> = None;
 
-    if !is_dpu {
+    // A host with no TPM cannot attest, so gate on actual TPM presence (not just is_dpu) and skip
+    // the flow rather than hard failing in create_context_from_path.
+    let do_attestation = !is_dpu && tpm::tpm_present(tpm_path);
+    if !is_dpu && !do_attestation {
+        tracing::warn!(
+            tpm_path = ?tpm_path,
+            "Host has no TPM device; skipping attestation key setup"
+        );
+    }
+
+    if do_attestation {
         // set the max auth fail to 256 as a stop gap measure to prevent machines from failing during
         // repeated reingestion cycle
         crate::tpm::set_tpm_max_auth_fail()?;
@@ -100,7 +110,7 @@ pub async fn run(
 
     // If we are not on a DPU and have some post-registration things to do,
     // we do them here.
-    if !is_dpu {
+    if do_attestation {
         // If we have received back an attestation key challenge, this means
         // that Carbide has requested an attestation, so do it!
         //

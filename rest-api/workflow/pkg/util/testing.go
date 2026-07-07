@@ -542,7 +542,10 @@ func TestBuildMachineInterface(t *testing.T, dbSession *cdb.Session, machineID s
 func TestBuildMachineInstanceType(t *testing.T, dbSession *cdb.Session, m *cdbm.Machine, it *cdbm.InstanceType) *cdbm.MachineInstanceType {
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
 
-	mit, err := mitDAO.CreateFromParams(context.Background(), nil, m.ID, it.ID)
+	mit, err := mitDAO.Create(context.Background(), nil, cdbm.MachineInstanceTypeCreateInput{
+		MachineID:      m.ID,
+		InstanceTypeID: it.ID,
+	})
 	assert.Nil(t, err)
 
 	return mit
@@ -870,7 +873,7 @@ func TestTemporalSiteClientPool(t *testing.T) *sc.ClientPool {
 func TestBuildStatusDetailWithTime(t *testing.T, dbSession *cdb.Session, entityID string, status string, message *string, timestamp time.Time) *cdbm.StatusDetail {
 	// Create status detail using DAO
 	statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
-	statusDetail, err := statusDetailDAO.CreateFromParams(context.Background(), nil, entityID, status, message)
+	statusDetail, err := statusDetailDAO.Create(context.Background(), nil, cdbm.StatusDetailCreateInput{EntityID: entityID, Status: status, Message: message})
 	assert.NoError(t, err)
 
 	// Update the created timestamp directly in the database

@@ -4,7 +4,7 @@ This section provides instructions for building the containers for NVIDIA Infra 
 
 ## Installing Prerequisite Software
 
-You need an Ubuntu 24.04 host or VM with 150GB+ of free disk space (macOS is not supported).
+An Ubuntu 24.04 host or VM with at least 150GB of free disk space is required, and git and make must also be installed (macOS is not supported).
 
 Clone the repo and run the build-host bootstrap. It installs everything needed to build
 the containers and boot artifacts -- system packages, rustup, the mkosi/ipxe git
@@ -65,6 +65,44 @@ Run `make help` from the repo root to list the individual image targets (`images
 `images-rest`, `images-machine-validation`, `images-boot-artifacts`, `images-bfb`). The
 sections below document the per-image build commands that these targets wrap, for when you
 need to build or debug a single image.
+
+### Verifying the build
+
+After `make images-all` completes, verify that all 14 deployable images were produced:
+
+```sh
+docker images --filter "reference=${IMAGE_REGISTRY}/*:${IMAGE_TAG}" \
+  --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+```
+
+The count should be exactly 14:
+
+| Image | Target |
+|---|---|
+| `nico` | `images-core` |
+| `nico-rest-api` | `images-rest` |
+| `nico-rest-workflow` | `images-rest` |
+| `nico-rest-site-manager` | `images-rest` |
+| `nico-rest-site-agent` | `images-rest` |
+| `nico-rest-db` | `images-rest` |
+| `nico-rest-cert-manager` | `images-rest` |
+| `nico-flow` | `images-rest` |
+| `nico-psm` | `images-rest` |
+| `nico-nsm` | `images-rest` |
+| `nico-mcp` | `images-rest` |
+| `machine-validation` | `images-machine-validation` |
+| `boot-artifacts-x86_64` | `images-boot-artifacts` |
+| `boot-artifacts-aarch64` | `images-bfb` |
+
+```sh
+# Quick count — should print 14
+docker images --filter "reference=${IMAGE_REGISTRY}/*:${IMAGE_TAG}" \
+  --format "{{.Repository}}" | wc -l
+```
+
+If the count is less than 14, the missing images indicate which sub-target failed. The three boot/validation images (`machine-validation`, `boot-artifacts-x86_64`, `boot-artifacts-aarch64`) require the full mkosi + Rust toolchain — if only 11 images appear, use `make images` instead of `make images-all` to build the deployable stack without them.
+
+Three intermediate images are also created locally but are not tagged under `IMAGE_REGISTRY`: `nico-buildcontainer-x86_64`, `nico-runtime-container-x86_64`, and `machine-validation-runner`. These are build-time dependencies only and do not need to be pushed.
 
 ## Building X86_64 Containers
 

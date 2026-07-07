@@ -38,8 +38,8 @@ func (s *RebootInstanceTestSuite) Test_RebootInstanceByIDWorkflow_Success() {
 
 	instanceID := uuid.New()
 	request := &cwssaws.InstancePowerRequest{
-		MachineId: &cwssaws.MachineId{
-			Id: instanceID.String(),
+		InstanceId: &cwssaws.InstanceId{
+			Value: instanceID.String(),
 		},
 		BootWithCustomIpxe:   true,
 		ApplyUpdatesOnReboot: true,
@@ -60,8 +60,8 @@ func (s *RebootInstanceTestSuite) Test_RebootInstanceByIDWorkflow_ActivityFailsE
 
 	instanceID := uuid.New()
 	request := &cwssaws.InstancePowerRequest{
-		MachineId: &cwssaws.MachineId{
-			Id: instanceID.String(),
+		InstanceId: &cwssaws.InstanceId{
+			Value: instanceID.String(),
 		},
 		BootWithCustomIpxe:   true,
 		ApplyUpdatesOnReboot: true,

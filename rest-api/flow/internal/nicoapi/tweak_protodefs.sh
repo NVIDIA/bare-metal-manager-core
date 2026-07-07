@@ -67,17 +67,3 @@ sedi -e 's/MachineValidationStarted started/MachineValidationStarted oneof_start
      -e 's/MachineValidationInProgress in_progress/MachineValidationInProgress oneof_in_progress/g' \
      -e 's/MachineValidationCompleted completed/MachineValidationCompleted oneof_completed/g' \
      nicoproto/nico.proto
-
-# Prepend SPDX license header to all proto files so protoc-gen-go carries it into generated .pb.go
-LICENSE_HEADER="// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: Apache-2.0
-"
-for f in nicoproto/*.proto; do
-    if ! head -1 "$f" | grep -q "SPDX"; then
-        tmp="$(mktemp)"
-        {
-            printf '%s\n' "$LICENSE_HEADER"
-            cat "$f"
-        } > "$tmp" && mv "$tmp" "$f"
-    fi
-done

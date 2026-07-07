@@ -49,6 +49,8 @@ Print help (see a summary with -h)
 | [`is-infinite-boot-enabled`](./bmc-machine-is-infinite-boot-enabled.md) | Check if infinite boot is enabled |
 | [`lockdown`](./bmc-machine-lockdown.md) | Enable or disable lockdown |
 | [`lockdown-status`](./bmc-machine-lockdown-status.md) | Check lockdown status |
+| [`set-root-password`](./bmc-machine-set-root-password.md) | Set a BMC's root password out-of-band (for fleet rotation use `credential rotate`) |
+| [`probe-vendor`](./bmc-machine-probe-vendor.md) | Resolve a BMC's Redfish vendor |
 
 ---
 

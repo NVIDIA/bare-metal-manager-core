@@ -53,6 +53,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".forge.DpuMode",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
+        .type_attribute(
+            ".forge.BmcIpAllocationType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.BmcIpAllocationType",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .extern_path(".common.DomainId", "::carbide_uuid::domain::DomainId")
@@ -316,6 +324,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.GetMachineBootInterfacesResponse",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.MachineInterfaceBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.PredictedBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.ExploredBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RetainedBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.RoutingProfile",
             "#[derive(serde::Serialize)]",
         )
@@ -323,8 +351,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.PrefixFilterPolicyEntry",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.AstraConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraAttachment", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraConfigStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraAttachmentStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.AstraPhase", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TrafficInterceptConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.TrafficInterceptBridging", "#[derive(serde::Serialize)]")
+        .btree_map("forge.TrafficInterceptBridging.host_representor_intercept_bridging")
         .type_attribute("forge.HostRepresentorInterceptBridging", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkPrefixEvent", "#[derive(serde::Serialize)]")
@@ -942,6 +977,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.CreateComputeAllocationRequest", derive_prost_builder)
         .type_attribute("forge.UpdateComputeAllocationRequest", derive_prost_builder)
         .type_attribute("forge.DeleteComputeAllocationRequest", derive_prost_builder)
+        .type_attribute(
+            "forge.InstanceNetworkAutoConfig",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RotationCredentialType",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.RotateCredentialResult",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.CredentialRotationStatusResult",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.DeviceCredentialRotationStatus",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            ".forge.NetworkSegmentType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.VpcVirtualizationType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
         .build_server(true)
         .build_client(true)
         .protoc_arg("--experimental_allow_proto3_optional")

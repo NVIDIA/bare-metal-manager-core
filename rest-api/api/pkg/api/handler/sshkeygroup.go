@@ -249,14 +249,13 @@ func (cskgh CreateSSHKeyGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// Create a status detail record for the SSH Key Group
-		skgsd1, derr := sdDAO.CreateFromParams(ctx, tx, skg.ID.String(), *cutil.GetPtr(cdbm.SSHKeyGroupStatusSyncing),
-			cutil.GetPtr("received SSH Key Group creation request, syncing"))
+		skgsd1, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skg.ID.String(), Status: cdbm.SSHKeyGroupStatusSyncing, Message: cutil.GetPtr("received SSH Key Group creation request, syncing")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)
 		}
 		if skgsd1 == nil {
-			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			logger.Error().Msg("Status Detail DB entry not returned from Create")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for SSH Key Group Association", nil)
 		}
 		dbskgsd = append(dbskgsd, *skgsd1)
@@ -289,8 +288,7 @@ func (cskgh CreateSSHKeyGroupHandler) Handle(c echo.Context) error {
 			}
 
 			// Create Status details
-			_, serr = sdDAO.CreateFromParams(ctx, tx, skgsa.ID.String(), *cutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusSyncing),
-				cutil.GetPtr("received SSH Key Group Association create request, syncing"))
+			_, serr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skgsa.ID.String(), Status: cdbm.SSHKeyGroupSiteAssociationStatusSyncing, Message: cutil.GetPtr("received SSH Key Group Association create request, syncing")})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group Association", nil)
@@ -322,13 +320,13 @@ func (cskgh CreateSSHKeyGroupHandler) Handle(c echo.Context) error {
 			}
 
 			// Create a status detail record for the SSH Key Group
-			skgsd2, serr := sdDAO.CreateFromParams(ctx, tx, skg.ID.String(), cdbm.SSHKeyGroupStatusSynced, cutil.GetPtr("SSH Key Group has successfully been synced to all Sites"))
+			skgsd2, serr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skg.ID.String(), Status: cdbm.SSHKeyGroupStatusSynced, Message: cutil.GetPtr("SSH Key Group has successfully been synced to all Sites")})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)
 			}
 			if skgsd2 == nil {
-				logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+				logger.Error().Msg("Status Detail DB entry not returned from Create")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for SSH Key Group Association", nil)
 			}
 			dbskgsd = append(dbskgsd, *skgsd2)
@@ -655,8 +653,7 @@ func (uskgh UpdateSSHKeyGroupHandler) Handle(c echo.Context) error {
 				}
 
 				// Create Status details
-				_, serr = sdDAO.CreateFromParams(ctx, tx, skgsa.ID.String(), *cutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusSyncing),
-					cutil.GetPtr("received SSH Key Group Association create request, syncing"))
+				_, serr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skgsa.ID.String(), Status: cdbm.SSHKeyGroupSiteAssociationStatusSyncing, Message: cutil.GetPtr("received SSH Key Group Association create request, syncing")})
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group Association", nil)
@@ -683,8 +680,7 @@ func (uskgh UpdateSSHKeyGroupHandler) Handle(c echo.Context) error {
 				}
 
 				// Create Status details
-				_, serr = sdDAO.CreateFromParams(ctx, tx, sgaID.String(), *cutil.GetPtr(cdbm.SSHKeyGroupSiteAssociationStatusDeleting),
-					cutil.GetPtr("received SSH Key Group Association update request, deleting"))
+				_, serr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: sgaID.String(), Status: cdbm.SSHKeyGroupSiteAssociationStatusDeleting, Message: cutil.GetPtr("received SSH Key Group Association update request, deleting")})
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group Association", nil)
@@ -822,7 +818,7 @@ func (uskgh UpdateSSHKeyGroupHandler) Handle(c echo.Context) error {
 
 		// Preparing response
 		// Retrieve SSH Key Group status details
-		dbskgsd, _, derr = sdDAO.GetAllByEntityID(ctx, tx, skg.ID.String(), nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+		dbskgsd, _, derr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{skg.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Status Details for SSH Key Group from DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for SSH Key Group, DB error", nil)
@@ -869,14 +865,14 @@ func (uskgh UpdateSSHKeyGroupHandler) Handle(c echo.Context) error {
 			}
 
 			// Create a status detail record for the SSH Key Group
-			_, serr := sdDAO.CreateFromParams(ctx, tx, skg.ID.String(), cdbm.SSHKeyGroupStatusSyncing, cutil.GetPtr("received SSH Key Group update request, syncing"))
+			_, serr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skg.ID.String(), Status: cdbm.SSHKeyGroupStatusSyncing, Message: cutil.GetPtr("received SSH Key Group update request, syncing")})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)
 			}
 
 			// Refresh status details so the response includes the row we just inserted.
-			dbskgsd, _, derr = sdDAO.GetAllByEntityID(ctx, tx, skg.ID.String(), nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+			dbskgsd, _, derr = sdDAO.GetAll(ctx, tx, cdbm.StatusDetailFilterInput{EntityIDs: []string{skg.ID.String()}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error retrieving Status Details for SSH Key Group from DB")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Status Details for SSH Key Group, DB error", nil)
@@ -1653,7 +1649,7 @@ func (dskgh DeleteSSHKeyGroupHandler) Handle(c echo.Context) error {
 		}
 
 		// create a status detail record for the SSH Key Group
-		_, derr = sdDAO.CreateFromParams(ctx, tx, skg.ID.String(), cdbm.SSHKeyGroupStatusDeleting, cutil.GetPtr("received request for deletion, pending processing"))
+		_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skg.ID.String(), Status: cdbm.SSHKeyGroupStatusDeleting, Message: cutil.GetPtr("received request for deletion, pending processing")})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group", nil)
@@ -1676,7 +1672,7 @@ func (dskgh DeleteSSHKeyGroupHandler) Handle(c echo.Context) error {
 				}
 
 				// create a status detail record for the SSH Key Group Association
-				_, serr = sdDAO.CreateFromParams(ctx, tx, skgsa.ID.String(), cdbm.SSHKeyGroupSiteAssociationStatusDeleting, cutil.GetPtr("received request for deletion, pending processing"))
+				_, serr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: skgsa.ID.String(), Status: cdbm.SSHKeyGroupSiteAssociationStatusDeleting, Message: cutil.GetPtr("received request for deletion, pending processing")})
 				if serr != nil {
 					logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
 					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for SSH Key Group Association", nil)

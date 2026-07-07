@@ -22,12 +22,14 @@ The site controller runs the NICo control plane on a Kubernetes cluster. A minim
 
 **Storage layout**: Total local NVMe capacity should be 4 TiB or greater. Mount 1.7 TiB on `/` (root) on the NVMe OS disk (ext4 or xfs) — typical usage is 200–500 GiB. Mount `/var/lib/containerd` and `/var/lib/kubelet` on a separate NVMe data disk (1+ TiB, ext4/xfs, `noatime`). Consider a dedicated `/var/log` if there is heavy logging. Persistent app storage (SAN/NAS, Rook-Ceph) is not required for NICo itself.
 
-### DPUs on Site Controller (Optional)
+### DPUs on Site Controller (Required)
 
-DPUs on site controller nodes are optional and site-owned. If DPUs are installed, ensure the following requirements are met:
-- Verify the correct DPU power cable has been ordered from the server vendor.
+Site-controller nodes must have Bluefield-3 DPUs. Ensure the following requirements are met:
+- You have the correct DPU power cable from the server vendor.
+- The Bluefield-3's operating mode is DPU mode. NIC mode is not supported.
 - For BF3 DPUs, verify link speed and optics: BF3 runs at 200 Gb, so match ports to 200 Gb-capable optics, fiber, or DACs.
-- A basic onboard NIC for management is sufficient--no extra ConnectX NICs are needed.
+- Verify that the DPU can connect to the outside world (curl -I https://www.nvidia.com)
+- The DPUs are at the latest supported firmware version: DOCA 2.9.3 and HBN 2.4.3
 
 ## Compute Systems (Managed Hosts)
 

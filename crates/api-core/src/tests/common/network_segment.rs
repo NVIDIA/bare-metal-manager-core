@@ -25,6 +25,7 @@ use tonic::Request;
 
 use super::api_fixtures::TestEnv;
 use crate::api::Api;
+use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 pub struct NetworkSegmentHelper {
@@ -71,9 +72,7 @@ pub async fn create_network_segment_with_api(
 ) -> rpc::forge::NetworkSegment {
     let vpc_id = if use_vpc {
         env.api
-            .create_vpc(
-                VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93").tonic_request(),
-            )
+            .create_vpc(VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID).tonic_request())
             .await
             .unwrap()
             .into_inner()

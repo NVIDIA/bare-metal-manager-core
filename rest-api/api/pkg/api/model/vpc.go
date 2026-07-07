@@ -238,34 +238,19 @@ func (asur APIVpcUpdateRequest) Validate() error {
 // sending the post-merge state matches the pre-existing handler
 // behaviour and keeps unchanged fields populated.
 //
-// `*string` and `*NVLinkLogicalPartitionId` overrides are applied for
-// `NetworkSecurityGroupID` and `NVLinkLogicalPartitionID` so the
-// API-level distinction between "not provided" (nil) and "explicitly
-// clear" (non-nil pointer to empty string) survives onto the wire:
-//   - nil  -> use the entity-derived value (post-merge DB state).
-//   - &""  -> send the empty value through, so the Site sees a detach.
-//   - &"x" -> send the (already-validated) DB value through; the entity
-//     is the source of truth so any normalisation done at persist
-//     time is preserved.
+// API-level clear intent is represented by the handler clearing the
+// persisted entity before this is called. That keeps the Site/Core wire
+// contract tied to persisted state: cleared associations are omitted
+// instead of serialized as invalid empty IDs, and non-empty updates come
+// from the validated DB value.
 func (asur APIVpcUpdateRequest) ToProto(vpc *cdbm.Vpc) *cwssaws.VpcUpdateRequest {
 	vpcProto := vpc.ToProto()
-	req := &cwssaws.VpcUpdateRequest{
+	return &cwssaws.VpcUpdateRequest{
 		Id:                              vpcProto.Id,
 		NetworkSecurityGroupId:          vpcProto.NetworkSecurityGroupId,
 		DefaultNvlinkLogicalPartitionId: vpcProto.DefaultNvlinkLogicalPartitionId,
 		Metadata:                        vpcProto.Metadata,
 	}
-	if asur.NetworkSecurityGroupID != nil {
-		req.NetworkSecurityGroupId = asur.NetworkSecurityGroupID
-	}
-	if asur.NVLinkLogicalPartitionID != nil {
-		if *asur.NVLinkLogicalPartitionID == "" {
-			req.DefaultNvlinkLogicalPartitionId = &cwssaws.NVLinkLogicalPartitionId{Value: ""}
-		} else if vpc.NVLinkLogicalPartitionID != nil {
-			req.DefaultNvlinkLogicalPartitionId = &cwssaws.NVLinkLogicalPartitionId{Value: vpc.NVLinkLogicalPartitionID.String()}
-		}
-	}
-	return req
 }
 
 // APIVpcVirtualizationUpdateRequest captures the request data for updating virtualization type for a give VPC

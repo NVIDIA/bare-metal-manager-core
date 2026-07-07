@@ -1127,7 +1127,7 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 	}
 }
 
-func TestVpcSQLDAO_UpdateFromParams(t *testing.T) {
+func TestVpcSQLDAO_Update(t *testing.T) {
 	// Create test DB
 	dbSession := testInitDB(t)
 	defer dbSession.Close()
@@ -1443,6 +1443,7 @@ func TestVpcSQLDAO_ClearFromParams(t *testing.T) {
 				Description:                            tt.args.description,
 				ControllerVpcID:                        tt.args.controllerVpcID,
 				Labels:                                 tt.args.labels,
+				NetworkSecurityGroupID:                 tt.args.networkSecuritygroupID,
 				NetworkSecurityGroupPropagationDetails: tt.args.networkSecurityGroupPropagationDetails,
 			}
 
@@ -1470,6 +1471,7 @@ func TestVpcSQLDAO_ClearFromParams(t *testing.T) {
 			}
 
 			if tt.args.networkSecuritygroupID {
+				assert.Nil(t, got.NetworkSecurityGroupID)
 				assert.Nil(t, got.NetworkSecurityGroup)
 			}
 		})

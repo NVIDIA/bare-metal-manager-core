@@ -296,6 +296,26 @@ message ComponentTypes {
     repeated ComponentType types = 1;
 }
 
+// ComponentFilter is a reusable unresolved component filter. It describes
+// selection criteria, not the concrete components selected after planning.
+message ComponentFilter {
+    oneof filter {
+        ComponentTypes   types      = 1;
+        ComponentTargets components = 2;
+    }
+}
+
+// ComponentsByType is the resolved component set selected for execution.
+message ComponentsByType {
+    repeated ComponentsForType groups = 1;
+}
+
+// ComponentsForType contains resolved component UUIDs of one component type.
+message ComponentsForType {
+    ComponentType type = 1;
+    repeated UUID component_ids = 2;
+}
+
 // RackTarget identifies a rack and optionally filters by component type.
 // To target specific components, use the component-level APIs instead.
 message RackTarget {
@@ -1166,11 +1186,14 @@ message OperationRunStateFilter {
 
 enum OperationRunTargetPhaseScope {
     OPERATION_RUN_TARGET_PHASE_SCOPE_UNKNOWN = 0;
-    // Default. Targets in the latest materialized phase.
+    // Default. Targets in the first materialized phase with non-terminal
+    // targets.
     OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_PHASE = 1;
-    // Targets in materialized phases before the current phase.
+    // Targets in materialized phases before the current phase. If no current
+    // phase exists, every materialized phase is completed.
     OPERATION_RUN_TARGET_PHASE_SCOPE_COMPLETED_PHASES = 2;
-    // All materialized targets through the current phase.
+    // All materialized targets through the current phase. If no current phase
+    // exists, this includes every materialized phase.
     OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_AND_COMPLETED_PHASES = 3;
 }
 
@@ -1356,38 +1379,18 @@ message OperationRunConflictRetryPolicy {
     google.protobuf.Duration max_retry_delay = 3;
 }
 
-enum OperationRunInclusiveScopeComposition {
-    OPERATION_RUN_INCLUSIVE_SCOPE_COMPOSITION_UNKNOWN = 0;
-    // Default. If target_spec and prior-run targets are both inclusive sources,
-    // candidates must be present in both sources. In set terms: T AND R.
-    OPERATION_RUN_INCLUSIVE_SCOPE_COMPOSITION_INTERSECT = 1;
-    // If target_spec and prior-run targets are both inclusive sources,
-    // candidates may be present in either source. In set terms: T OR R.
-    OPERATION_RUN_INCLUSIVE_SCOPE_COMPOSITION_UNION = 2;
-}
-
 message OperationRunTargetScope {
-    // When false, an operation target_spec is an inclusive source. When true,
-    // the service builds the default qualified/applicable scope and removes
-    // the resolved operation target_spec before applying the selector. True
-    // requires the embedded operation request to include target_spec.
-    bool exclude_target_spec = 1;
+    // Prior operation runs whose materialized rack execution targets should be
+    // excluded from this run's candidate scope. The base scope is the embedded
+    // operation target_spec when present; otherwise it is the default
+    // qualified/applicable scope.
+    repeated UUID exclude_operation_run_ids = 1;
 
-    // Prior operation runs whose materialized rack execution targets contribute to
-    // this run's candidate scope. Targets from repeated run IDs are unioned
-    // into one prior-run target source before composition or subtraction.
-    repeated UUID operation_run_ids = 2;
-
-    // When false, operation_run_ids are an inclusive source. When true, the
-    // prior-run target source is subtracted from the candidate scope. True
-    // requires operation_run_ids to be non-empty.
-    bool exclude_operation_run_targets = 3;
-
-    // Controls only how multiple inclusive sources are combined. It is ignored
-    // when there are zero or one inclusive sources. Exclusion sources are never
-    // affected by this field; they are always subtracted after inclusive scope
-    // composition. UNKNOWN defaults to INTERSECT.
-    OperationRunInclusiveScopeComposition inclusive_scope_composition = 4;
+    // Restricts components when the embedded operation target_spec is omitted
+    // and the planner uses the default qualified/applicable rack scope. Omit to
+    // target all applicable components in the default scope. This must not be
+    // set together with an explicit operation target_spec.
+    ComponentFilter default_scope_component_filter = 2;
 }
 
 message OperationRunOperation {
@@ -1398,9 +1401,8 @@ message OperationRunOperation {
         UpgradeFirmwareRequest upgrade_firmware = 1;
     }
 
-    // Optional scope composition controls for the embedded operation request.
-    // If omitted, target_spec is inclusive, prior-run targets are not used, and
-    // inclusive source composition defaults to INTERSECT.
+    // Optional exclusions applied after the embedded operation target_spec (or
+    // default qualified scope) is resolved.
     OperationRunTargetScope target_scope = 2;
 }
 
@@ -1412,6 +1414,7 @@ enum OperationRunStatus {
     OPERATION_RUN_STATUS_COMPLETED = 4;
     OPERATION_RUN_STATUS_CANCELLED = 5;
     OPERATION_RUN_STATUS_FAILED = 6;
+    OPERATION_RUN_STATUS_COMPLETED_WITH_FAILURES = 7;
 }
 
 enum OperationRunStatusReason {
@@ -1486,6 +1489,7 @@ enum OperationRunTargetStatus {
     OPERATION_RUN_TARGET_STATUS_FAILED = 5;
     OPERATION_RUN_TARGET_STATUS_TERMINATED = 6;
     OPERATION_RUN_TARGET_STATUS_SKIPPED = 7;
+    OPERATION_RUN_TARGET_STATUS_CLAIMED = 8;
 }
 
 message OperationRunTarget {
@@ -1497,10 +1501,7 @@ message OperationRunTarget {
     UUID task_id = 6;  // absent until a child task has been submitted
     OperationRunTargetStatus status = 7;
     string message = 8;
-    oneof component_filter {
-        ComponentTypes types = 9;
-        ComponentTargets components = 10;
-    }
-    google.protobuf.Timestamp created_at = 11;
-    google.protobuf.Timestamp updated_at = 12;
+    ComponentsByType components_by_type = 9;
+    google.protobuf.Timestamp created_at = 10;
+    google.protobuf.Timestamp updated_at = 11;
 }

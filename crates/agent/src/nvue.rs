@@ -1008,6 +1008,13 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<bool> {
     // Compare pending to applied config at NVUE layer.
     // This avoids no-op apply cycles when textual YAML ordering changes but
     // semantic config does not.
+    //
+    // BUG: It seems like under some conditions (which I don't really
+    // understand) this diff can return some output, but then the subsequent
+    // `nv config apply` will warn about "config apply executed with no config
+    // diff". This can result in needless PostConfigCheckWait health alerts, so
+    // we're working around this by avoiding even calling this code if we see
+    // unchanged config versions in the main loop. -drew
     let stdout =
         super::hbn::run_in_container(&container_id, &["nv", "config", "diff"], true).await?;
     if stdout.is_empty() {
@@ -1018,6 +1025,7 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<bool> {
         }
         return Ok(false);
     }
+    let config_diff_stdout = stdout;
 
     // Apply the pending config.
     //
@@ -1034,6 +1042,9 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<bool> {
         super::hbn::run_in_container(&container_id, &["nv", "config", "apply", "-y"], true).await?;
     if !stdout.is_empty() {
         tracing::info!("nv config apply: {stdout}");
+        // We're logging this just to see what was in there, in case it can help
+        // explain the "config apply executed with no config diff" message.
+        tracing::info!("nv config diff: {config_diff_stdout}");
     }
 
     // Restart nl2doca

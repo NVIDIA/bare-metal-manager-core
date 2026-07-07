@@ -154,7 +154,12 @@ func (gciph GetCurrentInfrastructureProviderHandler) Handle(c echo.Context) erro
 	var serr error
 	if len(ips) == 0 {
 		// Create Infrastructure Provider
-		ip, serr = ipDAO.CreateFromParams(ctx, nil, userOrgDetails.Name, nil, org, cutil.GetPtr(userOrgDetails.DisplayName), dbUser)
+		ip, serr = ipDAO.Create(ctx, nil, cdbm.InfrastructureProviderCreateInput{
+			Name:           userOrgDetails.Name,
+			Org:            org,
+			OrgDisplayName: cutil.GetPtr(userOrgDetails.DisplayName),
+			CreatedBy:      dbUser.ID,
+		})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error creating Infrastructure Provider DB entity")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Infrastructure Provider", nil)
@@ -162,7 +167,10 @@ func (gciph GetCurrentInfrastructureProviderHandler) Handle(c echo.Context) erro
 	} else {
 		ip = &ips[0]
 		if ip.OrgDisplayName == nil || *ip.OrgDisplayName != userOrgDetails.DisplayName {
-			ip, serr = ipDAO.UpdateFromParams(ctx, nil, ip.ID, nil, nil, cutil.GetPtr(userOrgDetails.DisplayName))
+			ip, serr = ipDAO.Update(ctx, nil, cdbm.InfrastructureProviderUpdateInput{
+				InfrastructureProviderID: ip.ID,
+				OrgDisplayName:           cutil.GetPtr(userOrgDetails.DisplayName),
+			})
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error updating Infrastructure Provider DB entity")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Infrastructure Provider", nil)

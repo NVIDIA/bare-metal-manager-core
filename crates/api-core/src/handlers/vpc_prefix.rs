@@ -401,20 +401,8 @@ pub async fn delete(
         id: vpc_prefix.vpc_id.to_string(),
     })?;
 
-    // Preserve the hard-delete-era behavior where existing network-prefix
-    // references prevent callers from requesting VPC prefix deletion.
-    let network_prefix_count =
-        db::count_network_prefixes_by_vpc_prefix_id(&mut txn, &delete_prefix.id).await?;
-    if network_prefix_count > 0 {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "VPC prefix {id} cannot be deleted while \
-            {network_prefix_count} network prefix references still exist",
-            id = delete_prefix.id
-        ))
-        .into());
-    }
-
-    // Mark the prefix deleted and keep the existing parent VPC version bump.
+    // Mark the prefix deleted and let the lifecycle controller wait for any
+    // network-prefix references to drain before hard-deleting the row.
     db::mark_as_deleted(&delete_prefix, vpc.version, &mut txn).await?;
 
     txn.commit().await?;

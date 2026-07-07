@@ -16,6 +16,9 @@
  */
 
 use ::rpc::machine_discovery::Gpu;
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialWriter, Credentials,
+};
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use common::api_fixtures::instance::{
@@ -35,6 +38,7 @@ use common::api_fixtures::{
 use db::switch as db_switch;
 use ipnetwork::IpNetwork;
 use libnmxc::nmxc_model::{GetGpuInfoListRequest, GetPartitionInfoListRequest, GpuAttr};
+use librms::protos::rack_manager as rms;
 use model::expected_switch::ExpectedSwitch;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::metadata::Metadata;
@@ -43,6 +47,7 @@ use model::switch::{
     SwitchConfig, SwitchControllerState,
 };
 use model::test_support::{HardwareInfoTemplate, ManagedHostConfig};
+use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
@@ -59,6 +64,7 @@ const SWITCH_BMC_STATIC_IP: std::net::IpAddr =
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 0, 1, 50));
 const SWITCH_NVOS_STATIC_IP: std::net::IpAddr =
     std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1));
+const NMXC_SIMULATOR_PORT: u16 = 9601;
 
 #[crate::sqlx_test]
 async fn test_nmx_c_partition_id_migration_deletes_legacy_nmx_m_rows(pool: sqlx::PgPool) {
@@ -2035,10 +2041,10 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
 // Also nmxc_uid_start in simulator_config.json should be set to 1000 so that GPU UIDs are assinged starting from 1000.
 const RUN_NMXC_SIMULATOR_TESTS: &str = "RUN_NMXC_SIMULATOR_TESTS";
 
-const NMXC_SIMULATOR_TLS_CA: &str = "/etc/nmx-controller/ytl-jhb01-ca.crt";
-const NMXC_SIMULATOR_TLS_CLIENT_CERT: &str = "/etc/nmx-controller/ytl-jhb01-tls.crt";
-const NMXC_SIMULATOR_TLS_CLIENT_KEY: &str = "/etc/nmx-controller/ytl-jhb01-tls.key";
-const NMXC_SIMULATOR_TLS_AUTHORITY: &str = "ytl-jhb01";
+const NMXC_SIMULATOR_TLS_CA: &str = "/etc/nmx-controller/nmxc-simulator-test-ca.crt";
+const NMXC_SIMULATOR_TLS_CERT: &str = "/etc/nmx-controller/nmxc-simulator-test-tls.crt";
+const NMXC_SIMULATOR_TLS_CLIENT_KEY: &str = "/etc/nmx-controller/nmxc-simulator-test-tls.key";
+const NMXC_SIMULATOR_TLS_AUTHORITY: &str = "nmxc-simulator.test";
 
 fn nmxc_simulator_tests_enabled() -> bool {
     std::env::var_os(RUN_NMXC_SIMULATOR_TESTS).is_some()
@@ -2115,10 +2121,10 @@ async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
         nvlink_config.enabled = true;
+        nvlink_config.nmx_c_endpoint_port = Some(NMXC_SIMULATOR_PORT);
         if with_mtls {
             nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
-            nvlink_config.nmx_c_tls_client_cert_path =
-                Some(NMXC_SIMULATOR_TLS_CLIENT_CERT.to_string());
+            nvlink_config.nmx_c_tls_client_cert_path = Some(NMXC_SIMULATOR_TLS_CERT.to_string());
             nvlink_config.nmx_c_tls_client_key_path =
                 Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
             nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
@@ -2410,6 +2416,32 @@ async fn create_rack_switch_for_nmxc_simulator(env: &TestEnv, rack_id: &RackId) 
         .await
         .expect("set primary switch");
     txn.commit().await.expect("commit switch");
+
+    let credentials = Credentials::UsernamePassword {
+        username: "admin".to_string(),
+        password: "password".to_string(),
+    };
+    env.test_credential_manager
+        .set_credentials(
+            &CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: bmc_mac,
+                },
+            },
+            &credentials,
+        )
+        .await
+        .expect("set switch BMC credentials");
+    env.test_credential_manager
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin {
+                bmc_mac_address: bmc_mac,
+            },
+            &credentials,
+        )
+        .await
+        .expect("set switch NVOS credentials");
+
     switch_id
 }
 
@@ -2425,6 +2457,7 @@ async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(poo
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
         nvlink_config.enabled = true;
+        nvlink_config.nmx_c_endpoint_port = Some(NMXC_SIMULATOR_PORT);
         nvlink_config.allow_insecure = true;
     }
 
@@ -2561,12 +2594,12 @@ async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(poo
 }
 
 // mTLS scenario. For this test, the simulator needs to be configured with mTLS.
-// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true -c /etc/nmx-controller/ytl-jhb01-tls.crt -k /etc/nmx-controller/ytl-jhb01-tls.key -a /etc/nmx-controller/ytl-jhb01-ca.crt -e mtls"
+// Ex: "sudo ./install_simulators.sh -p 9601 -n 1 -g nmx-c-nvlink_2.0.0_2025-04-23_01-10_internal.tar.gz  -i 127.0.0.0 -m enabled -t gb200_nvl36r1_c2g4_topology -d true -c /etc/nmx-controller/nmxc-simulator-test-tls.crt -k /etc/nmx-controller/nmxc-simulator-test-tls.key -a /etc/nmx-controller/nmxc-simulator-test-ca.crt -e mtls"
 // This test uses the following harcoded mtls config:
-// ytl-jhb01-ca.crt is the CA certificate
-// ytl-jhb01-tls.crt is the client certificate
-// ytl-jhb01-tls.key is the client key
-// ytl-jhb01 is the authority
+// nmxc-simulator-test-ca.crt is the CA certificate
+// nmxc-simulator-test-tls.crt is the leaf certificate
+// nmxc-simulator-test-tls.key is the client key
+// nmxc-simulator.test is the authority
 #[crate::sqlx_test]
 async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx::PgPool) {
     if !nmxc_simulator_tests_enabled() {
@@ -2576,6 +2609,192 @@ async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx
         return;
     }
     run_create_instance_with_nvl_config_nmxc_simulator_scenario(pool, true).await;
+}
+
+async fn assert_switch_cert_monitor_nmxc_simulator_probe(
+    pool: sqlx::PgPool,
+    desired_server_cert_path: &std::path::Path,
+    expected_fingerprint_mismatches: usize,
+) {
+    let mut config = common::api_fixtures::get_config_with_rack_profiles();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+        nvlink_config.nmx_c_endpoint_port = Some(NMXC_SIMULATOR_PORT);
+        nvlink_config.nmx_c_tls_ca_cert_path = Some(NMXC_SIMULATOR_TLS_CA.to_string());
+        nvlink_config.nmx_c_tls_client_cert_path = Some(NMXC_SIMULATOR_TLS_CERT.to_string());
+        nvlink_config.nmx_c_tls_client_key_path = Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
+        nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
+        nvlink_config.nmx_c_certificate_rotation.enabled = true;
+        nvlink_config.nmx_c_certificate_rotation.server_cert_path =
+            Some(desired_server_cert_path.to_string_lossy().into_owned());
+    }
+
+    let mut overrides = TestEnvOverrides::with_config(config);
+    overrides.nmxc_simulator = Some(true);
+    let env = common::api_fixtures::create_test_env_with_overrides(pool.clone(), overrides).await;
+
+    let rack_id: RackId = "rack-cert-monitor".parse().expect("rack id");
+    let mut txn = pool.begin().await.expect("begin txn");
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await
+        .expect("create rack");
+    txn.commit().await.expect("commit rack");
+
+    let switch_id = create_rack_switch_for_nmxc_simulator(&env, &rack_id).await;
+
+    if expected_fingerprint_mismatches > 0 {
+        env.rms_sim
+            .queue_configure_switch_certificate_response(Ok(
+                rms::ConfigureSwitchCertificateResponse {
+                    response: Some(rms::NodeBatchResponse {
+                        status: rms::ReturnCode::Success as i32,
+                        job_id: "test-switch-cert-job".to_string(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ))
+            .await;
+    }
+
+    let result = env.run_switch_cert_monitor_iteration().await;
+    assert_eq!(result.observed_endpoints, 1);
+    assert_eq!(result.successful_probes, 1);
+    assert_eq!(
+        result.fingerprint_mismatches,
+        expected_fingerprint_mismatches
+    );
+    assert_eq!(result.desired_cert_errors, 0);
+    assert_eq!(result.probe_errors, 0);
+    assert_eq!(result.applied_updates, 0);
+    assert_eq!(result.pending_updates, expected_fingerprint_mismatches);
+    assert_eq!(result.apply_errors, 0);
+
+    let rms_requests = env
+        .rms_sim
+        .submitted_configure_switch_certificate_requests()
+        .await;
+    assert_eq!(rms_requests.len(), expected_fingerprint_mismatches);
+    if expected_fingerprint_mismatches > 0 {
+        let request = rms_requests.first().expect("RMS request");
+        assert_eq!(
+            request.services,
+            vec![rms::SwitchService::ScaleUpFabricManager as i32]
+        );
+        assert!(request.test_hello);
+        assert_eq!(request.domain.as_deref(), Some(rack_id.as_ref()));
+        let node = request
+            .nodes
+            .as_ref()
+            .expect("RMS request node set")
+            .nodes
+            .first()
+            .expect("RMS request node");
+        assert_eq!(node.node_id, switch_id.to_string());
+        assert_eq!(node.rack_id, rack_id.to_string());
+
+        env.rms_sim
+            .queue_get_configure_switch_certificate_job_status_response(Ok(
+                rms::GetConfigureSwitchCertificateJobStatusResponse {
+                    status: rms::ReturnCode::Success as i32,
+                    job_id: "test-switch-cert-job".to_string(),
+                    state: "running".to_string(),
+                    ..Default::default()
+                },
+            ))
+            .await;
+        let result = env.run_switch_cert_monitor_iteration().await;
+        assert_eq!(result.observed_endpoints, 1);
+        assert_eq!(result.successful_probes, 1);
+        assert_eq!(
+            result.fingerprint_mismatches,
+            expected_fingerprint_mismatches
+        );
+        assert_eq!(result.applied_updates, 0);
+        assert_eq!(result.pending_updates, expected_fingerprint_mismatches);
+        assert_eq!(result.apply_errors, 0);
+        assert_eq!(
+            env.rms_sim
+                .submitted_configure_switch_certificate_requests()
+                .await
+                .len(),
+            1
+        );
+
+        let job_status_requests = env
+            .rms_sim
+            .submitted_get_configure_switch_certificate_job_status_requests()
+            .await;
+        assert_eq!(job_status_requests.len(), 1);
+        assert_eq!(job_status_requests[0].job_id, "test-switch-cert-job");
+
+        env.rms_sim
+            .queue_get_configure_switch_certificate_job_status_response(Ok(
+                rms::GetConfigureSwitchCertificateJobStatusResponse {
+                    status: rms::ReturnCode::Success as i32,
+                    job_id: "test-switch-cert-job".to_string(),
+                    state: "completed".to_string(),
+                    ..Default::default()
+                },
+            ))
+            .await;
+        let result = env.run_switch_cert_monitor_iteration().await;
+        assert_eq!(result.observed_endpoints, 1);
+        assert_eq!(result.successful_probes, 1);
+        assert_eq!(
+            result.fingerprint_mismatches,
+            expected_fingerprint_mismatches
+        );
+        assert_eq!(result.applied_updates, expected_fingerprint_mismatches);
+        assert_eq!(result.pending_updates, 0);
+        assert_eq!(result.apply_errors, 0);
+        assert_eq!(
+            env.rms_sim
+                .submitted_configure_switch_certificate_requests()
+                .await
+                .len(),
+            1
+        );
+    }
+}
+
+#[crate::sqlx_test]
+async fn test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let CertifiedKey {
+        cert: desired_cert, ..
+    } = generate_simple_self_signed(vec!["desired-nmxc-cert.example.test".to_string()]).unwrap();
+    let desired_cert_file = tempfile::NamedTempFile::new().unwrap();
+    tokio::fs::write(desired_cert_file.path(), desired_cert.pem())
+        .await
+        .unwrap();
+
+    assert_switch_cert_monitor_nmxc_simulator_probe(pool, desired_cert_file.path(), 1).await;
+}
+
+#[crate::sqlx_test]
+async fn test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert(pool: sqlx::PgPool) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    assert_switch_cert_monitor_nmxc_simulator_probe(
+        pool,
+        std::path::Path::new(NMXC_SIMULATOR_TLS_CERT),
+        0,
+    )
+    .await;
 }
 
 // This test creates two instances in the same logical partition but on different domains.

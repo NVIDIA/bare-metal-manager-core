@@ -24,6 +24,7 @@ fn stop_collectors_for_keys(
     ctx: &mut DiscoveryLoopContext,
     kind: CollectorKind,
     removed_keys: &HashSet<Cow<'static, str>>,
+    stop_message: &'static str,
 ) {
     let collectors = ctx.collectors.map_mut(kind);
     for key in removed_keys {
@@ -32,7 +33,7 @@ fn stop_collectors_for_keys(
                 endpoint_key = %key,
                 remaining_collectors = collectors.len(),
                 "{}",
-                kind.stop_message()
+                stop_message
             );
             tokio::spawn(async move {
                 collector.stop().await;
@@ -46,9 +47,11 @@ pub(super) fn stop_removed_bmc_collectors(
     active_endpoints: &HashSet<Cow<'static, str>>,
 ) {
     let removed_keys = ctx.collectors.removed_keys(active_endpoints);
+
     for kind in CollectorKind::ALL {
-        stop_collectors_for_keys(ctx, kind, &removed_keys);
+        stop_collectors_for_keys(ctx, kind, &removed_keys, kind.stop_message());
     }
+
     for key in &removed_keys {
         ctx.collectors.remove_inventory(key);
     }
@@ -61,8 +64,42 @@ pub(super) fn stop_removed_bmc_collectors(
             remaining_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
             remaining_leak_detector_collectors = ctx.collectors.len(CollectorKind::LeakDetector),
             remaining_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
+            remaining_nmxc_collectors = ctx.collectors.len(CollectorKind::Nmxc),
             remaining_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
             "Cleaned up removed endpoints"
+        );
+    }
+}
+
+/// Stops NMX-C streams for endpoints that still exist but are no longer eligible.
+///
+/// Generic removed-endpoint cleanup only sees keys that disappear. NMX-C can
+/// become invalid while the same key remains active, for example when primary
+/// switch-host assignment or `nmxc_enabled` changes in discovery metadata.
+pub(super) fn stop_ineligible_nmxc_collectors(
+    ctx: &mut DiscoveryLoopContext,
+    eligible_endpoints: &HashSet<Cow<'static, str>>,
+) {
+    let ineligible_keys: HashSet<Cow<'static, str>> = ctx
+        .collectors
+        .map_mut(CollectorKind::Nmxc)
+        .keys()
+        .filter(|key| !eligible_endpoints.contains(*key))
+        .cloned()
+        .collect();
+
+    stop_collectors_for_keys(
+        ctx,
+        CollectorKind::Nmxc,
+        &ineligible_keys,
+        "Stopping NMX-C streaming collector for ineligible switch endpoint",
+    );
+
+    if !ineligible_keys.is_empty() {
+        tracing::info!(
+            ineligible_count = ineligible_keys.len(),
+            remaining_nmxc_collectors = ctx.collectors.len(CollectorKind::Nmxc),
+            "Cleaned up ineligible NMX-C endpoints"
         );
     }
 }
@@ -70,8 +107,26 @@ pub(super) fn stop_removed_bmc_collectors(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     use super::*;
+    use crate::collectors::Collector;
+    use crate::config::Config;
+    use crate::limiter::{NoopLimiter, RateLimiter};
+    use crate::metrics::MetricsManager;
+
+    fn context(metrics_name: &str) -> DiscoveryLoopContext {
+        let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
+        let metrics_manager =
+            Arc::new(MetricsManager::new(metrics_name).expect("metrics manager should initialize"));
+
+        DiscoveryLoopContext::new(limiter, metrics_manager, Arc::new(Config::default()))
+            .expect("context should initialize")
+    }
+
+    fn noop_collector() -> Collector {
+        Collector::spawn_task(|_| async {})
+    }
 
     #[test]
     fn test_removed_keys_union_logic() {
@@ -87,6 +142,7 @@ mod tests {
         maps.insert(CollectorKind::Firmware, HashMap::new());
         maps.insert(CollectorKind::LeakDetector, HashMap::new());
         maps.insert(CollectorKind::Nmxt, HashMap::new());
+        maps.insert(CollectorKind::Nmxc, HashMap::new());
         maps.insert(CollectorKind::NvueRest, HashMap::new());
 
         let active = HashSet::from(["b".to_string()]);
@@ -99,5 +155,47 @@ mod tests {
             .collect();
 
         assert_eq!(removed, HashSet::from(["a".to_string(), "c".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn test_stop_ineligible_nmxc_collectors_only_removes_nmxc_entries() {
+        let mut ctx = context("test_stop_ineligible_nmxc_collectors");
+
+        ctx.collectors.insert(
+            CollectorKind::Nmxc,
+            Cow::Borrowed("eligible-switch"),
+            noop_collector(),
+        );
+
+        ctx.collectors.insert(
+            CollectorKind::Nmxc,
+            Cow::Borrowed("ineligible-switch"),
+            noop_collector(),
+        );
+
+        ctx.collectors.insert(
+            CollectorKind::Nmxt,
+            Cow::Borrowed("ineligible-switch"),
+            noop_collector(),
+        );
+
+        let eligible_endpoints = HashSet::from([Cow::Borrowed("eligible-switch")]);
+
+        stop_ineligible_nmxc_collectors(&mut ctx, &eligible_endpoints);
+
+        assert!(
+            ctx.collectors
+                .contains(CollectorKind::Nmxc, "eligible-switch")
+        );
+
+        assert!(
+            !ctx.collectors
+                .contains(CollectorKind::Nmxc, "ineligible-switch")
+        );
+
+        assert!(
+            ctx.collectors
+                .contains(CollectorKind::Nmxt, "ineligible-switch")
+        );
     }
 }

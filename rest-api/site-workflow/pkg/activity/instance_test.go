@@ -8,11 +8,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	tmocks "go.temporal.io/sdk/mocks"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
@@ -328,10 +331,11 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 		request *cwssaws.InstancePowerRequest
 	}
 	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
+		name           string
+		fields         fields
+		args           args
+		wantErr        bool
+		wantErrMessage string
 	}{
 		{
 			name: "test reboot Instance success",
@@ -341,11 +345,34 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				request: &cwssaws.InstancePowerRequest{
-					MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-					Operation: cwssaws.InstancePowerRequest_POWER_RESET,
+					InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
+					Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "test reboot Instance missing request",
+			fields: fields{
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+			},
+			args: args{
+				ctx: context.Background(),
+			},
+			wantErr:        true,
+			wantErrMessage: "received empty reboot Instance request",
+		},
+		{
+			name: "test reboot Instance missing Instance ID",
+			fields: fields{
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+			},
+			args: args{
+				ctx:     context.Background(),
+				request: &cwssaws.InstancePowerRequest{},
+			},
+			wantErr:        true,
+			wantErrMessage: "received reboot Instance request without Instance ID",
 		},
 	}
 	for _, tt := range tests {
@@ -353,7 +380,12 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 			mm := NewManageInstance(tt.fields.coreGrpcAtomicClient)
 			err := mm.RebootInstanceOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
+				var appErr *temporal.ApplicationError
+				require.ErrorAs(t, err, &appErr)
+				assert.Equal(t, swe.ErrTypeInvalidRequest, appErr.Type())
+				assert.True(t, appErr.NonRetryable())
+				assert.Equal(t, tt.wantErrMessage, appErr.Message())
 			} else {
 				assert.NoError(t, err)
 			}

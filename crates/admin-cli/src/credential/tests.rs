@@ -30,7 +30,10 @@ use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
-use super::common::{BmcCredentialType, UefiCredentialType, password_validator, url_validator};
+use super::common::{
+    BmcCredentialType, RotationCredentialKind, UefiCredentialType, password_validator,
+    url_validator,
+};
 use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
@@ -201,6 +204,145 @@ fn add_nic_lockdown_ikm_maps_to_proto() {
     assert!(req.mac_address.is_none());
 }
 
+// parse_rotate covers both shapes: an auto-generate rotation (password omitted)
+// and an explicit-password rotation with a reason note.
+#[test]
+fn parse_rotate() {
+    let auto = Cmd::try_parse_from(["credential", "rotate", "--type=bmc"])
+        .expect("should parse auto-generate rotate");
+    match auto {
+        Cmd::Rotate(args) => {
+            assert!(matches!(args.credential_type, RotationCredentialKind::Bmc));
+            assert!(args.password.is_none());
+            assert!(args.reason.is_none());
+        }
+        _ => panic!("expected Rotate variant"),
+    }
+
+    let explicit = Cmd::try_parse_from([
+        "credential",
+        "rotate",
+        "--type=host-uefi",
+        "--password=mynewpassword",
+        "--reason",
+        "quarterly rotation",
+    ])
+    .expect("should parse explicit rotate");
+    match explicit {
+        Cmd::Rotate(args) => {
+            assert!(matches!(
+                args.credential_type,
+                RotationCredentialKind::HostUefi
+            ));
+            assert_eq!(args.password, Some("mynewpassword".to_string()));
+            assert_eq!(args.reason, Some("quarterly rotation".to_string()));
+        }
+        _ => panic!("expected Rotate variant"),
+    }
+}
+
+// parse_rotation_status ensures rotation-status parses with its required --type
+// and that the optional --mac-address defaults to None (site-wide) or is parsed
+// into a MAC for a device-scoped query.
+#[test]
+fn parse_rotation_status() {
+    let site_wide = Cmd::try_parse_from(["credential", "rotation-status", "--type=lockdown-ikm"])
+        .expect("should parse site-wide rotation-status");
+    match site_wide {
+        Cmd::RotationStatus(args) => {
+            assert!(matches!(
+                args.credential_type,
+                RotationCredentialKind::LockdownIkm
+            ));
+            assert!(
+                args.mac_address.is_none(),
+                "omitting --mac-address means a site-wide query"
+            );
+        }
+        _ => panic!("expected RotationStatus variant"),
+    }
+
+    let per_device = Cmd::try_parse_from([
+        "credential",
+        "rotation-status",
+        "--type=bmc",
+        "--mac-address",
+        "00:11:22:33:44:55",
+    ])
+    .expect("should parse device-scoped rotation-status");
+    match per_device {
+        Cmd::RotationStatus(args) => {
+            assert!(matches!(args.credential_type, RotationCredentialKind::Bmc));
+            assert_eq!(
+                args.mac_address.map(|m| m.to_string()),
+                Some("00:11:22:33:44:55".to_string())
+            );
+        }
+        _ => panic!("expected RotationStatus variant"),
+    }
+}
+
+// rotate without its required --type, and --type without the = separator, are
+// both rejected at parse time.
+#[test]
+fn invalid_rotate_invocations_are_rejected() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|_| ())
+                .map_err(drop)
+        };
+        "rotate without required --type" {
+            &["credential", "rotate"][..] => Fails,
+        }
+
+        "rotate --type without the = separator" {
+            &["credential", "rotate", "--type", "bmc"][..] => Fails,
+        }
+
+        "rotation-status without required --type" {
+            &["credential", "rotation-status"][..] => Fails,
+        }
+
+        "rotation-status with a malformed --mac-address" {
+            &["credential", "rotation-status", "--type=bmc", "--mac-address", "nope"][..] => Fails,
+        }
+    );
+}
+
+// rotate_maps_to_proto ensures parsed args convert into a RotateCredentialRequest
+// carrying the right enum value, with the password preserved as-is and omitted
+// when not provided.
+#[test]
+fn rotate_maps_to_proto() {
+    use rpc::forge::{self as forgerpc, RotationCredentialType};
+
+    let explicit = rotate::Args {
+        credential_type: RotationCredentialKind::DpuUefi,
+        password: Some("Str0ng-Explicit-Pw!".to_string()),
+        reason: Some("note".to_string()),
+    };
+    let req = forgerpc::RotateCredentialRequest::try_from(explicit).expect("convert");
+    assert_eq!(
+        req.credential_type,
+        RotationCredentialType::RotationDpuUefi as i32
+    );
+    assert_eq!(req.password, Some("Str0ng-Explicit-Pw!".to_string()));
+    assert_eq!(req.reason, Some("note".to_string()));
+
+    let auto = rotate::Args {
+        credential_type: RotationCredentialKind::Bmc,
+        password: None,
+        reason: None,
+    };
+    let req = forgerpc::RotateCredentialRequest::try_from(auto).expect("convert");
+    assert_eq!(
+        req.credential_type,
+        RotationCredentialType::RotationBmc as i32
+    );
+    assert!(req.password.is_none());
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // Enum Conversions
 //
@@ -241,6 +383,36 @@ fn uefi_credential_type_to_proto() {
     assert!(matches!(
         CredentialType::from(UefiCredentialType::Host),
         CredentialType::HostUefi
+    ));
+}
+
+// rotation_credential_kind_to_proto ensures RotationCredentialKind converts to
+// the supported arm of the protobuf RotationCredentialType.
+#[test]
+fn rotation_credential_kind_to_proto() {
+    use rpc::forge::RotationCredentialType;
+
+    assert!(matches!(
+        RotationCredentialType::from(RotationCredentialKind::Bmc),
+        RotationCredentialType::RotationBmc
+    ));
+    assert!(matches!(
+        RotationCredentialType::from(RotationCredentialKind::HostUefi),
+        RotationCredentialType::RotationHostUefi
+    ));
+    assert!(matches!(
+        RotationCredentialType::from(RotationCredentialKind::DpuUefi),
+        RotationCredentialType::RotationDpuUefi
+    ));
+    // NVOS maps through even though the server rejects it today (FailedPrecondition
+    // until REQ-6); the CLI exposes it so support is a pure server-side change.
+    assert!(matches!(
+        RotationCredentialType::from(RotationCredentialKind::Nvos),
+        RotationCredentialType::RotationNvos
+    ));
+    assert!(matches!(
+        RotationCredentialType::from(RotationCredentialKind::LockdownIkm),
+        RotationCredentialType::RotationLockdownIkm
     ));
 }
 
@@ -288,6 +460,36 @@ fn uefi_credential_type_value_enum() {
         Ok(UefiCredentialType::Host)
     ));
     assert!(UefiCredentialType::from_str("invalid", false).is_err());
+}
+
+// rotation_credential_kind_value_enum ensures RotationCredentialKind parses from
+// kebab-case strings, including nvos (which the CLI exposes so the server can
+// return its FailedPrecondition rather than arg parsing rejecting it outright).
+#[test]
+fn rotation_credential_kind_value_enum() {
+    use clap::ValueEnum;
+
+    assert!(matches!(
+        RotationCredentialKind::from_str("bmc", false),
+        Ok(RotationCredentialKind::Bmc)
+    ));
+    assert!(matches!(
+        RotationCredentialKind::from_str("host-uefi", false),
+        Ok(RotationCredentialKind::HostUefi)
+    ));
+    assert!(matches!(
+        RotationCredentialKind::from_str("dpu-uefi", false),
+        Ok(RotationCredentialKind::DpuUefi)
+    ));
+    assert!(matches!(
+        RotationCredentialKind::from_str("nvos", false),
+        Ok(RotationCredentialKind::Nvos)
+    ));
+    assert!(matches!(
+        RotationCredentialKind::from_str("lockdown-ikm", false),
+        Ok(RotationCredentialKind::LockdownIkm)
+    ));
+    assert!(RotationCredentialKind::from_str("invalid", false).is_err());
 }
 
 /////////////////////////////////////////////////////////////////////////////

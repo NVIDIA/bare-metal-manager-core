@@ -457,14 +457,21 @@ pub async fn discover_dhcp(
 
     let mut txn = api.txn_begin().await?;
 
-    let mut record: rpc::DhcpRecord = db::dhcp_record::find_by_mac_address(
+    let record = db::dhcp_record::find_by_mac_address(
         &mut txn,
         &parsed_mac,
         &machine_interface.segment_id,
         address_family,
     )
     .await?
-    .into();
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "DHCP record",
+        id: format!(
+            "{parsed_mac} (segment {}, {:?})",
+            machine_interface.segment_id, address_family
+        ),
+    })?;
+    let mut record: rpc::DhcpRecord = record.into();
 
     txn.commit().await?;
 

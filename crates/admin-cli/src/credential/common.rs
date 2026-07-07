@@ -48,6 +48,39 @@ pub enum UefiCredentialType {
     Host,
 }
 
+/// Credential families an operator can target for site-wide rotation. These map
+/// 1:1 onto `rpc::forge::RotationCredentialType` (minus its proto3 `Unspecified`
+/// zero value).
+///
+/// NVOS is listed even though the server does not own that password yet:
+/// requesting it today returns a `FailedPrecondition` explaining it is gated on
+/// set-NVOS-from-factory (REQ-6). Exposing it here keeps the "which families are
+/// supported" policy in exactly one place -- the server's `to_rotation_type` --
+/// so enabling NVOS later is a pure server change, and an operator who tries it
+/// now gets that actionable error instead of a bare "invalid value" from argument
+/// parsing.
+#[derive(ValueEnum, Parser, Debug, Clone)]
+pub enum RotationCredentialKind {
+    Bmc,
+    HostUefi,
+    DpuUefi,
+    Nvos,
+    LockdownIkm,
+}
+
+impl From<RotationCredentialKind> for rpc::forge::RotationCredentialType {
+    fn from(kind: RotationCredentialKind) -> Self {
+        use rpc::forge::RotationCredentialType::*;
+        match kind {
+            RotationCredentialKind::Bmc => RotationBmc,
+            RotationCredentialKind::HostUefi => RotationHostUefi,
+            RotationCredentialKind::DpuUefi => RotationDpuUefi,
+            RotationCredentialKind::Nvos => RotationNvos,
+            RotationCredentialKind::LockdownIkm => RotationLockdownIkm,
+        }
+    }
+}
+
 impl From<UefiCredentialType> for rpc::forge::CredentialType {
     fn from(c_type: UefiCredentialType) -> Self {
         use rpc::forge::CredentialType::*;

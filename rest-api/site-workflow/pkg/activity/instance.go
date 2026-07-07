@@ -151,8 +151,8 @@ func (mm *ManageInstance) RebootInstanceOnSite(ctx context.Context, request *cws
 	// Validate request
 	if request == nil {
 		err = errors.New("received empty reboot Instance request")
-	} else if request.MachineId == nil {
-		err = errors.New("received reboot Instance request without Machine ID")
+	} else if request.InstanceId == nil {
+		err = errors.New("received reboot Instance request without Instance ID")
 	}
 
 	if err != nil {

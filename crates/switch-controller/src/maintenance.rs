@@ -25,23 +25,33 @@ use component_manager::nv_switch_manager::{SwitchComponentResult, SwitchEndpoint
 use db::switch as db_switch;
 use mac_address::MacAddress;
 use model::component_manager::PowerAction;
-use model::switch::{Switch, SwitchControllerState, SwitchMaintenanceOperation};
+use model::switch::{
+    ConfigureCertificateState, Switch, SwitchControllerState, SwitchMaintenanceOperation,
+};
 use sqlx::PgPool;
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
+use crate::certificate::{
+    ConfigureSwitchCertificateMode, ConfigureSwitchCertificatePollOutcome,
+    StartConfigureSwitchCertificateResult, poll_configure_switch_certificate_job,
+    start_configure_switch_certificate,
+};
 use crate::context::SwitchStateHandlerContextObjects;
 
 /// Handles the Maintenance state for a switch, dispatching on the requested
-/// operation (`PowerOn` / `PowerOff` / `Reset`).
+/// operation (`PowerOn` / `PowerOff` / `Reset` / `ReconfigureCertificate`).
 pub async fn handle_maintenance(
     switch_id: &SwitchId,
     state: &mut Switch,
     ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
-    let operation = match &state.controller_state.value {
-        SwitchControllerState::Maintenance { operation } => *operation,
+    let (operation, configure_certificate) = match &state.controller_state.value {
+        SwitchControllerState::Maintenance {
+            operation,
+            configure_certificate,
+        } => (*operation, configure_certificate.clone()),
         _ => unreachable!("handle_maintenance called with non-Maintenance state"),
     };
 
@@ -49,6 +59,15 @@ pub async fn handle_maintenance(
         SwitchMaintenanceOperation::PowerOn => handle_power_on(switch_id, state, ctx).await,
         SwitchMaintenanceOperation::PowerOff => handle_power_off(switch_id, state, ctx).await,
         SwitchMaintenanceOperation::Reset => handle_reset(switch_id, state, ctx).await,
+        SwitchMaintenanceOperation::ReconfigureCertificate => {
+            handle_reconfigure_certificate(
+                switch_id,
+                state,
+                ctx,
+                configure_certificate.unwrap_or(ConfigureCertificateState::Start),
+            )
+            .await
+        }
     }
 }
 
@@ -101,6 +120,108 @@ async fn handle_reset(
         SwitchControllerState::Ready,
     )
     .await
+}
+
+async fn handle_reconfigure_certificate(
+    switch_id: &SwitchId,
+    state: &mut Switch,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    configure_certificate: ConfigureCertificateState,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    match configure_certificate {
+        ConfigureCertificateState::Start => {
+            handle_reconfigure_certificate_start(switch_id, state, ctx).await
+        }
+        ConfigureCertificateState::WaitForComplete { job_id } => {
+            handle_reconfigure_certificate_wait_for_complete(switch_id, ctx, &job_id).await
+        }
+    }
+}
+
+async fn handle_reconfigure_certificate_start(
+    switch_id: &SwitchId,
+    state: &Switch,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    tracing::info!(switch_id = %switch_id, "Switch maintenance: ReconfigureCertificate");
+    match start_configure_switch_certificate(
+        switch_id,
+        state,
+        ctx,
+        None,
+        ConfigureSwitchCertificateMode::Reconfigure,
+    )
+    .await?
+    {
+        StartConfigureSwitchCertificateResult::EarlyTransition(outcome) => {
+            finish_maintenance_outcome(switch_id, ctx, outcome).await
+        }
+        StartConfigureSwitchCertificateResult::JobStarted(job_id) => Ok(
+            StateHandlerOutcome::transition(SwitchControllerState::Maintenance {
+                operation: SwitchMaintenanceOperation::ReconfigureCertificate,
+                configure_certificate: Some(ConfigureCertificateState::WaitForComplete { job_id }),
+            }),
+        ),
+    }
+}
+
+async fn handle_reconfigure_certificate_wait_for_complete(
+    switch_id: &SwitchId,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    job_id: &str,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    match poll_configure_switch_certificate_job(switch_id, ctx, job_id).await? {
+        ConfigureSwitchCertificatePollOutcome::Completed => {
+            tracing::info!(
+                %job_id,
+                switch_id = %switch_id,
+                "Switch certificate reconfiguration completed; returning Switch to Ready"
+            );
+            finish_maintenance_with_success(switch_id, ctx).await
+        }
+        ConfigureSwitchCertificatePollOutcome::Failed(cause) => {
+            finish_maintenance_with_error(
+                switch_id,
+                ctx,
+                format!("Switch {switch_id} maintenance (ReconfigureCertificate): {cause}"),
+            )
+            .await
+        }
+        ConfigureSwitchCertificatePollOutcome::InProgress => Ok(StateHandlerOutcome::wait(
+            format!("switch certificate reconfiguration job {job_id} in progress"),
+        )),
+    }
+}
+
+async fn finish_maintenance_with_success(
+    switch_id: &SwitchId,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    let mut txn = ctx.services.db_pool.begin().await?;
+    db_switch::clear_switch_maintenance_requested(&mut txn, *switch_id).await?;
+    Ok(StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn(txn))
+}
+
+async fn finish_maintenance_outcome(
+    switch_id: &SwitchId,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    outcome: StateHandlerOutcome<SwitchControllerState>,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    match outcome {
+        StateHandlerOutcome::Transition { next_state, .. }
+            if matches!(next_state, SwitchControllerState::Error { .. }) =>
+        {
+            let SwitchControllerState::Error { cause } = next_state else {
+                unreachable!();
+            };
+            finish_maintenance_with_error(switch_id, ctx, cause).await
+        }
+        StateHandlerOutcome::Transition {
+            next_state: SwitchControllerState::Ready,
+            ..
+        } => finish_maintenance_with_success(switch_id, ctx).await,
+        other => Ok(other),
+    }
 }
 
 async fn invoke_power_operation(
@@ -253,9 +374,18 @@ pub(super) async fn build_switch_endpoint(
         nvos_mac,
         bmc_credentials,
         nvos_credentials,
+        nvos_host_name: endpoint
+            .nvos_hostname
+            .filter(|hostname| !hostname.is_empty()),
     })
 }
 
+/// Resolve the per-device BMC root credentials for the given MAC.
+///
+/// Per-device secrets are authoritative; there is deliberately no site-wide
+/// fallback. A missing per-MAC secret means the switch has not been
+/// (re)ingested, and falling back to the rotating site-wide credential would
+/// mask that and break the moment the site rotates.
 async fn lookup_bmc_credentials(
     credential_manager: &dyn CredentialManager,
     bmc_mac: MacAddress,
@@ -265,29 +395,14 @@ async fn lookup_bmc_credentials(
             bmc_mac_address: bmc_mac,
         },
     };
-    let creds = match credential_manager.get_credentials(&bmc_key).await {
-        Ok(Some(creds)) => Some(creds),
-        Ok(None) => None,
-        Err(error) => {
-            return Err(format!(
-                "failed to read BMC credentials for {}: {}",
-                bmc_mac, error
-            ));
-        }
-    };
-
-    match creds {
-        Some(creds) => Ok(creds),
-        None => {
-            let sitewide_key = CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::SiteWideRoot,
-            };
-            credential_manager
-                .get_credentials(&sitewide_key)
-                .await
-                .map_err(|error| format!("failed to read site-wide BMC credentials: {}", error))?
-                .ok_or_else(|| format!("no BMC credentials configured for {} or sitewide", bmc_mac))
-        }
+    match credential_manager.get_credentials(&bmc_key).await {
+        Ok(Some(creds)) => Ok(creds),
+        Ok(None) => Err(format!(
+            "no per-device BMC credentials configured for {bmc_mac}; the device must be (re)ingested"
+        )),
+        Err(error) => Err(format!(
+            "failed to read BMC credentials for {bmc_mac}: {error}"
+        )),
     }
 }
 

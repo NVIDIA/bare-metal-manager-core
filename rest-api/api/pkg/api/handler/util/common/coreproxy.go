@@ -30,12 +30,13 @@ import (
 // protojson response is decoded into resp (which may be nil for methods with an
 // empty response).
 //
-// It returns an HTTP status code appropriate for the outcome (http.StatusOK on
-// success) so the handler can surface a consistent error response.
-func ExecuteCoreGRPC(ctx context.Context, stc tclient.Client, fullMethod string, req proto.Message, resp proto.Message, secretKey string, secretFields ...string) (int, error) {
+// It returns an APIError when the proxy request fails so handlers can surface
+// the status code and message without replacing Core/Temporal details with a
+// generic wrapper.
+func ExecuteCoreGRPC(ctx context.Context, stc tclient.Client, fullMethod string, req proto.Message, resp proto.Message, secretKey string, secretFields ...string) *cutil.APIError {
 	reqJSON, err := protojson.Marshal(req)
 	if err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("encode request for %s: %w", fullMethod, err)
+		return cutil.NewAPIError(http.StatusInternalServerError, "Failed to encode Core proxy request", fmt.Errorf("encode request for %s: %w", fullMethod, err))
 	}
 
 	// Redact any secret fields from the Temporal-visible request and carry them
@@ -45,7 +46,7 @@ func ExecuteCoreGRPC(ctx context.Context, stc tclient.Client, fullMethod string,
 	if secretKey != "" && len(secretFields) > 0 {
 		redacted, secretsJSON, rerr := coreproxy.RedactSecrets(reqJSON, secretFields)
 		if rerr != nil {
-			return http.StatusInternalServerError, rerr
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to redact Core proxy request", rerr)
 		}
 		reqJSON = redacted
 		if len(secretsJSON) > 0 {
@@ -70,23 +71,23 @@ func ExecuteCoreGRPC(ctx context.Context, stc tclient.Client, fullMethod string,
 		EncryptedSecrets: encryptedSecrets,
 	})
 	if err != nil {
-		return http.StatusInternalServerError, fmt.Errorf("execute %s workflow: %w", coreproxy.WorkflowName, err)
+		return cutil.NewAPIError(http.StatusInternalServerError, "Failed to execute Core proxy workflow", fmt.Errorf("execute %s workflow: %w", coreproxy.WorkflowName, err))
 	}
 
 	var out coreproxy.Response
 	if err := we.Get(wfCtx, &out); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || errors.Is(err, context.DeadlineExceeded) || wfCtx.Err() != nil {
-			return http.StatusGatewayTimeout, fmt.Errorf("core proxy %s timed out: %w", fullMethod, err)
+			return cutil.NewAPIError(http.StatusGatewayTimeout, "Core proxy request timed out", fmt.Errorf("core proxy %s timed out: %w", fullMethod, err))
 		}
 		code, werr := UnwrapWorkflowError(err)
-		return code, werr
+		return cutil.NewAPIError(code, werr.Error(), nil)
 	}
 
 	if resp != nil && len(out.ResponseJSON) > 0 {
 		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(out.ResponseJSON, resp); err != nil {
-			return http.StatusInternalServerError, fmt.Errorf("decode response for %s: %w", fullMethod, err)
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to decode Core proxy response", fmt.Errorf("decode response for %s: %w", fullMethod, err))
 		}
 	}
-	return http.StatusOK, nil
+	return nil
 }

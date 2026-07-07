@@ -101,7 +101,10 @@ impl EventProcessor for RackLeakProcessor {
             return Vec::new();
         }
 
-        if report.target != Some(HealthReportTarget::Machine) {
+        if !matches!(
+            report.target,
+            Some(HealthReportTarget::Machine | HealthReportTarget::Switch)
+        ) {
             return Vec::new();
         }
 
@@ -234,6 +237,35 @@ mod tests {
         assert_eq!(report.target, Some(HealthReportTarget::Rack));
         assert!(report.alerts.is_empty());
         assert_eq!(report.successes.len(), 1);
+    }
+
+    #[test]
+    fn counts_switch_target_tray_leak_reports() {
+        let processor = RackLeakProcessor::new(1);
+        let ctx = context_with_rack("42:9e:b1:bd:9d:dd", "rack-1");
+
+        let event = CollectorEvent::HealthReport(Arc::new(HealthReport {
+            source: ReportSource::TrayLeakDetection,
+            target: Some(HealthReportTarget::Switch),
+            observed_at: Some(chrono::Utc::now()),
+            successes: vec![],
+            alerts: vec![HealthReportAlert {
+                probe_id: Probe::LeakDetection,
+                target: None,
+                message: "switch leaking".to_string(),
+                classifications: vec![Classification::Leak],
+            }],
+        }));
+
+        let emitted = processor.process_event(&ctx, &event);
+
+        let CollectorEvent::HealthReport(report) = &emitted[0] else {
+            panic!("expected health report");
+        };
+
+        assert_eq!(report.source, ReportSource::RackLeakDetection);
+        assert_eq!(report.target, Some(HealthReportTarget::Rack));
+        assert_eq!(report.alerts.len(), 1);
     }
 
     #[test]

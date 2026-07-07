@@ -36,7 +36,7 @@ use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
-use crate::api::{Api, log_machine_id, log_request_data};
+use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacted};
 
 /// Resolve the boot interface an admin Redfish action should target, the same
 /// way the machine-controller resolves it.
@@ -983,6 +983,83 @@ pub(crate) async fn delete_bmc_user(
     );
 
     Ok(Response::new(rpc::DeleteBmcUserResponse {}))
+}
+
+pub(crate) async fn set_bmc_root_password(
+    api: &Api,
+    request: Request<rpc::SetBmcRootPasswordRequest>,
+) -> Result<Response<rpc::SetBmcRootPasswordResponse>, Status> {
+    // Redact: the request carries the plaintext BMC root password. Log only the
+    // non-secret targeting fields.
+    {
+        let r = request.get_ref();
+        log_request_data_redacted(format!(
+            "SetBmcRootPasswordRequest {{ bmc_endpoint_request: {:?}, machine_id: {:?}, new_password: <redacted> }}",
+            r.bmc_endpoint_request, r.machine_id,
+        ));
+    }
+    let req = request.into_inner();
+
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin().await?;
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+    txn.commit().await?;
+
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    tracing::info!(%bmc_addr, "Setting BMC root password");
+
+    api.endpoint_explorer
+        .set_bmc_root_password(bmc_addr, &machine_interface, &req.new_password)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    tracing::info!(%bmc_addr, "Successfully set BMC root password");
+
+    Ok(Response::new(rpc::SetBmcRootPasswordResponse {}))
+}
+
+pub(crate) async fn probe_bmc_vendor(
+    api: &Api,
+    request: Request<rpc::ProbeBmcVendorRequest>,
+) -> Result<Response<rpc::ProbeBmcVendorResponse>, Status> {
+    log_request_data(&request);
+    let req = request.into_inner();
+
+    let machine_id = req
+        .machine_id
+        .as_ref()
+        .map(|id| try_parse_machine_id(id))
+        .transpose()?;
+
+    let mut txn = api.txn_begin().await?;
+    let (bmc_endpoint_request, _) =
+        validate_and_complete_bmc_endpoint_request(&mut txn, req.bmc_endpoint_request, machine_id)
+            .await?;
+    txn.commit().await?;
+
+    let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
+    let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+
+    let vendor = api
+        .endpoint_explorer
+        .probe_bmc_vendor(bmc_addr, &machine_interface)
+        .await
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+    tracing::info!(%bmc_addr, %vendor, "Probed BMC vendor");
+
+    Ok(Response::new(rpc::ProbeBmcVendorResponse {
+        vendor: vendor.to_string(),
+    }))
 }
 
 async fn do_create_bmc_user(

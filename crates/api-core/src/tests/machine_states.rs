@@ -53,18 +53,17 @@ use measured_boot::records::MeasurementBundleState;
 use measured_boot::report::MeasurementReport;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
-use model::firmware::FirmwareComponentType;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
     DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
-    HostPlatformConfigurationState, HostReprovisionState, InstallDpuOsState, InstanceState,
-    LockdownMode, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
-    PowerState, RetryInfo, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
-    ValidationState,
+    HostPlatformConfigurationState, InstallDpuOsState, InstanceState, LockdownMode, MachineState,
+    MachineValidatingState, ManagedHostState, MeasuringState, PowerState, SetBootOrderInfo,
+    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, ValidationState,
 };
+use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
@@ -881,207 +880,6 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         hardware_info.block_devices[0].model,
         "Fake block device".to_string()
     );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_waiting_for_rack_firmware_upgrade_waits_for_terminal_status(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let host = create_managed_host(&env).await;
-
-    let mut txn = env.db_txn().await;
-    db::host_machine_update::trigger_host_reprovisioning_request(
-        txn.as_mut(),
-        "rack-test",
-        &host.id,
-    )
-    .await?;
-    db::machine::update_state(
-        txn.as_mut(),
-        &host.id,
-        &ManagedHostState::HostReprovision {
-            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
-            retry_count: 0,
-        },
-    )
-    .await?;
-    let requested_at = db::machine::find_one(
-        txn.as_mut(),
-        &host.id,
-        model::machine::machine_search_config::MachineSearchConfig::default(),
-    )
-    .await?
-    .expect("machine should exist")
-    .host_reprovision_requested
-    .expect("rack reprovision request should exist")
-    .requested_at;
-    db::machine::update_rack_fw_details(
-        txn.as_mut(),
-        &host.id,
-        Some(&model::rack::RackFirmwareUpgradeStatus {
-            task_id: "rack-job".to_string(),
-            status: model::rack::RackFirmwareUpgradeState::InProgress,
-            started_at: Some(requested_at),
-            ended_at: None,
-        }),
-    )
-    .await?;
-    txn.commit().await?;
-
-    env.run_machine_state_controller_iteration().await;
-
-    let machine = db::machine::find_one(
-        &pool,
-        &host.id,
-        model::machine::machine_search_config::MachineSearchConfig::default(),
-    )
-    .await?
-    .expect("machine should exist");
-    assert!(matches!(
-        machine.current_state(),
-        ManagedHostState::HostReprovision {
-            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
-            ..
-        }
-    ));
-    assert!(machine.host_reprovision_requested.is_some());
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_waiting_for_rack_firmware_upgrade_advances_on_completion(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let host = create_managed_host(&env).await;
-
-    let mut txn = env.db_txn().await;
-    db::host_machine_update::trigger_host_reprovisioning_request(
-        txn.as_mut(),
-        "rack-test",
-        &host.id,
-    )
-    .await?;
-    db::machine::update_state(
-        txn.as_mut(),
-        &host.id,
-        &ManagedHostState::HostReprovision {
-            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
-            retry_count: 0,
-        },
-    )
-    .await?;
-    let requested_at = db::machine::find_one(
-        txn.as_mut(),
-        &host.id,
-        model::machine::machine_search_config::MachineSearchConfig::default(),
-    )
-    .await?
-    .expect("machine should exist")
-    .host_reprovision_requested
-    .expect("rack reprovision request should exist")
-    .requested_at;
-    db::machine::update_rack_fw_details(
-        txn.as_mut(),
-        &host.id,
-        Some(&model::rack::RackFirmwareUpgradeStatus {
-            task_id: "rack-job".to_string(),
-            status: model::rack::RackFirmwareUpgradeState::Completed,
-            started_at: Some(requested_at),
-            ended_at: Some(chrono::Utc::now()),
-        }),
-    )
-    .await?;
-    txn.commit().await?;
-
-    env.run_machine_state_controller_iteration().await;
-
-    let machine = db::machine::find_one(
-        &pool,
-        &host.id,
-        model::machine::machine_search_config::MachineSearchConfig::default(),
-    )
-    .await?
-    .expect("machine should exist");
-    assert!(matches!(
-        machine.current_state(),
-        ManagedHostState::HostReprovision {
-            reprovision_state: model::machine::HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
-            ..
-        }
-    ));
-    assert!(machine.host_reprovision_requested.is_none());
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_waiting_for_rack_firmware_upgrade_accepts_completion_when_only_ended_at_is_current(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-    let host = create_managed_host(&env).await;
-
-    let mut txn = env.db_txn().await;
-    db::host_machine_update::trigger_host_reprovisioning_request(
-        txn.as_mut(),
-        "rack-test",
-        &host.id,
-    )
-    .await?;
-    db::machine::update_state(
-        txn.as_mut(),
-        &host.id,
-        &ManagedHostState::HostReprovision {
-            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
-            retry_count: 0,
-        },
-    )
-    .await?;
-    let requested_at = db::machine::find_one(
-        txn.as_mut(),
-        &host.id,
-        model::machine::machine_search_config::MachineSearchConfig::default(),
-    )
-    .await?
-    .expect("machine should exist")
-    .host_reprovision_requested
-    .expect("rack reprovision request should exist")
-    .requested_at;
-    db::machine::update_rack_fw_details(
-        txn.as_mut(),
-        &host.id,
-        Some(&model::rack::RackFirmwareUpgradeStatus {
-            task_id: "rack-job".to_string(),
-            status: model::rack::RackFirmwareUpgradeState::Completed,
-            started_at: Some(requested_at - chrono::Duration::seconds(1)),
-            ended_at: Some(requested_at + chrono::Duration::seconds(1)),
-        }),
-    )
-    .await?;
-    txn.commit().await?;
-
-    env.run_machine_state_controller_iteration().await;
-
-    let machine = db::machine::find_one(
-        &pool,
-        &host.id,
-        model::machine::machine_search_config::MachineSearchConfig::default(),
-    )
-    .await?
-    .expect("machine should exist");
-    assert!(matches!(
-        machine.current_state(),
-        ManagedHostState::HostReprovision {
-            reprovision_state: model::machine::HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
-            ..
-        }
-    ));
-    assert!(machine.host_reprovision_requested.is_none());
 
     Ok(())
 }
@@ -2442,91 +2240,6 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 }
 
 #[crate::sqlx_test]
-async fn test_forge_agent_control_host_reprovision_scout_upgrade_does_not_reset_without_cleanup_timestamp(
-    pool: sqlx::PgPool,
-) {
-    let env = create_test_env(pool).await;
-    let mh = create_managed_host(&env).await;
-    let upgrade_task_id = uuid::Uuid::new_v4().to_string();
-    let task_json = serde_json::json!({
-        "upgrade_task_id": &upgrade_task_id,
-        "component_type": "bmc",
-        "target_version": "1.2.3",
-        "script": {
-            "url": "http://pxe/scripts/upgrade.sh",
-            "sha256": "script-sha",
-        },
-        "execution_timeout_seconds": 30,
-        "artifact_download_timeout_seconds": 10,
-        "file_artifacts": [{
-            "url": "http://pxe/firmware.bin",
-            "sha256": "firmware-sha",
-        }],
-    })
-    .to_string();
-
-    let state = ManagedHostState::HostReprovision {
-        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
-            upgrade_task_id,
-            firmware_type: FirmwareComponentType::Bmc,
-            final_version: "1.2.3".to_string(),
-            power_drains_needed: None,
-            started_at: chrono::Utc::now(),
-            deadline: chrono::Utc::now() + chrono::TimeDelta::minutes(60),
-            task_json,
-            result: None,
-        },
-        retry_count: 0,
-    };
-
-    let mut txn = env.db_txn().await;
-    let host = mh.host().db_machine(&mut txn).await;
-    db::machine::advance(&host, &mut txn, &state, None)
-        .await
-        .unwrap();
-    db::machine::clear_cleanup_time(&mh.host().id, &mut txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    let response = mh.host().forge_agent_control().await;
-    assert!(matches!(response.action, Some(Action::FirmwareUpgrade(_))));
-    assert_eq!(response.legacy_action, LegacyAction::FirmwareUpgrade as i32);
-}
-
-#[crate::sqlx_test]
-async fn test_forge_agent_control_assigned_discovery_boot_does_not_reset_without_cleanup_timestamp(
-    pool: sqlx::PgPool,
-) {
-    let env = create_test_env(pool).await;
-    let mh = create_managed_host(&env).await;
-    let state = ManagedHostState::Assigned {
-        instance_state: InstanceState::BootingWithDiscoveryImage {
-            retry: RetryInfo { count: 0 },
-        },
-    };
-
-    let mut txn = env.db_txn().await;
-    let host = mh.host().db_machine(&mut txn).await;
-    db::machine::advance(&host, &mut txn, &state, None)
-        .await
-        .unwrap();
-    db::machine::clear_cleanup_time(&mh.host().id, &mut txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    let mut txn = env.db_txn().await;
-    let host = mh.host().db_machine(&mut txn).await;
-    assert!(host.last_cleanup_time.is_none());
-    txn.commit().await.unwrap();
-
-    let response = mh.host().forge_agent_control().await;
-    assert!(matches!(response.action, Some(Action::Noop(_))));
-    assert_eq!(response.legacy_action, LegacyAction::Noop as i32);
-}
-
-#[crate::sqlx_test]
 async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
     let mut config = get_config();
     config.attestation_enabled = true;
@@ -2884,6 +2597,454 @@ async fn test_polling_bios_setup_full_recovery_reruns_machine_setup_and_succeeds
             .any(|action| matches!(action, RedfishSimAction::MachineSetup { .. })),
         "expected machine_setup to be re-run after recovery, got: {actions:?}"
     );
+}
+
+/// Builds a test env wired for zero-DPU (NIC-mode) ingestion: the admin and
+/// host-inband site prefixes are routable and the host-inband segment exists,
+/// so a zero-DPU host's in-band NIC takes a real `machine_interfaces` row that
+/// the boot-order phase can resolve. Mirrors `test_dhcp_allows_zero_dpu_host`.
+async fn create_zero_dpu_test_env(pool: sqlx::PgPool) -> TestEnv {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    create_host_inband_network_segment(&env.api, None).await;
+    env
+}
+
+/// Places a host directly in HostInit/SetBootOrder at the start of the
+/// boot-order flow, backdated so it reads as freshly entered.
+async fn set_host_stuck_in_set_boot_order(env: &TestEnv, host_id: MachineId) {
+    set_host_controller_state_stuck_in(
+        env,
+        host_id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::SetBootOrder {
+                set_boot_order_info: Some(SetBootOrderInfo {
+                    set_boot_order_jid: None,
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    retry_count: 0,
+                }),
+            },
+        },
+        1,
+    )
+    .await;
+}
+
+/// Drives the machine state controller until the host leaves HostInit/SetBootOrder
+/// for the next phase (HostInit/Measuring), returning whether it got there. A
+/// zero-DPU host whose `HttpDev1` device dropped off the BMC's Redfish inventory
+/// never reaches it unless SetBootOrder re-asserts `machine_setup`, so callers
+/// assert on the result to distinguish recovery from a host wedged at CheckBootOrder.
+async fn drive_until_past_set_boot_order(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    max_iterations: usize,
+) -> bool {
+    for _ in 0..max_iterations {
+        env.run_machine_state_controller_iteration().await;
+
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        if matches!(
+            host.current_state(),
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Measuring { .. },
+            }
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The MAC of the zero-DPU host's in-band NIC -- the boot interface the
+/// boot-order phase resolves and targets. Looked up by segment type (the same
+/// way the admin boot-interface resolution tests locate it), since a zero-DPU
+/// host boots from its HostInband NIC.
+async fn host_inband_nic_mac(env: &TestEnv, host_id: MachineId) -> MacAddress {
+    let mut txn = env.pool.begin().await.unwrap();
+    db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+        .await
+        .unwrap()
+        .remove(&host_id)
+        .expect("zero-DPU host should have interface rows")
+        .into_iter()
+        .find(|i| i.network_segment_type == Some(NetworkSegmentType::HostInband))
+        .expect("zero-DPU host should have a HostInband interface")
+        .mac_address
+}
+
+/// Asserts that, within the recorded boot-order actions, `machine_setup` ran
+/// before the `set_boot_order_dpu_first` reorder, and that BOTH targeted
+/// `expected_mac` -- the resolved boot NIC. This is the ordering the recovery
+/// depends on: re-enable `HttpDev1`, then reorder, both against the same NIC.
+fn assert_machine_setup_precedes_reorder_for(
+    actions: &[RedfishSimAction],
+    expected_mac: MacAddress,
+) {
+    // `MachineSetup` records the target as `Option<String>` (setup can run
+    // without one), while `SetBootOrderDpuFirst` always has a `String`.
+    let expected = expected_mac.to_string();
+
+    let machine_setup_idx = actions
+        .iter()
+        .position(|action| {
+            matches!(
+                action,
+                RedfishSimAction::MachineSetup { boot_interface_mac, .. }
+                    if boot_interface_mac.as_deref() == Some(expected.as_str())
+            )
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a machine_setup targeting the boot NIC {expected_mac}, got: {actions:?}"
+            )
+        });
+
+    let reorder_idx = actions
+        .iter()
+        .position(|action| {
+            matches!(
+                action,
+                RedfishSimAction::SetBootOrderDpuFirst { boot_interface_mac }
+                    if *boot_interface_mac == expected
+            )
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected a set_boot_order_dpu_first targeting the boot NIC {expected_mac}, got: {actions:?}"
+            )
+        });
+
+    assert!(
+        machine_setup_idx < reorder_idx,
+        "machine_setup (idx {machine_setup_idx}) must re-assert HttpDev1 before the reorder \
+         (idx {reorder_idx}); actions: {actions:?}"
+    );
+}
+
+/// The core of this enhancement: when the boot config is already in place,
+/// SetBootOrder does not re-apply it. `is_bios_setup` and `is_boot_order_setup`
+/// both pass, so it skips the `machine_setup` re-assert AND the boot-order set --
+/// no redundant BIOS write, no reboot to apply one -- and goes straight to
+/// verification. This is the case that wedged a real host: re-applying an
+/// already-correct config committed a BIOS job that then collided with the
+/// boot-order set on Dell (`SYS011`), and the flow looped there.
+#[crate::sqlx_test]
+async fn test_set_boot_order_skips_reapply_when_config_already_in_place(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    assert!(
+        mh.dpu_ids.is_empty(),
+        "zero-DPU fixture should produce no DPU machines"
+    );
+    let host_id = mh.host().id;
+
+    // Default sim: the HTTP-boot device and the boot order both read configured.
+    set_host_stuck_in_set_boot_order(&env, host_id).await;
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
+    let recovered = drive_until_past_set_boot_order(&env, &mh, 15).await;
+    assert!(
+        recovered,
+        "an already-configured host should advance past SetBootOrder"
+    );
+
+    // Nothing was re-applied: no re-assert, no reorder.
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "an already-configured host should not re-assert machine_setup at SetBootOrder, got: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::SetBootOrderDpuFirst { .. })),
+        "an already-configured host should not re-set the boot order at SetBootOrder, got: {actions:?}"
+    );
+}
+
+/// When the HTTP-boot device is already configured but the boot order is not yet
+/// set -- the first-time SetBootOrder case -- SetBootOrder sets the order without
+/// re-asserting `machine_setup`, so there is no pending BIOS job for the
+/// boot-order set to collide with.
+#[crate::sqlx_test]
+async fn test_set_boot_order_sets_order_without_reasserting_when_device_configured(
+    pool: sqlx::PgPool,
+) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+    let boot_nic_mac = host_inband_nic_mac(&env, host_id).await;
+
+    // Device configured (is_bios_setup true, the sim default), but the boot order
+    // not yet set.
+    env.redfish_sim.set_is_boot_order_setup(false);
+
+    set_host_stuck_in_set_boot_order(&env, host_id).await;
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
+    let recovered = drive_until_past_set_boot_order(&env, &mh, 15).await;
+    assert!(
+        recovered,
+        "host should set the boot order and advance past SetBootOrder"
+    );
+
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            RedfishSimAction::SetBootOrderDpuFirst { boot_interface_mac }
+                if *boot_interface_mac == boot_nic_mac.to_string()
+        )),
+        "the boot order should be set for the boot NIC, got: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "the device is already configured, so machine_setup should not be re-asserted, got: {actions:?}"
+    );
+}
+
+/// Recovery path: when the HTTP-boot device is reverted (the boot NIC dropped off
+/// the BMC's Redfish inventory on a reboot, so `is_bios_setup` reads false),
+/// SetBootOrder re-asserts `machine_setup` and reboots to apply it *before* the
+/// boot-order set -- the two BIOS writes never share one pass (they can't share
+/// one Dell config job). Once the device verifies again, the order is set and the
+/// host advances.
+#[crate::sqlx_test]
+async fn test_set_boot_order_reasserts_http_boot_device_when_reverted(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+    let boot_nic_mac = host_inband_nic_mac(&env, host_id).await;
+
+    // Model the HTTP-boot device reverted: the config verify fails until a
+    // machine_setup re-assert restores it, and the boot order reads unconfigured
+    // while the device is gone.
+    env.redfish_sim.set_is_bios_setup(false);
+    env.redfish_sim.set_is_boot_order_setup(false);
+
+    set_host_stuck_in_set_boot_order(&env, host_id).await;
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
+    // First pass: re-assert the device and reboot to apply it. It must NOT set the
+    // boot order in the same pass -- two BIOS writes can't share one config job.
+    env.run_machine_state_controller_iteration().await;
+    let first_pass = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert!(
+        first_pass
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "a reverted HTTP-boot device should be re-asserted at SetBootOrder, got: {first_pass:?}"
+    );
+    assert!(
+        !first_pass
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::SetBootOrderDpuFirst { .. })),
+        "the boot order must not be set in the same pass as the re-assert (shared BIOS job), got: {first_pass:?}"
+    );
+
+    // The re-assert is committed once. While the device is still reverted (the
+    // apply reboot hasn't landed yet), the host polls in
+    // WaitForHttpBootDeviceApplied without re-running machine_setup.
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                            ..
+                        }),
+                    },
+                }
+            ),
+            "after the re-assert the host should wait for the device to apply, got: {:?}",
+            host.current_state()
+        );
+    }
+    let after_reassert = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    let second_pass = env.redfish_sim.actions_since(&after_reassert).all_hosts();
+    assert!(
+        !second_pass
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "machine_setup must not re-run while waiting for the re-asserted device to apply, got: {second_pass:?}"
+    );
+
+    // Within the wait window the host stays parked in
+    // WaitForHttpBootDeviceApplied -- it neither advances nor bounces back to
+    // SetBootOrder for another re-assert.
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                            ..
+                        }),
+                    },
+                }
+            ),
+            "the host should keep waiting for the device to apply within the wait window, got: {:?}",
+            host.current_state()
+        );
+    }
+
+    // Model the reboot applying the re-asserted config: the device now verifies.
+    env.redfish_sim.set_is_bios_setup(true);
+
+    // With the device restored, the host sets the boot order and advances.
+    let recovered = drive_until_past_set_boot_order(&env, &mh, 15).await;
+    assert!(
+        recovered,
+        "host should recover past SetBootOrder once the HTTP-boot device is restored"
+    );
+
+    // Across the recovery, the re-assert targeting the boot NIC preceded the reorder.
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert_machine_setup_precedes_reorder_for(&actions, boot_nic_mac);
+}
+
+/// When the re-asserted HTTP-boot device does not verify within the wait
+/// window (the boot NIC can drop off the BMC's Redfish inventory again on the
+/// apply reboot itself), the host returns to `SetBootOrder` for a fresh
+/// re-assert -- one `machine_setup` per window, not per pass. Once the state
+/// machine's retry budget is exhausted it stops re-asserting and surfaces the
+/// host for manual intervention.
+#[crate::sqlx_test]
+async fn test_set_boot_order_reassert_window_expiry_bounds_reapplies(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+
+    // The device stays reverted throughout: every verify reads false.
+    env.redfish_sim.set_is_bios_setup(false);
+    env.redfish_sim.set_is_boot_order_setup(false);
+
+    let stuck_waiting = |retry_count: u32| ManagedHostState::HostInit {
+        machine_state: MachineState::SetBootOrder {
+            set_boot_order_info: Some(SetBootOrderInfo {
+                set_boot_order_jid: None,
+                set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                retry_count,
+            }),
+        },
+    };
+
+    // Plant the host mid-wait with the window already expired (backdated past
+    // the 10-minute apply window). Pass 1 returns it to SetBootOrder; pass 2
+    // re-asserts once and parks it back in the wait substate.
+    set_host_controller_state_stuck_in(&env, host_id, &stuck_waiting(0), 11).await;
+    let checkpoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert_eq!(
+        actions
+            .iter()
+            .filter(|a| matches!(a, RedfishSimAction::MachineSetup { .. }))
+            .count(),
+        1,
+        "an expired wait window should produce exactly one fresh re-assert, got: {actions:?}"
+    );
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                            retry_count: 1,
+                            ..
+                        }),
+                    },
+                }
+            ),
+            "the fresh re-assert should park the host back in the wait substate with the retry spent, got: {:?}",
+            host.current_state()
+        );
+    }
+
+    // Budget exhausted: the same expired window with the retry budget spent
+    // must not re-assert again -- the host stays parked for an operator.
+    set_host_controller_state_stuck_in(&env, host_id, &stuck_waiting(3), 11).await;
+    let checkpoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "an exhausted retry budget must not re-assert the device again, got: {actions:?}"
+    );
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder {
+                        set_boot_order_info: Some(SetBootOrderInfo {
+                            set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
+                            ..
+                        }),
+                    },
+                }
+            ),
+            "the capped host should stay parked awaiting manual intervention, got: {:?}",
+            host.current_state()
+        );
+    }
 }
 
 /// When HostInit/PollingBiosSetup retry budget is exhausted, enter Failed and recover via is_bios_setup.

@@ -17,10 +17,8 @@
 
 use std::time::Duration;
 
-use tracing_subscriber::fmt;
-
 fn main() -> eyre::Result<()> {
-    fmt().init();
+    carbide_host_support::init_logging("forge-dpu-otel-agent")?;
     // We need a multi-threaded runtime since background threads will queue work
     // on it, and the foreground thread might not be blocked onto the runtime
     // at all points in time

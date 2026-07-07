@@ -1896,6 +1896,10 @@ pub struct SetBootOrderInfo {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
+    /// A reverted HTTP-boot device was re-asserted (`machine_setup`) and the
+    /// host restarted to apply it; polls the device across that reboot, then
+    /// returns to `SetBootOrder` to set the boot order.
+    WaitForHttpBootDeviceApplied,
     WaitForSetBootOrderJobScheduled,
     RebootHost,
     WaitForSetBootOrderJobCompletion,
@@ -2908,7 +2912,7 @@ pub fn dpf_based_dpu_provisioning_possible(
         dpu.hardware_info
             .as_ref()
             .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
-            .map(|dpu_data| crate::site_explorer::is_bf2_dpu(&dpu_data.part_number))
+            .map(|dpu_data| crate::site_explorer::is_bf2_dpu_part_number(&dpu_data.part_number))
             .unwrap_or(false)
     }) {
         tracing::info!(

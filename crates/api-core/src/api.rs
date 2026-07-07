@@ -39,7 +39,7 @@ use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
-use carbide_site_explorer::EndpointExplorer;
+use carbide_site_explorer::{EndpointExplorationLocks, EndpointExplorer};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -83,6 +83,9 @@ pub struct Api {
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
     pub(crate) nmxc_client_pool: Arc<dyn NmxcPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
+    /// In-process per-endpoint exploration locks, shared with the site-explorer loop so periodic
+    /// exploration and ad-hoc `RefreshEndpointReport` calls never probe the same BMC at once.
+    pub(crate) endpoint_exploration_locks: EndpointExplorationLocks,
     pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
     pub(crate) metric_emitter: ApiMetricsEmitter,
@@ -1064,6 +1067,13 @@ impl Forge for Api {
         crate::handlers::site_explorer::get_site_exploration_report(self, request).await
     }
 
+    async fn get_site_explorer_last_run(
+        &self,
+        request: Request<()>,
+    ) -> Result<Response<::rpc::site_explorer::SiteExplorerLastRunResponse>, Status> {
+        crate::handlers::site_explorer::get_site_explorer_last_run(self, request).await
+    }
+
     async fn find_explored_endpoint_ids(
         &self,
         request: Request<::rpc::site_explorer::ExploredEndpointSearchFilter>,
@@ -1092,11 +1102,18 @@ impl Forge for Api {
         crate::handlers::site_explorer::find_explored_managed_hosts_by_ids(self, request).await
     }
 
-    async fn get_explored_mlx_devices(
+    async fn find_explored_mlx_device_host_ids(
         &self,
-        request: Request<::rpc::site_explorer::GetExploredMlxDevicesRequest>,
+        request: Request<::rpc::site_explorer::ExploredMlxDeviceHostSearchFilter>,
+    ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceHostIdList>, Status> {
+        crate::handlers::site_explorer::find_explored_mlx_device_host_ids(self, request).await
+    }
+
+    async fn find_explored_mlx_devices_by_ids(
+        &self,
+        request: Request<::rpc::site_explorer::ExploredMlxDevicesByIdsRequest>,
     ) -> Result<Response<::rpc::site_explorer::ExploredMlxDeviceList>, Status> {
-        crate::handlers::site_explorer::get_explored_mlx_devices(self, request).await
+        crate::handlers::site_explorer::find_explored_mlx_devices_by_ids(self, request).await
     }
 
     async fn update_machine_hardware_info(
@@ -1357,6 +1374,13 @@ impl Forge for Api {
         crate::handlers::boot_override::clear(self, request).await
     }
 
+    async fn get_machine_boot_interfaces(
+        &self,
+        request: Request<rpc::GetMachineBootInterfacesRequest>,
+    ) -> Result<Response<rpc::GetMachineBootInterfacesResponse>, Status> {
+        crate::handlers::machine_boot_interfaces::get_machine_boot_interfaces(self, request).await
+    }
+
     async fn get_network_topology(
         &self,
         request: Request<rpc::NetworkTopologyRequest>,
@@ -1450,6 +1474,20 @@ impl Forge for Api {
         request: Request<rpc::CredentialDeletionRequest>,
     ) -> Result<Response<rpc::CredentialDeletionResult>, Status> {
         crate::handlers::credential::delete_credential(self, request).await
+    }
+
+    async fn rotate_credential(
+        &self,
+        request: Request<rpc::RotateCredentialRequest>,
+    ) -> Result<Response<rpc::RotateCredentialResult>, Status> {
+        crate::handlers::credential_rotation::rotate_credential(self, request).await
+    }
+
+    async fn get_credential_rotation_status(
+        &self,
+        request: Request<rpc::CredentialRotationStatusRequest>,
+    ) -> Result<Response<rpc::CredentialRotationStatusResult>, Status> {
+        crate::handlers::credential_rotation::get_credential_rotation_status(self, request).await
     }
 
     async fn re_wrap_secrets(
@@ -2292,6 +2330,13 @@ impl Forge for Api {
         crate::handlers::machine_validation::get_machine_validation_attempt(self, request).await
     }
 
+    async fn heartbeat_machine_validation_run(
+        &self,
+        request: Request<rpc::MachineValidationHeartbeatRequest>,
+    ) -> Result<Response<rpc::MachineValidationHeartbeatResponse>, Status> {
+        crate::handlers::machine_validation::heartbeat_machine_validation_run(self, request).await
+    }
+
     async fn admin_power_control(
         &self,
         request: Request<rpc::AdminPowerControlRequest>,
@@ -2581,7 +2626,21 @@ impl Forge for Api {
         &self,
         request: Request<rpc::GetDesiredFirmwareVersionsRequest>,
     ) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
-        crate::handlers::firmware::get_desired_firmware_versions(self, request)
+        crate::handlers::firmware::get_desired_firmware_versions(self, request).await
+    }
+
+    async fn upsert_host_firmware_config(
+        &self,
+        request: Request<rpc::UpsertHostFirmwareConfigRequest>,
+    ) -> Result<Response<rpc::HostFirmwareConfigResponse>, Status> {
+        crate::handlers::firmware::upsert_host_firmware_config(self, request).await
+    }
+
+    async fn delete_host_firmware_config(
+        &self,
+        request: Request<rpc::DeleteHostFirmwareConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::firmware::delete_host_firmware_config(self, request).await
     }
 
     async fn create_sku(
@@ -2803,6 +2862,20 @@ impl Forge for Api {
         crate::handlers::bmc_endpoint_explorer::create_bmc_user(self, request).await
     }
 
+    async fn set_bmc_root_password(
+        &self,
+        request: Request<rpc::SetBmcRootPasswordRequest>,
+    ) -> Result<Response<rpc::SetBmcRootPasswordResponse>, Status> {
+        crate::handlers::bmc_endpoint_explorer::set_bmc_root_password(self, request).await
+    }
+
+    async fn probe_bmc_vendor(
+        &self,
+        request: Request<rpc::ProbeBmcVendorRequest>,
+    ) -> Result<Response<rpc::ProbeBmcVendorResponse>, Status> {
+        crate::handlers::bmc_endpoint_explorer::probe_bmc_vendor(self, request).await
+    }
+
     async fn delete_bmc_user(
         &self,
         request: Request<rpc::DeleteBmcUserRequest>,
@@ -2821,7 +2894,7 @@ impl Forge for Api {
         &self,
         request: Request<rpc::ListHostFirmwareRequest>,
     ) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
-        crate::handlers::firmware::list_host_firmware(self, request)
+        crate::handlers::firmware::list_host_firmware(self, request).await
     }
 
     // Scout is telling Carbide the mlx device configuration in its machine
@@ -2829,7 +2902,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxDeviceReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxDeviceReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_device_report(self, request).await
+        crate::handlers::svpc::publish_mlx_device_report(self, request).await
     }
 
     // Scout is telling carbide the observed status (locking status, card mode) of the
@@ -2838,7 +2911,7 @@ impl Forge for Api {
         &self,
         request: Request<mlx_device_pb::PublishMlxObservationReportRequest>,
     ) -> Result<Response<mlx_device_pb::PublishMlxObservationReportResponse>, Status> {
-        crate::handlers::dpa::publish_mlx_observation_report(self, request).await
+        crate::handlers::svpc::publish_mlx_observation_report(self, request).await
     }
 
     async fn trim_table(
@@ -3323,6 +3396,14 @@ impl Forge for Api {
         request: Request<rpc::ComponentPowerControlRequest>,
     ) -> Result<Response<rpc::ComponentPowerControlResponse>, Status> {
         crate::handlers::component_manager::component_power_control(self, request).await
+    }
+
+    async fn component_configure_switch_certificate(
+        &self,
+        request: Request<rpc::ComponentConfigureSwitchCertificateRequest>,
+    ) -> Result<Response<rpc::ComponentConfigureSwitchCertificateResponse>, Status> {
+        crate::handlers::component_manager::component_configure_switch_certificate(self, request)
+            .await
     }
 
     async fn get_component_inventory(

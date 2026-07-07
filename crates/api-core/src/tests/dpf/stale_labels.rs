@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use carbide_dpf::DpuPhase;
+use carbide_dpf::{DpuDeploymentType, DpuPhase};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
 use model::machine::{DpfState, DpuInitState, FailureCause, FailureDetails, ManagedHostState};
@@ -43,7 +43,13 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
-        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployments: crate::cfg::file::DpfDeploymentsConfig {
+            bf3: crate::cfg::file::DpfDeploymentConfig {
+                bfb_url: "http://example.com/test.bfb".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -56,8 +62,10 @@ fn provisioning_mock_with_labels_valid(labels_valid: Arc<AtomicBool>) -> MockDpf
     mock.expect_is_reboot_required().returning(|_| Ok(false));
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
+    mock.expect_deployment_type_for_dpu()
+        .returning(|_| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels()
-        .returning(move |_| Ok(labels_valid.load(Ordering::SeqCst)));
+        .returning(move |_, _| Ok(labels_valid.load(Ordering::SeqCst)));
     mock
 }
 

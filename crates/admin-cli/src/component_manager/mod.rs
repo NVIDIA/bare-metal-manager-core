@@ -16,6 +16,7 @@
  */
 
 pub(crate) mod common;
+mod configure_switch_certificate;
 mod power_control;
 mod status;
 mod update_firmware;
@@ -47,4 +48,10 @@ pub enum Cmd {
         visible_alias = "power-control"
     )]
     ComponentPowerControl(power_control::Args),
+
+    #[clap(
+        about = "Rotate or reinstall switch NVOS mTLS certificates via the switch Maintenance phase",
+        visible_alias = "rotate-switch-certificate"
+    )]
+    ConfigureSwitchCertificate(configure_switch_certificate::Args),
 }

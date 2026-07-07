@@ -41,6 +41,21 @@ If you want Prometheus metrics collection, install the [Prometheus Operator](htt
 - **nico-hardware-health** also exposes an optional `telemetryServiceMonitor` (disabled by default) that scrapes `/telemetry` for per-machine sensor gauge data (temperature, power, fans, etc.) from the Prometheus sink. Use `serviceMonitor` for `/metrics` operational metrics only.
 - NICo functions normally without the Prometheus Operator installed.
 
+### Grafana Dashboard Sidecar (Optional)
+
+The umbrella chart can install its packaged Grafana dashboards as a ConfigMap
+when `grafanaDashboards.enabled=true`. This requires an existing Grafana
+installation with a dashboard sidecar watching the ConfigMap namespace and
+labels. The default `grafana_dashboard: "1"` label matches the common
+`kube-prometheus-stack` selector. To place dashboards in the configured NICo
+folder, the sidecar must read the `grafana_folder` annotation (or both sides
+must be configured with another annotation key).
+
+Grafana is not installed by the NICo chart. If `grafanaDashboards.namespace`
+targets a namespace other than the NICo release namespace, create that
+namespace first and configure the sidecar to search it. See
+[`README.md`](./README.md#grafana-dashboards) for values and namespace examples.
+
 ---
 
 ## 2. PostgreSQL Database

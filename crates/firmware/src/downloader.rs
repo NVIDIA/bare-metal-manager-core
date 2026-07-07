@@ -24,7 +24,8 @@ use std::time::Duration;
 
 use eyre::{Report, WrapErr, eyre};
 use futures_util::StreamExt;
-use reqwest::Client;
+use reqwest_middleware::ClientWithMiddleware as Client;
+use sha2::{Digest, Sha256};
 use tokio::fs::File;
 
 #[derive(Clone, Debug)]
@@ -57,21 +58,23 @@ impl FirmwareDownloader {
 
     /// available will return true if the given file is present, otherwise it will return false after starting a download in the background.
     /// Anything trying to check the same file while it is downloading will get the exact same result, but will not start a new download.
-    /// It provides no guarantee that the checksum matches other than on the initial download.
-    pub fn available(&self, filename: &Path, url: &str, checksum: &str) -> bool {
-        self.available_actual(filename, url, checksum, None)
+    /// It verifies the downloaded file against sha256 when a checksum is provided.
+    pub fn available(&self, filename: &Path, url: &str, sha256: &str) -> bool {
+        self.available_actual(filename, url, sha256, None)
     }
 
-    // Actual implementation, made visible to unit tests only
+    // Implementation behind available(). Tests call this directly to control async timing.
     pub(crate) fn available_actual(
         &self,
         filename: &Path,
         url: &str,
-        checksum: &str,
+        sha256: &str,
         fake_sleep: Option<Duration>,
     ) -> bool {
-        if filename.exists() {
-            return true;
+        match cached_file_status(filename, sha256) {
+            CachedFileStatus::Available => return true,
+            CachedFileStatus::NeedsDownload => {}
+            CachedFileStatus::Unusable => return false,
         }
 
         if url.is_empty() {
@@ -88,20 +91,28 @@ impl FirmwareDownloader {
         }
 
         // Slight timing hole, recheck for the file
-        if filename.exists() {
-            return true;
+        match cached_file_status(filename, sha256) {
+            CachedFileStatus::Available => return true,
+            CachedFileStatus::NeedsDownload => {}
+            CachedFileStatus::Unusable => return false,
         }
 
         state.downloading.insert(filename_string.clone());
         if state.client.is_none() {
-            state.client = Some(Client::new());
+            // The `reqwest-tracing` middleware injects the current span's W3C trace context into
+            // every outgoing request (#2438).
+            state.client = Some(
+                reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+                    .with(reqwest_tracing::TracingMiddleware::default())
+                    .build(),
+            );
         }
 
         let filename = filename.to_path_buf();
         let url = url.to_owned();
+        let sha256 = sha256.to_owned();
         let client = state.client.clone().unwrap();
         let actual = self.actual.clone();
-        let checksum = checksum.to_owned();
         tokio::spawn(async move {
             let dst_filename = format!("{filename_string}.download");
             match download(&filename, &url, &dst_filename, client, fake_sleep).await {
@@ -115,7 +126,7 @@ impl FirmwareDownloader {
                 }
                 Ok(_) => {
                     tracing::info!("Completed download of {url} to {filename_string}");
-                    if let Err(e) = verify_checksum(&dst_filename, &checksum) {
+                    if let Err(e) = verify_sha256(&dst_filename, &sha256) {
                         tracing::error!("FirmwareDownloader checksum for {url} failed: {e}");
                         let _ = std::fs::remove_file(dst_filename);
                         actual
@@ -151,6 +162,40 @@ impl FirmwareDownloaderActual {
     }
 }
 
+enum CachedFileStatus {
+    Available,
+    NeedsDownload,
+    Unusable,
+}
+
+fn cached_file_status(filename: &Path, sha256: &str) -> CachedFileStatus {
+    let filename_str = filename.to_string_lossy();
+
+    if !filename.exists() {
+        return CachedFileStatus::NeedsDownload;
+    }
+
+    match verify_sha256(&filename_str, sha256) {
+        Ok(()) => CachedFileStatus::Available,
+        Err(err) => {
+            tracing::warn!(
+                "Cached firmware artifact {} failed checksum verification: {err}",
+                filename.display()
+            );
+
+            if let Err(err) = std::fs::remove_file(filename) {
+                tracing::error!(
+                    "Failed to remove stale cached firmware artifact {}: {err}",
+                    filename.display()
+                );
+                return CachedFileStatus::Unusable;
+            }
+
+            CachedFileStatus::NeedsDownload
+        }
+    }
+}
+
 async fn download(
     filename: &Path,
     url: &String,
@@ -160,7 +205,7 @@ async fn download(
 ) -> Result<(), Report> {
     // Actual downloader.  We aren't able to return errors to callers here, we just print to the log, and will retry on the next request.
     let dirname = match Path::parent(filename) {
-        Some(x) => x.to_string_lossy().to_string(),
+        Some(x) => x,
         None => {
             return Err(eyre!(
                 "Could not find dirname of {}",
@@ -169,7 +214,8 @@ async fn download(
         }
     };
 
-    let _ = std::fs::create_dir_all(dirname);
+    std::fs::create_dir_all(dirname)
+        .wrap_err(format!("Unable to create directory {}", dirname.display()))?;
     let mut dst_file = File::create(&dst_filename)
         .await
         .wrap_err(format!("Unable to create file {dst_filename}"))?;
@@ -223,23 +269,30 @@ async fn download(
     Ok(())
 }
 
-/// verify_checks checks if the given filename uses the given checksum.  This is not meant to be security,
+/// Checks if the given filename uses the given checksum. This is not meant to be security,
 /// it's to check against download corruption or retrieving the wrong thing (such as if the vendor changed the URL).
 /// We expect the hardware vendor to have done their own signing to ensure that firmware is not compromised.
-fn verify_checksum(filename: &String, checksum: &String) -> Result<(), Report> {
+fn verify_sha256(filename: &str, checksum: &str) -> Result<(), Report> {
+    let checksum = checksum.trim().to_ascii_lowercase();
     if checksum.is_empty() {
-        // No validation requested
         return Ok(());
     }
-    // md5 doesn't support async, must use the standard
+
     let mut file = std::fs::File::open(filename)?;
 
-    let mut context = md5::Context::new();
-    std::io::copy(&mut file, &mut context)?;
+    let mut context = Sha256::new();
+    let mut buffer = [0; 8192];
+    loop {
+        let read = std::io::Read::read(&mut file, &mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        context.update(&buffer[..read]);
+    }
 
-    let checksum_actual = hex::encode(*context.finalize());
+    let checksum_actual = hex::encode(context.finalize());
 
-    if &checksum_actual != checksum {
+    if checksum_actual != checksum {
         return Err(eyre!(
             "Checksum mismatch: Expected {checksum} downloaded {checksum_actual}"
         ));

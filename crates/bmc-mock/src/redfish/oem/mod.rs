@@ -28,6 +28,7 @@ pub enum BmcVendor {
     LiteOn,
     Ami,
     Supermicro,
+    Hpe,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -46,6 +47,7 @@ impl BmcVendor {
             BmcVendor::LiteOn => None,
             BmcVendor::Ami => Some("AMI"),
             BmcVendor::Supermicro => Some("Supermicro"),
+            BmcVendor::Hpe => Some("HPE"),
         }
     }
     // This function creates settings of the resource from the resource
@@ -64,6 +66,9 @@ impl BmcVendor {
             }
             BmcVendor::Ami => {
                 format!("{}/SD", resource.odata_id)
+            }
+            BmcVendor::Hpe => {
+                format!("{}/settings", resource.odata_id)
             }
         }
     }

@@ -12,7 +12,7 @@ defaults:
     working-directory: rest-api
 
 env:
-  GO_VERSION: "1.25.11"
+  GO_VERSION: "1.26.4"
 
 jobs:
   style:
@@ -35,7 +35,7 @@ jobs:
 
       - name: Install and run revive
         run: |
-          go install github.com/mgechev/revive@v1.3.9
+          go install github.com/mgechev/revive@v1.15.0
           pkgs=$(go list ./... | grep -v $(go env GOMODCACHE))
           go list $pkgs | grep -v $(go env GOMODCACHE) | xargs -L1 revive -config .revive.toml -set_exit_status
 
@@ -75,7 +75,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.7.2
+          version: v2.12.2
           args: --timeout=10m --issues-exit-code=0 ./...
           working-directory: rest-api
 
@@ -107,12 +107,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve OpenAPI comparison base
+        id: openapi-base
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          MERGE_BASE="$(git merge-base HEAD origin/main)"
+
+          echo "merge_base=${MERGE_BASE}" >> "${GITHUB_OUTPUT}"
+          echo "Comparing OpenAPI changes against merge-base ${MERGE_BASE}"
+
       - name: Check OpenAPI breaking changes
         uses: oasdiff/oasdiff-action/breaking@a8c7f0e5649d20d623edb5b38446d3ab3d82d43c
         with:
-          base: 'origin/main:rest-api/openapi/spec.yaml'
+          base: '${{ steps.openapi-base.outputs.merge_base }}:rest-api/openapi/spec.yaml'
           revision: ':rest-api/openapi/spec.yaml'
           fail-on: ERR
+          # Allowlist the intentional one-time rename of the BMC credential
+          # `kind` enum values to CapitalCase; see the referenced ignore file.
+          err-ignore: 'rest-api/openapi/oasdiff-breaking-changes-ignore.txt'
 
   check-generated-files:
     name: Check Generated Files
@@ -176,38 +190,17 @@ jobs:
 
       - name: Install buf and protoc plugins
         run: |
-          go install github.com/bufbuild/buf/cmd/buf@latest
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          go install github.com/bufbuild/buf/cmd/buf@v1.70.0
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 
       - name: Regenerate protobuf code
         run: |
-          cd workflow-schema && buf generate
-          cd flow && buf generate
+          make core-proto
+          make -C flow gen-nicoapi-pb
 
       - name: Check for uncommitted changes
-        run: |
-          UNTRACKED=$(git ls-files --others --exclude-standard)
-
-          MEANINGFUL_DIFF=$(git diff --unified=0 | grep '^[+-]' | grep -v '^[+-][+-][+-]' | grep -v '^[+-]//.*protoc-gen-go' | grep -v '^[+-]//.*protoc v' || true)
-
-          if [ -z "$MEANINGFUL_DIFF" ] && [ -z "$UNTRACKED" ]; then
-            echo "✓ Protobuf generated code is up to date."
-          else
-            echo "::error::Protobuf generated code is out of date. Please run 'make core-protogen' and 'make flow-protogen' and commit the results."
-            echo ""
-            echo "Changed files:"
-            git status --porcelain
-            echo ""
-            echo "Diff:"
-            git -P diff
-            if [ -n "$UNTRACKED" ]; then
-              echo ""
-              echo "Untracked files:"
-              echo "$UNTRACKED"
-            fi
-            exit 1
-          fi
+        run: bash ../scripts/check-repo-clean.sh "REST protobuf generation"
 
   test:
     name: Test (${{ matrix.module }})

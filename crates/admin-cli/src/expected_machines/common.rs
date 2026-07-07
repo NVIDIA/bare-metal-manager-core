@@ -50,6 +50,11 @@ pub struct ExpectedMachineJson {
     /// if that's also unset).
     #[serde(default)]
     pub dpu_mode: Option<rpc::forge::DpuMode>,
+    /// Per-host control over how this BMC's IP is assigned and retained. None ==
+    /// the server default (`Auto`), which resolves to `fixed` when a
+    /// `bmc_ip_address` is set and `retained` when it isn't.
+    #[serde(default)]
+    pub bmc_ip_allocation: Option<rpc::forge::BmcIpAllocationType>,
     /// Per-host lifecycle profile for settings that affect state-machine progression.
     #[serde(default)]
     pub host_lifecycle_profile: Option<HostLifecycleProfile>,

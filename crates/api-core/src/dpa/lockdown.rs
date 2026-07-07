@@ -25,8 +25,10 @@ use sha2::Sha256;
 use sqlx::PgPool;
 
 // CURRENT_LOCKDOWN_IKM_VERSION is the site-wide lockdown IKM version the
-// lock/unlock flow currently derives keys from. We will leave it hardcoded to 0 until
-// we introduce rotation logic.
+// lock/unlock flow derives keys from, and the version recorded as each card's
+// convergence target. Hardcoded to 0 until the rotation engine lands: rotating
+// the IKM (v0 -> v1) is what advances this, and that logic will own making newly
+// ingested NICs lock under the new IKM while already-locked cards migrate.
 pub const CURRENT_LOCKDOWN_IKM_VERSION: u32 = 0;
 
 // LOCKDOWN_KEY_LENGTH is the max length of the supported
@@ -144,22 +146,26 @@ fn lockdown_ikm_key(version: u32) -> CredentialKey {
     }
 }
 
-// fetch_kdf_secret fetches the IKM for the KDF from the
-// dedicated site-wide lockdown credential, decoupled from the BMC root so the
-// two can be rotated independently.
+// fetch_kdf_secret fetches the IKM for the KDF from the dedicated site-wide
+// lockdown credential, decoupled from the BMC root so the two can be rotated
+// independently.
+//
+// Returns the IKM version it resolved alongside the secret so the caller can
+// durably record the exact version a card is locked under, rather than
+// re-reading the (mutable) site-wide target later. Today the version is
+// `CURRENT_LOCKDOWN_IKM_VERSION`; the rotation engine will own advancing it.
 async fn fetch_kdf_secret(
     credential_reader: &dyn CredentialReader,
-) -> Result<String, eyre::Report> {
-    let ikm_key = lockdown_ikm_key(CURRENT_LOCKDOWN_IKM_VERSION);
+) -> Result<(u32, String), eyre::Report> {
+    let version = CURRENT_LOCKDOWN_IKM_VERSION;
+    let ikm_key = lockdown_ikm_key(version);
     let credentials = credential_reader
         .get_credentials(&ikm_key)
         .await?
-        .ok_or_else(|| {
-            eyre::eyre!("lockdown IKM v{CURRENT_LOCKDOWN_IKM_VERSION} not found; site not seeded")
-        })?;
+        .ok_or_else(|| eyre::eyre!("lockdown IKM v{version} not found; site not seeded"))?;
     let Credentials::UsernamePassword { password, .. } = credentials;
 
-    Ok(password)
+    Ok((version, password))
 }
 
 // ensure_lockdown_ikm_seeded idempotently seeds the dedicated site-wide
@@ -225,16 +231,32 @@ pub async fn ensure_lockdown_ikm_seeded(
     }
 }
 
+// SupernicLockdownKey is a derived lockdown key together with the site-wide
+// lockdown IKM version it was derived from. The version travels with the key so
+// the lock flow can durably record the exact version the card is locked under.
+pub struct SupernicLockdownKey {
+    // The 16-character hex lockdown key sent to the device.
+    pub key: String,
+    // The site-wide lockdown IKM version `key` was derived from.
+    pub ikm_version: u32,
+}
+
 // build_supernic_lockdown_key builds a single lockdown key using
 // the latest KdfContextVersion. Use this for locking a card.
+//
+// Returns the derived key together with the IKM version it used (see
+// `SupernicLockdownKey`). The unlock flow can ignore the version; the lock flow
+// persists it so the recorded convergence version matches what actually locked
+// the card.
 pub async fn build_supernic_lockdown_key(
     db_reader: &PgPool,
     dpa_interface_id: DpaInterfaceId,
     credential_reader: &dyn CredentialReader,
-) -> Result<String, eyre::Report> {
+) -> Result<SupernicLockdownKey, eyre::Report> {
     let ctx = build_kdf_context(db_reader, dpa_interface_id).await?;
-    let secret = fetch_kdf_secret(credential_reader).await?;
-    build_lockdown_key(secret.as_bytes(), &ctx, KdfContextVersion::V1)
+    let (ikm_version, secret) = fetch_kdf_secret(credential_reader).await?;
+    let key = build_lockdown_key(secret.as_bytes(), &ctx, KdfContextVersion::V1)?;
+    Ok(SupernicLockdownKey { key, ikm_version })
 }
 
 #[cfg(test)]
@@ -439,7 +461,8 @@ mod tests {
             .await
             .unwrap();
 
-        let secret = fetch_kdf_secret(&store).await.unwrap();
+        let (version, secret) = fetch_kdf_secret(&store).await.unwrap();
+        assert_eq!(version, CURRENT_LOCKDOWN_IKM_VERSION);
         assert_eq!(secret, "ikm-pass");
     }
 

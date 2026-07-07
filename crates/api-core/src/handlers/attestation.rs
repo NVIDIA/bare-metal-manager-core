@@ -145,7 +145,7 @@ pub(crate) async fn list_attestation_machines(
     // if selector is not selected AND machine id is None,
     // just list all machines + their attestation status
     // if machine id not None, print the attestation status for this machine only
-    // if machine id is None AND selector is unsucessful, print failed attestations
+    // if machine id is None AND selector is unsuccessful, print failed attestations
     // if machine is None AND selector is in progress, print all machines that are in progress
 
     let mut txn = api.txn_begin().await?;

@@ -1,0 +1,539 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
+	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
+	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
+	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
+)
+
+var _ operationrunmanager.Manager = (*mockOperationRunManager)(nil)
+
+func TestCreateOperationRunCallsManager(t *testing.T) {
+	createdID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := &mockOperationRunManager{createID: createdID}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.CreateOperationRun(
+		context.Background(),
+		validCreateOperationRunRequest(),
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, createdID.String(), resp.GetId().GetId())
+	require.Equal(t, 1, manager.createCalls)
+	require.NotNil(t, manager.createdRun)
+	require.Equal(t, "firmware canary", manager.createdRun.Name)
+	require.Equal(t, operationrun.OperationRunStatusPending, manager.createdRun.Status)
+	require.NotEmpty(t, manager.createdRun.Selector)
+	require.NotEmpty(t, manager.createdRun.Options)
+	require.NotEmpty(t, manager.createdRun.OperationTemplate)
+}
+
+func TestCreateOperationRunRejectsInvalidRequest(t *testing.T) {
+	manager := &mockOperationRunManager{}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.CreateOperationRun(
+		context.Background(),
+		&pb.CreateOperationRunRequest{},
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Equal(t, 0, manager.createCalls)
+}
+
+func TestCreateOperationRunRequiresManager(t *testing.T) {
+	server := &FlowServerImpl{}
+
+	resp, err := server.CreateOperationRun(
+		context.Background(),
+		validCreateOperationRunRequest(),
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+func TestCreateOperationRunReturnsManagerError(t *testing.T) {
+	manager := &mockOperationRunManager{
+		createErr: errors.New("planning failed"),
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.CreateOperationRun(
+		context.Background(),
+		validCreateOperationRunRequest(),
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.ErrorContains(t, err, "planning failed")
+}
+
+func TestCreateOperationRunMapsManagerInvalidArgumentErrors(t *testing.T) {
+	manager := &mockOperationRunManager{
+		createErr: operationrunmanager.ErrNoPlannedTargets,
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.CreateOperationRun(
+		context.Background(),
+		validCreateOperationRunRequest(),
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(t, err, "operation run has no planned targets")
+}
+
+func TestCreateOperationRunPreservesManagerStatusError(t *testing.T) {
+	manager := &mockOperationRunManager{
+		createErr: status.Error(codes.InvalidArgument, "invalid target scope"),
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.CreateOperationRun(
+		context.Background(),
+		validCreateOperationRunRequest(),
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(t, err, "invalid target scope")
+}
+
+func TestGetOperationRunReturnsDetailedRun(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := &mockOperationRunManager{
+		getRun: testOperationRun(t, runID),
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.GetOperationRun(
+		context.Background(),
+		&pb.GetOperationRunRequest{Id: protobuf.UUIDTo(runID)},
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, manager.getCalls)
+	require.Equal(t, runID, manager.getID)
+	require.Equal(t, runID.String(), resp.GetOperationRun().GetSummary().GetId().GetId())
+	require.NotNil(t, resp.GetOperationRun().GetConfiguration())
+	require.Nil(t, resp.GetOperationRun().GetStats())
+}
+
+func TestGetOperationRunIncludesStatsWhenRequested(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	targets := []*operationrun.OperationRunTarget{
+		testOperationRunTarget(runID, 0, operationrun.OperationRunTargetStatusCompleted),
+		testOperationRunTarget(runID, 0, operationrun.OperationRunTargetStatusFailed),
+	}
+	for range dbquery.DefaultPaginationLimit - len(targets) {
+		targets = append(
+			targets,
+			testOperationRunTarget(runID, 1, operationrun.OperationRunTargetStatusSubmitted),
+		)
+	}
+	targets = append(
+		targets,
+		testOperationRunTarget(runID, 1, operationrun.OperationRunTargetStatusTerminated),
+	)
+	manager := &mockOperationRunManager{
+		getRun:           testOperationRun(t, runID),
+		listTargets:      targets,
+		listTargetsTotal: int32(len(targets)),
+		pageListTargets:  true,
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.GetOperationRun(
+		context.Background(),
+		&pb.GetOperationRunRequest{
+			Id:           protobuf.UUIDTo(runID),
+			IncludeStats: true,
+		},
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, manager.listTargetsCalls)
+	require.Equal(t, runID, manager.listTargetsID)
+	require.Equal(
+		t,
+		operationrun.TargetPhaseScopeCurrentAndCompletedPhases,
+		manager.listTargetsOpts.PhaseScope,
+	)
+	require.Len(t, manager.listTargetsOptsHistory, 2)
+	require.EqualValues(t, 0, manager.listTargetsOptsHistory[0].Pagination.Offset)
+	require.EqualValues(t, dbquery.DefaultPaginationLimit, manager.listTargetsOptsHistory[0].Pagination.Limit)
+	require.EqualValues(t, dbquery.DefaultPaginationLimit, manager.listTargetsOptsHistory[1].Pagination.Offset)
+	require.EqualValues(t, dbquery.DefaultPaginationLimit, manager.listTargetsOptsHistory[1].Pagination.Limit)
+	stats := resp.GetOperationRun().GetStats()
+	require.EqualValues(t, 1, stats.GetCurrentPhaseStats().GetPhaseIndex())
+	require.EqualValues(t, dbquery.DefaultPaginationLimit-1, stats.GetCurrentPhaseStats().GetSelectedTargets())
+	require.EqualValues(t, 1, stats.GetCurrentPhaseStats().GetOutcomeCounts().GetTerminated())
+	require.EqualValues(t, len(targets), stats.GetCumulativePhaseStats().GetSelectedTargets())
+	require.EqualValues(t, 1, stats.GetCumulativePhaseStats().GetOutcomeCounts().GetCompleted())
+	require.EqualValues(t, 1, stats.GetCumulativePhaseStats().GetOutcomeCounts().GetFailed())
+	require.EqualValues(t, 1, stats.GetCumulativePhaseStats().GetOutcomeCounts().GetTerminated())
+}
+
+func TestGetOperationRunRejectsInvalidID(t *testing.T) {
+	manager := &mockOperationRunManager{}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.GetOperationRun(
+		context.Background(),
+		&pb.GetOperationRunRequest{},
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Equal(t, 0, manager.getCalls)
+}
+
+func TestGetOperationRunMapsMissingRunToNotFound(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := &mockOperationRunManager{
+		getErr: fmt.Errorf("%w: %s", operationrunmanager.ErrOperationRunNotFound, runID),
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.GetOperationRun(
+		context.Background(),
+		&pb.GetOperationRunRequest{Id: protobuf.UUIDTo(runID)},
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.NotFound, status.Code(err))
+	require.ErrorContains(t, err, "operation run not found")
+	require.ErrorContains(t, err, runID.String())
+	require.Equal(t, 1, manager.getCalls)
+}
+
+func TestListOperationRunsReturnsSummaries(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	statusFilter := pb.OperationRunStatus_OPERATION_RUN_STATUS_RUNNING
+	manager := &mockOperationRunManager{
+		listRuns:  []*operationrun.OperationRun{testOperationRun(t, runID)},
+		listTotal: 3,
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.ListOperationRuns(
+		context.Background(),
+		&pb.ListOperationRunsRequest{
+			Filter: &pb.OperationRunFilter{
+				States: []*pb.OperationRunStateFilter{
+					{Status: &statusFilter},
+				},
+			},
+			Pagination: &pb.Pagination{Offset: 5, Limit: 10},
+		},
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, manager.listCalls)
+	require.EqualValues(t, 5, manager.listOpts.Pagination.Offset)
+	require.EqualValues(t, 10, manager.listOpts.Pagination.Limit)
+	require.Equal(t, operationrun.OperationRunStatusRunning, manager.listOpts.States[0].Status)
+	require.EqualValues(t, 3, resp.GetTotal())
+	require.Len(t, resp.GetOperationRuns(), 1)
+	require.Equal(t, runID.String(), resp.GetOperationRuns()[0].GetId().GetId())
+}
+
+func TestListOperationRunsRejectsInvalidFilter(t *testing.T) {
+	manager := &mockOperationRunManager{}
+	server := &FlowServerImpl{operationRunManager: manager}
+	statusFilter := pb.OperationRunStatus(999)
+
+	resp, err := server.ListOperationRuns(
+		context.Background(),
+		&pb.ListOperationRunsRequest{
+			Filter: &pb.OperationRunFilter{
+				States: []*pb.OperationRunStateFilter{
+					{Status: &statusFilter},
+				},
+			},
+		},
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Equal(t, 0, manager.listCalls)
+}
+
+func TestListOperationRunTargetsReturnsTargets(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := &mockOperationRunManager{
+		listTargets: []*operationrun.OperationRunTarget{
+			testOperationRunTarget(runID, 1, operationrun.OperationRunTargetStatusBlocked),
+		},
+		listTargetsTotal: 2,
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.ListOperationRunTargets(
+		context.Background(),
+		&pb.ListOperationRunTargetsRequest{
+			OperationRunId: protobuf.UUIDTo(runID),
+			Status:         pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_BLOCKED,
+			PhaseScope:     pb.OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_COMPLETED_PHASES,
+			Pagination:     &pb.Pagination{Offset: 1, Limit: 2},
+		},
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, manager.listTargetsCalls)
+	require.Equal(t, runID, manager.listTargetsID)
+	require.Equal(t, operationrun.OperationRunTargetStatusBlocked, manager.listTargetsOpts.Status)
+	require.Equal(
+		t,
+		operationrun.TargetPhaseScopeCompletedPhases,
+		manager.listTargetsOpts.PhaseScope,
+	)
+	require.EqualValues(t, 1, manager.listTargetsOpts.Pagination.Offset)
+	require.EqualValues(t, 2, manager.listTargetsOpts.Pagination.Limit)
+	require.EqualValues(t, 2, resp.GetTotal())
+	require.Len(t, resp.GetTargets(), 1)
+	require.Equal(
+		t,
+		pb.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_BLOCKED,
+		resp.GetTargets()[0].GetStatus(),
+	)
+}
+
+func TestListOperationRunTargetsRejectsInvalidID(t *testing.T) {
+	manager := &mockOperationRunManager{}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.ListOperationRunTargets(
+		context.Background(),
+		&pb.ListOperationRunTargetsRequest{},
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Equal(t, 0, manager.listTargetsCalls)
+}
+
+func TestListOperationRunTargetsMapsMissingRunToNotFound(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := &mockOperationRunManager{
+		listTargetsErr: fmt.Errorf("%w: %s", operationrunmanager.ErrOperationRunNotFound, runID),
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.ListOperationRunTargets(
+		context.Background(),
+		&pb.ListOperationRunTargetsRequest{
+			OperationRunId: protobuf.UUIDTo(runID),
+		},
+	)
+
+	require.Nil(t, resp)
+	require.Equal(t, codes.NotFound, status.Code(err))
+	require.ErrorContains(t, err, "operation run not found")
+	require.ErrorContains(t, err, runID.String())
+	require.Equal(t, 1, manager.listTargetsCalls)
+}
+
+type mockOperationRunManager struct {
+	createID    uuid.UUID
+	createErr   error
+	createCalls int
+	createdRun  *operationrun.OperationRun
+
+	getRun   *operationrun.OperationRun
+	getErr   error
+	getCalls int
+	getID    uuid.UUID
+
+	listRuns  []*operationrun.OperationRun
+	listTotal int32
+	listErr   error
+	listCalls int
+	listOpts  operationrun.ListOptions
+
+	listTargets            []*operationrun.OperationRunTarget
+	listTargetsTotal       int32
+	listTargetsErr         error
+	listTargetsCalls       int
+	listTargetsID          uuid.UUID
+	listTargetsOpts        operationrun.TargetListOptions
+	listTargetsOptsHistory []operationrun.TargetListOptions
+	pageListTargets        bool
+}
+
+func (m *mockOperationRunManager) Create(
+	_ context.Context,
+	run *operationrun.OperationRun,
+) (uuid.UUID, error) {
+	m.createCalls++
+	m.createdRun = run
+	if m.createErr != nil {
+		return uuid.Nil, m.createErr
+	}
+
+	return m.createID, nil
+}
+
+func (m *mockOperationRunManager) Get(
+	_ context.Context,
+	id uuid.UUID,
+) (*operationrun.OperationRun, error) {
+	m.getCalls++
+	m.getID = id
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+
+	return m.getRun, nil
+}
+
+func (m *mockOperationRunManager) List(
+	_ context.Context,
+	opts operationrun.ListOptions,
+) ([]*operationrun.OperationRun, int32, error) {
+	m.listCalls++
+	m.listOpts = opts
+	if m.listErr != nil {
+		return nil, 0, m.listErr
+	}
+
+	return m.listRuns, m.listTotal, nil
+}
+
+func (m *mockOperationRunManager) ListTargets(
+	_ context.Context,
+	id uuid.UUID,
+	opts operationrun.TargetListOptions,
+) ([]*operationrun.OperationRunTarget, int32, error) {
+	m.listTargetsCalls++
+	m.listTargetsID = id
+	m.listTargetsOpts = cloneTargetListOptions(opts)
+	m.listTargetsOptsHistory = append(m.listTargetsOptsHistory, cloneTargetListOptions(opts))
+	if m.listTargetsErr != nil {
+		return nil, 0, m.listTargetsErr
+	}
+
+	targets := m.listTargets
+	if m.pageListTargets && opts.Pagination != nil {
+		offset := opts.Pagination.Offset
+		if offset >= len(targets) {
+			return nil, m.listTargetsTotal, nil
+		}
+
+		end := offset + opts.Pagination.Limit
+		if end > len(targets) {
+			end = len(targets)
+		}
+		targets = targets[offset:end]
+	}
+
+	return targets, m.listTargetsTotal, nil
+}
+
+func cloneTargetListOptions(opts operationrun.TargetListOptions) operationrun.TargetListOptions {
+	cloned := opts
+	if opts.Pagination != nil {
+		pagination := *opts.Pagination
+		cloned.Pagination = &pagination
+	}
+
+	return cloned
+}
+
+func testOperationRun(
+	t *testing.T,
+	id uuid.UUID,
+) *operationrun.OperationRun {
+	t.Helper()
+	run, err := protobuf.OperationRunFrom(validCreateOperationRunRequest())
+	require.NoError(t, err)
+	run.ID = id
+	run.Status = operationrun.OperationRunStatusRunning
+	run.CreatedAt = time.Date(2026, 6, 16, 1, 2, 3, 0, time.UTC)
+	run.UpdatedAt = run.CreatedAt.Add(time.Minute)
+	return run
+}
+
+func testOperationRunTarget(
+	runID uuid.UUID,
+	phase int32,
+	status operationrun.OperationRunTargetStatus,
+) *operationrun.OperationRunTarget {
+	now := time.Date(2026, 6, 16, 1, 2, 3, 0, time.UTC)
+	return &operationrun.OperationRunTarget{
+		ID:             uuid.New(),
+		OperationRunID: runID,
+		RackID:         uuid.New(),
+		SequenceIndex:  1,
+		PhaseIndex:     phase,
+		Status:         status,
+		CreatedAt:      now,
+		UpdatedAt:      now.Add(time.Minute),
+	}
+}
+
+func validCreateOperationRunRequest() *pb.CreateOperationRunRequest {
+	targetVersion := "1.2.3"
+
+	return &pb.CreateOperationRunRequest{
+		Name: "firmware canary",
+		Configuration: &pb.OperationRunConfiguration{
+			Selector: &pb.OperationRunSelector{
+				Selector: &pb.OperationRunSelector_Percentage{
+					Percentage: &pb.PercentageSelector{Percentage: 10},
+				},
+			},
+			Options: &pb.OperationRunOptions{
+				MaxConcurrentTargets: 2,
+				SafetyPolicy: &pb.OperationRunSafetyPolicy{
+					Gates: []*pb.OperationRunSafetyGate{
+						{
+							Gate: &pb.OperationRunSafetyGate_FailureRate{
+								FailureRate: &pb.OperationRunFailureRateGate{
+									FailureThresholdPercent: 20,
+								},
+							},
+						},
+					},
+				},
+			},
+			Operation: &pb.OperationRunOperation{
+				Operation: &pb.OperationRunOperation_UpgradeFirmware{
+					UpgradeFirmware: &pb.UpgradeFirmwareRequest{
+						TargetVersion: &targetVersion,
+						Description:   "roll rack firmware",
+						QueueOptions: &pb.QueueOptions{
+							ConflictStrategy:    pb.ConflictStrategy_CONFLICT_STRATEGY_QUEUE,
+							QueueTimeoutSeconds: 300,
+						},
+						RuleId: &pb.UUID{
+							Id: "33333333-3333-3333-3333-333333333333",
+						},
+						SubTargets:             []string{"bmc"},
+						OverrideReadinessCheck: true,
+					},
+				},
+			},
+		},
+	}
+}

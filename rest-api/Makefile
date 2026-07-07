@@ -5,6 +5,7 @@
 .PHONY: build docker-build docker-build-local
 .PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow test-powershelf-manager test-nvswitch-manager migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
 .PHONY: validate-openapi preview-openapi generate-client
+.PHONY: core-proto core-proto-clean core-proto-fetch core-proto-fmt core-protogen flow-proto flow-protogen
 .PHONY: pre-commit-install pre-commit-run pre-commit-update
 
 # Build configuration
@@ -259,7 +260,11 @@ docker-build:
 	docker build -t $(IMAGE_REGISTRY)/nico-nsm:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-nsm .
 	docker build -t $(IMAGE_REGISTRY)/nico-mcp:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-mcp .
 
-core-proto: core-proto-fetch core-proto-fmt core-protogen
+core-proto:
+	$(MAKE) core-proto-clean
+	$(MAKE) core-proto-fetch
+	$(MAKE) core-proto-fmt
+	$(MAKE) core-protogen
 
 core-proto-clean:
 	@echo "Cleaning up Core proto and protobuf files"
@@ -279,6 +284,26 @@ core-proto-fmt:
 	cd workflow-schema/cmd/core-proto-fmt && go run main.go
 
 core-protogen:
+	if ! command -v buf >/dev/null 2>&1; then \
+		echo "buf is not installed. Please install buf: https://buf.build/docs/installation"; \
+		exit 1; \
+	fi
+	if ! command -v protoc-gen-go >/dev/null 2>&1; then \
+		echo "protoc-gen-go is not installed. Please install it: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11"; \
+		exit 1; \
+	fi
+	if ! protoc-gen-go --version | grep -q "1.36.11"; then \
+		echo "protoc-gen-go is not version 1.36.11. Please install it: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11"; \
+		exit 1; \
+	fi
+	if ! command -v protoc-gen-go-grpc >/dev/null 2>&1; then \
+		echo "protoc-gen-go-grpc is not installed. Please install it: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1"; \
+		exit 1; \
+	fi
+	if ! protoc-gen-go-grpc --version | grep -q "1.6.1"; then \
+		echo "protoc-gen-go-grpc is not version 1.6.1. Please install it: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1"; \
+		exit 1; \
+	fi
 	echo "Generating protobuf for Core"
 	cd workflow-schema && buf generate
 	go fmt ./...
@@ -694,6 +719,7 @@ generate-sdk:
 		-i $(OPENAPI_SPEC) \
 		-g go \
 		-o sdk/standard \
+		-t openapi/templates/go \
 		--package-name standard \
 		--additional-properties=isGoSubmodule=true,enumClassPrefix=true \
 		--global-property=apis,models,supportingFiles

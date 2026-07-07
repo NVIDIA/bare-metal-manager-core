@@ -263,9 +263,9 @@ pub async fn create(
 ) -> DatabaseResult<ExpectedMachine> {
     let id = machine.id.unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_machines
-            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled, bmc_ip_address, bmc_retain_credentials, dpu_mode, host_lifecycle_profile)
+            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled, bmc_ip_address, bmc_retain_credentials, dpu_mode, bmc_ip_allocation, host_lifecycle_profile)
             VALUES
-            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14, $15::inet, $16, $17, $18::jsonb) RETURNING *";
+            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14, $15::inet, $16, $17, $18, $19::jsonb) RETURNING *";
 
     sqlx::query_as(query)
         .bind(id)
@@ -290,6 +290,7 @@ pub async fn create(
         .bind(machine.data.bmc_ip_address)
         .bind(machine.data.bmc_retain_credentials.unwrap_or(false))
         .bind(machine.data.dpu_mode)
+        .bind(machine.data.bmc_ip_allocation)
         .bind(sqlx::types::Json(&machine.data.host_lifecycle_profile))
         .fetch_one(txn)
         .await
@@ -397,7 +398,8 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
                      bmc_ip_address=$13, \
                      bmc_retain_credentials=COALESCE($14, bmc_retain_credentials), \
                      dpu_mode=$15, \
-                     host_lifecycle_profile=COALESCE($16, host_lifecycle_profile) \
+                     bmc_ip_allocation=$16, \
+                     host_lifecycle_profile=COALESCE($17, host_lifecycle_profile) \
                  WHERE ",
                 $where_clause,
             )
@@ -406,11 +408,11 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
 
     let (query, target_id) = match machine.id {
         Some(id) => (
-            update_expected_machine_query!("id=$17::uuid"),
+            update_expected_machine_query!("id=$18::uuid"),
             id.to_string(),
         ),
         None => (
-            update_expected_machine_query!("bmc_mac_address=$17::macaddr"),
+            update_expected_machine_query!("bmc_mac_address=$18::macaddr"),
             machine.bmc_mac_address.to_string(),
         ),
     };
@@ -431,6 +433,7 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
         .bind(machine.data.bmc_ip_address)
         .bind(machine.data.bmc_retain_credentials)
         .bind(machine.data.dpu_mode)
+        .bind(machine.data.bmc_ip_allocation)
         .bind(
             (!machine.data.host_lifecycle_profile.is_empty())
                 .then_some(sqlx::types::Json(&machine.data.host_lifecycle_profile)),

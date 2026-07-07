@@ -123,6 +123,24 @@ imagePullSecrets:
   ngcNvidianKey: ""      # nvcr.io/nvidian/nvforge (optional, for unbound)
 
 ## ---------------------------------------------------------------------------
+## rest — NICo REST API database prerequisites.
+##
+## When enabled, creates a dedicated postgres user (nico-rest.nico) and database
+## (nico_rest) on nico-pg-cluster, and an ESO ClusterExternalSecret that syncs
+## the Zalando-generated credentials into the rest namespace as the
+## `nico-rest-pg-creds` Secret. setup.sh reads this secret and injects the
+## credentials into nico-rest-common.secrets.dbCreds at helm install time.
+##
+## Enable when deploying nico-rest against the shared nico-pg-cluster.
+## Disable only when nico-rest uses its own external Postgres instance.
+## ---------------------------------------------------------------------------
+rest:
+  enabled: true
+  ## Namespace the nico-rest helm release deploys into.
+  ## ESO targets this namespace when syncing the nico-rest-pg-creds secret.
+  namespace: nico-rest
+
+## ---------------------------------------------------------------------------
 ## flow — NICo Flow (rack lifecycle orchestrator, formerly RLA).
 ##
 ## This toggle controls only the helm-prereqs side of Flow:

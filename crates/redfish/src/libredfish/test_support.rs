@@ -56,7 +56,6 @@ struct RedfishSimState {
     get_task_trigger_evidence_returns_interrupted: bool,
     machine_setup_bios_job_id: Option<String>,
     is_bios_setup: Option<bool>,
-    is_boot_order_setup: Option<bool>,
     default_lockdown: Option<EnabledDisabled>,
     job_state_sequence: VecDeque<JobState>,
     /// Offset (in seconds) applied to the BMC `DateTime` returned by
@@ -67,6 +66,19 @@ struct RedfishSimState {
     /// Records every call to `RedfishClientPool::create_client` so tests can
     /// assert what vendor was passed at each call site.
     create_client_calls: Vec<CreateClientCall>,
+    /// When set, `change_password` fails with
+    /// [`RedfishError::PasswordChangeRequired`] to model a factory BMC (e.g.
+    /// Viking) that refuses the by-username change until the initial
+    /// change-on-first-use has been done -- the case the `AMI`/`LenovoGB300`
+    /// rotation path handles by retrying `change_password_by_id("2")`.
+    password_change_required: bool,
+    /// When set, overrides the `Vendor` field returned by `get_service_root`.
+    /// Tests set it to an unrecognized value to force `probe_bmc_vendor` down
+    /// the Chassis `Manufacturer` fallback path.
+    service_root_vendor: Option<String>,
+    /// When set, overrides the `Manufacturer` returned by `get_chassis`, so
+    /// tests can drive `probe_bmc_vendor`'s Lite-On/Delta chassis fallback.
+    chassis_manufacturer: Option<String>,
 }
 
 /// Snapshot of a single `RedfishClientPool::create_client` invocation.
@@ -81,6 +93,22 @@ struct RedfishSimHostState {
     power: PowerState,
     lockdown: libredfish::EnabledDisabled,
     actions: Vec<RedfishSimAction>,
+    /// Whether this host's `HttpDev1` UEFI HTTP-boot device is enabled in BIOS.
+    /// Defaults to `true` (the steady state after `machine_setup`): the boot
+    /// device is present, so `set_boot_order_dpu_first` can promote it and
+    /// `is_boot_order_setup` reports the order as configured. Tests flip it to
+    /// `false` via [`RedfishSim::set_http_dev1_reverted`] to model a NIC-mode
+    /// reboot de-enumerating the BlueField, which reverts the attribute to the
+    /// onboard default; only a fresh `machine_setup` re-enables it. Per-host so
+    /// one host's de-enumeration (or recovery) doesn't bleed into the others.
+    http_dev1_enabled: bool,
+    /// Whether this host reports its boot order as configured. `None` defers to
+    /// the default (`true`); `set_boot_order_dpu_first` records it as
+    /// `Some(http_dev1_enabled)` -- the reorder only "sticks" while the HTTP
+    /// boot device is present -- and `set_is_boot_order_setup` forces it.
+    /// Per-host so one host's boot-order state can't flip another host's
+    /// `is_boot_order_setup` check.
+    is_boot_order_setup: Option<bool>,
 }
 
 impl Default for RedfishSimHostState {
@@ -89,6 +117,10 @@ impl Default for RedfishSimHostState {
             power: PowerState::default(),
             lockdown: libredfish::EnabledDisabled::Disabled,
             actions: Vec::default(),
+            // Enabled by default so existing tests, which never model a
+            // de-enumeration, see the boot order configure normally.
+            http_dev1_enabled: true,
+            is_boot_order_setup: None,
         }
     }
 }
@@ -170,9 +202,31 @@ impl RedfishSim {
         self.state.lock().unwrap().is_bios_setup = Some(ready);
     }
 
-    /// Configure whether simulated Redfish reports the host boot order as ready.
+    /// Force whether simulated Redfish reports the boot order as configured,
+    /// for every current host. A later `set_boot_order_dpu_first` overwrites it
+    /// per host (last write wins), the same as a real boot-order setup would.
     pub fn set_is_boot_order_setup(&self, ready: bool) {
-        self.state.lock().unwrap().is_boot_order_setup = Some(ready);
+        let mut state = self.state.lock().unwrap();
+        for host_state in state.hosts.values_mut() {
+            host_state.is_boot_order_setup = Some(ready);
+        }
+    }
+
+    /// Model a NIC-mode reboot de-enumerating the BlueField: the `HttpDev1`
+    /// UEFI HTTP-boot device reverts to the onboard default and is no longer
+    /// enabled. While reverted, `set_boot_order_dpu_first` records the boot
+    /// order as *not* configured (it can only reorder a device that exists),
+    /// so `is_boot_order_setup` reports `false` until a fresh `machine_setup`
+    /// re-enables the device.
+    ///
+    /// The flag is per-host, so reverting every current host here is just the
+    /// no-host-id entry point; a later `machine_setup` re-enables only the host
+    /// it targets, which is what keeps multi-host tests isolated.
+    pub fn set_http_dev1_reverted(&self) {
+        let mut state = self.state.lock().unwrap();
+        for host_state in state.hosts.values_mut() {
+            host_state.http_dev1_enabled = false;
+        }
     }
 
     /// Configure simulated BMC lockdown state for existing and future clients.
@@ -206,6 +260,44 @@ impl RedfishSim {
             .unwrap()
             .users
             .insert(username.to_string(), password.to_string());
+    }
+
+    /// Make `change_password` (the by-username path) fail with
+    /// [`RedfishError::PasswordChangeRequired`], modeling a factory BMC that
+    /// blocks it until change-on-first-use. `change_password_by_id` still
+    /// succeeds, so this exercises the `AMI`/`LenovoGB300` rotation fallback.
+    pub fn set_password_change_required(&self, required: bool) {
+        self.state.lock().unwrap().password_change_required = required;
+    }
+
+    /// Override the `Vendor` reported by `get_service_root`. Set it to an
+    /// unrecognized value to force `probe_bmc_vendor` past the anonymous
+    /// service-root probe and into the Chassis `Manufacturer` fallback.
+    pub fn set_service_root_vendor(&self, vendor: Option<String>) {
+        self.state.lock().unwrap().service_root_vendor = vendor;
+    }
+
+    /// Override the `Manufacturer` reported by `get_chassis`, so tests can
+    /// drive `probe_bmc_vendor`'s Lite-On/Delta chassis fallback.
+    pub fn set_chassis_manufacturer(&self, manufacturer: Option<String>) {
+        self.state.lock().unwrap().chassis_manufacturer = manufacturer;
+    }
+
+    /// Seed a credential into the sim's credential store -- the same store
+    /// [`Self::credential_reader`] exposes. Controllers that resolve a credential
+    /// through `redfish_client_pool.credential_reader()` (e.g. UEFI setup, which
+    /// now reads the site-wide credential in the controller before calling
+    /// `uefi_setup`) read from here, so tests that drive those paths must seed it.
+    pub async fn seed_credential(
+        &self,
+        key: &carbide_secrets::credentials::CredentialKey,
+        credentials: &carbide_secrets::credentials::Credentials,
+    ) {
+        use carbide_secrets::credentials::CredentialWriter;
+        self.credential_manager
+            .set_credentials(key, credentials)
+            .await
+            .expect("seed redfish-sim credential");
     }
 }
 
@@ -351,12 +443,19 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
+            let job_id = state.machine_setup_bios_job_id.clone();
             let host_state = state.hosts.get_mut(&self._host).unwrap();
+            // `machine_setup` re-asserts the platform BIOS config, which
+            // re-enables this host's `HttpDev1` HTTP-boot device. This is the
+            // recovery a de-enumeration relies on: a subsequent
+            // `set_boot_order_dpu_first` can then promote the device and the
+            // boot order sticks. Per-host, so it recovers only this host.
+            host_state.http_dev1_enabled = true;
             host_state.actions.push(RedfishSimAction::MachineSetup {
                 oem_manager_profiles: oem_manager_profiles.clone(),
                 boot_interface_mac: boot_interface.map(boot_interface_ref_to_string),
             });
-            Ok(state.machine_setup_bios_job_id.clone())
+            Ok(job_id)
         })
     }
 
@@ -503,6 +602,9 @@ impl Redfish for RedfishSimClient {
         Box::pin(async move {
             let s_user = user.to_string();
             let mut state = self.state.lock().unwrap();
+            if state.password_change_required {
+                return Err(RedfishError::PasswordChangeRequired);
+            }
             if !state.users.contains_key(&s_user) {
                 return Err(RedfishError::UserNotFound(s_user));
             }
@@ -677,8 +779,15 @@ impl Redfish for RedfishSimClient {
         _id: &'a str,
     ) -> libredfish::RedfishFuture<'a, Result<Chassis, RedfishError>> {
         Box::pin(async move {
+            let manufacturer = self
+                .state
+                .lock()
+                .unwrap()
+                .chassis_manufacturer
+                .clone()
+                .unwrap_or_else(|| "Nvidia".to_string());
             Ok(Chassis {
-                manufacturer: Some("Nvidia".to_string()),
+                manufacturer: Some(manufacturer),
                 model: Some("Bluefield 3 SmartNIC Main Card".to_string()),
                 name: Some("Card1".to_string()),
                 ..Default::default()
@@ -965,8 +1074,15 @@ impl Redfish for RedfishSimClient {
         Result<libredfish::model::service_root::ServiceRoot, RedfishError>,
     > {
         Box::pin(async move {
+            let vendor = self
+                .state
+                .lock()
+                .unwrap()
+                .service_root_vendor
+                .clone()
+                .unwrap_or_else(|| "Nvidia".to_string());
             Ok(ServiceRoot {
-                vendor: Some("Nvidia".to_string()),
+                vendor: Some(vendor),
                 product: Some("GB200 NVL".to_string()),
                 component_integrity: Some(ODataId {
                     odata_id: "Valid Data".to_string(),
@@ -1225,8 +1341,11 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
-            state.is_boot_order_setup = Some(true);
             let host_state = state.hosts.get_mut(&self._host).unwrap();
+            // Reordering only promotes an existing boot device; it can't
+            // re-create a de-enumerated one. So the order reads as configured
+            // exactly when this host's HTTP boot device is currently enabled.
+            host_state.is_boot_order_setup = Some(host_state.http_dev1_enabled);
             host_state
                 .actions
                 .push(RedfishSimAction::SetBootOrderDpuFirst {
@@ -1407,8 +1526,11 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
-            let is_boot_order_setup = state.is_boot_order_setup.unwrap_or(true);
             let host_state = state.hosts.get_mut(&self._host).unwrap();
+            // Readiness is per-host: it defaults to configured (`true`) and is
+            // updated only by this host's own `set_boot_order_dpu_first` /
+            // `set_is_boot_order_setup`, so other hosts can't flip it.
+            let is_boot_order_setup = host_state.is_boot_order_setup.unwrap_or(true);
             host_state.actions.push(RedfishSimAction::IsBootOrderSetup {
                 boot_interface_mac: boot_interface_ref_to_string(boot_interface),
             });
@@ -1862,6 +1984,8 @@ impl RedfishClientPool for RedfishSim {
                     power: PowerState::On,
                     lockdown: default_lockdown,
                     actions: Default::default(),
+                    http_dev1_enabled: true,
+                    is_boot_order_setup: None,
                 });
             if state.fw_version.is_empty() {
                 state.fw_version = Arc::new("24.10-17".to_string());
@@ -1882,6 +2006,7 @@ impl RedfishClientPool for RedfishSim {
         &self,
         _client: &dyn Redfish,
         _dpu: bool,
+        _sitewide_uefi_credentials: carbide_secrets::credentials::Credentials,
     ) -> Result<Option<String>, RedfishClientCreationError> {
         Ok(None)
     }

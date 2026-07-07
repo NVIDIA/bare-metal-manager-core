@@ -158,7 +158,7 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 
 		// Re-read inside the tx so the existence check and any create/update
 		// happen against the same locked snapshot.
-		tns, derr := tnDAO.GetAllByOrg(ctx, tx, org, nil)
+		tns, _, derr := tnDAO.GetAll(ctx, tx, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error retrieving Tenant for this org")
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve current Tenant", nil)
@@ -274,7 +274,7 @@ func (gcth GetCurrentTenantStatsHandler) Handle(c echo.Context) error {
 	// Get Tenant for this org
 	tnDAO := cdbm.NewTenantDAO(gcth.dbSession)
 
-	tns, err := tnDAO.GetAllByOrg(ctx, nil, org, nil)
+	tns, _, err := tnDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{Orgs: []string{org}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Tenant for this org")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant", nil)

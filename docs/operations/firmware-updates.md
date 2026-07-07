@@ -39,7 +39,7 @@ Use `nico-admin-cli` for CLI examples. These commands talk to the NICo Core
 gRPC API:
 
 ```bash
-nico-admin-cli -c <core-api-url> <command>
+nico-admin-cli -a <core-api-url> <command>
 ```
 
 ## Machine Update Manager
@@ -150,7 +150,7 @@ required.
 List host firmware entries known to NICo:
 
 ```bash
-nico-admin-cli -c <core-api-url> firmware show
+nico-admin-cli -a <core-api-url> firmware show
 ```
 
 The output includes vendor, model, component type, inventory-name match,
@@ -212,15 +212,15 @@ During a host firmware update, NICo can:
 Enable, disable, or clear machine-specific auto-update behavior:
 
 ```bash
-nico-admin-cli -c <core-api-url> machine auto-update --machine <machine-id> --enable
-nico-admin-cli -c <core-api-url> machine auto-update --machine <machine-id> --disable
-nico-admin-cli -c <core-api-url> machine auto-update --machine <machine-id> --clear
+nico-admin-cli -a <core-api-url> machine auto-update --machine <machine-id> --enable
+nico-admin-cli -a <core-api-url> machine auto-update --machine <machine-id> --disable
+nico-admin-cli -a <core-api-url> machine auto-update --machine <machine-id> --clear
 ```
 
 Set an explicit firmware update window for one or more machines:
 
 ```bash
-nico-admin-cli -c <core-api-url> managed-host start-updates \
+nico-admin-cli -a <core-api-url> managed-host start-updates \
   --machines <machine-id-1> <machine-id-2> \
   --start 2026-05-22T01:00:00-0700 \
   --end 2026-05-22T05:00:00-0700
@@ -229,7 +229,7 @@ nico-admin-cli -c <core-api-url> managed-host start-updates \
 Cancel pending start windows:
 
 ```bash
-nico-admin-cli -c <core-api-url> managed-host start-updates \
+nico-admin-cli -a <core-api-url> managed-host start-updates \
   --machines <machine-id> \
   --cancel
 ```
@@ -238,7 +238,7 @@ Request host reprovisioning when the host must be put back through the
 managed-host firmware path:
 
 ```bash
-nico-admin-cli -c <core-api-url> host reprovision set \
+nico-admin-cli -a <core-api-url> host reprovision set \
   --id <machine-id> \
   --update-firmware \
   --update-message "<ticket-or-maintenance-reference>"
@@ -262,7 +262,7 @@ against the configured baseline.
 Inspect DPU firmware status:
 
 ```bash
-nico-admin-cli -c <core-api-url> dpu versions
+nico-admin-cli -a <core-api-url> dpu versions
 ```
 
 For the full DPU firmware flow, see
@@ -308,7 +308,7 @@ After the field procedure is complete, mark the manual firmware upgrade
 complete so NICo can resume automatic checks:
 
 ```bash
-nico-admin-cli -c <core-api-url> host reprovision mark-manual-upgrade-complete --id <machine-id>
+nico-admin-cli -a <core-api-url> host reprovision mark-manual-upgrade-complete --id <machine-id>
 ```
 
 ### OEM Platforms
@@ -405,12 +405,12 @@ Use component-manager only for lower-level switch and power shelf firmware
 workflows when a REST workflow is not available for that component:
 
 ```bash
-nico-admin-cli -c <core-api-url> component-manager update-firmware switch \
+nico-admin-cli -a <core-api-url> component-manager update-firmware switch \
   --switch-id <switch-id> \
   --target-version <target-version> \
   --component bmc,cpld,bios,nvos
 
-nico-admin-cli -c <core-api-url> component-manager update-firmware power-shelf \
+nico-admin-cli -a <core-api-url> component-manager update-firmware power-shelf \
   --power-shelf-id <power-shelf-id> \
   --target-version <target-version> \
   --component pmc,psu
@@ -419,8 +419,8 @@ nico-admin-cli -c <core-api-url> component-manager update-firmware power-shelf \
 Check component firmware status:
 
 ```bash
-nico-admin-cli -c <core-api-url> component-manager get-firmware-update-status switch --switch-id <switch-id>
-nico-admin-cli -c <core-api-url> component-manager get-firmware-update-status power-shelf --power-shelf-id <power-shelf-id>
+nico-admin-cli -a <core-api-url> component-manager get-firmware-update-status switch --switch-id <switch-id>
+nico-admin-cli -a <core-api-url> component-manager get-firmware-update-status power-shelf --power-shelf-id <power-shelf-id>
 ```
 
 ## Monitor Progress
@@ -430,12 +430,12 @@ is unclear.
 
 | Task | Command |
 |---|---|
-| Show managed-host state and handler outcome | `nico-admin-cli -c <core-api-url> managed-host show <machine-id>` |
-| Show machine details and health reports | `nico-admin-cli -c <core-api-url> machine show <machine-id>` |
-| Show host firmware baseline entries | `nico-admin-cli -c <core-api-url> firmware show` |
-| Show DPU firmware status | `nico-admin-cli -c <core-api-url> dpu versions` |
+| Show managed-host state and handler outcome | `nico-admin-cli -a <core-api-url> managed-host show <machine-id>` |
+| Show machine details and health reports | `nico-admin-cli -a <core-api-url> machine show <machine-id>` |
+| Show host firmware baseline entries | `nico-admin-cli -a <core-api-url> firmware show` |
+| Show DPU firmware status | `nico-admin-cli -a <core-api-url> dpu versions` |
 | Start rack or tray firmware update workflow | Use the rack and tray REST firmware endpoints. The response returns `taskIds`. |
-| Show switch or power shelf component firmware status | `nico-admin-cli -c <core-api-url> component-manager get-firmware-update-status <target> ...` |
+| Show switch or power shelf component firmware status | `nico-admin-cli -a <core-api-url> component-manager get-firmware-update-status <target> ...` |
 
 Useful metrics:
 
@@ -475,5 +475,5 @@ After the platform condition is corrected, reset a failed host reprovisioning
 flow only when the site runbook calls for it:
 
 ```bash
-nico-admin-cli -c <core-api-url> managed-host reset-host-reprovisioning --machine <machine-id>
+nico-admin-cli -a <core-api-url> managed-host reset-host-reprovisioning --machine <machine-id>
 ```

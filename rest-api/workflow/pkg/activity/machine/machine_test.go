@@ -239,12 +239,10 @@ func testMachineBuildMachineInterface(t *testing.T, dbSession *cdb.Session, mID 
 func testMachineBuildMachineInstanceType(t *testing.T, dbSession *cdb.Session, machineID string, instanceTypeID uuid.UUID) *cdbm.MachineInstanceType {
 	mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
 
-	mit, err := mitDAO.CreateFromParams(
-		context.Background(),
-		nil,
-		machineID,
-		instanceTypeID,
-	)
+	mit, err := mitDAO.Create(context.Background(), nil, cdbm.MachineInstanceTypeCreateInput{
+		MachineID:      machineID,
+		InstanceTypeID: instanceTypeID,
+	})
 	assert.Nil(t, err)
 	assert.NotNil(t, mit)
 	assert.Equal(t, machineID, mit.MachineID)
@@ -255,7 +253,7 @@ func testMachineBuildMachineInstanceType(t *testing.T, dbSession *cdb.Session, m
 
 func testMachineBuildStatusDetail(t *testing.T, dbSession *cdb.Session, entityID string, status string, message *string) {
 	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
-	ssd, err := sdDAO.CreateFromParams(context.Background(), nil, entityID, status, message)
+	ssd, err := sdDAO.Create(context.Background(), nil, cdbm.StatusDetailCreateInput{EntityID: entityID, Status: status, Message: message})
 	assert.Nil(t, err)
 	assert.NotNil(t, ssd)
 	assert.Equal(t, entityID, ssd.EntityID)
@@ -1060,7 +1058,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.NotEqual(t, emis1[0].ID, mi1.ID)
 
 				// Machine 1 should have 5 capabilities (1 CPU, 3 Network, 2 Memory, 3 Storage, 1 GPU, 1 InfiniBand, 1 DPU)
-				// Carbide will report memory even when it can't determine the capacity.
+				// NICo will report memory even when it can't determine the capacity.
 				// This is slightly different from Cloud originally, which would track UNKNOWN name but skip unknown capacity.
 				mcDAO := cdbm.NewMachineCapabilityDAO(mm.dbSession)
 				mc1s, mc1Total, serr := mcDAO.GetAll(tt.args.ctx, nil, []string{um1.ID}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
@@ -1202,7 +1200,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.Equal(t, um2.IsUsableByTenant, false)
 
 				// Machine 3 should have only 1 status detail (Error)
-				_, m3sdCount, serr := sdDAO.GetAllByEntityID(tt.args.ctx, nil, m3.ID, nil, nil, nil)
+				_, m3sdCount, serr := sdDAO.GetAll(tt.args.ctx, nil, cdbm.StatusDetailFilterInput{EntityIDs: []string{m3.ID}}, cdbp.PageInput{})
 				assert.Nil(t, serr)
 				assert.Equal(t, 1, m3sdCount)
 			}
@@ -1242,7 +1240,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.NotNil(t, newMachine.InstanceTypeID)
 				assert.Equal(t, instanceTypeOriginal.ID, *newMachine.InstanceTypeID)
 
-				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.newWithInstanceTypeMachineID, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, cdbm.MachineInstanceTypeFilterInput{MachineID: tt.args.newWithInstanceTypeMachineID}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				assert.Nil(t, serr)
 				require.Equal(t, 1, total)
 				assert.Equal(t, instanceTypeOriginal.ID, machineInstanceTypes[0].InstanceTypeID)
@@ -1255,7 +1253,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					assert.Equal(t, instanceTypeUpdated.ID, *updatedMachine.InstanceTypeID)
 				}
 
-				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.updatedInstanceTypeMachineID, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, cdbm.MachineInstanceTypeFilterInput{MachineID: tt.args.updatedInstanceTypeMachineID}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				assert.Nil(t, serr)
 				require.Equal(t, 1, total)
 				assert.Equal(t, instanceTypeUpdated.ID, machineInstanceTypes[0].InstanceTypeID)
@@ -1267,7 +1265,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				assert.Nil(t, serr)
 				assert.Nil(t, clearedMachine.InstanceTypeID)
 
-				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.clearedInstanceTypeMachineID, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, cdbm.MachineInstanceTypeFilterInput{MachineID: tt.args.clearedInstanceTypeMachineID}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				assert.Nil(t, serr)
 				assert.Equal(t, 0, total)
 				assert.Empty(t, machineInstanceTypes)
@@ -1280,7 +1278,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					assert.Equal(t, instanceTypeUnchanged.ID, *unchangedMachine.InstanceTypeID)
 				}
 
-				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, tt.args.unchangedInstanceTypeMachineID, nil, nil, nil, cutil.GetPtr(cdbp.TotalLimit), nil)
+				machineInstanceTypes, total, serr := mitDAO.GetAll(tt.args.ctx, nil, cdbm.MachineInstanceTypeFilterInput{MachineID: tt.args.unchangedInstanceTypeMachineID}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				assert.Nil(t, serr)
 				require.Equal(t, 1, total)
 				assert.Equal(t, m18MachineInstanceType.ID, machineInstanceTypes[0].ID)
@@ -1403,7 +1401,7 @@ func TestNewManageMachine(t *testing.T) {
 	}
 }
 
-func TestGetForgeMachineStatus(t *testing.T) {
+func TestGetNICoMachineStatus(t *testing.T) {
 	type args struct {
 		controllerMachine *cwssaws.Machine
 	}
@@ -1416,7 +1414,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 		wantMachineAllocatable bool
 	}{
 		{
-			name: "test get forge machine status - with prefix",
+			name: "test get NICo machine status - with prefix",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					Id:            &cwssaws.MachineId{Id: uuid.NewString()},
@@ -1429,7 +1427,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: true, // Rule 1: InUse status without Prevent alerts
 		},
 		{
-			name: "test get forge machine status - without prefix",
+			name: "test get NICo machine status - without prefix",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					Id:            &cwssaws.MachineId{Id: uuid.NewString()},
@@ -1442,7 +1440,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: true,
 		},
 		{
-			name: "test get forge machine status - maintenance mode",
+			name: "test get NICo machine status - maintenance mode",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					Id:         &cwssaws.MachineId{Id: uuid.NewString()},
@@ -1458,7 +1456,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - missing",
+			name: "test get NICo machine status - missing",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStateMissing,
@@ -1468,7 +1466,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - with health probe alerts prevent classification",
+			name: "test get NICo machine status - with health probe alerts prevent classification",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStatePrefixReady,
@@ -1487,7 +1485,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - with automatic DPU firmware update alert",
+			name: "test get NICo machine status - with automatic DPU firmware update alert",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStatePrefixReady,
@@ -1510,7 +1508,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - with non-automatic DPU firmware update alert",
+			name: "test get NICo machine status - with non-automatic DPU firmware update alert",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStatePrefixAssigned,
@@ -1533,7 +1531,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			wantMachineAllocatable: false,
 		},
 		{
-			name: "test get forge machine status - non-DPU firmware prevent alert remains error",
+			name: "test get NICo machine status - non-DPU firmware prevent alert remains error",
 			args: args{
 				controllerMachine: &cwssaws.Machine{
 					State: controllerMachineStatePrefixReady,

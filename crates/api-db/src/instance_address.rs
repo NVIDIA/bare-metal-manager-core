@@ -21,6 +21,7 @@ use std::ops::DerefMut;
 use carbide_network::virtualization::{VpcVirtualizationType, get_host_ip};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use carbide_uuid::vpc::VpcId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
@@ -131,8 +132,18 @@ pub async fn delete_addresses(
     Ok(())
 }
 
+fn interface_vpc_id(iface: &InstanceInterfaceConfig, segments: &[NetworkSegment]) -> Option<VpcId> {
+    iface.vpc_id.or_else(|| {
+        let segment_id = iface.network_segment_id?;
+        segments
+            .iter()
+            .find(|segment| segment.id == segment_id)
+            .and_then(|segment| segment.config.vpc_id)
+    })
+}
+
 fn validate(
-    segments: &Vec<NetworkSegment>,
+    segments: &[NetworkSegment],
     instance_network: &InstanceNetworkConfig,
     segment_ids_using_vpc_prefix: &[NetworkSegmentId],
     all_fnn: bool,
@@ -163,15 +174,20 @@ fn validate(
                 }
             }
         }
+    }
 
-        match segment.config.vpc_id {
-            Some(x) => {
-                vpc_ids.insert(x);
+    for iface in &instance_network.interfaces {
+        match interface_vpc_id(iface, segments) {
+            Some(vpc_id) => {
+                vpc_ids.insert(vpc_id);
             }
             None => {
-                return Err(ConfigValidationError::VpcNotAttachedToSegment(segment.id).into());
+                let segment_id = iface
+                    .network_segment_id
+                    .ok_or(DatabaseError::NetworkSegmentNotAllocated)?;
+                return Err(ConfigValidationError::VpcNotAttachedToSegment(segment_id).into());
             }
-        };
+        }
     }
 
     if vpc_ids.len() != 1 && !all_fnn {
@@ -244,9 +260,10 @@ pub async fn allocate(
     .await?;
 
     // Multi-VPC instance interfaces are supported only when every referenced VPC is FNN.
-    let vpc_ids = segments
+    let vpc_ids = updated_config
+        .interfaces
         .iter()
-        .filter_map(|segment| segment.config.vpc_id)
+        .filter_map(|iface| interface_vpc_id(iface, &segments))
         .collect::<HashSet<_>>()
         .into_iter()
         .collect_vec();
@@ -371,10 +388,19 @@ pub async fn allocate(
             iface.assign_ips_from(ip_allocator)?
         };
 
-        let query = "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix)
-                         VALUES ($1::uuid, $2, $3::uuid, $4::cidr)";
+        let vpc_id = interface_vpc_id(iface, &segments)
+            .ok_or(ConfigValidationError::VpcNotAttachedToSegment(segment.id))?;
+        iface.vpc_id = Some(vpc_id);
+
+        let query =
+            "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix, vpc_id, hostname)
+                         VALUES ($1::uuid, $2, $3::uuid, $4::cidr, $5::uuid, $6)";
 
         for address in addresses {
+            // The forward-DNS name is the address in the host-naming strategy's
+            // IP-derived form, stored once here so the dns_records_instance view
+            // serves it without re-deriving in SQL.
+            let hostname = crate::host_naming::address_to_hostname(&address.ip())?;
             sqlx::query(query)
                 .bind(instance_id)
                 // eg. 10.3.2.1/30
@@ -382,6 +408,8 @@ pub async fn allocate(
                 // eg. 10.3.2.0/30
                 .bind(segment.id)
                 .bind(IpNetwork::new(address.network(), address.prefix())?)
+                .bind(vpc_id)
+                .bind(hostname)
                 .fetch_all(inner_txn.as_pgconn())
                 .await
                 .map_err(|e| DatabaseError::query(query, e))?;
@@ -652,13 +680,14 @@ mod tests {
         let network_segments: Vec<NetworkSegment> = InterfaceFunctionId::iter_all()
             .enumerate()
             .map(|(idx, _function_id)| {
-                let id = format!("91609f10-c91d-470d-a260-6293ea0c00{idx:02}");
+                let id: NetworkSegmentId =
+                    Uuid::from_u128(BASE_SEGMENT_ID.as_u128() + idx as u128).into();
                 let version = ConfigVersion::initial();
                 NetworkSegment {
-                    id: NetworkSegmentId::from_str(&id).unwrap(),
+                    id,
                     version,
                     config: NetworkSegmentConfig {
-                        name: id,
+                        name: id.to_string(),
                         subdomain_id: None,
                         vpc_id: Some(vpc_id),
                         mtu: 1500,
@@ -711,13 +740,14 @@ mod tests {
                     host_inband_mac_address: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
+                    vpc_id: None,
                 }
             })
             .collect();
 
         InstanceNetworkConfig {
             interfaces,
-            auto: false,
+            auto_config: None,
         }
     }
 

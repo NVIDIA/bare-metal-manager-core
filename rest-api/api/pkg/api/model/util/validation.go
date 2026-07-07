@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -19,6 +20,7 @@ var (
 	TrailingWhitespaceRegexp = regexp.MustCompile(".*\\s+$")
 	NotAllWhitespaceRegexp   = regexp.MustCompile("[^\\s]+")
 	ShaHashRegex             = regexp.MustCompile("^[A-Fa-f0-9]+$")
+	Sha256LowercaseHexRegex  = regexp.MustCompile("^[a-f0-9]{64}$")
 	DiskImagePathRegex       = regexp.MustCompile("^/dev/(:?nvme\\d+n\\d+|sd*)")
 
 	ValidationErrorNameHasLeadingWhitespace  = errors.New("name field has leading whitespace")
@@ -156,4 +158,22 @@ func IsNilOrEmptyStrPtr(s *string) bool {
 // IsEmptyStrPtr is a utility function to check if the underlying value of a string pointer is empty
 func IsEmptyStrPtr(s *string) bool {
 	return s != nil && *s == ""
+}
+
+// ValidateStrTime is a utility function to validate a string as a time.Time
+func ValidateStrPtrTime(value interface{}) error {
+	s, ok := value.(*string)
+	if !ok {
+		return errors.New("value must be a string pointer")
+	}
+
+	if s == nil {
+		return nil
+	}
+
+	_, err := time.Parse(time.RFC3339, *s)
+	if err != nil {
+		return fmt.Errorf("value is not a valid RFC3339 time")
+	}
+	return nil
 }

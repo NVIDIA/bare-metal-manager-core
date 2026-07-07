@@ -88,8 +88,12 @@ pub async fn update_bmc_network_into_machine_interfaces(
         )));
     }
 
-    crate::machine_interface::associate_bmc_interface_with_machine(&interface.id, machine_id, txn)
-        .await?;
+    crate::machine_interface::associate_bmc_interface(
+        &interface.id,
+        model::machine_interface_address::MachineInterfaceAssociation::Machine(*machine_id),
+        txn,
+    )
+    .await?;
     bmc_info.machine_interface_id = Some(interface.id);
 
     update_bmc_network_into_topologies(txn, machine_id, bmc_info).await

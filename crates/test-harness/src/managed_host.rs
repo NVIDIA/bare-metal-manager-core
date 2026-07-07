@@ -31,6 +31,7 @@ use model::site_explorer::EndpointExplorationReport;
 use model::test_support::ManagedHostConfig;
 
 use crate::TestHarness;
+use crate::db_machine::DbMachineExt as _;
 use crate::machine::TestMachine;
 use crate::machine_dpu::TestDpuMachine;
 use crate::machine_host::TestHostMachine;
@@ -83,9 +84,7 @@ impl TestManagedHost {
             .await
             .expect("database transaction should start");
         let machine = self.host.db_machine(&mut txn).await;
-        db::machine::advance(&machine, &mut txn, &state, None)
-            .await
-            .expect("managed host state should be advanced");
+        machine.advance_state(&mut txn, state).await;
         txn.commit()
             .await
             .expect("database transaction should commit");

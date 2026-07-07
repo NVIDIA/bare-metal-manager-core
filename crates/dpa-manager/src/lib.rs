@@ -27,7 +27,7 @@ use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, TransactionVending};
 use metrics::DpaMonitorMetrics;
-use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
+use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState, DpaSearchConfig};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use mqttea::client::MqtteaClient;
@@ -43,6 +43,9 @@ mod card_handler;
 pub mod config;
 pub mod errors;
 mod metrics;
+
+#[cfg(test)]
+pub(crate) use carbide_macros::sqlx_test;
 
 pub struct DpaMonitor {
     pub(crate) db_services: DbServices,
@@ -323,9 +326,14 @@ impl DpaMonitor {
 
         for mh in res.values_mut() {
             let machine_id = mh.host_snapshot.id;
-            let dpa_snapshots = db::dpa_interface::find_by_machine_id(&mut *txn, machine_id)
-                .await
-                .map_err(Into::<DpaManagerError>::into)?;
+            let dpa_search_config = DpaSearchConfig {
+                only_svpc: false,
+                only_astra: false,
+            };
+            let dpa_snapshots =
+                db::dpa_interface::find_by_machine_id(&mut *txn, machine_id, dpa_search_config)
+                    .await
+                    .map_err(Into::<DpaManagerError>::into)?;
             mh.dpa_interface_snapshots = dpa_snapshots;
         }
 

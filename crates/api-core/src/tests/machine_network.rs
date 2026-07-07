@@ -510,9 +510,11 @@ async fn test_managed_host_network_config_includes_per_vpc_routing_profiles(pool
     let mut txn = env.db_txn().await;
     let internal_vpc = db::vpc::find_by_segment(txn.as_mut(), internal_segment_id)
         .await
+        .unwrap()
         .unwrap();
     let external_vpc = db::vpc::find_by_segment(txn.as_mut(), external_segment_id)
         .await
+        .unwrap()
         .unwrap();
     let internal_vni = internal_vpc.status.vni.unwrap() as u32;
     let external_vni = external_vpc.status.vni.unwrap() as u32;
@@ -621,6 +623,7 @@ async fn test_managed_host_network_config_omits_fnn_vrf_loopback_by_default(pool
     let mut txn = env.db_txn().await;
     let vpc = db::vpc::find_by_segment(txn.as_mut(), segment_id)
         .await
+        .unwrap()
         .unwrap();
     let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &vpc.id)
         .await
@@ -694,6 +697,7 @@ async fn test_managed_host_network_config_includes_fnn_vrf_loopback_when_enabled
     let mut txn = env.db_txn().await;
     let vpc = db::vpc::find_by_segment(txn.as_mut(), segment_id)
         .await
+        .unwrap()
         .unwrap();
     let loopback = db::vpc_dpu_loopback::find(txn.as_mut(), &dpu_machine_id, &vpc.id)
         .await
@@ -1102,7 +1106,9 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     mh.instance_builer(&env)
@@ -1204,7 +1210,9 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
             ipv6_interface_config: None,
             routing_profile: None,
         }],
+        #[allow(deprecated)]
         auto: false,
+        auto_config: None,
     };
 
     let default_tenant_org = "best_org";
@@ -1361,6 +1369,7 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
             last_dhcp_requests: vec![],
             dpu_extension_service_version: Some("V1-T1".to_string()),
             dpu_extension_services: vec![],
+            astra_config_status: None,
         }))
         .await
         .expect_err("Should fail");

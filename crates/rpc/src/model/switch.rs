@@ -186,7 +186,7 @@ impl TryFrom<Switch> for rpc::Switch {
             status,
             deleted,
             controller_state,
-            bmc_info: None,
+            bmc_info: src.bmc_info.map(Into::into),
             nvos_info: None,
             state_version,
             metadata: Some(src.metadata.into()),
@@ -236,6 +236,7 @@ mod tests {
             }),
             deleted: None,
             bmc_mac_address: None,
+            bmc_info: None,
             controller_state: Versioned::new(
                 SwitchControllerState::Ready,
                 config_version::ConfigVersion::initial(),
@@ -298,6 +299,7 @@ mod tests {
             status: None,
             deleted: None,
             bmc_mac_address: None,
+            bmc_info: None,
             controller_state: Versioned::new(
                 SwitchControllerState::Created,
                 config_version::ConfigVersion::initial(),

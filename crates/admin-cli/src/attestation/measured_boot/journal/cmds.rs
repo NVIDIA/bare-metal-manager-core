@@ -25,59 +25,60 @@ use measured_boot::records::MeasurementJournalRecord;
 use measured_boot::{ToTable, just_print_summary};
 use serde::Serialize;
 
-use crate::attestation::measured_boot::global;
-use crate::attestation::measured_boot::journal::args::{CmdJournal, Delete, List, Promote, Show};
+use crate::attestation::measured_boot::journal::args::{Delete, List, Promote, Show};
 use crate::attestation::measured_boot::report::args::Promote as ReportPromoteArgs;
 use crate::attestation::measured_boot::report::cmds::promote as report_promote;
-use crate::cli_output;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
-/// dispatch matches + dispatches the correct command for
-/// the `journal` subcommand.
-pub async fn dispatch(
-    cmd: CmdJournal,
-    cli: &mut global::cmds::CliData<'_, '_>,
-) -> CarbideCliResult<()> {
-    match cmd {
-        CmdJournal::Delete(local_args) => {
-            cli_output(
-                delete(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
+impl Run for Delete {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            delete(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for Show {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        if self.journal_id.is_some() {
+            crate::cli_output(
+                show_by_id(&ctx.api_client, self).await?,
+                &ctx.config.format,
                 crate::Destination::Stdout(),
-            )?;
-        }
-        CmdJournal::Show(local_args) => {
-            if local_args.journal_id.is_some() {
-                cli_output(
-                    show_by_id(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            } else {
-                cli_output(
-                    show_all(cli.grpc_conn, local_args).await?,
-                    &cli.args.format,
-                    crate::Destination::Stdout(),
-                )?;
-            }
-        }
-        CmdJournal::List(local_args) => {
-            cli_output(
-                list(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
+            )
+        } else {
+            crate::cli_output(
+                show_all(&ctx.api_client, self).await?,
+                &ctx.config.format,
                 crate::Destination::Stdout(),
-            )?;
-        }
-        CmdJournal::Promote(local_args) => {
-            cli_output(
-                promote(cli.grpc_conn, local_args).await?,
-                &cli.args.format,
-                crate::Destination::Stdout(),
-            )?;
+            )
         }
     }
-    Ok(())
+}
+
+impl Run for List {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            list(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
+}
+
+impl Run for Promote {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        crate::cli_output(
+            promote(&ctx.api_client, self).await?,
+            &ctx.config.format,
+            crate::Destination::Stdout(),
+        )
+    }
 }
 
 /// delete deletes an existing journal entry.

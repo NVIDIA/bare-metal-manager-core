@@ -17,10 +17,11 @@
 use std::collections::{BTreeMap, HashMap};
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo};
+use bmc_mock::mac_address_pool::MacAddressPool;
+use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType};
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use duration_str::deserialize_duration;
@@ -247,6 +248,16 @@ pub struct MachineATronConfig {
         serialize_with = "as_std_duration"
     )]
     pub api_refresh_interval: Duration,
+
+    /// Pool to allocate regular MAC addresses for the machines.
+    #[serde(default)]
+    pub mac_address_pool: Option<MacAddressPoolConfig>,
+    /// Pool to allocate ranges of HW MAC addresses for the machines.
+    /// Ranges are needed for deterministic and unique addresses but
+    /// that do not participate in any associations (allocated using
+    /// just "next_mac()" manner).
+    #[serde(default)]
+    pub hw_mac_address_ranges: Option<MacAddressRangesConfig>,
 }
 
 impl MachineATronConfig {
@@ -333,19 +344,16 @@ pub struct PersistedHostMachine {
     pub observed_machine_id: Option<MachineId>,
     pub installed_os: OsImage,
     pub tpm_ek_certificate: Option<Vec<u8>>,
+    #[serde(default)]
+    pub hw_mac_addr_pool: Option<MacAddressPoolConfig>,
 }
 
-impl From<PersistedHostMachine> for HostMachineInfo {
-    fn from(value: PersistedHostMachine) -> Self {
-        Self {
-            hw_type: value.hw_type.unwrap_or_default(),
-            bmc_mac_address: value.bmc_mac_address,
-            serial: value.serial,
-            dpus: value.dpus.into_iter().map(Into::into).collect(),
-            non_dpu_mac_address: value.non_dpu_mac_address,
-            nvos_mac_addresses: value.nvos_mac_addresses,
-            switch_serial_number: value.switch_serial_number,
-        }
+impl PersistedHostMachine {
+    pub fn mac_addresses(&self) -> impl Iterator<Item = MacAddress> {
+        std::iter::once(self.bmc_mac_address)
+            .chain(self.dpus.iter().flat_map(|d| d.mac_addresses()))
+            .chain(self.non_dpu_mac_address.iter().copied())
+            .chain(self.nvos_mac_addresses.iter().copied())
     }
 }
 
@@ -361,6 +369,17 @@ pub struct PersistedDpuMachine {
     pub dpu_index: u8,
     #[serde(flatten)]
     pub settings: DpuSettings,
+}
+
+impl PersistedDpuMachine {
+    pub fn mac_addresses(&self) -> impl Iterator<Item = MacAddress> {
+        [
+            self.bmc_mac_address,
+            self.host_mac_address,
+            self.oob_mac_address,
+        ]
+        .into_iter()
+    }
 }
 
 impl From<PersistedDpuMachine> for DpuMachineInfo {
@@ -416,9 +435,21 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MacAddressPoolConfig {
+    pub base: MacAddress,
+    pub host_bits: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct MacAddressRangesConfig {
+    pub base: MacAddress,
+    pub host_bits: usize,
+    pub range_host_bits: usize,
+}
+
 // Lots of types keep an owned reference to MachineATronContext, making an Arc keeps this cheap.
 
-#[derive(Debug)]
 pub struct MachineATronContext {
     pub app_config: MachineATronConfig,
     pub forge_client_config: ForgeClientConfig,
@@ -429,6 +460,7 @@ pub struct MachineATronContext {
     /// firmware, DPU's can mock that they already have this installed.
     pub desired_firmware_versions: Vec<DesiredFirmwareVersionEntry>,
     pub forge_api_client: ForgeApiClient,
+    pub mac_address_pool: Arc<Mutex<MacAddressPool>>,
 }
 
 impl MachineATronContext {

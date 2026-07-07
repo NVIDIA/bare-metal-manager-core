@@ -123,6 +123,11 @@ pub(crate) fn validate_expected_machine_for_insert(
     machine: &ExpectedMachine,
 ) -> Result<(), CarbideError> {
     validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+    machine
+        .data
+        .bmc_ip_allocation
+        .validate(machine.data.bmc_ip_address.is_some())
+        .map_err(|msg| CarbideError::InvalidArgument(msg.to_string()))?;
 
     Ok(())
 }
@@ -219,6 +224,11 @@ pub(crate) async fn update(
     };
 
     validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+    machine
+        .data
+        .bmc_ip_allocation
+        .validate(machine.data.bmc_ip_address.is_some())
+        .map_err(|msg| CarbideError::InvalidArgument(msg.to_string()))?;
 
     let mut txn = api.txn_begin().await?;
 

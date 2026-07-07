@@ -16,6 +16,8 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 var (
@@ -56,6 +58,15 @@ var (
 		OperatingSystemSiteAssociationStatusError:    true,
 		OperatingSystemSiteAssociationStatusDeleting: true,
 	}
+
+	// OperatingSystemSiteAssociationStatusFromProtoMap maps nico-core tenant states to per-site association status values.
+	OperatingSystemSiteAssociationStatusFromProtoMap = map[cwssaws.TenantState]string{
+		cwssaws.TenantState_PROVISIONING: OperatingSystemSiteAssociationStatusSyncing,
+		cwssaws.TenantState_READY:        OperatingSystemSiteAssociationStatusSynced,
+		cwssaws.TenantState_CONFIGURING:  OperatingSystemSiteAssociationStatusSyncing,
+		cwssaws.TenantState_TERMINATING:  OperatingSystemSiteAssociationStatusDeleting,
+		cwssaws.TenantState_FAILED:       OperatingSystemSiteAssociationStatusError,
+	}
 )
 
 // OperatingSystemSiteAssociation associates an OperatingSystem with different Sites
@@ -69,11 +80,13 @@ type OperatingSystemSiteAssociation struct {
 	Site              *Site            `bun:"rel:belongs-to,join:site_id=id"`
 	Version           *string          `bun:"version"`
 	Status            string           `bun:"status,notnull"`
-	IsMissingOnSite   bool             `bun:"is_missing_on_site,notnull"`
-	Created           time.Time        `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated           time.Time        `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted           *time.Time       `bun:"deleted,soft_delete"`
-	CreatedBy         uuid.UUID        `bun:"created_by,type:uuid,notnull"`
+	// ControllerState mirrors the tenant state reported by nico-core for this OS at this site.
+	ControllerState *string    `bun:"controller_state"`
+	IsMissingOnSite bool       `bun:"is_missing_on_site,notnull"`
+	Created         time.Time  `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated         time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted         *time.Time `bun:"deleted,soft_delete"`
+	CreatedBy       uuid.UUID  `bun:"created_by,type:uuid,notnull"`
 }
 
 // OperatingSystemSiteAssociationCreateInput input parameters for Create method
@@ -82,6 +95,7 @@ type OperatingSystemSiteAssociationCreateInput struct {
 	SiteID            uuid.UUID
 	Version           *string
 	Status            string
+	ControllerState   *string
 	CreatedBy         uuid.UUID
 }
 
@@ -92,6 +106,7 @@ type OperatingSystemSiteAssociationUpdateInput struct {
 	SiteID                           *uuid.UUID
 	Version                          *string
 	Status                           *string
+	ControllerState                  *string
 	IsMissingOnSite                  *bool
 }
 
@@ -167,6 +182,7 @@ func (ossasd OperatingSystemSiteAssociationSQLDAO) Create(
 		SiteID:            input.SiteID,
 		Version:           input.Version,
 		Status:            input.Status,
+		ControllerState:   input.ControllerState,
 		CreatedBy:         input.CreatedBy,
 	}
 
@@ -398,6 +414,11 @@ func (ossasd OperatingSystemSiteAssociationSQLDAO) Update(
 		ossa.IsMissingOnSite = *input.IsMissingOnSite
 		updatedFields = append(updatedFields, "is_missing_on_site")
 		ossasd.tracerSpan.SetAttribute(OperatingSystemSiteAssociationDAOSpan, "is_missing_on_site", *input.IsMissingOnSite)
+	}
+	if input.ControllerState != nil {
+		ossa.ControllerState = input.ControllerState
+		updatedFields = append(updatedFields, "controller_state")
+		ossasd.tracerSpan.SetAttribute(OperatingSystemSiteAssociationDAOSpan, "controller_state", *input.ControllerState)
 	}
 
 	if len(updatedFields) > 0 {
