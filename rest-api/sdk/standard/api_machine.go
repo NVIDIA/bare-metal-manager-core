@@ -1575,7 +1575,7 @@ MachinePowerControlMachine Machine power control
 
 Execute power control actions for a specific Machine.
 
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -1741,7 +1741,11 @@ UpdateMachine Update Machine
 
 Instance Type attribute updates, maintenance attribute updates and labels updates must be specified in separate requests. They cannot be processed at the same time.
 
-Some attributes can only be updated by Provider, while others can be updated by Provider or a Privileged Tenant.
+Some attributes can only be updated by Provider, while others can be updated by Provider or a privileged Tenant.
+
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

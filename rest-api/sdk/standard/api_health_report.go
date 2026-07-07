@@ -47,7 +47,9 @@ CreateOrUpdateMachineHealthReport Create or update Machine health report
 
 Add or update health report override for a specific Machine.
 
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -206,7 +208,9 @@ DeleteMachineHealthReport Delete Machine health report
 
 Remove a health report override for a specific Machine.
 
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -334,31 +338,33 @@ func (a *HealthReportAPIService) DeleteMachineHealthReportExecute(r ApiDeleteMac
 	return localVarHTTPResponse, nil
 }
 
-type ApiGetMachineHealthReportRequest struct {
+type ApiGetAllMachineHealthReportRequest struct {
 	ctx        context.Context
 	ApiService *HealthReportAPIService
 	org        string
 	machineId  string
 }
 
-func (r ApiGetMachineHealthReportRequest) Execute() ([]MachineHealthReportEntry, *http.Response, error) {
-	return r.ApiService.GetMachineHealthReportExecute(r)
+func (r ApiGetAllMachineHealthReportRequest) Execute() ([]MachineHealthReportEntry, *http.Response, error) {
+	return r.ApiService.GetAllMachineHealthReportExecute(r)
 }
 
 /*
-GetMachineHealthReport Retrieve all Machine health reports
+GetAllMachineHealthReport Retrieve all Machine health reports
 
 Get all health reports for a specific Machine.
 
-User must have authorization role with `PROVIDER_ADMIN` suffix.
+For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
+
+For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
 	@param machineId ID of the Machine
-	@return ApiGetMachineHealthReportRequest
+	@return ApiGetAllMachineHealthReportRequest
 */
-func (a *HealthReportAPIService) GetMachineHealthReport(ctx context.Context, org string, machineId string) ApiGetMachineHealthReportRequest {
-	return ApiGetMachineHealthReportRequest{
+func (a *HealthReportAPIService) GetAllMachineHealthReport(ctx context.Context, org string, machineId string) ApiGetAllMachineHealthReportRequest {
+	return ApiGetAllMachineHealthReportRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -369,7 +375,7 @@ func (a *HealthReportAPIService) GetMachineHealthReport(ctx context.Context, org
 // Execute executes the request
 //
 //	@return []MachineHealthReportEntry
-func (a *HealthReportAPIService) GetMachineHealthReportExecute(r ApiGetMachineHealthReportRequest) ([]MachineHealthReportEntry, *http.Response, error) {
+func (a *HealthReportAPIService) GetAllMachineHealthReportExecute(r ApiGetAllMachineHealthReportRequest) ([]MachineHealthReportEntry, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
@@ -377,7 +383,7 @@ func (a *HealthReportAPIService) GetMachineHealthReportExecute(r ApiGetMachineHe
 		localVarReturnValue []MachineHealthReportEntry
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "HealthReportAPIService.GetMachineHealthReport")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "HealthReportAPIService.GetAllMachineHealthReport")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}

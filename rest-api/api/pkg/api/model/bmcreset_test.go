@@ -7,14 +7,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
 
-func TestAPIBmcResetRequestToProto(t *testing.T) {
-	req := APIBmcResetRequest{UseIpmiTool: cutil.GetPtr(true)}
-	require.NoError(t, req.Validate())
+func TestAPIMachineBMCResetRequestToProto(t *testing.T) {
+	req := APIMachineBMCResetRequest{UseIpmiTool: true}
 
 	protoReq := req.ToProto("machine-1")
 	assert.Equal(t, "machine-1", protoReq.GetMachineId())

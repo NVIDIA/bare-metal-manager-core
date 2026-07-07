@@ -12,8 +12,8 @@ import (
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-func TestAPIDpuReprovisionRequestValidateAndToProto(t *testing.T) {
-	req := APIDpuReprovisionRequest{Mode: DpuReprovisionModeRestart, UpdateFirmware: true}
+func TestAPIMachineDpuReprovisionRequestValidateAndToProto(t *testing.T) {
+	req := APIMachineDpuReprovisionRequest{Mode: MachineDpuReprovisionModeRestart, UpdateFirmware: true}
 	require.NoError(t, req.Validate())
 
 	protoReq := req.ToProto("machine-1")
@@ -22,6 +22,6 @@ func TestAPIDpuReprovisionRequestValidateAndToProto(t *testing.T) {
 	assert.Equal(t, cwssaws.UpdateInitiator_AdminCli, protoReq.GetInitiator())
 	assert.True(t, protoReq.GetUpdateFirmware())
 
-	assert.Error(t, (&APIDpuReprovisionRequest{}).Validate())
-	assert.Error(t, (&APIDpuReprovisionRequest{Mode: "restart"}).Validate())
+	assert.Error(t, (&APIMachineDpuReprovisionRequest{}).Validate())
+	assert.Error(t, (&APIMachineDpuReprovisionRequest{Mode: MachineDpuReprovisionMode("restart")}).Validate())
 }

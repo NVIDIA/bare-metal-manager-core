@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
@@ -18,17 +19,20 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-type BmcResetHandler struct {
+// ResetMachineBMCHandler resets a Machine BMC.
+type ResetMachineBMCHandler struct {
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
 	tracerSpan *cutil.TracerSpan
 }
 
-func NewBmcResetHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) BmcResetHandler {
-	return BmcResetHandler{
+// NewResetMachineBMCHandler returns a new ResetMachineBMCHandler.
+func NewResetMachineBMCHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) ResetMachineBMCHandler {
+	return ResetMachineBMCHandler{
 		dbSession:  dbSession,
 		scp:        scp,
 		tracerSpan: cutil.NewTracerSpan(),
@@ -37,18 +41,18 @@ func NewBmcResetHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.
 
 // Handle godoc
 // @Summary Reset Machine BMC
-// @Description Reset a Machine BMC through NICo Core. Provider Admin only.
+// @Description Reset a Machine BMC.
 // @Tags bmc-reset
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "ID of Machine"
-// @Param request body model.APIBmcResetRequest true "BMC reset request"
+// @Param request body model.APIMachineBMCResetRequest true "Machine BMC reset request"
 // @Success 202 {object} model.APIMessageResponse
-// @Router /v2/org/{org}/nico/machine/{machineId}/bmc-reset [post]
-func (h BmcResetHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("BmcReset", "Reset", c, h.tracerSpan)
+// @Router /v2/org/{org}/nico/machine/{machineId}/bmc/reset [patch]
+func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Machine", "ResetBmc", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -73,26 +77,16 @@ func (h BmcResetHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine ID was not specified in URL", nil)
 	}
 
-	var apiReq model.APIBmcResetRequest
+	var apiReq model.APIMachineBMCResetRequest
 
 	err = c.Bind(&apiReq)
 	if err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}
 
-	err = apiReq.Validate()
-	if err != nil {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate request data", err)
-	}
-
-	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, true)
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, true)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
-	if provider == nil {
-		logger.Warn().Msg("user does not have Provider role, access denied")
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
 
 	machine, err := cdbm.NewMachineDAO(h.dbSession).GetByID(ctx, nil, machineID, []string{cdbm.SiteRelationName}, false)
@@ -104,14 +98,38 @@ func (h BmcResetHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine details, DB error", nil)
 	}
 
-	if machine.InfrastructureProviderID != provider.ID {
-		logger.Error().Msg("Machine doesn't belong to org's Infrastructure provider")
-		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Machine with specified ID", nil)
+	isAssociated := false
+	if provider != nil {
+		isAssociated = machine.InfrastructureProviderID == provider.ID
+	}
+
+	if !isAssociated && tenant != nil {
+		// Check if privileged Tenant has a Tenant Account with Machine's Provider
+		taDAO := cdbm.NewTenantAccountDAO(h.dbSession)
+		_, taCount, err := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
+			InfrastructureProviderID: &machine.InfrastructureProviderID,
+			TenantIDs:                []uuid.UUID{tenant.ID},
+		}, paginator.PageInput{}, []string{})
+		if err != nil {
+			logger.Error().Err(err).Msg("failed to retrieve Tenant Account details from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Account to determine access to Machine, DB error", nil)
+		}
+		isAssociated = taCount > 0
+	}
+
+	if !isAssociated {
+		logger.Error().Msg("Machine doesn't belong to org's Infrastructure provider or privileged Tenant")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org does not have access to Machine", nil)
 	}
 
 	if machine.IsMissingOnSite {
 		logger.Error().Msg("Machine is missing on site, unable to reset BMC")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is missing on site, unable to reset BMC", nil)
+	}
+
+	if machine.IsAssigned && (apiReq.AcknowledgeAttachedInstance == nil || !*apiReq.AcknowledgeAttachedInstance) {
+		logger.Error().Msg("Machine is currently in use by an Instance and cannot have its BMC reset without acknowledging the attached Instance")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is currently in use by an Instance, set acknowledgeAttachedInstance to true to proceed", nil)
 	}
 
 	if machine.Site == nil {
@@ -132,7 +150,7 @@ func (h BmcResetHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
 	}
 
-	logger.Info().Str("machine_id", machineID).Str("site_id", site.ID.String()).Bool("use_ipmi_tool", *apiReq.UseIpmiTool).Msg("Resetting Machine BMC via Core gRPC proxy")
+	logger.Info().Str("machine_id", machineID).Str("site_id", site.ID.String()).Bool("use_ipmi_tool", apiReq.UseIpmiTool).Msg("Resetting Machine BMC via Core gRPC proxy")
 
 	coreResp := &cwssaws.AdminBmcResetResponse{}
 	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_AdminBmcReset_FullMethodName, apiReq.ToProto(machineID), coreResp, site.ID.String())
