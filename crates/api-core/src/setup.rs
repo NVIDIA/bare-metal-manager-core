@@ -657,8 +657,6 @@ async fn initialize_dpf_sdk(
         .validate_unique_identifiers()
         .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
 
-    let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
-
     // This is just temporary code until we make v2 only option. (just 2 weeks)
     // Soon v2 flag will be removed and will become only mode for dpf handling.
     let deployment_type_labels = build_deployment_type_labels(carbide_config);
@@ -676,11 +674,12 @@ async fn initialize_dpf_sdk(
 
     let make_init_config = |deployment: &crate::cfg::file::DpfDeploymentConfig,
                             deployment_type: DpuDeploymentType| {
+        let services = carbide_config.dpf.resolved_services_for(deployment);
         carbide_dpf::InitDpfResourcesConfig {
             bfb_url: deployment.bfb_url.clone(),
             flavor_name: deployment.flavor_name.clone(),
             deployment_name: deployment.deployment_name.clone(),
-            services: crate::dpf_services::mandatory_services(&mandatory_services),
+            services: crate::dpf_services::mandatory_services(&services),
             proxy: carbide_config.dpf.proxy.clone(),
             deployment_type,
         }

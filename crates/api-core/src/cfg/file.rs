@@ -1042,18 +1042,43 @@ pub struct DpfConfig {
 }
 
 impl DpfConfig {
-    /// Returns the mandatory services with the optional [`Self::docker_image_pull_secret`]
-    /// override applied. The override affects every mandatory service except `dts` and
-    /// `doca_hbn`, which keep their own configured pull secret.
+    /// Returns the top-level mandatory services with the optional
+    /// [`Self::docker_image_pull_secret`] override applied. The override affects every
+    /// mandatory service except `dts` and `doca_hbn`, which keep their own configured
+    /// pull secret.
     pub fn resolved_mandatory_services(&self) -> DpfMandatoryServicesConfig {
         let mut services = (*self.services).clone();
+        self.apply_pull_secret_override(&mut services);
+        services
+    }
+
+    /// Returns the mandatory services for `deployment`: the deployment's own
+    /// [`DpfDeploymentConfig::services`] override when set, otherwise the top-level
+    /// [`Self::services`]. In both cases the optional [`Self::docker_image_pull_secret`]
+    /// override is applied (see [`Self::resolved_mandatory_services`]).
+    pub fn resolved_services_for(
+        &self,
+        deployment: &DpfDeploymentConfig,
+    ) -> DpfMandatoryServicesConfig {
+        let mut services = deployment
+            .services
+            .as_deref()
+            .cloned()
+            .unwrap_or_else(|| (*self.services).clone());
+        self.apply_pull_secret_override(&mut services);
+        services
+    }
+
+    /// Applies the optional [`Self::docker_image_pull_secret`] override to every
+    /// mandatory service except `dts` and `doca_hbn`, which keep their own configured
+    /// pull secret. No-op when the override is unset.
+    fn apply_pull_secret_override(&self, services: &mut DpfMandatoryServicesConfig) {
         if let Some(secret) = &self.docker_image_pull_secret {
             services.dpu_agent.docker_image_pull_secret = secret.clone();
             services.dhcp_server.docker_image_pull_secret = secret.clone();
             services.fmds.docker_image_pull_secret = secret.clone();
             services.otel.docker_image_pull_secret = secret.clone();
         }
-        services
     }
 }
 
@@ -1135,13 +1160,15 @@ pub struct DpfServiceConfig {
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
-/// Services are inherited from the top-level [`DpfConfig`].
 ///
-/// No serde field defaults: when `[dpf.deployments.bf3]` or
-/// `[dpf.deployments.bf4_generic]` is written in the config file, all four
-/// fields are required. The `Default` impl (BF3 values) is only used when the
-/// entire `[dpf.deployments.bf3]` block is absent, via `#[serde(default)]` on
-/// the `bf3` field of [`DpfDeploymentsConfig`].
+/// `flavor_name`, `deployment_name`, and `node_label_key` are required when a
+/// `[dpf.deployments.<name>]` block is written; `bfb_url` and `services` are
+/// optional. When `services` is omitted, the deployment inherits the top-level
+/// `[dpf.services]` (see [`DpfConfig::resolved_services_for`]).
+///
+/// The `Default` impl (BF3 values) is used when the entire
+/// `[dpf.deployments.bf3]` block is absent, via `#[serde(default)]` on the
+/// `bf3` field of [`DpfDeploymentsConfig`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DpfDeploymentConfig {
     /// URL to the BlueField firmware bundle (BFB) for DPU provisioning.
@@ -1153,7 +1180,12 @@ pub struct DpfDeploymentConfig {
     pub deployment_name: String,
     /// Label key applied to DPUNode CRs for this deployment's node selector.
     pub node_label_key: String,
-    // TODO: add optional services handling here.
+    /// Optional per-deployment override of the mandatory Helm services. When set,
+    /// these services are deployed for this deployment instead of the top-level
+    /// [`DpfConfig::services`]. When absent, the top-level services are inherited.
+    #[serde(default)]
+    pub services: Option<Box<DpfMandatoryServicesConfig>>,
+    // A new field can be added here similar to mandatory services but specific to deployment.
 }
 
 impl Default for DpfDeploymentConfig {
@@ -1163,6 +1195,7 @@ impl Default for DpfDeploymentConfig {
             flavor_name: default_dpf_flavor_name(),
             deployment_name: default_dpf_deployment_name(),
             node_label_key: default_dpf_node_label_key(),
+            services: None,
         }
     }
 }
