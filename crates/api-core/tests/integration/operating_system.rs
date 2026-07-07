@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_test_harness::prelude::{PgPool, TestHarness, sqlx_test};
 use carbide_uuid::operating_system::OperatingSystemId;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -23,14 +24,12 @@ use rpc::forge::{
 };
 use tonic::Code;
 
-use crate::tests::common::api_fixtures::create_test_env;
-
-#[crate::sqlx_test]
-async fn test_create_operating_system_ipxe(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_create_operating_system_ipxe(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let resp = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -67,12 +66,12 @@ async fn test_create_operating_system_ipxe(pool: sqlx::PgPool) {
     assert!(os.id.is_some());
 }
 
-#[crate::sqlx_test]
-async fn test_create_operating_system_requires_name(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_create_operating_system_requires_name(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let resp = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -95,12 +94,12 @@ async fn test_create_operating_system_requires_name(pool: sqlx::PgPool) {
     assert_eq!(resp.unwrap_err().code(), Code::InvalidArgument);
 }
 
-#[crate::sqlx_test]
-async fn test_create_operating_system_requires_variant(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_create_operating_system_requires_variant(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let resp = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -123,12 +122,12 @@ async fn test_create_operating_system_requires_variant(pool: sqlx::PgPool) {
     assert_eq!(resp.unwrap_err().code(), Code::InvalidArgument);
 }
 
-#[crate::sqlx_test]
-async fn test_get_operating_system(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_get_operating_system(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let created = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -152,7 +151,7 @@ async fn test_get_operating_system(pool: sqlx::PgPool) {
     let id = created.id.unwrap();
 
     let fetched = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(id))
         .await
         .unwrap()
@@ -163,23 +162,26 @@ async fn test_get_operating_system(pool: sqlx::PgPool) {
     assert_eq!(fetched.r#type, OperatingSystemType::OsTypeIpxe as i32);
 }
 
-#[crate::sqlx_test]
-async fn test_get_operating_system_not_found(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_get_operating_system_not_found(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let id: OperatingSystemId = uuid::Uuid::nil().into();
-    let resp = env.api.get_operating_system(tonic::Request::new(id)).await;
+    let resp = env
+        .api()
+        .get_operating_system(tonic::Request::new(id))
+        .await;
 
     assert!(resp.is_err());
     assert_eq!(resp.unwrap_err().code(), Code::NotFound);
 }
 
-#[crate::sqlx_test]
-async fn test_update_operating_system(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_update_operating_system(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let created = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -203,7 +205,7 @@ async fn test_update_operating_system(pool: sqlx::PgPool) {
     let id = created.id.unwrap();
 
     let updated = env
-        .api
+        .api()
         .update_operating_system(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemRequest {
                 id: Some(id),
@@ -236,12 +238,12 @@ async fn test_update_operating_system(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_delete_operating_system(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_delete_operating_system(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let created = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -265,22 +267,25 @@ async fn test_delete_operating_system(pool: sqlx::PgPool) {
     let id = created.id.unwrap();
 
     let del_resp = env
-        .api
+        .api()
         .delete_operating_system(tonic::Request::new(id.into()))
         .await;
     assert!(del_resp.is_ok());
 
-    let get_resp = env.api.get_operating_system(tonic::Request::new(id)).await;
+    let get_resp = env
+        .api()
+        .get_operating_system(tonic::Request::new(id))
+        .await;
     assert!(get_resp.is_err());
     assert_eq!(get_resp.unwrap_err().code(), Code::NotFound);
 }
 
-#[crate::sqlx_test]
-async fn test_find_operating_system_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_find_operating_system_ids(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let os1 = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -302,7 +307,7 @@ async fn test_find_operating_system_ids(pool: sqlx::PgPool) {
         .into_inner();
 
     let os2 = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -324,7 +329,7 @@ async fn test_find_operating_system_ids(pool: sqlx::PgPool) {
         .into_inner();
 
     let resp = env
-        .api
+        .api()
         .find_operating_system_ids(tonic::Request::new(
             rpc::forge::OperatingSystemSearchFilter {
                 tenant_organization_id: Some("find-org".to_string()),
@@ -341,12 +346,12 @@ async fn test_find_operating_system_ids(pool: sqlx::PgPool) {
     assert_eq!(resp.ids.len(), 2);
 }
 
-#[crate::sqlx_test]
-async fn test_find_operating_systems_by_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_find_operating_systems_by_ids(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let os1 = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -370,7 +375,7 @@ async fn test_find_operating_systems_by_ids(pool: sqlx::PgPool) {
     let id1 = os1.id.unwrap();
 
     let resp = env
-        .api
+        .api()
         .find_operating_systems_by_ids(tonic::Request::new(
             rpc::forge::OperatingSystemsByIdsRequest { ids: vec![id1] },
         ))
@@ -382,12 +387,12 @@ async fn test_find_operating_systems_by_ids(pool: sqlx::PgPool) {
     assert_eq!(resp.operating_systems[0].name, "by-id-os-1");
 }
 
-#[crate::sqlx_test]
-async fn test_list_ipxe_templates(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_list_ipxe_templates(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let resp = env
-        .api
+        .api()
         .list_ipxe_templates(tonic::Request::new(rpc::forge::ListIpxeTemplatesRequest {}))
         .await
         .unwrap()
@@ -404,12 +409,12 @@ async fn test_list_ipxe_templates(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test]
-async fn test_get_ipxe_template(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_get_ipxe_template(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let all = env
-        .api
+        .api()
         .list_ipxe_templates(tonic::Request::new(rpc::forge::ListIpxeTemplatesRequest {}))
         .await
         .unwrap()
@@ -419,7 +424,7 @@ async fn test_get_ipxe_template(pool: sqlx::PgPool) {
     let first_id = first.id.expect("template id must be set");
 
     let resp = env
-        .api
+        .api()
         .get_ipxe_template(tonic::Request::new(rpc::forge::GetIpxeTemplateRequest {
             id: Some(first_id),
         }))
@@ -438,11 +443,9 @@ async fn test_get_ipxe_template(pool: sqlx::PgPool) {
 
 /// Creates an OS with a qcow-image template and two CACHED_ONLY artifacts plus
 /// one CACHE_AS_NEEDED artifact, then returns the OS UUID string.
-async fn create_os_with_artifacts(
-    env: &crate::tests::common::api_fixtures::TestEnv,
-) -> OperatingSystemId {
+async fn create_os_with_artifacts(env: &TestHarness) -> OperatingSystemId {
     let resp = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -500,15 +503,15 @@ async fn create_os_with_artifacts(
 // GetOperatingSystemCachableIpxeTemplateArtifacts tests
 // ---------------------------------------------------------------------------
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_get_operating_system_cachable_ipxe_template_artifacts_returns_ordered_list(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) {
-    let env = create_test_env(pool).await;
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     let resp = env
-        .api
+        .api()
         .get_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
         ))
@@ -522,13 +525,13 @@ async fn test_get_operating_system_cachable_ipxe_template_artifacts_returns_orde
     assert_eq!(resp.artifacts[2].name, "overlay");
 }
 
-#[crate::sqlx_test]
-async fn test_get_operating_system_cachable_ipxe_template_artifacts_not_found(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_get_operating_system_cachable_ipxe_template_artifacts_not_found(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let id: OperatingSystemId = uuid::Uuid::nil().into();
 
     let resp = env
-        .api
+        .api()
         .get_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(id) },
         ))
@@ -542,14 +545,14 @@ async fn test_get_operating_system_cachable_ipxe_template_artifacts_not_found(po
 // UpdateOperatingSystemCachableIpxeTemplateArtifacts tests
 // ---------------------------------------------------------------------------
 
-#[crate::sqlx_test]
-async fn test_set_artifacts_cached_url_partial_update(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_set_artifacts_cached_url_partial_update(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     // Only update the first artifact (partial list).
     let resp = env
-        .api
+        .api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -572,13 +575,13 @@ async fn test_set_artifacts_cached_url_partial_update(pool: sqlx::PgPool) {
     assert!(resp.artifacts[2].cached_url.is_none()); // overlay unchanged
 }
 
-#[crate::sqlx_test]
-async fn test_set_artifacts_cached_url_ordered_duplicate_names(pool: sqlx::PgPool) {
+#[sqlx_test]
+async fn test_set_artifacts_cached_url_ordered_duplicate_names(pool: PgPool) {
     // OS has two artifacts named "kernel". Updates must appear twice to set both.
-    let env = create_test_env(pool).await;
+    let env = TestHarness::builder(pool).build().await;
 
     let os = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -625,7 +628,7 @@ async fn test_set_artifacts_cached_url_ordered_duplicate_names(pool: sqlx::PgPoo
 
     // Two updates for "kernel" — each consumes the next unmatched occurrence.
     let resp = env
-        .api
+        .api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -655,14 +658,14 @@ async fn test_set_artifacts_cached_url_ordered_duplicate_names(pool: sqlx::PgPoo
     );
 }
 
-#[crate::sqlx_test]
-async fn test_set_artifacts_cached_url_too_many_same_name_fails(pool: sqlx::PgPool) {
+#[sqlx_test]
+async fn test_set_artifacts_cached_url_too_many_same_name_fails(pool: PgPool) {
     // Only one "kernel" in the OS but two update entries → second should fail.
-    let env = create_test_env(pool).await;
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     let resp = env
-        .api
+        .api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -684,13 +687,13 @@ async fn test_set_artifacts_cached_url_too_many_same_name_fails(pool: sqlx::PgPo
     assert_eq!(resp.unwrap_err().code(), Code::NotFound);
 }
 
-#[crate::sqlx_test]
-async fn test_set_artifacts_cached_url_unknown_name_fails(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_set_artifacts_cached_url_unknown_name_fails(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     let resp = env
-        .api
+        .api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -706,15 +709,15 @@ async fn test_set_artifacts_cached_url_unknown_name_fails(pool: sqlx::PgPool) {
     assert_eq!(resp.unwrap_err().code(), Code::NotFound);
 }
 
-#[crate::sqlx_test]
-async fn test_set_artifacts_transitions_to_ready_when_all_cached_only_set(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_set_artifacts_transitions_to_ready_when_all_cached_only_set(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     // Set cached_url only for the two CACHED_ONLY artifacts; leave the
     // CACHE_AS_NEEDED "overlay" artifact untouched.
     let _ = env
-        .api
+        .api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -735,7 +738,7 @@ async fn test_set_artifacts_transitions_to_ready_when_all_cached_only_set(pool: 
 
     // Status should now be READY.
     let fetched = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(os_id))
         .await
         .unwrap()
@@ -744,16 +747,14 @@ async fn test_set_artifacts_transitions_to_ready_when_all_cached_only_set(pool: 
     assert_eq!(fetched.status, TenantState::Ready as i32);
 }
 
-#[crate::sqlx_test]
-async fn test_set_artifacts_does_not_transition_to_ready_when_cached_only_incomplete(
-    pool: sqlx::PgPool,
-) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_set_artifacts_does_not_transition_to_ready_when_cached_only_incomplete(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     // Only set kernel; initrd (also CACHED_ONLY) is still missing.
     let _ = env
-        .api
+        .api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -767,7 +768,7 @@ async fn test_set_artifacts_does_not_transition_to_ready_when_cached_only_incomp
         .unwrap();
 
     let fetched = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(os_id))
         .await
         .unwrap()
@@ -776,13 +777,13 @@ async fn test_set_artifacts_does_not_transition_to_ready_when_cached_only_incomp
     assert_ne!(fetched.status, TenantState::Ready as i32);
 }
 
-#[crate::sqlx_test]
-async fn test_set_artifacts_cached_url_clear(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_set_artifacts_cached_url_clear(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     // Set then clear kernel's cached_url.
-    env.api
+    env.api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -796,7 +797,7 @@ async fn test_set_artifacts_cached_url_clear(pool: sqlx::PgPool) {
         .unwrap();
 
     let resp = env
-        .api
+        .api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -813,13 +814,13 @@ async fn test_set_artifacts_cached_url_clear(pool: sqlx::PgPool) {
     assert!(resp.artifacts[0].cached_url.is_none());
 }
 
-#[crate::sqlx_test]
-async fn test_clear_cached_url_demotes_ready_to_provisioning(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_clear_cached_url_demotes_ready_to_provisioning(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     // Set all CACHED_ONLY artifacts so the OS becomes READY.
-    env.api
+    env.api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -839,7 +840,7 @@ async fn test_clear_cached_url_demotes_ready_to_provisioning(pool: sqlx::PgPool)
         .unwrap();
 
     let fetched = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(os_id))
         .await
         .unwrap()
@@ -847,7 +848,7 @@ async fn test_clear_cached_url_demotes_ready_to_provisioning(pool: sqlx::PgPool)
     assert_eq!(fetched.status, TenantState::Ready as i32);
 
     // Clear one CACHED_ONLY artifact's cached_url — status must revert.
-    env.api
+    env.api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -861,7 +862,7 @@ async fn test_clear_cached_url_demotes_ready_to_provisioning(pool: sqlx::PgPool)
         .unwrap();
 
     let fetched = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(os_id))
         .await
         .unwrap()
@@ -877,12 +878,12 @@ async fn test_clear_cached_url_demotes_ready_to_provisioning(pool: sqlx::PgPool)
 // Compliance: cached_url is stripped on create/update
 // ---------------------------------------------------------------------------
 
-#[crate::sqlx_test]
-async fn test_create_strips_cached_url(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_create_strips_cached_url(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let resp = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -916,7 +917,7 @@ async fn test_create_strips_cached_url(pool: sqlx::PgPool) {
 
     let os_id = resp.id.unwrap();
     let arts = env
-        .api
+        .api()
         .get_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
         ))
@@ -930,12 +931,12 @@ async fn test_create_strips_cached_url(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_create_with_cached_only_sets_provisioning(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_create_with_cached_only_sets_provisioning(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let resp = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -974,13 +975,13 @@ async fn test_create_with_cached_only_sets_provisioning(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_update_strips_cached_url_from_artifacts(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_update_strips_cached_url_from_artifacts(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     // First, set cached_url via the proper RPC so we can verify update strips it.
-    env.api
+    env.api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -1000,7 +1001,7 @@ async fn test_update_strips_cached_url_from_artifacts(pool: sqlx::PgPool) {
         .unwrap();
 
     // Now update via regular update, providing artifacts with cached_url set.
-    env.api
+    env.api()
         .update_operating_system(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemRequest {
                 id: Some(os_id),
@@ -1042,7 +1043,7 @@ async fn test_update_strips_cached_url_from_artifacts(pool: sqlx::PgPool) {
         .unwrap();
 
     let arts = env
-        .api
+        .api()
         .get_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::GetOperatingSystemCachableIpxeTemplateArtifactsRequest { id: Some(os_id) },
         ))
@@ -1059,13 +1060,13 @@ async fn test_update_strips_cached_url_from_artifacts(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test]
-async fn test_update_with_cached_only_artifacts_recomputes_status(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_update_with_cached_only_artifacts_recomputes_status(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     // Set all cached_urls so OS becomes READY.
-    env.api
+    env.api()
         .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
                 id: Some(os_id),
@@ -1085,7 +1086,7 @@ async fn test_update_with_cached_only_artifacts_recomputes_status(pool: sqlx::Pg
         .unwrap();
 
     let ready_os = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(os_id))
         .await
         .unwrap()
@@ -1094,7 +1095,7 @@ async fn test_update_with_cached_only_artifacts_recomputes_status(pool: sqlx::Pg
 
     // Now update artifacts via regular update (same artifact list) — cached_url
     // will be stripped, so status must revert to PROVISIONING.
-    env.api
+    env.api()
         .update_operating_system(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemRequest {
                 id: Some(os_id),
@@ -1136,7 +1137,7 @@ async fn test_update_with_cached_only_artifacts_recomputes_status(pool: sqlx::Pg
         .unwrap();
 
     let updated_os = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(os_id))
         .await
         .unwrap()
@@ -1148,14 +1149,14 @@ async fn test_update_with_cached_only_artifacts_recomputes_status(pool: sqlx::Pg
     );
 }
 
-#[crate::sqlx_test]
-async fn test_update_promotes_to_ready_when_no_cached_only_remains(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_update_promotes_to_ready_when_no_cached_only_remains(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
     let os_id = create_os_with_artifacts(&env).await;
 
     // OS starts as PROVISIONING (has CACHED_ONLY artifacts without cached_url).
     let os = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(os_id))
         .await
         .unwrap()
@@ -1163,7 +1164,7 @@ async fn test_update_promotes_to_ready_when_no_cached_only_remains(pool: sqlx::P
     assert_eq!(os.status, TenantState::Provisioning as i32);
 
     // Update artifacts to remove all CACHED_ONLY strategies — only CACHE_AS_NEEDED remains.
-    env.api
+    env.api()
         .update_operating_system(tonic::Request::new(
             rpc::forge::UpdateOperatingSystemRequest {
                 id: Some(os_id),
@@ -1205,7 +1206,7 @@ async fn test_update_promotes_to_ready_when_no_cached_only_remains(pool: sqlx::P
         .unwrap();
 
     let updated_os = env
-        .api
+        .api()
         .get_operating_system(tonic::Request::new(os_id))
         .await
         .unwrap()
@@ -1221,13 +1222,13 @@ async fn test_update_promotes_to_ready_when_no_cached_only_remains(pool: sqlx::P
 // End compliance tests
 // ---------------------------------------------------------------------------
 
-#[crate::sqlx_test]
-async fn test_get_ipxe_template_not_found(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_get_ipxe_template_not_found(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let nonexistent_id = carbide_uuid::ipxe_template::IpxeTemplateId::nil();
     let resp = env
-        .api
+        .api()
         .get_ipxe_template(tonic::Request::new(rpc::forge::GetIpxeTemplateRequest {
             id: Some(nonexistent_id),
         }))
@@ -1237,15 +1238,15 @@ async fn test_get_ipxe_template_not_found(pool: sqlx::PgPool) {
     assert_eq!(resp.unwrap_err().code(), Code::NotFound);
 }
 
-#[crate::sqlx_test]
-async fn test_create_operating_system_with_explicit_id(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_create_operating_system_with_explicit_id(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let explicit_id = uuid::Uuid::new_v4();
     let id_proto: OperatingSystemId = explicit_id.into();
 
     let resp = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: Some(id_proto),
@@ -1269,12 +1270,12 @@ async fn test_create_operating_system_with_explicit_id(pool: sqlx::PgPool) {
     assert_eq!(uuid::Uuid::from(resp.id.unwrap()), explicit_id);
 }
 
-#[crate::sqlx_test]
-async fn test_deleted_os_not_returned_by_find_ids(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_deleted_os_not_returned_by_find_ids(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let created = env
-        .api
+        .api()
         .create_operating_system(tonic::Request::new(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
@@ -1296,13 +1297,13 @@ async fn test_deleted_os_not_returned_by_find_ids(pool: sqlx::PgPool) {
         .into_inner();
 
     let id = created.id.unwrap();
-    env.api
+    env.api()
         .delete_operating_system(tonic::Request::new(id.into()))
         .await
         .unwrap();
 
     let resp = env
-        .api
+        .api()
         .find_operating_system_ids(tonic::Request::new(
             rpc::forge::OperatingSystemSearchFilter {
                 tenant_organization_id: Some("del-org".to_string()),
