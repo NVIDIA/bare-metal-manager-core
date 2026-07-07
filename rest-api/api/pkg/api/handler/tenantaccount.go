@@ -569,10 +569,16 @@ func (gtah GetTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Status Details for TenantAccount", nil)
 	}
 
-	tenantSites, err := loadTenantSitesForTenantAccount(ctx, gtah.dbSession, ta)
-	if err != nil {
-		logger.Error().Err(err).Msg("error retrieving Tenant Sites for Tenant Account")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Account", nil)
+	var tenantSites []cdbm.TenantSite
+	if ta != nil && ta.TenantID != nil {
+		tsDAO := cdbm.NewTenantSiteDAO(gtah.dbSession)
+		tenantSites, _, err = tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
+			TenantIDs: []uuid.UUID{*ta.TenantID},
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Site"})
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving Tenant Sites for Tenant Account")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Account", nil)
+		}
 	}
 
 	// Create response
@@ -689,22 +695,6 @@ func (utah UpdateTenantAccountHandler) Handle(c echo.Context) error {
 	}
 
 	return utah.handleTenantInviteAcceptance(c, ctx, logger, org, dbUser, taID, apiRequest)
-}
-
-func loadTenantSitesForTenantAccount(ctx context.Context, dbSession *cdb.Session, ta *cdbm.TenantAccount) ([]cdbm.TenantSite, error) {
-	if ta == nil || ta.TenantID == nil {
-		return nil, nil
-	}
-
-	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
-	tenantSites, _, err := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
-		TenantIDs: []uuid.UUID{*ta.TenantID},
-	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Site"})
-	if err != nil {
-		return nil, err
-	}
-
-	return tenantSites, nil
 }
 
 func (utah UpdateTenantAccountHandler) handleTenantInviteAcceptance(c echo.Context, ctx context.Context, logger zerolog.Logger, org string, dbUser *cdbm.User, taID uuid.UUID, apiRequest model.APITenantAccountUpdateRequest) error {
@@ -912,10 +902,16 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve updated Tenant Account", nil)
 	}
 
-	tenantSites, err := loadTenantSitesForTenantAccount(ctx, utah.dbSession, ta)
-	if err != nil {
-		logger.Error().Err(err).Msg("error retrieving Tenant Sites for updated Tenant Account")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Account", nil)
+	var tenantSites []cdbm.TenantSite
+	if ta != nil && ta.TenantID != nil {
+		tsDAO := cdbm.NewTenantSiteDAO(utah.dbSession)
+		tenantSites, _, err = tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
+			TenantIDs: []uuid.UUID{*ta.TenantID},
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Site"})
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving Tenant Sites for updated Tenant Account")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Account", nil)
+		}
 	}
 
 	sdDAO := cdbm.NewStatusDetailDAO(utah.dbSession)
