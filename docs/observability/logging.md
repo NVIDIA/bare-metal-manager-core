@@ -402,7 +402,8 @@ config:
   receivers:
     filelog:
       include:
-        - /var/log/pods/*/*/*.log
+        # Collect only NICo namespace logs
+        - /var/log/pods/nico-*/*/*.log
       exclude:
         # Exclude collector's own logs to avoid feedback loops
         - /var/log/pods/*/opentelemetry-collector*/*.log
@@ -418,13 +419,12 @@ config:
       send_batch_size: 1024
       timeout: 5s
 
-    # Add component label for NICo pods
+    # Add component label for NICo logs
     resource:
       attributes:
         - action: insert
           key: component
           value: "nico"
-          # Only apply to NICo namespaces (adjust pattern as needed)
         - action: insert
           key: service.name
           from_attribute: k8s.container.name
@@ -484,7 +484,7 @@ processors:
             where IsMatch(body, "^level=")
 ```
 
-Or use the `logfmt` parser in the filelog receiver for nico components specifically:
+Or use the `key_value_parser` operator in the filelog receiver for NICo components specifically:
 
 ```yaml
 receivers:
@@ -493,9 +493,8 @@ receivers:
       - /var/log/pods/nico-*/*/*.log
     operators:
       - type: container
-      - type: regex_parser
+      - type: key_value_parser
         if: 'body matches "^level="'
-        regex: 'level=(?P<level>\w+)\s+(?:msg="(?P<msg>[^"]*)")?\s*(?P<rest>.*)'
         parse_to: attributes
 ```
 
@@ -708,7 +707,7 @@ Use the Datadog exporter or OTLP endpoint. Datadog automatically parses common l
 |---------|-------|-----|
 | No logs from a component | Container not running, or stdout not captured | `kubectl logs <pod>` to verify. Check container status. |
 | Logs not reaching backend | Collector not running, or exporter misconfigured | Check collector logs: `kubectl logs -l app=opentelemetry-collector`. Verify exporter endpoint. |
-| Missing fields in backend | logfmt not parsed | Add a transform processor to parse logfmt, or query with `| logfmt` in Loki. |
+| Missing fields in backend | logfmt not parsed | Add a transform processor to parse logfmt, or use `\| logfmt` operator in Loki queries. |
 | Too many DEBUG logs | `RUST_LOG` set too verbose, or runtime filter left on | Check `RUST_LOG` env var. For nico-api, runtime filter auto-expires; wait or set a less verbose filter. |
 | Log level change didn't take effect | Changed wrong component, or typo in filter | Runtime changes only work for nico-api. Verify filter syntax matches `EnvFilter` rules. |
 | Logs are truncated | Log line too long for collector buffer | Increase `max_log_size` in filelog receiver config. |
