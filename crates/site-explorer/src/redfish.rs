@@ -877,7 +877,7 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
             // This path depends on NIC inventory being up and queryable; it may
             // be absent when NIC firmware is in recovery/uninitialized states or
             // when NIC-side inventory endpoints are not populated/responding.
-            base_mac = get_base_mac_from_bf4_ndf0(client).await;
+            base_mac = get_base_mac_from_bf4_ndf0(client).await.map(Into::into);
             if base_mac.is_none() {
                 tracing::warn!(
                     "BF4 NDF0 fallback did not provide PF0 base MAC (NIC inventory unavailable/uninitialized?)"
