@@ -43,7 +43,3 @@ crates/dpf/doca-platform
 
 # Generated plans from Cursor
 .cursor/
-.kolo
-.agents/
-.trash/
-.secrets
