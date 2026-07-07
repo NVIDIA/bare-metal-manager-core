@@ -161,12 +161,6 @@ async fn test_integration() -> eyre::Result<()> {
             Ipv4Addr::new(172, 20, 0, 2),
         )
         .boxed(),
-        test_machine_a_tron_rack(
-            &test_env,
-            &bmc_address_registry,
-            Ipv4Addr::new(172, 20, 0, 2),
-        )
-        .boxed(),
         test_machine_a_tron_zerodpu(
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
@@ -232,6 +226,58 @@ async fn test_integration() -> eyre::Result<()> {
     cancel_token.cancel();
     server_handle_1.wait().await?;
     server_handle_2.wait().await?;
+    test_env.db_pool.close().await;
+    bmc_mock_handle.stop().await?;
+    Ok(())
+}
+
+/// Exercise the rack-aware machine-a-tron path independently from the other parallel scenarios.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_machine_a_tron_rack_integration() -> eyre::Result<()> {
+    let Some(test_env) = IntegrationTestEnvironment::try_from_environment(
+        1,
+        "api_server_test_machine_a_tron_rack_integration",
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let bmc_address_registry = BmcMockRegistry::default();
+    let certs_dir = test_env.root_dir.join("crates/bmc-mock");
+    let server_config = bmc_mock::tls::server_config(Some(certs_dir)).unwrap();
+    let mut bmc_mock_handle = bmc_mock::CombinedServer::run(
+        "bmc-mock",
+        bmc_address_registry.clone(),
+        Some(ListenerOrAddress::Listener(TcpListener::bind(
+            "127.0.0.1:0",
+        )?)),
+        server_config,
+    );
+    let empty_firmware_dir = temp_dir::TempDir::with_prefix("firmware")?;
+    let cancel_token = CancellationToken::new();
+    let server_handle = utils::start_api_server(
+        test_env.clone(),
+        Some(HostPortPair::HostAndPort(
+            "127.0.0.1".to_string(),
+            bmc_mock_handle.address.port(),
+        )),
+        empty_firmware_dir.path().to_owned(),
+        0,
+        true,
+        cancel_token.clone(),
+    )
+    .await?;
+
+    test_machine_a_tron_rack(
+        &test_env,
+        &bmc_address_registry,
+        Ipv4Addr::new(172, 20, 0, 2),
+    )
+    .await?;
+
+    cancel_token.cancel();
+    server_handle.wait().await?;
     test_env.db_pool.close().await;
     bmc_mock_handle.stop().await?;
     Ok(())
