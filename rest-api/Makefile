@@ -38,6 +38,21 @@ HELM_SET_KEYCLOAK := --set nico-rest-api.config.keycloak.enabled=true \
 	--set nico-rest-api.config.keycloak.clientID=nico-api \
 	--set nico-rest-api.config.keycloak.serviceAccount=true
 
+# Point the DB-connecting sub-charts at the standalone `postgres.postgres`
+# StatefulSet that kind-reset-infra deploys (deploy/kustomize/base/postgres/).
+# The chart defaults target the Zalando-managed `nico-pg-cluster` used in
+# production/site deployments (see PR #3081), which does not exist in the local
+# kind cluster. Without these overrides the nico-rest-db migration Job's
+# wait-for-postgres init container never resolves the host and the Helm
+# pre-install hook times out. The nico-rest-workflow sub-chart already defaults
+# to the local instance, so only db + api need overriding here.
+HELM_SET_DB := --set nico-rest-db.db.host=postgres.postgres \
+	--set nico-rest-db.db.name=nico \
+	--set nico-rest-db.db.user=nico \
+	--set nico-rest-api.config.db.host=postgres.postgres \
+	--set nico-rest-api.config.db.name=nico \
+	--set nico-rest-api.config.db.user=nico
+
 # Tuning flags trade durability for speed. Safe because the container is
 # ephemeral (--rm) and the database is recreated for every test run.
 postgres-up:
@@ -488,17 +503,42 @@ kind-reset-infra: docker-build-local
 	kubectl -n temporal rollout status deployment/temporal-history --timeout=360s || true
 	kubectl -n temporal rollout status deployment/temporal-matching --timeout=360s || true
 	kubectl -n temporal rollout status deployment/temporal-worker --timeout=360s || true
-	@echo "Creating Temporal namespaces with TLS..."
-	kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace cloud --address temporal-frontend.temporal:7233 \
-		--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-		--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-		--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-		--tls-server-name interservice.server.temporal.local || true
-	kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace site --address temporal-frontend.temporal:7233 \
-		--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-		--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-		--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-		--tls-server-name interservice.server.temporal.local || true
+	@echo "Creating Temporal namespaces with TLS (idempotent, with retry)..."
+	@# rollout status reporting the frontend Available does not guarantee it is
+	@# yet serving registration RPCs, so a single-shot create can lose the race
+	@# and (previously) be silently swallowed by `|| true`, leaving the cloud
+	@# worker stuck in CrashLoopBackOff ("Namespace cloud is not found").
+	@# Retry each create until it succeeds or the namespace already exists.
+	@for ns in cloud site; do \
+		echo "Registering Temporal namespace: $$ns"; \
+		for attempt in $$(seq 1 30); do \
+			if kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace describe --namespace $$ns --address temporal-frontend.temporal:7233 \
+				--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+				--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+				--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+				--tls-server-name interservice.server.temporal.local >/dev/null 2>&1; then \
+				echo "  namespace $$ns already exists"; break; \
+			fi; \
+			if kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace $$ns --address temporal-frontend.temporal:7233 \
+				--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+				--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+				--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+				--tls-server-name interservice.server.temporal.local; then \
+				echo "  namespace $$ns registered"; break; \
+			fi; \
+			echo "  attempt $$attempt: frontend not ready for $$ns, retrying in 5s..."; \
+			sleep 5; \
+		done; \
+	done
+	@echo "Verifying Temporal namespaces exist..."
+	@for ns in cloud site; do \
+		kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace describe --namespace $$ns --address temporal-frontend.temporal:7233 \
+			--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+			--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+			--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+			--tls-server-name interservice.server.temporal.local >/dev/null 2>&1 || \
+			{ echo "ERROR: Temporal namespace $$ns was not created" >&2; exit 1; }; \
+	done
 	@echo "Temporal Helm deployment ready"
 
 	@echo "Setting up Keycloak..."
@@ -600,7 +640,7 @@ helm-lint:
 
 helm-template:
 	@echo "--- nico-rest (umbrella) ---"
-	helm template nico-rest $(UMBRELLA_CHART)/ $(HELM_SET) $(HELM_SET_KEYCLOAK) --namespace nico-rest
+	helm template nico-rest $(UMBRELLA_CHART)/ $(HELM_SET) $(HELM_SET_KEYCLOAK) $(HELM_SET_DB) --namespace nico-rest
 	@echo "--- nico-rest-site-agent ---"
 	helm template nico-rest-site-agent $(SITE_AGENT_CHART)/ $(HELM_SET) --namespace nico-rest
 	@echo "--- nico-mcp ---"
@@ -610,7 +650,7 @@ helm-template:
 # Note: images must be loaded into kind before calling this (kind-load or kind-reset-infra)
 helm-deploy:
 	helm upgrade --install nico-rest $(UMBRELLA_CHART)/ \
-		--namespace nico-rest --create-namespace $(HELM_SET) $(HELM_SET_KEYCLOAK) \
+		--namespace nico-rest --create-namespace $(HELM_SET) $(HELM_SET_KEYCLOAK) $(HELM_SET_DB) \
 		--set nico-rest-api.nodePort.enabled=true \
 		--set nico-rest-api.nodePort.port=30388 \
 		--wait --timeout 5m
