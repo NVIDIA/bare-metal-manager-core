@@ -139,6 +139,20 @@ nico-bmc-proxy:
       client_cert = "/var/run/secrets/spiffe.io/tls.crt"
       client_key = "/var/run/secrets/spiffe.io/tls.key"
 
+nico-machine-a-tron:
+  enabled: true
+  machineATron:
+    nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  pods:
+    default:
+      machines:
+        config:
+          hwType: wiwynn_gb200_nvl
+          hostCount: 10
+          dpuPerHostCount: 2
+          oobDhcpRelayAddress: "192.168.192.1"
+          adminDhcpRelayAddress: "192.168.176.1"
+
 nico-dhcp:
   enabled: false
 nico-dns:
