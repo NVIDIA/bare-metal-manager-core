@@ -169,5 +169,6 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_vpc_prefixes_time_in_state_seconds</td><td>histogram</td><td>The amount of time objects of type carbide_vpc_prefixes have spent in a certain state</td></tr>
 <tr><td>carbide_vpc_prefixes_total</td><td>gauge</td><td>The total number of carbide_vpc_prefixes in the system</td></tr>
 <tr><td>carbide_vpc_prefixes_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_vpc_prefixes in the system with a given state that failed state handling</td></tr>
+<tr><td>site_explorer_create_power_shelves_latency_seconds</td><td>histogram</td><td>Duration of power shelf creation</td></tr>
 <tr><td>site_explorer_create_switches_latency_seconds</td><td>histogram</td><td>Duration of switch creation</td></tr>
 </table>

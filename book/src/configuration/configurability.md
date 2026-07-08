@@ -338,10 +338,23 @@ plus thresholds for DPU agent compliance. Operators flip this from
 
 ### Site Explorer
 
-`[site_explorer].run_interval` controls how often background hardware
-discovery scans run. `[site_explorer].create_machines` toggles whether
-discovered hardware is auto-registered as machines (useful to disable in
-manual-onboarding environments).
+`[site_explorer]` settings:
+
+- `run_interval` — how often background hardware discovery scans run.
+- `create_machines` — whether discovered hardware is auto-registered as
+  machines (on by default; useful to disable in manual-onboarding
+  environments).
+- `create_switches` / `create_power_shelves` — the corresponding toggles for
+  switches and power shelves (both on by default).
+- `explore_power_shelves_from_static_ip` — lets a declared power shelf with
+  no DHCP lease be discovered at its static `expected_power_shelves` IP (on
+  by default).
+
+Site Explorer auto-creation is additionally gated per device on a matching
+expected-hardware record (`expected_machines`, `expected_switches`,
+`expected_power_shelves`), so it only ingests declared hardware; other
+registration paths (such as DPU agent self-registration via
+`DiscoverMachine`) are separate.
 
 ### TLS / transport — `[tls]` and `listen_mode`
 
@@ -1180,6 +1193,8 @@ on or off.
 | SPDM | siteConfig | `[spdm].enabled` | off | Hardware attestation via NRAS. |
 | Rack Management | siteConfig | `rack_management_enabled = true` | off | Standalone infrastructure manager mode (GB200/GB300/VR144). |
 | Site Explorer machine auto-creation | siteConfig | `[site_explorer].create_machines` | on | Disable for manual-onboarding environments. |
+| Site Explorer switch / power shelf auto-creation | siteConfig | `[site_explorer].create_switches` / `[site_explorer].create_power_shelves` | on | Ingests only declared hardware (`expected_switches` / `expected_power_shelves` records). Disable to pause switch or power shelf ingestion site-wide. |
+| Site Explorer power shelf static-IP discovery | siteConfig | `[site_explorer].explore_power_shelves_from_static_ip` | on | Discovers declared shelves at their `expected_power_shelves` static IP when they have no DHCP lease. Creation still requires `create_power_shelves`. |
 | Firmware autoupdate | siteConfig | `[firmware_global].autoupdate` | off | Enable once the fleet's firmware baseline is stable. |
 | Component Manager (compute trays / NvLink switches / power shelves) | siteConfig | `[component_manager]` present | off | GB200/GB300 sites with managed compute, power, and switch fabric. RMS backends require rack profile data for node type resolution. |
 | Auto-repair plugin | siteConfig | `[auto_machine_repair_plugin]` | off | Enable per fault class as fleet maturity grows. |

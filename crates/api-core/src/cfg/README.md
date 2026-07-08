@@ -302,12 +302,12 @@ flows.
 | `reset_rate_limit` | `Duration` | `1h` | Minimum time between SiteExplorer-initiated BMC resets. |
 | `admin_segment_type_non_dpu` | `bool` | `false` | Non-DPU hosts use `HostInband` admin segment type. |
 | `allocate_secondary_vtep_ip` | `bool` | `false` | Allocate secondary VTEP IP for GENEVE traffic intercept. |
-| `create_power_shelves` | `bool` | `false` | Auto-create Power Shelf state machines. |
-| `explore_power_shelves_from_static_ip` | `bool` | `false` | Discover power shelves via static IP. |
+| `create_power_shelves` | `bool` | `true` | Auto-create Power Shelf state machines for explored shelves with a matching `expected_power_shelves` record. |
+| `explore_power_shelves_from_static_ip` | `bool` | `true` | Discover declared power shelves at their `expected_power_shelves` static IP (no DHCP lease required); creation still requires `create_power_shelves`. |
 | `power_shelves_created_per_run` | `u64` | `1` | Max power shelves created per run. |
-| `create_switches` | `bool` | `true` | Auto-create Switch state machines. |
+| `create_switches` | `bool` | `true` | Auto-create Switch state machines for explored switches with a matching `expected_switches` record. |
 | `switches_created_per_run` | `u64` | `9` | Max switches created per run. |
-| `explore_mode` | `SiteExplorerExploreMode` | `LibRedfish` | Redfish backend: `libredfish`, `nv-redfish`, or `compare-result`. |
+| `explore_mode` | `SiteExplorerExploreMode` | `NvRedfish` | Redfish backend: `libredfish`, `nv-redfish`, or `compare-result`. |
 | `dpu_mode` | `Option<DpuMode>` | — | Site-wide DPU operating mode. When set, applies to every host that doesn't declare a per-host `ExpectedMachine.dpu_mode` override. |
 
 ### `StateControllerConfig`

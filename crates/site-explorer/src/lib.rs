@@ -887,6 +887,12 @@ impl SiteExplorer {
             metrics.create_power_shelves_latency = Some(create_power_shelves_latency);
             metrics.record_phase_latency("create_power_shelves", create_power_shelves_latency);
             create_power_shelves_res?;
+        } else if !explored_power_shelves.is_empty() {
+            tracing::info!(
+                num_power_shelves = explored_power_shelves.len(),
+                "Identified power shelves during exploration but create_power_shelves=false; skipping PowerShelf creation. \
+                 Set [site_explorer] create_power_shelves=true and declare matching expected_power_shelves records to ingest them."
+            );
         }
 
         // Identify and create switches
@@ -911,7 +917,7 @@ impl SiteExplorer {
             tracing::info!(
                 num_switches = explored_switches.len(),
                 "Identified switches during exploration but create_switches=false; skipping Switch creation. \
-                 Set [site_explorer] create_switches=true to ingest them."
+                 Set [site_explorer] create_switches=true and declare matching expected_switches records to ingest them."
             );
         }
 
