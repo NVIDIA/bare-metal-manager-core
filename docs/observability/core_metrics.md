@@ -20,6 +20,9 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_api_vault_token_time_until_refresh_seconds</td><td>gauge</td><td>The amount of time, in seconds, until the vault token is required to be refreshed</td></tr>
 <tr><td>carbide_api_version</td><td>gauge</td><td>Version (git sha, build date, etc) of this service</td></tr>
 <tr><td>carbide_available_ips_count</td><td>gauge</td><td>The total number of available ips in the site</td></tr>
+<tr><td>carbide_client_tcp_connect_attempts_total</td><td>counter</td><td>Number of outbound TCP connect attempts across all HTTP connectors</td></tr>
+<tr><td>carbide_client_tcp_connect_errors_total</td><td>counter</td><td>Number of failed outbound TCP connect attempts across all HTTP connectors</td></tr>
+<tr><td>carbide_client_tcp_connect_successes_total</td><td>counter</td><td>Number of successful outbound TCP connects across all HTTP connectors</td></tr>
 <tr><td>carbide_concurrent_machine_updates_available</td><td>gauge</td><td>The number of machines in the system that we will update concurrently.</td></tr>
 <tr><td>carbide_db_pool_idle_conns</td><td>gauge</td><td>The amount of idle connections in the carbide database pool</td></tr>
 <tr><td>carbide_db_pool_total_conns</td><td>gauge</td><td>The amount of total (active + idle) connections in the carbide database pool</td></tr>
@@ -35,6 +38,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_endpoint_exploration_step_latency_milliseconds</td><td>histogram</td><td>The time it took to perform one endpoint exploration step</td></tr>
 <tr><td>carbide_endpoint_exploration_success_count</td><td>gauge</td><td>The amount of endpoint explorations that have been successful</td></tr>
 <tr><td>carbide_endpoint_explorations_count</td><td>gauge</td><td>The amount of endpoint explorations that have been attempted</td></tr>
+<tr><td>carbide_external_call_duration_milliseconds</td><td>histogram</td><td>Duration of outbound calls by backend, operation, and outcome; the _count series, split by outcome, gives the request and error rates.</td></tr>
 <tr><td>carbide_gpus_in_use_count</td><td>gauge</td><td>The total number of GPUs that are actively used by tenants in instances in the NICo deployment</td></tr>
 <tr><td>carbide_gpus_total_count</td><td>gauge</td><td>The total number of GPUs available in the NICo deployment</td></tr>
 <tr><td>carbide_gpus_usable_count</td><td>gauge</td><td>The remaining number of GPUs in the NICo deployment which are available for immediate instance creation</td></tr>

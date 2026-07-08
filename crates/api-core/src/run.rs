@@ -142,6 +142,7 @@ pub async fn run(
     // Counts are process-global, so this exposes the host's layer too when an
     // embedding binary (the integration harness) owns the subscriber.
     carbide_instrument::log_events::register(&metrics.meter);
+    forge_http_connector::connector::register_global_metrics(&metrics.meter);
 
     // All background tasks that run "forever" (until canceled) are added to this JoinSet. When
     // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,

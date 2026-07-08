@@ -46,6 +46,7 @@ test-support = [
 [dev-dependencies]
 carbide-instrument = { path = ".", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
+futures-util = { workspace = true }
 
 [lints]
 workspace = true

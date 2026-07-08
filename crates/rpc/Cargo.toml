@@ -38,6 +38,7 @@ model = [
 test-support = ["dep:carbide-prost-builder"]
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
 
 # [local-dependencies]
 carbide-api-model = { path = "../api-model", optional = true }

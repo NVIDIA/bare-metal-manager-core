@@ -29,6 +29,7 @@ name = "forge_http_connector"
 
 [dependencies]
 hickory-resolver = { workspace = true }
+opentelemetry = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing = { workspace = true }
 socket2 = { workspace = true }

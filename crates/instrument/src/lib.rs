@@ -317,6 +317,7 @@ impl<T, E> From<&Result<T, E>> for Outcome {
 
 pub mod log_events;
 pub use log_events::LogEventsMetric;
+pub mod red;
 
 #[cfg(feature = "test-support")]
 pub mod testing;
@@ -378,6 +379,15 @@ pub mod __private {
             crate::MetricKind::None => CachedInstrument::None,
         }
     }
+}
+
+/// Per-instance log-level selection for `log = dynamic` events: implement
+/// this (the derive routes `Event::log_at` through it) to choose the level --
+/// or [`LogAt::Off`] -- from the event's own fields. The idiom: count every
+/// outcome, log only the failures.
+pub trait DynamicLog {
+    /// Where (and whether) this instance logs.
+    fn log_at(&self) -> LogAt;
 }
 
 #[cfg(test)]
