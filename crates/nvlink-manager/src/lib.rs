@@ -27,7 +27,6 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_secrets::credentials::CredentialManager;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
@@ -59,7 +58,6 @@ use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkSta
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use model::nvl_logical_partition::LogicalPartition;
 use model::nvl_partition::{NvlPartition, NvlPartitionName};
-use model::rack_type::RackProfileConfig;
 use sqlx::PgPool;
 #[cfg(feature = "test-support")]
 pub use switch_cert_monitor::{SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult};
@@ -927,9 +925,6 @@ pub struct NvLinkManager {
     meter: opentelemetry::metrics::Meter,
     config: NvLinkConfig,
     host_health: HostHealthConfig,
-    rms_client: Option<Arc<dyn librms::RmsApi>>,
-    credential_manager: Arc<dyn CredentialManager>,
-    rack_profiles: RackProfileConfig,
     work_lock_manager_handle: WorkLockManagerHandle,
 }
 
@@ -939,9 +934,6 @@ pub struct NvLinkManagerArgs {
     pub meter: opentelemetry::metrics::Meter,
     pub config: NvLinkConfig,
     pub host_health: HostHealthConfig,
-    pub rms_client: Option<Arc<dyn librms::RmsApi>>,
-    pub credential_manager: Arc<dyn CredentialManager>,
-    pub rack_profiles: RackProfileConfig,
     pub work_lock_manager_handle: WorkLockManagerHandle,
 }
 
@@ -953,9 +945,6 @@ impl NvLinkManager {
             meter: args.meter,
             config: args.config,
             host_health: args.host_health,
-            rms_client: args.rms_client,
-            credential_manager: args.credential_manager,
-            rack_profiles: args.rack_profiles,
             work_lock_manager_handle: args.work_lock_manager_handle,
         }
     }
@@ -980,9 +969,6 @@ impl NvLinkManager {
                 self.db_pool,
                 self.meter,
                 self.config,
-                self.rms_client,
-                self.credential_manager,
-                self.rack_profiles,
                 self.work_lock_manager_handle,
             );
             join_set
