@@ -37,6 +37,13 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPut,
 			Handler: apiHandler.NewCreateOrUpdateBMCCredentialHandler(dbSession, scp, cfg),
 		},
+		// Site-default UEFI credential endpoint (Provider Admin); equivalent to
+		// the admin CLI `credential add-uefi` command.
+		{
+			Path:    apiPathPrefix + "/credential/uefi",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateUEFICredentialHandler(dbSession, scp),
+		},
 		// User endpoint
 		{
 			Path:    apiPathPrefix + "/user/current",
