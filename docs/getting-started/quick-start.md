@@ -95,7 +95,7 @@ Obtain an NGC API key at [ngc.nvidia.com](https://ngc.nvidia.com) → **API Keys
 | `NICO_CORE_IMAGE_TAG` | **Yes** | NICo Core image tag (e.g. `v2025.12.30`). |
 | `NICO_REST_IMAGE_TAG` | **Yes** | NICo REST image tag (e.g. `v1.0.4`). |
 | `KUBECONFIG` | **Yes** | Path to your cluster kubeconfig. |
-| `NICO_SITE_UUID` | No | Stable UUID for this site. If unset, `setup.sh` generates a random UUID each run. |
+| `NICO_SITE_UUID` | No | Stable UUID for this site. If unset, `setup.sh` reuses the UUID from a prior install (site-agent ConfigMap), else adopts an existing REST site with the same name, else mints one and seeds the site record itself. |
 
 ### 3b. Set your Site Name
 

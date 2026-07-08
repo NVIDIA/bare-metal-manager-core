@@ -38,7 +38,7 @@
 #   REGISTRY_PULL_USERNAME Username for generated pull secrets.
 #                          Default: $oauthtoken
 #   NICO_SITE_UUID          REST site UUID. Used only when REST is deployed.
-#                          If unset, setup generates a random UUID each run.
+#                          If unset, setup resolves it: prior install ConfigMap, existing site by name, else mints and seeds the site record.
 #   NICO_MANAGE_DEFAULT_STORAGE_CLASS
 #                          Whether setup annotates local-path as the default
 #                          StorageClass. Default: true.
@@ -1004,24 +1004,39 @@ NICO_SITE_AGENT_CHART="${NICO_REST_HELM_DIR}/nico-rest-site-agent"
 # IdP-agnostic: no API token needed.
 # ---------------------------------------------------------------------------
 NICO_ORG="${NICO_ORG:-ncx}"
-NICO_SITE_NAME="${NICO_SITE_NAME:-$(awk -F'"' '/^siteName:/{print $2}' "${SCRIPT_DIR}/values.yaml")}"
+# siteName may be bare, single- or double-quoted in YAML; strip either style.
+NICO_SITE_NAME="${NICO_SITE_NAME:-$(awk '/^siteName:/{v=$2; gsub(/["'"'"']/,"",v); print v}' "${SCRIPT_DIR}/values.yaml" 2>/dev/null || true)}"
 if [[ -z "${NICO_SITE_NAME}" ]]; then
     echo "ERROR: could not resolve the site name (set NICO_SITE_NAME or siteName in values.yaml)" >&2
     exit 1
 fi
+# These values are interpolated into SQL inside a double-quoted shell string —
+# restrict them to a safe charset instead of attempting to escape.
+if ! [[ "${NICO_SITE_NAME}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && "${NICO_ORG}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    echo "ERROR: NICO_SITE_NAME/NICO_ORG must match [A-Za-z0-9][A-Za-z0-9._-]* (got '${NICO_SITE_NAME}' / '${NICO_ORG}')" >&2
+    exit 1
+fi
 
+# || true: under set -euo pipefail a kubectl failure here would kill the
+# script before the emptiness check that makes seeding optional.
 _REST_PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
     -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
-    2>/dev/null | awk '$2=="master"{print $1}' | head -1)"
+    2>/dev/null | awk '$2=="master"{print $1}' | head -1 || true)"
 _rest_sql() {   # runs SQL against the nico_rest DB on the Patroni primary
     kubectl exec -n postgres "${_REST_PG_PRIMARY}" -- \
         su postgres -c "psql -d nico_rest -v ON_ERROR_STOP=1 -tAc \"$1\"" 2>/dev/null
 }
 
+# CLUSTER_ID reaches the agent via envFrom -> the nico-rest-site-agent-config
+# ConfigMap; it never appears as an inline env entry in the StatefulSet spec,
+# so it must be read from the ConfigMap. Fetched once; reused by the
+# stale-secret guard below.
+_PRIOR_CLUSTER_ID="$(kubectl get configmap nico-rest-site-agent-config -n nico-rest \
+    -o jsonpath='{.data.CLUSTER_ID}' 2>/dev/null || true)"
+
 if [[ -z "${NICO_SITE_UUID:-}" ]]; then
-    # 2. prior install's CLUSTER_ID (site-agent StatefulSet env)
-    NICO_SITE_UUID="$(kubectl get statefulset nico-rest-site-agent -n nico-rest \
-        -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CLUSTER_ID")].value}' 2>/dev/null || true)"
+    # 2. prior install's CLUSTER_ID (stable reruns)
+    NICO_SITE_UUID="${_PRIOR_CLUSTER_ID}"
 fi
 if [[ -z "${NICO_SITE_UUID:-}" && -n "${_REST_PG_PRIMARY}" ]]; then
     # 3. adopt an existing site row with our name
@@ -1035,6 +1050,11 @@ if [[ -z "${NICO_SITE_UUID:-}" ]]; then
         exit 1
     fi
     NICO_SITE_UUID="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+fi
+# Validate before interpolating into SQL / --set (path 1 accepts arbitrary env).
+if ! [[ "${NICO_SITE_UUID}" =~ ^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$ ]]; then
+    echo "ERROR: resolved NICO_SITE_UUID is not a valid UUID: '${NICO_SITE_UUID}'" >&2
+    exit 1
 fi
 
 # Seed the site record (idempotent): provider row per org, site row keyed by
@@ -1054,9 +1074,18 @@ if [[ -n "${_REST_PG_PRIMARY}" ]]; then
             registration_token_expiration, is_infinity_enabled, is_serial_console_enabled, status, created, updated, created_by, config)
         SELECT '${NICO_SITE_UUID}', '${NICO_SITE_NAME}', '${NICO_SITE_NAME}', '${NICO_ORG}',
             (SELECT id FROM infrastructure_provider WHERE org='${NICO_ORG}' AND name='default' AND deleted IS NULL LIMIT 1),
-            gen_random_uuid(), now() + interval '7 days', false, false, 'Pending', now(), now(), '${NICO_SITE_UUID}', '{}'
+            gen_random_uuid(), now() + interval '7 days', false, false, 'Pending', now(), now(), '${NICO_SITE_UUID}',
+            '{\\\"native_networking\\\": true, \\\"network_security_group\\\": true, \\\"flow\\\": true}'
         WHERE NOT EXISTS (SELECT 1 FROM site WHERE id='${NICO_SITE_UUID}');" >/dev/null \
         || { echo "ERROR: failed to seed the site record" >&2; exit 1; }
+    # Parity with the REST create handler: it defaults native_networking and
+    # network_security_group to true ("v2 networking posture", site.go) and
+    # writes a status_detail row in the same transaction; endpoints surfacing
+    # status details would otherwise return an empty array for a seeded site.
+    _rest_sql "INSERT INTO status_detail (id, entity_id, status, message, count, created, updated)
+        SELECT gen_random_uuid(), '${NICO_SITE_UUID}', 'Pending', 'received site creation request, pending pairing', 1, now(), now()
+        WHERE NOT EXISTS (SELECT 1 FROM status_detail WHERE entity_id='${NICO_SITE_UUID}');" >/dev/null \
+        || echo "WARNING: could not seed the site status_detail row (non-fatal)" >&2
     echo "REST site record ready: '${NICO_SITE_NAME}' (${NICO_SITE_UUID}, org ${NICO_ORG})"
 else
     echo "WARNING: no Patroni primary found — skipping REST site seeding (site-agent inventory will be dropped until the site exists)" >&2
@@ -1065,8 +1094,6 @@ fi
 # If a previous bootstrap bound the site-registration secret to a DIFFERENT
 # UUID, delete it so the bootstrap Job re-registers under the resolved one
 # instead of silently keeping the stale identity.
-_PRIOR_CLUSTER_ID="$(kubectl get statefulset nico-rest-site-agent -n nico-rest \
-    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CLUSTER_ID")].value}' 2>/dev/null || true)"
 if kubectl get secret site-registration -n nico-rest &>/dev/null \
    && [[ -n "${_PRIOR_CLUSTER_ID}" && "${_PRIOR_CLUSTER_ID}" != "${NICO_SITE_UUID}" ]]; then
     echo "site-registration secret is bound to stale UUID ${_PRIOR_CLUSTER_ID} — deleting for re-bootstrap"
