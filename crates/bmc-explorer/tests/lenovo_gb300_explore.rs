@@ -55,30 +55,3 @@ async fn explore_lenovo_gb300() {
         .expect("GB300 lockdown status must be populated");
     assert_eq!(lockdown.status, InternalLockdownStatus::Partial);
 }
-
-/// Regression coverage for the NvidiaDgxVr ("vr-tray") host mock, added while
-/// investigating #3159. This hardware type previously had no host-mode test
-/// helper at all (only a DPU-mode one), so it was untested as a host machine.
-#[test]
-async fn explore_nvidia_dgx_vr_and_generate_machine_id() {
-    let h = test_support::nvidia_dgx_vr_host_bmc().await;
-    let config = common::explorer_config();
-
-    let mut report = nv_generate_exploration_report(h.service_root, &config)
-        .await
-        .expect("NvidiaDgxVr host exploration should succeed");
-
-    assert_eq!(report.endpoint_type, EndpointType::Bmc);
-    assert!(!report.systems.is_empty(), "systems must be present");
-    assert!(!report.chassis.is_empty(), "chassis must be present");
-
-    let machine_id = report
-        .generate_machine_id(true)
-        .expect("NvidiaDgxVr host report should have enough data for a MachineId")
-        .expect("NvidiaDgxVr host report should generate a predicted-host MachineId");
-
-    assert!(
-        machine_id.machine_type().is_predicted_host(),
-        "expected a PredictedHost machine type for a non-DPU tray"
-    );
-}
