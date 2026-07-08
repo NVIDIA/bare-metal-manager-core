@@ -508,36 +508,30 @@ kind-reset-infra: docker-build-local
 	@# yet serving registration RPCs, so a single-shot create can lose the race
 	@# and (previously) be silently swallowed by `|| true`, leaving the cloud
 	@# worker stuck in CrashLoopBackOff ("Namespace cloud is not found").
-	@# Retry each create until it succeeds or the namespace already exists.
+	@# The loop's success condition is a confirmed `describe`, not a successful
+	@# `create`: `create` returning OK does not guarantee the namespace is
+	@# immediately visible (propagation lag), so we re-check with `describe` and
+	@# retry transient NOT_FOUND responses. Fail loudly if it never confirms.
 	@for ns in cloud site; do \
 		echo "Registering Temporal namespace: $$ns"; \
+		ok=""; \
 		for attempt in $$(seq 1 30); do \
 			if kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace describe --namespace $$ns --address temporal-frontend.temporal:7233 \
 				--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
 				--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
 				--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
 				--tls-server-name interservice.server.temporal.local >/dev/null 2>&1; then \
-				echo "  namespace $$ns already exists"; break; \
+				echo "  namespace $$ns confirmed"; ok=1; break; \
 			fi; \
-			if kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace $$ns --address temporal-frontend.temporal:7233 \
+			kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace $$ns --address temporal-frontend.temporal:7233 \
 				--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
 				--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
 				--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-				--tls-server-name interservice.server.temporal.local; then \
-				echo "  namespace $$ns registered"; break; \
-			fi; \
-			echo "  attempt $$attempt: frontend not ready for $$ns, retrying in 5s..."; \
+				--tls-server-name interservice.server.temporal.local || true; \
+			echo "  attempt $$attempt: namespace $$ns not confirmed yet, retrying in 5s..."; \
 			sleep 5; \
 		done; \
-	done
-	@echo "Verifying Temporal namespaces exist..."
-	@for ns in cloud site; do \
-		kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace describe --namespace $$ns --address temporal-frontend.temporal:7233 \
-			--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-			--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-			--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-			--tls-server-name interservice.server.temporal.local >/dev/null 2>&1 || \
-			{ echo "ERROR: Temporal namespace $$ns was not created" >&2; exit 1; }; \
+		[ -n "$$ok" ] || { echo "ERROR: Temporal namespace $$ns was not created" >&2; exit 1; }; \
 	done
 	@echo "Temporal Helm deployment ready"
 
