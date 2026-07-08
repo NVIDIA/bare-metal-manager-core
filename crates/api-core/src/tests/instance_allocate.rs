@@ -35,13 +35,13 @@ use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
-    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
-    create_host_inband_network_segment, create_network_segment, create_tenant_network_segment,
-    create_underlay_network_segment,
+    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3,
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY,
+    create_admin_network_segment, create_host_inband_network_segment, create_network_segment,
+    create_tenant_network_segment, create_underlay_network_segment,
 };
 use crate::tests::common::api_fixtures::{TestEnv, TestEnvOverrides};
-use crate::tests::common::rpc_builder::VpcCreationRequest;
+use crate::tests::common::rpc_builder::{DhcpDiscovery, VpcCreationRequest};
 
 #[derive(Debug, Default)]
 struct TestEnvOptions {
@@ -73,6 +73,11 @@ async fn create_test_env_for_instance_allocation(
         IpNetwork::new(
             FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.network(),
             FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2.prefix(),
+        )
+        .unwrap(),
+        IpNetwork::new(
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3.network(),
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3.prefix(),
         )
         .unwrap(),
         IpNetwork::new(
@@ -1007,6 +1012,199 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
         .await?
         .expect("zero-DPU allocation should persist an instance address per HostInband segment");
         assert_eq!(address.vpc_id, flat_vpc_id);
+    }
+
+    Ok(())
+}
+
+/// Updating an auto-networked instance re-resolves its interface set from the
+/// host's current HostInband segments, so an operator-added segment (with the
+/// host DHCP'ing a NIC on it) flows into the instance on its next config
+/// update. The re-resolved multi-interface config must pass validation: a
+/// resolved auto interface is identified by its segment, not by a shared
+/// per-device function-id bucket.
+#[crate::sqlx_test]
+async fn test_zero_dpu_auto_update_absorbs_added_host_inband_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+    let config = ManagedHostConfig {
+        dpus: vec![],
+        non_dpu_macs: vec![
+            HOST_NON_DPU_MAC_ADDRESS_POOL.allocate(),
+            HOST_NON_DPU_MAC_ADDRESS_POOL.allocate(),
+            HOST_NON_DPU_MAC_ADDRESS_POOL.allocate(),
+        ],
+        ..ManagedHostConfig::default()
+    };
+
+    // Ingest a zero-DPU host with NICs on both fixture HostInband segments.
+    // The third NIC stays segment-less for now; its segment arrives mid-test.
+    let zero_dpu_host = api_fixtures::site_explorer::new_mock_host(&env, config.clone())
+        .await?
+        .discover_dhcp_host_secondary_iface(
+            1,
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_2
+                .ip()
+                .to_string(),
+            |result, _| {
+                assert!(result.is_ok());
+                Ok(())
+            },
+        )
+        .await?
+        .finish(|mock| async move {
+            let machine_id = mock.discovered_machine_id().unwrap();
+
+            Ok::<ManagedHostStateSnapshot, eyre::Report>(
+                db::managed_host::load_snapshot(
+                    mock.test_env.pool.begin().await?.deref_mut(),
+                    &machine_id,
+                    Default::default(),
+                )
+                .await
+                .transpose()
+                .unwrap()?,
+            )
+        })
+        .await?;
+    let flat_vpc_id = default_flat_vpc_id(&env).await;
+
+    let instance = crate::handlers::instance::allocate(
+        env.api.as_ref(),
+        tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(zero_dpu_host.host_snapshot.id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+                    hostname: None,
+                    tenant_keyset_ids: vec![],
+                }),
+                os: Some(forge::InstanceOperatingSystemConfig {
+                    phone_home_enabled: false,
+                    run_provisioning_instructions_on_every_boot: false,
+                    user_data: None,
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
+                        forge::InlineIpxe {
+                            ipxe_script: "exit".to_string(),
+                        },
+                    )),
+                }),
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![],
+                    #[allow(deprecated)]
+                    auto: true,
+                    auto_config: Some(forge::InstanceNetworkAutoConfig {
+                        vpc_id: Some(flat_vpc_id),
+                    }),
+                }),
+                infiniband: None,
+                nvlink: None,
+                spxconfig: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: None,
+            metadata: Some(Metadata {
+                name: "zero-dpu-auto-absorbs-segment".to_string(),
+                ..Default::default()
+            }),
+            allow_unhealthy_machine: false,
+        }),
+    )
+    .await
+    .expect("initial zero-DPU auto allocation should succeed on a multi-NIC host")
+    .into_inner();
+    let instance_id = instance.id.expect("allocated instance should have an id");
+
+    // Network config updates only run against a Ready instance.
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &zero_dpu_host.host_snapshot.id,
+        30,
+        ManagedHostState::Assigned {
+            instance_state: model::machine::InstanceState::Ready,
+        },
+    )
+    .await;
+
+    // The operator adds a third HostInband segment, and the host gets a
+    // lease on it with its spare NIC.
+    let host_inband_3_id = create_network_segment(
+        &env.api,
+        "HOST_INBAND_3",
+        &format!(
+            "{}/{}",
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3.network(),
+            FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3.prefix()
+        ),
+        &FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3
+            .ip()
+            .to_string(),
+        forge::NetworkSegmentType::HostInband,
+        None,
+        true,
+    )
+    .await;
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    env.api
+        .discover_dhcp(
+            DhcpDiscovery::builder(
+                config.non_dpu_macs[2],
+                FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3.ip(),
+            )
+            .vendor_string("Bluefield")
+            .tonic_request(),
+        )
+        .await
+        .expect("the spare host NIC should get a lease on the new HostInband segment");
+
+    // Re-send the instance's own external-view config (`auto` + empty
+    // interfaces); the update re-resolves it from the host's current
+    // segments and stages the three-interface config.
+    env.api
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            instance_id: instance.id,
+            if_version_match: None,
+            config: instance.config.clone(),
+            metadata: instance.metadata.clone(),
+        }))
+        .await
+        .expect("the auto update must absorb the added HostInband segment");
+
+    let mut txn = env.db_txn().await;
+    let db_instance = db::instance::find_by_id(txn.as_mut(), instance_id)
+        .await?
+        .expect("instance should still exist after the update");
+    let pending = db_instance
+        .update_network_config_request
+        .expect("the auto update should stage a re-resolved network config");
+    assert_eq!(
+        pending.new_config.interfaces.len(),
+        3,
+        "the staged config should resolve one interface per HostInband segment"
+    );
+    let (host_inband_segment_1, host_inband_segment_2) = (
+        db::network_segment::find_by_name(txn.as_mut(), "HOST_INBAND").await?,
+        db::network_segment::find_by_name(txn.as_mut(), "HOST_INBAND_2").await?,
+    );
+    for segment_id in [
+        host_inband_segment_1.id,
+        host_inband_segment_2.id,
+        host_inband_3_id,
+    ] {
+        assert_eq!(
+            pending
+                .new_config
+                .interfaces
+                .iter()
+                .filter(|i| i.network_segment_id == Some(segment_id))
+                .count(),
+            1,
+            "the staged config should hold exactly one interface for segment {segment_id}"
+        );
     }
 
     Ok(())
