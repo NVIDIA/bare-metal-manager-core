@@ -305,7 +305,7 @@ flows.
 | `create_power_shelves` | `bool` | `false` | Auto-create Power Shelf state machines. |
 | `explore_power_shelves_from_static_ip` | `bool` | `false` | Discover power shelves via static IP. |
 | `power_shelves_created_per_run` | `u64` | `1` | Max power shelves created per run. |
-| `create_switches` | `bool` | `false` | Auto-create Switch state machines. |
+| `create_switches` | `bool` | `true` | Auto-create Switch state machines. |
 | `switches_created_per_run` | `u64` | `9` | Max switches created per run. |
 | `explore_mode` | `SiteExplorerExploreMode` | `LibRedfish` | Redfish backend: `libredfish`, `nv-redfish`, or `compare-result`. |
 | `dpu_mode` | `Option<DpuMode>` | — | Site-wide DPU operating mode. When set, applies to every host that doesn't declare a per-host `ExpectedMachine.dpu_mode` override. |

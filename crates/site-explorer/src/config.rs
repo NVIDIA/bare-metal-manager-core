@@ -288,7 +288,7 @@ impl SiteExplorerConfig {
     }
 
     pub fn default_create_switches() -> Arc<AtomicBool> {
-        Arc::new(false.into())
+        Arc::new(true.into())
     }
 
     pub const fn default_switches_created_per_run() -> u64 {

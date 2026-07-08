@@ -907,6 +907,12 @@ impl SiteExplorer {
             metrics.create_switches_latency = Some(create_switches_latency);
             metrics.record_phase_latency("create_switches", create_switches_latency);
             create_switches_res?;
+        } else if !explored_switches.is_empty() {
+            tracing::info!(
+                num_switches = explored_switches.len(),
+                "Identified switches during exploration but create_switches=false; skipping Switch creation. \
+                 Set [site_explorer] create_switches=true to ingest them."
+            );
         }
 
         // Audit after everything has been explored, identified, and created.
