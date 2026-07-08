@@ -28,9 +28,8 @@ func init() {
 			SET config = jsonb_set(COALESCE(ta.config, '{}'::jsonb), '{targetedInstanceCreation}', 'true'::jsonb, true)
 			FROM tenant t
 			WHERE ta.tenant_id = t.id
-			  AND ta.status = ?
 			  AND COALESCE(t.config->>'targetedInstanceCreation', 'false') = 'true'
-		`, model.TenantAccountStatusReady)
+		`)
 		handleError(tx, err)
 
 		terr = tx.Commit()

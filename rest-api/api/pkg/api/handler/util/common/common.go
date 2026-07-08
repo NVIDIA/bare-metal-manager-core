@@ -1499,22 +1499,52 @@ func IsTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve tenant for org, DB error", nil)
 	}
 
-	if requirePrivileged && !TenantHasTargetedInstanceCreation(tenant) {
-		return nil, cutil.NewAPIError(http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled", nil)
+	if requirePrivileged {
+		privileged, perr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant)
+		if perr != nil {
+			logger.Error().Err(perr).Msg("error resolving privileged TenantAccount for Tenant")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to resolve Tenant capability, DB error", nil)
+		}
+		if !privileged {
+			return nil, cutil.NewAPIError(http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled", nil)
+		}
 	}
 
 	return tenant, nil
 }
 
 // TenantHasTargetedInstanceCreation reports whether the Tenant has the
-// TargetedInstanceCreation capability enabled at the tenant level (the legacy
-// "ceiling"). It is nil-safe so callers don't have to repeat the tenant/Config
-// nil checks.
+// TargetedInstanceCreation capability enabled on any Ready TenantAccount (the
+// provider-agnostic "ceiling"). It is nil-safe so callers don't have to repeat
+// the tenant nil check.
 //
-// This is the coarse filter for discovery/listing paths without site context.
-// Site-scoped capability actions should use EffectiveTargetedInstanceCreation.
-func TenantHasTargetedInstanceCreation(tenant *cdbm.Tenant) bool {
-	return tenant != nil && tenant.Config != nil && tenant.Config.TargetedInstanceCreation
+// This is the coarse filter for discovery/listing paths that lack a specific
+// Site context; it deliberately no longer reads the deprecated tenant-level
+// flag (tenant.Config.TargetedInstanceCreation), which is superseded by
+// TenantAccount.config. Site-scoped capability actions must use
+// EffectiveTargetedInstanceCreation, which additionally honors per-site
+// TenantSite.config overrides.
+func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant) (bool, error) {
+	if tenant == nil {
+		return false, nil
+	}
+
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+		Statuses:  []string{cdbm.TenantAccountStatusReady},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	if err != nil {
+		return false, err
+	}
+
+	for _, ta := range tas {
+		if ta.Config.TargetedInstanceCreation {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // EffectiveTargetedInstanceCreation reports whether the TargetedInstanceCreation
@@ -1623,7 +1653,12 @@ func IsProviderOrTenant(ctx context.Context, logger zerolog.Logger, dbSession *c
 		}
 
 		if tenant != nil && requirePrivilegedTenant {
-			if !TenantHasTargetedInstanceCreation(tenant) {
+			privileged, perr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant)
+			if perr != nil {
+				logger.Error().Err(perr).Msg("error resolving privileged TenantAccount for Tenant")
+				return nil, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to resolve Tenant capability, DB error", nil)
+			}
+			if !privileged {
 				if infrastructureProvider == nil {
 					return nil, nil, cutil.NewAPIError(http.StatusForbidden, "Tenant does not have targeted Instance creation capability enabled", nil)
 				}

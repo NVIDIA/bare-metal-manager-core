@@ -741,7 +741,15 @@ func (utah UpdateTenantAccountHandler) handleTenantInviteAcceptance(c echo.Conte
 	// Handle database updates -- both tenant account and status detail
 	err = cdb.WithTx(ctx, utah.dbSession, func(tx *cdb.Tx) error {
 		var derr error
-		uta, derr = taDAO.Update(ctx, tx, cdbm.TenantAccountUpdateInput{TenantAccountID: taID, TenantContactID: cutil.GetPtr(dbUser.ID), Status: cutil.GetPtr(cdbm.TenantAccountStatusReady)})
+		updateInput := cdbm.TenantAccountUpdateInput{
+			TenantAccountID: taID,
+			TenantContactID: cutil.GetPtr(dbUser.ID),
+			Status:          cutil.GetPtr(cdbm.TenantAccountStatusReady),
+		}
+		if cfg := cdbm.ConfigUpdateFromLegacyTenantTargetedInstanceCreation(tn); cfg != nil {
+			updateInput.Config = cfg
+		}
+		uta, derr = taDAO.Update(ctx, tx, updateInput)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error updating TenantAccount in DB")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update TenantAccount", nil)

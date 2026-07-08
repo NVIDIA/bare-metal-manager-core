@@ -12,6 +12,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/uptrace/bun"
 )
 
@@ -45,18 +46,18 @@ type TenantSiteConfigUpdateInput struct {
 type TenantSite struct {
 	bun.BaseModel `bun:"table:tenant_site,alias:ts"`
 
-	ID                  uuid.UUID              `bun:"type:uuid,pk"`
-	TenantID            uuid.UUID              `bun:"tenant_id,type:uuid,notnull"`
-	Tenant              *Tenant                `bun:"rel:belongs-to,join:tenant_id=id"`
-	TenantOrg           string                 `bun:"tenant_org,notnull"`
-	SiteID              uuid.UUID              `bun:"site_id,type:uuid,notnull"`
-	Site                *Site                  `bun:"rel:belongs-to,join:site_id=id"`
-	EnableSerialConsole bool           `bun:"enable_serial_console,notnull"`
+	ID                  uuid.UUID        `bun:"type:uuid,pk"`
+	TenantID            uuid.UUID        `bun:"tenant_id,type:uuid,notnull"`
+	Tenant              *Tenant          `bun:"rel:belongs-to,join:tenant_id=id"`
+	TenantOrg           string           `bun:"tenant_org,notnull"`
+	SiteID              uuid.UUID        `bun:"site_id,type:uuid,notnull"`
+	Site                *Site            `bun:"rel:belongs-to,join:site_id=id"`
+	EnableSerialConsole bool             `bun:"enable_serial_console,notnull"`
 	Config              TenantSiteConfig `bun:"config,type:jsonb,notnull,default:'{}'::jsonb"`
 	Created             time.Time        `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated             time.Time              `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted             *time.Time             `bun:"deleted,soft_delete"`
-	CreatedBy           uuid.UUID              `bun:"type:uuid,notnull"`
+	Updated             time.Time        `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted             *time.Time       `bun:"deleted,soft_delete"`
+	CreatedBy           uuid.UUID        `bun:"type:uuid,notnull"`
 }
 
 // TenantSiteCreateInput input parameters for Create method
@@ -70,9 +71,9 @@ type TenantSiteCreateInput struct {
 
 // TenantSiteUpdateInput input parameters for Update method
 type TenantSiteUpdateInput struct {
-	TenantSiteID                 uuid.UUID
-	EnableSerialConsole          *bool
-	Config                       *TenantSiteConfigUpdateInput
+	TenantSiteID                   uuid.UUID
+	EnableSerialConsole            *bool
+	Config                         *TenantSiteConfigUpdateInput
 	RemoveTargetedInstanceCreation bool
 }
 
@@ -311,7 +312,12 @@ func (tssd TenantSiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input Tenant
 		}
 	}
 
-	if input.Config != nil {
+	if input.Config != nil && input.RemoveTargetedInstanceCreation {
+		return nil, errors.Wrap(db.ErrInvalidParams, "Config and RemoveTargetedInstanceCreation are mutually exclusive")
+	}
+
+	switch {
+	case input.Config != nil:
 		_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().
 			Model(ts).
 			Set("config = config || ?::jsonb, updated = current_timestamp", input.Config).
@@ -320,9 +326,7 @@ func (tssd TenantSiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input Tenant
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	if input.RemoveTargetedInstanceCreation {
+	case input.RemoveTargetedInstanceCreation:
 		_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().
 			Model(ts).
 			Set("config = config - 'targetedInstanceCreation', updated = current_timestamp").

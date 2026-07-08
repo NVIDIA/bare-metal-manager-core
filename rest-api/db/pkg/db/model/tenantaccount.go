@@ -119,6 +119,22 @@ type TenantAccountConfigUpdateInput struct {
 	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
 }
 
+// ConfigUpdateFromLegacyTenantTargetedInstanceCreation returns a partial
+// TenantAccountConfigUpdateInput that enables TargetedInstanceCreation when the
+// legacy tenant-level flag is set. Apply when a TenantAccount becomes Ready so
+// Invited or Pending rows inherit the capability even if they were created after
+// the migration backfill ran.
+func ConfigUpdateFromLegacyTenantTargetedInstanceCreation(tenant *Tenant) *TenantAccountConfigUpdateInput {
+	if tenant == nil || tenant.Config == nil || !tenant.Config.TargetedInstanceCreation {
+		return nil
+	}
+
+	val := true
+	return &TenantAccountConfigUpdateInput{
+		TargetedInstanceCreation: &val,
+	}
+}
+
 // TenantAccount represents a tenant account - the relationship between a Tenant and an Infrastructure Provider
 type TenantAccount struct {
 	bun.BaseModel `bun:"table:tenant_account,alias:ta"`

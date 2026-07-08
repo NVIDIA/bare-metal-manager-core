@@ -2891,20 +2891,109 @@ func TestEvaluateInfiniBandRequestAgainstMachineCaps(t *testing.T) {
 }
 
 func TestTenantHasTargetedInstanceCreation(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testCommonInitDB(t)
+	defer dbSession.Close()
+
+	testCommonSetupSchema(t, dbSession)
+
+	org := "test-priv-org"
+	user := testCommonBuildUser(t, dbSession, uuid.NewString(), []string{org}, []string{authz.ProviderAdminRole})
+	ip := testCommonBuildInfrastructureProvider(t, dbSession, "Test Provider", org, user)
+	ip2 := testCommonBuildInfrastructureProvider(t, dbSession, "Test Provider 2", org+"-2", user)
+
+	tnDAO := cdbm.NewTenantDAO(dbSession)
+
+	// Tenant with a Ready TenantAccount that enables TargetedInstanceCreation.
+	enabledTenant, err := tnDAO.Create(ctx, nil, cdbm.TenantCreateInput{
+		Name:      "enabled-tenant",
+		Org:       org + "-enabled",
+		CreatedBy: user.ID,
+	})
+	assert.Nil(t, err)
+
+	// Tenant whose only Ready TenantAccount leaves the capability disabled.
+	disabledTenant, err := tnDAO.Create(ctx, nil, cdbm.TenantCreateInput{
+		Name:      "disabled-tenant",
+		Org:       org + "-disabled",
+		CreatedBy: user.ID,
+	})
+	assert.Nil(t, err)
+
+	// Tenant with the capability enabled but only on a non-Ready TenantAccount.
+	pendingTenant, err := tnDAO.Create(ctx, nil, cdbm.TenantCreateInput{
+		Name:      "pending-tenant",
+		Org:       org + "-pending",
+		CreatedBy: user.ID,
+	})
+	assert.Nil(t, err)
+
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	_, err = taDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
+		AccountNumber:             uuid.NewString(),
+		TenantID:                  &enabledTenant.ID,
+		TenantOrg:                 enabledTenant.Org,
+		InfrastructureProviderID:  ip.ID,
+		InfrastructureProviderOrg: ip.Org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                 user.ID,
+	})
+	assert.Nil(t, err)
+	// A second Ready account (different provider) with the capability disabled
+	// must not mask the enabled one.
+	_, err = taDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
+		AccountNumber:             uuid.NewString(),
+		TenantID:                  &enabledTenant.ID,
+		TenantOrg:                 enabledTenant.Org,
+		InfrastructureProviderID:  ip2.ID,
+		InfrastructureProviderOrg: ip2.Org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
+		CreatedBy:                 user.ID,
+	})
+	assert.Nil(t, err)
+
+	_, err = taDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
+		AccountNumber:             uuid.NewString(),
+		TenantID:                  &disabledTenant.ID,
+		TenantOrg:                 disabledTenant.Org,
+		InfrastructureProviderID:  ip.ID,
+		InfrastructureProviderOrg: ip.Org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
+		CreatedBy:                 user.ID,
+	})
+	assert.Nil(t, err)
+
+	_, err = taDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
+		AccountNumber:             uuid.NewString(),
+		TenantID:                  &pendingTenant.ID,
+		TenantOrg:                 pendingTenant.Org,
+		InfrastructureProviderID:  ip.ID,
+		InfrastructureProviderOrg: ip.Org,
+		Status:                    cdbm.TenantAccountStatusPending,
+		Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                 user.ID,
+	})
+	assert.Nil(t, err)
+
 	tests := []struct {
 		name     string
 		tenant   *cdbm.Tenant
 		expected bool
 	}{
 		{name: "nil tenant", tenant: nil, expected: false},
-		{name: "nil config", tenant: &cdbm.Tenant{Config: nil}, expected: false},
-		{name: "disabled", tenant: &cdbm.Tenant{Config: &cdbm.TenantConfig{}}, expected: false},
-		{name: "enabled", tenant: &cdbm.Tenant{Config: &cdbm.TenantConfig{TargetedInstanceCreation: true}}, expected: true},
+		{name: "enabled via Ready TenantAccount", tenant: enabledTenant, expected: true},
+		{name: "disabled TenantAccount config", tenant: disabledTenant, expected: false},
+		{name: "enabled only on non-Ready TenantAccount", tenant: pendingTenant, expected: false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, TenantHasTargetedInstanceCreation(tc.tenant))
+			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tc.tenant)
+			assert.Nil(t, gerr)
+			assert.Equal(t, tc.expected, got)
 		})
 	}
 }

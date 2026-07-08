@@ -207,6 +207,25 @@ func testMachineUpdateTenantCapability(t *testing.T, dbSession *cdb.Session, tn 
 	return tn
 }
 
+func testMachineEnableTenantAccountTargetedInstanceCreation(t *testing.T, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, tenantID uuid.UUID) {
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	tas, _, err := taDAO.GetAll(context.Background(), nil, cdbm.TenantAccountFilterInput{
+		InfrastructureProviderID: &ip.ID,
+		TenantIDs:                []uuid.UUID{tenantID},
+		Statuses:                 []string{cdbm.TenantAccountStatusReady},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
+	assert.Nil(t, err)
+	assert.NotEmpty(t, tas)
+
+	_, err = taDAO.Update(context.Background(), nil, cdbm.TenantAccountUpdateInput{
+		TenantAccountID: tas[0].ID,
+		Config: &cdbm.TenantAccountConfigUpdateInput{
+			TargetedInstanceCreation: cutil.GetPtr(true),
+		},
+	})
+	assert.Nil(t, err)
+}
+
 func testMachineBuildVpc(t *testing.T, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, site *cdbm.Site, tenant *cdbm.Tenant, org, name string) *cdbm.Vpc {
 	vpc := &cdbm.Vpc{
 		ID:                       uuid.New(),
@@ -316,6 +335,7 @@ func TestMachineHandler_Get(t *testing.T) {
 	tenant3 := testMachineBuildTenant(t, dbSession, tnOrg3, "test-tenant-o3")
 	_ = testMachineUpdateTenantCapability(t, dbSession, tenant3)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip3, &tenant3.ID, tnOrg3, cdbm.TenantAccountStatusReady, tnuo3)
+	testMachineEnableTenantAccountTargetedInstanceCreation(t, dbSession, ip3, tenant3.ID)
 
 	common.TestBuildTenantSite(t, dbSession, tenant, site, ipu)
 	common.TestBuildTenantSite(t, dbSession, tenant2, site2, ipu)
@@ -917,6 +937,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 	tenant7 := testMachineBuildTenant(t, dbSession, tnOrg7, "test-tenant7")
 	_ = testMachineUpdateTenantCapability(t, dbSession, tenant7)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenant7.ID, tnOrg7, cdbm.TenantAccountStatusReady, tnu7)
+	testMachineEnableTenantAccountTargetedInstanceCreation(t, dbSession, ip, tenant7.ID)
 
 	tnOrg8 := "test-tn-org-8"
 	tnu8 := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg8}, tnRoles)
@@ -1641,6 +1662,7 @@ func TestMachineHandler_Update(t *testing.T) {
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "testTenant2")
 	_ = testMachineUpdateTenantCapability(t, dbSession, tenant2)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenant2.ID, tnOrg2, cdbm.TenantAccountStatusReady, tnu2)
+	testMachineEnableTenantAccountTargetedInstanceCreation(t, dbSession, ip, tenant2.ID)
 
 	instanceType1 := testMachineBuildInstanceType(t, dbSession, ip, site, "testInstanceType1")
 	instanceType2 := testMachineBuildInstanceType(t, dbSession, ip, site, "testInstanceType2")
@@ -3278,6 +3300,7 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 	tenantPriv := testMachineBuildTenant(t, dbSession, tnOrgPriv, "test-tenant-priv")
 	_ = testMachineUpdateTenantCapability(t, dbSession, tenantPriv)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenantPriv.ID, tnOrgPriv, cdbm.TenantAccountStatusReady, tnuPriv)
+	testMachineEnableTenantAccountTargetedInstanceCreation(t, dbSession, ip, tenantPriv.ID)
 	_ = testMachineBuildTenant(t, dbSession, tnOrgRegular, "test-tenant-regular")
 
 	ist := testMachineBuildInstanceType(t, dbSession, ip, site, "instance-type-1")

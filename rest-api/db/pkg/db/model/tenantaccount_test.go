@@ -1247,3 +1247,44 @@ func TestTenantAccountSQLDAO_Delete(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigUpdateFromLegacyTenantTargetedInstanceCreation(t *testing.T) {
+	tests := []struct {
+		name     string
+		tenant   *Tenant
+		expected *TenantAccountConfigUpdateInput
+	}{
+		{
+			name:     "nil tenant",
+			tenant:   nil,
+			expected: nil,
+		},
+		{
+			name:     "nil config",
+			tenant:   &Tenant{Config: nil},
+			expected: nil,
+		},
+		{
+			name:     "legacy flag disabled",
+			tenant:   &Tenant{Config: &TenantConfig{}},
+			expected: nil,
+		},
+		{
+			name:     "legacy flag enabled",
+			tenant:   &Tenant{Config: &TenantConfig{TargetedInstanceCreation: true}},
+			expected: &TenantAccountConfigUpdateInput{TargetedInstanceCreation: cutil.GetPtr(true)},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ConfigUpdateFromLegacyTenantTargetedInstanceCreation(tc.tenant)
+			if tc.expected == nil {
+				assert.Nil(t, got)
+				return
+			}
+			assert.NotNil(t, got)
+			assert.Equal(t, *tc.expected.TargetedInstanceCreation, *got.TargetedInstanceCreation)
+		})
+	}
+}

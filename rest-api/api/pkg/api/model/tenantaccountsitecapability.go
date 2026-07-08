@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"slices"
 
-	validation "github.com/go-ozzo/ozzo-validation/v4"
-	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 	"github.com/google/uuid"
 )
 

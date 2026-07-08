@@ -698,6 +698,31 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("remove targetedInstanceCreation", func(t *testing.T) {
+		tsWithOverride := TestBuildTenantSite(t, dbSession, tn, TestBuildSite(t, dbSession, ip, "Test Site 2", ipu),
+			&TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)}, tnu)
+
+		tssd := TenantSiteSQLDAO{dbSession: dbSession}
+		got, err := tssd.Update(ctx, nil, TenantSiteUpdateInput{
+			TenantSiteID:                   tsWithOverride.ID,
+			RemoveTargetedInstanceCreation: true,
+		})
+		assert.NoError(t, err)
+		assert.Nil(t, got.Config.TargetedInstanceCreation)
+	})
+
+	t.Run("reject config merge with removal", func(t *testing.T) {
+		tssd := TenantSiteSQLDAO{dbSession: dbSession}
+		_, err := tssd.Update(ctx, nil, TenantSiteUpdateInput{
+			TenantSiteID: ts.ID,
+			Config: &TenantSiteConfigUpdateInput{
+				TargetedInstanceCreation: cutil.GetPtr(true),
+			},
+			RemoveTargetedInstanceCreation: true,
+		})
+		assert.ErrorIs(t, err, db.ErrInvalidParams)
+	})
 }
 
 func TestTenantSiteSQLDAO_Delete(t *testing.T) {
