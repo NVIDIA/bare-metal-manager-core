@@ -194,10 +194,11 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 
 	// Test cases
 	tests := []struct {
-		name           string
-		requestBody    model.APIExpectedMachineCreateRequest
-		setupContext   func(c echo.Context)
-		expectedStatus int
+		name             string
+		requestBody      model.APIExpectedMachineCreateRequest
+		setupContext     func(c echo.Context)
+		expectedStatus   int
+		expectedErrorMsg *string
 	}{
 		{
 			name: "successful creation",
@@ -283,6 +284,21 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 				c.SetParamValues(org)
 			},
 			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "site ID is empty",
+			requestBody: model.APIExpectedMachineCreateRequest{
+				SiteID:              "",
+				BmcMacAddress:       "00:11:22:33:44:88",
+				ChassisSerialNumber: "CHASSIS127",
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName")
+				c.SetParamValues(org)
+			},
+			expectedStatus:   http.StatusBadRequest,
+			expectedErrorMsg: cutil.GetPtr("Site ID specified in request data is not valid"),
 		},
 		{
 			name: "cannot create on unmanaged site",
@@ -402,6 +418,8 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 						assert.Equal(t, *tt.requestBody.BmcIpAddress, *response.BmcIpAddress, "BmcIpAddress in response should match request")
 					}
 				}
+			} else if tt.expectedErrorMsg != nil {
+				assert.Contains(t, rec.Body.String(), *tt.expectedErrorMsg, fmt.Sprintf("Expected: %s, got: %s", *tt.expectedErrorMsg, rec.Body.String()))
 			}
 		})
 	}
