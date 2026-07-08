@@ -326,6 +326,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		},
 	})
 	assert.NoError(t, err)
+	// Privilege for `routingProfile` is resolved from a Ready TenantAccount
+	// config, so enable TargetedInstanceCreation on tn's account with the provider.
+	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu)
 
 	tnu2 := testVPCBuildUser(t, dbSession, "test-starfleet-id-3", tnOrg, tnOrgRoles)
 	tn2 := testVPCBuildTenant(t, dbSession, "test-tenant-2", tnOrg, tnu2)

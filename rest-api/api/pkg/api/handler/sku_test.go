@@ -196,7 +196,8 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 		TenantID:                 &tenantWithCapability.ID,
 		TenantOrg:                tenantOrg,
 		InfrastructureProviderID: infraProv.ID,
-		Status:                   "active",
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
 	assert.Nil(t, err)
@@ -479,7 +480,8 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 		TenantID:                 &tenantWithCapability.ID,
 		TenantOrg:                tenantOrg,
 		InfrastructureProviderID: infraProv.ID,
-		Status:                   "active",
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
 	assert.Nil(t, err)

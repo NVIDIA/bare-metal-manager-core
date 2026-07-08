@@ -318,13 +318,19 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaemh.dbSession, org, dbUser, true, true)
+	// ensure our user is a provider or tenant for the org. We do not request the
+	// privileged-tenant pre-gate (requirePrivilegedTenant=false): a Tenant's
+	// visibility is scoped below to the Sites it has TenantSite access to (and
+	// only when TargetedInstanceCreation is enabled), so a non-privileged Tenant
+	// receives an empty list rather than a spurious 403.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaemh.dbSession, org, dbUser, true, false)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
-	filterInput := cdbm.ExpectedMachineFilterInput{}
+	// Initialize SiteIDs to a non-nil empty slice so an unscoped caller (e.g. a
+	// non-privileged Tenant) matches no Sites instead of every Site.
+	filterInput := cdbm.ExpectedMachineFilterInput{SiteIDs: []uuid.UUID{}}
 
 	if infrastructureProvider != nil {
 		// Get all Sites for the org's Infrastructure Provider

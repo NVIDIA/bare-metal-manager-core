@@ -1775,7 +1775,8 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(tenantUser).Exec(ctx)
 	assert.Nil(t, err)
 
-	// Create TenantAccount linking tenant to infrastructure provider
+	// Create TenantAccount linking tenant to infrastructure provider. Privilege
+	// (TargetedInstanceCreation) is resolved from the Ready TenantAccount config.
 	tenantAccount := &cdbm.TenantAccount{
 		ID:                       uuid.New(),
 		AccountNumber:            "TA-12345",
@@ -1783,6 +1784,7 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 		TenantOrg:                tenantOrg,
 		InfrastructureProviderID: ip.ID,
 		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
 		CreatedBy:                tenantUser.ID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)

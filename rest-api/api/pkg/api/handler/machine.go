@@ -203,8 +203,15 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role: Provider Admins or Viewers, or privileged Tenant Admins (site-effective TargetedInstanceCreation; see filters below).
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gamh.dbSession, org, dbUser, true, true)
+	// Validate role: Provider Admins or Viewers, or Tenant Admins. We do not
+	// request the privileged-tenant pre-gate here (requirePrivilegedTenant=false):
+	// that gate keys off a Ready TenantAccount without site context and would
+	// reject site-privileged tenants (or those whose privilege is per-site)
+	// before machine.SiteID is known. The site-scoped
+	// EffectiveTargetedInstanceCreation checks below are authoritative and
+	// filter results to the providers/sites where the capability is effective,
+	// yielding an empty list rather than a spurious 403.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gamh.dbSession, org, dbUser, true, false)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

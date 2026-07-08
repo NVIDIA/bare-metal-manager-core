@@ -793,6 +793,9 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	tnu1 := testInstanceBuildUser(t, dbSession, "test-starfleet-id-2", tnOrg, tnOrgRoles)
 	tn1 := testInstanceBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu1)
 	tn1 = testInstanceUpdateTenantCapability(t, dbSession, tn1)
+	// Privilege is resolved from a Ready TenantAccount config, so enable
+	// TargetedInstanceCreation on tn1's account with the site's provider.
+	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn1.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu1)
 
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn1.ID, st1.ID, tnu1.ID)
 	assert.NotNil(t, ts1)

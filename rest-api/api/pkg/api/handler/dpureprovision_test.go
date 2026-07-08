@@ -60,7 +60,7 @@ func TestReprovisionMachineDpuHandlerAllowsPrivilegedTenant(t *testing.T) {
 	require.NoError(t, err)
 	provider, err := cdbm.NewInfrastructureProviderDAO(fixture.DBSession).GetByID(ctx, nil, machine.InfrastructureProviderID, []string{})
 	require.NoError(t, err)
-	common.TestBuildTenantAccount(t, fixture.DBSession, provider, &tenant.ID, tenant.Org, cdbm.TenantAccountStatusReady, tenantUser)
+	common.TestBuildTenantAccountWithTargetedInstanceCreation(t, fixture.DBSession, provider, &tenant.ID, tenant.Org, cdbm.TenantAccountStatusReady, tenantUser)
 
 	fixture.Org = tenantOrg
 	fixture.User = tenantUser
