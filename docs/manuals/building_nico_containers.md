@@ -46,20 +46,22 @@ top of the repo with a single `make` command:
 
 ```sh
 make images          # deployable stack: NICo Core (nico) + the REST service images
-make images-all      # the above plus the machine-validation and x86 boot-artifact images
+make images-all      # the above plus machine-validation and both boot-artifact images
 ```
 
-Images are tagged `localhost:5000/<name>:latest` by default. Override the registry and
-tag to build under your own registry:
+Images are pushed as `linux/amd64` and `linux/arm64` manifests at
+`localhost:5000/<name>:latest` by default. The Makefile starts a local registry named
+`nico-build-registry` when that default is used. Override the registry and tag to publish
+under your own registry; authenticate Docker to that registry before running the build:
 
 ```sh
 make images IMAGE_REGISTRY=my-registry.example.com/nico IMAGE_TAG=v1.0.0
 ```
 
-The deployable images are built for `linux/amd64` (the NICo Dockerfiles are x86_64).
-On an arm64 host such as Apple Silicon they build under emulation, which is slow — a
-native `linux/amd64` build host is recommended. Pass `PLATFORM=linux/arm64` to build
-native arm64 images instead.
+Each architecture is built separately before the bare tag is assembled. This matches CI
+and is required for the REST Dockerfiles: a single combined Buildx invocation would reuse
+one builder stage and could copy an amd64 binary into the arm64 image. Building the
+non-native architecture uses the platforms configured on the active Docker Buildx builder.
 
 Run `make help` from the repo root to list the individual image targets (`images-core`,
 `images-rest`, `images-machine-validation`, `images-boot-artifacts`, `images-bfb`). The
@@ -68,14 +70,26 @@ need to build or debug a single image.
 
 ### Verifying the build
 
-After `make images-all` completes, verify that all 14 deployable images were produced:
+After `make images-all` completes, verify that all 14 deployable image tags contain both
+platforms:
 
-```sh
-docker images --filter "reference=${IMAGE_REGISTRY}/*:${IMAGE_TAG}" \
-  --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
+```bash
+images=(
+  nico nico-rest-api nico-rest-workflow nico-rest-site-manager
+  nico-rest-site-agent nico-rest-db nico-rest-cert-manager nico-flow
+  nico-psm nico-nsm nico-mcp machine-validation
+  boot-artifacts-x86_64 boot-artifacts-aarch64
+)
+for image in "${images[@]}"; do
+  platforms="$(docker buildx imagetools inspect --raw \
+    "${IMAGE_REGISTRY}/${image}:${IMAGE_TAG}" | \
+    jq -r '[.manifests[].platform | select(.os == "linux") | "\(.os)/\(.architecture)"] | unique | sort | join(",")')"
+  test "${platforms}" = "linux/amd64,linux/arm64"
+  printf '%s: %s\n' "${image}" "${platforms}"
+done
 ```
 
-The count should be exactly 14:
+The loop should print exactly 14 successful checks:
 
 | Image | Target |
 |---|---|
@@ -94,15 +108,14 @@ The count should be exactly 14:
 | `boot-artifacts-x86_64` | `images-boot-artifacts` |
 | `boot-artifacts-aarch64` | `images-bfb` |
 
-```sh
-# Quick count — should print 14
-docker images --filter "reference=${IMAGE_REGISTRY}/*:${IMAGE_TAG}" \
-  --format "{{.Repository}}" | wc -l
-```
+If fewer than 14 checks run, the missing image indicates which sub-target failed. The three
+boot/validation images (`machine-validation`, `boot-artifacts-x86_64`,
+`boot-artifacts-aarch64`) require the full mkosi + Rust toolchain. Use `make images` instead
+of `make images-all` to build only the 11-image deployable stack.
 
-If the count is less than 14, the missing images indicate which sub-target failed. The three boot/validation images (`machine-validation`, `boot-artifacts-x86_64`, `boot-artifacts-aarch64`) require the full mkosi + Rust toolchain — if only 11 images appear, use `make images` instead of `make images-all` to build the deployable stack without them.
-
-Three intermediate images are also created locally but are not tagged under `IMAGE_REGISTRY`: `nico-buildcontainer-x86_64`, `nico-runtime-container-x86_64`, and `machine-validation-runner`. These are build-time dependencies only and do not need to be pushed.
+The architecture-specific Core base images and `-amd64`/`-arm64` service tags are build
+inputs for the bare multi-arch tags. `machine-validation-runner` is the only local-only
+intermediate image.
 
 ## Building X86_64 Containers
 
