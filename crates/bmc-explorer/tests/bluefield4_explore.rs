@@ -41,29 +41,37 @@ async fn explore_bluefield4_and_generate_machine_id_from_bluefield_bmc_chassis_s
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
 
     let system = report.systems.first().expect("systems must be present");
-    assert_eq!(system.id, "Bluefield");
+    assert_eq!(system.id, "BlueField_0");
     assert!(
         system.serial_number.is_none(),
         "BF4 Redfish reports the usable serial on chassis, not system"
     );
 
-    let chassis_ids: Vec<&str> = report
+    assert_eq!(
+        report.managers.first().map(|manager| manager.id.as_str()),
+        Some("BlueField_BMC_0")
+    );
+
+    let mut chassis_ids: Vec<&str> = report
         .chassis
         .iter()
         .map(|chassis| chassis.id.as_str())
         .collect();
-    assert!(
-        chassis_ids.contains(&"Bluefield_BMC"),
-        "Bluefield_BMC chassis must be present: {chassis_ids:?}"
-    );
-    assert!(
-        chassis_ids.contains(&"Card1"),
-        "Card1 chassis must be present: {chassis_ids:?}"
+    chassis_ids.sort_unstable();
+    assert_eq!(
+        chassis_ids,
+        [
+            "BlueField_0",
+            "BlueField_BMC_0",
+            "BlueField_ERoT_BMC_0",
+            "BlueField_ERoT_CPU_0",
+            "BlueField_IRoT_NIC_0",
+        ]
     );
     let bmc_chassis_serial = report
         .chassis
         .iter()
-        .find(|chassis| chassis.id == "Bluefield_BMC")
+        .find(|chassis| chassis.id == "BlueField_BMC_0")
         .and_then(|chassis| chassis.serial_number.as_deref());
     assert_eq!(bmc_chassis_serial, Some("MT2610604VN4"));
 
@@ -98,7 +106,7 @@ async fn explore_b4240v_and_generate_machine_id() {
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
     assert!(report.chassis.iter().any(|chassis| {
-        chassis.id == "Bluefield_BMC" && chassis.model.as_deref() == Some("B4240V")
+        chassis.id == "BlueField_BMC_0" && chassis.model.as_deref() == Some("B4240V")
     }));
 
     let machine_id = report

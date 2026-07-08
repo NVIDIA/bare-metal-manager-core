@@ -17,6 +17,7 @@
 
 use carbide_network::ip::IpAddressFamily;
 use carbide_uuid::network::NetworkSegmentId;
+use chrono::{DateTime, Utc};
 use mac_address::MacAddress;
 use model::dhcp_record::DhcpRecord;
 use sqlx::PgConnection;
@@ -40,6 +41,17 @@ pub async fn find_by_mac_address(
         .bind(segment_id)
         .bind(address_family.pg_family())
         .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Return the global DHCP record invalidation timestamp.
+pub async fn last_invalidation_time(
+    txn: &mut PgConnection,
+) -> Result<DateTime<Utc>, DatabaseError> {
+    let query = "SELECT last_deletion FROM machine_interfaces_deletion WHERE id = 1";
+    sqlx::query_scalar(query)
+        .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }

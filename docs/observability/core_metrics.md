@@ -9,8 +9,9 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_api_db_span_query_time_milliseconds</td><td>histogram</td><td>Total time the request spent inside a span on database transactions</td></tr>
 <tr><td>carbide_api_grpc_server_duration_milliseconds</td><td>histogram</td><td>Processing time for a request on the carbide API server</td></tr>
 <tr><td>carbide_api_ready</td><td>gauge</td><td>Whether the NICo API is running</td></tr>
-<tr><td>carbide_api_tls_connection_attempted_total</td><td>counter</td><td>The amount of tls connections that were attempted</td></tr>
-<tr><td>carbide_api_tls_connection_success_total</td><td>counter</td><td>The amount of tls connections that were successful</td></tr>
+<tr><td>carbide_api_tls_cert_refreshes_total</td><td>counter</td><td>Number of TLS acceptor refreshes performed by the API listener</td></tr>
+<tr><td>carbide_api_tls_connection_attempted_total</td><td>counter</td><td>Number of attempted TLS connections</td></tr>
+<tr><td>carbide_api_tls_connection_success_total</td><td>counter</td><td>Number of successful TLS connections</td></tr>
 <tr><td>carbide_api_tracing_spans_open</td><td>gauge</td><td>Number of open logging/tracing spans</td></tr>
 <tr><td>carbide_api_vault_request_duration_milliseconds</td><td>histogram</td><td>the duration of outbound vault requests, in milliseconds</td></tr>
 <tr><td>carbide_api_vault_requests_attempted_total</td><td>counter</td><td>The amount of tls connections that were attempted</td></tr>

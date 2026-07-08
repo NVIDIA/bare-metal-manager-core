@@ -113,7 +113,7 @@ impl HpeProliantDl380aGen11<'_> {
                 boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
                 callbacks: Some(callbacks),
                 chassis: vec![system_id.into()],
-                boot_options: Some(boot_options.into()),
+                boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::Generic,
                 log_services: None,

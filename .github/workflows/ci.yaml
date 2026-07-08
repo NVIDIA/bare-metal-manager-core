@@ -45,6 +45,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect non-rest changes
@@ -132,6 +133,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0
           fetch-tags: true
 
@@ -701,6 +703,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -743,6 +747,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
@@ -849,6 +855,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -1051,6 +1059,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0  # Full history for secret scanning
 
       - name: Run TruffleHog Scan
@@ -1074,6 +1083,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Run CodeQL Scan
         uses: NVIDIA/dsx-github-actions/.github/actions/codeql-scan@20dc10dda4fa9f8f0380a47cd9a7800d3da3dcf3
@@ -1171,6 +1182,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -1204,6 +1217,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Run Protolint
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
@@ -1215,6 +1230,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0 # Required to compute the merge-base against main
 
       - name: Install Buf CLI
@@ -1288,6 +1304,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # PostgreSQL is required because sqlx proc macros (sqlx::query!) connect to
       # a local database at compile time to validate SQL queries and return types.
@@ -1335,6 +1353,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Validate Helm chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
@@ -1352,6 +1372,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Package and push Helm chart to NGC
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
@@ -1373,6 +1395,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Validate Helm prereqs chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
@@ -1390,6 +1414,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Package and push Helm prereqs chart to NGC
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}
@@ -1416,6 +1442,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
@@ -1586,6 +1614,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Validate nico-otelcol chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
@@ -1624,6 +1654,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Package and push nico-otelcol chart
         if: ${{ needs.prepare.outputs.target_ngc_path != '' }}

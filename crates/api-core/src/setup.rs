@@ -107,6 +107,9 @@ use crate::logging::service_health_metrics::{
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
+use crate::mqtt_state_change_hook::republisher::{
+    ManagedHostStateRepublisher, ManagedHostStateRepublisherParams,
+};
 use crate::scout_stream::ConnectionRegistry;
 use crate::{attestation, db_init, ethernet_virtualization, listener};
 
@@ -191,6 +194,10 @@ pub fn parse_carbide_config(
 
     // Validate that admin-UI tool entries have unique names.
     config.validate_web_ui_sidebar_tools()?;
+
+    if let Some(config) = &config.dsx_exchange_event_bus {
+        config.periodic_state_republish.validate()?;
+    }
 
     // Publish the configured tool list so the admin-UI sidebar and per-machine
     // "Logs" deep link can read it back via `crate::configured_tools`. The list
@@ -1152,6 +1159,22 @@ async fn initialize_and_start_controllers<'a>(
                 .bms_client
                 .set(bms_client)
                 .map_err(|_| eyre::eyre!("BMS DSX Exchange handle already initialized"))?;
+
+            // Periodically re-publish current managed host state so consumers
+            // that miss change events can reconcile. A no-op unless enabled.
+            ManagedHostStateRepublisher::new(
+                client.clone(),
+                ManagedHostStateRepublisherParams {
+                    db_pool: db_pool.clone(),
+                    work_lock_manager_handle: work_lock_manager_handle.clone(),
+                    topic_prefix: config.topic_prefix.clone(),
+                    publish_timeout: config.publish_timeout,
+                    config: config.periodic_state_republish.clone(),
+                    host_health_config: carbide_config.host_health,
+                },
+                &meter,
+            )
+            .start(join_set, cancel_token.clone())?;
 
             emitter_builder = emitter_builder.hook(Box::new(MqttStateChangeHook::new(
                 client,

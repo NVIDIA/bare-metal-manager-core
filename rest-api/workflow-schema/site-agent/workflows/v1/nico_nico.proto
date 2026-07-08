@@ -4071,6 +4071,9 @@ message ExpireDhcpLeaseResponse {
 }
 
 message DhcpRecord {
+  reserved 14, 15;
+  reserved "dhcpv6_preferred_lifetime_secs", "dhcpv6_valid_lifetime_secs";
+
   common.MachineId machine_id = 1;
   common.MachineInterfaceId machine_interface_id = 2;
   common.NetworkSegmentId segment_id = 3;
@@ -4093,15 +4096,6 @@ message DhcpRecord {
 
   // Per site NTP server IPs
   repeated string ntp_servers = 13;
-
-  // DHCPv6 preferred lifetime in seconds. Set only on IPv6 DHCP responses.
-  // When present, dhcpv6_valid_lifetime_secs must also be present and must be
-  // greater than or equal to this value.
-  optional uint32 dhcpv6_preferred_lifetime_secs = 14;
-  // DHCPv6 valid lifetime in seconds. Set only on IPv6 DHCP responses.
-  // When both DHCPv6 lifetime fields are present, this value must be greater
-  // than or equal to dhcpv6_preferred_lifetime_secs.
-  optional uint32 dhcpv6_valid_lifetime_secs = 15;
 }
 
 message NetworkSegmentList {

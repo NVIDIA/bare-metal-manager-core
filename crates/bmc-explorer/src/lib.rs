@@ -50,7 +50,7 @@ use nv_redfish::oem::lenovo::computer_system::{FpMode, PortSwitchingTo};
 use nv_redfish::oem::lenovo::manager::KcsState;
 use nv_redfish::oem::lenovo::security_service::FwRollbackState;
 use nv_redfish::oem::supermicro::Privilege as SupermicroPrivilege;
-use nv_redfish::resource::ResourceNameRef;
+use nv_redfish::resource::{ResourceIdRef, ResourceNameRef};
 use nv_redfish::service_root::{Product, Vendor};
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 
@@ -62,6 +62,10 @@ pub enum ErrorClass {
 
 pub type ErrorClassifier<'a, B> = &'a (dyn Fn(&<B as Bmc>::Error) -> Option<ErrorClass> + Sync);
 
+fn is_bluefield_system_id(id: ResourceIdRef<'_>) -> bool {
+    matches!(id.into_inner(), "Bluefield" | "BlueField_0")
+}
+
 pub struct Config<'a, B: Bmc> {
     pub boot_interface_mac: Option<MacAddress>,
     pub error_classifier: ErrorClassifier<'a, B>,
@@ -71,9 +75,18 @@ pub struct Config<'a, B: Bmc> {
 /// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
 /// and the [`detect_hw_type`] accessor, so detection cannot drift between them.
 fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Config {
+    let is_nvidia_vendor = root.vendor() == Some(Vendor::new("Nvidia"))
+        || root.vendor() == Some(Vendor::new("NVIDIA"));
+    let is_bf4_product = root.product() == Some(Product::new("B4240V"));
+    let need_bf4_network_device_fns = is_nvidia_vendor && is_bf4_product;
+
     chassis::Config {
         network_adapter: network_adapter::Config {
-            need_network_device_fns: root.vendor() == Some(Vendor::new("Dell")),
+            // Dell exploration needs NDF data for host-DPU pairing. BF4 needs
+            // NDF0 `PermanentMACAddress` to derive PF0 base MAC as (NDF0 - 0x10)
+            // while some BMC firmware does not expose ComputerSystem BaseMAC.
+            need_network_device_fns: root.vendor() == Some(Vendor::new("Dell"))
+                || need_bf4_network_device_fns,
         },
         need_assembly_sn: |id| {
             // For GB200s, use the Chassis_0 assembly serial number to match Nautobot.
@@ -131,14 +144,11 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         .next()
         .ok_or_else(Error::bmc_not_provided("at least one manager"))?;
 
-    let is_bluefield_system = system.id().into_inner() == "Bluefield";
+    let is_bluefield_system = is_bluefield_system_id(system.id());
     let system_explore_config = computer_system::Config {
         need_oem_nvidia_bluefield: is_bluefield_system,
         ignore_500_on_bios_fetch: is_bluefield_system,
         retry_404_on_eth_interfaces: is_bluefield_system,
-        // BlueField-4 returns null in the Members field in
-        // BootOptions. This is a workaround for this bug.
-        need_boot_options: !explored_chassis.is_bluefield4(),
         explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
@@ -314,7 +324,7 @@ pub(crate) fn hw_type<B: Bmc>(
             "Lenovo" if oem_id != Some("Ami") => Some(hw::HwType::Lenovo),
             "Supermicro" => Some(hw::HwType::Supermicro),
             "HPE" => Some(hw::HwType::Hpe),
-            "Nvidia" if system.id().into_inner() == "Bluefield" => Some(hw::HwType::Bluefield),
+            "Nvidia" if is_bluefield_system_id(system.id()) => Some(hw::HwType::Bluefield),
             "NVIDIA" if root.product() == Some(Product::new("VR NVL72")) => {
                 Some(hw::HwType::VeraRubin)
             }

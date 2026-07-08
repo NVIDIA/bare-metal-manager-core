@@ -168,6 +168,18 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
     }
 }
 
+/// The five-minute TLS acceptor refresh, counted instead of logged: the
+/// steady tick is a rate, not news, so the per-refresh log line retires.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_api_tls_cert_refreshes_total",
+    component = "nico-api",
+    log = off,
+    metric = counter,
+    describe = "Number of TLS acceptor refreshes performed by the API listener"
+)]
+struct TlsCertsRefreshed;
+
 /// Start listening for requests, spawning the listener task into `join_set`.
 ///
 /// This method will return an error if any preconditions fail (could not bind to the port, issues
@@ -286,11 +298,11 @@ pub async fn start(
 
     let connection_total_counter = meter
         .u64_counter("carbide-api.tls.connection_attempted")
-        .with_description("The amount of tls connections that were attempted")
+        .with_description("Number of attempted TLS connections")
         .build();
     let connection_succeeded_counter = meter
         .u64_counter("carbide-api.tls.connection_success")
-        .with_description("The amount of tls connections that were successful")
+        .with_description("Number of successful TLS connections")
         .build();
     let connection_failed_counter = meter
         .u64_counter("carbide-api.tls.connection_fail")
@@ -324,7 +336,7 @@ pub async fn start(
                 initialize_tls_acceptor
                     || tls_acceptor_created.elapsed() > tokio::time::Duration::from_secs(5 * 60),
             ) {
-                tracing::info!("Refreshing certs");
+                carbide_instrument::emit(TlsCertsRefreshed);
                 initialize_tls_acceptor = false;
                 tls_acceptor_created = Instant::now();
 

@@ -28,6 +28,7 @@ use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
 use carbide_redfish::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::credentials::Credentials;
+use libredfish::model::ODataId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{BootInterfaceRef, Redfish, RedfishError};
@@ -42,6 +43,7 @@ use model::site_explorer::{
 use regex::Regex;
 
 const NOT_FOUND: u16 = 404;
+const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 
 // RedfishClient is a wrapper around a redfish client pool and implements redfish utility functions that the site explorer utilizes.
 // TODO: In the future, we should refactor a lot of this client's work to api/src/redfish.rs because other components in carbide can utilize this functionality.
@@ -758,7 +760,26 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
                 None
             }
         };
-
+        if base_mac.is_none() {
+            // BF4 temporary patch:
+            // BF4 BMC reports do not expose PF0 base MAC via the usual
+            // ComputerSystem BaseMAC path, so we patch `systems[].base_mac` by
+            // reading NDF0 PermanentMACAddress from the BF4 NIC subtree and
+            // deriving base MAC as (NDF0 - 0x10).
+            //
+            // Remove this fallback once BF4 BMC exposes PF0 base MAC directly in
+            // the standard system/base_mac report path.
+            //
+            // This path depends on NIC inventory being up and queryable; it may
+            // be absent when NIC firmware is in recovery/uninitialized states or
+            // when NIC-side inventory endpoints are not populated/responding.
+            base_mac = get_base_mac_from_bf4_ndf0(client).await.map(Into::into);
+            if base_mac.is_none() {
+                tracing::warn!(
+                    "BF4 NDF0 fallback did not provide PF0 base MAC (NIC inventory unavailable/uninitialized?)"
+                );
+            }
+        }
         nic_mode = match client.get_nic_mode().await {
             Ok(nic_mode) => nic_mode,
             Err(e) => return Err(map_redfish_error(e)),
@@ -1059,6 +1080,33 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
     }
 
     Ok(chassis)
+}
+
+async fn get_base_mac_from_bf4_ndf0(client: &dyn Redfish) -> Option<MacAddress> {
+    let ndf0_paths = [
+        "/redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/0",
+        "/redfish/v1/Chassis/Card1/NetworkAdapters/Bluefield_NIC/NetworkDeviceFunctions/0",
+    ];
+    for path in ndf0_paths {
+        let resource = match client.get_resource(ODataId::from(path)).await {
+            Ok(resource) => resource,
+            Err(RedfishError::NotSupported(_)) => continue,
+            Err(_) => continue,
+        };
+        let body: serde_json::Value = match serde_json::from_str(resource.raw.get()) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if let Some(mac) = body
+            .pointer("/Ethernet/PermanentMACAddress")
+            .and_then(serde_json::Value::as_str)
+            && let Ok(parsed) = deserialize_input_mac_to_address(mac)
+        {
+            let derived = crate::mac_to_u64(parsed).checked_sub(BF4_NDF0_TO_BASE_MAC_OFFSET)?;
+            return Some(crate::u64_to_mac(derived));
+        }
+    }
+    None
 }
 
 async fn fetch_boot_order(

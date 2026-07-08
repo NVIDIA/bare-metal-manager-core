@@ -63,6 +63,10 @@ impl<B: Bmc> ExploredNetworkAdapterCollection<B> {
     pub fn to_model(&self) -> Vec<ModelNetworkAdapter> {
         self.members.iter().map(|v| v.to_model()).collect()
     }
+
+    pub fn members(&self) -> &[ExploredNetworkAdapter<B>] {
+        &self.members
+    }
 }
 
 pub struct ExploredNetworkAdapter<B: Bmc> {

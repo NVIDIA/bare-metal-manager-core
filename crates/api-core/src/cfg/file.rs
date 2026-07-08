@@ -2534,6 +2534,12 @@ pub struct DsxExchangeEventBusConfig {
 
     #[serde(default)]
     pub auth: MqttAuthConfig,
+
+    /// Periodically re-publish current `ManagedHostState` in addition to
+    /// publishing on every state change. Lets integrators that cannot poll the
+    /// NICo API reconcile transitions they missed off the event bus.
+    #[serde(default)]
+    pub periodic_state_republish: PeriodicStateRepublishConfig,
 }
 
 impl DsxExchangeEventBusConfig {
@@ -2547,6 +2553,123 @@ impl DsxExchangeEventBusConfig {
 
     pub fn default_topic_prefix() -> String {
         "NICO/v1/machine".to_string()
+    }
+}
+
+/// Which managed hosts a periodic republish sweep publishes.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RepublishScope {
+    /// Republish every managed host on each sweep. Healthy hosts can still be
+    /// published less often than unhealthy ones via `healthy_republish_every`.
+    #[default]
+    All,
+    /// Republish only managed hosts that currently have a health alert. Use
+    /// this to keep the event bus quiet and only re-advertise hosts that need
+    /// attention.
+    UnhealthyOnly,
+}
+
+/// Maximum number of MQTT publishes per second during a single republish sweep.
+/// `0` means unbounded (publish as fast as the broker accepts).
+///
+/// Wraps the raw count so the pacing semantics live with the type rather than
+/// being re-derived at call sites. `#[serde(transparent)]` keeps the config
+/// surface a plain integer (e.g. `max_publishes_per_second = 200`).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct PublishRate(pub u32);
+
+impl PublishRate {
+    /// Delay to insert between publishes to honor this rate, or `None` when
+    /// unbounded.
+    pub fn pacing_delay(self) -> Option<std::time::Duration> {
+        (self.0 > 0).then(|| std::time::Duration::from_secs_f64(1.0 / f64::from(self.0)))
+    }
+}
+
+const PUBLISH_INTERVAL_MIN: std::time::Duration = std::time::Duration::from_secs(1);
+const PUBLISH_INTERVAL_MAX: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Periodic republishing of `ManagedHostState` on the DSX Exchange Event Bus.
+///
+/// NICo publishes state on every transition, but integrators that cannot poll
+/// the NICo API (e.g. network-restricted consumers) can miss a transition and
+/// never reconcile. Re-sending current state on a timer lets those consumers
+/// self-heal. Republished messages reuse the same topic and JSON payload as
+/// change-driven events, so consumers handle them identically.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct PeriodicStateRepublishConfig {
+    /// Enable periodic republishing. Enabled by default whenever the DSX
+    /// Exchange Event Bus itself is enabled. Change-driven publishing is
+    /// unaffected by this setting.
+    #[serde(default = "PeriodicStateRepublishConfig::default_enabled")]
+    pub enabled: bool,
+
+    /// How often a republish sweep runs. Defaults to 5 minutes and is clamped
+    /// to the supported range of 1 second through 1 hour.
+    #[serde(
+        default = "PeriodicStateRepublishConfig::default_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub interval: std::time::Duration,
+
+    /// Which managed hosts to publish on each sweep.
+    #[serde(default)]
+    pub scope: RepublishScope,
+
+    /// When `scope = all`, publish healthy hosts only every Nth sweep to reduce
+    /// broker noise; hosts with an active health alert are always published on
+    /// every sweep. `1` (default) publishes healthy hosts every sweep. `0` is
+    /// treated as `1`. Ignored when `scope = unhealthy_only`.
+    #[serde(default = "PeriodicStateRepublishConfig::default_healthy_republish_every")]
+    pub healthy_republish_every: u32,
+
+    /// Upper bound on publishes per second within a single sweep, to avoid
+    /// bursting the broker on large sites. `0` (default) disables pacing and
+    /// publishes as fast as the broker accepts.
+    #[serde(default)]
+    pub max_publishes_per_second: PublishRate,
+}
+
+impl Default for PeriodicStateRepublishConfig {
+    fn default() -> Self {
+        Self {
+            enabled: Self::default_enabled(),
+            interval: Self::default_interval(),
+            scope: RepublishScope::default(),
+            healthy_republish_every: Self::default_healthy_republish_every(),
+            max_publishes_per_second: PublishRate(0),
+        }
+    }
+}
+
+impl PeriodicStateRepublishConfig {
+    pub const fn default_enabled() -> bool {
+        true
+    }
+
+    pub fn validate(&self) -> eyre::Result<()> {
+        if self.interval.is_zero() {
+            return Err(eyre::eyre!(
+                "dsx_exchange_event_bus.periodic_state_republish.interval must be > 0s"
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn publish_interval(&self) -> std::time::Duration {
+        self.interval
+            .clamp(PUBLISH_INTERVAL_MIN, PUBLISH_INTERVAL_MAX)
+    }
+
+    pub const fn default_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(300)
+    }
+
+    pub const fn default_healthy_republish_every() -> u32 {
+        1
     }
 }
 
@@ -2888,6 +3011,56 @@ mod tests {
             url: BAD_URL.to_string(),
         }];
         assert!(config.validate_web_ui_sidebar_tools().is_err());
+    }
+
+    #[test]
+    fn periodic_state_republish_defaults_enabled() {
+        let config = PeriodicStateRepublishConfig::default();
+
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn periodic_state_republish_rejects_zero_interval() {
+        for enabled in [true, false] {
+            let config = PeriodicStateRepublishConfig {
+                enabled,
+                interval: std::time::Duration::ZERO,
+                ..Default::default()
+            };
+
+            let err = config.validate().expect_err("zero interval must error");
+            assert!(
+                err.to_string().contains(
+                    "dsx_exchange_event_bus.periodic_state_republish.interval must be > 0s"
+                ),
+                "unexpected error: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn periodic_state_republish_clamps_interval() {
+        for (configured, expected) in [
+            (std::time::Duration::from_millis(500), PUBLISH_INTERVAL_MIN),
+            (PUBLISH_INTERVAL_MIN, PUBLISH_INTERVAL_MIN),
+            (
+                PeriodicStateRepublishConfig::default_interval(),
+                PeriodicStateRepublishConfig::default_interval(),
+            ),
+            (PUBLISH_INTERVAL_MAX, PUBLISH_INTERVAL_MAX),
+            (
+                std::time::Duration::from_secs(2 * 60 * 60),
+                PUBLISH_INTERVAL_MAX,
+            ),
+        ] {
+            let config = PeriodicStateRepublishConfig {
+                interval: configured,
+                ..Default::default()
+            };
+
+            assert_eq!(config.publish_interval(), expected);
+        }
     }
 
     #[test]

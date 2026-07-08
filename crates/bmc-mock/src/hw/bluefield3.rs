@@ -162,7 +162,7 @@ impl Bluefield3<'_> {
                 serial_number: Some(self.product_serial_number.to_string().into()),
                 boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                 callbacks: Some(callbacks),
-                boot_options: Some(boot_options.into()),
+                boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::NvidiaBluefield,
                 base_bios: Some(

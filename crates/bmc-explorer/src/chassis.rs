@@ -18,7 +18,9 @@
 use std::convert::identity;
 use std::fmt;
 
+use carbide_network::BaseMac;
 use itertools::Itertools;
+use mac_address::MacAddress;
 use model::site_explorer::{Chassis, PowerState as ModelPowerState};
 use nv_redfish::assembly::Model as AssemblyModel;
 use nv_redfish::chassis::Chassis as NvChassis;
@@ -32,6 +34,7 @@ use crate::network_adapter::ExploredNetworkAdapterCollection;
 use crate::{Error, network_adapter};
 
 type AssemblyModelFilterFn = fn(Option<AssemblyModel<&str>>) -> bool;
+const BF4_NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 pub struct Config {
     pub network_adapter: network_adapter::Config,
     pub need_assembly_sn: fn(ResourceIdRef) -> Option<AssemblyModelFilterFn>,
@@ -151,6 +154,47 @@ impl<B: Bmc> ExploredChassisCollection<B> {
         Ok(maybe_sn)
     }
 
+    // BF4 temporary PF0 fallback source:
+    // read NDF0 PermanentMACAddress from known BF4 Redfish topology paths and
+    // derive PF0 base MAC as (NDF0 - 0x10).
+    // Remove callers once BF4 BMC exposes PF0 base MAC in ComputerSystem BaseMAC.
+    pub fn dpu_bf4_ndf0_permanent_mac(&self) -> Option<BaseMac> {
+        const BF4_NDF0_PATHS: [(&str, &str, &str); 2] = [
+            // /redfish/v1/Chassis/BlueField_0/NetworkAdapters/BlueField_NIC_0/NetworkDeviceFunctions/0
+            ("BlueField_0", "BlueField_NIC_0", "0"),
+            // /redfish/v1/Chassis/Card1/NetworkAdapters/Bluefield_NIC/NetworkDeviceFunctions/0
+            ("Card1", "Bluefield_NIC", "0"),
+        ];
+        for (chassis_id, adapter_id, function_id) in BF4_NDF0_PATHS {
+            let mac = self
+                .members
+                .iter()
+                .find(|c| c.chassis.id().into_inner() == chassis_id)
+                .and_then(|c| {
+                    c.network_adapters
+                        .members()
+                        .iter()
+                        .find(|a| a.adapter.id().into_inner() == adapter_id)
+                })
+                .and_then(|adapter| adapter.functions.as_ref())
+                .and_then(|functions| {
+                    functions
+                        .iter()
+                        .find(|f| f.id().into_inner() == function_id)
+                        .and_then(|f| f.ethernet_permanent_mac_address())
+                });
+
+            if let Some(mac) = mac
+                && let Ok(parsed) = mac.as_str().parse::<MacAddress>()
+            {
+                let derived = mac_to_u64(parsed).checked_sub(BF4_NDF0_TO_BASE_MAC_OFFSET)?;
+                return Some(u64_to_mac(derived).into());
+            }
+        }
+
+        None
+    }
+
     pub async fn pcie_devices(
         &self,
         chassis_filter: impl Fn(&ExploredChassis<B>) -> bool,
@@ -173,6 +217,17 @@ impl<B: Bmc> ExploredChassisCollection<B> {
         }
         Ok(pcie_devices)
     }
+}
+
+fn mac_to_u64(mac: MacAddress) -> u64 {
+    mac.bytes()
+        .iter()
+        .fold(0u64, |acc, &byte| (acc << 8) | u64::from(byte))
+}
+
+fn u64_to_mac(value: u64) -> MacAddress {
+    let b = value.to_be_bytes();
+    MacAddress::new([b[2], b[3], b[4], b[5], b[6], b[7]])
 }
 
 pub struct ExploredChassis<B: Bmc> {

@@ -135,26 +135,6 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
         )
 }
 
-pub enum BootOptionsConfig {
-    Options(Vec<redfish::boot_option::BootOption>),
-    NullMembers,
-}
-
-impl BootOptionsConfig {
-    fn as_options(&self) -> Option<&[redfish::boot_option::BootOption]> {
-        match self {
-            Self::Options(v) => Some(v),
-            Self::NullMembers => None,
-        }
-    }
-}
-
-impl From<Vec<redfish::boot_option::BootOption>> for BootOptionsConfig {
-    fn from(v: Vec<redfish::boot_option::BootOption>) -> Self {
-        Self::Options(v)
-    }
-}
-
 pub struct SingleSystemConfig {
     pub id: Cow<'static, str>,
     pub eth_interfaces: Option<Vec<redfish::ethernet_interface::EthernetInterface>>,
@@ -164,7 +144,7 @@ pub struct SingleSystemConfig {
     pub boot_order_mode: BootOrderMode,
     pub callbacks: Option<Arc<dyn Callbacks>>,
     pub chassis: Vec<Cow<'static, str>>,
-    pub boot_options: Option<BootOptionsConfig>,
+    pub boot_options: Option<Vec<redfish::boot_option::BootOption>>,
     pub bios_mode: BiosMode,
     pub base_bios: Option<serde_json::Value>,
     pub log_services: Option<Arc<dyn LogServices>>,
@@ -276,9 +256,7 @@ impl SingleSystemState {
     pub fn find_boot_option(&self, option_id: &str) -> Option<&redfish::boot_option::BootOption> {
         self.config
             .boot_options
-            .as_ref()
-            .and_then(|v| v.as_options())
-            .into_iter()
+            .iter()
             .flatten()
             .find(|v| v.id == option_id)
     }
@@ -305,9 +283,7 @@ impl SingleSystemState {
             .filter(|kind| {
                 self.config
                     .boot_options
-                    .as_ref()
-                    .and_then(|v| v.as_options())
-                    .into_iter()
+                    .iter()
                     .flatten()
                     .any(|opt| opt.kind == *kind)
             })
@@ -319,9 +295,7 @@ impl SingleSystemState {
                 overrides.first().and_then(|optref| {
                     self.config
                         .boot_options
-                        .as_ref()
-                        .and_then(|v| v.as_options())
-                        .into_iter()
+                        .iter()
                         .flatten()
                         .find(|v| v.boot_reference() == optref)
                         .map(|opt| opt.kind)
@@ -331,8 +305,7 @@ impl SingleSystemState {
         .or_else(|| {
             self.config
                 .boot_options
-                .as_ref()
-                .and_then(|v| v.as_options())?
+                .as_ref()?
                 .first()
                 .map(|opt| opt.kind)
         })
@@ -373,9 +346,7 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
             b = b.boot_order(
                 &config
                     .boot_options
-                    .as_ref()
-                    .and_then(|v| v.as_options())
-                    .into_iter()
+                    .iter()
                     .flatten()
                     .map(|v| v.boot_reference())
                     .collect::<Vec<_>>(),
@@ -385,7 +356,9 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
 
     b = match config.oem {
         Oem::Generic => b,
-        Oem::NvidiaBluefield => b.oem_nvidia(&redfish::oem::nvidia::bluefield::resource()),
+        Oem::NvidiaBluefield => {
+            b.oem_nvidia(&redfish::oem::nvidia::bluefield::resource(&system_id))
+        }
     };
 
     let pcie_devices = config
@@ -644,46 +617,34 @@ async fn get_boot_options_collection(
     let Some(boot_options) = &system_state.config.boot_options else {
         return http::not_found();
     };
-    match boot_options {
-        BootOptionsConfig::Options(boot_options) => {
-            let boot_options_order = match system_state.config.boot_order_mode {
-                BootOrderMode::DellOem => {
-                    // Carbide relies that Dell sorts boot options in according to boot
-                    // order. Code below simulates the same.
-                    if let Some(boot_order) = system_state.boot_order_override() {
-                        let mut indices = (0..boot_options.len()).collect::<Vec<_>>();
-                        indices.sort_by_key(|&i| {
-                            boot_order
-                                .iter()
-                                .enumerate()
-                                .find(|(_, id)| *id == &boot_options[i].id)
-                                .map(|(idx, _)| idx)
-                                .unwrap_or(boot_options.len())
-                        });
-                        indices
-                    } else {
-                        (0..boot_options.len()).collect::<Vec<_>>()
-                    }
-                }
-                BootOrderMode::Generic | BootOrderMode::ViaSettings => {
-                    (0..boot_options.len()).collect()
-                }
-            };
-            let members = boot_options_order
-                .into_iter()
-                .map(|idx| {
-                    redfish::boot_option::resource(&system_id, &boot_options[idx].id).entity_ref()
-                })
-                .collect::<Vec<_>>();
-            redfish::boot_option::collection(&system_id)
-                .with_members(&members)
-                .into_ok_response()
+    let boot_options_order = match system_state.config.boot_order_mode {
+        BootOrderMode::DellOem => {
+            // Carbide relies that Dell sorts boot options in according to boot
+            // order. Code below simulates the same.
+            if let Some(boot_order) = system_state.boot_order_override() {
+                let mut indices = (0..boot_options.len()).collect::<Vec<_>>();
+                indices.sort_by_key(|&i| {
+                    boot_order
+                        .iter()
+                        .enumerate()
+                        .find(|(_, id)| *id == &boot_options[i].id)
+                        .map(|(idx, _)| idx)
+                        .unwrap_or(boot_options.len())
+                });
+                indices
+            } else {
+                (0..boot_options.len()).collect::<Vec<_>>()
+            }
         }
-        BootOptionsConfig::NullMembers => redfish::boot_option::collection(&system_id)
-            .with_members(&[] as &[String])
-            .patch(json!({"Members": null}))
-            .into_ok_response(),
-    }
+        BootOrderMode::Generic | BootOrderMode::ViaSettings => (0..boot_options.len()).collect(),
+    };
+    let members = boot_options_order
+        .into_iter()
+        .map(|idx| redfish::boot_option::resource(&system_id, &boot_options[idx].id).entity_ref())
+        .collect::<Vec<_>>();
+    redfish::boot_option::collection(&system_id)
+        .with_members(&members)
+        .into_ok_response()
 }
 
 async fn get_boot_option(
