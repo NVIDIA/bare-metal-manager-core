@@ -22,7 +22,7 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -97,18 +97,18 @@ type VpcPrefix struct {
 // ID can differ from the cloud-side `vp.VpcID` (see `Vpc.GetSiteID`), and
 // handlers typically already have a hydrated *Vpc from a separate query.
 // A nil `vpc` leaves the wire `VpcId` unset.
-func (vp *VpcPrefix) ToProto(vpc *Vpc) *cwssaws.VpcPrefix {
-	proto := &cwssaws.VpcPrefix{
-		Id: &cwssaws.VpcPrefixId{Value: vp.ID.String()},
-		Config: &cwssaws.VpcPrefixConfig{
+func (vp *VpcPrefix) ToProto(vpc *Vpc) *corev1.VpcPrefix {
+	proto := &corev1.VpcPrefix{
+		Id: &corev1.VpcPrefixId{Value: vp.ID.String()},
+		Config: &corev1.VpcPrefixConfig{
 			Prefix: vp.Prefix,
 		},
-		Metadata: &cwssaws.Metadata{
+		Metadata: &corev1.Metadata{
 			Name: vp.Name,
 		},
 	}
 	if vpc != nil {
-		proto.VpcId = &cwssaws.VpcId{Value: vpc.GetSiteID().String()}
+		proto.VpcId = &corev1.VpcId{Value: vpc.GetSiteID().String()}
 	}
 	return proto
 }
@@ -128,7 +128,7 @@ func (vp *VpcPrefix) GetIPv4CIDR() *string {
 // FromProto populates this VpcPrefix from its workflow proto representation.
 // A nil proto is a no-op. This is the inverse of `ToProto` and exists for
 // convention symmetry — currently no code path on the cloud side
-// reconstructs a full VpcPrefix entity from a `cwssaws.VpcPrefix` (the
+// reconstructs a full VpcPrefix entity from a `corev1.VpcPrefix` (the
 // site is the destination, not the source), but the method is provided so
 // future reconciliation flows have a single canonical entry point.
 //
@@ -147,7 +147,7 @@ func (vp *VpcPrefix) GetIPv4CIDR() *string {
 //   - `VpcID` is cleared when the proto omits it OR when the proto value
 //     is unparseable, so `FromProto` is a clean reset rather than a
 //     partial merge.
-func (vp *VpcPrefix) FromProto(proto *cwssaws.VpcPrefix) {
+func (vp *VpcPrefix) FromProto(proto *corev1.VpcPrefix) {
 	if proto == nil {
 		return
 	}
@@ -177,9 +177,9 @@ func (vp *VpcPrefix) FromProto(proto *cwssaws.VpcPrefix) {
 
 // ToDeletionRequestProto builds the workflow request that asks a Site to
 // delete this VpcPrefix.
-func (vp *VpcPrefix) ToDeletionRequestProto() *cwssaws.VpcPrefixDeletionRequest {
-	return &cwssaws.VpcPrefixDeletionRequest{
-		Id: &cwssaws.VpcPrefixId{Value: vp.ID.String()},
+func (vp *VpcPrefix) ToDeletionRequestProto() *corev1.VpcPrefixDeletionRequest {
+	return &corev1.VpcPrefixDeletionRequest{
+		Id: &corev1.VpcPrefixId{Value: vp.ID.String()},
 	}
 }
 

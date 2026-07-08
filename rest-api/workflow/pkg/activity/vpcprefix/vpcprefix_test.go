@@ -15,7 +15,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -362,10 +362,10 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB(t *testing.T) {
 		pagedInvIds = append(pagedInvIds, vpcPrefix.ID.String())
 	}
 
-	pagedCtrlVpcPrefixes := []*cwssaws.VpcPrefix{}
+	pagedCtrlVpcPrefixes := []*corev1.VpcPrefix{}
 	for i := 0; i < 34; i++ {
-		ctrlVpcPrefix := &cwssaws.VpcPrefix{
-			Id:   &cwssaws.VpcPrefixId{Value: pagedVpcPrefixes[i].ID.String()},
+		ctrlVpcPrefix := &corev1.VpcPrefix{
+			Id:   &corev1.VpcPrefixId{Value: pagedVpcPrefixes[i].ID.String()},
 			Name: pagedVpcPrefixes[i].Name,
 		}
 		pagedCtrlVpcPrefixes = append(pagedCtrlVpcPrefixes, ctrlVpcPrefix)
@@ -380,7 +380,7 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB(t *testing.T) {
 	type args struct {
 		ctx                context.Context
 		siteID             uuid.UUID
-		vpcPrefixInventory *cwssaws.VpcPrefixInventory
+		vpcPrefixInventory *corev1.VpcPrefixInventory
 	}
 
 	tests := []struct {
@@ -407,8 +407,8 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				vpcPrefixInventory: &cwssaws.VpcPrefixInventory{
-					VpcPrefixes: []*cwssaws.VpcPrefix{},
+				vpcPrefixInventory: &corev1.VpcPrefixInventory{
+					VpcPrefixes: []*corev1.VpcPrefix{},
 				},
 			},
 			wantErr: true,
@@ -423,50 +423,50 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				vpcPrefixInventory: &cwssaws.VpcPrefixInventory{
-					VpcPrefixes: []*cwssaws.VpcPrefix{
+				vpcPrefixInventory: &corev1.VpcPrefixInventory{
+					VpcPrefixes: []*corev1.VpcPrefix{
 						{
-							Id:   &cwssaws.VpcPrefixId{Value: vpcPrefix1.ID.String()},
+							Id:   &corev1.VpcPrefixId{Value: vpcPrefix1.ID.String()},
 							Name: vpcPrefix1.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcPrefixId{Value: vpcPrefix2.ID.String()},
+							Id:   &corev1.VpcPrefixId{Value: vpcPrefix2.ID.String()},
 							Name: vpcPrefix2.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcPrefixId{Value: vpcPrefix3.ID.String()},
+							Id:   &corev1.VpcPrefixId{Value: vpcPrefix3.ID.String()},
 							Name: vpcPrefix3.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcPrefixId{Value: vpcPrefix4.ID.String()},
+							Id:   &corev1.VpcPrefixId{Value: vpcPrefix4.ID.String()},
 							Name: vpcPrefix4.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcPrefixId{Value: vpcPrefix8.ID.String()},
+							Id:   &corev1.VpcPrefixId{Value: vpcPrefix8.ID.String()},
 							Name: vpcPrefix8.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcPrefixId{Value: vpcPrefix9.ID.String()},
+							Id:   &corev1.VpcPrefixId{Value: vpcPrefix9.ID.String()},
 							Name: vpcPrefix9.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcPrefixId{Value: vpcPrefix10.ID.String()},
+							Id:   &corev1.VpcPrefixId{Value: vpcPrefix10.ID.String()},
 							Name: vpcPrefix10.ID.String(),
 						},
 						{
-							Id:     &cwssaws.VpcPrefixId{Value: vpcPrefix12.ID.String()},
+							Id:     &corev1.VpcPrefixId{Value: vpcPrefix12.ID.String()},
 							Name:   vpcPrefix12.ID.String(),
-							Status: &cwssaws.VpcPrefixStatus{TenantState: cwssaws.TenantState_READY},
+							Status: &corev1.VpcPrefixStatus{TenantState: corev1.TenantState_READY},
 						},
 						{
-							Id:     &cwssaws.VpcPrefixId{Value: vpcPrefix13.ID.String()},
+							Id:     &corev1.VpcPrefixId{Value: vpcPrefix13.ID.String()},
 							Name:   vpcPrefix13.ID.String(),
-							Status: &cwssaws.VpcPrefixStatus{TenantState: cwssaws.TenantState_TERMINATING},
+							Status: &corev1.VpcPrefixStatus{TenantState: corev1.TenantState_TERMINATING},
 						},
 						{
-							Id:     &cwssaws.VpcPrefixId{Value: vpcPrefix14.ID.String()},
+							Id:     &corev1.VpcPrefixId{Value: vpcPrefix14.ID.String()},
 							Name:   vpcPrefix14.ID.String(),
-							Status: &cwssaws.VpcPrefixStatus{TenantState: cwssaws.TenantState_TERMINATED},
+							Status: &corev1.VpcPrefixStatus{TenantState: corev1.TenantState_TERMINATED},
 						},
 					},
 				},
@@ -489,11 +489,11 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				vpcPrefixInventory: &cwssaws.VpcPrefixInventory{
-					VpcPrefixes:     []*cwssaws.VpcPrefix{},
+				vpcPrefixInventory: &corev1.VpcPrefixInventory{
+					VpcPrefixes:     []*corev1.VpcPrefix{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -513,10 +513,10 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				vpcPrefixInventory: &cwssaws.VpcPrefixInventory{
+				vpcPrefixInventory: &corev1.VpcPrefixInventory{
 					VpcPrefixes: pagedCtrlVpcPrefixes[0:10],
 					Timestamp:   timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -537,10 +537,10 @@ func TestManageVpcPrefix_UpdateVpcPrefixesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				vpcPrefixInventory: &cwssaws.VpcPrefixInventory{
+				vpcPrefixInventory: &corev1.VpcPrefixInventory{
 					VpcPrefixes: pagedCtrlVpcPrefixes[30:34],
 					Timestamp:   timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 4,
 						TotalPages:  4,
 						PageSize:    10,

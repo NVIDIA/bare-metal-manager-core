@@ -13,7 +13,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -167,11 +167,11 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 		pagedInvIds = append(pagedInvIds, ibp.ControllerIBPartitionID.String())
 	}
 
-	pagedCtrlIbps := []*cwssaws.IBPartition{}
+	pagedCtrlIbps := []*corev1.IBPartition{}
 	for i := 0; i < 34; i++ {
-		ctrlIbp := &cwssaws.IBPartition{
-			Id: &cwssaws.IBPartitionId{Value: pagedIbps[i].ControllerIBPartitionID.String()},
-			Config: &cwssaws.IBPartitionConfig{
+		ctrlIbp := &corev1.IBPartition{
+			Id: &corev1.IBPartitionId{Value: pagedIbps[i].ControllerIBPartitionID.String()},
+			Config: &corev1.IBPartitionConfig{
 				Name: pagedIbps[i].ID.String(),
 			},
 		}
@@ -197,7 +197,7 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 	type args struct {
 		ctx                          context.Context
 		siteID                       uuid.UUID
-		infiniBandPartitionInventory *cwssaws.InfiniBandPartitionInventory
+		infiniBandPartitionInventory *corev1.InfiniBandPartitionInventory
 	}
 
 	tests := []struct {
@@ -223,8 +223,8 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				infiniBandPartitionInventory: &cwssaws.InfiniBandPartitionInventory{
-					IbPartitions: []*cwssaws.IBPartition{},
+				infiniBandPartitionInventory: &corev1.InfiniBandPartitionInventory{
+					IbPartitions: []*corev1.IBPartition{},
 				},
 			},
 			wantErr: true,
@@ -239,15 +239,15 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st1.ID,
-				infiniBandPartitionInventory: &cwssaws.InfiniBandPartitionInventory{
-					IbPartitions: []*cwssaws.IBPartition{
+				infiniBandPartitionInventory: &corev1.InfiniBandPartitionInventory{
+					IbPartitions: []*corev1.IBPartition{
 						{
-							Id: &cwssaws.IBPartitionId{Value: ibp1.ID.String()},
-							Config: &cwssaws.IBPartitionConfig{
+							Id: &corev1.IBPartitionId{Value: ibp1.ID.String()},
+							Config: &corev1.IBPartitionConfig{
 								Name: ibp1.ID.String(),
 							},
-							Status: &cwssaws.IBPartitionStatus{
-								State:        cwssaws.TenantState_PROVISIONING,
+							Status: &corev1.IBPartitionStatus{
+								State:        corev1.TenantState_PROVISIONING,
 								Pkey:         cutil.GetPtr("106"),
 								Partition:    cutil.GetPtr("test-ibp-1"),
 								ServiceLevel: &serviceLevel,
@@ -257,48 +257,48 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 							},
 						},
 						{
-							Id: &cwssaws.IBPartitionId{Value: ibp2.ID.String()},
-							Config: &cwssaws.IBPartitionConfig{
+							Id: &corev1.IBPartitionId{Value: ibp2.ID.String()},
+							Config: &corev1.IBPartitionConfig{
 								Name: ibp2.ID.String(),
 							},
 						},
 						{
-							Id: &cwssaws.IBPartitionId{Value: ibp3.ID.String()},
-							Config: &cwssaws.IBPartitionConfig{
+							Id: &corev1.IBPartitionId{Value: ibp3.ID.String()},
+							Config: &corev1.IBPartitionConfig{
 								Name: ibp3.ID.String(),
 							},
 						},
 						{
-							Id: &cwssaws.IBPartitionId{Value: ibp4.ControllerIBPartitionID.String()},
-							Config: &cwssaws.IBPartitionConfig{
+							Id: &corev1.IBPartitionId{Value: ibp4.ControllerIBPartitionID.String()},
+							Config: &corev1.IBPartitionConfig{
 								Name: ibp4.ID.String(),
 							},
 						},
 						{
-							Id: &cwssaws.IBPartitionId{Value: ibp8.ControllerIBPartitionID.String()},
-							Config: &cwssaws.IBPartitionConfig{
+							Id: &corev1.IBPartitionId{Value: ibp8.ControllerIBPartitionID.String()},
+							Config: &corev1.IBPartitionConfig{
 								Name: ibp8.ID.String(),
 							},
-							Status: &cwssaws.IBPartitionStatus{
-								State: cwssaws.TenantState_READY,
+							Status: &corev1.IBPartitionStatus{
+								State: corev1.TenantState_READY,
 							},
 						},
 						{
-							Id: &cwssaws.IBPartitionId{Value: uuid.NewString()},
-							Config: &cwssaws.IBPartitionConfig{
+							Id: &corev1.IBPartitionId{Value: uuid.NewString()},
+							Config: &corev1.IBPartitionConfig{
 								Name: ibp9.ID.String(),
 							},
-							Status: &cwssaws.IBPartitionStatus{
-								State: cwssaws.TenantState_READY,
+							Status: &corev1.IBPartitionStatus{
+								State: corev1.TenantState_READY,
 							},
 						},
 						{
-							Id: &cwssaws.IBPartitionId{Value: uuid.NewString()},
-							Config: &cwssaws.IBPartitionConfig{
+							Id: &corev1.IBPartitionId{Value: uuid.NewString()},
+							Config: &corev1.IBPartitionConfig{
 								Name: ibp10.ID.String(),
 							},
-							Status: &cwssaws.IBPartitionStatus{
-								State: cwssaws.TenantState_READY,
+							Status: &corev1.IBPartitionStatus{
+								State: corev1.TenantState_READY,
 							},
 						},
 					},
@@ -321,11 +321,11 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st1.ID,
-				infiniBandPartitionInventory: &cwssaws.InfiniBandPartitionInventory{
-					IbPartitions:    []*cwssaws.IBPartition{},
+				infiniBandPartitionInventory: &corev1.InfiniBandPartitionInventory{
+					IbPartitions:    []*corev1.IBPartition{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -345,10 +345,10 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				infiniBandPartitionInventory: &cwssaws.InfiniBandPartitionInventory{
+				infiniBandPartitionInventory: &corev1.InfiniBandPartitionInventory{
 					IbPartitions: pagedCtrlIbps[0:10],
 					Timestamp:    timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -369,10 +369,10 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				infiniBandPartitionInventory: &cwssaws.InfiniBandPartitionInventory{
+				infiniBandPartitionInventory: &corev1.InfiniBandPartitionInventory{
 					IbPartitions: pagedCtrlIbps[30:34],
 					Timestamp:    timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 4,
 						TotalPages:  4,
 						PageSize:    10,

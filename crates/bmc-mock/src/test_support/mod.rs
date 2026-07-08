@@ -145,6 +145,21 @@ pub async fn dgx_gb300_bmc() -> TestBmcHandle {
     .await
 }
 
+/// Host-mode mock for the NvidiaDgxVr hardware type ("vr-tray" in machine-a-tron
+/// configs). Unlike the other GB300-family types (Lenovo, Nvidia DGX GB300,
+/// Supermicro), this one previously only had a DPU-mode helper
+/// (`nvidia_dgx_vr_bluefield4_dpu_bmc`), so there was no way to test exploring
+/// it as a host tray at all. Added while investigating #3159.
+pub async fn nvidia_dgx_vr_host_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        &host_info(HostHardwareType::NvidiaDgxVr),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
 pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HostHardwareType::SupermicroGb300Nvl),

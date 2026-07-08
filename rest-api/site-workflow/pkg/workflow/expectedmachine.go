@@ -6,8 +6,8 @@ package workflow
 import (
 	"time"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -52,7 +52,7 @@ func DiscoverExpectedMachineInventory(ctx workflow.Context) error {
 
 // CreateExpectedMachine is a workflow to create new Expected Machines using the CreateExpectedMachineOnSite activity,
 // then also creates the component in Flow via CreateExpectedMachineOnFlow.
-func CreateExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachine) error {
+func CreateExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachine) error {
 	logger := log.With().Str("Workflow", "ExpectedMachine").Str("Action", "Create").Str("ID", request.GetId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.ChassisSerialNumber).Logger()
 
 	logger.Info().Msg("starting workflow")
@@ -95,7 +95,7 @@ func CreateExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachin
 
 // UpdateExpectedMachine is a workflow to update Expected Machines using the UpdateExpectedMachineOnSite activity
 // TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
-func UpdateExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachine) error {
+func UpdateExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachine) error {
 	logger := log.With().Str("Workflow", "ExpectedMachine").Str("Action", "Update").Str("ID", request.GetId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.ChassisSerialNumber).Logger()
 
 	logger.Info().Msg("starting workflow")
@@ -131,7 +131,7 @@ func UpdateExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachin
 
 // CreateExpectedMachines is a workflow to create multiple Expected Machines using the CreateExpectedMachinesOnSite activity,
 // then also creates the components in Flow via CreateExpectedMachinesOnFlow.
-func CreateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpectedMachineOperationRequest) (*cwssaws.BatchExpectedMachineOperationResponse, error) {
+func CreateExpectedMachines(ctx workflow.Context, request *corev1.BatchExpectedMachineOperationRequest) (*corev1.BatchExpectedMachineOperationResponse, error) {
 	logger := log.With().Str("Workflow", "ExpectedMachines").Str("Action", "Create").Int("Count", len(request.GetExpectedMachines().GetExpectedMachines())).Logger()
 
 	logger.Info().Msg("starting workflow")
@@ -154,7 +154,7 @@ func CreateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpected
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var expectedMachineManager activity.ManageExpectedMachine
-	var response cwssaws.BatchExpectedMachineOperationResponse
+	var response corev1.BatchExpectedMachineOperationResponse
 
 	// Write to Core first
 	err := workflow.ExecuteActivity(ctx, expectedMachineManager.CreateExpectedMachinesOnSite, request).Get(ctx, &response)
@@ -175,7 +175,7 @@ func CreateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpected
 }
 
 // UpdateExpectedMachines is a workflow to update multiple Expected Machines using the UpdateExpectedMachinesOnSite activity
-func UpdateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpectedMachineOperationRequest) (*cwssaws.BatchExpectedMachineOperationResponse, error) {
+func UpdateExpectedMachines(ctx workflow.Context, request *corev1.BatchExpectedMachineOperationRequest) (*corev1.BatchExpectedMachineOperationResponse, error) {
 	logger := log.With().Str("Workflow", "ExpectedMachines").Str("Action", "Update").Int("Count", len(request.GetExpectedMachines().GetExpectedMachines())).Logger()
 
 	logger.Info().Msg("starting workflow")
@@ -198,7 +198,7 @@ func UpdateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpected
 	ctx = workflow.WithActivityOptions(ctx, options)
 
 	var expectedMachineManager activity.ManageExpectedMachine
-	var response cwssaws.BatchExpectedMachineOperationResponse
+	var response corev1.BatchExpectedMachineOperationResponse
 
 	err := workflow.ExecuteActivity(ctx, expectedMachineManager.UpdateExpectedMachinesOnSite, request).Get(ctx, &response)
 	if err != nil {
@@ -213,7 +213,7 @@ func UpdateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpected
 
 // DeleteExpectedMachine is a workflow to Delete Expected Machines using the DeleteExpectedMachineOnSite activity
 // TODO: Add Flow DeleteComponent dual-write when update/delete Flow support is implemented
-func DeleteExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachineRequest) error {
+func DeleteExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachineRequest) error {
 	logger := log.With().Str("Workflow", "ExpectedMachine").Str("Action", "Delete").Str("ID", request.GetId().GetValue()).Str("optional MAC address", request.BmcMacAddress).Logger()
 
 	logger.Info().Msg("starting workflow")

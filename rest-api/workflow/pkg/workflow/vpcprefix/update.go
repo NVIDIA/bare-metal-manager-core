@@ -15,12 +15,12 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	vpcPrefixActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpcprefix"
 )
 
 // UpdateVpcPrefixInventory is a workflow called by Site Agent to update vpc prefixes for a Site
-func UpdateVpcPrefixInventory(ctx workflow.Context, siteID string, vpcPrefixInventory *cwssaws.VpcPrefixInventory) (err error) {
+func UpdateVpcPrefixInventory(ctx workflow.Context, siteID string, vpcPrefixInventory *corev1.VpcPrefixInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateVpcPrefixInventory").Str("Site ID", siteID).Logger()
 
 	logger.Info().Msg("starting workflow")

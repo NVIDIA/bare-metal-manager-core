@@ -14,7 +14,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -239,7 +239,7 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	instanceType8, err = instanceTypeDAO.Update(ctx, nil, cdbm.InstanceTypeUpdateInput{ID: instanceType8.ID, Status: cutil.GetPtr(cdbm.InstanceTypeStatusError)})
 	assert.NoError(t, err)
 
-	siteSharedTypesMap := map[string]*cwssaws.InstanceType{}
+	siteSharedTypesMap := map[string]*corev1.InstanceType{}
 
 	// Build InstanceType inventory that is paginated
 	// Generate data for 34 InstanceTypes reported from Site Agent while Cloud has 38 InstanceTypes
@@ -258,12 +258,12 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	// site has capabilities that cloud does not.  Cloud should get them.
 	// Cloud has caps that site does not.  Cloud should lose them.
 
-	pagedCtrlInstanceTypes := []*cwssaws.InstanceType{}
+	pagedCtrlInstanceTypes := []*corev1.InstanceType{}
 	for i := range 34 {
 
-		ctrlInstanceType := &cwssaws.InstanceType{
+		ctrlInstanceType := &corev1.InstanceType{
 			Id: pagedInstanceTypes[i].ID.String(),
-			Metadata: &cwssaws.Metadata{
+			Metadata: &corev1.Metadata{
 				Name: pagedInstanceTypes[i].Name,
 			},
 		}
@@ -277,11 +277,11 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	cloudUnknownType := &cdbm.InstanceType{ID: uuid.New(), Name: "unknown-to-cloud"}
 
 	count := uint32(16)
-	siteKnownType := &cwssaws.InstanceType{Id: cloudUnknownType.ID.String(), Metadata: &cwssaws.Metadata{
+	siteKnownType := &corev1.InstanceType{Id: cloudUnknownType.ID.String(), Metadata: &corev1.Metadata{
 		Name: cloudUnknownType.Name,
-	}, Attributes: &cwssaws.InstanceTypeAttributes{DesiredCapabilities: []*cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+	}, Attributes: &corev1.InstanceTypeAttributes{DesiredCapabilities: []*corev1.InstanceTypeMachineCapabilityFilterAttributes{
 		{
-			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
+			CapabilityType: corev1.MachineCapabilityType_CAP_TYPE_CPU,
 			Name:           cutil.GetPtr("xeon"),
 			Count:          &count,
 		},
@@ -301,9 +301,9 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 
 	// Add a capability known to site but not cloud to
 	// an instance type known to both cloud and site.
-	pagedCtrlInstanceTypes[1].Attributes = &cwssaws.InstanceTypeAttributes{DesiredCapabilities: []*cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+	pagedCtrlInstanceTypes[1].Attributes = &corev1.InstanceTypeAttributes{DesiredCapabilities: []*corev1.InstanceTypeMachineCapabilityFilterAttributes{
 		{
-			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
+			CapabilityType: corev1.MachineCapabilityType_CAP_TYPE_CPU,
 			Name:           cutil.GetPtr("xeon"),
 			Count:          &count,
 		},
@@ -317,10 +317,10 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 
 	// Add a capability known to site but not cloud to
 	// an instance type known to both cloud and site.
-	deviceType := cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
-	pagedCtrlInstanceTypes[2].Attributes = &cwssaws.InstanceTypeAttributes{DesiredCapabilities: []*cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+	deviceType := corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
+	pagedCtrlInstanceTypes[2].Attributes = &corev1.InstanceTypeAttributes{DesiredCapabilities: []*corev1.InstanceTypeMachineCapabilityFilterAttributes{
 		{
-			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK,
+			CapabilityType: corev1.MachineCapabilityType_CAP_TYPE_NETWORK,
 			Name:           cutil.GetPtr("MT43245 BlueField-3 integrated ConnectX-7 network controller"),
 			Count:          &count,
 			DeviceType:     &deviceType,
@@ -355,7 +355,7 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 	type args struct {
 		ctx                   context.Context
 		siteID                uuid.UUID
-		instanceTypeInventory *cwssaws.InstanceTypeInventory
+		instanceTypeInventory *corev1.InstanceTypeInventory
 	}
 
 	tests := []struct {
@@ -378,8 +378,8 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				instanceTypeInventory: &cwssaws.InstanceTypeInventory{
-					InstanceTypes: []*cwssaws.InstanceType{},
+				instanceTypeInventory: &corev1.InstanceTypeInventory{
+					InstanceTypes: []*corev1.InstanceType{},
 				},
 			},
 			wantErr: true,
@@ -395,35 +395,35 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				instanceTypeInventory: &cwssaws.InstanceTypeInventory{
-					InstanceTypes: []*cwssaws.InstanceType{
+				instanceTypeInventory: &corev1.InstanceTypeInventory{
+					InstanceTypes: []*corev1.InstanceType{
 						{
 							Id:       instanceType1.ID.String(),
-							Metadata: &cwssaws.Metadata{Name: instanceType1.ID.String()},
+							Metadata: &corev1.Metadata{Name: instanceType1.ID.String()},
 						},
 						{
 							Id:       instanceType2.ID.String(),
-							Metadata: &cwssaws.Metadata{Name: instanceType2.ID.String()},
+							Metadata: &corev1.Metadata{Name: instanceType2.ID.String()},
 						},
 						{
 							Id:       instanceType3.ID.String(),
-							Metadata: &cwssaws.Metadata{Name: instanceType3.ID.String()},
+							Metadata: &corev1.Metadata{Name: instanceType3.ID.String()},
 						},
 						{
 							Id:       instanceType4.ID.String(),
-							Metadata: &cwssaws.Metadata{Name: instanceType4.ID.String()},
+							Metadata: &corev1.Metadata{Name: instanceType4.ID.String()},
 						},
 						{
 							Id:       instanceType8.ID.String(),
-							Metadata: &cwssaws.Metadata{Name: instanceType8.ID.String()},
+							Metadata: &corev1.Metadata{Name: instanceType8.ID.String()},
 						},
 						{
 							Id:       uuid.NewString(),
-							Metadata: &cwssaws.Metadata{Name: instanceType9.ID.String()},
+							Metadata: &corev1.Metadata{Name: instanceType9.ID.String()},
 						},
 						{
 							Id:       uuid.NewString(),
-							Metadata: &cwssaws.Metadata{Name: instanceType10.ID.String()},
+							Metadata: &corev1.Metadata{Name: instanceType10.ID.String()},
 						},
 					},
 				},
@@ -443,11 +443,11 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				instanceTypeInventory: &cwssaws.InstanceTypeInventory{
-					InstanceTypes:   []*cwssaws.InstanceType{},
+				instanceTypeInventory: &corev1.InstanceTypeInventory{
+					InstanceTypes:   []*corev1.InstanceType{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -468,10 +468,10 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				instanceTypeInventory: &cwssaws.InstanceTypeInventory{
+				instanceTypeInventory: &corev1.InstanceTypeInventory{
 					InstanceTypes: pagedCtrlInstanceTypes[0:10],
 					Timestamp:     timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -494,10 +494,10 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				instanceTypeInventory: &cwssaws.InstanceTypeInventory{
+				instanceTypeInventory: &corev1.InstanceTypeInventory{
 					InstanceTypes: pagedCtrlInstanceTypes[30:35],
 					Timestamp:     timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 4,
 						TotalPages:  4,
 						PageSize:    10,
@@ -561,12 +561,12 @@ func TestManageInstanceType_UpdateInstanceTypesInDB(t *testing.T) {
 						for i := range tot {
 							assert.Equal(t, cloudCaps[i].Name, *siteCaps[i].Name)
 							if cloudCaps[i].Type == cdbm.MachineCapabilityTypeNetwork && cloudCaps[i].DeviceType != nil {
-								var protoDeviceType cwssaws.MachineCapabilityDeviceType
+								var protoDeviceType corev1.MachineCapabilityDeviceType
 								switch *cloudCaps[i].DeviceType {
 								case cdbm.MachineCapabilityDeviceTypeDPU:
-									protoDeviceType = cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
+									protoDeviceType = corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
 								case cdbm.MachineCapabilityDeviceTypeNVLink:
-									protoDeviceType = cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK
+									protoDeviceType = corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK
 								default:
 									t.Fatalf("unsupported DeviceType %q in test fixture", *cloudCaps[i].DeviceType)
 								}

@@ -12,11 +12,11 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // CreateTenant is a workflow to create a Tenant using CreateTenantOnSite activity
-func CreateTenant(ctx workflow.Context, request *cwssaws.CreateTenantRequest) error {
+func CreateTenant(ctx workflow.Context, request *corev1.CreateTenantRequest) error {
 	logger := log.With().Str("Workflow", "CreateTenant").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -52,7 +52,7 @@ func CreateTenant(ctx workflow.Context, request *cwssaws.CreateTenantRequest) er
 }
 
 // UpdateTenant is a workflow to update a Tenant using UpdateTenantOnSite activity
-func UpdateTenant(ctx workflow.Context, request *cwssaws.UpdateTenantRequest) error {
+func UpdateTenant(ctx workflow.Context, request *corev1.UpdateTenantRequest) error {
 	logger := log.With().Str("Workflow", "UpdateTenant").Logger()
 
 	logger.Info().Msg("Starting workflow")

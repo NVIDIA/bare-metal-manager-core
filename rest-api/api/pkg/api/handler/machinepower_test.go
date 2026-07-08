@@ -26,7 +26,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 type machinePowerHandlerFixture struct {
@@ -38,7 +38,7 @@ type machinePowerHandlerFixture struct {
 	proxiedReq *coreproxy.Request
 }
 
-func newMachinePowerHandlerFixture(t *testing.T, response *cwssaws.AdminPowerControlResponse) machinePowerHandlerFixture {
+func newMachinePowerHandlerFixture(t *testing.T, response *corev1.AdminPowerControlResponse) machinePowerHandlerFixture {
 	t.Helper()
 
 	dbSession := common.TestInitDB(t)
@@ -123,17 +123,17 @@ func (f machinePowerHandlerFixture) request(t *testing.T, method, target string,
 
 func TestMachinePowerControlHandlerProxiesRequest(t *testing.T) {
 	msg := "power control accepted"
-	fixture := newMachinePowerHandlerFixture(t, &cwssaws.AdminPowerControlResponse{Msg: &msg})
+	fixture := newMachinePowerHandlerFixture(t, &corev1.AdminPowerControlResponse{Msg: &msg})
 
 	rec := fixture.request(t, http.MethodPatch, "/", model.APIMachinePowerControlRequest{Action: model.MachinePowerActionForceRestart})
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, cwssaws.Forge_AdminPowerControl_FullMethodName, fixture.proxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_AdminPowerControl_FullMethodName, fixture.proxiedReq.FullMethod)
 	assert.Empty(t, fixture.proxiedReq.EncryptedSecrets)
 
-	var coreReq cwssaws.AdminPowerControlRequest
+	var coreReq corev1.AdminPowerControlRequest
 	require.NoError(t, protojson.Unmarshal(fixture.proxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.machineID, coreReq.GetMachineId())
-	assert.Equal(t, cwssaws.AdminPowerControlRequest_ForceRestart, coreReq.GetAction())
+	assert.Equal(t, corev1.AdminPowerControlRequest_ForceRestart, coreReq.GetAction())
 
 	var apiResp model.APIMessageResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiResp))
@@ -205,7 +205,7 @@ func TestMachinePowerControlHandlerRejectsMachineWithInstanceWithAcknowledgement
 
 	rec := fixture.request(t, http.MethodPatch, "/", model.APIMachinePowerControlRequest{Action: model.MachinePowerActionOn, AcknowledgeAttachedInstance: cutil.GetPtr(true)})
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, cwssaws.Forge_AdminPowerControl_FullMethodName, fixture.proxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_AdminPowerControl_FullMethodName, fixture.proxiedReq.FullMethod)
 }
 
 func TestMachinePowerControlHandlerRejectsEmptyMachineID(t *testing.T) {

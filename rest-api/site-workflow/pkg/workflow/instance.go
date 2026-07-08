@@ -11,13 +11,13 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
 
 // UpdateInstance is a workflow to update Instance data using then UpdateInstanceOnSite activity
-func UpdateInstance(ctx workflow.Context, updateRequest *cwssaws.InstanceConfigUpdateRequest) error {
+func UpdateInstance(ctx workflow.Context, updateRequest *corev1.InstanceConfigUpdateRequest) error {
 	logger := log.With().Str("Workflow", "Instance").Str("Action", "Update").Str("Instance ID", updateRequest.InstanceId.String()).Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -54,7 +54,7 @@ func UpdateInstance(ctx workflow.Context, updateRequest *cwssaws.InstanceConfigU
 // CreateInstanceV2 is a workflow to create (allocate) new Instances using the CreateInstanceOnSite activity
 // V1 (CreateInstance) is found in cloud-workflow and uses a different activity that does not speak
 // to nico directly.
-func CreateInstanceV2(ctx workflow.Context, request *cwssaws.InstanceAllocationRequest) error {
+func CreateInstanceV2(ctx workflow.Context, request *corev1.InstanceAllocationRequest) error {
 	logger := log.With().Str("Workflow", "Instance").Str("Action", "Create").Str("Machine ID", request.MachineId.Id).Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -90,7 +90,7 @@ func CreateInstanceV2(ctx workflow.Context, request *cwssaws.InstanceAllocationR
 
 // CreateInstances is a workflow to create (allocate) multiple Instances in a single transaction
 // using the CreateInstancesOnSite activity.
-func CreateInstances(ctx workflow.Context, request *cwssaws.BatchInstanceAllocationRequest) error {
+func CreateInstances(ctx workflow.Context, request *corev1.BatchInstanceAllocationRequest) error {
 	logger := log.With().
 		Str("Workflow", "Instance").
 		Str("Action", "CreateInstances").
@@ -132,7 +132,7 @@ func CreateInstances(ctx workflow.Context, request *cwssaws.BatchInstanceAllocat
 // DeleteInstanceV2 is a workflow to delete new Instances using the DeleteInstanceOnSite activity
 // V1 (DeleteInstance) is found in cloud-workflow and uses a different activity that does not speak
 // to nico directly.
-func DeleteInstanceV2(ctx workflow.Context, request *cwssaws.InstanceReleaseRequest) error {
+func DeleteInstanceV2(ctx workflow.Context, request *corev1.InstanceReleaseRequest) error {
 
 	logger := log.With().Str("Workflow", "Instance").Str("Action", "Delete").Str("Request", request.String()).Logger()
 
@@ -168,7 +168,7 @@ func DeleteInstanceV2(ctx workflow.Context, request *cwssaws.InstanceReleaseRequ
 }
 
 // RebootInstance is a workflow to reboot Instances using the RebootInstanceOnSite activity
-func RebootInstance(ctx workflow.Context, request *cwssaws.InstancePowerRequest) error {
+func RebootInstance(ctx workflow.Context, request *corev1.InstancePowerRequest) error {
 	logger := log.With().Str("Workflow", "Instance").Str("Action", "Reboot").Str("Instance ID", request.InstanceId.Value).Logger()
 
 	logger.Info().Msg("Starting workflow")

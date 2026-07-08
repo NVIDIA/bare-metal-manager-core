@@ -27,6 +27,7 @@ name = "forge-hw-health"
 path = "src/main.rs"
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }

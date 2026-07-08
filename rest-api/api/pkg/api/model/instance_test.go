@@ -14,7 +14,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2547,7 +2547,7 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 		},
 	}
 
-	assertDeleteAttribution := func(t *testing.T, got *cwssaws.InstanceReleaseRequest) {
+	assertDeleteAttribution := func(t *testing.T, got *corev1.InstanceReleaseRequest) {
 		t.Helper()
 		require.NotNil(t, got.DeleteAttribution)
 		require.NotNil(t, got.DeleteAttribution.InitiatedBy)
@@ -2579,7 +2579,7 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got)
 		require.NotNil(t, got.Issue)
-		assert.Equal(t, cwssaws.IssueCategory_HARDWARE, got.Issue.Category)
+		assert.Equal(t, corev1.IssueCategory_HARDWARE, got.Issue.Category)
 		assert.Equal(t, "burnt out NIC", got.Issue.Summary)
 		assert.Equal(t, "port 0 returned link-down for 30 minutes", got.Issue.Details)
 		assertDeleteAttribution(t, got)
@@ -2593,7 +2593,7 @@ func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
 		}
 		got := req.ToProto(instance, dbUser)
 		require.NotNil(t, got.Issue)
-		assert.Equal(t, cwssaws.IssueCategory_OTHER, got.Issue.Category)
+		assert.Equal(t, corev1.IssueCategory_OTHER, got.Issue.Category)
 		assert.Equal(t, "", got.Issue.Summary)
 		assert.Equal(t, "", got.Issue.Details)
 		assertDeleteAttribution(t, got)

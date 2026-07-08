@@ -31,7 +31,7 @@ import (
 	tmocks "go.temporal.io/sdk/mocks"
 
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // TestCreateDpuExtensionServiceHandler_Handle tests the Create DPU Extension Service handler
@@ -85,17 +85,17 @@ func TestCreateDpuExtensionServiceHandler_Handle(t *testing.T) {
 			},
 		},
 	}
-	versionInfo := &cwssaws.DpuExtensionServiceVersionInfo{
+	versionInfo := &corev1.DpuExtensionServiceVersionInfo{
 		Version:       version,
 		Data:          "apiVersion: v1\nkind: Pod",
 		HasCredential: true,
 		Created:       createdTime.Format(cdbm.DpuExtensionServiceTimeFormat),
-		Observability: &cwssaws.DpuExtensionServiceObservability{
-			Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+		Observability: &corev1.DpuExtensionServiceObservability{
+			Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 				{
 					Name: &obsName,
-					Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Prometheus{
-						Prometheus: &cwssaws.DpuExtensionServiceObservabilityConfigPrometheus{
+					Config: &corev1.DpuExtensionServiceObservabilityConfig_Prometheus{
+						Prometheus: &corev1.DpuExtensionServiceObservabilityConfigPrometheus{
 							ScrapeIntervalSeconds: 30,
 							Endpoint:              "busybox:9090",
 						},
@@ -106,11 +106,11 @@ func TestCreateDpuExtensionServiceHandler_Handle(t *testing.T) {
 	}
 	mockTC := &tmocks.Client{}
 	mockWorkflowRun := &tmocks.WorkflowRun{}
-	var capturedCreateRequest *cwssaws.CreateDpuExtensionServiceRequest
+	var capturedCreateRequest *corev1.CreateDpuExtensionServiceRequest
 	mockWorkflowRun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		arg := args.Get(1)
-		if ptr, ok := arg.(**cwssaws.DpuExtensionService); ok {
-			*ptr = &cwssaws.DpuExtensionService{
+		if ptr, ok := arg.(**corev1.DpuExtensionService); ok {
+			*ptr = &corev1.DpuExtensionService{
 				LatestVersionInfo: versionInfo,
 				ActiveVersions:    []string{version},
 			}
@@ -118,7 +118,7 @@ func TestCreateDpuExtensionServiceHandler_Handle(t *testing.T) {
 	}).Return(nil)
 	mockWorkflowRun.On("GetID").Return("test-workflow-id")
 	mockTC.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateDpuExtensionService", mock.Anything).Run(func(args mock.Arguments) {
-		capturedCreateRequest = args.Get(3).(*cwssaws.CreateDpuExtensionServiceRequest)
+		capturedCreateRequest = args.Get(3).(*corev1.CreateDpuExtensionServiceRequest)
 	}).Return(mockWorkflowRun, nil)
 
 	// Mock Site Client Pool
@@ -649,17 +649,17 @@ func TestUpdateDpuExtensionServiceHandler_Handle(t *testing.T) {
 	version := "V1-T1761856992374065"
 	createdTime := time.Now().UTC().Round(time.Microsecond)
 	updateObsName := "service-logs"
-	versionInfo := &cwssaws.DpuExtensionServiceVersionInfo{
+	versionInfo := &corev1.DpuExtensionServiceVersionInfo{
 		Version:       version,
 		Data:          "apiVersion: v1\nkind: Pod",
 		HasCredential: true,
 		Created:       createdTime.Format(cdbm.DpuExtensionServiceTimeFormat),
-		Observability: &cwssaws.DpuExtensionServiceObservability{
-			Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+		Observability: &corev1.DpuExtensionServiceObservability{
+			Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 				{
 					Name: &updateObsName,
-					Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Logging{
-						Logging: &cwssaws.DpuExtensionServiceObservabilityConfigLogging{
+					Config: &corev1.DpuExtensionServiceObservabilityConfig_Logging{
+						Logging: &corev1.DpuExtensionServiceObservabilityConfigLogging{
 							Path: "/var/log/service.log",
 						},
 					},
@@ -670,11 +670,11 @@ func TestUpdateDpuExtensionServiceHandler_Handle(t *testing.T) {
 
 	mockTC := &tmocks.Client{}
 	mockWorkflowRun := &tmocks.WorkflowRun{}
-	var capturedUpdateRequest *cwssaws.UpdateDpuExtensionServiceRequest
+	var capturedUpdateRequest *corev1.UpdateDpuExtensionServiceRequest
 	mockWorkflowRun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		arg := args.Get(1)
-		if ptr, ok := arg.(**cwssaws.DpuExtensionService); ok {
-			*ptr = &cwssaws.DpuExtensionService{
+		if ptr, ok := arg.(**corev1.DpuExtensionService); ok {
+			*ptr = &corev1.DpuExtensionService{
 				LatestVersionInfo: versionInfo,
 				ActiveVersions:    []string{version},
 			}
@@ -682,7 +682,7 @@ func TestUpdateDpuExtensionServiceHandler_Handle(t *testing.T) {
 	}).Return(nil)
 	mockWorkflowRun.On("GetID").Return("test-workflow-id")
 	mockTC.On("ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateDpuExtensionService", mock.Anything).Run(func(args mock.Arguments) {
-		capturedUpdateRequest = args.Get(3).(*cwssaws.UpdateDpuExtensionServiceRequest)
+		capturedUpdateRequest = args.Get(3).(*corev1.UpdateDpuExtensionServiceRequest)
 	}).Return(mockWorkflowRun, nil)
 
 	// Mock Site Client Pool
@@ -1100,19 +1100,19 @@ func TestGetDpuExtensionServiceVersionHandler_Handle(t *testing.T) {
 	version := "V1-T1761856992374052"
 	createdTime := time.Now().UTC().Round(time.Microsecond)
 	versionObsName := "version-metrics"
-	mockVersionInfo := &cwssaws.DpuExtensionServiceVersionInfoList{
-		VersionInfos: []*cwssaws.DpuExtensionServiceVersionInfo{
+	mockVersionInfo := &corev1.DpuExtensionServiceVersionInfoList{
+		VersionInfos: []*corev1.DpuExtensionServiceVersionInfo{
 			{
 				Version:       version,
 				Data:          "apiVersion: v1\nkind: Pod",
 				HasCredential: true,
 				Created:       createdTime.Format(cdbm.DpuExtensionServiceTimeFormat),
-				Observability: &cwssaws.DpuExtensionServiceObservability{
-					Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+				Observability: &corev1.DpuExtensionServiceObservability{
+					Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 						{
 							Name: &versionObsName,
-							Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Prometheus{
-								Prometheus: &cwssaws.DpuExtensionServiceObservabilityConfigPrometheus{
+							Config: &corev1.DpuExtensionServiceObservabilityConfig_Prometheus{
+								Prometheus: &corev1.DpuExtensionServiceObservabilityConfigPrometheus{
 									ScrapeIntervalSeconds: 60,
 									Endpoint:              "service:9090",
 								},
@@ -1126,7 +1126,7 @@ func TestGetDpuExtensionServiceVersionHandler_Handle(t *testing.T) {
 
 	mockWorkflowRun.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		arg := args.Get(1)
-		if ptr, ok := arg.(**cwssaws.DpuExtensionServiceVersionInfoList); ok {
+		if ptr, ok := arg.(**corev1.DpuExtensionServiceVersionInfoList); ok {
 			*ptr = mockVersionInfo
 		}
 	}).Return(nil)
@@ -1340,8 +1340,8 @@ func TestDeleteDpuExtensionServiceVersionHandler_Handle(t *testing.T) {
 	mockTC.On("ExecuteWorkflow", mock.Anything, mock.Anything, "DeleteDpuExtensionService", mock.Anything).Return(mockWorkflowRun, nil)
 
 	// Mock fetching older version info for des3 version
-	mockVersionInfo := &cwssaws.DpuExtensionServiceVersionInfoList{
-		VersionInfos: []*cwssaws.DpuExtensionServiceVersionInfo{
+	mockVersionInfo := &corev1.DpuExtensionServiceVersionInfoList{
+		VersionInfos: []*corev1.DpuExtensionServiceVersionInfo{
 			{
 				Version:       des3OldVersionInfo.Version,
 				Data:          des3OldVersionInfo.Data,
@@ -1354,7 +1354,7 @@ func TestDeleteDpuExtensionServiceVersionHandler_Handle(t *testing.T) {
 	mockWorkflowRun2 := &tmocks.WorkflowRun{}
 	mockWorkflowRun2.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 		arg := args.Get(1)
-		if ptr, ok := arg.(**cwssaws.DpuExtensionServiceVersionInfoList); ok {
+		if ptr, ok := arg.(**corev1.DpuExtensionServiceVersionInfoList); ok {
 			*ptr = mockVersionInfo
 		}
 	}).Return(nil)

@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestSSHKeyGroupSiteAssociation_ToKeysetIdentifierProto(t *testing.T) {
@@ -51,8 +51,8 @@ func TestSSHKeyGroupSiteAssociation_ToProto(t *testing.T) {
 			SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
 			Version:       &version,
 		}
-		content := &cwssaws.TenantKeysetContent{
-			PublicKeys: []*cwssaws.TenantPublicKey{{PublicKey: "ssh-rsa abc"}},
+		content := &corev1.TenantKeysetContent{
+			PublicKeys: []*corev1.TenantPublicKey{{PublicKey: "ssh-rsa abc"}},
 		}
 		got := skgsa.ToProto(content)
 		require.NotNil(t, got)
@@ -89,8 +89,8 @@ func TestSSHKeyGroupSiteAssociation_FromProto(t *testing.T) {
 
 	t.Run("invalid keyset id leaves SSHKeyGroupID unchanged", func(t *testing.T) {
 		skgsa := &SSHKeyGroupSiteAssociation{SSHKeyGroupID: groupID}
-		skgsa.FromProto(&cwssaws.TenantKeyset{
-			KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{KeysetId: "not-a-uuid"},
+		skgsa.FromProto(&corev1.TenantKeyset{
+			KeysetIdentifier: &corev1.TenantKeysetIdentifier{KeysetId: "not-a-uuid"},
 			Version:          "v1",
 		})
 		assert.Equal(t, groupID, skgsa.SSHKeyGroupID)
@@ -101,8 +101,8 @@ func TestSSHKeyGroupSiteAssociation_FromProto(t *testing.T) {
 	t.Run("populates SSHKeyGroupID and Version from proto", func(t *testing.T) {
 		newID := uuid.New()
 		skgsa := &SSHKeyGroupSiteAssociation{}
-		skgsa.FromProto(&cwssaws.TenantKeyset{
-			KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{KeysetId: newID.String()},
+		skgsa.FromProto(&corev1.TenantKeyset{
+			KeysetIdentifier: &corev1.TenantKeysetIdentifier{KeysetId: newID.String()},
 			Version:          "v2",
 		})
 		assert.Equal(t, newID, skgsa.SSHKeyGroupID)
@@ -113,8 +113,8 @@ func TestSSHKeyGroupSiteAssociation_FromProto(t *testing.T) {
 	t.Run("empty proto version clears Version", func(t *testing.T) {
 		stale := "stale"
 		skgsa := &SSHKeyGroupSiteAssociation{Version: &stale}
-		skgsa.FromProto(&cwssaws.TenantKeyset{
-			KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{KeysetId: groupID.String()},
+		skgsa.FromProto(&corev1.TenantKeyset{
+			KeysetIdentifier: &corev1.TenantKeysetIdentifier{KeysetId: groupID.String()},
 			Version:          "",
 		})
 		assert.Nil(t, skgsa.Version)
@@ -122,7 +122,7 @@ func TestSSHKeyGroupSiteAssociation_FromProto(t *testing.T) {
 
 	t.Run("nil KeysetIdentifier leaves SSHKeyGroupID unchanged", func(t *testing.T) {
 		skgsa := &SSHKeyGroupSiteAssociation{SSHKeyGroupID: groupID}
-		skgsa.FromProto(&cwssaws.TenantKeyset{Version: "v1"})
+		skgsa.FromProto(&corev1.TenantKeyset{Version: "v1"})
 		assert.Equal(t, groupID, skgsa.SSHKeyGroupID)
 		require.NotNil(t, skgsa.Version)
 		assert.Equal(t, "v1", *skgsa.Version)
@@ -137,7 +137,7 @@ func TestSSHKeyGroupSiteAssociation_ToCreateRequestProto(t *testing.T) {
 		SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
 		Version:       &version,
 	}
-	content := &cwssaws.TenantKeysetContent{}
+	content := &corev1.TenantKeysetContent{}
 	got := skgsa.ToCreateRequestProto(content)
 	require.NotNil(t, got)
 	require.NotNil(t, got.KeysetIdentifier)
@@ -154,7 +154,7 @@ func TestSSHKeyGroupSiteAssociation_ToUpdateRequestProto(t *testing.T) {
 		SSHKeyGroup:   &SSHKeyGroup{Org: "org-1"},
 		Version:       &version,
 	}
-	content := &cwssaws.TenantKeysetContent{}
+	content := &corev1.TenantKeysetContent{}
 	got := skgsa.ToUpdateRequestProto(content)
 	require.NotNil(t, got)
 	require.NotNil(t, got.KeysetIdentifier)

@@ -106,6 +106,7 @@ pub fn derive_event(input: TokenStream) -> TokenStream {
 #[derive(Clone, Copy, PartialEq)]
 enum LogSpec {
     Off,
+    Dynamic,
     Error,
     Warn,
     Info,
@@ -166,6 +167,7 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
                 let ident: Ident = meta.value()?.parse()?;
                 args.log = match ident.to_string().as_str() {
                     "off" => LogSpec::Off,
+                    "dynamic" => LogSpec::Dynamic,
                     "error" => LogSpec::Error,
                     "warn" => LogSpec::Warn,
                     "info" => LogSpec::Info,
@@ -174,7 +176,7 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
                     other => {
                         return Err(meta.error(format!(
                             "unknown log level `{other}`; expected one of \
-                             error | warn | info | debug | trace | off"
+                             error | warn | info | debug | trace | off | dynamic"
                         )));
                     }
                 };
@@ -404,13 +406,21 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     let label_names: Vec<String> = labels.iter().map(|i| i.to_string()).collect();
     let context_names: Vec<String> = contexts.iter().map(|i| i.to_string()).collect();
 
-    let log_const = match args.log {
-        LogSpec::Off => quote! { ::carbide_instrument::LogAt::Off },
-        LogSpec::Error => level_const(quote! { ERROR }),
-        LogSpec::Warn => level_const(quote! { WARN }),
-        LogSpec::Info => level_const(quote! { INFO }),
-        LogSpec::Debug => level_const(quote! { DEBUG }),
-        LogSpec::Trace => level_const(quote! { TRACE }),
+    // `log = dynamic` keeps the trait's nominal LOG and routes the decision
+    // through the hand-implemented `DynamicLog` -- per-instance levels (count
+    // everything, log only failures).
+    let log_items = match args.log {
+        LogSpec::Dynamic => quote! {
+            fn log_at(&self) -> ::carbide_instrument::LogAt {
+                ::carbide_instrument::DynamicLog::log_at(self)
+            }
+        },
+        LogSpec::Off => log_const_item(quote! { ::carbide_instrument::LogAt::Off }),
+        LogSpec::Error => log_const_item(level_const(quote! { ERROR })),
+        LogSpec::Warn => log_const_item(level_const(quote! { WARN })),
+        LogSpec::Info => log_const_item(level_const(quote! { INFO })),
+        LogSpec::Debug => log_const_item(level_const(quote! { DEBUG })),
+        LogSpec::Trace => log_const_item(level_const(quote! { TRACE })),
     };
     let metric_const = match args.metric {
         MetricSpec::Counter => quote! { ::carbide_instrument::MetricKind::Counter },
@@ -472,7 +482,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             const NAME: &'static str = #name;
             const COMPONENT: &'static str = #component;
             const DESCRIBE: &'static str = #describe_value;
-            const LOG: ::carbide_instrument::LogAt = #log_const;
+            #log_items
             const METRIC: ::carbide_instrument::MetricKind = #metric_const;
             type Labels = [::carbide_instrument::__private::opentelemetry::KeyValue; #n_labels];
 
@@ -528,6 +538,10 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         }
     }
     .into())
+}
+
+fn log_const_item(value: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    quote! { const LOG: ::carbide_instrument::LogAt = #value; }
 }
 
 fn level_const(level: proc_macro2::TokenStream) -> proc_macro2::TokenStream {

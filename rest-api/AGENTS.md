@@ -252,7 +252,7 @@ A related cleanup: a backward byte scan for a delimiter is
 
 ### Proto conversion methods
 
-DB and API model types that round-trip with a workflow-schema (`cwssaws`)
+DB and API model types that round-trip with a workflow-schema (`corev1`)
 or Flow (`flowv1`) protobuf types carry conversion as receiver methods, not
 free functions. The convention layers cleanly so call sites are
 predictable and every entity has the same surface:
@@ -416,15 +416,15 @@ that round-trip with the proto should be typed accordingly (e.g.
 on the underlying primitive until they need it.
 
 - `db/pkg/db/model.Labels` (`type Labels map[string]string` with
-  `(Labels).ToProto() []*cwssaws.Label` and
-  `(*Labels).FromProto([]*cwssaws.Label)`) is the reference for
+  `(Labels).ToProto() []*corev1.Label` and
+  `(*Labels).FromProto([]*corev1.Label)`) is the reference for
   map-shaped values that round-trip with workflow `Metadata.Labels`.
   Entity callers reach it via `entity.Labels.FromProto(proto.Metadata.GetLabels())`
   — the proto getter is nil-safe and returns `nil` for missing
   metadata, which the method translates into a `nil` receiver.
 - `db/pkg/db/model.MachineCapabilityType` and `MachineCapabilityDeviceType`
-  (`type X string` with `(X).ToProto() cwssaws.X` and
-  `(*X).FromProto(cwssaws.X)`) are the reference for **typed-string
+  (`type X string` with `(X).ToProto() corev1.X` and
+  `(*X).FromProto(corev1.X)`) are the reference for **typed-string
   domain enums** that round-trip with proto enum values. The DB column
   stays a plain string under the named type, but the conversion to /
   from the proto enum lives as methods on the type — not as a free

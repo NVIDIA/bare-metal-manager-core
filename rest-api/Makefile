@@ -38,6 +38,21 @@ HELM_SET_KEYCLOAK := --set nico-rest-api.config.keycloak.enabled=true \
 	--set nico-rest-api.config.keycloak.clientID=nico-api \
 	--set nico-rest-api.config.keycloak.serviceAccount=true
 
+# Point the DB-connecting sub-charts at the standalone `postgres.postgres`
+# StatefulSet that kind-reset-infra deploys (deploy/kustomize/base/postgres/).
+# The chart defaults target the Zalando-managed `nico-pg-cluster` used in
+# production/site deployments (see PR #3081), which does not exist in the local
+# kind cluster. Without these overrides the nico-rest-db migration Job's
+# wait-for-postgres init container never resolves the host and the Helm
+# pre-install hook times out. The nico-rest-workflow sub-chart already defaults
+# to the local instance, so only db + api need overriding here.
+HELM_SET_DB := --set nico-rest-db.db.host=postgres.postgres \
+	--set nico-rest-db.db.name=nico \
+	--set nico-rest-db.db.user=nico \
+	--set nico-rest-api.config.db.host=postgres.postgres \
+	--set nico-rest-api.config.db.name=nico \
+	--set nico-rest-api.config.db.user=nico
+
 # Tuning flags trade durability for speed. Safe because the container is
 # ephemeral (--rm) and the database is recreated for every test run.
 postgres-up:
@@ -268,20 +283,20 @@ core-proto:
 
 core-proto-clean:
 	@echo "Cleaning up Core proto and protobuf files"
-	rm -rf workflow-schema/site-agent/workflows/v1/*_nico.proto
-	rm -rf workflow-schema/schema/site-agent/workflows/v1/*.pb.go
+	rm -rf proto/core/src/v1/*_nico.proto
+	rm -rf proto/core/gen/v1/*.pb.go
 
 core-proto-fetch:
 	@for file in ../crates/rpc/proto/*.proto; do \
-		cp "$$file" "workflow-schema/site-agent/workflows/v1/$$(basename "$$file" .proto)_nico.proto"; \
+		cp "$$file" "proto/core/src/v1/$$(basename "$$file" .proto)_nico.proto"; \
 		echo "Copied: $$file"; \
 	done
-	mv workflow-schema/site-agent/workflows/v1/forge_nico.proto workflow-schema/site-agent/workflows/v1/nico_nico.proto
+	mv proto/core/src/v1/forge_nico.proto proto/core/src/v1/nico_nico.proto
 	echo "Successfully copied Core protobuf files"
 
 core-proto-fmt:
 	@echo "Formatting Core protobuf files"
-	cd workflow-schema/cmd/core-proto-fmt && go run main.go
+	cd proto/cmd/core-proto-fmt && go run main.go
 
 core-protogen:
 	if ! command -v buf >/dev/null 2>&1; then \
@@ -305,21 +320,30 @@ core-protogen:
 		exit 1; \
 	fi
 	echo "Generating protobuf for Core"
-	cd workflow-schema && buf generate
+	cd proto/core && buf generate
 	go fmt ./...
+	python3 scripts/check_source_headers.py --fix
 
 flow-proto:
-	FLOW_DIR=flow; \
-	ls "$${FLOW_DIR}/proto/v1"; \
-	for file in "$${FLOW_DIR}"/proto/v1/*.proto; do \
-		cp "$$file" "workflow-schema/flow/proto/v1/"; \
+	$(MAKE) flow-proto-clean
+	$(MAKE) flow-proto-fetch
+	$(MAKE) flow-protogen
+
+flow-proto-clean:
+	@echo "Cleaning up Flow proto and protobuf files"
+	rm -rf proto/flow/src/v1/*_nico.proto
+	rm -rf proto/flow/gen/v1/*.pb.go
+
+flow-proto-fetch:
+	@for file in flow/proto/v1/*.proto; do \
+		cp "$$file" "proto/flow/src/v1/"; \
 		echo "Copied: $$file"; \
-		./workflow-schema/scripts/add-go-package-option.sh "workflow-schema/flow/proto/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow"; \
+		./proto/scripts/add-go-package-option.sh "proto/flow/src/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller/rest-api/proto/flow"; \
 	done
 
 flow-protogen:
 	echo "Generating protobuf for Flow"
-	cd workflow-schema/flow && buf generate
+	cd proto/flow && buf generate
 	go fmt ./...
 
 # =============================================================================
@@ -488,17 +512,36 @@ kind-reset-infra: docker-build-local
 	kubectl -n temporal rollout status deployment/temporal-history --timeout=360s || true
 	kubectl -n temporal rollout status deployment/temporal-matching --timeout=360s || true
 	kubectl -n temporal rollout status deployment/temporal-worker --timeout=360s || true
-	@echo "Creating Temporal namespaces with TLS..."
-	kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace cloud --address temporal-frontend.temporal:7233 \
-		--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-		--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-		--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-		--tls-server-name interservice.server.temporal.local || true
-	kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace site --address temporal-frontend.temporal:7233 \
-		--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-		--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-		--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-		--tls-server-name interservice.server.temporal.local || true
+	@echo "Creating Temporal namespaces with TLS (idempotent, with retry)..."
+	@# rollout status reporting the frontend Available does not guarantee it is
+	@# yet serving registration RPCs, so a single-shot create can lose the race
+	@# and (previously) be silently swallowed by `|| true`, leaving the cloud
+	@# worker stuck in CrashLoopBackOff ("Namespace cloud is not found").
+	@# The loop's success condition is a confirmed `describe`, not a successful
+	@# `create`: `create` returning OK does not guarantee the namespace is
+	@# immediately visible (propagation lag), so we re-check with `describe` and
+	@# retry transient NOT_FOUND responses. Fail loudly if it never confirms.
+	@for ns in cloud site; do \
+		echo "Registering Temporal namespace: $$ns"; \
+		ok=""; \
+		for attempt in $$(seq 1 30); do \
+			if kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace describe --namespace $$ns --address temporal-frontend.temporal:7233 \
+				--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+				--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+				--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+				--tls-server-name interservice.server.temporal.local >/dev/null 2>&1; then \
+				echo "  namespace $$ns confirmed"; ok=1; break; \
+			fi; \
+			kubectl -n temporal exec deploy/temporal-admintools -- temporal operator namespace create --namespace $$ns --address temporal-frontend.temporal:7233 \
+				--tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+				--tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+				--tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+				--tls-server-name interservice.server.temporal.local || true; \
+			echo "  attempt $$attempt: namespace $$ns not confirmed yet, retrying in 5s..."; \
+			sleep 5; \
+		done; \
+		[ -n "$$ok" ] || { echo "ERROR: Temporal namespace $$ns was not created" >&2; exit 1; }; \
+	done
 	@echo "Temporal Helm deployment ready"
 
 	@echo "Setting up Keycloak..."
@@ -600,7 +643,7 @@ helm-lint:
 
 helm-template:
 	@echo "--- nico-rest (umbrella) ---"
-	helm template nico-rest $(UMBRELLA_CHART)/ $(HELM_SET) $(HELM_SET_KEYCLOAK) --namespace nico-rest
+	helm template nico-rest $(UMBRELLA_CHART)/ $(HELM_SET) $(HELM_SET_KEYCLOAK) $(HELM_SET_DB) --namespace nico-rest
 	@echo "--- nico-rest-site-agent ---"
 	helm template nico-rest-site-agent $(SITE_AGENT_CHART)/ $(HELM_SET) --namespace nico-rest
 	@echo "--- nico-mcp ---"
@@ -610,7 +653,7 @@ helm-template:
 # Note: images must be loaded into kind before calling this (kind-load or kind-reset-infra)
 helm-deploy:
 	helm upgrade --install nico-rest $(UMBRELLA_CHART)/ \
-		--namespace nico-rest --create-namespace $(HELM_SET) $(HELM_SET_KEYCLOAK) \
+		--namespace nico-rest --create-namespace $(HELM_SET) $(HELM_SET_KEYCLOAK) $(HELM_SET_DB) \
 		--set nico-rest-api.nodePort.enabled=true \
 		--set nico-rest-api.nodePort.port=30388 \
 		--wait --timeout 5m

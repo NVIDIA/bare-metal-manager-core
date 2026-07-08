@@ -27,6 +27,7 @@ name = "carbide-dns"
 path = "src/main.rs"
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
 async-trait = { workspace = true }
 clap = { workspace = true }
 eyre = { workspace = true }

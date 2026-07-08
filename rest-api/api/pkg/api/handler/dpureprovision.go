@@ -20,7 +20,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ReprovisionMachineDpuHandler triggers DPU reprovisioning for a Machine.
@@ -156,7 +156,7 @@ func (h ReprovisionMachineDpuHandler) Handle(c echo.Context) error {
 
 	logger.Info().Str("machine_id", machineID).Str("mode", string(apiReq.Mode)).Str("site_id", site.ID.String()).Msg("Triggering DPU reprovisioning via Core gRPC proxy")
 
-	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_TriggerDpuReprovisioning_FullMethodName, apiReq.ToProto(machineID), nil, site.ID.String())
+	apiErr := common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_TriggerDpuReprovisioning_FullMethodName, apiReq.ToProto(machineID), nil, site.ID.String())
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "Failed to trigger DPU reprovisioning via Core gRPC proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)

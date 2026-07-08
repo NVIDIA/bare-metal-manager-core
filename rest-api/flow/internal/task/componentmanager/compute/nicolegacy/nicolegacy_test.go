@@ -15,7 +15,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/common/dpureprov"
 	cmconfig "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
@@ -23,6 +22,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestConfigDecoderDecodeYAML(t *testing.T) {
@@ -239,8 +239,8 @@ func withFastDpuReprovLegacy(m *Manager, mock nicoapi.Client, hostID string) *Ma
 
 // --- Tests for firmware version helper functions ---
 
-func desiredEntry(versions map[string]string) *pb.DesiredFirmwareVersionEntry {
-	return &pb.DesiredFirmwareVersionEntry{
+func desiredEntry(versions map[string]string) *corev1.DesiredFirmwareVersionEntry {
+	return &corev1.DesiredFirmwareVersionEntry{
 		ComponentVersions: versions,
 	}
 }
@@ -351,12 +351,12 @@ func TestFirmwareVersionsMatch(t *testing.T) {
 func TestMatchesAnyDesired(t *testing.T) {
 	tests := map[string]struct {
 		actual  map[string]string
-		entries []*pb.DesiredFirmwareVersionEntry
+		entries []*corev1.DesiredFirmwareVersionEntry
 		expect  bool
 	}{
 		"matches first entry": {
 			actual: map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			entries: []*pb.DesiredFirmwareVersionEntry{
+			entries: []*corev1.DesiredFirmwareVersionEntry{
 				desiredEntry(map[string]string{"bmc": "1.0"}),
 				desiredEntry(map[string]string{"bmc": "9.0"}),
 			},
@@ -364,7 +364,7 @@ func TestMatchesAnyDesired(t *testing.T) {
 		},
 		"matches second entry": {
 			actual: map[string]string{"bmc": "9.0"},
-			entries: []*pb.DesiredFirmwareVersionEntry{
+			entries: []*corev1.DesiredFirmwareVersionEntry{
 				desiredEntry(map[string]string{"bmc": "1.0"}),
 				desiredEntry(map[string]string{"bmc": "9.0"}),
 			},
@@ -372,7 +372,7 @@ func TestMatchesAnyDesired(t *testing.T) {
 		},
 		"matches none": {
 			actual: map[string]string{"bmc": "5.0"},
-			entries: []*pb.DesiredFirmwareVersionEntry{
+			entries: []*corev1.DesiredFirmwareVersionEntry{
 				desiredEntry(map[string]string{"bmc": "1.0"}),
 				desiredEntry(map[string]string{"bmc": "9.0"}),
 			},
@@ -385,7 +385,7 @@ func TestMatchesAnyDesired(t *testing.T) {
 		},
 		"entry with empty component_versions never matches": {
 			actual: map[string]string{"bmc": "1.0"},
-			entries: []*pb.DesiredFirmwareVersionEntry{
+			entries: []*corev1.DesiredFirmwareVersionEntry{
 				desiredEntry(map[string]string{}),
 			},
 			expect: false,
@@ -450,14 +450,14 @@ func TestParseTargetVersion(t *testing.T) {
 }
 
 func TestIsTargetVersionInDesired(t *testing.T) {
-	entries := []*pb.DesiredFirmwareVersionEntry{
+	entries := []*corev1.DesiredFirmwareVersionEntry{
 		desiredEntry(map[string]string{"bmc": "7.10.30.00", "uefi": "2.22.1"}),
 		desiredEntry(map[string]string{"bmc": "8.0.0.00", "uefi": "3.0.0"}),
 	}
 
 	tests := map[string]struct {
 		target  map[string]string
-		entries []*pb.DesiredFirmwareVersionEntry
+		entries []*corev1.DesiredFirmwareVersionEntry
 		expect  bool
 	}{
 		"matches first entry exactly": {
@@ -487,7 +487,7 @@ func TestIsTargetVersionInDesired(t *testing.T) {
 		},
 		"empty target with empty entry": {
 			target:  map[string]string{},
-			entries: []*pb.DesiredFirmwareVersionEntry{desiredEntry(map[string]string{})},
+			entries: []*corev1.DesiredFirmwareVersionEntry{desiredEntry(map[string]string{})},
 			expect:  true,
 		},
 	}
@@ -500,7 +500,7 @@ func TestIsTargetVersionInDesired(t *testing.T) {
 }
 
 func TestAllFirmwareUpToDate(t *testing.T) {
-	desiredEntries := []*pb.DesiredFirmwareVersionEntry{
+	desiredEntries := []*corev1.DesiredFirmwareVersionEntry{
 		desiredEntry(map[string]string{"bmc": "1.0", "uefi": "2.0"}),
 		desiredEntry(map[string]string{"bmc": "3.0", "uefi": "4.0"}),
 	}
@@ -509,7 +509,7 @@ func TestAllFirmwareUpToDate(t *testing.T) {
 		componentIDs   []string
 		actualFirmware map[string]map[string]string
 		targetFirmware map[string]string
-		desiredEntries []*pb.DesiredFirmwareVersionEntry
+		desiredEntries []*corev1.DesiredFirmwareVersionEntry
 		expect         bool
 	}{
 		"all match target firmware": {

@@ -19,7 +19,7 @@ import (
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
@@ -33,7 +33,7 @@ type ManageVpcPrefix struct {
 
 // Activity functions
 // UpdateVpcPrefixesInDB is a Temporal activity that takes a collection of VPC Prefix data pushed by Site Agent and updates the DB
-func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uuid.UUID, vpcPrefixInventory *cwssaws.VpcPrefixInventory) error {
+func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uuid.UUID, vpcPrefixInventory *corev1.VpcPrefixInventory) error {
 	logger := log.With().Str("Activity", "UpdateVpcPrefixesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -50,7 +50,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 		return err
 	}
 
-	if vpcPrefixInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if vpcPrefixInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}
@@ -212,24 +212,24 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 }
 
 // getControllerVpcPrefixStatus maps Controller VPC Prefix tenant state into REST status and status-detail text.
-func getControllerVpcPrefixStatus(status *cwssaws.VpcPrefixStatus) (string, string) {
+func getControllerVpcPrefixStatus(status *corev1.VpcPrefixStatus) (string, string) {
 	// Older Controller builds did not report status; inventory presence meant ready.
 	if status == nil {
 		return cdbm.VpcPrefixStatusReady, "VPC Prefix is ready for use"
 	}
 
 	switch status.GetTenantState() {
-	case cwssaws.TenantState_PROVISIONING:
+	case corev1.TenantState_PROVISIONING:
 		return cdbm.VpcPrefixStatusProvisioning, "VPC Prefix is being provisioned on Site"
-	case cwssaws.TenantState_READY:
+	case corev1.TenantState_READY:
 		return cdbm.VpcPrefixStatusReady, "VPC Prefix is ready for use"
-	case cwssaws.TenantState_CONFIGURING:
+	case corev1.TenantState_CONFIGURING:
 		return cdbm.VpcPrefixStatusProvisioning, "VPC Prefix is being configured on Site"
-	case cwssaws.TenantState_TERMINATING:
+	case corev1.TenantState_TERMINATING:
 		return cdbm.VpcPrefixStatusDeleting, "VPC Prefix is being deleted on Site"
-	case cwssaws.TenantState_TERMINATED:
+	case corev1.TenantState_TERMINATED:
 		return cdbm.VpcPrefixStatusDeleted, "VPC Prefix has been deleted on Site"
-	case cwssaws.TenantState_FAILED:
+	case corev1.TenantState_FAILED:
 		return cdbm.VpcPrefixStatusError, "VPC Prefix is in error state"
 	default:
 		return cdbm.VpcPrefixStatusError, "VPC Prefix status is unknown"

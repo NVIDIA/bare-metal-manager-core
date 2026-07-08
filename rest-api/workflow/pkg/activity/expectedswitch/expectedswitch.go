@@ -19,7 +19,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ManageExpectedSwitch is an activity wrapper for managing ExpectedSwitch lifecycle that allows
@@ -38,7 +38,7 @@ type ManageExpectedSwitch struct {
 // - UUID existing in NICo but not in DB: create record in DB
 // - UUID existing in both NICo and DB with differences: update record in DB
 // - UUID existing in DB but not in NICo: delete record in DB
-func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, siteID uuid.UUID, expectedSwitchInventory *cwssaws.ExpectedSwitchInventory) error {
+func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, siteID uuid.UUID, expectedSwitchInventory *corev1.ExpectedSwitchInventory) error {
 	logger := log.With().Str("Activity", "UpdateExpectedSwitchesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -48,7 +48,7 @@ func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, 
 		return errors.New("UpdateExpectedSwitchesInDB called with nil inventory")
 	}
 
-	if expectedSwitchInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if expectedSwitchInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}

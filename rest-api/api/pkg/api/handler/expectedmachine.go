@@ -24,7 +24,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
@@ -840,8 +840,8 @@ func (demh DeleteExpectedMachineHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Expected Machine due to DB error", nil)
 		}
 
-		deleteExpectedMachineRequest := &cwssaws.ExpectedMachineRequest{
-			Id: &cwssaws.UUID{Value: expectedMachine.ID.String()},
+		deleteExpectedMachineRequest := &corev1.ExpectedMachineRequest{
+			Id: &corev1.UUID{Value: expectedMachine.ID.String()},
 		}
 
 		logger.Info().Msg("triggering ExpectedMachine delete workflow")
@@ -1130,7 +1130,7 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Expected Machine due to DB error", nil)
 		}
 
-		workflowMachines := make([]*cwssaws.ExpectedMachine, 0, len(createdMachines))
+		workflowMachines := make([]*corev1.ExpectedMachine, 0, len(createdMachines))
 		for i := range createdMachines {
 			em := &createdMachines[i]
 			creds, ok := credsByID[em.ID]
@@ -1147,8 +1147,8 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 		logger.Info().Int("Count", len(workflowMachines)).Msg("triggering CreateExpectedMachines workflow on Site")
 
 		// Create workflow request
-		workflowRequest := &cwssaws.BatchExpectedMachineOperationRequest{
-			ExpectedMachines:     &cwssaws.ExpectedMachineList{ExpectedMachines: workflowMachines},
+		workflowRequest := &corev1.BatchExpectedMachineOperationRequest{
+			ExpectedMachines:     &corev1.ExpectedMachineList{ExpectedMachines: workflowMachines},
 			AcceptPartialResults: false,
 		}
 
@@ -1180,7 +1180,7 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 		logger.Info().Msg("executing CreateExpectedMachines workflow on Site")
 
 		// Get workflow results
-		var workflowResult cwssaws.BatchExpectedMachineOperationResponse
+		var workflowResult corev1.BatchExpectedMachineOperationResponse
 
 		werr = workflowRun.Get(ctx, &workflowResult)
 		if werr != nil {
@@ -1567,7 +1567,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
 		}
 
-		workflowMachines := make([]*cwssaws.ExpectedMachine, 0, len(updatedMachines))
+		workflowMachines := make([]*corev1.ExpectedMachine, 0, len(updatedMachines))
 		for i := range updatedMachines {
 			em := &updatedMachines[i]
 			creds, ok := credsByID[em.ID]
@@ -1584,8 +1584,8 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		logger.Info().Int("Count", len(workflowMachines)).Msg("triggering Expected Machine update workflow")
 
 		// Create workflow request
-		workflowRequest := &cwssaws.BatchExpectedMachineOperationRequest{
-			ExpectedMachines:     &cwssaws.ExpectedMachineList{ExpectedMachines: workflowMachines},
+		workflowRequest := &corev1.BatchExpectedMachineOperationRequest{
+			ExpectedMachines:     &corev1.ExpectedMachineList{ExpectedMachines: workflowMachines},
 			AcceptPartialResults: false,
 		}
 
@@ -1617,7 +1617,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		logger.Info().Msg("executing Expected Machine update workflow on Site")
 
 		// Get workflow results
-		var workflowResult cwssaws.BatchExpectedMachineOperationResponse
+		var workflowResult corev1.BatchExpectedMachineOperationResponse
 
 		werr = workflowRun.Get(ctx, &workflowResult)
 		if werr != nil {

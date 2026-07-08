@@ -25,7 +25,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestCreateOrUpdateBMCCredentialHandlerClearsMacAddressForSiteWideRoot(t *testing.T) {
@@ -40,9 +40,9 @@ func TestCreateOrUpdateBMCCredentialHandlerClearsMacAddressForSiteWideRoot(t *te
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var coreReq cwssaws.CredentialCreationRequest
+	var coreReq corev1.CredentialCreationRequest
 	require.NoError(t, protojson.Unmarshal(proxiedReq.RequestJSON, &coreReq))
-	assert.Equal(t, cwssaws.CredentialType_SiteWideBmcRoot, coreReq.GetCredentialType())
+	assert.Equal(t, corev1.CredentialType_SiteWideBmcRoot, coreReq.GetCredentialType())
 	assert.Nil(t, coreReq.MacAddress)
 	assert.NotContains(t, string(proxiedReq.RequestJSON), "macAddress")
 

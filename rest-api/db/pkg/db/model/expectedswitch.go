@@ -11,7 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -77,9 +77,9 @@ type ExpectedSwitchCredentials struct {
 // ToProto builds the workflow proto for this ExpectedSwitch. BMC and NVOS
 // credentials are passed in because they aren't persisted on the record;
 // labels are read from es.Labels.
-func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.ExpectedSwitch {
-	proto := &cwssaws.ExpectedSwitch{
-		ExpectedSwitchId:   &cwssaws.UUID{Value: es.ID.String()},
+func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *corev1.ExpectedSwitch {
+	proto := &corev1.ExpectedSwitch{
+		ExpectedSwitchId:   &corev1.UUID{Value: es.ID.String()},
 		BmcMacAddress:      es.BmcMacAddress,
 		SwitchSerialNumber: es.SwitchSerialNumber,
 	}
@@ -88,7 +88,7 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.Expe
 		proto.BmcIpAddress = *es.BmcIpAddress
 	}
 	if es.RackID != nil {
-		proto.RackId = &cwssaws.RackId{Id: *es.RackID}
+		proto.RackId = &corev1.RackId{Id: *es.RackID}
 	}
 	if es.Name != nil {
 		proto.Name = es.Name
@@ -125,7 +125,7 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.Expe
 		proto.NvosPassword = creds.NvosPassword
 	}
 
-	metadata := &cwssaws.Metadata{
+	metadata := &corev1.Metadata{
 		Labels: expectedComponentLabelsInput{
 			Manufacturer: es.Manufacturer,
 			Model:        es.Model,
@@ -150,7 +150,7 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.Expe
 // by a Site. A nil proto is a no-op. An invalid or missing
 // proto.ExpectedSwitchId leaves es.ID unchanged so the caller can validate
 // the proto's UUID before calling.
-func (es *ExpectedSwitch) FromProto(proto *cwssaws.ExpectedSwitch) {
+func (es *ExpectedSwitch) FromProto(proto *corev1.ExpectedSwitch) {
 	if proto == nil {
 		return
 	}

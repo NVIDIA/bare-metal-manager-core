@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestReprovisionMachineDpuHandlerProxiesRequest(t *testing.T) {
@@ -26,14 +26,14 @@ func TestReprovisionMachineDpuHandlerProxiesRequest(t *testing.T) {
 
 	rec := fixture.Request(t, handler.Handle, http.MethodPatch, "/", model.APIMachineDpuReprovisionRequest{Mode: model.MachineDpuReprovisionModeRestart, UpdateFirmware: true}, "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, cwssaws.Forge_TriggerDpuReprovisioning_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_TriggerDpuReprovisioning_FullMethodName, fixture.ProxiedReq.FullMethod)
 	assert.Empty(t, fixture.ProxiedReq.EncryptedSecrets)
 
-	var coreReq cwssaws.DpuReprovisioningRequest
+	var coreReq corev1.DpuReprovisioningRequest
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetMachineId().GetId())
-	assert.Equal(t, cwssaws.DpuReprovisioningRequest_Restart, coreReq.GetMode())
-	assert.Equal(t, cwssaws.UpdateInitiator_AdminCli, coreReq.GetInitiator())
+	assert.Equal(t, corev1.DpuReprovisioningRequest_Restart, coreReq.GetMode())
+	assert.Equal(t, corev1.UpdateInitiator_AdminCli, coreReq.GetInitiator())
 	assert.True(t, coreReq.GetUpdateFirmware())
 	var resp model.APIMessageResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -66,12 +66,12 @@ func TestReprovisionMachineDpuHandlerAllowsPrivilegedTenant(t *testing.T) {
 	fixture.User = tenantUser
 	rec := fixture.Request(t, handler.Handle, http.MethodPatch, "/", model.APIMachineDpuReprovisionRequest{Mode: model.MachineDpuReprovisionModeRestart, UpdateFirmware: true}, "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, cwssaws.Forge_TriggerDpuReprovisioning_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_TriggerDpuReprovisioning_FullMethodName, fixture.ProxiedReq.FullMethod)
 
-	var coreReq cwssaws.DpuReprovisioningRequest
+	var coreReq corev1.DpuReprovisioningRequest
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetMachineId().GetId())
-	assert.Equal(t, cwssaws.DpuReprovisioningRequest_Restart, coreReq.GetMode())
+	assert.Equal(t, corev1.DpuReprovisioningRequest_Restart, coreReq.GetMode())
 	assert.True(t, coreReq.GetUpdateFirmware())
 }
 
@@ -106,5 +106,5 @@ func TestReprovisionMachineDpuHandlerAllowsMachineWithInstanceAcknowledgement(t 
 		AcknowledgeAttachedInstance: &acknowledgeAttachedInstance,
 	}, "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, cwssaws.Forge_TriggerDpuReprovisioning_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_TriggerDpuReprovisioning_FullMethodName, fixture.ProxiedReq.FullMethod)
 }

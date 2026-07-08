@@ -41,7 +41,11 @@ static LOG_SETUP: Once = Once::new();
 /// passed by the caller because this setup is shared across binaries.
 pub fn init_logging(component: &str) -> eyre::Result<()> {
     LOG_SETUP.call_once(|| {
-        subscriber(component)
+        let log_events = carbide_instrument::LogEventsMetric::new(component.to_string());
+        let subscriber = tracing_subscriber::registry()
+            .with(log_events.layer().with_filter(base_env_filter()))
+            .with(stdout_layer(component).with_filter(base_env_filter()));
+        subscriber
             .try_init()
             .expect("tracing_subscriber setup failed");
     });
@@ -54,7 +58,13 @@ pub fn init_logging(component: &str) -> eyre::Result<()> {
 // Usage: `let guard = subscriber("nico-scout").set_default()`
 // Subscriber is unregistered when guard is dropped.
 pub fn subscriber(component: &str) -> impl SubscriberInitExt {
-    let env_filter = EnvFilter::builder()
+    Box::new(
+        tracing_subscriber::registry().with(stdout_layer(component).with_filter(base_env_filter())),
+    )
+}
+
+fn base_env_filter() -> EnvFilter {
+    EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy()
         .add_directive("tower=warn".parse().unwrap())
@@ -67,8 +77,12 @@ pub fn subscriber(component: &str) -> impl SubscriberInitExt {
         .add_directive("hickory_proto::xfer=info".parse().unwrap())
         .add_directive("hickory_resolver::name_server=info".parse().unwrap())
         .add_directive("hickory_proto=info".parse().unwrap())
-        .add_directive("netlink_proto=warn".parse().unwrap());
-    let stdout_formatter = logfmt::layer()
-        .with_event_fields([logfmt::EventField::with_default("component", component)]);
-    Box::new(tracing_subscriber::registry().with(stdout_formatter.with_filter(env_filter)))
+        .add_directive("netlink_proto=warn".parse().unwrap())
+}
+
+fn stdout_layer<S>(component: &str) -> logfmt::LogFmtLayer<S>
+where
+    S: tracing::Subscriber + for<'span> tracing_subscriber::registry::LookupSpan<'span>,
+{
+    logfmt::layer().with_event_fields([logfmt::EventField::with_default("component", component)])
 }

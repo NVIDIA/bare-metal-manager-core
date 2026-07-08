@@ -13,7 +13,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestAPIMachineHealthReportEntryRequestValidateAndToProto(t *testing.T) {
@@ -42,7 +42,7 @@ func TestAPIMachineHealthReportEntryRequestValidateAndToProto(t *testing.T) {
 	assert.Equal(t, "machine-1", protoReq.GetMachineId().GetId())
 	entry := protoReq.GetHealthReportEntry()
 	require.NotNil(t, entry)
-	assert.Equal(t, cwssaws.HealthReportApplyMode_Replace, entry.GetMode())
+	assert.Equal(t, corev1.HealthReportApplyMode_Replace, entry.GetMode())
 	report := entry.GetReport()
 	require.NotNil(t, report)
 	assert.Equal(t, "overrides.sre", report.GetSource())

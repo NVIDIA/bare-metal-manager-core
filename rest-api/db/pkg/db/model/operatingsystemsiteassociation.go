@@ -17,7 +17,7 @@ import (
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 var (
@@ -60,12 +60,12 @@ var (
 	}
 
 	// OperatingSystemSiteAssociationStatusFromProtoMap maps nico-core tenant states to per-site association status values.
-	OperatingSystemSiteAssociationStatusFromProtoMap = map[cwssaws.TenantState]string{
-		cwssaws.TenantState_PROVISIONING: OperatingSystemSiteAssociationStatusSyncing,
-		cwssaws.TenantState_READY:        OperatingSystemSiteAssociationStatusSynced,
-		cwssaws.TenantState_CONFIGURING:  OperatingSystemSiteAssociationStatusSyncing,
-		cwssaws.TenantState_TERMINATING:  OperatingSystemSiteAssociationStatusDeleting,
-		cwssaws.TenantState_FAILED:       OperatingSystemSiteAssociationStatusError,
+	OperatingSystemSiteAssociationStatusFromProtoMap = map[corev1.TenantState]string{
+		corev1.TenantState_PROVISIONING: OperatingSystemSiteAssociationStatusSyncing,
+		corev1.TenantState_READY:        OperatingSystemSiteAssociationStatusSynced,
+		corev1.TenantState_CONFIGURING:  OperatingSystemSiteAssociationStatusSyncing,
+		corev1.TenantState_TERMINATING:  OperatingSystemSiteAssociationStatusDeleting,
+		corev1.TenantState_FAILED:       OperatingSystemSiteAssociationStatusError,
 	}
 )
 

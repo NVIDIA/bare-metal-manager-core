@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/stretchr/testify/assert"
 	otrace "go.opentelemetry.io/otel/trace"
 
@@ -78,7 +78,7 @@ func TestMachineSQLDAO_Create(t *testing.T) {
 	testMachineSetupSchema(t, dbSession)
 	ip, site, ins := testMachineInstanceTypeBuildInstanceType(t, dbSession, "sm.x86")
 	defMacAddr := "00:1B:44:11:3A:B7"
-	meta := &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+	meta := &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 	health := map[string]interface{}{"source": "aggregate-health", "alerts": [1]map[string]interface{}{
 		{"id": "test-id", "target": "test-target", "message": "test-message", "classifications": [1]string{"test-classification"}},
 	}}
@@ -269,7 +269,7 @@ func testMachineSQLDAOCreateMachines(ctx context.Context, t *testing.T, dbSessio
 		vendor := "testvendor"
 		productName := "testproductname"
 		serialNumber := uuid.NewString()
-		meta := &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+		meta := &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 		labels := map[string]string{"key1": "value1", "key2": "value2"}
 
 		createInputs = append(createInputs, MachineCreateInput{
@@ -315,7 +315,7 @@ func testMachineSQLDAOCreateMachines(ctx context.Context, t *testing.T, dbSessio
 		// Machine expected set 2, machine 1
 		ip, site, ins = testMachineInstanceTypeBuildInstanceType(t, dbSession, "med.x86")
 		defaultMacAddress = "00:1B:44:11:3B:A7"
-		meta = &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+		meta = &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 		createInputs = append(createInputs, MachineCreateInput{
 			MachineID:                uuid.NewString(),
 			InfrastructureProviderID: ip.ID,
@@ -475,7 +475,7 @@ func TestMachineSQLDAO_GetCountByStatus(t *testing.T) {
 		vendor := "testvendor"
 		productName := "testproductname"
 		serialNumber := uuid.NewString()
-		meta := &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+		meta := &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 		labels := map[string]string{"key1": "value1", "key2": "value2"}
 
 		createInputs = append(createInputs, MachineCreateInput{
@@ -675,7 +675,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 	mist1 := []MachineInstanceType{}
 
 	ip, site, ins1 := testMachineInstanceTypeBuildInstanceType(t, dbSession, "sm.x86")
-	metai1 := &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+	metai1 := &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 	for i := 0; i < totalCount/2; i++ {
 		macAddress := testGenerateMacAddress(t)
 		st := MachineStatusInitializing
@@ -750,7 +750,7 @@ func TestMachineSQLDAO_GetAll(t *testing.T) {
 	// Machine Set 2
 	ms2 := []Machine{}
 	ip, site, ins2 := testMachineInstanceTypeBuildInstanceType(t, dbSession, "med.x86")
-	metai2 := &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+	metai2 := &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 
 	for i := 0; i < totalCount/2; i++ {
 		// Create Machine Instance Type for first 2 Machines in this set
@@ -1639,7 +1639,7 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 	mist1 := []MachineInstanceType{}
 
 	ip, site, ins1 := testMachineInstanceTypeBuildInstanceType(t, dbSession, "sm.x86")
-	metai1 := &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+	metai1 := &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 	for i := 0; i < totalCount/2; i++ {
 		macAddress := testGenerateMacAddress(t)
 		st := MachineStatusInitializing
@@ -1703,7 +1703,7 @@ func TestMachineSQLDAO_GetCount(t *testing.T) {
 	// Machine Set 2
 	ms2 := []Machine{}
 	ip, site, ins2 := testMachineInstanceTypeBuildInstanceType(t, dbSession, "med.x86")
-	metai2 := &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+	metai2 := &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 	for i := 0; i < totalCount/2; i++ {
 		// Create Machine Instance Type for first 2 Machines in this set
 		var itID *uuid.UUID
@@ -1945,7 +1945,7 @@ func TestMachineSQLDAO_GetHealth(t *testing.T) {
 
 	ip, site, ins := testMachineInstanceTypeBuildInstanceType(t, dbSession, "sm.x86")
 	defMacAddr := "00:1B:44:11:3A:B7"
-	meta := &SiteControllerMachine{&cwssaws.Machine{Id: &cwssaws.MachineId{Id: "foo"}}}
+	meta := &SiteControllerMachine{&corev1.Machine{Id: &corev1.MachineId{Id: "foo"}}}
 	health := map[string]interface{}{"source": "aggregate-health", "alerts": []map[string]interface{}{
 		{"id": "test-id", "target": "test-target", "message": "test-message", "classifications": [1]string{"test-classification"}},
 	}, "successes": []map[string]interface{}{}}
@@ -2231,7 +2231,7 @@ func TestSiteControllerMachine_GetNormalizedState(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
-			scm := SiteControllerMachine{Machine: &cwssaws.Machine{State: tt.in}}
+			scm := SiteControllerMachine{Machine: &corev1.Machine{State: tt.in}}
 			assert.Equal(t, tt.want, scm.GetNormalizedState())
 		})
 	}
@@ -2245,7 +2245,7 @@ func TestMachine_GetControllerState(t *testing.T) {
 	mNoMeta := &Machine{Metadata: nil}
 	assert.Equal(t, "", mNoMeta.GetControllerState())
 
-	scm := &SiteControllerMachine{Machine: &cwssaws.Machine{State: `Ready { "x": 1 }`}}
+	scm := &SiteControllerMachine{Machine: &corev1.Machine{State: `Ready { "x": 1 }`}}
 	mMeta := &Machine{Metadata: scm}
 	assert.Equal(t, "Ready", mMeta.GetControllerState())
 	assert.Equal(t, "Ready", scm.GetNormalizedState())
@@ -2255,27 +2255,27 @@ func TestMachine_ToMaintenanceRequestProto(t *testing.T) {
 	t.Run("enable with reference", func(t *testing.T) {
 		ref := "scheduled work"
 		m := &Machine{ID: "m-1"}
-		req := m.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Enable, &ref)
+		req := m.ToMaintenanceRequestProto(corev1.MaintenanceOperation_Enable, &ref)
 		assert.NotNil(t, req)
 		assert.NotNil(t, req.HostId)
 		assert.Equal(t, "m-1", req.HostId.Id)
-		assert.Equal(t, cwssaws.MaintenanceOperation_Enable, req.Operation)
+		assert.Equal(t, corev1.MaintenanceOperation_Enable, req.Operation)
 		assert.Equal(t, &ref, req.Reference)
 	})
 	t.Run("disable with no reference", func(t *testing.T) {
 		m := &Machine{ID: "m-1"}
-		req := m.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Disable, nil)
+		req := m.ToMaintenanceRequestProto(corev1.MaintenanceOperation_Disable, nil)
 		assert.NotNil(t, req)
 		assert.NotNil(t, req.HostId)
 		assert.Equal(t, "m-1", req.HostId.Id)
-		assert.Equal(t, cwssaws.MaintenanceOperation_Disable, req.Operation)
+		assert.Equal(t, corev1.MaintenanceOperation_Disable, req.Operation)
 		assert.Nil(t, req.Reference)
 	})
 }
 
 func TestMachine_ToMetadataUpdateRequestProto(t *testing.T) {
 	labelVal := "prod"
-	labels := []*cwssaws.Label{{Key: "env", Value: &labelVal}}
+	labels := []*corev1.Label{{Key: "env", Value: &labelVal}}
 
 	t.Run("uses Machine.ID as Name fallback when metadata is nil", func(t *testing.T) {
 		m := &Machine{ID: "m-1"}
@@ -2292,7 +2292,7 @@ func TestMachine_ToMetadataUpdateRequestProto(t *testing.T) {
 		m := &Machine{
 			ID: "m-1",
 			Metadata: &SiteControllerMachine{
-				Machine: &cwssaws.Machine{Metadata: &cwssaws.Metadata{Name: "stored-name"}},
+				Machine: &corev1.Machine{Metadata: &corev1.Metadata{Name: "stored-name"}},
 			},
 		}
 		req := m.ToMetadataUpdateRequestProto(labels)

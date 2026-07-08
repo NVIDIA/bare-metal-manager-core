@@ -23,7 +23,7 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -129,21 +129,21 @@ func (s *Subnet) GetSiteID() *uuid.UUID {
 // `ReserveFirst` count is a deployment policy that does not live on the
 // entity, so this method emits prefixes with a zero `ReserveFirst` and
 // the request-shape `ToProto` overlays the policy value.
-func (s *Subnet) ToProto() *cwssaws.NetworkSegment {
-	proto := &cwssaws.NetworkSegment{
-		Id:    &cwssaws.NetworkSegmentId{Value: s.GetSiteID().String()},
-		VpcId: &cwssaws.VpcId{Value: s.VpcID.String()},
+func (s *Subnet) ToProto() *corev1.NetworkSegment {
+	proto := &corev1.NetworkSegment{
+		Id:    &corev1.NetworkSegmentId{Value: s.GetSiteID().String()},
+		VpcId: &corev1.VpcId{Value: s.VpcID.String()},
 		Name:  s.Name,
 	}
 	if s.DomainID != nil {
-		proto.SubdomainId = &cwssaws.DomainId{Value: s.DomainID.String()}
+		proto.SubdomainId = &corev1.DomainId{Value: s.DomainID.String()}
 	}
 	if s.MTU != nil {
 		mtu := int32(*s.MTU)
 		proto.Mtu = &mtu
 	}
 	if s.IPv4Prefix != nil {
-		proto.Prefixes = []*cwssaws.NetworkPrefix{
+		proto.Prefixes = []*corev1.NetworkPrefix{
 			{
 				Gateway: s.IPv4Gateway,
 				Prefix:  fmt.Sprintf("%s/%d", *s.IPv4Prefix, s.PrefixLength),
@@ -156,7 +156,7 @@ func (s *Subnet) ToProto() *cwssaws.NetworkSegment {
 // FromProto populates this Subnet from its workflow proto representation.
 // A nil proto is a no-op. This is the inverse of `ToProto` and exists
 // for convention symmetry — currently no code path on the cloud side
-// reconstructs a full Subnet entity from a `cwssaws.NetworkSegment` (the
+// reconstructs a full Subnet entity from a `corev1.NetworkSegment` (the
 // site is the destination, not the source), but the method is provided
 // so future reconciliation flows have a single canonical entry point.
 //
@@ -167,7 +167,7 @@ func (s *Subnet) ToProto() *cwssaws.NetworkSegment {
 //     are cleared when the proto omits them OR when the proto value is
 //     invalid (e.g. an unparseable UUID, an unparseable prefix). This
 //     makes `FromProto` a clean reset rather than a partial merge.
-func (s *Subnet) FromProto(proto *cwssaws.NetworkSegment) {
+func (s *Subnet) FromProto(proto *corev1.NetworkSegment) {
 	if proto == nil {
 		return
 	}

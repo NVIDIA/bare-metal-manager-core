@@ -16,7 +16,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -81,12 +81,12 @@ type DpuExtensionServiceVersionInfo struct {
 // that we can implement our own marshal/unmarshal
 // that understands how to work with protobuf messages
 type DpuExtensionServiceObservability struct {
-	*cwssaws.DpuExtensionServiceObservability
+	*corev1.DpuExtensionServiceObservability
 }
 
 func (o *DpuExtensionServiceObservability) UnmarshalJSON(b []byte) error {
 	if o.DpuExtensionServiceObservability == nil {
-		o.DpuExtensionServiceObservability = &cwssaws.DpuExtensionServiceObservability{}
+		o.DpuExtensionServiceObservability = &corev1.DpuExtensionServiceObservability{}
 	}
 
 	// protoJsonUnmarshalOptions is set to ignore unknown fields.
@@ -107,7 +107,7 @@ func (o *DpuExtensionServiceObservability) MarshalJSON() ([]byte, error) {
 }
 
 // FromProto populates version info from the site-agent protobuf form.
-func (vi *DpuExtensionServiceVersionInfo) FromProto(protoVersionInfo *cwssaws.DpuExtensionServiceVersionInfo, fallbackTime time.Time) {
+func (vi *DpuExtensionServiceVersionInfo) FromProto(protoVersionInfo *corev1.DpuExtensionServiceVersionInfo, fallbackTime time.Time) {
 	if vi == nil || protoVersionInfo == nil {
 		return
 	}
@@ -159,8 +159,8 @@ type DpuExtensionService struct {
 
 // ToDeletionRequestProto builds the workflow request that asks a Site to
 // delete this DPU Extension Service.
-func (des *DpuExtensionService) ToDeletionRequestProto() *cwssaws.DeleteDpuExtensionServiceRequest {
-	return &cwssaws.DeleteDpuExtensionServiceRequest{
+func (des *DpuExtensionService) ToDeletionRequestProto() *corev1.DeleteDpuExtensionServiceRequest {
+	return &corev1.DeleteDpuExtensionServiceRequest{
 		ServiceId: des.ID.String(),
 	}
 }
@@ -169,8 +169,8 @@ func (des *DpuExtensionService) ToDeletionRequestProto() *cwssaws.DeleteDpuExten
 // Site to delete a single version of this DPU Extension Service. Shares
 // the `DeleteDpuExtensionServiceRequest` proto with the whole-service
 // delete; the populated `Versions` field is what scopes the request.
-func (des *DpuExtensionService) ToVersionDeletionRequestProto(versionID string) *cwssaws.DeleteDpuExtensionServiceRequest {
-	return &cwssaws.DeleteDpuExtensionServiceRequest{
+func (des *DpuExtensionService) ToVersionDeletionRequestProto(versionID string) *corev1.DeleteDpuExtensionServiceRequest {
+	return &corev1.DeleteDpuExtensionServiceRequest{
 		ServiceId: des.ID.String(),
 		Versions:  []string{versionID},
 	}

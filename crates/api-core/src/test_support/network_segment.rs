@@ -67,6 +67,11 @@ lazy_static! {
         IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 6, 1)), 24).unwrap();
 }
 
+lazy_static! {
+    pub static ref FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY_3: IpNetwork =
+        IpNetwork::new(IpAddr::V4(Ipv4Addr::new(192, 0, 7, 1)), 24).unwrap();
+}
+
 pub async fn create_underlay_network_segment(api: &Api) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),

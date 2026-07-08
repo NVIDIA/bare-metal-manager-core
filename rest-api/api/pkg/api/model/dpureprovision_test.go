@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestAPIMachineDpuReprovisionRequestValidateAndToProto(t *testing.T) {
@@ -18,8 +18,8 @@ func TestAPIMachineDpuReprovisionRequestValidateAndToProto(t *testing.T) {
 
 	protoReq := req.ToProto("machine-1")
 	assert.Equal(t, "machine-1", protoReq.GetMachineId().GetId())
-	assert.Equal(t, cwssaws.DpuReprovisioningRequest_Restart, protoReq.GetMode())
-	assert.Equal(t, cwssaws.UpdateInitiator_AdminCli, protoReq.GetInitiator())
+	assert.Equal(t, corev1.DpuReprovisioningRequest_Restart, protoReq.GetMode())
+	assert.Equal(t, corev1.UpdateInitiator_AdminCli, protoReq.GetInitiator())
 	assert.True(t, protoReq.GetUpdateFirmware())
 
 	assert.Error(t, (&APIMachineDpuReprovisionRequest{}).Validate())
