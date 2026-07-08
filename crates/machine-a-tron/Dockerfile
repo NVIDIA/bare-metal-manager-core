@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1.7
+#
+# Cross-compilation: native arm64 Rust compiler targeting x86_64-unknown-linux-gnu.
+# Avoids QEMU emulation so that aws-lc-sys (s2n-bignum assembly) compiles correctly —
+# QEMU SEGFAULTs on the .S files even though the binary runs fine on real x86_64.
+#
+# Build from the repo root:
+#
+#   docker buildx build \
+#     --platform linux/amd64 \
+#     -f crates/machine-a-tron/Dockerfile \
+#     --push \
+#     -t <registry>/<repo>/machine-a-tron:<tag>-amd64 \
+#     .
+#
+FROM --platform=linux/arm64 rust:1.96.0-slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    pkg-config \
+    protobuf-compiler \
+    libprotobuf-dev \
+    gcc-x86-64-linux-gnu \
+    libc6-dev-amd64-cross \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN rustup target add x86_64-unknown-linux-gnu
+
+ENV CARGO_HOME=/cargo-home
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_TARGET_DIR=/cargo-target
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
+ENV CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
+ENV RUST_BACKTRACE=1
+
+WORKDIR /workspace
+COPY . .
+
+RUN --mount=type=cache,id=nico-mat-cross-cargo-home,target=/cargo-home,sharing=locked \
+  --mount=type=cache,id=nico-mat-cross-cargo-target,target=/cargo-target,sharing=locked \
+  cargo build -p carbide-machine-a-tron --bin machine-a-tron --locked \
+    --target x86_64-unknown-linux-gnu && \
+  mkdir -p /artifacts && \
+  cp /cargo-target/x86_64-unknown-linux-gnu/debug/machine-a-tron /artifacts/machine-a-tron
+
+FROM --platform=linux/amd64 debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates \
+  iproute2 \
+  iputils-ping \
+  libssl3 \
+  libudev1 \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/machine-a-tron/bin /opt/machine-a-tron/templates /tmp/machine-a-tron-data
+
+COPY --from=builder /artifacts/machine-a-tron /opt/machine-a-tron/bin/machine-a-tron
+COPY crates/machine-a-tron/templates /opt/machine-a-tron/templates
