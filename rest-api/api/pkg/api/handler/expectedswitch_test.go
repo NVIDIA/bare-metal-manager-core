@@ -165,6 +165,7 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 				SwitchSerialNumber: "SWITCH123",
 				NvOsUsername:       cutil.GetPtr("nvos-admin"),
 				NvOsPassword:       cutil.GetPtr("nvos-password"),
+				NvosMacAddresses:   []string{"00:11:22:33:44:66", "00:11:22:33:44:67"},
 				BmcIpAddress:       cutil.GetPtr("192.168.1.10"),
 				Labels:             map[string]string{"env": "test"},
 			},
@@ -291,6 +292,9 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 					if assert.NotNil(t, response.BmcIpAddress, "BmcIpAddress should not be nil in response") {
 						assert.Equal(t, *tt.requestBody.BmcIpAddress, *response.BmcIpAddress, "BmcIpAddress in response should match request")
 					}
+				}
+				if tt.requestBody.NvosMacAddresses != nil {
+					assert.Equal(t, tt.requestBody.NvosMacAddresses, response.NvosMacAddresses, "NvosMacAddresses in response should match request")
 				}
 			}
 		})
@@ -745,6 +749,32 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name: "successful update with NvosMacAddresses",
+			id:   testES.ID.String(),
+			requestBody: model.APIExpectedSwitchUpdateRequest{
+				NvosMacAddresses: []string{"00:11:22:33:44:66", "00:11:22:33:44:67"},
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testES.ID.String())
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "successful update clearing NvosMacAddresses with an explicit empty list",
+			id:   testES.ID.String(),
+			requestBody: model.APIExpectedSwitchUpdateRequest{
+				NvosMacAddresses: []string{},
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testES.ID.String())
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
 			name: "body ID mismatch with URL should return 400",
 			id:   testES.ID.String(),
 			requestBody: model.APIExpectedSwitchUpdateRequest{
@@ -804,6 +834,19 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 				assert.Nil(t, err)
 				if assert.NotNil(t, response.BmcIpAddress, "BmcIpAddress should not be nil in response") {
 					assert.Equal(t, *tt.requestBody.BmcIpAddress, *response.BmcIpAddress, "BmcIpAddress in response should match request")
+				}
+			}
+
+			// Verify NvosMacAddresses round-trips through the update response when
+			// set; an explicit empty list clears the value
+			if tt.expectedStatus == http.StatusOK && tt.requestBody.NvosMacAddresses != nil {
+				var response model.APIExpectedSwitch
+				err := json.Unmarshal(rec.Body.Bytes(), &response)
+				assert.Nil(t, err)
+				if len(tt.requestBody.NvosMacAddresses) == 0 {
+					assert.Empty(t, response.NvosMacAddresses, "NvosMacAddresses should be cleared in response")
+				} else {
+					assert.Equal(t, tt.requestBody.NvosMacAddresses, response.NvosMacAddresses, "NvosMacAddresses in response should match request")
 				}
 			}
 		})

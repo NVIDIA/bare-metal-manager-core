@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/google/uuid"
@@ -132,6 +133,7 @@ func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, 
 				SiteID:             siteID,
 				BmcMacAddress:      reported.BmcMacAddress,
 				SwitchSerialNumber: reported.SwitchSerialNumber,
+				NvosMacAddresses:   reported.NvosMacAddresses,
 				Labels:             reported.Labels,
 				CreatedBy:          siteID, /* This would normally be a user ID, but that isn't something NICo provides */
 			})
@@ -144,6 +146,7 @@ func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, 
 		// update if any field differs
 		if cur.BmcMacAddress != reported.BmcMacAddress ||
 			cur.SwitchSerialNumber != reported.SwitchSerialNumber ||
+			!slices.Equal(cur.NvosMacAddresses, reported.NvosMacAddresses) ||
 			!reflect.DeepEqual(cur.Labels, reported.Labels) {
 			// nil labels in nico can mean we need to clear out existing labels in DB
 			// but a nil value will not trigger an update in the DAO layer. We could use `Clear` but an empty map
@@ -152,10 +155,17 @@ func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, 
 			if cur.Labels != nil && labels == nil {
 				labels = map[string]string{}
 			}
+			// nil NVOS MACs from nico follow the same rule as labels: swap in an
+			// empty slice so the DAO clears a previously-set list.
+			nvosMacAddresses := reported.NvosMacAddresses
+			if cur.NvosMacAddresses != nil && nvosMacAddresses == nil {
+				nvosMacAddresses = []string{}
+			}
 			_, uerr := esDAO.Update(ctx, nil, cdbm.ExpectedSwitchUpdateInput{
 				ExpectedSwitchID:   cur.ID,
 				BmcMacAddress:      &reported.BmcMacAddress,
 				SwitchSerialNumber: &reported.SwitchSerialNumber,
+				NvosMacAddresses:   nvosMacAddresses,
 				Labels:             labels,
 			})
 			if uerr != nil {

@@ -4356,6 +4356,9 @@ paths:
                   switchSerialNumber: SWITCH-12345
                   nvOsUsername: nvadmin
                   nvOsPassword: nvpassword123
+                  nvosMacAddresses:
+                    - '00:1A:2B:3C:4D:60'
+                    - '00:1A:2B:3C:4D:61'
                   labels:
                     environment: production
                     rack: A1
@@ -4519,6 +4522,9 @@ paths:
                   switchSerialNumber: SWITCH-54321
                   nvOsUsername: newnvadmin
                   nvOsPassword: newnvpassword123
+                  nvosMacAddresses:
+                    - '00:1A:2B:3C:4D:62'
+                    - '00:1A:2B:3C:4D:63'
                   labels:
                     environment: staging
                     rack: B2
@@ -21980,6 +21986,9 @@ components:
           bmcMacAddress: '00:1A:2B:3C:4D:5E'
           bmcIpAddress: '192.168.1.100'
           switchSerialNumber: SWITCH-12345
+          nvosMacAddresses:
+            - '00:1A:2B:3C:4D:60'
+            - '00:1A:2B:3C:4D:61'
           rackId: rack-01
           manufacturer: NVIDIA
           labels:
@@ -22005,6 +22014,13 @@ components:
         switchSerialNumber:
           type: string
           description: Serial number of the Expected Switch
+        nvosMacAddresses:
+          type: array
+          uniqueItems: true
+          description: MAC addresses of the Expected Switch's NvOS management interfaces
+          items:
+            type: string
+            pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
         rackId:
           type:
             - string
@@ -22082,6 +22098,9 @@ components:
           switchSerialNumber: SWITCH-12345
           nvOsUsername: nvadmin
           nvOsPassword: nvpassword123
+          nvosMacAddresses:
+            - '00:1A:2B:3C:4D:60'
+            - '00:1A:2B:3C:4D:61'
           rackId: rack-01
           manufacturer: NVIDIA
           labels:
@@ -22123,6 +22142,13 @@ components:
             - string
             - 'null'
           description: NvOS password for the Expected Switch
+        nvosMacAddresses:
+          type: array
+          uniqueItems: true
+          description: MAC addresses of the Expected Switch's NvOS management interfaces
+          items:
+            type: string
+            pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
         rackId:
           type:
             - string
@@ -22191,6 +22217,9 @@ components:
           switchSerialNumber: SWITCH-54321
           nvOsUsername: newnvadmin
           nvOsPassword: newnvpassword123
+          nvosMacAddresses:
+            - '00:1A:2B:3C:4D:62'
+            - '00:1A:2B:3C:4D:63'
           rackId: rack-02
           manufacturer: NVIDIA
           labels:
@@ -22238,6 +22267,13 @@ components:
             - string
             - 'null'
           description: NvOS password for the Expected Switch
+        nvosMacAddresses:
+          type: array
+          uniqueItems: true
+          description: MAC addresses of the Expected Switch's NvOS management interfaces
+          items:
+            type: string
+            pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
         rackId:
           type:
             - string

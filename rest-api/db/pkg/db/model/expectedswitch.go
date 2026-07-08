@@ -50,6 +50,7 @@ type ExpectedSwitch struct {
 	BmcMacAddress      string    `bun:"bmc_mac_address,notnull"`
 	SwitchSerialNumber string    `bun:"switch_serial_number,notnull"`
 	BmcIpAddress       *string   `bun:"bmc_ip_address"`
+	NvosMacAddresses   []string  `bun:"nvos_mac_addresses,array"`
 	RackID             *string   `bun:"rack_id"`
 	Name               *string   `bun:"name"`
 	Manufacturer       *string   `bun:"manufacturer"`
@@ -82,6 +83,7 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *corev1.Expec
 		ExpectedSwitchId:   &corev1.UUID{Value: es.ID.String()},
 		BmcMacAddress:      es.BmcMacAddress,
 		SwitchSerialNumber: es.SwitchSerialNumber,
+		NvosMacAddresses:   es.NvosMacAddresses,
 	}
 
 	if es.BmcIpAddress != nil {
@@ -161,6 +163,7 @@ func (es *ExpectedSwitch) FromProto(proto *corev1.ExpectedSwitch) {
 	}
 	es.BmcMacAddress = proto.BmcMacAddress
 	es.SwitchSerialNumber = proto.SwitchSerialNumber
+	es.NvosMacAddresses = proto.NvosMacAddresses
 	if proto.BmcIpAddress != "" {
 		addr := proto.BmcIpAddress
 		es.BmcIpAddress = &addr
@@ -190,6 +193,7 @@ type ExpectedSwitchCreateInput struct {
 	BmcMacAddress      string
 	SwitchSerialNumber string
 	BmcIpAddress       *string
+	NvosMacAddresses   []string
 	RackID             *string
 	Name               *string
 	Manufacturer       *string
@@ -208,6 +212,7 @@ type ExpectedSwitchUpdateInput struct {
 	BmcMacAddress      *string
 	SwitchSerialNumber *string
 	BmcIpAddress       *string
+	NvosMacAddresses   []string
 	RackID             *string
 	Name               *string
 	Manufacturer       *string
@@ -223,6 +228,7 @@ type ExpectedSwitchUpdateInput struct {
 type ExpectedSwitchClearInput struct {
 	ExpectedSwitchID uuid.UUID
 	BmcIpAddress     bool
+	NvosMacAddresses bool
 	RackID           bool
 	Name             bool
 	Manufacturer     bool
@@ -307,6 +313,7 @@ func (essd ExpectedSwitchSQLDAO) Create(ctx context.Context, tx *db.Tx, input Ex
 		BmcMacAddress:      input.BmcMacAddress,
 		SwitchSerialNumber: input.SwitchSerialNumber,
 		BmcIpAddress:       input.BmcIpAddress,
+		NvosMacAddresses:   input.NvosMacAddresses,
 		RackID:             input.RackID,
 		Name:               input.Name,
 		Manufacturer:       input.Manufacturer,
@@ -501,6 +508,10 @@ func (essd ExpectedSwitchSQLDAO) Update(ctx context.Context, tx *db.Tx, input Ex
 		es.BmcIpAddress = input.BmcIpAddress
 		columnsSet["bmc_ip_address"] = true
 	}
+	if input.NvosMacAddresses != nil {
+		es.NvosMacAddresses = input.NvosMacAddresses
+		columnsSet["nvos_mac_addresses"] = true
+	}
 	if input.RackID != nil {
 		es.RackID = input.RackID
 		columnsSet["rack_id"] = true
@@ -586,6 +597,10 @@ func (essd ExpectedSwitchSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Exp
 	if input.BmcIpAddress {
 		es.BmcIpAddress = nil
 		updatedFields = append(updatedFields, "bmc_ip_address")
+	}
+	if input.NvosMacAddresses {
+		es.NvosMacAddresses = nil
+		updatedFields = append(updatedFields, "nvos_mac_addresses")
 	}
 	if input.RackID {
 		es.RackID = nil

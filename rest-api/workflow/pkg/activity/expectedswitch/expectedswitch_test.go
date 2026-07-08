@@ -108,11 +108,17 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 				"position": fmt.Sprintf("pos-%d", i),
 			}
 		}
+		// Give one switch NVOS MACs so the clear-on-reconcile path is exercised
+		var nvosMacs []string
+		if i == 4 {
+			nvosMacs = []string{"aa:bb:cc:dd:ee:04"}
+		}
 		es, cerr := esDAO.Create(ctx, nil, cdbm.ExpectedSwitchCreateInput{
 			ExpectedSwitchID:   esID,
 			SiteID:             st.ID,
 			BmcMacAddress:      fmt.Sprintf("00:11:22:33:44:%02d", i),
 			SwitchSerialNumber: fmt.Sprintf("SW-SN-%d", i),
+			NvosMacAddresses:   nvosMacs,
 			Labels:             labels,
 			CreatedBy:          ipu.ID,
 		})
@@ -165,6 +171,13 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 					{Key: "new-label", Value: cutil.GetPtr("new-value")},
 				},
 			}
+			expectedSwitchesToUpdate = append(expectedSwitchesToUpdate, pagedExpectedSwitches[i])
+		} else if i == 2 {
+			// Report NVOS MAC addresses for a switch that didn't have them before
+			ctrlExpectedSwitch.NvosMacAddresses = []string{"aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"}
+			expectedSwitchesToUpdate = append(expectedSwitchesToUpdate, pagedExpectedSwitches[i])
+		} else if i == 4 {
+			// NVOS MACs cleared on the Site: reported without any, DB has one
 			expectedSwitchesToUpdate = append(expectedSwitchesToUpdate, pagedExpectedSwitches[i])
 		} else if i == 5 {
 			// Modify existing labels
@@ -359,6 +372,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 							ExpectedSwitchId:   &corev1.UUID{Value: uuid.New().String()},
 							BmcMacAddress:      "00:11:22:33:44:FF",
 							SwitchSerialNumber: "SW-SN-NEW-1",
+							NvosMacAddresses:   []string{"aa:bb:cc:dd:ee:f1"},
 							Metadata: &corev1.Metadata{
 								Labels: []*corev1.Label{
 									{Key: "environment", Value: cutil.GetPtr("test")},
@@ -416,6 +430,11 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 				if ctrlES != nil {
 					assert.Equal(t, ctrlES.BmcMacAddress, updated.BmcMacAddress,
 						fmt.Sprintf("ExpectedSwitch %v should have been updated", es.ID))
+					// Both nil and empty lists should be treated as equivalent (no NVOS MACs)
+					if len(ctrlES.NvosMacAddresses) != 0 || len(updated.NvosMacAddresses) != 0 {
+						assert.Equal(t, ctrlES.NvosMacAddresses, updated.NvosMacAddresses,
+							fmt.Sprintf("ExpectedSwitch %v NVOS MAC addresses should match", es.ID))
+					}
 
 					// Verify labels are updated correctly
 					var expectedLabels cdbm.Labels
@@ -436,12 +455,17 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchesInDB(t *testing.T) {
 				assert.Nil(t, deleted, fmt.Sprintf("ExpectedSwitch %v should have been deleted", es.ID))
 			}
 
-			// Verify newly created switches have correct labels
+			// Verify newly created switches have correct labels and NVOS MAC addresses
 			for _, ces := range tt.args.expectedSwitchInventory.ExpectedSwitches {
 				esID, perr := uuid.Parse(ces.ExpectedSwitchId.Value)
 				assert.NoError(t, perr)
 				created := switchesByID[esID]
 				if created != nil {
+					// Both nil and empty lists should be treated as equivalent (no NVOS MACs)
+					if len(ces.NvosMacAddresses) != 0 || len(created.NvosMacAddresses) != 0 {
+						assert.Equal(t, ces.NvosMacAddresses, created.NvosMacAddresses,
+							fmt.Sprintf("ExpectedSwitch %v NVOS MAC addresses should match", esID))
+					}
 					var expectedLabels cdbm.Labels
 					expectedLabels.FromProto(ces.Metadata.GetLabels())
 					// Both nil and empty maps should be treated as equivalent (no labels)

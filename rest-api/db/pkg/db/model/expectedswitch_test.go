@@ -54,6 +54,7 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 			BmcMacAddress:      "aa:bb:cc:dd:ee:ff",
 			SwitchSerialNumber: "SSN-1",
 			BmcIpAddress:       "10.0.0.1",
+			NvosMacAddresses:   []string{"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"},
 			RackId:             &corev1.RackId{Id: rackID},
 			Name:               &name,
 			Manufacturer:       &manufacturer,
@@ -75,6 +76,7 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 		if assert.NotNil(t, es.BmcIpAddress) {
 			assert.Equal(t, "10.0.0.1", *es.BmcIpAddress)
 		}
+		assert.Equal(t, []string{"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}, es.NvosMacAddresses)
 		if assert.NotNil(t, es.RackID) {
 			assert.Equal(t, rackID, *es.RackID)
 		}
@@ -108,6 +110,23 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 
 		assert.Nil(t, es.RackID)
 	})
+}
+
+func TestExpectedSwitch_ToProto(t *testing.T) {
+	id := uuid.New()
+	es := &ExpectedSwitch{
+		ID:                 id,
+		BmcMacAddress:      "aa:bb:cc:dd:ee:ff",
+		SwitchSerialNumber: "SSN-1",
+		NvosMacAddresses:   []string{"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"},
+	}
+
+	proto := es.ToProto(ExpectedSwitchCredentials{})
+
+	assert.Equal(t, id.String(), proto.ExpectedSwitchId.GetValue())
+	assert.Equal(t, "aa:bb:cc:dd:ee:ff", proto.BmcMacAddress)
+	assert.Equal(t, "SSN-1", proto.SwitchSerialNumber)
+	assert.Equal(t, []string{"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}, proto.NvosMacAddresses)
 }
 
 // reset the tables needed for ExpectedSwitch tests
@@ -159,6 +178,7 @@ func TestExpectedSwitchSQLDAO_Create(t *testing.T) {
 					BmcMacAddress:      "00:1B:44:11:3A:B7",
 					SwitchSerialNumber: "SWITCH123",
 					BmcIpAddress:       cutil.GetPtr("192.168.1.10"),
+					NvosMacAddresses:   []string{"00:1B:44:11:3A:C1", "00:1B:44:11:3A:C2"},
 					Labels: map[string]string{
 						"environment": "test",
 						"location":    "datacenter1",
@@ -224,6 +244,7 @@ func TestExpectedSwitchSQLDAO_Create(t *testing.T) {
 					assert.Equal(t, input.BmcMacAddress, es.BmcMacAddress)
 					assert.Equal(t, input.SwitchSerialNumber, es.SwitchSerialNumber)
 					assert.Equal(t, input.BmcIpAddress, es.BmcIpAddress)
+					assert.Equal(t, input.NvosMacAddresses, es.NvosMacAddresses)
 					assert.Equal(t, Labels(input.Labels), es.Labels)
 				}
 
@@ -257,6 +278,7 @@ func testExpectedSwitchSQLDAOCreateExpectedSwitches(ctx context.Context, t *test
 			SiteID:             site.ID,
 			BmcMacAddress:      "00:1B:44:11:3A:B7",
 			SwitchSerialNumber: "SWITCH123",
+			NvosMacAddresses:   []string{"00:1B:44:11:3A:D1"},
 			Labels: map[string]string{
 				"environment": "test",
 				"location":    "datacenter1",
@@ -574,6 +596,14 @@ func TestExpectedSwitchSQLDAO_Update(t *testing.T) {
 			},
 			expectedError: false,
 		},
+		{
+			desc: "Update NVOS MAC addresses",
+			input: ExpectedSwitchUpdateInput{
+				ExpectedSwitchID: essExp[1].ID,
+				NvosMacAddresses: []string{"00:1B:44:11:3A:D2", "00:1B:44:11:3A:D3"},
+			},
+			expectedError: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -590,6 +620,9 @@ func TestExpectedSwitchSQLDAO_Update(t *testing.T) {
 				}
 				if tc.input.SwitchSerialNumber != nil {
 					assert.Equal(t, *tc.input.SwitchSerialNumber, got.SwitchSerialNumber)
+				}
+				if tc.input.NvosMacAddresses != nil {
+					assert.Equal(t, tc.input.NvosMacAddresses, got.NvosMacAddresses)
 				}
 				if tc.input.Labels != nil {
 					assert.Equal(t, Labels(tc.input.Labels), got.Labels)
@@ -627,8 +660,17 @@ func TestExpectedSwitchSQLDAO_Clear(t *testing.T) {
 		verifyChildSpanner bool
 	}{
 		{
-			desc: "can clear Labels",
+			desc: "can clear Labels and NVOS MAC addresses",
 			es:   essExp[0],
+			input: ExpectedSwitchClearInput{
+				Labels:           true,
+				NvosMacAddresses: true,
+			},
+			expectedUpdate: true,
+		},
+		{
+			desc: "can clear Labels only",
+			es:   essExp[1],
 			input: ExpectedSwitchClearInput{
 				Labels: true,
 			},
@@ -649,6 +691,9 @@ func TestExpectedSwitchSQLDAO_Clear(t *testing.T) {
 			assert.NotNil(t, tmp)
 			if tc.input.Labels {
 				assert.Nil(t, tmp.Labels)
+			}
+			if tc.input.NvosMacAddresses {
+				assert.Nil(t, tmp.NvosMacAddresses)
 			}
 
 			if tc.expectedUpdate {
