@@ -4,7 +4,6 @@
 **Status:** Draft
 **Epic:** [#195](https://github.com/NVIDIA/infra-controller/issues/195) — Eliminate dependency on Vault
 **Related issues:** #353, #354, #355, #357, #1837, #1852, #2811, #2880, #2917
-**Companion:** [`eliminate-vault-dependency.md`](./eliminate-vault-dependency.md) (status / open-items overview)
 
 ## Revision history
 
@@ -23,6 +22,7 @@
 | 2026-07-06 | Bill Minckler | Editorial/structural (no design impact): rewrote §1–§3 to describe the epic's **end state**, relocating current-state/code detail to the status doc; reorganized §2 and the §3 sub-sections by subsystem; converted the §2 architecture chart to a Mermaid flowchart (correcting its data-flow arrows); reworded DPU "attestation" → "identity verification"; fixed dangling config-guide references. |
 | 2026-07-07 | Bill Minckler | Expanded the §3.1 KMS note: clarified that `active`/`routing` govern writes only (reads use the row's recorded `kek_id`) and how that write/read split makes KEK rotation / KMS migration non-disruptive. |
 | 2026-07-08 | Bill Minckler | Marked #2811 (reader/writer rollout) done — closed as completed (PR #2873); removed it from the §3.6.4 O3 open-items list. |
+| 2026-07-08 | Bill Minckler | Removed dangling references to the companion status/overview note (header, §1.6, O1); it's maintained separately outside the repo, so the design doc now stands alone. |
 
 # 1. Introduction
 
@@ -69,7 +69,6 @@ This document records the architecture and design for the Vault-elimination epic
 
 | Input work product | Location |
 | :---- | :---- |
-| Design note: Eliminate Dependency on Vault (overview / open items) | `docs/design/eliminate-vault-dependency.md` |
 | Epic #195 and sub-tasks #353/#354/#355/#357/#1837/#1852/#2811/#2880/#2917 | GitHub NVIDIA/infra-controller |
 | Config guide: DPU device-identity verification (#2917) | `docs/configuration/dpu_device_attestation.md` |
 
@@ -299,7 +298,7 @@ Per-path, per-record encryption and the first-match chain scale with credential 
 
 ### 3.6.4 Future work (tracked open items)
 
-- **O1 — non-Vault certificate issuance + optional-at-startup Vault (#2880):** decouple PKI from Vault so a Vault-free deployment starts and runs. (The current unconditional Vault-client construction is captured in the status doc, §16.1.) Phased plan:
+- **O1 — non-Vault certificate issuance + optional-at-startup Vault (#2880):** decouple PKI from Vault so a Vault-free deployment starts and runs. Phased plan:
   1. **Decouple Vault-client construction from cert issuance.** Build the Vault client only when a Vault role is actually configured — `vault` present in `[secrets].backends`/`writer`, an `import_from` set, or the certificate provider selected as Vault PKI — so a fully non-Vault config boots without contacting Vault. Add a `[certificates].provider` selector (default `vault` for back-compat).
   2. **Make the provider optional in the type system.** Change `Api.certificate_provider` to an optional / `Disabled` provider; the handlers that issue certs (`handlers/attestation.rs`, `handlers/credential.rs`, `handlers/machine_discovery.rs`) return a typed "certificate issuance not configured" error instead of assuming a provider exists. This lets a JWT-only deployment (after O4) run with no cert provider at all. Two audit caveats: (a) the same `CertificateProvider` also mints the **UFM fabric server cert** (`write_ufm_certs` in `credential.rs`) — a separate consumer, so gate *machine-cert* issuance without dropping UFM issuance (or supply that cert another way); (b) machine identity is currently read from the client cert in `renew_machine_certificate`, `sign_machine_identity`, and phone-home, which must re-source identity from the node token under JWT-only.
   3. **Add a non-Vault `CertificateProvider`.** Implement the §3.1 candidate direction (in-process CA, or SPIRE, accepting a machine-generated CSR over gRPC) as a selectable `[certificates].provider`; run Vault and the new issuer in parallel during migration.
