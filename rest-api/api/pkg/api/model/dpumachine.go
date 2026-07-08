@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // APIDpuNetworkConfig represents the complete network configuration for a DPU
@@ -75,7 +75,7 @@ type APIDpuNetworkConfig struct {
 }
 
 // FromProto populates an APIDpuNetworkConfig from its protobuf form.
-func (apnnc *APIDpuNetworkConfig) FromProto(protoConfig *cwssaws.ManagedHostNetworkConfigResponse) {
+func (apnnc *APIDpuNetworkConfig) FromProto(protoConfig *corev1.ManagedHostNetworkConfigResponse) {
 	if protoConfig == nil {
 		return
 	}
@@ -171,7 +171,7 @@ type APIManagedHostQuarantineState struct {
 }
 
 // FromProto populates an APIManagedHostQuarantineState from its protobuf form.
-func (amhq *APIManagedHostQuarantineState) FromProto(protoQuarantineState *cwssaws.ManagedHostQuarantineState) {
+func (amhq *APIManagedHostQuarantineState) FromProto(protoQuarantineState *corev1.ManagedHostQuarantineState) {
 	if protoQuarantineState == nil {
 		return
 	}
@@ -188,7 +188,7 @@ type APIManagedHostNetworkConfig struct {
 }
 
 // FromProto populates an APIManagedHostNetworkConfig from its protobuf form.
-func (amnc *APIManagedHostNetworkConfig) FromProto(protoConfig *cwssaws.ManagedHostNetworkConfig) {
+func (amnc *APIManagedHostNetworkConfig) FromProto(protoConfig *corev1.ManagedHostNetworkConfig) {
 	if protoConfig == nil {
 		return
 	}
@@ -244,7 +244,7 @@ type APIFlatInterfaceConfig struct {
 }
 
 // FromProto populates an APIFlatInterfaceConfig from its protobuf form.
-func (afic *APIFlatInterfaceConfig) FromProto(protoConfig *cwssaws.FlatInterfaceConfig) {
+func (afic *APIFlatInterfaceConfig) FromProto(protoConfig *corev1.FlatInterfaceConfig) {
 	if protoConfig == nil {
 		return
 	}
@@ -301,7 +301,7 @@ type APIFlatInterfaceNetworkSecurityGroupConfig struct {
 }
 
 // FromProto populates an APIFlatInterfaceNetworkSecurityGroupConfig from its protobuf form.
-func (aficsg *APIFlatInterfaceNetworkSecurityGroupConfig) FromProto(protoConfig *cwssaws.FlatInterfaceNetworkSecurityGroupConfig) {
+func (aficsg *APIFlatInterfaceNetworkSecurityGroupConfig) FromProto(protoConfig *corev1.FlatInterfaceNetworkSecurityGroupConfig) {
 	if protoConfig == nil {
 		return
 	}
@@ -329,7 +329,7 @@ type APIResolvedNetworkSecurityGroupRule struct {
 }
 
 // FromProto populates an APIResolvedNetworkSecurityGroupRule from its protobuf form.
-func (arnsr *APIResolvedNetworkSecurityGroupRule) FromProto(protoRule *cwssaws.ResolvedNetworkSecurityGroupRule) {
+func (arnsr *APIResolvedNetworkSecurityGroupRule) FromProto(protoRule *corev1.ResolvedNetworkSecurityGroupRule) {
 	if protoRule == nil {
 		return
 	}
@@ -351,7 +351,7 @@ type APIDpuMachineSoftwareComponent struct {
 }
 
 // FromProto populates an APIDpuMachineSoftwareComponent from its protobuf form.
-func (apmsc *APIDpuMachineSoftwareComponent) FromProto(protoComponent *cwssaws.MachineInventorySoftwareComponent) {
+func (apmsc *APIDpuMachineSoftwareComponent) FromProto(protoComponent *corev1.MachineInventorySoftwareComponent) {
 	if protoComponent == nil {
 		return
 	}
@@ -387,7 +387,7 @@ type APIDpuMachineInterface struct {
 }
 
 // FromProto populates an APIDpuMachineInterface from its protobuf form.
-func (admif *APIDpuMachineInterface) FromProto(protoInterface *cwssaws.MachineInterface) {
+func (admif *APIDpuMachineInterface) FromProto(protoInterface *corev1.MachineInterface) {
 	if protoInterface == nil {
 		return
 	}
@@ -461,7 +461,7 @@ type APIDpuMachineProtoContext struct {
 }
 
 // NewAPIDpuMachines builds the API DPU machines from the GetDpuMachines workflow response.
-func NewAPIDpuMachines(protoDpuMachines []*cwssaws.DpuMachine, ctx APIDpuMachineProtoContext) []APIDpuMachine {
+func NewAPIDpuMachines(protoDpuMachines []*corev1.DpuMachine, ctx APIDpuMachineProtoContext) []APIDpuMachine {
 	apiDpuMachines := []APIDpuMachine{}
 	for _, protoDpuMachine := range protoDpuMachines {
 		if protoDpuMachine == nil || protoDpuMachine.GetMachine() == nil {
@@ -476,7 +476,7 @@ func NewAPIDpuMachines(protoDpuMachines []*cwssaws.DpuMachine, ctx APIDpuMachine
 
 // FromProto populates an APIDpuMachine from its protobuf form, using ctx for
 // the host Machine, Site and Infrastructure Provider IDs not carried on the proto.
-func (apd *APIDpuMachine) FromProto(protoDpuMachine *cwssaws.DpuMachine, ctx APIDpuMachineProtoContext) {
+func (apd *APIDpuMachine) FromProto(protoDpuMachine *corev1.DpuMachine, ctx APIDpuMachineProtoContext) {
 	if protoDpuMachine == nil {
 		return
 	}

@@ -18,10 +18,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/util/labels"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cclient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageExpectedRackInventory is an activity wrapper for Expected Rack inventory collection and publishing
@@ -57,11 +57,11 @@ func (meri *ManageExpectedRackInventory) DiscoverExpectedRackInventory(ctx conte
 		logger.Warn().Err(err).Msg("Failed to retrieve ExpectedRacks using Core gRPC API")
 
 		// Error encountered before we've published anything, report inventory collection error to Cloud
-		inventory := &cwssaws.ExpectedRackInventory{
+		inventory := &corev1.ExpectedRackInventory{
 			Timestamp: &timestamppb.Timestamp{
 				Seconds: time.Now().Unix(),
 			},
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 			StatusMsg:       err.Error(),
 		}
 
@@ -74,7 +74,7 @@ func (meri *ManageExpectedRackInventory) DiscoverExpectedRackInventory(ctx conte
 	}
 
 	// Build list of ExpectedRacks, skipping any record without a rack_id
-	expectedRacks := []*cwssaws.ExpectedRack{}
+	expectedRacks := []*corev1.ExpectedRack{}
 	allExpectedRackIDs := []string{}
 	for _, er := range erList.GetExpectedRacks() {
 		// Discard records without rack_id
@@ -90,7 +90,7 @@ func (meri *ManageExpectedRackInventory) DiscoverExpectedRackInventory(ctx conte
 	logger.Info().Int("ExpectedRack Count", totalCount).Msg("Built ExpectedRack list")
 
 	if totalCount == 0 {
-		inventoryPage := getPagedExpectedRackInventory([]*cwssaws.ExpectedRack{}, allExpectedRackIDs, totalCount, 1, meri.cloudPageSize, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No ExpectedRacks reported by Site Controller")
+		inventoryPage := getPagedExpectedRackInventory([]*corev1.ExpectedRack{}, allExpectedRackIDs, totalCount, 1, meri.cloudPageSize, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No ExpectedRacks reported by Site Controller")
 
 		_, serr := meri.temporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, "UpdateExpectedRackInventory", meri.siteID, inventoryPage)
 		if serr != nil {
@@ -127,7 +127,7 @@ func (meri *ManageExpectedRackInventory) DiscoverExpectedRackInventory(ctx conte
 			totalCount,
 			cloudPage,
 			meri.cloudPageSize,
-			cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 			"Successfully retrieved ExpectedRacks from Site Controller",
 		)
 
@@ -145,28 +145,28 @@ func (meri *ManageExpectedRackInventory) DiscoverExpectedRackInventory(ctx conte
 
 // getPagedExpectedRackInventory returns a subset of ExpectedRackInventory for a given page
 func getPagedExpectedRackInventory(
-	pagedRacks []*cwssaws.ExpectedRack,
+	pagedRacks []*corev1.ExpectedRack,
 	allExpectedRackIDs []string,
 	totalCount int,
 	page int,
 	pageSize int,
-	status cwssaws.InventoryStatus,
+	status corev1.InventoryStatus,
 	statusMessage string,
-) *cwssaws.ExpectedRackInventory {
+) *corev1.ExpectedRackInventory {
 	totalPages := totalCount / pageSize
 	if totalCount%pageSize > 0 {
 		totalPages++
 	}
 
 	// Create an inventory page with the subset of ExpectedRacks
-	inventoryPage := &cwssaws.ExpectedRackInventory{
+	inventoryPage := &corev1.ExpectedRackInventory{
 		ExpectedRacks: pagedRacks,
 		Timestamp: &timestamppb.Timestamp{
 			Seconds: time.Now().Unix(),
 		},
 		InventoryStatus: status,
 		StatusMsg:       statusMessage,
-		InventoryPage: &cwssaws.InventoryPage{
+		InventoryPage: &corev1.InventoryPage{
 			TotalPages:  int32(totalPages),
 			CurrentPage: int32(page),
 			PageSize:    int32(pageSize),
@@ -204,7 +204,7 @@ func NewManageExpectedRack(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient, f
 }
 
 // CreateExpectedRackOnSite creates Expected Rack with NICo
-func (mer *ManageExpectedRack) CreateExpectedRackOnSite(ctx context.Context, request *cwssaws.ExpectedRack) error {
+func (mer *ManageExpectedRack) CreateExpectedRackOnSite(ctx context.Context, request *corev1.ExpectedRack) error {
 	logger := log.With().Str("Activity", "CreateExpectedRackOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -243,7 +243,7 @@ func (mer *ManageExpectedRack) CreateExpectedRackOnSite(ctx context.Context, req
 }
 
 // UpdateExpectedRackOnSite updates Expected Rack on NICo
-func (mer *ManageExpectedRack) UpdateExpectedRackOnSite(ctx context.Context, request *cwssaws.ExpectedRack) error {
+func (mer *ManageExpectedRack) UpdateExpectedRackOnSite(ctx context.Context, request *corev1.ExpectedRack) error {
 	logger := log.With().Str("Activity", "UpdateExpectedRackOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -282,7 +282,7 @@ func (mer *ManageExpectedRack) UpdateExpectedRackOnSite(ctx context.Context, req
 }
 
 // DeleteExpectedRackOnSite deletes Expected Rack on NICo
-func (mer *ManageExpectedRack) DeleteExpectedRackOnSite(ctx context.Context, request *cwssaws.ExpectedRackRequest) error {
+func (mer *ManageExpectedRack) DeleteExpectedRackOnSite(ctx context.Context, request *corev1.ExpectedRackRequest) error {
 	logger := log.With().Str("Activity", "DeleteExpectedRackOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -319,7 +319,7 @@ func (mer *ManageExpectedRack) DeleteExpectedRackOnSite(ctx context.Context, req
 }
 
 // ReplaceAllExpectedRacksOnSite replaces all Expected Racks on NICo with the supplied list
-func (mer *ManageExpectedRack) ReplaceAllExpectedRacksOnSite(ctx context.Context, request *cwssaws.ExpectedRackList) error {
+func (mer *ManageExpectedRack) ReplaceAllExpectedRacksOnSite(ctx context.Context, request *corev1.ExpectedRackList) error {
 	logger := log.With().Str("Activity", "ReplaceAllExpectedRacksOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -390,7 +390,7 @@ func (mer *ManageExpectedRack) DeleteAllExpectedRacksOnSite(ctx context.Context)
 // Best-effort: if the Flow client is not configured, the activity logs and returns nil
 // so the workflow can continue. RPC failures are surfaced as errors so the workflow
 // can decide how to handle them (typically log and ignore).
-func (mer *ManageExpectedRack) CreateExpectedRackOnFlow(ctx context.Context, request *cwssaws.ExpectedRack) error {
+func (mer *ManageExpectedRack) CreateExpectedRackOnFlow(ctx context.Context, request *corev1.ExpectedRack) error {
 	logger := log.With().Str("Activity", "CreateExpectedRackOnFlow").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -426,7 +426,7 @@ func (mer *ManageExpectedRack) CreateExpectedRackOnFlow(ctx context.Context, req
 
 // labelValue extracts the value for a label key from a metadata label slice. Returns
 // empty string if the key is not present or the value is nil.
-func labelValue(labels []*cwssaws.Label, key string) string {
+func labelValue(labels []*corev1.Label, key string) string {
 	for _, l := range labels {
 		if l == nil {
 			continue
@@ -444,7 +444,7 @@ func labelValue(labels []*cwssaws.Label, key string) string {
 // room/position) are read from well-known label keys defined in
 // common/pkg/util/labels. Missing labels are tolerated and rendered as empty
 // strings on the Flow side.
-func expectedRackToFlowRack(rack *cwssaws.ExpectedRack) *flowv1.Rack {
+func expectedRackToFlowRack(rack *corev1.ExpectedRack) *flowv1.Rack {
 	rackLabels := rack.GetMetadata().GetLabels()
 
 	manufacturer := labelValue(rackLabels, labels.RackLabelChassisManufacturer)

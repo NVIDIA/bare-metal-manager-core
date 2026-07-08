@@ -431,6 +431,7 @@ impl DnsServer {
             .max(Duration::from_secs(1));
 
         let metrics_setup = new_metrics_setup("carbide-dns", "carbide", true)?;
+        carbide_instrument::log_events::register(&metrics_setup.meter);
 
         // Must keep meter_provider alive for the lifetime of the server;
         // dropping it shuts down the Prometheus exporter.

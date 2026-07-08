@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1585,7 +1585,7 @@ func TestMachineCapability_ToProto(t *testing.T) {
 		}
 		proto := mc.ToProto()
 		require.NotNil(t, proto)
-		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_CPU, proto.CapabilityType)
+		assert.Equal(t, corev1.MachineCapabilityType_CAP_TYPE_CPU, proto.CapabilityType)
 		require.NotNil(t, proto.Name)
 		assert.Equal(t, "cpu-0", *proto.Name)
 		require.NotNil(t, proto.Frequency)
@@ -1611,9 +1611,9 @@ func TestMachineCapability_ToProto(t *testing.T) {
 			DeviceType: &dpu,
 		}
 		proto := mc.ToProto()
-		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK, proto.CapabilityType)
+		assert.Equal(t, corev1.MachineCapabilityType_CAP_TYPE_NETWORK, proto.CapabilityType)
 		require.NotNil(t, proto.DeviceType)
-		assert.Equal(t, cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU, *proto.DeviceType)
+		assert.Equal(t, corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU, *proto.DeviceType)
 	})
 
 	t.Run("maps InfiniBand InactiveDevices into a Uint32List", func(t *testing.T) {
@@ -1631,7 +1631,7 @@ func TestMachineCapability_ToProto(t *testing.T) {
 		unknown := MachineCapabilityDeviceType("Unknown")
 		mc := &MachineCapability{Type: "Mystery", Name: "x", DeviceType: &unknown}
 		proto := mc.ToProto()
-		assert.Equal(t, cwssaws.MachineCapabilityType(0), proto.CapabilityType)
+		assert.Equal(t, corev1.MachineCapabilityType(0), proto.CapabilityType)
 		assert.Nil(t, proto.DeviceType)
 	})
 }
@@ -1643,7 +1643,7 @@ func TestMachineCapability_FromProto(t *testing.T) {
 	vendor := "ACME"
 	hwRev := "v1"
 	var count, cores, threads uint32 = 8, 16, 32
-	deviceType := cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
+	deviceType := corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
 
 	t.Run("nil attrs is no-op", func(t *testing.T) {
 		mc := &MachineCapability{Type: MachineCapabilityTypeGPU}
@@ -1654,8 +1654,8 @@ func TestMachineCapability_FromProto(t *testing.T) {
 
 	t.Run("happy path with all fields", func(t *testing.T) {
 		mc := &MachineCapability{}
-		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType:   cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
+		mc.FromProto(&corev1.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType:   corev1.MachineCapabilityType_CAP_TYPE_CPU,
 			Name:             &name,
 			Frequency:        &freq,
 			Capacity:         &capacity,
@@ -1665,7 +1665,7 @@ func TestMachineCapability_FromProto(t *testing.T) {
 			Cores:            &cores,
 			Threads:          &threads,
 			DeviceType:       &deviceType,
-			InactiveDevices:  &cwssaws.Uint32List{Items: []uint32{0, 1}},
+			InactiveDevices:  &corev1.Uint32List{Items: []uint32{0, 1}},
 		}, 7)
 
 		assert.Equal(t, MachineCapabilityTypeCPU, mc.Type)
@@ -1688,8 +1688,8 @@ func TestMachineCapability_FromProto(t *testing.T) {
 
 	t.Run("unknown CapabilityType leaves Type empty (caller must Validate)", func(t *testing.T) {
 		mc := &MachineCapability{}
-		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType: cwssaws.MachineCapabilityType(9999),
+		mc.FromProto(&corev1.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: corev1.MachineCapabilityType(9999),
 			Name:           &name,
 		}, 0)
 		assert.Equal(t, MachineCapabilityType(""), mc.Type)
@@ -1698,18 +1698,18 @@ func TestMachineCapability_FromProto(t *testing.T) {
 
 	t.Run("nil Name leaves Name empty (caller must Validate)", func(t *testing.T) {
 		mc := &MachineCapability{}
-		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
+		mc.FromProto(&corev1.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: corev1.MachineCapabilityType_CAP_TYPE_CPU,
 		}, 0)
 		assert.Equal(t, MachineCapabilityTypeCPU, mc.Type)
 		assert.Equal(t, "", mc.Name)
 	})
 
 	t.Run("unknown DeviceType is preserved (caller must Validate)", func(t *testing.T) {
-		unknown := cwssaws.MachineCapabilityDeviceType(9999)
+		unknown := corev1.MachineCapabilityDeviceType(9999)
 		mc := &MachineCapability{}
-		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_GPU,
+		mc.FromProto(&corev1.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: corev1.MachineCapabilityType_CAP_TYPE_GPU,
 			Name:           &name,
 			DeviceType:     &unknown,
 		}, 0)

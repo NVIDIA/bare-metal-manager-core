@@ -23,15 +23,16 @@ authors.workspace = true
 
 [dependencies]
 carbide-instrument-macros = { path = "../instrument-macros" }
+dashmap = { workspace = true }
 opentelemetry = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 # test-support only
 ctor = { workspace = true, optional = true }
 opentelemetry-prometheus = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
-tracing-subscriber = { workspace = true, optional = true }
 
 [features]
 # Capture helpers for asserting that an event logged and/or metered in tests.
@@ -40,7 +41,6 @@ test-support = [
   "dep:opentelemetry-prometheus",
   "dep:opentelemetry_sdk",
   "dep:prometheus",
-  "dep:tracing-subscriber",
 ]
 
 [dev-dependencies]

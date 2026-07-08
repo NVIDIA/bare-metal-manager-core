@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -163,16 +163,16 @@ func (desc APIDpuExtensionServiceCredentials) Validate() error {
 // when RegistryURL is non-empty; the nil guards below are defensive
 // so a misuse panics with a clear shape failure rather than an opaque
 // nil-deref.
-func (desc *APIDpuExtensionServiceCredentials) ToProto() *cwssaws.DpuExtensionServiceCredential {
+func (desc *APIDpuExtensionServiceCredentials) ToProto() *corev1.DpuExtensionServiceCredential {
 	if desc == nil {
 		return nil
 	}
-	cred := &cwssaws.DpuExtensionServiceCredential{
+	cred := &corev1.DpuExtensionServiceCredential{
 		RegistryUrl: desc.RegistryURL,
 	}
 	if desc.Username != nil && desc.Password != nil {
-		cred.Type = &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
-			UsernamePassword: &cwssaws.UsernamePassword{
+		cred.Type = &corev1.DpuExtensionServiceCredential_UsernamePassword{
+			UsernamePassword: &corev1.UsernamePassword{
 				Username: *desc.Username,
 				Password: *desc.Password,
 			},
@@ -189,8 +189,8 @@ func (desc *APIDpuExtensionServiceCredentials) ToProto() *cwssaws.DpuExtensionSe
 // The method trusts that the request has already been Validated. The
 // nested `Credentials.ToProto()` and `Observability.ToProto()` calls
 // each handle a nil receiver, so no outer guard is needed here.
-func (descr *APIDpuExtensionServiceCreateRequest) ToProto(serviceID, tenantOrg string) *cwssaws.CreateDpuExtensionServiceRequest {
-	req := &cwssaws.CreateDpuExtensionServiceRequest{
+func (descr *APIDpuExtensionServiceCreateRequest) ToProto(serviceID, tenantOrg string) *corev1.CreateDpuExtensionServiceRequest {
+	req := &corev1.CreateDpuExtensionServiceRequest{
 		ServiceId:            &serviceID,
 		ServiceName:          descr.Name,
 		Description:          descr.Description,
@@ -200,7 +200,7 @@ func (descr *APIDpuExtensionServiceCreateRequest) ToProto(serviceID, tenantOrg s
 		Observability:        descr.Observability.ToProto(),
 	}
 	if descr.ServiceType == DpuExtensionServiceTypeKubernetesPod {
-		req.ServiceType = cwssaws.DpuExtensionServiceType_KUBERNETES_POD
+		req.ServiceType = corev1.DpuExtensionServiceType_KUBERNETES_POD
 	}
 	return req
 }
@@ -212,8 +212,8 @@ func (descr *APIDpuExtensionServiceCreateRequest) ToProto(serviceID, tenantOrg s
 // The method trusts that the request has already been Validated. The
 // nested `Credentials.ToProto()` and `Observability.ToProto()` calls
 // each handle a nil receiver, so no outer guard is needed here.
-func (desur *APIDpuExtensionServiceUpdateRequest) ToProto(serviceID string) *cwssaws.UpdateDpuExtensionServiceRequest {
-	req := &cwssaws.UpdateDpuExtensionServiceRequest{
+func (desur *APIDpuExtensionServiceUpdateRequest) ToProto(serviceID string) *corev1.UpdateDpuExtensionServiceRequest {
+	req := &corev1.UpdateDpuExtensionServiceRequest{
 		ServiceId:     serviceID,
 		ServiceName:   desur.Name,
 		Description:   desur.Description,
@@ -480,11 +480,11 @@ func (desol APIDpuExtensionServiceObservabilityConfigLogging) Validate() error {
 
 // ToProto converts the Prometheus sub-config to its protobuf
 // representation. Trusts that `Validate` has already been run.
-func (desop *APIDpuExtensionServiceObservabilityConfigPrometheus) ToProto() *cwssaws.DpuExtensionServiceObservabilityConfigPrometheus {
+func (desop *APIDpuExtensionServiceObservabilityConfigPrometheus) ToProto() *corev1.DpuExtensionServiceObservabilityConfigPrometheus {
 	if desop == nil {
 		return nil
 	}
-	return &cwssaws.DpuExtensionServiceObservabilityConfigPrometheus{
+	return &corev1.DpuExtensionServiceObservabilityConfigPrometheus{
 		ScrapeIntervalSeconds: desop.ScrapeIntervalSeconds,
 		Endpoint:              desop.Endpoint,
 	}
@@ -492,11 +492,11 @@ func (desop *APIDpuExtensionServiceObservabilityConfigPrometheus) ToProto() *cws
 
 // ToProto converts the Logging sub-config to its protobuf
 // representation. Trusts that `Validate` has already been run.
-func (desol *APIDpuExtensionServiceObservabilityConfigLogging) ToProto() *cwssaws.DpuExtensionServiceObservabilityConfigLogging {
+func (desol *APIDpuExtensionServiceObservabilityConfigLogging) ToProto() *corev1.DpuExtensionServiceObservabilityConfigLogging {
 	if desol == nil {
 		return nil
 	}
-	return &cwssaws.DpuExtensionServiceObservabilityConfigLogging{
+	return &corev1.DpuExtensionServiceObservabilityConfigLogging{
 		Path: desol.Path,
 	}
 }
@@ -505,20 +505,20 @@ func (desol *APIDpuExtensionServiceObservabilityConfigLogging) ToProto() *cwssaw
 // of Prometheus / Logging) to its protobuf representation. The two
 // sub-configs are modeled as a proto oneof; `Validate` enforces that
 // exactly one is set.
-func (desoc *APIDpuExtensionServiceObservabilityConfig) ToProto() *cwssaws.DpuExtensionServiceObservabilityConfig {
+func (desoc *APIDpuExtensionServiceObservabilityConfig) ToProto() *corev1.DpuExtensionServiceObservabilityConfig {
 	if desoc == nil {
 		return nil
 	}
-	proto := &cwssaws.DpuExtensionServiceObservabilityConfig{
+	proto := &corev1.DpuExtensionServiceObservabilityConfig{
 		Name: desoc.Name,
 	}
 	switch {
 	case desoc.Prometheus != nil:
-		proto.Config = &cwssaws.DpuExtensionServiceObservabilityConfig_Prometheus{
+		proto.Config = &corev1.DpuExtensionServiceObservabilityConfig_Prometheus{
 			Prometheus: desoc.Prometheus.ToProto(),
 		}
 	case desoc.Logging != nil:
-		proto.Config = &cwssaws.DpuExtensionServiceObservabilityConfig_Logging{
+		proto.Config = &corev1.DpuExtensionServiceObservabilityConfig_Logging{
 			Logging: desoc.Logging.ToProto(),
 		}
 	}
@@ -528,12 +528,12 @@ func (desoc *APIDpuExtensionServiceObservabilityConfig) ToProto() *cwssaws.DpuEx
 // ToProto converts an API observability definition to the protobuf
 // representation passed to NICo. Delegates per-config conversion to
 // `APIDpuExtensionServiceObservabilityConfig.ToProto`.
-func (apiObservability *APIDpuExtensionServiceObservability) ToProto() *cwssaws.DpuExtensionServiceObservability {
+func (apiObservability *APIDpuExtensionServiceObservability) ToProto() *corev1.DpuExtensionServiceObservability {
 	if apiObservability == nil {
 		return nil
 	}
-	protoObservability := &cwssaws.DpuExtensionServiceObservability{
-		Configs: make([]*cwssaws.DpuExtensionServiceObservabilityConfig, 0, len(apiObservability.Configs)),
+	protoObservability := &corev1.DpuExtensionServiceObservability{
+		Configs: make([]*corev1.DpuExtensionServiceObservabilityConfig, 0, len(apiObservability.Configs)),
 	}
 	for _, cfg := range apiObservability.Configs {
 		protoObservability.Configs = append(protoObservability.Configs, cfg.ToProto())
@@ -542,7 +542,7 @@ func (apiObservability *APIDpuExtensionServiceObservability) ToProto() *cwssaws.
 }
 
 // FromProto populates API version info from the site-agent protobuf form.
-func (apiVersionInfo *APIDpuExtensionServiceVersionInfo) FromProto(protoVersionInfo *cwssaws.DpuExtensionServiceVersionInfo, fallbackTime time.Time) {
+func (apiVersionInfo *APIDpuExtensionServiceVersionInfo) FromProto(protoVersionInfo *corev1.DpuExtensionServiceVersionInfo, fallbackTime time.Time) {
 	if apiVersionInfo == nil || protoVersionInfo == nil {
 		return
 	}
@@ -560,7 +560,7 @@ func (apiVersionInfo *APIDpuExtensionServiceVersionInfo) FromProto(protoVersionI
 }
 
 // FromProto populates API observability from the site-agent protobuf form.
-func (apiObservability *APIDpuExtensionServiceObservability) FromProto(protoObservability *cwssaws.DpuExtensionServiceObservability) {
+func (apiObservability *APIDpuExtensionServiceObservability) FromProto(protoObservability *corev1.DpuExtensionServiceObservability) {
 	if apiObservability == nil || protoObservability == nil {
 		return
 	}

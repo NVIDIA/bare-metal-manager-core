@@ -26,7 +26,6 @@ use std::str::FromStr;
 
 use askama_escape::Escaper;
 use carbide_uuid::machine::MachineId;
-use itertools::Itertools;
 
 /// Generates HTML links for Machine IDs
 #[askama::filter_fn]
@@ -274,15 +273,6 @@ pub fn option_fmt_or(
         Some(value) => value.to_string(),
         None => default.to_string(),
     })
-}
-
-#[askama::filter_fn]
-pub fn comma_separated(
-    value: impl IntoIterator<Item = impl Display>,
-    _env: &dyn askama::Values,
-) -> askama::Result<String> {
-    let result = value.into_iter().map(|item| item.to_string()).join(", ");
-    Ok(result)
 }
 
 pub(crate) fn state_and_substate_labels(state_json: impl Display) -> (String, String) {

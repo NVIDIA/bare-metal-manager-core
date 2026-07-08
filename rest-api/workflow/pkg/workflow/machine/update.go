@@ -14,7 +14,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	machineActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/machine"
 
@@ -22,7 +22,7 @@ import (
 )
 
 // UpdateMachineInventory is a workflow called by Site Agent to update machine inventory for a Site
-func UpdateMachineInventory(ctx workflow.Context, siteID string, machineInventory *cwssaws.MachineInventory) (err error) {
+func UpdateMachineInventory(ctx workflow.Context, siteID string, machineInventory *corev1.MachineInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateMachineInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

@@ -34,7 +34,7 @@ RUN go mod download
 # Copy source files
 COPY common/ ./common/
 COPY db/ ./db/
-COPY workflow-schema/ ./workflow-schema/
+COPY proto/ ./proto/
 COPY ipam/ ./ipam/
 
 # Build the migrations binary

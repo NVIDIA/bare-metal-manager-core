@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const MaxNetworkSecurityGroupRules = 200
@@ -29,14 +29,14 @@ const NetworkSecurityGroupRulePriorityMax = 60000
 const APINetworkSecurityGroupRuleActionPermit = "PERMIT"
 const APINetworkSecurityGroupRuleActionDeny = "DENY"
 
-var NetworkSecurityGroupRuleProtobufActionFromAPIAction = map[string]cwssaws.NetworkSecurityGroupRuleAction{
-	APINetworkSecurityGroupRuleActionPermit: cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
-	APINetworkSecurityGroupRuleActionDeny:   cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
+var NetworkSecurityGroupRuleProtobufActionFromAPIAction = map[string]corev1.NetworkSecurityGroupRuleAction{
+	APINetworkSecurityGroupRuleActionPermit: corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
+	APINetworkSecurityGroupRuleActionDeny:   corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 }
 
-var NetworkSecurityGroupRuleAPIActionFromProtobufAction = map[cwssaws.NetworkSecurityGroupRuleAction]string{
-	cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT: APINetworkSecurityGroupRuleActionPermit,
-	cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY:   APINetworkSecurityGroupRuleActionDeny,
+var NetworkSecurityGroupRuleAPIActionFromProtobufAction = map[corev1.NetworkSecurityGroupRuleAction]string{
+	corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT: APINetworkSecurityGroupRuleActionPermit,
+	corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY:   APINetworkSecurityGroupRuleActionDeny,
 }
 
 // Direction conversion maps
@@ -44,14 +44,14 @@ var NetworkSecurityGroupRuleAPIActionFromProtobufAction = map[cwssaws.NetworkSec
 const APINetworkSecurityGroupRuleDirectionIngress = "INGRESS"
 const APINetworkSecurityGroupRuleActionEgress = "EGRESS"
 
-var NetworkSecurityGroupRuleProtobufDirectionFromAPIDirection = map[string]cwssaws.NetworkSecurityGroupRuleDirection{
-	APINetworkSecurityGroupRuleDirectionIngress: cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
-	APINetworkSecurityGroupRuleActionEgress:     cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
+var NetworkSecurityGroupRuleProtobufDirectionFromAPIDirection = map[string]corev1.NetworkSecurityGroupRuleDirection{
+	APINetworkSecurityGroupRuleDirectionIngress: corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
+	APINetworkSecurityGroupRuleActionEgress:     corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS,
 }
 
-var NetworkSecurityGroupRuleAPIDirectionFromProtobufDirection = map[cwssaws.NetworkSecurityGroupRuleDirection]string{
-	cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS: APINetworkSecurityGroupRuleDirectionIngress,
-	cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS:  APINetworkSecurityGroupRuleActionEgress,
+var NetworkSecurityGroupRuleAPIDirectionFromProtobufDirection = map[corev1.NetworkSecurityGroupRuleDirection]string{
+	corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS: APINetworkSecurityGroupRuleDirectionIngress,
+	corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_EGRESS:  APINetworkSecurityGroupRuleActionEgress,
 }
 
 // Protocol conversion maps
@@ -62,20 +62,20 @@ const APINetworkSecurityGroupRuleProtocolIcmp6 = "ICMP6"
 const APINetworkSecurityGroupRuleProtocolTcp = "TCP"
 const APINetworkSecurityGroupRuleProtocolUdp = "UDP"
 
-var NetworkSecurityGroupRuleProtobufProtocolFromAPIProtocol = map[string]cwssaws.NetworkSecurityGroupRuleProtocol{
-	APINetworkSecurityGroupRuleProtocolAny:   cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ANY,
-	APINetworkSecurityGroupRuleProtocolIcmp:  cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP,
-	APINetworkSecurityGroupRuleProtocolIcmp6: cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP6,
-	APINetworkSecurityGroupRuleProtocolTcp:   cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
-	APINetworkSecurityGroupRuleProtocolUdp:   cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_UDP,
+var NetworkSecurityGroupRuleProtobufProtocolFromAPIProtocol = map[string]corev1.NetworkSecurityGroupRuleProtocol{
+	APINetworkSecurityGroupRuleProtocolAny:   corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ANY,
+	APINetworkSecurityGroupRuleProtocolIcmp:  corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP,
+	APINetworkSecurityGroupRuleProtocolIcmp6: corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP6,
+	APINetworkSecurityGroupRuleProtocolTcp:   corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
+	APINetworkSecurityGroupRuleProtocolUdp:   corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_UDP,
 }
 
-var NetworkSecurityGroupRuleAPIProtocolFromProtobufProtocol = map[cwssaws.NetworkSecurityGroupRuleProtocol]string{
-	cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ANY:   APINetworkSecurityGroupRuleProtocolAny,
-	cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP:  APINetworkSecurityGroupRuleProtocolIcmp,
-	cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP6: APINetworkSecurityGroupRuleProtocolIcmp6,
-	cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP:   APINetworkSecurityGroupRuleProtocolTcp,
-	cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_UDP:   APINetworkSecurityGroupRuleProtocolUdp,
+var NetworkSecurityGroupRuleAPIProtocolFromProtobufProtocol = map[corev1.NetworkSecurityGroupRuleProtocol]string{
+	corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ANY:   APINetworkSecurityGroupRuleProtocolAny,
+	corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP:  APINetworkSecurityGroupRuleProtocolIcmp,
+	corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP6: APINetworkSecurityGroupRuleProtocolIcmp6,
+	corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP:   APINetworkSecurityGroupRuleProtocolTcp,
+	corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_UDP:   APINetworkSecurityGroupRuleProtocolUdp,
 }
 
 // Propagation status maps
@@ -86,24 +86,24 @@ const APINetworkSecurityGroupPropagationDetailedStatusFull = "Full"
 const APINetworkSecurityGroupPropagationDetailedStatusUnknown = "Unknown"
 const APINetworkSecurityGroupPropagationDetailedStatusError = "Error"
 
-var NetworkSecurityGroupRuleAPIPropagationDetailedStatusFromProtobufPropagationStatus = map[cwssaws.NetworkSecurityGroupPropagationStatus]string{
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE:    APINetworkSecurityGroupPropagationDetailedStatusNone,
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_PARTIAL: APINetworkSecurityGroupPropagationDetailedStatusPartial,
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL:    APINetworkSecurityGroupPropagationDetailedStatusFull,
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_UNKNOWN: APINetworkSecurityGroupPropagationDetailedStatusUnknown,
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_ERROR:   APINetworkSecurityGroupPropagationDetailedStatusError,
+var NetworkSecurityGroupRuleAPIPropagationDetailedStatusFromProtobufPropagationStatus = map[corev1.NetworkSecurityGroupPropagationStatus]string{
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE:    APINetworkSecurityGroupPropagationDetailedStatusNone,
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_PARTIAL: APINetworkSecurityGroupPropagationDetailedStatusPartial,
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL:    APINetworkSecurityGroupPropagationDetailedStatusFull,
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_UNKNOWN: APINetworkSecurityGroupPropagationDetailedStatusUnknown,
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_ERROR:   APINetworkSecurityGroupPropagationDetailedStatusError,
 }
 
 const APINetworkSecurityGroupPropagationStatusError = "Error"
 const APINetworkSecurityGroupPropagationStatusSynchronizing = "Synchronizing"
 const APINetworkSecurityGroupPropagationStatusSynchronized = "Synchronized"
 
-var NetworkSecurityGroupRuleAPIPropagationStatusFromProtobufPropagationStatus = map[cwssaws.NetworkSecurityGroupPropagationStatus]string{
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE:    APINetworkSecurityGroupPropagationStatusSynchronizing,
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_PARTIAL: APINetworkSecurityGroupPropagationStatusSynchronizing,
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL:    APINetworkSecurityGroupPropagationStatusSynchronized,
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_UNKNOWN: APINetworkSecurityGroupPropagationStatusError,
-	cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_ERROR:   APINetworkSecurityGroupPropagationStatusError,
+var NetworkSecurityGroupRuleAPIPropagationStatusFromProtobufPropagationStatus = map[corev1.NetworkSecurityGroupPropagationStatus]string{
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE:    APINetworkSecurityGroupPropagationStatusSynchronizing,
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_PARTIAL: APINetworkSecurityGroupPropagationStatusSynchronizing,
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL:    APINetworkSecurityGroupPropagationStatusSynchronized,
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_UNKNOWN: APINetworkSecurityGroupPropagationStatusError,
+	corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_ERROR:   APINetworkSecurityGroupPropagationStatusError,
 }
 
 var (
@@ -388,7 +388,7 @@ func (rule *APINetworkSecurityGroupRule) Validate() error {
 // `Validate` has run first — enum lookups, port ranges, and prefixes
 // are assumed safe — so this method is a focused mapper and does not
 // return errors.
-func (rule *APINetworkSecurityGroupRule) ToProto() *cwssaws.NetworkSecurityGroupRuleAttributes {
+func (rule *APINetworkSecurityGroupRule) ToProto() *corev1.NetworkSecurityGroupRuleAttributes {
 	// Validate has normalized casing and proven these lookups succeed,
 	// so we don't re-check the `found` results here.
 	direction := NetworkSecurityGroupRuleProtobufDirectionFromAPIDirection[rule.Direction]
@@ -401,7 +401,7 @@ func (rule *APINetworkSecurityGroupRule) ToProto() *cwssaws.NetworkSecurityGroup
 	srcPortStart, srcPortEnd, _ := hutil.StringPtrToPortRangeUint32PtrPair(rule.SourcePortRange)
 	dstPortStart, dstPortEnd, _ := hutil.StringPtrToPortRangeUint32PtrPair(rule.DestinationPortRange)
 
-	attrs := &cwssaws.NetworkSecurityGroupRuleAttributes{
+	attrs := &corev1.NetworkSecurityGroupRuleAttributes{
 		Id:        rule.Name,
 		Direction: direction,
 		Protocol:  protocol,
@@ -416,10 +416,10 @@ func (rule *APINetworkSecurityGroupRule) ToProto() *cwssaws.NetworkSecurityGroup
 	}
 
 	if rule.SourcePrefix != nil {
-		attrs.SourceNet = &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: *rule.SourcePrefix}
+		attrs.SourceNet = &corev1.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: *rule.SourcePrefix}
 	}
 	if rule.DestinationPrefix != nil {
-		attrs.DestinationNet = &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: *rule.DestinationPrefix}
+		attrs.DestinationNet = &corev1.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: *rule.DestinationPrefix}
 	}
 
 	return attrs
@@ -434,7 +434,7 @@ func (rule *APINetworkSecurityGroupRule) ToProto() *cwssaws.NetworkSecurityGroup
 // empty; half-defined port ranges and unrecognized network options
 // leave the matching fields nil. Anything more aggressive belongs in
 // a DB-integrity check before the data reaches this method.
-func (rule *APINetworkSecurityGroupRule) FromProto(attrs *cwssaws.NetworkSecurityGroupRuleAttributes) {
+func (rule *APINetworkSecurityGroupRule) FromProto(attrs *corev1.NetworkSecurityGroupRuleAttributes) {
 	if attrs == nil {
 		return
 	}
@@ -453,12 +453,12 @@ func (rule *APINetworkSecurityGroupRule) FromProto(attrs *cwssaws.NetworkSecurit
 	// options modelled on the API side. Anything else leaves the
 	// matching field nil.
 	rule.SourcePrefix = nil
-	if src, ok := attrs.GetSourceNet().(*cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix); ok {
+	if src, ok := attrs.GetSourceNet().(*corev1.NetworkSecurityGroupRuleAttributes_SrcPrefix); ok {
 		prefix := src.SrcPrefix
 		rule.SourcePrefix = &prefix
 	}
 	rule.DestinationPrefix = nil
-	if dst, ok := attrs.GetDestinationNet().(*cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix); ok {
+	if dst, ok := attrs.GetDestinationNet().(*corev1.NetworkSecurityGroupRuleAttributes_DstPrefix); ok {
 		prefix := dst.DstPrefix
 		rule.DestinationPrefix = &prefix
 	}
@@ -481,7 +481,7 @@ func (rule *APINetworkSecurityGroupRule) FromProto(attrs *cwssaws.NetworkSecurit
 // NewAPINetworkSecurityGroupRule constructs an APINetworkSecurityGroupRule
 // from workflow proto attributes by calling FromProto. Returns nil for a
 // nil attrs argument.
-func NewAPINetworkSecurityGroupRule(attrs *cwssaws.NetworkSecurityGroupRuleAttributes) *APINetworkSecurityGroupRule {
+func NewAPINetworkSecurityGroupRule(attrs *corev1.NetworkSecurityGroupRuleAttributes) *APINetworkSecurityGroupRule {
 	if attrs == nil {
 		return nil
 	}
@@ -544,21 +544,21 @@ func NewAPINetworkSecurityGroup(dsg *cdbm.NetworkSecurityGroup, dbsds []cdbm.Sta
 // that the handler has performed any cross-context checks Validate
 // cannot see; in particular, every rule has been Validated, so each
 // `rule.ToProto()` is safe to call without checking errors.
-func (req *APINetworkSecurityGroupCreateRequest) ToProto(nsg *cdbm.NetworkSecurityGroup) *cwssaws.CreateNetworkSecurityGroupRequest {
+func (req *APINetworkSecurityGroupCreateRequest) ToProto(nsg *cdbm.NetworkSecurityGroup) *corev1.CreateNetworkSecurityGroupRequest {
 	nsgProto := nsg.ToProto()
 	// The DB record has already been built from the request, so the
 	// Metadata it produces (Name / Description / Labels) is the
 	// canonical wire form. Re-use it here rather than rebuilding from
 	// the request struct.
-	rules := make([]*cwssaws.NetworkSecurityGroupRuleAttributes, len(req.Rules))
+	rules := make([]*corev1.NetworkSecurityGroupRuleAttributes, len(req.Rules))
 	for i := range req.Rules {
 		rules[i] = req.Rules[i].ToProto()
 	}
-	return &cwssaws.CreateNetworkSecurityGroupRequest{
+	return &corev1.CreateNetworkSecurityGroupRequest{
 		Id:                   &nsg.ID,
 		TenantOrganizationId: nsgProto.TenantOrganizationId,
 		Metadata:             nsgProto.Metadata,
-		NetworkSecurityGroupAttributes: &cwssaws.NetworkSecurityGroupAttributes{
+		NetworkSecurityGroupAttributes: &corev1.NetworkSecurityGroupAttributes{
 			StatefulEgress: req.StatefulEgress,
 			Rules:          rules,
 		},
@@ -574,9 +574,9 @@ func (req *APINetworkSecurityGroupCreateRequest) ToProto(nsg *cdbm.NetworkSecuri
 //
 // As with the create variant, this method trusts that `Validate` has
 // run and any cross-context checks have been performed in the handler.
-func (req *APINetworkSecurityGroupUpdateRequest) ToProto(nsg *cdbm.NetworkSecurityGroup) *cwssaws.UpdateNetworkSecurityGroupRequest {
+func (req *APINetworkSecurityGroupUpdateRequest) ToProto(nsg *cdbm.NetworkSecurityGroup) *corev1.UpdateNetworkSecurityGroupRequest {
 	nsgProto := nsg.ToProto()
-	return &cwssaws.UpdateNetworkSecurityGroupRequest{
+	return &corev1.UpdateNetworkSecurityGroupRequest{
 		Id:                             nsgProto.Id,
 		TenantOrganizationId:           nsgProto.TenantOrganizationId,
 		Metadata:                       nsgProto.Metadata,

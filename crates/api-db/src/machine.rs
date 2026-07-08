@@ -1359,6 +1359,57 @@ pub async fn try_update_network_config(
     }
 }
 
+/// Sets or clears the `use_admin_network_changed` flag on a single machine
+/// row without bumping `network_config_version` or fanning out to the group.
+pub async fn set_use_admin_network_changed(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    value: bool,
+) -> Result<(), DatabaseError> {
+    let query = r#"
+        UPDATE machines
+        SET network_config = jsonb_set(COALESCE(network_config, '{}'::jsonb), '{use_admin_network_changed}', $1::jsonb)
+        WHERE id = $2
+    "#;
+    let result = sqlx::query(query)
+        .bind(sqlx::types::Json(value))
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Clears the `use_admin_network_changed` flag only if the machine is still at
+/// the expected network config version.
+pub async fn clear_use_admin_network_changed_if_version_matches(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    expected_version: &ConfigVersion,
+) -> Result<bool, DatabaseError> {
+    let query = r#"
+        UPDATE machines
+        SET network_config = jsonb_set(COALESCE(network_config, '{}'::jsonb), '{use_admin_network_changed}', 'false'::jsonb)
+        WHERE id = $1
+          AND network_config_version = $2
+          AND network_config -> 'use_admin_network_changed' = 'true'::jsonb
+    "#;
+    let result = sqlx::query(query)
+        .bind(machine_id)
+        .bind(expected_version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 /// Replaces predicted host id with stable host id.
 /// Once forge receives DiscoveryData from Host, forge can create StableMachineId.
 /// This StableMachineId must replace existing PredictedHostId in db.

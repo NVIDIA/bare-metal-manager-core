@@ -188,6 +188,7 @@ pub struct SiteExplorerConfig {
     /// `DpuMode::DpuMode`.
     #[serde(default)]
     pub dpu_mode: Option<DpuMode>,
+
     /// Controls which Redfish client implementation is used
     /// for hardware discovery (LibRedfish, NvRedfish, or
     /// CompareResult for side-by-side validation).

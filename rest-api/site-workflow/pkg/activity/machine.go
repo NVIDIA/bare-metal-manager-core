@@ -18,7 +18,7 @@ import (
 
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 )
@@ -29,7 +29,7 @@ type ManageMachine struct {
 }
 
 // SetMachineMaintenanceOnSite is an activity to set Machine maintenance mode using Core gRPC API
-func (mm *ManageMachine) SetMachineMaintenanceOnSite(ctx context.Context, request *cwssaws.MaintenanceRequest) error {
+func (mm *ManageMachine) SetMachineMaintenanceOnSite(ctx context.Context, request *corev1.MaintenanceRequest) error {
 	logger := log.With().Str("Activity", "SetMachineMaintenanceActivity").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -66,7 +66,7 @@ func (mm *ManageMachine) SetMachineMaintenanceOnSite(ctx context.Context, reques
 }
 
 // UpdateMachineMetadataOnSite is an activity to update Machine metadata using Core gRPC API
-func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, request *cwssaws.MachineMetadataUpdateRequest) error {
+func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, request *corev1.MachineMetadataUpdateRequest) error {
 	logger := log.With().Str("Activity", "UpdateMachineMetadataOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -103,7 +103,7 @@ func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, reques
 }
 
 // CreateMachineHealthReportOnSite applies a health report on the Site controller.
-func (mm *ManageMachine) CreateMachineHealthReportOnSite(ctx context.Context, request *cwssaws.InsertMachineHealthReportRequest) error {
+func (mm *ManageMachine) CreateMachineHealthReportOnSite(ctx context.Context, request *corev1.InsertMachineHealthReportRequest) error {
 	logger := log.With().Str("Activity", "CreateMachineHealthReportOnSite").Logger()
 	logger.Info().Msg("Starting activity")
 
@@ -128,7 +128,7 @@ func (mm *ManageMachine) CreateMachineHealthReportOnSite(ctx context.Context, re
 }
 
 // DeleteMachineHealthReportOnSite removes a health report override on the Site controller.
-func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, request *cwssaws.RemoveMachineHealthReportRequest) error {
+func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, request *corev1.RemoveMachineHealthReportRequest) error {
 	logger := log.With().Str("Activity", "DeleteMachineHealthReportOnSite").Logger()
 	logger.Info().Msg("Starting activity")
 
@@ -153,7 +153,7 @@ func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, re
 }
 
 // GetDpuMachinesByIDs is an activity to retrieve DPU Machines by IDs with network configuration
-func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs []string) ([]*cwssaws.DpuMachine, error) {
+func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs []string) ([]*corev1.DpuMachine, error) {
 	logger := log.With().Str("Activity", "GetDpuMachinesByIDs").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -174,12 +174,12 @@ func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs 
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Convert string IDs to MachineId objects
-	machineIDs := make([]*cwssaws.MachineId, 0, len(dpuMachineIDs))
+	machineIDs := make([]*corev1.MachineId, 0, len(dpuMachineIDs))
 	for _, id := range dpuMachineIDs {
-		machineIDs = append(machineIDs, &cwssaws.MachineId{Id: id})
+		machineIDs = append(machineIDs, &corev1.MachineId{Id: id})
 	}
 
-	request := &cwssaws.MachinesByIdsRequest{
+	request := &corev1.MachinesByIdsRequest{
 		MachineIds: machineIDs,
 	}
 
@@ -190,10 +190,10 @@ func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs 
 	}
 
 	// For each DPU machine, fetch the network configuration
-	dpuMachines := make([]*cwssaws.DpuMachine, 0, len(machineList.Machines))
+	dpuMachines := make([]*corev1.DpuMachine, 0, len(machineList.Machines))
 	for _, machine := range machineList.Machines {
-		if machine.MachineType == cwssaws.MachineType_DPU {
-			networkConfigReq := &cwssaws.ManagedHostNetworkConfigRequest{
+		if machine.MachineType == corev1.MachineType_DPU {
+			networkConfigReq := &corev1.ManagedHostNetworkConfigRequest{
 				DpuMachineId: machine.Id,
 			}
 			networkConfig, nerr := grpcServiceClient.GetManagedHostNetworkConfig(ctx, networkConfigReq)
@@ -203,7 +203,7 @@ func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs 
 			}
 
 			logger.Debug().Str("DPU Machine ID", machine.Id.Id).Msg("Retrieved network config for DPU machine")
-			dpuMachines = append(dpuMachines, &cwssaws.DpuMachine{
+			dpuMachines = append(dpuMachines, &corev1.DpuMachine{
 				Machine:          machine,
 				DpuNetworkConfig: networkConfig,
 			})
@@ -251,16 +251,16 @@ func (mmi *ManageMachineInventory) CollectAndPublishMachineInventory(ctx context
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	machineIDList, err := grpcServiceClient.FindMachineIds(ctx, &cwssaws.MachineSearchConfig{})
+	machineIDList, err := grpcServiceClient.FindMachineIds(ctx, &corev1.MachineSearchConfig{})
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to retrieve available Machine IDs using Core gRPC API")
 
 		// Error encountered before we've published anything, report inventory collection error to Cloud
-		inventory := &cwssaws.MachineInventory{
+		inventory := &corev1.MachineInventory{
 			Timestamp: &timestamppb.Timestamp{
 				Seconds: time.Now().Unix(),
 			},
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 			StatusMsg:       err.Error(),
 		}
 
@@ -279,11 +279,11 @@ func (mmi *ManageMachineInventory) CollectAndPublishMachineInventory(ctx context
 		totalSitePages++
 	}
 
-	allMachineIDs := []*cwssaws.MachineId{}
+	allMachineIDs := []*corev1.MachineId{}
 	allMachineIDs = append(allMachineIDs, machineIDList.MachineIds...)
 
 	if totalSitePages == 0 {
-		inventoryPage := getPagedMachineInventory([]*cwssaws.Machine{}, allMachineIDs, totalSiteCount, 1, mmi.cloudPageSize, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No Machines reported by SIte Controller")
+		inventoryPage := getPagedMachineInventory([]*corev1.Machine{}, allMachineIDs, totalSiteCount, 1, mmi.cloudPageSize, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No Machines reported by SIte Controller")
 
 		_, serr := mmi.temporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, "UpdateMachineInventory", mmi.siteID, inventoryPage)
 		if serr != nil {
@@ -298,7 +298,7 @@ func (mmi *ManageMachineInventory) CollectAndPublishMachineInventory(ctx context
 		pagedMachineIDs := getPagedMachineIDs(machineIDList.MachineIds, sitePage, mmi.sitePageSize)
 
 		// Call Core gRPC endpoint to get Machines for the paged IDs
-		pagedMachines, serr := grpcServiceClient.FindMachinesByIds(ctx, &cwssaws.MachinesByIdsRequest{
+		pagedMachines, serr := grpcServiceClient.FindMachinesByIds(ctx, &corev1.MachinesByIdsRequest{
 			MachineIds: pagedMachineIDs,
 		})
 		if serr != nil {
@@ -326,7 +326,7 @@ func (mmi *ManageMachineInventory) CollectAndPublishMachineInventory(ctx context
 			}
 
 			// Create an inventory page with the subset of Machines
-			inventoryPage := getPagedMachineInventory(pagedMachines.Machines[startIndex:endIndex], allMachineIDs, totalSiteCount, effectiveCloudPage, mmi.cloudPageSize, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, "Successfully retrieved Machines from Site Controller")
+			inventoryPage := getPagedMachineInventory(pagedMachines.Machines[startIndex:endIndex], allMachineIDs, totalSiteCount, effectiveCloudPage, mmi.cloudPageSize, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "Successfully retrieved Machines from Site Controller")
 
 			logger.Info().Msgf("Publishing Machine inventory page %d to Cloud", effectiveCloudPage)
 
@@ -344,7 +344,7 @@ func (mmi *ManageMachineInventory) CollectAndPublishMachineInventory(ctx context
 }
 
 // getPagedMachineIDs returns a slice of Machine IDs for a given page
-func getPagedMachineIDs(machineIDs []*cwssaws.MachineId, page int, pageSize int) []*cwssaws.MachineId {
+func getPagedMachineIDs(machineIDs []*corev1.MachineId, page int, pageSize int) []*corev1.MachineId {
 	totalCount := len(machineIDs)
 	startIndex := (page - 1) * pageSize
 	endIndex := startIndex + pageSize
@@ -356,15 +356,15 @@ func getPagedMachineIDs(machineIDs []*cwssaws.MachineId, page int, pageSize int)
 }
 
 // getPagedMachineInventory returns a subset of MachineInventory for a given page
-func getPagedMachineInventory(pagedMachines []*cwssaws.Machine, machineIDs []*cwssaws.MachineId, totalCount int, page int, pageSize int, status cwssaws.InventoryStatus, statusMessage string) *cwssaws.MachineInventory {
+func getPagedMachineInventory(pagedMachines []*corev1.Machine, machineIDs []*corev1.MachineId, totalCount int, page int, pageSize int, status corev1.InventoryStatus, statusMessage string) *corev1.MachineInventory {
 	totalPages := (totalCount / pageSize)
 	if totalCount%pageSize > 0 {
 		totalPages++
 	}
 
-	pagedMachineInfo := []*cwssaws.MachineInfo{}
+	pagedMachineInfo := []*corev1.MachineInfo{}
 	for _, machine := range pagedMachines {
-		pagedMachineInfo = append(pagedMachineInfo, &cwssaws.MachineInfo{
+		pagedMachineInfo = append(pagedMachineInfo, &corev1.MachineInfo{
 			Machine: machine,
 		})
 	}
@@ -375,14 +375,14 @@ func getPagedMachineInventory(pagedMachines []*cwssaws.Machine, machineIDs []*cw
 	}
 
 	// Create an inventory page with the subset of Machines
-	inventoryPage := &cwssaws.MachineInventory{
+	inventoryPage := &corev1.MachineInventory{
 		Machines: pagedMachineInfo,
 		Timestamp: &timestamppb.Timestamp{
 			Seconds: time.Now().Unix(),
 		},
 		InventoryStatus: status,
 		StatusMsg:       statusMessage,
-		InventoryPage: &cwssaws.InventoryPage{
+		InventoryPage: &corev1.InventoryPage{
 			TotalPages:  int32(totalPages),
 			CurrentPage: int32(page),
 			PageSize:    int32(pageSize),

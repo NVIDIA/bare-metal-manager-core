@@ -1283,9 +1283,7 @@ jobs:
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 
       - name: Regenerate REST protos from Core protos
-        run: |
-          make -C rest-api core-proto
-          make -C rest-api/flow gen-nicoapi-pb
+        run: make -C rest-api core-proto
 
       - name: Check repository is clean
         run: bash scripts/check-repo-clean.sh "REST Core protobuf sync"

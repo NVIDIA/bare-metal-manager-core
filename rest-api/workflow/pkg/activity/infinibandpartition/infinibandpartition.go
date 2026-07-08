@@ -17,7 +17,7 @@ import (
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ManageInfiniBandPartition is an activity wrapper for managing InfiniBandPartition lifecycle that allows
@@ -29,7 +29,7 @@ type ManageInfiniBandPartition struct {
 
 // Activity functions
 // UpdateInfiniBandPartitionsInDB is a Temporal activity that takes a collection of InfiniBandPartition data pushed by Site Agent and updates the DB
-func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context.Context, siteID uuid.UUID, ibpInventory *cwssaws.InfiniBandPartitionInventory) error {
+func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context.Context, siteID uuid.UUID, ibpInventory *corev1.InfiniBandPartitionInventory) error {
 	logger := log.With().Str("Activity", "UpdateInfiniBandPartitionsInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -46,7 +46,7 @@ func (mibp ManageInfiniBandPartition) UpdateInfiniBandPartitionsInDB(ctx context
 		return err
 	}
 
-	if ibpInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if ibpInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}

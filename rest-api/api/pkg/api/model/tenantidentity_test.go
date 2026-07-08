@@ -8,7 +8,7 @@ import (
 	"time"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -230,14 +230,14 @@ func TestAPITenantIdentityConfig_FromResponseProto(t *testing.T) {
 		updated := time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC)
 		subjectPrefix := "spiffe://carbide.nvidia.com"
 		resp := &APITenantIdentityConfig{}
-		resp.FromResponseProto(&cwssaws.TenantIdentityConfigResponse{
+		resp.FromResponseProto(&corev1.TenantIdentityConfigResponse{
 			OrganizationId: "acme-corp",
-			Config: &cwssaws.TenantIdentityConfig{
+			Config: &corev1.TenantIdentityConfig{
 				Enabled: true, Issuer: "https://carbide.example.com/iss",
 				DefaultAudience: "openbao", AllowedAudiences: []string{"openbao"},
 				TokenTtlSec: 600, SubjectPrefix: &subjectPrefix,
 			},
-			SigningKeys: []*cwssaws.TenantIdentitySigningKey{
+			SigningKeys: []*corev1.TenantIdentitySigningKey{
 				{Kid: "key-123", Alg: "ES256", CurrentSigner: true},
 			},
 			CreatedAt: timestamppb.New(created), UpdatedAt: timestamppb.New(updated),
@@ -261,10 +261,10 @@ func TestAPITenantIdentityConfig_FromResponseProto(t *testing.T) {
 	t.Run("rotation overlap: two signing keys, inactive one carries expireAt", func(t *testing.T) {
 		expire := time.Date(2026, 5, 12, 9, 30, 0, 0, time.UTC)
 		resp := &APITenantIdentityConfig{}
-		resp.FromResponseProto(&cwssaws.TenantIdentityConfigResponse{
+		resp.FromResponseProto(&corev1.TenantIdentityConfigResponse{
 			OrganizationId: "acme-corp",
-			Config:         &cwssaws.TenantIdentityConfig{Enabled: true},
-			SigningKeys: []*cwssaws.TenantIdentitySigningKey{
+			Config:         &corev1.TenantIdentityConfig{Enabled: true},
+			SigningKeys: []*corev1.TenantIdentitySigningKey{
 				{Kid: "kid-old", Alg: "ES256", CurrentSigner: false, ExpireAt: timestamppb.New(expire)},
 				{Kid: "kid-new", Alg: "ES256", CurrentSigner: true},
 			},
@@ -281,7 +281,7 @@ func TestAPITenantIdentityConfig_FromResponseProto(t *testing.T) {
 
 	t.Run("minimal proto (no Config, no signing keys)", func(t *testing.T) {
 		resp := &APITenantIdentityConfig{}
-		resp.FromResponseProto(&cwssaws.TenantIdentityConfigResponse{OrganizationId: "acme-corp"})
+		resp.FromResponseProto(&corev1.TenantIdentityConfigResponse{OrganizationId: "acme-corp"})
 		assert.Equal(t, "acme-corp", resp.Org)
 		assert.Empty(t, resp.SigningKeys)
 		assert.False(t, resp.Enabled)
@@ -375,12 +375,12 @@ func TestAPITenantIdentityTokenDelegation_FromResponseProto(t *testing.T) {
 		created := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
 		updated := time.Date(2026, 4, 21, 12, 0, 0, 0, time.UTC)
 		resp := &APITenantIdentityTokenDelegation{}
-		resp.FromResponseProto(&cwssaws.TokenDelegationResponse{
+		resp.FromResponseProto(&corev1.TokenDelegationResponse{
 			OrganizationId:       "acme-corp",
 			TokenEndpoint:        "https://auth.acme.com/oauth2/token",
 			SubjectTokenAudience: "acme-exchange",
-			AuthMethodConfig: &cwssaws.TokenDelegationResponse_ClientSecretBasic{
-				ClientSecretBasic: &cwssaws.ClientSecretBasicResponse{
+			AuthMethodConfig: &corev1.TokenDelegationResponse_ClientSecretBasic{
+				ClientSecretBasic: &corev1.ClientSecretBasicResponse{
 					ClientId: "client-123", ClientSecretHash: "sha256:abcd1234",
 				},
 			},
@@ -399,7 +399,7 @@ func TestAPITenantIdentityTokenDelegation_FromResponseProto(t *testing.T) {
 
 	t.Run("none auth method (oneof unset)", func(t *testing.T) {
 		resp := &APITenantIdentityTokenDelegation{}
-		resp.FromResponseProto(&cwssaws.TokenDelegationResponse{
+		resp.FromResponseProto(&corev1.TokenDelegationResponse{
 			OrganizationId: "acme-corp", TokenEndpoint: "https://auth.acme.com/oauth2/token",
 			SubjectTokenAudience: "acme-exchange",
 		})
@@ -410,7 +410,7 @@ func TestAPITenantIdentityTokenDelegation_FromResponseProto(t *testing.T) {
 // TestAPIOpenIDConfiguration_FromResponseProto verifies the OpenID discovery response mirrors the gRPC reply, including jwks_uri and the always-empty id_token_signing_alg_values_supported.
 func TestAPIOpenIDConfiguration_FromResponseProto(t *testing.T) {
 	resp := &APIOpenIDConfiguration{}
-	resp.FromResponseProto(&cwssaws.OpenIdConfiguration{
+	resp.FromResponseProto(&corev1.OpenIdConfiguration{
 		Issuer:                           "https://carbide.example.com/iss",
 		JwksUri:                          "https://carbide.example.com/iss/.well-known/jwks.json",
 		ResponseTypesSupported:           []string{"token"},

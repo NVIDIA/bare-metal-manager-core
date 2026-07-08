@@ -23,7 +23,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
@@ -118,7 +118,7 @@ type ManageMachine struct {
 }
 
 // UpdateMachinesInDB is an activity that creates/updates Machine data in DB
-func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr string, machineInventory *cwssaws.MachineInventory) error {
+func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr string, machineInventory *corev1.MachineInventory) error {
 	logger := log.With().Str("Activity", "UpdateMachinesInDB").Str("Site ID", siteIDStr).Logger()
 	logger.Info().Msg("starting activity")
 
@@ -140,7 +140,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 		return err
 	}
 
-	if machineInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if machineInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}
@@ -736,7 +736,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 }
 
 // Utility function to parse discovery data and create/update Machine Capability records
-func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, controllerMachine *cwssaws.Machine, machine *cdbm.Machine) error {
+func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, controllerMachine *corev1.Machine, machine *cdbm.Machine) error {
 	slogger := logger.With().Str("Machine ID", machine.ID).Logger()
 
 	// Get existing Machine Capability records for this Machine
@@ -796,7 +796,7 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 		deviceType = &dtEmpty
 		if gpuCap.DeviceType != nil {
 			switch *gpuCap.DeviceType {
-			case cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK:
+			case corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK:
 				dt := cdbm.MachineCapabilityDeviceTypeNVLink
 				deviceType = &dt
 			default:
@@ -880,7 +880,7 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 		deviceType = &dtEmpty
 		if netCap.DeviceType != nil {
 			switch *netCap.DeviceType {
-			case cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU:
+			case corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU:
 				dt := cdbm.MachineCapabilityDeviceTypeDPU
 				deviceType = &dt
 			default:
@@ -981,7 +981,7 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 
 // Utility function to get NICo Machine status and usability from Controller Machine state
 // Returns: (status string, message string, isUsableByTenant bool)
-func getNICoMachineStatus(controllerMachine *cwssaws.Machine, logger zerolog.Logger) (string, string, bool) {
+func getNICoMachineStatus(controllerMachine *corev1.Machine, logger zerolog.Logger) (string, string, bool) {
 	// Early return only for truly invalid input
 	if controllerMachine == nil || controllerMachine.State == "" {
 		logger.Warn().Msg("Received empty Machine state from Site Controller")

@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 )
 
@@ -38,8 +38,8 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 
 	t.Run("invalid id leaves es.ID unchanged", func(t *testing.T) {
 		es := &ExpectedSwitch{ID: id}
-		es.FromProto(&cwssaws.ExpectedSwitch{
-			ExpectedSwitchId: &cwssaws.UUID{Value: "not-a-uuid"},
+		es.FromProto(&corev1.ExpectedSwitch{
+			ExpectedSwitchId: &corev1.UUID{Value: "not-a-uuid"},
 			BmcMacAddress:    "aa:bb",
 		})
 
@@ -49,12 +49,12 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 
 	t.Run("populates all proto fields", func(t *testing.T) {
 		es := &ExpectedSwitch{}
-		es.FromProto(&cwssaws.ExpectedSwitch{
-			ExpectedSwitchId:   &cwssaws.UUID{Value: id.String()},
+		es.FromProto(&corev1.ExpectedSwitch{
+			ExpectedSwitchId:   &corev1.UUID{Value: id.String()},
 			BmcMacAddress:      "aa:bb:cc:dd:ee:ff",
 			SwitchSerialNumber: "SSN-1",
 			BmcIpAddress:       "10.0.0.1",
-			RackId:             &cwssaws.RackId{Id: rackID},
+			RackId:             &corev1.RackId{Id: rackID},
 			Name:               &name,
 			Manufacturer:       &manufacturer,
 			Model:              &model,
@@ -62,8 +62,8 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 			SlotId:             &slot,
 			TrayIdx:            &trayIdx,
 			HostId:             &host,
-			Metadata: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
+			Metadata: &corev1.Metadata{
+				Labels: []*corev1.Label{
 					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
@@ -90,8 +90,8 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 
 	t.Run("empty BmcIpAddress yields nil pointer", func(t *testing.T) {
 		es := &ExpectedSwitch{BmcIpAddress: cutil.GetPtr("stale")}
-		es.FromProto(&cwssaws.ExpectedSwitch{
-			ExpectedSwitchId: &cwssaws.UUID{Value: id.String()},
+		es.FromProto(&corev1.ExpectedSwitch{
+			ExpectedSwitchId: &corev1.UUID{Value: id.String()},
 			BmcIpAddress:     "",
 		})
 
@@ -101,8 +101,8 @@ func TestExpectedSwitch_FromProto(t *testing.T) {
 	t.Run("nil RackId clears es.RackID", func(t *testing.T) {
 		stale := "stale-rack"
 		es := &ExpectedSwitch{RackID: &stale}
-		es.FromProto(&cwssaws.ExpectedSwitch{
-			ExpectedSwitchId: &cwssaws.UUID{Value: id.String()},
+		es.FromProto(&corev1.ExpectedSwitch{
+			ExpectedSwitchId: &corev1.UUID{Value: id.String()},
 			BmcMacAddress:    "aa:bb",
 		})
 

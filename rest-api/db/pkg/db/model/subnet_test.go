@@ -20,7 +20,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestSubnet_GetSiteID(t *testing.T) {
@@ -113,13 +113,13 @@ func TestSubnet_FromProto(t *testing.T) {
 
 	t.Run("populates fields from a full proto", func(t *testing.T) {
 		mtu := int32(9000)
-		proto := &cwssaws.NetworkSegment{
-			Id:          &cwssaws.NetworkSegmentId{Value: subID.String()},
-			VpcId:       &cwssaws.VpcId{Value: vpcID.String()},
+		proto := &corev1.NetworkSegment{
+			Id:          &corev1.NetworkSegmentId{Value: subID.String()},
+			VpcId:       &corev1.VpcId{Value: vpcID.String()},
 			Name:        "subnet-a",
-			SubdomainId: &cwssaws.DomainId{Value: domainID.String()},
+			SubdomainId: &corev1.DomainId{Value: domainID.String()},
 			Mtu:         &mtu,
-			Prefixes: []*cwssaws.NetworkPrefix{
+			Prefixes: []*corev1.NetworkPrefix{
 				{Prefix: "10.0.0.0/16", Gateway: &gateway},
 			},
 		}
@@ -152,9 +152,9 @@ func TestSubnet_FromProto(t *testing.T) {
 			IPv4Gateway:  &existingGW,
 			PrefixLength: 24,
 		}
-		proto := &cwssaws.NetworkSegment{
-			Id:    &cwssaws.NetworkSegmentId{Value: subID.String()},
-			VpcId: &cwssaws.VpcId{Value: vpcID.String()},
+		proto := &corev1.NetworkSegment{
+			Id:    &corev1.NetworkSegmentId{Value: subID.String()},
+			VpcId: &corev1.VpcId{Value: vpcID.String()},
 			Name:  "fresh-name",
 		}
 		s.FromProto(proto)
@@ -167,14 +167,14 @@ func TestSubnet_FromProto(t *testing.T) {
 
 	t.Run("preserves entity ID when proto Id is unparseable", func(t *testing.T) {
 		s := &Subnet{ID: subID, Name: "x"}
-		proto := &cwssaws.NetworkSegment{Id: &cwssaws.NetworkSegmentId{Value: "not-a-uuid"}, Name: "x"}
+		proto := &corev1.NetworkSegment{Id: &corev1.NetworkSegmentId{Value: "not-a-uuid"}, Name: "x"}
 		s.FromProto(proto)
 		assert.Equal(t, subID, s.ID)
 	})
 
 	t.Run("clears DomainID when proto subdomain is unparseable", func(t *testing.T) {
 		s := &Subnet{ID: subID, DomainID: &domainID, Name: "x"}
-		proto := &cwssaws.NetworkSegment{Name: "x", SubdomainId: &cwssaws.DomainId{Value: "not-a-uuid"}}
+		proto := &corev1.NetworkSegment{Name: "x", SubdomainId: &corev1.DomainId{Value: "not-a-uuid"}}
 		s.FromProto(proto)
 		assert.Nil(t, s.DomainID)
 	})
@@ -183,9 +183,9 @@ func TestSubnet_FromProto(t *testing.T) {
 		existing := "10.0.0.0"
 		gw := "192.168.0.1"
 		s := &Subnet{ID: subID, IPv4Prefix: &existing, PrefixLength: 24, Name: "x"}
-		proto := &cwssaws.NetworkSegment{
+		proto := &corev1.NetworkSegment{
 			Name:     "x",
-			Prefixes: []*cwssaws.NetworkPrefix{{Prefix: "garbage", Gateway: &gw}},
+			Prefixes: []*corev1.NetworkPrefix{{Prefix: "garbage", Gateway: &gw}},
 		}
 		s.FromProto(proto)
 		assert.Nil(t, s.IPv4Prefix)

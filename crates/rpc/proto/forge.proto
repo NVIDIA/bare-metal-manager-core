@@ -1530,6 +1530,7 @@ message RuntimeConfig {
 
   string compile_time_helm_version = 51;
   string compile_time_docker_version = 52;
+  bool restart_ovs_on_use_admin_network_change = 53;
 }
 
 message EchoRequest {
@@ -4386,6 +4387,11 @@ message ManagedHostNetworkConfigResponse {
   optional string bgp_leaf_session_password = 118;
 
   optional AstraConfig astra_config = 119;
+
+  // Tracks admin->tenant and tenant->admin change. The DPU agent will
+  // restart openvswitch-switch if this is set. Other actions could also
+  // be added based on this tracking variable.
+  optional bool use_admin_network_changed = 120;
 }
 
 message TrafficInterceptConfig {

@@ -11,7 +11,7 @@ import (
 
 	camu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 )
@@ -33,29 +33,29 @@ const (
 	HostFirmwareComponentTypeCx7             HostFirmwareComponentType = "Cx7"
 )
 
-var hostFirmwareComponentTypeChoiceMap = map[HostFirmwareComponentType]cwssaws.HostFirmwareComponentType{
-	HostFirmwareComponentTypeBMC:             cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_BMC,
-	HostFirmwareComponentTypeCEC:             cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CEC,
-	HostFirmwareComponentTypeUEFI:            cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_UEFI,
-	HostFirmwareComponentTypeNIC:             cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_NIC,
-	HostFirmwareComponentTypeCpldMb:          cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CPLD_MB,
-	HostFirmwareComponentTypeCpldPdb:         cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CPLD_PDB,
-	HostFirmwareComponentTypeHgxBmc:          cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_HGX_BMC,
-	HostFirmwareComponentTypeCombinedBmcUefi: cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_COMBINED_BMC_UEFI,
-	HostFirmwareComponentTypeGPU:             cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_GPU,
-	HostFirmwareComponentTypeCx7:             cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7,
+var hostFirmwareComponentTypeChoiceMap = map[HostFirmwareComponentType]corev1.HostFirmwareComponentType{
+	HostFirmwareComponentTypeBMC:             corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_BMC,
+	HostFirmwareComponentTypeCEC:             corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CEC,
+	HostFirmwareComponentTypeUEFI:            corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_UEFI,
+	HostFirmwareComponentTypeNIC:             corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_NIC,
+	HostFirmwareComponentTypeCpldMb:          corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CPLD_MB,
+	HostFirmwareComponentTypeCpldPdb:         corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CPLD_PDB,
+	HostFirmwareComponentTypeHgxBmc:          corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_HGX_BMC,
+	HostFirmwareComponentTypeCombinedBmcUefi: corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_COMBINED_BMC_UEFI,
+	HostFirmwareComponentTypeGPU:             corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_GPU,
+	HostFirmwareComponentTypeCx7:             corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7,
 }
 
 // ToProto converts the REST component type to its forge enum value.
-func (t HostFirmwareComponentType) ToProto() cwssaws.HostFirmwareComponentType {
+func (t HostFirmwareComponentType) ToProto() corev1.HostFirmwareComponentType {
 	if v, ok := hostFirmwareComponentTypeChoiceMap[t]; ok {
 		return v
 	}
-	return cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_UNSPECIFIED
+	return corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_UNSPECIFIED
 }
 
 // FromProto populates the REST component type from a forge enum value.
-func (t *HostFirmwareComponentType) FromProto(p cwssaws.HostFirmwareComponentType) {
+func (t *HostFirmwareComponentType) FromProto(p corev1.HostFirmwareComponentType) {
 	if t == nil {
 		return
 	}
@@ -177,8 +177,8 @@ func (req APIHostFirmwareConfigCreateOrUpdateRequest) Validate() error {
 }
 
 // ToProto converts the validated request to forge.UpsertHostFirmwareConfigRequest.
-func (req APIHostFirmwareConfigCreateOrUpdateRequest) ToProto() *cwssaws.UpsertHostFirmwareConfigRequest {
-	protoReq := &cwssaws.UpsertHostFirmwareConfigRequest{
+func (req APIHostFirmwareConfigCreateOrUpdateRequest) ToProto() *corev1.UpsertHostFirmwareConfigRequest {
+	protoReq := &corev1.UpsertHostFirmwareConfigRequest{
 		Vendor: req.Vendor,
 		Model:  req.Model,
 	}
@@ -215,8 +215,8 @@ func (c APIHostFirmwareComponentConfig) Validate() error {
 }
 
 // ToProto converts one upsert component config to its forge form.
-func (c APIHostFirmwareComponentConfig) ToProto() *cwssaws.UpsertHostFirmwareComponentConfig {
-	protoComponent := &cwssaws.UpsertHostFirmwareComponentConfig{
+func (c APIHostFirmwareComponentConfig) ToProto() *corev1.UpsertHostFirmwareComponentConfig {
+	protoComponent := &corev1.UpsertHostFirmwareComponentConfig{
 		Type: c.Type.ToProto(),
 	}
 	if c.PreingestUpgradeWhenBelow != nil {
@@ -249,8 +249,8 @@ func (v APIHostFirmwareVersionConfig) Validate() error {
 }
 
 // ToProto converts one firmware version config to its forge form.
-func (v APIHostFirmwareVersionConfig) ToProto() *cwssaws.HostFirmwareVersionConfig {
-	protoVersion := &cwssaws.HostFirmwareVersionConfig{
+func (v APIHostFirmwareVersionConfig) ToProto() *corev1.HostFirmwareVersionConfig {
+	protoVersion := &corev1.HostFirmwareVersionConfig{
 		Version:              v.Version,
 		Default:              v.Default,
 		InstallOnlySpecified: v.InstallOnlySpecified,
@@ -269,8 +269,8 @@ func (v APIHostFirmwareVersionConfig) ToProto() *cwssaws.HostFirmwareVersionConf
 }
 
 // ToProto converts one artifact to its forge form.
-func (a APIHostFirmwareArtifact) ToProto() *cwssaws.HostFirmwareArtifact {
-	protoArtifact := &cwssaws.HostFirmwareArtifact{Url: a.URL}
+func (a APIHostFirmwareArtifact) ToProto() *corev1.HostFirmwareArtifact {
+	protoArtifact := &corev1.HostFirmwareArtifact{Url: a.URL}
 	if a.Sha256 != nil {
 		protoArtifact.Sha256 = a.Sha256
 	}
@@ -289,7 +289,7 @@ type APIHostFirmwareConfig struct {
 }
 
 // FromProto populates the response from forge.HostFirmwareConfigResponse.
-func (resp *APIHostFirmwareConfig) FromProto(proto *cwssaws.HostFirmwareConfigResponse) {
+func (resp *APIHostFirmwareConfig) FromProto(proto *corev1.HostFirmwareConfigResponse) {
 	if resp == nil || proto == nil {
 		return
 	}
@@ -323,7 +323,7 @@ func (resp *APIHostFirmwareConfig) FromProto(proto *cwssaws.HostFirmwareConfigRe
 }
 
 // FromProto populates one response component from forge.HostFirmwareComponentConfigResponse.
-func (c *APIHostFirmwareComponent) FromProto(proto *cwssaws.HostFirmwareComponentConfigResponse) {
+func (c *APIHostFirmwareComponent) FromProto(proto *corev1.HostFirmwareComponentConfigResponse) {
 	if c == nil || proto == nil {
 		return
 	}
@@ -345,7 +345,7 @@ func (c *APIHostFirmwareComponent) FromProto(proto *cwssaws.HostFirmwareComponen
 }
 
 // FromProto populates one firmware version from forge.HostFirmwareVersionConfig.
-func (v *APIHostFirmwareVersionConfig) FromProto(proto *cwssaws.HostFirmwareVersionConfig) {
+func (v *APIHostFirmwareVersionConfig) FromProto(proto *corev1.HostFirmwareVersionConfig) {
 	if v == nil || proto == nil {
 		return
 	}
@@ -399,8 +399,8 @@ func (req APIHostFirmwareConfigDeleteRequest) Validate() error {
 }
 
 // ToProto converts the validated request to forge.DeleteHostFirmwareConfigRequest.
-func (req APIHostFirmwareConfigDeleteRequest) ToProto() *cwssaws.DeleteHostFirmwareConfigRequest {
-	return &cwssaws.DeleteHostFirmwareConfigRequest{
+func (req APIHostFirmwareConfigDeleteRequest) ToProto() *corev1.DeleteHostFirmwareConfigRequest {
+	return &corev1.DeleteHostFirmwareConfigRequest{
 		Vendor: req.Vendor,
 		Model:  req.Model,
 	}

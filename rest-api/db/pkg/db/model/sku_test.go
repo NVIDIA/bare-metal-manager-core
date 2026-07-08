@@ -12,7 +12,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,13 +34,13 @@ func TestSkuComponents_Equal(t *testing.T) {
 		assert.True(t, (&SkuComponents{}).Equal(&SkuComponents{}))
 	})
 	t.Run("identical inner protos are equal", func(t *testing.T) {
-		a := &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}
-		b := &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}
+		a := &SkuComponents{SkuComponents: &corev1.SkuComponents{}}
+		b := &SkuComponents{SkuComponents: &corev1.SkuComponents{}}
 		assert.True(t, a.Equal(b))
 	})
 	t.Run("nil inner does not equal non-nil inner", func(t *testing.T) {
 		a := &SkuComponents{}
-		b := &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}
+		b := &SkuComponents{SkuComponents: &corev1.SkuComponents{}}
 		assert.False(t, a.Equal(b))
 		assert.False(t, b.Equal(a))
 	})
@@ -55,7 +55,7 @@ func TestSKU_ToProto(t *testing.T) {
 			ID:                   "sku-1",
 			SiteID:               siteID,
 			DeviceType:           &deviceType,
-			Components:           &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}},
+			Components:           &SkuComponents{SkuComponents: &corev1.SkuComponents{}},
 			AssociatedMachineIds: []string{"m-1", "m-2"},
 		}
 		proto := sk.ToProto()
@@ -96,11 +96,11 @@ func TestSKU_FromProto(t *testing.T) {
 
 	t.Run("populates fields from proto", func(t *testing.T) {
 		sk := &SKU{}
-		sk.FromProto(&cwssaws.Sku{
+		sk.FromProto(&corev1.Sku{
 			Id:         "sku-1",
 			DeviceType: &deviceType,
-			Components: &cwssaws.SkuComponents{},
-			AssociatedMachineIds: []*cwssaws.MachineId{
+			Components: &corev1.SkuComponents{},
+			AssociatedMachineIds: []*corev1.MachineId{
 				{Id: "m-1"},
 				{Id: ""}, // skipped
 				{Id: "m-2"},
@@ -114,14 +114,14 @@ func TestSKU_FromProto(t *testing.T) {
 	})
 
 	t.Run("nil Components yields nil wrapper", func(t *testing.T) {
-		sk := &SKU{Components: &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}}
-		sk.FromProto(&cwssaws.Sku{Id: "sku-1"}, siteID)
+		sk := &SKU{Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}}
+		sk.FromProto(&corev1.Sku{Id: "sku-1"}, siteID)
 		assert.Nil(t, sk.Components)
 	})
 
 	t.Run("nil AssociatedMachineIds yields nil slice", func(t *testing.T) {
 		sk := &SKU{}
-		sk.FromProto(&cwssaws.Sku{Id: "sku-1"}, siteID)
+		sk.FromProto(&corev1.Sku{Id: "sku-1"}, siteID)
 		assert.Nil(t, sk.AssociatedMachineIds)
 	})
 }
@@ -152,7 +152,7 @@ func testSkuCreateSkus(ctx context.Context, t *testing.T, dbSession *db.Session,
 
 	ids := []string{"sku-1", "sku-2", "sku-3"}
 	for _, id := range ids {
-		protoSku := &cwssaws.SkuComponents{}
+		protoSku := &corev1.SkuComponents{}
 		sk, err := ssd.Create(ctx, nil, SkuCreateInput{SkuID: id, Components: &SkuComponents{SkuComponents: protoSku}, SiteID: siteId})
 		require.NoError(t, err)
 		require.NotNil(t, sk)
@@ -185,13 +185,13 @@ func TestSkuSQLDAO_Create(t *testing.T) {
 	}{
 		{
 			desc:               "create one",
-			inputs:             []SkuCreateInput{{SkuID: "sku-1", Components: &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}, SiteID: site.ID}},
+			inputs:             []SkuCreateInput{{SkuID: "sku-1", Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}, SiteID: site.ID}},
 			expectError:        false,
 			verifyChildSpanner: true,
 		},
 		{
 			desc:        "create multiple",
-			inputs:      []SkuCreateInput{{SkuID: "sku-2", Components: &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}, SiteID: site.ID}, {SkuID: "sku-3", Components: &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}, SiteID: site.ID}},
+			inputs:      []SkuCreateInput{{SkuID: "sku-2", Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}, SiteID: site.ID}, {SkuID: "sku-3", Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}, SiteID: site.ID}},
 			expectError: false,
 		},
 	}
@@ -337,7 +337,7 @@ func TestSkuSQLDAO_Update(t *testing.T) {
 		input SkuUpdateInput
 		check bool
 	}{
-		{desc: "update sku data", input: SkuUpdateInput{SkuID: created[0].ID, Components: &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}}, check: true},
+		{desc: "update sku data", input: SkuUpdateInput{SkuID: created[0].ID, Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}}, check: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -414,7 +414,7 @@ func TestSkuSQLDAO_Create_DefaultAssociatedMachineIds(t *testing.T) {
 	ssd := NewSkuDAO(dbSession)
 
 	// Create a SKU without specifying AssociatedMachineIds
-	protoSku := &cwssaws.SkuComponents{}
+	protoSku := &corev1.SkuComponents{}
 	created, err := ssd.Create(ctx, nil, SkuCreateInput{
 		SkuID:      "sku-default-test",
 		Components: &SkuComponents{SkuComponents: protoSku},

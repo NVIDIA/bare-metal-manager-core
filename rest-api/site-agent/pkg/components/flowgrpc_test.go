@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/site-agent/pkg/components/managers/flowgrpc"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel"

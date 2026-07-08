@@ -19,7 +19,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
@@ -735,8 +735,8 @@ func (desh DeleteExpectedSwitchHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Expected Switch due to DB error", nil)
 		}
 
-		deleteExpectedSwitchRequest := &cwssaws.ExpectedSwitchRequest{
-			ExpectedSwitchId: &cwssaws.UUID{Value: expectedSwitch.ID.String()},
+		deleteExpectedSwitchRequest := &corev1.ExpectedSwitchRequest{
+			ExpectedSwitchId: &corev1.UUID{Value: expectedSwitch.ID.String()},
 			BmcMacAddress:    expectedSwitch.BmcMacAddress,
 		}
 

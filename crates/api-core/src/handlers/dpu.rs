@@ -171,6 +171,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
     // and keep it on admin. This prevents the host from using the DPU at all.
     let use_admin_network = snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
 
+    let use_admin_network_changed = dpu_snapshot.network_config.use_admin_network_changed;
+
     let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
 
     let mut use_fnn_over_admin_nw = false;
@@ -751,6 +753,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             None => None,
         },
         astra_config,
+        use_admin_network_changed,
     };
 
     // If this all worked, we shouldn't emit a log line
@@ -858,6 +861,22 @@ pub(crate) async fn record_dpu_network_status(
 
     // Instance network observation is the part of network observation now.
     db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs).await?;
+    if dpu_machine.network_config.value.use_admin_network_changed == Some(true)
+        && machine_obs.network_config_version.as_ref() == Some(&dpu_machine.network_config.version)
+    {
+        tracing::info!(
+            dpu_id = %dpu_machine_id,
+            network_config_version = %dpu_machine.network_config.version,
+            agent_version = ?machine_obs.agent_version,
+            "Clearing use_admin_network_changed after matching-version ACK; OVS restart may have been skipped by agents that do not support the flag"
+        );
+        db::machine::clear_use_admin_network_changed_if_version_matches(
+            &mut txn,
+            &dpu_machine_id,
+            &dpu_machine.network_config.version,
+        )
+        .await?;
+    }
     tracing::trace!(
         machine_id = %dpu_machine_id,
         machine_network_config = ?request.network_config_version,
@@ -1385,6 +1404,7 @@ mod consolidated_network_config_tests {
             // top-level response field, not in this consolidated struct.
             use_admin_network: Some(false),
             quarantine_state: None,
+            use_admin_network_changed: None,
         };
         let consolidated = build_consolidated_network_config(&host, dpu_ip());
         assert_eq!(

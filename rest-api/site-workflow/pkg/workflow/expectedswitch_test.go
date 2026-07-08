@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	iActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/temporal"
@@ -83,8 +83,8 @@ func (cests *CreateExpectedSwitchTestSuite) AfterTest(suiteName, testName string
 func (cests *CreateExpectedSwitchTestSuite) Test_CreateExpectedSwitch_Success() {
 	var expectedSwitchManager iActivity.ManageExpectedSwitch
 
-	request := &cwssaws.ExpectedSwitch{
-		ExpectedSwitchId:   &cwssaws.UUID{Value: "test-create-workflow-001"},
+	request := &corev1.ExpectedSwitch{
+		ExpectedSwitchId:   &corev1.UUID{Value: "test-create-workflow-001"},
 		BmcMacAddress:      "00:11:22:33:44:55",
 		SwitchSerialNumber: "SWITCH-001",
 	}
@@ -106,8 +106,8 @@ func (cests *CreateExpectedSwitchTestSuite) Test_CreateExpectedSwitch_Success() 
 func (cests *CreateExpectedSwitchTestSuite) Test_CreateExpectedSwitch_Failure() {
 	var expectedSwitchManager iActivity.ManageExpectedSwitch
 
-	request := &cwssaws.ExpectedSwitch{
-		ExpectedSwitchId:   &cwssaws.UUID{Value: "test-create-workflow-001"},
+	request := &corev1.ExpectedSwitch{
+		ExpectedSwitchId:   &corev1.UUID{Value: "test-create-workflow-001"},
 		BmcMacAddress:      "00:11:22:33:44:55",
 		SwitchSerialNumber: "SWITCH-001",
 	}
@@ -149,8 +149,8 @@ func (uests *UpdateExpectedSwitchTestSuite) AfterTest(suiteName, testName string
 func (uests *UpdateExpectedSwitchTestSuite) Test_UpdateExpectedSwitch_Success() {
 	var expectedSwitchManager iActivity.ManageExpectedSwitch
 
-	request := &cwssaws.ExpectedSwitch{
-		ExpectedSwitchId:   &cwssaws.UUID{Value: "test-update-workflow-001"},
+	request := &corev1.ExpectedSwitch{
+		ExpectedSwitchId:   &corev1.UUID{Value: "test-update-workflow-001"},
 		BmcMacAddress:      "00:11:22:33:44:55",
 		SwitchSerialNumber: "SWITCH-001",
 	}
@@ -168,8 +168,8 @@ func (uests *UpdateExpectedSwitchTestSuite) Test_UpdateExpectedSwitch_Success() 
 func (uests *UpdateExpectedSwitchTestSuite) Test_UpdateExpectedSwitch_Failure() {
 	var expectedSwitchManager iActivity.ManageExpectedSwitch
 
-	request := &cwssaws.ExpectedSwitch{
-		ExpectedSwitchId:   &cwssaws.UUID{Value: "test-update-workflow-001"},
+	request := &corev1.ExpectedSwitch{
+		ExpectedSwitchId:   &corev1.UUID{Value: "test-update-workflow-001"},
 		BmcMacAddress:      "00:11:22:33:44:55",
 		SwitchSerialNumber: "SWITCH-001",
 	}
@@ -208,8 +208,8 @@ func (dests *DeleteExpectedSwitchTestSuite) AfterTest(suiteName, testName string
 func (dests *DeleteExpectedSwitchTestSuite) Test_DeleteExpectedSwitch_Success() {
 	var expectedSwitchManager iActivity.ManageExpectedSwitch
 
-	request := &cwssaws.ExpectedSwitchRequest{
-		ExpectedSwitchId: &cwssaws.UUID{Value: "test-delete-workflow-001"},
+	request := &corev1.ExpectedSwitchRequest{
+		ExpectedSwitchId: &corev1.UUID{Value: "test-delete-workflow-001"},
 		BmcMacAddress:    "00:11:22:33:44:55",
 	}
 
@@ -226,8 +226,8 @@ func (dests *DeleteExpectedSwitchTestSuite) Test_DeleteExpectedSwitch_Success() 
 func (dests *DeleteExpectedSwitchTestSuite) Test_DeleteExpectedSwitch_Failure() {
 	var expectedSwitchManager iActivity.ManageExpectedSwitch
 
-	request := &cwssaws.ExpectedSwitchRequest{
-		ExpectedSwitchId: &cwssaws.UUID{Value: "test-delete-workflow-001"},
+	request := &corev1.ExpectedSwitchRequest{
+		ExpectedSwitchId: &corev1.UUID{Value: "test-delete-workflow-001"},
 		BmcMacAddress:    "00:11:22:33:44:55",
 	}
 

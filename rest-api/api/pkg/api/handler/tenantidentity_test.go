@@ -30,7 +30,7 @@ import (
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // countMockCalls returns the number of recorded invocations of method on the testify mock.
@@ -157,7 +157,7 @@ func TestTenantIdentityHandlers_TimeoutReturns500AndTerminatesWorkflow(t *testin
 			name: "GET .well-known/jwks.json (oidc)", method: http.MethodGet,
 			entity: "TenantIdentity", workflow: "GetJWKS", user: nil,
 			newHandler: func() echo.HandlerFunc {
-				return NewGetJWKSHandler(dbSession, siteClientPool, cwssaws.JwksKind_Oidc).Handle
+				return NewGetJWKSHandler(dbSession, siteClientPool, corev1.JwksKind_Oidc).Handle
 			},
 		},
 		{
@@ -238,7 +238,7 @@ func TestGetJWKS_AbsentCasesReturn404AndPresentPassesThrough(t *testing.T) {
 	successRun.On("GetID").Return("test-jwks-success-wf-id")
 	successRun.Mock.On("Get", mock.Anything, mock.Anything).
 		Return(nil).Run(func(args mock.Arguments) {
-		out := args.Get(1).(*cwssaws.Jwks)
+		out := args.Get(1).(*corev1.Jwks)
 		out.Jwks = `{"keys":[{"kty":"EC","kid":"real-key-id","alg":"ES256","crv":"P-256","x":"xxxx","y":"yyyy"}]}`
 	})
 
@@ -265,16 +265,16 @@ func TestGetJWKS_AbsentCasesReturn404AndPresentPassesThrough(t *testing.T) {
 		name       string
 		orgName    string
 		siteID     string
-		kind       cwssaws.JwksKind
+		kind       corev1.JwksKind
 		wantStatus int
 		wantBody   string
 	}{
-		{name: "absent: unknown site", orgName: tenantOrg, siteID: bogusSiteID, kind: cwssaws.JwksKind_Oidc, wantStatus: http.StatusNotFound},
-		{name: "absent: org is not a Tenant", orgName: unknownOrg, siteID: siteIDStr, kind: cwssaws.JwksKind_Oidc, wantStatus: http.StatusNotFound},
-		{name: "absent: Core gRPC API NOT_FOUND", orgName: tenantOrg, siteID: siteIDStr, kind: cwssaws.JwksKind_Spiffe, wantStatus: http.StatusNotFound},
-		{name: "present: real JWKS pass-through", orgName: tenantOrg, siteID: siteIDStr, kind: cwssaws.JwksKind_Oidc, wantStatus: http.StatusOK, wantBody: realJWKSBody},
+		{name: "absent: unknown site", orgName: tenantOrg, siteID: bogusSiteID, kind: corev1.JwksKind_Oidc, wantStatus: http.StatusNotFound},
+		{name: "absent: org is not a Tenant", orgName: unknownOrg, siteID: siteIDStr, kind: corev1.JwksKind_Oidc, wantStatus: http.StatusNotFound},
+		{name: "absent: Core gRPC API NOT_FOUND", orgName: tenantOrg, siteID: siteIDStr, kind: corev1.JwksKind_Spiffe, wantStatus: http.StatusNotFound},
+		{name: "present: real JWKS pass-through", orgName: tenantOrg, siteID: siteIDStr, kind: corev1.JwksKind_Oidc, wantStatus: http.StatusOK, wantBody: realJWKSBody},
 		// Tenant without an allocation on the site still resolves to JWKS so already-issued JWT-SVIDs remain verifiable.
-		{name: "present: tenant has no allocation, controller has keys", orgName: noAllocTenantOrg, siteID: siteIDStr, kind: cwssaws.JwksKind_Oidc, wantStatus: http.StatusOK, wantBody: realJWKSBody},
+		{name: "present: tenant has no allocation, controller has keys", orgName: noAllocTenantOrg, siteID: siteIDStr, kind: corev1.JwksKind_Oidc, wantStatus: http.StatusOK, wantBody: realJWKSBody},
 	}
 
 	for _, tt := range tests {
@@ -355,7 +355,7 @@ func TestGetJWKS_BodyValidation(t *testing.T) {
 			controllerBody := tt.controllerBody
 			run.Mock.On("Get", mock.Anything, mock.Anything).
 				Return(nil).Run(func(args mock.Arguments) {
-				out := args.Get(1).(*cwssaws.Jwks)
+				out := args.Get(1).(*corev1.Jwks)
 				out.Jwks = controllerBody
 			})
 			temporalClient.Mock.On("ExecuteWorkflow",
@@ -368,7 +368,7 @@ func TestGetJWKS_BodyValidation(t *testing.T) {
 			echoCtx.SetParamNames("orgName", "siteID")
 			echoCtx.SetParamValues(tenantOrg, siteIDStr)
 
-			require.NoError(t, NewGetJWKSHandler(dbSession, siteClientPool, cwssaws.JwksKind_Oidc).Handle(echoCtx))
+			require.NoError(t, NewGetJWKSHandler(dbSession, siteClientPool, corev1.JwksKind_Oidc).Handle(echoCtx))
 			assert.Equal(t, tt.wantCode, recorder.Code, "body=%s", recorder.Body.String())
 			if tt.wantBody != "" {
 				assert.JSONEq(t, tt.wantBody, recorder.Body.String())
@@ -512,7 +512,7 @@ func TestCreateOrUpdateTenantIdentityPUT_StatusReflectsCreateVsUpdate(t *testing
 	createdConfigRun.On("GetID").Return("test-status-config-create-wf-id")
 	createdConfigRun.Mock.On("Get", mock.Anything, mock.Anything).
 		Return(nil).Run(func(args mock.Arguments) {
-		out := args.Get(1).(*cwssaws.TenantIdentityConfigResponse)
+		out := args.Get(1).(*corev1.TenantIdentityConfigResponse)
 		out.OrganizationId = tenantOrg
 		out.CreatedAt = timestamppb.New(now)
 		out.UpdatedAt = timestamppb.New(now)
@@ -521,7 +521,7 @@ func TestCreateOrUpdateTenantIdentityPUT_StatusReflectsCreateVsUpdate(t *testing
 	updatedConfigRun.On("GetID").Return("test-status-config-update-wf-id")
 	updatedConfigRun.Mock.On("Get", mock.Anything, mock.Anything).
 		Return(nil).Run(func(args mock.Arguments) {
-		out := args.Get(1).(*cwssaws.TenantIdentityConfigResponse)
+		out := args.Get(1).(*corev1.TenantIdentityConfigResponse)
 		out.OrganizationId = tenantOrg
 		out.CreatedAt = timestamppb.New(now)
 		out.UpdatedAt = timestamppb.New(later)
@@ -531,7 +531,7 @@ func TestCreateOrUpdateTenantIdentityPUT_StatusReflectsCreateVsUpdate(t *testing
 	createdDelegationRun.On("GetID").Return("test-status-delegation-create-wf-id")
 	createdDelegationRun.Mock.On("Get", mock.Anything, mock.Anything).
 		Return(nil).Run(func(args mock.Arguments) {
-		out := args.Get(1).(*cwssaws.TokenDelegationResponse)
+		out := args.Get(1).(*corev1.TokenDelegationResponse)
 		out.OrganizationId = tenantOrg
 		out.CreatedAt = timestamppb.New(now)
 		out.UpdatedAt = timestamppb.New(now)
@@ -540,7 +540,7 @@ func TestCreateOrUpdateTenantIdentityPUT_StatusReflectsCreateVsUpdate(t *testing
 	updatedDelegationRun.On("GetID").Return("test-status-delegation-update-wf-id")
 	updatedDelegationRun.Mock.On("Get", mock.Anything, mock.Anything).
 		Return(nil).Run(func(args mock.Arguments) {
-		out := args.Get(1).(*cwssaws.TokenDelegationResponse)
+		out := args.Get(1).(*corev1.TokenDelegationResponse)
 		out.OrganizationId = tenantOrg
 		out.CreatedAt = timestamppb.New(now)
 		out.UpdatedAt = timestamppb.New(later)

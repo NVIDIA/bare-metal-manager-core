@@ -26,6 +26,7 @@ authors.workspace = true
 name = "api_test_helper"
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
 
 # [local-dependencies]
 async-trait = { workspace = true }

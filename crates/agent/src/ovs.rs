@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::time::Duration;
+
 use eyre::WrapErr;
 
 /// ovs-vswitchd is part of HBN. It handles network packets in user-space using DPDK
@@ -53,5 +55,32 @@ pub async fn set_vswitchd_yield() -> eyre::Result<()> {
         eyre::bail!("Failed running ovs-vsctl command. Check logs for stdout/stderr.");
     }
 
+    Ok(())
+}
+
+/// Restart the OVS service (ovs-vswitchd) via systemctl.
+pub async fn restart_ovs() -> eyre::Result<()> {
+    let restart = tokio::time::timeout(
+        Duration::from_secs(180),
+        tokio::process::Command::new("systemctl")
+            .args(["restart", "ovs-vswitchd.service"])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    let restart = match restart {
+        Ok(Ok(output)) => output,
+        Ok(Err(e)) => eyre::bail!("Failed to execute systemctl restart: {}", e),
+        Err(_) => eyre::bail!("Timeout (180s) waiting for ovs-vswitchd.service restart"),
+    };
+
+    if !restart.status.success() {
+        eyre::bail!(
+            "systemctl restart ovs-vswitchd.service failed (status: {})",
+            restart.status
+        );
+    }
+
+    tracing::info!("Successfully restarted ovs-vswitchd.service");
     Ok(())
 }

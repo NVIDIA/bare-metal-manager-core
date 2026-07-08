@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -246,7 +246,7 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 // `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
 // For iPXE-typed records there is no Site-side image workflow, so
 // this method should not be called.
-func (oscr *APIOperatingSystemCreateRequest) ToProto(os *cdbm.OperatingSystem, tenantOrg string) *cwssaws.OsImageAttributes {
+func (oscr *APIOperatingSystemCreateRequest) ToProto(os *cdbm.OperatingSystem, tenantOrg string) *corev1.OsImageAttributes {
 	return os.ToImageAttributesProto(tenantOrg)
 }
 
@@ -530,7 +530,7 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 // been Validated (Validate + ValidateAndSetUserData) and that the
 // handler has confirmed the OS is image-typed before this is called;
 // `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
-func (osur *APIOperatingSystemUpdateRequest) ToProto(uos *cdbm.OperatingSystem, tenantOrg string) *cwssaws.OsImageAttributes {
+func (osur *APIOperatingSystemUpdateRequest) ToProto(uos *cdbm.OperatingSystem, tenantOrg string) *corev1.OsImageAttributes {
 	return uos.ToImageAttributesProto(tenantOrg)
 }
 

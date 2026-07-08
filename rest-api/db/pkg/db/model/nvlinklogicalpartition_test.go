@@ -12,7 +12,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,11 +62,11 @@ func TestNVLinkLogicalPartition_FromProto(t *testing.T) {
 	t.Run("populates from proto metadata", func(t *testing.T) {
 		id := uuid.New()
 		nvllp := &NVLinkLogicalPartition{ID: uuid.New()}
-		nvllp.FromProto(&cwssaws.NVLinkLogicalPartition{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: id.String()},
-			Config: &cwssaws.NVLinkLogicalPartitionConfig{
+		nvllp.FromProto(&corev1.NVLinkLogicalPartition{
+			Id: &corev1.NVLinkLogicalPartitionId{Value: id.String()},
+			Config: &corev1.NVLinkLogicalPartitionConfig{
 				TenantOrganizationId: "org-1",
-				Metadata:             &cwssaws.Metadata{Name: "nvllp-a", Description: "primary"},
+				Metadata:             &corev1.Metadata{Name: "nvllp-a", Description: "primary"},
 			},
 		})
 		assert.Equal(t, id, nvllp.ID)
@@ -79,9 +79,9 @@ func TestNVLinkLogicalPartition_FromProto(t *testing.T) {
 	t.Run("clears Description when proto omits it", func(t *testing.T) {
 		desc := "existing"
 		nvllp := &NVLinkLogicalPartition{ID: uuid.New(), Name: "n", Description: &desc}
-		nvllp.FromProto(&cwssaws.NVLinkLogicalPartition{
-			Config: &cwssaws.NVLinkLogicalPartitionConfig{
-				Metadata: &cwssaws.Metadata{Name: "n"},
+		nvllp.FromProto(&corev1.NVLinkLogicalPartition{
+			Config: &corev1.NVLinkLogicalPartitionConfig{
+				Metadata: &corev1.Metadata{Name: "n"},
 			},
 		})
 		assert.Nil(t, nvllp.Description)
@@ -90,8 +90,8 @@ func TestNVLinkLogicalPartition_FromProto(t *testing.T) {
 	t.Run("preserves ID when proto Id is unparseable", func(t *testing.T) {
 		id := uuid.New()
 		nvllp := &NVLinkLogicalPartition{ID: id}
-		nvllp.FromProto(&cwssaws.NVLinkLogicalPartition{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: "not-a-uuid"},
+		nvllp.FromProto(&corev1.NVLinkLogicalPartition{
+			Id: &corev1.NVLinkLogicalPartitionId{Value: "not-a-uuid"},
 		})
 		assert.Equal(t, id, nvllp.ID)
 	})

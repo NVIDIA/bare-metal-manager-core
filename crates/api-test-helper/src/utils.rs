@@ -139,7 +139,15 @@ impl IntegrationTestEnvironment {
             credential_config,
             db_url,
             db_pool,
-            metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?, // unique to each test
+            metrics: {
+                let metrics =
+                    metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?; // unique to each test
+                // Counts are process-wide; registering here puts
+                // carbide_log_events_total on the in-process API's /metrics
+                // (and, via the catalogue regeneration, in core_metrics.md).
+                carbide_instrument::log_events::register(&metrics.meter);
+                metrics
+            },
             _vault_handle: Arc::new(vault),
         }))
     }

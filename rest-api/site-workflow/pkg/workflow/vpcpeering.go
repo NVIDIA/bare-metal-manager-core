@@ -6,14 +6,14 @@ package workflow
 import (
 	"time"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
-func CreateVpcPeering(ctx workflow.Context, request *cwssaws.VpcPeeringCreationRequest) error {
+func CreateVpcPeering(ctx workflow.Context, request *corev1.VpcPeeringCreationRequest) error {
 	logger := log.With().Str("Workflow", "CreateVpcPeering").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -50,7 +50,7 @@ func CreateVpcPeering(ctx workflow.Context, request *cwssaws.VpcPeeringCreationR
 }
 
 // DeleteVpcPeering is a workflow to delete a VPC Peering using DeleteVpcPeeringOnSite activity
-func DeleteVpcPeering(ctx workflow.Context, request *cwssaws.VpcPeeringDeletionRequest) error {
+func DeleteVpcPeering(ctx workflow.Context, request *corev1.VpcPeeringDeletionRequest) error {
 	logger := log.With().Str("Workflow", "DeleteVpcPeering").Logger()
 
 	logger.Info().Msg("Starting workflow")

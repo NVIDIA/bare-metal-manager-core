@@ -11,7 +11,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
@@ -23,6 +22,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/firmwarecomponents"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -99,12 +99,12 @@ func (m *Manager) Descriptor() cmcatalog.Descriptor {
 	return Descriptor()
 }
 
-func powerShelfIDsProto(ids []string) *pb.PowerShelfIdList {
-	pbIDs := make([]*pb.PowerShelfId, len(ids))
+func powerShelfIDsProto(ids []string) *corev1.PowerShelfIdList {
+	pbIDs := make([]*corev1.PowerShelfId, len(ids))
 	for i, id := range ids {
-		pbIDs[i] = &pb.PowerShelfId{Id: id}
+		pbIDs[i] = &corev1.PowerShelfId{Id: id}
 	}
-	return &pb.PowerShelfIdList{Ids: pbIDs}
+	return &corev1.PowerShelfIdList{Ids: pbIDs}
 }
 
 // ensureRackOperable is the per-Manager policy gate for disruptive
@@ -215,24 +215,24 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("refused: %w", err)
 	}
 
-	var action pb.SystemPowerControl
+	var action corev1.SystemPowerControl
 	switch info.Operation {
 	case operations.PowerOperationPowerOn, operations.PowerOperationForcePowerOn:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_ON
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_ON
 	case operations.PowerOperationPowerOff:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_SHUTDOWN
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_SHUTDOWN
 	case operations.PowerOperationForcePowerOff:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_OFF
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_OFF
 	case operations.PowerOperationRestart:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_RESTART
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_RESTART
 	case operations.PowerOperationForceRestart:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_RESTART
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_RESTART
 	default:
 		return fmt.Errorf("unsupported power operation for PowerShelf: %v", info.Operation)
 	}
 
-	req := &pb.ComponentPowerControlRequest{
-		Target: &pb.ComponentPowerControlRequest_PowerShelfIds{
+	req := &corev1.ComponentPowerControlRequest{
+		Target: &corev1.ComponentPowerControlRequest_PowerShelfIds{
 			PowerShelfIds: powerShelfIDsProto(target.ComponentIDs),
 		},
 		Action:                action,
@@ -245,7 +245,7 @@ func (m *Manager) PowerControl(
 	}
 
 	for _, r := range resp.GetResults() {
-		if r.GetStatus() != pb.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
+		if r.GetStatus() != corev1.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
 			return fmt.Errorf("power control failed for %s: %s", r.GetComponentId(), r.GetError())
 		}
 	}
@@ -263,8 +263,8 @@ func (m *Manager) GetPowerStatus(
 		return nil, fmt.Errorf("target is invalid: %w", err)
 	}
 
-	req := &pb.GetComponentInventoryRequest{
-		Target: &pb.GetComponentInventoryRequest_PowerShelfIds{
+	req := &corev1.GetComponentInventoryRequest{
+		Target: &corev1.GetComponentInventoryRequest_PowerShelfIds{
 			PowerShelfIds: powerShelfIDsProto(target.ComponentIDs),
 		},
 	}
@@ -316,12 +316,12 @@ func (m *Manager) FirmwareControl(
 		// Preserve historical behavior: when the caller does not specify a
 		// subset, only PMC is updated. Once the component manager supports
 		// "update everything in the bundle" semantics we can drop this.
-		subComponents = []pb.PowerShelfComponent{pb.PowerShelfComponent_POWER_SHELF_COMPONENT_PMC}
+		subComponents = []corev1.PowerShelfComponent{corev1.PowerShelfComponent_POWER_SHELF_COMPONENT_PMC}
 	}
 
-	req := &pb.UpdateComponentFirmwareRequest{
-		Target: &pb.UpdateComponentFirmwareRequest_PowerShelves{
-			PowerShelves: &pb.UpdatePowerShelfFirmwareTarget{
+	req := &corev1.UpdateComponentFirmwareRequest{
+		Target: &corev1.UpdateComponentFirmwareRequest_PowerShelves{
+			PowerShelves: &corev1.UpdatePowerShelfFirmwareTarget{
 				PowerShelfIds: powerShelfIDsProto(target.ComponentIDs),
 				Components:    subComponents,
 			},
@@ -336,7 +336,7 @@ func (m *Manager) FirmwareControl(
 	}
 
 	for _, r := range resp.GetResults() {
-		if r.GetStatus() != pb.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
+		if r.GetStatus() != corev1.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
 			return fmt.Errorf("firmware update failed for %s: %s", r.GetComponentId(), r.GetError())
 		}
 	}
@@ -360,8 +360,8 @@ func (m *Manager) GetFirmwareStatus(
 		return nil, fmt.Errorf("target is invalid: %w", err)
 	}
 
-	req := &pb.GetComponentFirmwareStatusRequest{
-		Target: &pb.GetComponentFirmwareStatusRequest_PowerShelfIds{
+	req := &corev1.GetComponentFirmwareStatusRequest{
+		Target: &corev1.GetComponentFirmwareStatusRequest_PowerShelfIds{
 			PowerShelfIds: powerShelfIDsProto(target.ComponentIDs),
 		},
 	}

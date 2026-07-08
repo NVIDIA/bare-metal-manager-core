@@ -18,6 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use ::rpc::forge as rpc;
 use async_trait::async_trait;
@@ -60,6 +61,9 @@ const CONTAINERD_PROXY_FILE: &str = "/etc/systemd/system/containerd@mgmt.service
 const OTEL_CONTRIB_DPU_EXT_PATH: &str = "/etc/otelcol-contrib/config-fragments";
 const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
 
+// For checking service container startup timeout
+const KUBERNETES_POD_STARTUP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
 /// Handler for KUBERNETES_POD extension services
 #[derive(Default)]
 pub struct KubernetesPodServicesHandler {
@@ -73,6 +77,10 @@ pub struct KubernetesPodServicesHandler {
 
     /// Whether containerd SOCKS proxy has been configured.
     pub socks_proxy_configured: bool,
+
+    /// When each service first entered its current continuous container-pending period.
+    /// Used for checking service containers startup timeout.
+    container_pending_since: HashMap<(String, u64), Instant>,
 }
 
 impl KubernetesPodServicesHandler {
@@ -493,6 +501,78 @@ impl KubernetesPodServicesHandler {
             })
     }
 
+    /// Return the names of containers declared by a pod spec.
+    fn get_expected_container_names(pod_spec: &str) -> Result<HashSet<String>> {
+        let spec = serde_yaml::from_str::<Value>(pod_spec).wrap_err("Failed to parse pod spec")?;
+        let containers = spec
+            .get("spec")
+            .and_then(|v| v.get("containers"))
+            .and_then(Value::as_sequence)
+            .ok_or_else(|| eyre::eyre!("Pod spec missing spec.containers"))?;
+
+        containers
+            .iter()
+            .map(|container| {
+                container
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .ok_or_else(|| eyre::eyre!("Pod spec container missing name"))
+            })
+            .collect()
+    }
+
+    /// Report a startup timeout when desired workload containers remain missing, CREATED, or
+    /// UNKNOWN in CRI.
+    /// The timer covers one continuous pending period and resets after the containers start.
+    fn check_container_timeout_error(
+        &mut self,
+        service: &ServiceConfig,
+        observed_container_states: &HashMap<String, String>,
+    ) -> Result<Option<String>> {
+        let service_key = (service.id.to_string(), service.version.version_nr());
+
+        if service.removed.is_some() {
+            self.container_pending_since.remove(&service_key);
+            return Ok(None);
+        }
+
+        let expected_container_names = Self::get_expected_container_names(&service.data)?;
+        // Missing containers and containers that have not reached a known started state are pending.
+        let mut pending_container_names: Vec<_> = expected_container_names
+            .into_iter()
+            .filter(|name| {
+                observed_container_states
+                    .get(name)
+                    .is_none_or(|state| matches!(state.as_str(), "CREATED" | "UNKNOWN"))
+            })
+            .collect();
+
+        // All containers are up, we can remove this service from timeout check list
+        if pending_container_names.is_empty() {
+            self.container_pending_since.remove(&service_key);
+            return Ok(None);
+        }
+
+        let time_elapsed = self
+            .container_pending_since
+            .entry(service_key)
+            .or_insert_with(Instant::now)
+            .elapsed();
+        if time_elapsed < KUBERNETES_POD_STARTUP_TIMEOUT {
+            return Ok(None);
+        }
+
+        pending_container_names.sort();
+        let timeout_seconds = KUBERNETES_POD_STARTUP_TIMEOUT.as_secs();
+        Ok(Some(format!(
+            "Timed out after {} minutes {} seconds waiting for containers to start: {}",
+            timeout_seconds / 60,
+            timeout_seconds % 60,
+            pending_container_names.join(", ")
+        )))
+    }
+
     /// Inspect the pod sandbox status from the crictl output
     async fn get_pod_sandbox_status(&self, pod_id: &str) -> Result<String> {
         let pod = Self::crictl_output(&["inspectp", pod_id])
@@ -517,18 +597,25 @@ impl KubernetesPodServicesHandler {
         pod_state: &str,
         containers_with_issues: &[String],
         service_error: Option<&str>,
+        timeout_error: Option<&str>,
     ) -> String {
-        let mut parts = vec![format!("pod state: {}", pod_state)];
+        let mut parts = vec![];
+
+        parts.push(format!("Pod {pod_state}"));
+
+        if let Some(service_error) = service_error {
+            parts.push(format!("Deployment failed: {service_error}"));
+        }
+
+        if let Some(timeout_error) = timeout_error {
+            parts.push(format!("Deployment timeout: {timeout_error}"));
+        }
 
         if !containers_with_issues.is_empty() {
             parts.push(format!(
-                "containers with issues: {}",
+                "Containers with issues: {}",
                 containers_with_issues.join(", ")
             ));
-        }
-
-        if let Some(service_error) = service_error {
-            parts.push(format!("deployment error: {}", service_error));
         }
 
         parts.join("; ")
@@ -536,7 +623,7 @@ impl KubernetesPodServicesHandler {
 
     /// Determine the overall status of the pod from crictl
     async fn get_pod_status(
-        &self,
+        &mut self,
         service: &ServiceConfig,
     ) -> Result<rpc::DpuExtensionServiceStatusObservation> {
         let expected_deploy = service.removed.is_none();
@@ -545,11 +632,20 @@ impl KubernetesPodServicesHandler {
         let pod_id = match self.find_pod_id(service).await {
             Ok(Some(pod_id)) => pod_id,
             Ok(None) => {
-                let state_enum = match expected_deploy {
-                    true => rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending,
-                    false => {
-                        rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
-                    }
+                let timeout_error = self.check_container_timeout_error(service, &HashMap::new())?;
+                let (state_enum, message) = match (expected_deploy, timeout_error) {
+                    (true, Some(timeout_error)) => (
+                        rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError,
+                        format!("{timeout_error}; no pod sandbox was found"),
+                    ),
+                    (true, None) => (
+                        rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending,
+                        "No pod sandbox found yet".to_string(),
+                    ),
+                    (false, _) => (
+                        rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated,
+                        "No pod sandbox found".to_string(),
+                    ),
                 };
                 return Ok(rpc::DpuExtensionServiceStatusObservation {
                     service_id: service.id.to_string(),
@@ -559,7 +655,7 @@ impl KubernetesPodServicesHandler {
                     removed: service.removed.clone(),
                     state: state_enum as i32,
                     components: Vec::new(),
-                    message: "No pod sandbox found".to_string(),
+                    message,
                 });
             }
             Err(e) => {
@@ -572,7 +668,7 @@ impl KubernetesPodServicesHandler {
                     state: rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError
                         as i32,
                     components: Vec::new(),
-                    message: format!("Failed to find pod ID: {}", e),
+                    message: format!("Failed to find the extension service pod sandbox: {e}"),
                 });
             }
         };
@@ -605,6 +701,7 @@ impl KubernetesPodServicesHandler {
             .containers;
         let mut components = Vec::with_capacity(containers.len());
         let mut container_statuses = Vec::with_capacity(containers.len());
+        let mut observed_container_states = HashMap::with_capacity(containers.len());
 
         // For displaying the error message and status aggregation
         let mut has_exited_with_error = false;
@@ -614,6 +711,7 @@ impl KubernetesPodServicesHandler {
             let container_name = container.metadata.name;
 
             let container_state = self.parse_state(container.state).to_string();
+            observed_container_states.insert(container_name.clone(), container_state.clone());
             container_statuses.push(container_state.to_string());
             if container_state == "EXITED" {
                 match self.get_container_exit_code(&container.id).await {
@@ -665,20 +763,30 @@ impl KubernetesPodServicesHandler {
         }
 
         // Aggregate overall state
-        let state_enum = self.aggregate_status(
+        let mut state_enum = self.aggregate_status(
             &pod_state,
             &container_statuses,
             has_exited_with_error,
             expected_deploy,
         );
 
+        let timeout_error =
+            self.check_container_timeout_error(service, &observed_container_states)?;
+        if timeout_error.is_some() {
+            state_enum = rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError;
+        }
+
         // Build the error message
         let service_error = self
             .service_errors
             .get(&(service.id.to_string(), service.version.version_nr()))
             .map(|s| s.as_str());
-        let err_message =
-            self.build_service_error_message(&pod_state, &containers_with_issues, service_error);
+        let err_message = self.build_service_error_message(
+            &pod_state,
+            &containers_with_issues,
+            service_error,
+            timeout_error.as_deref(),
+        );
 
         Ok(rpc::DpuExtensionServiceStatusObservation {
             service_id: service.id.to_string(),
@@ -1197,6 +1305,13 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
         // Clear any previous errors since we are starting a new update
         self.service_errors.clear();
 
+        let service_keys: HashSet<_> = services
+            .iter()
+            .map(|service| (service.id.to_string(), service.version.version_nr()))
+            .collect();
+        self.container_pending_since
+            .retain(|service, _| service_keys.contains(service));
+
         let active_services: Vec<ServiceConfig> = services
             .iter()
             .filter(|s| s.removed.is_none())
@@ -1239,7 +1354,7 @@ impl ExtensionServiceHandler for KubernetesPodServicesHandler {
     }
 
     async fn get_service_status(
-        &self,
+        &mut self,
         service: &ServiceConfig,
     ) -> Result<rpc::DpuExtensionServiceStatusObservation> {
         let res = self.get_pod_status(service).await;
@@ -1433,6 +1548,100 @@ spec:
             handler.parse_state(container::ContainerState::Unknown),
             "UNKNOWN"
         );
+    }
+
+    fn test_service_config() -> ServiceConfig {
+        ServiceConfig {
+            id: Uuid::nil(),
+            name: "test-service".to_string(),
+            service_type: rpc::DpuExtensionServiceType::KubernetesPod,
+            version: config_version::ConfigVersion::initial(),
+            removed: None,
+            data: r#"apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  containers:
+  - name: first
+    image: first:latest
+  - name: second
+    image: second:latest
+"#
+            .to_string(),
+            credential: None,
+            observability: None,
+        }
+    }
+
+    #[test]
+    fn test_k8s_pod_handler_container_startup_timeout() {
+        let mut handler = KubernetesPodServicesHandler::default();
+        let service = test_service_config();
+        let service_key = (service.id.to_string(), service.version.version_nr());
+
+        // Missing containers initially remain pending and start the timer.
+        assert_eq!(
+            handler
+                .check_container_timeout_error(&service, &HashMap::new())
+                .unwrap(),
+            None
+        );
+
+        // Make the timer expired for the service
+        handler.container_pending_since.insert(
+            service_key.clone(),
+            Instant::now() - KUBERNETES_POD_STARTUP_TIMEOUT,
+        );
+        let timeout = handler
+            .check_container_timeout_error(&service, &HashMap::new())
+            .unwrap()
+            .unwrap();
+        assert!(timeout.contains("first, second"));
+
+        // A CREATED container is still pending and must also time out.
+        let observed = HashMap::from([
+            ("first".to_string(), "CREATED".to_string()),
+            ("second".to_string(), "RUNNING".to_string()),
+        ]);
+        let timeout = handler
+            .check_container_timeout_error(&service, &observed)
+            .unwrap()
+            .unwrap();
+        assert!(timeout.contains(": first"));
+
+        // An UNKNOWN container has not confirmed startup and must also time out.
+        let observed = HashMap::from([
+            ("first".to_string(), "UNKNOWN".to_string()),
+            ("second".to_string(), "RUNNING".to_string()),
+        ]);
+        let timeout = handler
+            .check_container_timeout_error(&service, &observed)
+            .unwrap()
+            .unwrap();
+        assert!(timeout.contains(": first"));
+
+        // Once all containers have started, the pending timer is cleared.
+        let observed = HashMap::from([
+            ("first".to_string(), "RUNNING".to_string()),
+            ("second".to_string(), "EXITED".to_string()),
+        ]);
+        assert_eq!(
+            handler
+                .check_container_timeout_error(&service, &observed)
+                .unwrap(),
+            None
+        );
+        assert!(!handler.container_pending_since.contains_key(&service_key));
+
+        // A later missing-container episode receives a fresh grace period.
+        assert_eq!(
+            handler
+                .check_container_timeout_error(&service, &HashMap::new())
+                .unwrap(),
+            None
+        );
+        assert!(handler.container_pending_since.contains_key(&service_key));
     }
 
     #[test]

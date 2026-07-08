@@ -16,7 +16,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestAPIDpuExtensionServiceCreateRequest_Validate(t *testing.T) {
@@ -671,12 +671,12 @@ func TestNewAPIDpuExtensionService(t *testing.T) {
 			HasCredentials: true,
 			Created:        time.Now(),
 			Observability: &cdbm.DpuExtensionServiceObservability{
-				DpuExtensionServiceObservability: &cwssaws.DpuExtensionServiceObservability{
-					Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+				DpuExtensionServiceObservability: &corev1.DpuExtensionServiceObservability{
+					Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 						{
 							Name: &obsName,
-							Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Prometheus{
-								Prometheus: &cwssaws.DpuExtensionServiceObservabilityConfigPrometheus{
+							Config: &corev1.DpuExtensionServiceObservabilityConfig_Prometheus{
+								Prometheus: &corev1.DpuExtensionServiceObservabilityConfigPrometheus{
 									ScrapeIntervalSeconds: 30,
 									Endpoint:              "busybox:9090",
 								},
@@ -748,7 +748,7 @@ func TestAPIDpuExtensionServiceCredentials_ToProto(t *testing.T) {
 		got := c.ToProto()
 		require.NotNil(t, got)
 		assert.Equal(t, "https://reg/", got.RegistryUrl)
-		up, ok := got.Type.(*cwssaws.DpuExtensionServiceCredential_UsernamePassword)
+		up, ok := got.Type.(*corev1.DpuExtensionServiceCredential_UsernamePassword)
 		require.True(t, ok)
 		require.NotNil(t, up.UsernamePassword)
 		assert.Equal(t, "u", up.UsernamePassword.Username)
@@ -787,7 +787,7 @@ func TestAPIDpuExtensionServiceCreateRequest_ToProto(t *testing.T) {
 		assert.Equal(t, &desc, req.Description)
 		assert.Equal(t, "org-1", req.TenantOrganizationId)
 		assert.Equal(t, "kind: Pod", req.Data)
-		assert.Equal(t, cwssaws.DpuExtensionServiceType_KUBERNETES_POD, req.ServiceType)
+		assert.Equal(t, corev1.DpuExtensionServiceType_KUBERNETES_POD, req.ServiceType)
 		assert.NotNil(t, req.Credential)
 	})
 	t.Run("nil Credentials and Observability yield nil proto fields", func(t *testing.T) {

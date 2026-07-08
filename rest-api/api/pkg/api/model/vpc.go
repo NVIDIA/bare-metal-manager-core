@@ -12,7 +12,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 	"github.com/google/uuid"
@@ -169,7 +169,7 @@ func (ascr APIVpcCreateRequest) Validate() error {
 // cannot see (e.g. resolved network-virtualization against site
 // config). Specifically, the VNI cast is safe because Validate
 // bounds `Vni` to `[0, MaxUint16]`.
-func (ascr APIVpcCreateRequest) ToProto(vpc *cdbm.Vpc) *cwssaws.VpcCreationRequest {
+func (ascr APIVpcCreateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcCreationRequest {
 	var vni *uint32
 	if ascr.Vni != nil {
 		v := uint32(*ascr.Vni)
@@ -180,7 +180,7 @@ func (ascr APIVpcCreateRequest) ToProto(vpc *cdbm.Vpc) *cwssaws.VpcCreationReque
 		routingProfile = vpc.RoutingProfile
 	}
 	vpcProto := vpc.ToProto()
-	return &cwssaws.VpcCreationRequest{
+	return &corev1.VpcCreationRequest{
 		Id:                              vpcProto.Id,
 		Name:                            vpcProto.Name,
 		TenantOrganizationId:            vpcProto.TenantOrganizationId,
@@ -243,9 +243,9 @@ func (asur APIVpcUpdateRequest) Validate() error {
 // contract tied to persisted state: cleared associations are omitted
 // instead of serialized as invalid empty IDs, and non-empty updates come
 // from the validated DB value.
-func (asur APIVpcUpdateRequest) ToProto(vpc *cdbm.Vpc) *cwssaws.VpcUpdateRequest {
+func (asur APIVpcUpdateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcUpdateRequest {
 	vpcProto := vpc.ToProto()
-	return &cwssaws.VpcUpdateRequest{
+	return &corev1.VpcUpdateRequest{
 		Id:                              vpcProto.Id,
 		NetworkSecurityGroupId:          vpcProto.NetworkSecurityGroupId,
 		DefaultNvlinkLogicalPartitionId: vpcProto.DefaultNvlinkLogicalPartitionId,

@@ -381,6 +381,8 @@ pub async fn setup_and_run(
         nvue_context,
         dhcp_interface_translation_mode,
         current_network_version: CurrentNetworkVersion::default(),
+        last_ovs_restart_version: None,
+        ovs_restart_retry_backoff: None,
     };
 
     main_loop.run().await
@@ -415,6 +417,13 @@ struct MainLoop {
     nvue_context: Option<NvueClientContext>,
     dhcp_interface_translation_mode: Option<InterfaceTranslationMode>,
     current_network_version: CurrentNetworkVersion,
+    last_ovs_restart_version: Option<String>,
+    ovs_restart_retry_backoff: Option<OvsRestartRetryBackoff>,
+}
+
+struct OvsRestartRetryBackoff {
+    managed_host_config_version: String,
+    retry_after: Instant,
 }
 
 struct IterationResult {
@@ -612,6 +621,75 @@ impl MainLoop {
                 _ = tokio::time::sleep(result.loop_period) => {}
             }
         }
+    }
+
+    async fn restart_ovs_after_admin_network_change_if_needed(
+        &mut self,
+        conf: &ManagedHostNetworkConfigResponse,
+        status_out: &mut rpc::DpuNetworkStatus,
+    ) -> bool {
+        if !conf.use_admin_network_changed.unwrap_or_default() {
+            return true;
+        }
+
+        let now = Instant::now();
+        let mut can_ack_network_config = true;
+        if !self.options.agent_platform_type.is_dpu_os() {
+            tracing::info!(
+                agent_platform_type = ?self.options.agent_platform_type,
+                managed_host_config_version =
+                    conf.managed_host_config_version.as_str(),
+                "Skip OVS restart because agent is not running on DPU OS"
+            );
+        } else if self.last_ovs_restart_version.as_deref()
+            == Some(conf.managed_host_config_version.as_str())
+        {
+            tracing::info!(
+                managed_host_config_version = conf.managed_host_config_version.as_str(),
+                "Skip OVS restart because this network config version already restarted OVS"
+            );
+        } else if self
+            .ovs_restart_retry_backoff
+            .as_ref()
+            .is_some_and(|backoff| {
+                backoff.managed_host_config_version == conf.managed_host_config_version
+                    && now < backoff.retry_after
+            })
+        {
+            tracing::warn!(
+                managed_host_config_version = conf.managed_host_config_version.as_str(),
+                "Skip OVS restart retry because backoff is still active"
+            );
+            status_out.network_config_error =
+                Some("waiting to retry OVS restart after prior failure".to_string());
+            can_ack_network_config = false;
+        } else {
+            tracing::info!(
+                managed_host_config_version = conf.managed_host_config_version.as_str(),
+                "Restart OVS because use_admin_network_changed is set to true"
+            );
+            if let Err(err) = crate::ovs::restart_ovs()
+                .await
+                .wrap_err("restarting OVS after admin network change")
+            {
+                tracing::error!(
+                    error = format!("{err:#}"),
+                    "Restarting OVS after admin network change"
+                );
+                status_out.network_config_error = Some(err.to_string());
+                self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
+                    managed_host_config_version: conf.managed_host_config_version.clone(),
+                    retry_after: Instant::now() + OVS_RESTART_RETRY_BACKOFF,
+                });
+                can_ack_network_config = false;
+            } else {
+                self.last_ovs_restart_version = Some(conf.managed_host_config_version.clone());
+                self.ovs_restart_retry_backoff = None;
+            }
+        }
+        tracing::info!("Done with Restart OVS can_ack_network_config is {can_ack_network_config}");
+
+        can_ack_network_config
     }
 
     /// Runs a single iteration of the main loop
@@ -848,69 +926,23 @@ impl MainLoop {
                                 tracing::error!(error = %err, "Error reading/setting MTU for p0 or p1");
                             }
 
-                            // Updating network config succeeded.
-                            // Tell the server about the applied version.
-                            status_out.network_config_version =
-                                Some(conf.managed_host_config_version.clone());
-                            status_out.instance_id = conf.instance_id;
-                            // On the admin network we don't have to report the instance network config version
-                            if !conf.instance_network_config_version.is_empty() {
-                                status_out.instance_network_config_version = Some(
-                                    match conf
-                                        .instance_network_config_version
-                                        .parse::<config_version::ConfigVersion>()
-                                    {
-                                        Ok(managed_host_instance_network_config_version) => {
-                                            match instance_data
-                                                .as_ref()
-                                                .map(|instance| instance.network_config_version)
-                                            {
-                                                Some(instance_metadata_network_config_version) => {
-                                                    // Report the older version of the versions received via 2 path
-                                                    // That makes sure we don't report progress if we haven't received the newest version
-                                                    // via both path.
-                                                    let reported_instance_network_config_version =
-                                                    managed_host_instance_network_config_version
-                                                        .min_by_timestamp(
-                                                        &instance_metadata_network_config_version,
-                                                    );
-                                                    if instance_metadata_network_config_version
-                                                    != managed_host_instance_network_config_version
-                                                {
-                                                    tracing::warn!("Different instance network config version received. GetManagedHostNetworkConfig: {}, FindInstanceByMachineId: {}, Reporting: {}",
-                                                        managed_host_instance_network_config_version,
-                                                    instance_metadata_network_config_version,
-                                                    reported_instance_network_config_version,
-                                                );
-                                                }
-                                                    reported_instance_network_config_version
-                                                        .version_string()
-                                                }
-                                                None => {
-                                                    // TODO: Maybe we want to wait until both receive path provide the same data?
-                                                    tracing::warn!(
-                                                        "Received instance_network_config_version via GetManagedHostNetworkConfig, but not via FindInstanceByMachineId. Acknowledging received version"
-                                                    );
-                                                    conf.instance_network_config_version.clone()
-                                                }
-                                            }
-                                        }
-                                        Err(err) => {
-                                            // We can't compare the 2 received versions since the first is not parseable
-                                            // This isn't really supposed to happen.
-                                            // However to avoid breaking the system in that case,
-                                            // we still report the version received via GetManagedHostNetworkConfig,
-                                            // because that is also what we did in the past.
-                                            tracing::error!(error = %err, "Failed to parse instance_network_config_version received via GetManagedHostNetworkConfig");
-                                            conf.instance_network_config_version.clone()
-                                        }
-                                    },
+                            let can_ack_network_config = self
+                                .restart_ovs_after_admin_network_change_if_needed(
+                                    &conf,
+                                    &mut status_out,
+                                )
+                                .await;
+
+                            if can_ack_network_config {
+                                (
+                                    current_host_network_config_version,
+                                    current_instance_network_config_version,
+                                ) = ack_network_config_update(
+                                    &conf,
+                                    instance_data.as_deref(),
+                                    &mut status_out,
                                 );
                             }
-                            current_host_network_config_version =
-                                status_out.network_config_version.clone();
-                            current_instance_network_config_version =
-                                status_out.instance_network_config_version.clone();
 
                             match ethernet_virtualization::interfaces(
                                 &conf,
@@ -1211,6 +1243,71 @@ fn effective_virtualization_type(
     Ok(virtualization_type)
 }
 
+fn ack_network_config_update(
+    conf: &ManagedHostNetworkConfigResponse,
+    instance_data: Option<&periodic_config_fetcher::InstanceMetadata>,
+    status_out: &mut rpc::DpuNetworkStatus,
+) -> (Option<String>, Option<String>) {
+    // Updating network config succeeded.
+    // Tell the server about the applied version.
+    status_out.network_config_version = Some(conf.managed_host_config_version.clone());
+    status_out.instance_id = conf.instance_id;
+    // On the admin network we don't have to report the instance network config version
+    if !conf.instance_network_config_version.is_empty() {
+        status_out.instance_network_config_version = Some(
+            match conf
+                .instance_network_config_version
+                .parse::<config_version::ConfigVersion>()
+            {
+                Ok(managed_host_instance_network_config_version) => {
+                    match instance_data.map(|instance| instance.network_config_version) {
+                        Some(instance_metadata_network_config_version) => {
+                            // Report the older version of the versions received via 2 path
+                            // That makes sure we don't report progress if we haven't received the newest version
+                            // via both path.
+                            let reported_instance_network_config_version =
+                                managed_host_instance_network_config_version
+                                    .min_by_timestamp(&instance_metadata_network_config_version);
+                            if instance_metadata_network_config_version
+                                != managed_host_instance_network_config_version
+                            {
+                                tracing::warn!(
+                                    "Different instance network config version received. GetManagedHostNetworkConfig: {}, FindInstanceByMachineId: {}, Reporting: {}",
+                                    managed_host_instance_network_config_version,
+                                    instance_metadata_network_config_version,
+                                    reported_instance_network_config_version,
+                                );
+                            }
+                            reported_instance_network_config_version.version_string()
+                        }
+                        None => {
+                            // TODO: Maybe we want to wait until both receive path provide the same data?
+                            tracing::warn!(
+                                "Received instance_network_config_version via GetManagedHostNetworkConfig, but not via FindInstanceByMachineId. Acknowledging received version"
+                            );
+                            conf.instance_network_config_version.clone()
+                        }
+                    }
+                }
+                Err(err) => {
+                    // We can't compare the 2 received versions since the first is not parseable
+                    // This isn't really supposed to happen.
+                    // However to avoid breaking the system in that case,
+                    // we still report the version received via GetManagedHostNetworkConfig,
+                    // because that is also what we did in the past.
+                    tracing::error!(error = %err, "Failed to parse instance_network_config_version received via GetManagedHostNetworkConfig");
+                    conf.instance_network_config_version.clone()
+                }
+            },
+        );
+    }
+
+    (
+        status_out.network_config_version.clone(),
+        status_out.instance_network_config_version.clone(),
+    )
+}
+
 // TODO(chet): We'll eventually want a documented IPv6 address we can
 // configure here for tenants to hit FMDS over IPv6.
 async fn plan_fmds_armos_routing(
@@ -1340,6 +1437,7 @@ async fn get_fabric_interfaces_data()
 }
 
 const ONE_SECOND: Duration = Duration::from_secs(1);
+const OVS_RESTART_RETRY_BACKOFF: Duration = Duration::from_secs(60);
 
 // Format a Duration for display
 fn dt(d: Duration) -> humantime::FormattedDuration {

@@ -12,11 +12,11 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // CreateOsImage is a workflow to create an OsImage using CreateOsImageOnSite activity
-func CreateOsImage(ctx workflow.Context, request *cwssaws.OsImageAttributes) error {
+func CreateOsImage(ctx workflow.Context, request *corev1.OsImageAttributes) error {
 	logger := log.With().Str("Workflow", "CreateOsImage").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -52,7 +52,7 @@ func CreateOsImage(ctx workflow.Context, request *cwssaws.OsImageAttributes) err
 }
 
 // UpdateOsImage is a workflow to update an OsImage using UpdateOsImageOnSite activity
-func UpdateOsImage(ctx workflow.Context, request *cwssaws.OsImageAttributes) error {
+func UpdateOsImage(ctx workflow.Context, request *corev1.OsImageAttributes) error {
 	logger := log.With().Str("Workflow", "UpdateOsImage").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -88,7 +88,7 @@ func UpdateOsImage(ctx workflow.Context, request *cwssaws.OsImageAttributes) err
 }
 
 // DeleteOsImage is a workflow to delete an OsImage using DeleteOsImageOnSite activity
-func DeleteOsImage(ctx workflow.Context, request *cwssaws.DeleteOsImageRequest) error {
+func DeleteOsImage(ctx workflow.Context, request *corev1.DeleteOsImageRequest) error {
 	logger := log.With().Str("Workflow", "DeleteOsImage").Logger()
 
 	logger.Info().Msg("Starting workflow")

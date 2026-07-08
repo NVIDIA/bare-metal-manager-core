@@ -6,7 +6,7 @@ package model
 import (
 	"fmt"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -53,26 +53,26 @@ func (r *APIMachinePowerControlRequest) Validate() error {
 	)
 }
 
-func (r *APIMachinePowerControlRequest) ToProto(machineID string) *cwssaws.AdminPowerControlRequest {
-	return &cwssaws.AdminPowerControlRequest{
+func (r *APIMachinePowerControlRequest) ToProto(machineID string) *corev1.AdminPowerControlRequest {
+	return &corev1.AdminPowerControlRequest{
 		MachineId: &machineID,
 		Action:    r.Action.ToProto(),
 	}
 }
 
-func (action MachinePowerAction) ToProto() cwssaws.AdminPowerControlRequest_SystemPowerControl {
+func (action MachinePowerAction) ToProto() corev1.AdminPowerControlRequest_SystemPowerControl {
 	switch action {
 	case MachinePowerActionGracefulShutdown:
-		return cwssaws.AdminPowerControlRequest_GracefulShutdown
+		return corev1.AdminPowerControlRequest_GracefulShutdown
 	case MachinePowerActionForceOff:
-		return cwssaws.AdminPowerControlRequest_ForceOff
+		return corev1.AdminPowerControlRequest_ForceOff
 	case MachinePowerActionGracefulRestart:
-		return cwssaws.AdminPowerControlRequest_GracefulRestart
+		return corev1.AdminPowerControlRequest_GracefulRestart
 	case MachinePowerActionForceRestart:
-		return cwssaws.AdminPowerControlRequest_ForceRestart
+		return corev1.AdminPowerControlRequest_ForceRestart
 	case MachinePowerActionACPowercycle:
-		return cwssaws.AdminPowerControlRequest_ACPowercycle
+		return corev1.AdminPowerControlRequest_ACPowercycle
 	default:
-		return cwssaws.AdminPowerControlRequest_On
+		return corev1.AdminPowerControlRequest_On
 	}
 }

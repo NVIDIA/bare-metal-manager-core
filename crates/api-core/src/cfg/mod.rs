@@ -17,3 +17,9 @@
 
 pub mod command_line;
 pub mod file;
+pub mod provenance;
+
+/// The configuration reference document (`README.md`), embedded so the admin
+/// web UI can render per-field types, defaults, and descriptions for every
+/// option in [`file::CarbideConfig`].
+pub const CONFIG_REFERENCE_MD: &str = include_str!("README.md");
