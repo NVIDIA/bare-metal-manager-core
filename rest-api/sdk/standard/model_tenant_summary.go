@@ -26,7 +26,7 @@ type TenantSummary struct {
 	Org *string `json:"org,omitempty"`
 	// Display name of the org the Tenant belongs to
 	OrgDisplayName NullableString `json:"orgDisplayName,omitempty"`
-	// Features that are enabled/disabled for Tenant
+	// Deprecated summary; always reports targetedInstanceCreation false. Use Tenant Account siteCapabilities for the authoritative configuration.
 	Capabilities *TenantCapabilities `json:"capabilities,omitempty"`
 }
 

@@ -100,7 +100,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 
 	// Build test user and tenant
 	user := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{"test-org"}, []string{"ADMIN"})
-	tenant := util.TestBuildTenant(t, dbSession, "test-tenant", "test-org", nil, user)
+	tenant := util.TestBuildTenant(t, dbSession, "test-tenant", "test-org", user)
 
 	st := util.TestBuildSite(t, dbSession, ip, "test-site", cdbm.SiteStatusRegistered, nil, user)
 	st2 := util.TestBuildSite(t, dbSession, ip, "test-site-2", cdbm.SiteStatusRegistered, nil, user)

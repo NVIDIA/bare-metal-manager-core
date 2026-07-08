@@ -32,12 +32,25 @@ func init() {
 		`)
 		handleError(tx, err)
 
+		_, err = tx.Exec(`
+			UPDATE tenant_account ta
+			SET config = jsonb_set(COALESCE(ta.config, '{}'::jsonb), '{enableSshAccess}', 'true'::jsonb, true)
+			FROM tenant t
+			WHERE ta.tenant_id = t.id
+			  AND COALESCE(t.config->>'enableSshAccess', 'false') = 'true'
+			  AND COALESCE(ta.config->>'enableSshAccess', 'false') != 'true'
+		`)
+		handleError(tx, err)
+
+		_, err = tx.NewDropColumn().Model((*model.Tenant)(nil)).Column("config").Exec(ctx)
+		handleError(tx, err)
+
 		terr = tx.Commit()
 		if terr != nil {
 			handlePanic(terr, "failed to commit transaction")
 		}
 
-		fmt.Print(" [up migration] Added tenant_account.config and backfilled targetedInstanceCreation from tenant.config")
+		fmt.Print(" [up migration] Moved tenant capabilities to tenant_account.config and dropped tenant.config")
 		return nil
 	}, func(ctx context.Context, db *bun.DB) error {
 		fmt.Print(" [down migration] tenant_account.config")

@@ -182,9 +182,6 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant",
 		Org:  tenantOrg,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithCapability).Exec(ctx)
 	assert.Nil(t, err)
@@ -208,9 +205,6 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant-no-capability",
 		Org:  tenantOrgNoCapability,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: false,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithoutCapability).Exec(ctx)
 	assert.Nil(t, err)
@@ -221,9 +215,6 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant-no-account",
 		Org:  tenantOrgNoAccount,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithoutAccount).Exec(ctx)
 	assert.Nil(t, err)
@@ -466,9 +457,6 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant",
 		Org:  tenantOrg,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithCapability).Exec(ctx)
 	assert.Nil(t, err)
@@ -492,9 +480,6 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant-no-capability",
 		Org:  tenantOrgNoCapability,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: false,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithoutCapability).Exec(ctx)
 	assert.Nil(t, err)
@@ -505,9 +490,6 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant-no-account",
 		Org:  tenantOrgNoAccount,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithoutAccount).Exec(ctx)
 	assert.Nil(t, err)

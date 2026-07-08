@@ -528,9 +528,6 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		Name:           "privileged-tenant",
 		Org:            privilegedTenantOrg,
 		OrgDisplayName: cutil.GetPtr("Privileged Tenant Org"),
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 		CreatedBy: privilegedTenantUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(privilegedTenant).Exec(ctx)
@@ -547,6 +544,18 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 	assert.Nil(t, err)
 
 	privilegedTenantUser := createMockUser(privilegedTenantOrg, authz.TenantAdminRole)
+	_, err = dbSession.DB.NewInsert().Model(&cdbm.TenantAccount{
+		ID:                        uuid.New(),
+		AccountNumber:             common.GenerateAccountNumber(),
+		TenantID:                  &privilegedTenant.ID,
+		TenantOrg:                 privilegedTenantOrg,
+		InfrastructureProviderID:  infraProv.ID,
+		InfrastructureProviderOrg: org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                 privilegedTenantUserID,
+	}).Exec(ctx)
+	assert.Nil(t, err)
 
 	// Dual-role org: same org acts as both Infrastructure Provider and privileged Tenant
 	dualRoleOrg := "dual-role-org"
@@ -564,9 +573,6 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		Name:           "dual-role-tenant",
 		Org:            dualRoleOrg,
 		OrgDisplayName: cutil.GetPtr("Dual Role Org"),
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 		CreatedBy: dualRoleUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(dualRoleTenant).Exec(ctx)
@@ -611,6 +617,31 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		CreatedBy: dualRoleUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(dualRoleExternalTenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	_, err = dbSession.DB.NewInsert().Model(&cdbm.TenantAccount{
+		ID:                        uuid.New(),
+		AccountNumber:             common.GenerateAccountNumber(),
+		TenantID:                  &dualRoleTenant.ID,
+		TenantOrg:                 dualRoleOrg,
+		InfrastructureProviderID:  dualRoleIP.ID,
+		InfrastructureProviderOrg: dualRoleOrg,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                 dualRoleUserID,
+	}).Exec(ctx)
+	assert.Nil(t, err)
+	_, err = dbSession.DB.NewInsert().Model(&cdbm.TenantAccount{
+		ID:                        uuid.New(),
+		AccountNumber:             common.GenerateAccountNumber(),
+		TenantID:                  &dualRoleTenant.ID,
+		TenantOrg:                 dualRoleOrg,
+		InfrastructureProviderID:  unmanagedIP.ID,
+		InfrastructureProviderOrg: unmanagedIP.Org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                 dualRoleUserID,
+	}).Exec(ctx)
 	assert.Nil(t, err)
 
 	dualRoleEM, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
@@ -1751,9 +1782,6 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 		Name:           "test-tenant",
 		Org:            tenantOrg,
 		OrgDisplayName: cutil.GetPtr("Test Tenant"),
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenant).Exec(ctx)
 	assert.Nil(t, err)
@@ -1807,9 +1835,6 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 		Name:           "test-tenant-no-cap",
 		Org:            tenantOrg2,
 		OrgDisplayName: cutil.GetPtr("Test Tenant No Cap"),
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: false, // No capability
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenant2).Exec(ctx)
 	assert.Nil(t, err)

@@ -207,7 +207,12 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 	}
 
 	// Create response
-	apiInstance := model.NewAPITenant(tn)
+	hasTargetedInstanceCreation, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gcth.dbSession, tn)
+	if err != nil {
+		logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)
+	}
+	apiInstance := model.NewAPITenant(tn, hasTargetedInstanceCreation)
 
 	logger.Info().Msg("finishing API handler")
 

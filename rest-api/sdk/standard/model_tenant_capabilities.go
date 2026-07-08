@@ -20,9 +20,9 @@ import (
 // checks if the TenantCapabilities type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TenantCapabilities{}
 
-// TenantCapabilities TenantCapabilities defines the set of features enabled for Tenant
+// TenantCapabilities Deprecated tenant-wide capability summary. TargetedInstanceCreation is no longer stored on the Tenant entity; it is configured on Tenant Account `siteCapabilities` (and may be overridden per Site via Tenant Site configuration).  On GET `/tenant/current`, `targetedInstanceCreation` is `true` when any Ready Tenant Account for the Tenant has the capability enabled. Embedded `TenantSummary.capabilities` in nested resources always reports `targetedInstanceCreation: false`.
 type TenantCapabilities struct {
-	// Deprecated in favor of TenantAccount.siteCapabilities. Indicates whether Tenant can create Instances by specifying Machine ID.
+	// Deprecated in favor of TenantAccount.siteCapabilities. When returned on GET `/tenant/current`, indicates whether any Ready Tenant Account has TargetedInstanceCreation enabled. Always `false` on embedded TenantSummary objects.
 	// Deprecated
 	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
 }

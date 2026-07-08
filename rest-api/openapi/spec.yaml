@@ -31,7 +31,7 @@ tags:
       ### Service Account Mode
       Depending on the auth configuration used, the NICo REST API may be configured in Service Account mode. In this mode, API users can act as both Provider and Tenant as part of the same organization.
       If this is the case, the user must first retrieve the Service Account by making a call to the [Retrieve Service Account endpoint](#tag/Service-Account/operation/get-current-service-account).
-      For service accounts, the Tenant entity is initialized as a privileged Tenant with `targetedInstanceCreation` capability enabled.
+      For service accounts, the Tenant entity is initialized as a privileged Tenant when a Ready Tenant Account has `siteCapabilities` with `targetedInstanceCreation` enabled.
 
       ### Provider or Tenant Mode
       If NICo REST API is not configured in Service Account mode, the user should retrieve the Infrastructure Provider by making a call to the [Retrieve Infrastructure Provider endpoint](#tag/Infrastructure-Provider/operation/get-current-infrastructure-provider)
@@ -95,21 +95,26 @@ tags:
 
   - name: Service Account
     description: |-
-      When the API service is configured in Service Account mode, API users can act as both Provider and Tenant. For service accounts, the Tenant entity is initialized as a
-      privileged Tenant with `targetedInstanceCreation` capability enabled.
+      When the API service is configured in Service Account mode, API users can act as both Provider and Tenant. Privileged Tenant behavior (for example, creating Instances by Machine ID) is determined by `siteCapabilities` on a Ready Tenant Account, not by tenant-level configuration.
   - name: Infrastructure Provider
     description: |-
       Infrastructure Provider is the anchor entity for an organization that owns and manages Site resources.
   - name: Tenant
     description: |-
       Tenant is the anchor entity for an organization that consumes Network and Compute resources on a Site.
+
+      Deprecation history:
+
+      - `capabilities.targetedInstanceCreation` was deprecated in favor of `tenantAccount.siteCapabilities` and will be removed on July 9th, 2026 0:00 UTC. The value returned on GET `/tenant/current` is computed from Ready Tenant Account configuration; embedded `TenantSummary.capabilities` in nested resources always reports `false`.
   - name: Tenant Account
     description: |-
       Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
 
+      Provider Admins configure TargetedInstanceCreation for a Tenant using the `siteCapabilities` attribute (global or per-site scope). Site-scoped overrides may further refine the effective capability via Tenant Site configuration.
+
       Deprecation history:
 
-      - `accountNumber`, `subscriptionId`, and `subscriptionTier` attributes were deprecated and will be removed on July 9th, 2026 0:00 UTC. Please update your usage accordingly.
+      - `accountNumber`, `subscriptionId`, and `subscriptionTier` attributes were deprecated and will be removed on September 10th, 2026 0:00 UTC. Please update your usage accordingly.
   - name: Site
     description: |-
       Site is a datacenter that contains physical hardware and networking resources. All resources created by Provider or Tenant are directly or indirectly anchored to the Site object.
@@ -330,6 +335,9 @@ tags:
       Instance:
       - `infrastructureProviderId` query parameter on the list Instances endpoint was deprecated and will be removed on October 10th, 2026 0:00 UTC. Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the `siteId` parameter to scope results to a specific Infrastructure Provider's Sites.
 
+      Tenant:
+      - `capabilities.targetedInstanceCreation` attribute was deprecated in favor of `tenantAccount.siteCapabilities` and will be removed on July 9th, 2026 0:00 UTC. Please use `tenantAccount.siteCapabilities` instead.
+
       Recent Deprecations:
 
       Site:
@@ -453,12 +461,19 @@ paths:
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
                     capabilities:
-                      targetedInstanceCreation: false
+                      targetedInstanceCreation: true
+                    deprecations:
+                      - attribute: capabilities.targetedInstanceCreation
+                        replacedBy: tenantAccount.siteCapabilities
+                        takeActionBy: '2026-07-09T00:00:00Z'
+                        notice: '''capabilities.targetedInstanceCreation'' is being deprecated in favor of ''tenantAccount.siteCapabilities''. Please take action prior to the specified date'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-current-tenant
       description: |-
         Retrieve Tenant entity for current Org.
+
+        `capabilities.targetedInstanceCreation` is a read-only aggregate: it is `true` when any Ready Tenant Account for this Tenant has TargetedInstanceCreation enabled in its configuration. Configure the capability via PATCH `/tenant/account/{accountId}` using `siteCapabilities`.
 
         User must have authorization role with `TENANT_ADMIN` suffix.
       parameters: []
@@ -720,6 +735,9 @@ paths:
                         message: 'Request received, pending Tenant acceptance'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
+                    siteCapabilities:
+                      - scope: global
+                        targetedInstanceCreation: true
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '403':
@@ -788,6 +806,9 @@ paths:
                         message: 'Request received, pending Tenant acceptance'
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
+                    siteCapabilities:
+                      - scope: global
+                        targetedInstanceCreation: true
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '400':
@@ -799,18 +820,26 @@ paths:
       description: |-
         Update a Tenant Account.
 
-        Can be used to accept an invitation sent by an Infrastructure Provider.
+        Tenant Admins may accept an invitation sent by an Infrastructure Provider by supplying `tenantContactId`.
 
-        Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have authorization role with `TENANT_ADMIN` suffix. Can only update a Tenant Account that has `Invited` status.
+        Provider Admins may replace `siteCapabilities` to configure TargetedInstanceCreation globally or for specific Sites. Requests containing both `tenantContactId` and `siteCapabilities` are rejected with 400.
+
+        Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object when accepting an invite. User must have authorization role with `TENANT_ADMIN` suffix to accept; `PROVIDER_ADMIN` suffix to update `siteCapabilities`. Tenant Admins can only update a Tenant Account that has `Invited` status.
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/TenantAccountUpdateRequest'
             examples:
-              example-1:
-                value: {}
-        description: 'No parameters are required; an empty request body is sufficient.'
+              accept-invite:
+                value:
+                  tenantContactId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+              update-site-capabilities:
+                value:
+                  siteCapabilities:
+                    - scope: global
+                      targetedInstanceCreation: true
+        description: Tenant invite acceptance or Provider Admin site capability update.
     delete:
       summary: Delete Tenant Account
       operationId: delete-tenant-account
@@ -15199,7 +15228,12 @@ components:
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
           capabilities:
-            targetedInstanceCreation: false
+            targetedInstanceCreation: true
+          deprecations:
+            - attribute: capabilities.targetedInstanceCreation
+              replacedBy: tenantAccount.siteCapabilities
+              takeActionBy: '2026-07-09T00:00:00Z'
+              notice: '''capabilities.targetedInstanceCreation'' is being deprecated in favor of ''tenantAccount.siteCapabilities''. Please take action prior to the specified date'
       properties:
         id:
           type: string
@@ -15225,7 +15259,7 @@ components:
           description: Date/time when Tenant was last updated
         capabilities:
           $ref: '#/components/schemas/TenantCapabilities'
-          description: Features that are enabled/disabled for Tenant
+          description: Deprecated read-only aggregate of tenant-wide feature flags. Source of truth is Tenant Account `siteCapabilities`.
         deprecations:
           type: array
           items:
@@ -15234,15 +15268,18 @@ components:
     TenantCapabilities:
       title: TenantCapabilities
       type: object
-      description: TenantCapabilities defines the set of features enabled for Tenant
+      description: |-
+        Deprecated tenant-wide capability summary. TargetedInstanceCreation is no longer stored on the Tenant entity; it is configured on Tenant Account `siteCapabilities` (and may be overridden per Site via Tenant Site configuration).
+
+        On GET `/tenant/current`, `targetedInstanceCreation` is `true` when any Ready Tenant Account for the Tenant has the capability enabled. Embedded `TenantSummary.capabilities` in nested resources always reports `targetedInstanceCreation: false`.
       examples:
-        - targetedInstanceCreation: false
+        - targetedInstanceCreation: true
       properties:
         targetedInstanceCreation:
           type: boolean
           deprecated: true
           readOnly: true
-          description: Deprecated in favor of TenantAccount.siteCapabilities. Indicates whether Tenant can create Instances by specifying Machine ID.
+          description: Deprecated in favor of TenantAccount.siteCapabilities. When returned on GET `/tenant/current`, indicates whether any Ready Tenant Account has TargetedInstanceCreation enabled. Always `false` on embedded TenantSummary objects.
     TenantStats:
       title: TenantStats
       type: object
@@ -15421,12 +15458,15 @@ components:
             created: '2019-08-24T14:15:22Z'
             updated: '2019-08-24T14:15:22Z'
           allocationCount: 0
-          status: Pending
+          status: Ready
           statusHistory:
-            - status: Pending
-              message: 'Request received, pending processing'
+            - status: Ready
+              message: 'Account ready, Tenant accepted invite'
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
+          siteCapabilities:
+            - scope: global
+              targetedInstanceCreation: true
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
       properties:
@@ -15484,7 +15524,7 @@ components:
           readOnly: true
         siteCapabilities:
           type: array
-          description: Provider-scoped TargetedInstanceCreation settings for this Tenant Account
+          description: Provider-scoped TargetedInstanceCreation settings for this Tenant Account. Replaces the deprecated tenant-level `capabilities.targetedInstanceCreation` attribute.
           items:
             $ref: '#/components/schemas/TenantAccountSiteCapability'
     TenantAccountSiteCapabilityScope:
@@ -15510,7 +15550,7 @@ components:
           description: Required when scope is limited; must be omitted or empty when scope is global
         targetedInstanceCreation:
           type: boolean
-          description: Whether TargetedInstanceCreation is enabled for the scope
+          description: Whether TargetedInstanceCreation is enabled for the scope. When `true`, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
     TenantAccountStatus:
       title: TenantAccountStatus
       type: string
@@ -15554,6 +15594,13 @@ components:
         Requests containing both fields are rejected with 400.
       examples:
         - tenantContactId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
+        - siteCapabilities:
+            - scope: global
+              targetedInstanceCreation: true
+            - scope: limited
+              siteIds:
+                - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+              targetedInstanceCreation: false
       properties:
         tenantContactId:
           type: string
@@ -16763,7 +16810,7 @@ components:
         capabilities:
           $ref: '#/components/schemas/TenantCapabilities'
           readOnly: true
-          description: Features that are enabled/disabled for Tenant
+          description: 'Deprecated summary; always reports targetedInstanceCreation false. Use Tenant Account siteCapabilities for the authoritative configuration.'
     VpcPeering:
       title: VpcPeering
       type: object

@@ -47,7 +47,7 @@ type TenantAccount struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Date/time when the Tenant Account was last updated
 	Updated *time.Time `json:"updated,omitempty"`
-	// Provider-scoped TargetedInstanceCreation settings for this Tenant Account
+	// Provider-scoped TargetedInstanceCreation settings for this Tenant Account. Replaces the deprecated tenant-level `capabilities.targetedInstanceCreation` attribute.
 	SiteCapabilities []TenantAccountSiteCapability `json:"siteCapabilities,omitempty"`
 }
 

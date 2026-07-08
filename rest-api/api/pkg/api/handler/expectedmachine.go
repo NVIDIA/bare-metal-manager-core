@@ -58,20 +58,15 @@ func ValidateProviderOrTenantSiteAccess(ctx context.Context, logger zerolog.Logg
 
 		hasAccess = tsCount > 0
 
-		// Check if Tenant is privileged
-		if !hasAccess && tenant.Config.TargetedInstanceCreation {
-			// Check if privileged tenant has an account with the Site's Infrastructure Provider
-			taDAO := cdbm.NewTenantAccountDAO(dbSession)
-			_, taCount, err := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-				InfrastructureProviderID: &site.InfrastructureProviderID,
-				TenantIDs:                []uuid.UUID{tenant.ID},
-			}, paginator.PageInput{}, []string{})
+		// Privileged tenants may access Sites via a Ready TenantAccount with
+		// TargetedInstanceCreation even without an explicit TenantSite row.
+		if !hasAccess {
+			enabled, err := common.EffectiveTargetedInstanceCreation(ctx, nil, dbSession, tenant, site.ID)
 			if err != nil {
-				logger.Error().Err(err).Msg("error retrieving Tenant Account for Site")
-				return false, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant's Account with Site's Provider due to DB error", nil)
+				logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
+				return false, cutil.NewAPIError(http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)
 			}
-
-			hasAccess = taCount > 0
+			hasAccess = enabled
 		}
 	}
 
@@ -353,8 +348,12 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 	}
 
 	if tenant != nil {
-		// Check if Tenant is privileged
-		if tenant.Config.TargetedInstanceCreation {
+		privileged, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gaemh.dbSession, tenant)
+		if err != nil {
+			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)
+		}
+		if privileged {
 			// Get IDs for all Sites the privileged Tenant has an access with
 			tenantSiteDAO := cdbm.NewTenantSiteDAO(gaemh.dbSession)
 			tenantSites, _, err := tenantSiteDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}}, paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)}, nil)

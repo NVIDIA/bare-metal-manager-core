@@ -27,7 +27,7 @@ type TenantAccountSiteCapability struct {
 	Scope TenantAccountSiteCapabilityScope `json:"scope"`
 	// Required when scope is limited; must be omitted or empty when scope is global
 	SiteIds []string `json:"siteIds,omitempty"`
-	// Whether TargetedInstanceCreation is enabled for the scope
+	// Whether TargetedInstanceCreation is enabled for the scope. When `true`, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
 	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
 }
 

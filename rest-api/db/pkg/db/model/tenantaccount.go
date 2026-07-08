@@ -111,28 +111,14 @@ var (
 // TenantAccountConfig holds provider-scoped configuration for a TenantAccount.
 // Fields must stay flat so jsonb partial merge works.
 type TenantAccountConfig struct {
+	EnableSSHAccess          bool `json:"enableSshAccess"`
 	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
 }
 
 // TenantAccountConfigUpdateInput carries partial updates for tenant_account.config.
 type TenantAccountConfigUpdateInput struct {
+	EnableSSHAccess          *bool `json:"enableSshAccess,omitempty"`
 	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
-}
-
-// ConfigUpdateFromLegacyTenantTargetedInstanceCreation returns a partial
-// TenantAccountConfigUpdateInput that enables TargetedInstanceCreation when the
-// legacy tenant-level flag is set. Apply when a TenantAccount becomes Ready so
-// Invited or Pending rows inherit the capability even if they were created after
-// the migration backfill ran.
-func ConfigUpdateFromLegacyTenantTargetedInstanceCreation(tenant *Tenant) *TenantAccountConfigUpdateInput {
-	if tenant == nil || tenant.Config == nil || !tenant.Config.TargetedInstanceCreation {
-		return nil
-	}
-
-	val := true
-	return &TenantAccountConfigUpdateInput{
-		TargetedInstanceCreation: &val,
-	}
 }
 
 // TenantAccount represents a tenant account - the relationship between a Tenant and an Infrastructure Provider

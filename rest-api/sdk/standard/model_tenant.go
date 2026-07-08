@@ -33,7 +33,7 @@ type Tenant struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Date/time when Tenant was last updated
 	Updated *time.Time `json:"updated,omitempty"`
-	// Features that are enabled/disabled for Tenant
+	// Deprecated read-only aggregate of tenant-wide feature flags. Source of truth is Tenant Account `siteCapabilities`.
 	Capabilities *TenantCapabilities `json:"capabilities,omitempty"`
 	// Deprecation notices for Tenant fields
 	Deprecations []Deprecation `json:"deprecations,omitempty"`

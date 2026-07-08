@@ -179,14 +179,11 @@ func TestBuildInfrastructureProvider(t *testing.T, dbSession *db.Session, name s
 func TestBuildTenant(t *testing.T, dbSession *db.Session, name string, org string, user *User) *Tenant {
 	tnDAO := NewTenantDAO(dbSession)
 
-	tncfg := TenantConfig{}
-
 	tn, err := tnDAO.Create(context.Background(), nil, TenantCreateInput{
 		Name:           name,
 		DisplayName:    cutil.GetPtr("Test Tenant"),
 		Org:            org,
 		OrgDisplayName: cutil.GetPtr(org),
-		Config:         &tncfg,
 		CreatedBy:      user.ID,
 	})
 	assert.Nil(t, err)

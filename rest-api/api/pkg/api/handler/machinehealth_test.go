@@ -157,13 +157,6 @@ func configureMachineHealthFixtureForPrivilegedTenant(t *testing.T, fixture *com
 	tenantOrg := "test-tenant-org"
 	tenantUser := common.TestBuildUser(t, fixture.DBSession, "test-tenant-starfleet-id", tenantOrg, []string{authz.TenantAdminRole})
 	tenant := common.TestBuildTenant(t, fixture.DBSession, "test-tenant", tenantOrg, tenantUser)
-	tenant, err := cdbm.NewTenantDAO(fixture.DBSession).Update(ctx, nil, cdbm.TenantUpdateInput{
-		TenantID: tenant.ID,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
-	})
-	require.NoError(t, err)
 
 	machine, err := cdbm.NewMachineDAO(fixture.DBSession).GetByID(ctx, nil, fixture.MachineID, []string{}, false)
 	require.NoError(t, err)

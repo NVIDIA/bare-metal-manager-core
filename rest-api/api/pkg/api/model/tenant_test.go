@@ -15,18 +15,14 @@ import (
 
 func TestNewAPITenant(t *testing.T) {
 	type args struct {
-		dbtn *cdbm.Tenant
-	}
-
-	tncfg := &cdbm.TenantConfig{
-		EnableSSHAccess: true,
+		dbtn                     *cdbm.Tenant
+		targetedInstanceCreation bool
 	}
 
 	dbtn := &cdbm.Tenant{
 		ID:             uuid.New(),
 		Org:            "test-org",
 		OrgDisplayName: cutil.GetPtr("Org Display name"),
-		Config:         tncfg,
 		Created:        time.Now(),
 		Updated:        time.Now(),
 	}
@@ -35,7 +31,7 @@ func TestNewAPITenant(t *testing.T) {
 		ID:             dbtn.ID.String(),
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   tenantToAPITenantCapabilities(dbtn),
+		Capabilities:   tenantToAPITenantCapabilities(true),
 		Created:        dbtn.Created,
 		Updated:        dbtn.Updated,
 	}
@@ -51,14 +47,15 @@ func TestNewAPITenant(t *testing.T) {
 		{
 			name: "test initializing API model for Tenant",
 			args: args{
-				dbtn: dbtn,
+				dbtn:                     dbtn,
+				targetedInstanceCreation: true,
 			},
 			want: &tnAPITenant,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, NewAPITenant(tt.args.dbtn))
+			assert.Equal(t, tt.want, NewAPITenant(tt.args.dbtn, tt.args.targetedInstanceCreation))
 		})
 	}
 }
@@ -88,7 +85,7 @@ func TestNewAPITenantSummary(t *testing.T) {
 			want: &APITenantSummary{
 				Org:            dbtn.Org,
 				OrgDisplayName: dbtn.OrgDisplayName,
-				Capabilities:   tenantToAPITenantCapabilities(dbtn),
+				Capabilities:   tenantToAPITenantCapabilities(false),
 			},
 		},
 	}

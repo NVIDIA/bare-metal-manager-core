@@ -48,13 +48,14 @@ type APITenant struct {
 	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
-// NewAPITenant accepts a DB layer Tenant object returns an API layer object
-func NewAPITenant(dbtn *cdbm.Tenant) *APITenant {
+// NewAPITenant accepts a DB layer Tenant object and tenant-wide capability flags
+// resolved from TenantAccount.config, then returns an API layer object.
+func NewAPITenant(dbtn *cdbm.Tenant, targetedInstanceCreation bool) *APITenant {
 	atn := APITenant{
 		ID:             dbtn.ID.String(),
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   tenantToAPITenantCapabilities(dbtn),
+		Capabilities:   tenantToAPITenantCapabilities(targetedInstanceCreation),
 		Created:        dbtn.Created,
 		Updated:        dbtn.Updated,
 	}
@@ -71,13 +72,10 @@ type APITenantCapabilities struct {
 	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
 }
 
-func tenantToAPITenantCapabilities(tenant *cdbm.Tenant) *APITenantCapabilities {
-	apiCaps := &APITenantCapabilities{}
-
-	if tenant.Config != nil {
-		apiCaps.TargetedInstanceCreation = tenant.Config.TargetedInstanceCreation
+func tenantToAPITenantCapabilities(targetedInstanceCreation bool) *APITenantCapabilities {
+	return &APITenantCapabilities{
+		TargetedInstanceCreation: targetedInstanceCreation,
 	}
-	return apiCaps
 }
 
 // APITenantSummary is the data structure to capture API representation of a Tenant Summary
@@ -95,7 +93,7 @@ func NewAPITenantSummary(dbtn *cdbm.Tenant) *APITenantSummary {
 	atn := APITenantSummary{
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   tenantToAPITenantCapabilities(dbtn),
+		Capabilities:   tenantToAPITenantCapabilities(false),
 	}
 
 	return &atn

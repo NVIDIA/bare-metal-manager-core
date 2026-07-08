@@ -41,7 +41,6 @@ type TenantCreateInput struct {
 	DisplayName    *string
 	Org            string
 	OrgDisplayName *string
-	Config         *TenantConfig
 	CreatedBy      uuid.UUID
 }
 
@@ -51,30 +50,21 @@ type TenantUpdateInput struct {
 	Name           *string
 	DisplayName    *string
 	OrgDisplayName *string
-	Config         *TenantConfig
-}
-
-// TenantConfig is a data structure to capture configuration and capabilities for a Tenant
-// TODO: EnableSSHAccess is deprecated and should be removed.
-type TenantConfig struct {
-	EnableSSHAccess          bool `json:"enableSshAccess"`
-	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
 }
 
 // Tenant represents entries in the tenant table
 type Tenant struct {
 	bun.BaseModel `bun:"table:tenant,alias:tn"`
 
-	ID             uuid.UUID     `bun:"type:uuid,pk"`
-	Name           string        `bun:"name,notnull"`
-	DisplayName    *string       `bun:"display_name"`
-	Org            string        `bun:"org,notnull"`
-	OrgDisplayName *string       `bun:"org_display_name"`
-	Config         *TenantConfig `bun:"config,type:jsonb,notnull,default:'{}'::jsonb"`
-	Created        time.Time     `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated        time.Time     `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted        *time.Time    `bun:"deleted,soft_delete"`
-	CreatedBy      uuid.UUID     `bun:"type:uuid,notnull"`
+	ID             uuid.UUID  `bun:"type:uuid,pk"`
+	Name           string     `bun:"name,notnull"`
+	DisplayName    *string    `bun:"display_name"`
+	Org            string     `bun:"org,notnull"`
+	OrgDisplayName *string    `bun:"org_display_name"`
+	Created        time.Time  `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated        time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted        *time.Time `bun:"deleted,soft_delete"`
+	CreatedBy      uuid.UUID  `bun:"type:uuid,notnull"`
 }
 
 // ToCreateRequestProto builds a CreateTenantRequest proto for sending this Tenant
@@ -242,7 +232,6 @@ func (tsd TenantSQLDAO) Create(ctx context.Context, tx *db.Tx, input TenantCreat
 		DisplayName:    input.DisplayName,
 		Org:            input.Org,
 		OrgDisplayName: input.OrgDisplayName,
-		Config:         input.Config,
 		CreatedBy:      input.CreatedBy,
 	}
 
@@ -291,11 +280,6 @@ func (tsd TenantSQLDAO) Update(ctx context.Context, tx *db.Tx, input TenantUpdat
 		tn.OrgDisplayName = input.OrgDisplayName
 		updatedFields = append(updatedFields, "org_display_name")
 		tsd.tracerSpan.SetAttribute(tnDAOSpan, "org_display_name", *input.OrgDisplayName)
-	}
-
-	if input.Config != nil {
-		tn.Config = input.Config
-		updatedFields = append(updatedFields, "config")
 	}
 
 	if len(updatedFields) > 0 {

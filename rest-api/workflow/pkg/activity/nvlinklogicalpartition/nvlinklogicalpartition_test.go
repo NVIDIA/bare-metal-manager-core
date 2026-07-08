@@ -97,7 +97,7 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 
 	tnu := cwu.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := cwu.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", nil, tnu)
+	tn := cwu.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", tnu)
 	assert.NotNil(t, tn)
 
 	st1 := cwu.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)

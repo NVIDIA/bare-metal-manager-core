@@ -318,14 +318,6 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 
 	tnu := testVPCBuildUser(t, dbSession, "test-starfleet-id-2", tnOrg, tnOrgRoles)
 	tn := testVPCBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu)
-	tnDAO := cdbm.NewTenantDAO(dbSession)
-	tn, err := tnDAO.Update(context.Background(), nil, cdbm.TenantUpdateInput{
-		TenantID: tn.ID,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
-	})
-	assert.NoError(t, err)
 	// Privilege for `routingProfile` is resolved from a Ready TenantAccount
 	// config, so enable TargetedInstanceCreation on tn's account with the provider.
 	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu)
