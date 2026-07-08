@@ -42,7 +42,7 @@ mod tpm;
 /// Path where the init container writes the hardware snapshot, and the containerized agent reads it from.
 pub const HW_CACHE_PATH: &str = "/data/hw_output.json";
 
-const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
+pub(crate) const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
 const PCI_SLOT_NAME: &str = "PCI_SLOT_NAME";
@@ -154,7 +154,7 @@ fn convert_udev_to_mac(udev: String) -> Result<String, HardwareEnumerationError>
     Ok(mac)
 }
 
-fn convert_property_to_string<'a>(
+pub fn convert_property_to_string<'a>(
     name: &'a str,
     default_value: &'a str,
     device: &'a Device,

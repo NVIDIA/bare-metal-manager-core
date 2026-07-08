@@ -29,6 +29,10 @@ pub mod agent_config;
 pub mod dpa_cmds;
 #[cfg(feature = "linux-build")]
 pub mod hardware_enumeration;
+#[cfg(feature = "linux-build")]
+pub mod lldp_collector;
+#[cfg(feature = "linux-build")]
+pub mod lldp_reporter;
 pub mod registration;
 
 static LOG_SETUP: Once = Once::new();
