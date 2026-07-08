@@ -354,8 +354,8 @@ kubectl get pods -n temporal            # Temporal
 ### Verify That the Site-agent Is Connected
 
 ```bash
-kubectl logs -n nico-rest -l app.kubernetes.io/name=nico-rest-site-agent --prefix \
-    | grep "NicoClient"
+kubectl logs -n nico-rest -l app.kubernetes.io/name=nico-rest-site-agent --prefix --tail=-1 \
+  | grep -E "Successfully connected to server|method=/forge.Forge/Version, code=Ok|gRPC client is not connected to the server"
 ```
 
 Look for the "successfully connected to server" message in the logs.
