@@ -163,11 +163,91 @@ func TestAPITenantAccountNew(t *testing.T) {
 	for _, s := range dbsds {
 		msh = append(msh, NewAPIStatusDetail(s))
 	}
+
+	providerID := uuid.MustParse("11111111-1111-4111-8111-111111111111")
+	otherProviderID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
+	tenantID := uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	siteEnabledA := uuid.MustParse("a0000000-0000-4000-8000-000000000001")
+	siteEnabledB := uuid.MustParse("b0000000-0000-4000-8000-000000000002")
+	siteMatchesGlobal := uuid.MustParse("c0000000-0000-4000-8000-000000000003")
+	siteOtherProvider := uuid.MustParse("d0000000-0000-4000-8000-000000000004")
+	siteDisabledA := uuid.MustParse("a0000000-0000-4000-8000-000000000010")
+	siteDisabledB := uuid.MustParse("b0000000-0000-4000-8000-000000000011")
+
+	dbObjWithSiteCapabilities := &cdbm.TenantAccount{
+		ID:                        uuid.New(),
+		TenantID:                  &tenantID,
+		TenantOrg:                 "testOrg",
+		InfrastructureProviderID:  providerID,
+		InfrastructureProviderOrg: "testIPOrg",
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
+		Created:                   cdb.GetCurTime(),
+		Updated:                   cdb.GetCurTime(),
+	}
+	dbObjWithDisabledOverrides := &cdbm.TenantAccount{
+		ID:                        uuid.New(),
+		TenantID:                  &tenantID,
+		TenantOrg:                 "testOrg",
+		InfrastructureProviderID:  providerID,
+		InfrastructureProviderOrg: "testIPOrg",
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		Created:                   cdb.GetCurTime(),
+		Updated:                   cdb.GetCurTime(),
+	}
+
+	globalFalseTenantSites := []cdbm.TenantSite{
+		{
+			SiteID: siteEnabledB,
+			Site:   &cdbm.Site{InfrastructureProviderID: providerID},
+			Config: cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)},
+		},
+		{
+			SiteID: siteEnabledA,
+			Site:   &cdbm.Site{InfrastructureProviderID: providerID},
+			Config: cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)},
+		},
+		{
+			SiteID: siteMatchesGlobal,
+			Site:   &cdbm.Site{InfrastructureProviderID: providerID},
+			Config: cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)},
+		},
+		{
+			SiteID: siteOtherProvider,
+			Site:   &cdbm.Site{InfrastructureProviderID: otherProviderID},
+			Config: cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)},
+		},
+		{
+			SiteID: uuid.MustParse("e0000000-0000-4000-8000-000000000005"),
+			Site:   &cdbm.Site{InfrastructureProviderID: providerID},
+			Config: cdbm.TenantSiteConfig{},
+		},
+	}
+	globalTrueTenantSites := []cdbm.TenantSite{
+		{
+			SiteID: siteDisabledB,
+			Site:   &cdbm.Site{InfrastructureProviderID: providerID},
+			Config: cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)},
+		},
+		{
+			SiteID: siteDisabledA,
+			Site:   &cdbm.Site{InfrastructureProviderID: providerID},
+			Config: cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)},
+		},
+		{
+			SiteID: siteOtherProvider,
+			Site:   &cdbm.Site{InfrastructureProviderID: otherProviderID},
+			Config: cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)},
+		},
+	}
+
 	tests := []struct {
-		desc   string
-		dbObj  *cdbm.TenantAccount
-		sdObj  []cdbm.StatusDetail
-		apiObj *APITenantAccount
+		desc        string
+		dbObj       *cdbm.TenantAccount
+		sdObj       []cdbm.StatusDetail
+		tenantSites []cdbm.TenantSite
+		apiObj      *APITenantAccount
 	}{
 		{
 			desc:  "success with TenantContact nil",
@@ -185,6 +265,12 @@ func TestAPITenantAccountNew(t *testing.T) {
 				StatusHistory:             msh,
 				Created:                   dbObj.Created,
 				Updated:                   dbObj.Updated,
+				SiteCapabilities: []APITenantAccountSiteCapability{
+					{
+						Scope:                    TenantAccountSiteCapabilityScopeGlobal,
+						TargetedInstanceCreation: false,
+					},
+				},
 			},
 		},
 		{
@@ -203,6 +289,12 @@ func TestAPITenantAccountNew(t *testing.T) {
 				StatusHistory:             msh,
 				Created:                   dbObj2.Created,
 				Updated:                   dbObj2.Updated,
+				SiteCapabilities: []APITenantAccountSiteCapability{
+					{
+						Scope:                    TenantAccountSiteCapabilityScopeGlobal,
+						TargetedInstanceCreation: false,
+					},
+				},
 			},
 		},
 		{
@@ -224,12 +316,78 @@ func TestAPITenantAccountNew(t *testing.T) {
 				StatusHistory:              []APIStatusDetail{},
 				Created:                    dbObj.Created,
 				Updated:                    dbObj.Updated,
+				SiteCapabilities: []APITenantAccountSiteCapability{
+					{
+						Scope:                    TenantAccountSiteCapabilityScopeGlobal,
+						TargetedInstanceCreation: false,
+					},
+				},
+			},
+		},
+		{
+			desc:        "siteCapabilities derive global false, enabled overrides, and provider filtering",
+			dbObj:       dbObjWithSiteCapabilities,
+			sdObj:       dbsds,
+			tenantSites: globalFalseTenantSites,
+			apiObj: &APITenantAccount{
+				ID:                        dbObjWithSiteCapabilities.ID.String(),
+				InfrastructureProviderID:  providerID.String(),
+				InfrastructureProviderOrg: dbObjWithSiteCapabilities.InfrastructureProviderOrg,
+				TenantID:                  cutil.GetPtr(tenantID.String()),
+				TenantOrg:                 dbObjWithSiteCapabilities.TenantOrg,
+				TenantContact:             nil,
+				AllocationCount:           2,
+				Status:                    dbObjWithSiteCapabilities.Status,
+				StatusHistory:             msh,
+				Created:                   dbObjWithSiteCapabilities.Created,
+				Updated:                   dbObjWithSiteCapabilities.Updated,
+				SiteCapabilities: []APITenantAccountSiteCapability{
+					{
+						Scope:                    TenantAccountSiteCapabilityScopeGlobal,
+						TargetedInstanceCreation: false,
+					},
+					{
+						Scope:                    TenantAccountSiteCapabilityScopeLimited,
+						SiteIDs:                  []string{siteEnabledA.String(), siteEnabledB.String()},
+						TargetedInstanceCreation: true,
+					},
+				},
+			},
+		},
+		{
+			desc:        "siteCapabilities derive global true, disabled overrides sorted before other provider sites are dropped",
+			dbObj:       dbObjWithDisabledOverrides,
+			sdObj:       dbsds,
+			tenantSites: globalTrueTenantSites,
+			apiObj: &APITenantAccount{
+				ID:                        dbObjWithDisabledOverrides.ID.String(),
+				InfrastructureProviderID:  providerID.String(),
+				InfrastructureProviderOrg: dbObjWithDisabledOverrides.InfrastructureProviderOrg,
+				TenantID:                  cutil.GetPtr(tenantID.String()),
+				TenantOrg:                 dbObjWithDisabledOverrides.TenantOrg,
+				TenantContact:             nil,
+				AllocationCount:           2,
+				Status:                    dbObjWithDisabledOverrides.Status,
+				StatusHistory:             msh,
+				Created:                   dbObjWithDisabledOverrides.Created,
+				Updated:                   dbObjWithDisabledOverrides.Updated,
+				SiteCapabilities: []APITenantAccountSiteCapability{
+					{
+						Scope:                    TenantAccountSiteCapabilityScopeGlobal,
+						TargetedInstanceCreation: true,
+					},
+					{
+						Scope:                    TenantAccountSiteCapabilityScopeLimited,
+						SiteIDs:                  []string{siteDisabledA.String(), siteDisabledB.String()},
+						TargetedInstanceCreation: false,
+					},
+				},
 			},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got := NewAPITenantAccount(tc.dbObj, tc.sdObj, 2, nil)
+			got := NewAPITenantAccount(tc.dbObj, tc.sdObj, 2, tc.tenantSites)
 			assert.Equal(t, tc.apiObj.ID, got.ID)
 			assert.Equal(t, tc.apiObj.InfrastructureProviderID, got.InfrastructureProviderID)
 			assert.Equal(t, tc.apiObj.InfrastructureProviderOrg, got.InfrastructureProviderOrg)
@@ -240,6 +398,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 			assert.Equal(t, tc.apiObj.Status, got.Status)
 			assert.Equal(t, tc.apiObj.StatusHistory, got.StatusHistory)
 			assert.NotNil(t, got.StatusHistory)
+			assert.Equal(t, tc.apiObj.SiteCapabilities, got.SiteCapabilities)
 		})
 	}
 }

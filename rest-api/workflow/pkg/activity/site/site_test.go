@@ -88,7 +88,7 @@ func TestManageSite_DeleteSiteComponentsFromDB(t *testing.T) {
 	tnRoles := []string{"FORGE_TENANT_ADMIN"}
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.New().String(), []string{tnOrg}, tnRoles)
-	tenant := util.TestBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu)
+	tenant := util.TestBuildTenant(t, dbSession, tnOrg, "test-tenant", tnu)
 
 	vpcDAO := cdbm.NewVpcDAO(dbSession)
 	ibpDAO := cdbm.NewInfiniBandPartitionDAO(dbSession)
@@ -1011,7 +1011,7 @@ func TestManageSite_DeleteSiteComponentsFromDB_NewResources(t *testing.T) {
 	tnOrg := "test-tenant-org-1"
 	tnRoles := []string{"FORGE_TENANT_ADMIN"}
 	tnu := util.TestBuildUser(t, dbSession, uuid.New().String(), []string{tnOrg}, tnRoles)
-	tenant := util.TestBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu)
+	tenant := util.TestBuildTenant(t, dbSession, tnOrg, "test-tenant", tnu)
 
 	iDAO := cdbm.NewInstanceDAO(dbSession)
 	operatingSystem := util.TestBuildOperatingSystem(t, dbSession, "test-os")

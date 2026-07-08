@@ -22,12 +22,13 @@ import (
 // checks if the TenantAccountSiteCapability type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TenantAccountSiteCapability{}
 
-// TenantAccountSiteCapability struct for TenantAccountSiteCapability
+// TenantAccountSiteCapability TargetedInstanceCreation capability for either all Sites on this Tenant Account (global scope) or an explicit Site list (limited scope).  Update payloads must satisfy all of the following when siteCapabilities is sent on PATCH: - the siteCapabilities array must contain at least one entry - exactly one entry must have scope global - each siteId may appear at most once across all entries - when scope is global, siteIds must be omitted or an empty array - when scope is limited, siteIds must contain at least one valid Site UUID
 type TenantAccountSiteCapability struct {
+	// Whether this entry applies globally or to the listed Sites
 	Scope TenantAccountSiteCapabilityScope `json:"scope"`
-	// Required when scope is limited; must be omitted or empty when scope is global
+	// Required when scope is limited; must be omitted or empty when scope is global. Each Site UUID may appear only once across all siteCapabilities entries in the same request.
 	SiteIds []string `json:"siteIds,omitempty"`
-	// Whether TargetedInstanceCreation is enabled for the scope. When `true`, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
+	// Whether TargetedInstanceCreation is enabled for the scope. When true, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
 	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
 }
 

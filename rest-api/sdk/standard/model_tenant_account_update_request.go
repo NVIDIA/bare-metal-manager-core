@@ -20,11 +20,11 @@ import (
 // checks if the TenantAccountUpdateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TenantAccountUpdateRequest{}
 
-// TenantAccountUpdateRequest Request data to update a TenantAccount.  Provider Admins may replace `siteCapabilities` only. Tenant Admins may accept an invite via `tenantContactId` only. Requests containing both fields are rejected with 400.
+// TenantAccountUpdateRequest Request data to update a TenantAccount.  Provider Admins may replace `siteCapabilities` only. Tenant Admins may accept an invite via `tenantContactId` only. Requests containing both fields are rejected with 400.  When `siteCapabilities` is included, the replace payload must contain at least one entry, include exactly one `global` entry, and must not repeat any `siteId` across entries. Limited entries require at least one Site UUID; global entries must not include `siteIds`.
 type TenantAccountUpdateRequest struct {
 	// Tenant Admin invite acceptance; must match the requesting user
 	TenantContactId *string `json:"tenantContactId,omitempty"`
-	// Provider Admin replace payload for TargetedInstanceCreation scoping
+	// Provider Admin replace payload for TargetedInstanceCreation scoping. Required to be non-empty when sent.  Server validation rules: - must contain at least one entry - must contain exactly one entry with scope global - must not repeat any siteId across entries - global entries must omit siteIds or send an empty array - limited entries must include at least one siteId
 	SiteCapabilities []TenantAccountSiteCapability `json:"siteCapabilities,omitempty"`
 }
 

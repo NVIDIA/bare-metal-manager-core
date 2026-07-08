@@ -47,7 +47,7 @@ type TenantAccount struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Date/time when the Tenant Account was last updated
 	Updated *time.Time `json:"updated,omitempty"`
-	// Provider-scoped TargetedInstanceCreation settings for this Tenant Account. Replaces the deprecated tenant-level `capabilities.targetedInstanceCreation` attribute.
+	// Provider-scoped TargetedInstanceCreation settings for this Tenant Account. Replaces the deprecated tenant-level capabilities.targetedInstanceCreation attribute.  When present on a Tenant Account response, the array always includes one global entry derived from TenantAccount.config, followed by zero or more limited entries for per-site overrides that differ from the global default.
 	SiteCapabilities []TenantAccountSiteCapability `json:"siteCapabilities,omitempty"`
 }
 

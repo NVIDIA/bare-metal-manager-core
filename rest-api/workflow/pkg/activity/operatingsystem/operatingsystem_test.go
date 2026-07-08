@@ -48,7 +48,7 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu)
+	tn := util.TestBuildTenant(t, dbSession, tnOrg, "test-tenant", tnu)
 	assert.NotNil(t, tn)
 
 	st1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)
@@ -418,7 +418,7 @@ func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu)
+	tn := util.TestBuildTenant(t, dbSession, tnOrg, "test-tenant", tnu)
 	assert.NotNil(t, tn)
 
 	st1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)

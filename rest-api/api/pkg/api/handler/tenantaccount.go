@@ -807,6 +807,22 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant Account capabilities", nil)
 		}
 
+		// Re-read the TenantAccount under the advisory lock so the ownership
+		// checks and subsequent writes operate on the same transactional
+		// snapshot rather than the pre-transaction read used to derive the
+		// lock key.
+		ta, derr = taDAO.GetByID(ctx, tx, taID, nil)
+		if derr != nil {
+			logger.Warn().Err(derr).Msg("error retrieving TenantAccount DB entity within transaction")
+			return cutil.NewAPIError(http.StatusNotFound, "Could not retrieve TenantAccount to update", nil)
+		}
+		if ip.ID != ta.InfrastructureProviderID {
+			return cutil.NewAPIError(http.StatusForbidden, "Tenant Account is not associated with org", nil)
+		}
+		if ta.TenantID == nil {
+			return cutil.NewAPIError(http.StatusBadRequest, "Tenant Account does not have an associated Tenant", nil)
+		}
+
 		globalVal := model.GlobalTargetedInstanceCreationFromRequest(apiRequest.SiteCapabilities)
 		if globalVal == nil {
 			return cutil.NewAPIError(http.StatusBadRequest, "siteCapabilities must include exactly one global entry", nil)
