@@ -1303,6 +1303,11 @@ impl std::fmt::Display for ValidationState {
     }
 }
 
+/// The retry budget for a failed host firmware upgrade: once
+/// [`ManagedHostState::HostReprovision`] has consumed this many retries, the
+/// machine stays in its failure state until an operator intervenes.
+pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
+
 impl ManagedHostState {
     pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
         match self {
@@ -1328,6 +1333,17 @@ impl ManagedHostState {
             ManagedHostState::HostReprovision { retry_count, .. } => *retry_count,
             _ => 0,
         }
+    }
+
+    /// True when this machine is in host reprovisioning with no
+    /// firmware-upgrade retry budget left (see
+    /// [`MAX_FIRMWARE_UPGRADE_RETRIES`]).
+    pub fn host_repro_retries_exhausted(&self) -> bool {
+        matches!(
+            self,
+            ManagedHostState::HostReprovision { retry_count, .. }
+                if *retry_count >= MAX_FIRMWARE_UPGRADE_RETRIES
+        )
     }
 }
 

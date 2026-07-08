@@ -39,6 +39,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_endpoint_exploration_step_latency_milliseconds</td><td>histogram</td><td>The time it took to perform one endpoint exploration step</td></tr>
 <tr><td>carbide_endpoint_exploration_success_count</td><td>gauge</td><td>The amount of endpoint explorations that have been successful</td></tr>
 <tr><td>carbide_endpoint_explorations_count</td><td>gauge</td><td>The amount of endpoint explorations that have been attempted</td></tr>
+<tr><td>carbide_exhausted_reprovision_retry_count</td><td>gauge</td><td>Number of host machines in the system whose host firmware upgrade retry budget is exhausted.</td></tr>
 <tr><td>carbide_external_call_duration_milliseconds</td><td>histogram</td><td>Duration of outbound calls by backend, operation, and outcome; the _count series, split by outcome, gives the request and error rates.</td></tr>
 <tr><td>carbide_gpus_in_use_count</td><td>gauge</td><td>The total number of GPUs that are actively used by tenants in instances in the NICo deployment</td></tr>
 <tr><td>carbide_gpus_total_count</td><td>gauge</td><td>The total number of GPUs available in the NICo deployment</td></tr>
@@ -76,6 +77,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_machines_object_tasks_completed_total</td><td>counter</td><td>The amount of object handling tasks that have been completed for objects of type carbide_machines</td></tr>
 <tr><td>carbide_machines_object_tasks_dispatched_total</td><td>counter</td><td>The amount of types that object handling tasks that have been dequeued and dispatched for processing for objects of type carbide_machines</td></tr>
 <tr><td>carbide_machines_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_machines</td></tr>
+<tr><td>carbide_machines_object_tasks_errored_total</td><td>counter</td><td>Number of object handling tasks that have completed with an error for objects of type carbide_machines</td></tr>
 <tr><td>carbide_machines_object_tasks_requeued_total</td><td>counter</td><td>The amount of object handling tasks that have been requeued for objects of type carbide_machines</td></tr>
 <tr><td>carbide_machines_per_state</td><td>gauge</td><td>The number of carbide_machines in the system with a given state</td></tr>
 <tr><td>carbide_machines_per_state_above_sla</td><td>gauge</td><td>The number of carbide_machines in the system which had been longer in a state than allowed per SLA</td></tr>

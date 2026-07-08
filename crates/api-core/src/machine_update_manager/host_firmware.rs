@@ -128,8 +128,16 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     async fn update_metrics(
         &self,
         pool: &sqlx::Pool<sqlx::Postgres>,
-        _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<()> {
+        let exhausted_retries = snapshots
+            .values()
+            .filter(|snapshot| snapshot.managed_state.host_repro_retries_exhausted())
+            .count();
+        self.metrics
+            .exhausted_reprovision_retries
+            .store(exhausted_retries as u64, Ordering::Relaxed);
+
         let mut txn = db::Transaction::begin(pool).await?;
         match db::host_machine_update::find_upgrade_needed(
             &mut txn,
@@ -243,6 +251,7 @@ impl fmt::Display for HostFirmwareUpdate {
 pub struct HostFirmwareUpdateMetrics {
     pub pending_firmware_updates: Arc<AtomicU64>,
     pub active_firmware_updates: Arc<AtomicU64>,
+    pub exhausted_reprovision_retries: Arc<AtomicU64>,
 }
 
 impl HostFirmwareUpdateMetrics {
@@ -250,12 +259,14 @@ impl HostFirmwareUpdateMetrics {
         HostFirmwareUpdateMetrics {
             pending_firmware_updates: Arc::new(AtomicU64::new(0)),
             active_firmware_updates: Arc::new(AtomicU64::new(0)),
+            exhausted_reprovision_retries: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub fn register_callbacks(&self, meter: &Meter) {
         let pending_firmware_updates = self.pending_firmware_updates.clone();
         let active_firmware_updates = self.active_firmware_updates.clone();
+        let exhausted_reprovision_retries = self.exhausted_reprovision_retries.clone();
         meter
             .u64_observable_gauge("carbide_pending_host_firmware_update_count")
             .with_description(
@@ -272,6 +283,14 @@ impl HostFirmwareUpdateMetrics {
             )
             .with_callback(move |observer|
                 observer.observe(active_firmware_updates.load(Ordering::Relaxed), &[]))
+            .build();
+        meter
+            .u64_observable_gauge("carbide_exhausted_reprovision_retry_count")
+            .with_description(
+                "Number of host machines in the system whose host firmware upgrade retry budget is exhausted.",
+            )
+            .with_callback(move |observer|
+                observer.observe(exhausted_reprovision_retries.load(Ordering::Relaxed), &[]))
             .build();
     }
 }

@@ -75,14 +75,14 @@ use model::machine::{
     CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
     DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
     HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, Machine, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
-    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
-    PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState,
-    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
-    UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
-    dpf_based_dpu_provisioning_possible, get_display_ids,
+    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
+    MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
+    MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
+    PowerDrainState, PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext,
+    SecureEraseBossState, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
+    SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState, UnlockHostState,
+    ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::predicted_machine_interface::PredictedMachineInterface;
@@ -144,16 +144,33 @@ use crate::write_ops::MachineWriteOp;
 const NOT_FOUND: u16 = 404;
 
 #[cfg(not(test))]
-pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
-
-#[cfg(test)]
-pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 2; // Faster for tests
-
-#[cfg(not(test))]
 pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 5;
 
 #[cfg(test)]
 pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 2; // Faster for tests
+
+/// A failed host firmware upgrade is being retried. `attempt` is the retry
+/// about to run (1-based), out of a budget of [`MAX_FIRMWARE_UPGRADE_RETRIES`].
+/// Machines whose budget ran out are visible on the
+/// `carbide_exhausted_reprovision_retry_count` gauge instead.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_host_reprovision_retries_total",
+    component = "machine-controller",
+    log = info,
+    metric = counter,
+    message = "Retrying the host firmware upgrade",
+    describe = "Number of times a failed host firmware upgrade was retried during host \
+                reprovisioning"
+)]
+struct HostFirmwareUpgradeRetried {
+    #[context]
+    machine_id: MachineId,
+    #[context]
+    attempt: u32,
+    #[context]
+    error: String,
+}
 
 // Compute the API-side deadline for a scout firmware upgrade from scout's
 // timeout envelope: fixed script download timeout, script execution timeout,
@@ -8287,7 +8304,11 @@ impl HostUpgradeState {
                     Ok(StateHandlerOutcome::do_nothing())
                 }
             }
-            HostReprovisionState::FailedFirmwareUpgrade { report_time, .. } => {
+            HostReprovisionState::FailedFirmwareUpgrade {
+                report_time,
+                reason,
+                ..
+            } => {
                 // A special case in Rackfirmware upgrade to handle FailedFirmwareUpgrade
                 // Accept a freshly-issued Host Reprovision request that arrives while we are
                 // sitting in FailedFirmwareUpgrade. `trigger_host_reprovisioning_request`
@@ -8324,10 +8345,13 @@ impl HostUpgradeState {
                         .site_config
                         .firmware_global
                         .host_firmware_upgrade_retry_interval;
-                let should_retry = can_retry && waited_enough;
 
-                if should_retry {
-                    tracing::info!("Retrying firmware upgrade on {}", state.host_snapshot.id);
+                if can_retry && waited_enough {
+                    carbide_instrument::emit(HostFirmwareUpgradeRetried {
+                        machine_id: *machine_id,
+                        attempt: retry_count + 1,
+                        error: reason.clone().unwrap_or_default(),
+                    });
 
                     let reprovision_state = HostReprovisionState::CheckingFirmwareV2 {
                         firmware_type: None,
@@ -8336,8 +8360,14 @@ impl HostUpgradeState {
                     Ok(StateHandlerOutcome::transition(
                         scenario.actual_new_state(reprovision_state, retry_count + 1),
                     ))
+                } else if can_retry {
+                    // Still inside the retry interval; a later pass decides.
+                    Ok(StateHandlerOutcome::do_nothing())
                 } else {
-                    // doesn't make sense to retry anymore, remain in this failure state
+                    // No retry budget left; remain in this failure state until
+                    // an operator intervenes. Exhausted machines are counted
+                    // by the carbide_exhausted_reprovision_retry_count gauge,
+                    // so nothing is logged per pass.
                     Ok(StateHandlerOutcome::do_nothing())
                 }
             }
@@ -11901,6 +11931,7 @@ async fn get_power_state(redfish_client: &dyn Redfish) -> Result<PowerState, Sta
 mod tests {
     use std::str::FromStr;
 
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use model::firmware::FirmwareComponent;
     use model::site_explorer::{
         EndpointExplorationReport, EndpointType, Inventory, PreingestionState, Service,
@@ -11908,6 +11939,43 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    /// One emit per actual retry: the INFO line carries the machine, the
+    /// 1-based attempt, and the failure it recovers from, and the unlabeled
+    /// counter moves by one.
+    #[test]
+    fn host_firmware_upgrade_retry_logs_and_counts() {
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .unwrap();
+
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            carbide_instrument::emit(HostFirmwareUpgradeRetried {
+                machine_id,
+                attempt: 1,
+                error: "scout upgrade failed".to_string(),
+            });
+        });
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, tracing::Level::INFO);
+        assert_eq!(logs[0].message, "Retrying the host firmware upgrade");
+        let field = |name: &str| {
+            logs[0]
+                .fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        };
+        assert_eq!(field("machine_id"), Some(machine_id.to_string()));
+        assert_eq!(field("attempt"), Some("1".to_string()));
+        assert_eq!(field("error"), Some("scout upgrade failed".to_string()));
+        assert_eq!(
+            metrics.counter_delta("carbide_host_reprovision_retries_total", &[]),
+            1.0
+        );
+    }
 
     #[test]
     fn scout_firmware_upgrade_deadline_accounts_for_each_artifact() {
