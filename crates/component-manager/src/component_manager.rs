@@ -1,11 +1,15 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_uuid::switch::SwitchId;
+use db::WithTransaction;
 use librms::RmsApi;
 use model::rack_type::RackProfileConfig;
+use model::switch::SwitchMaintenanceOperation;
 use sqlx::PgPool;
 
 use crate::compute_tray_manager::{Backend as ComputeBackend, ComputeTrayManager};
@@ -41,7 +45,79 @@ pub struct ComponentManager {
     pub compute_tray_use_state_controller: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwitchMaintenanceRequestResult {
+    pub switch_id: SwitchId,
+    pub error: Option<String>,
+}
+
 impl ComponentManager {
+    pub async fn request_switch_maintenance_via_state_controller(
+        &self,
+        db_pool: &PgPool,
+        switch_ids: &[SwitchId],
+        operation: SwitchMaintenanceOperation,
+        initiator: &str,
+    ) -> Result<Vec<SwitchMaintenanceRequestResult>, ComponentManagerError> {
+        if !self.nv_switch_use_state_controller {
+            return Err(ComponentManagerError::InvalidArgument(
+                "nv_switch_use_state_controller is disabled; switch maintenance through the state controller is unavailable"
+                    .to_string(),
+            ));
+        }
+
+        let switch_ids = switch_ids.to_vec();
+        let initiator = initiator.to_string();
+        db_pool
+            .with_txn(|txn| {
+                Box::pin(async move {
+                    let existing = db::switch::find_by(
+                        txn,
+                        db::ObjectColumnFilter::List(db::switch::IdColumn, &switch_ids),
+                    )
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+
+                    let by_id: HashMap<SwitchId, model::switch::Switch> =
+                        existing.into_iter().map(|sw| (sw.id, sw)).collect();
+                    let mut results = Vec::with_capacity(switch_ids.len());
+
+                    for switch_id in &switch_ids {
+                        let Some(switch) = by_id.get(switch_id) else {
+                            results.push(SwitchMaintenanceRequestResult {
+                                switch_id: *switch_id,
+                                error: Some(format!("switch {switch_id} not found")),
+                            });
+                            continue;
+                        };
+
+                        if switch.is_marked_as_deleted() {
+                            results.push(SwitchMaintenanceRequestResult {
+                                switch_id: *switch_id,
+                                error: Some(format!("switch {switch_id} is marked for deletion")),
+                            });
+                            continue;
+                        }
+
+                        db::switch::set_switch_maintenance_requested(
+                            txn, *switch_id, &initiator, operation,
+                        )
+                        .await
+                        .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+
+                        results.push(SwitchMaintenanceRequestResult {
+                            switch_id: *switch_id,
+                            error: None,
+                        });
+                    }
+
+                    Ok(results)
+                })
+            })
+            .await
+            .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+    }
+
     pub async fn configure_switch_certificate(
         &self,
         endpoint: &SwitchEndpoint,

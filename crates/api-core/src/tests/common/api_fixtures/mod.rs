@@ -1463,6 +1463,7 @@ pub async fn create_test_env_with_overrides(
         db_pool.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
+        test_component_manager.clone(),
         api.work_lock_manager_handle.clone(),
     );
 

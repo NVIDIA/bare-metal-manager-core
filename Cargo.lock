@@ -2557,6 +2557,7 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "chrono",
+ "component-manager",
  "config-version",
  "duration-str",
  "eyre",

@@ -32,6 +32,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::rack::RackId;
 use chrono::Utc;
+use component_manager::component_manager::ComponentManager;
 use config::NvLinkConfig;
 use config_version::Versioned;
 use db::machine::find_machine_ids;
@@ -925,6 +926,7 @@ pub struct NvLinkManager {
     meter: opentelemetry::metrics::Meter,
     config: NvLinkConfig,
     host_health: HostHealthConfig,
+    component_manager: Option<Arc<ComponentManager>>,
     work_lock_manager_handle: WorkLockManagerHandle,
 }
 
@@ -934,6 +936,7 @@ pub struct NvLinkManagerArgs {
     pub meter: opentelemetry::metrics::Meter,
     pub config: NvLinkConfig,
     pub host_health: HostHealthConfig,
+    pub component_manager: Option<Arc<ComponentManager>>,
     pub work_lock_manager_handle: WorkLockManagerHandle,
 }
 
@@ -945,6 +948,7 @@ impl NvLinkManager {
             meter: args.meter,
             config: args.config,
             host_health: args.host_health,
+            component_manager: args.component_manager,
             work_lock_manager_handle: args.work_lock_manager_handle,
         }
     }
@@ -969,6 +973,7 @@ impl NvLinkManager {
                 self.db_pool,
                 self.meter,
                 self.config,
+                self.component_manager,
                 self.work_lock_manager_handle,
             );
             join_set

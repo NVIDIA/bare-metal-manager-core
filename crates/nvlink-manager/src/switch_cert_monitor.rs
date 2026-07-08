@@ -25,6 +25,7 @@ use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::Utc;
+use component_manager::component_manager::ComponentManager;
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use model::switch::SwitchMaintenanceOperation;
@@ -449,6 +450,7 @@ impl MetricHolder {
 pub struct SwitchCertificateMonitor {
     db_pool: PgPool,
     config: NvLinkConfig,
+    component_manager: Option<Arc<ComponentManager>>,
     metric_holder: Arc<MetricHolder>,
     work_lock_manager_handle: WorkLockManagerHandle,
 }
@@ -513,6 +515,7 @@ impl SwitchCertificateMonitor {
         db_pool: PgPool,
         meter: Meter,
         config: NvLinkConfig,
+        component_manager: Option<Arc<ComponentManager>>,
         work_lock_manager_handle: WorkLockManagerHandle,
     ) -> Self {
         let hold_period = config
@@ -523,6 +526,7 @@ impl SwitchCertificateMonitor {
         Self {
             db_pool,
             config,
+            component_manager,
             metric_holder,
             work_lock_manager_handle,
         }
@@ -826,34 +830,46 @@ impl SwitchCertificateMonitor {
         target: &SwitchCertificateMonitorTarget,
         cancel_token: &CancellationToken,
     ) -> Result<(), String> {
-        let mut txn = tokio::select! {
+        let Some(component_manager) = self.component_manager.as_ref() else {
+            return Err(
+                "component manager is not configured; cannot request switch certificate reconfiguration"
+                    .to_string(),
+            );
+        };
+
+        let switch_ids = [target.switch_id];
+        let results = tokio::select! {
             _ = cancel_token.cancelled() => {
                 return Err(Self::APPLY_CANCELLED_ERROR.to_string());
             }
-            txn = self.db_pool.begin() => txn
-                .map_err(|error| {
-                    format!("failed to begin transaction for switch certificate maintenance request: {error}")
-                })?,
+            results = component_manager.request_switch_maintenance_via_state_controller(
+                &self.db_pool,
+                &switch_ids,
+                SwitchMaintenanceOperation::ReconfigureCertificate,
+                "nvlink-switch-cert-monitor",
+            ) => results.map_err(|error| {
+                format!(
+                    "component manager failed to request switch certificate reconfiguration: {error}"
+                )
+            })?,
         };
 
-        db::switch::set_switch_maintenance_requested(
-            &mut txn,
-            target.switch_id,
-            "nvlink-switch-cert-monitor",
-            SwitchMaintenanceOperation::ReconfigureCertificate,
-        )
-        .await
-        .map_err(|error| format!("failed to request switch certificate maintenance: {error}"))?;
+        let Some(result) = results.first() else {
+            return Err(format!(
+                "component manager returned no result for switch {} certificate reconfiguration",
+                target.switch_id
+            ));
+        };
 
-        txn.commit().await.map_err(|error| {
-            format!("failed to commit switch certificate maintenance request: {error}")
-        })?;
+        if let Some(error) = &result.error {
+            return Err(error.clone());
+        }
 
         tracing::info!(
             switch_id = %target.switch_id,
             rack_id = %target.rack_id,
             endpoint = %target.endpoint_url,
-            "Requested switch certificate reconfiguration via switch state machine"
+            "Requested switch certificate reconfiguration via component manager"
         );
 
         Ok(())
