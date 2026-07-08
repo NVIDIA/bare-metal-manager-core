@@ -18,7 +18,6 @@
 mod boot_interface_resolution;
 mod client_resolution;
 pub mod common;
-mod compute_allocation;
 mod credential;
 mod credential_rotation;
 mod dns;
