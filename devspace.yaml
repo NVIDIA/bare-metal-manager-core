@@ -124,7 +124,7 @@ hooks:
       case "$CONTEXT" in
         kind-*)
           echo "Loading images into kind cluster..."
-          kind load docker-image \
+          kind load docker-image --name "${CONTEXT#kind-}" \
             "${runtime.images.nico-api.image}:${runtime.images.nico-api.tag}" \
             "${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag}" \
             "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}"
