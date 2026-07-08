@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-mod common;
-
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::test_support;
 use model::site_explorer::EndpointType;
 use tokio::test;
+
+use crate::common;
 
 #[test]
 async fn explore_dell_poweredge_r750() {

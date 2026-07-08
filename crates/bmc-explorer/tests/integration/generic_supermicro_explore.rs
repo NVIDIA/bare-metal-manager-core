@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-mod common;
-
 use bmc_explorer::hw::HwType;
 use bmc_explorer::test_support::detect_hw_type;
 use bmc_mock::test_support;
 use tokio::test;
+
+use crate::common;
 
 /// Regression guard for the GB300 detection decouple: a Supermicro-vendor BMC with
 /// **no** NVIDIA GB300 GPU chassis (e.g. an SMC ancillary node) must stay generic

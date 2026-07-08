@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+//! Shared configuration for the combined integration test executable.
+
 use std::time::Duration;
 
 use axum::http::StatusCode;

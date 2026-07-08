@@ -14,36 +14,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-mod common;
-
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::test_support;
 use model::site_explorer::EndpointType;
 use tokio::test;
 
-/// Regression coverage for the NvidiaDgxVr (Vera Rubin) host mock, added while
-/// investigating #3159. This hardware type previously had no host-mode test
-/// helper at all (only a DPU-mode one), so it was untested as a host machine.
-#[test]
-async fn explore_nvidia_dgx_vr_and_generate_machine_id() {
-    let h = test_support::nvidia_dgx_vr_host_bmc().await;
-    let config = common::explorer_config();
+use crate::common;
 
-    let mut report = nv_generate_exploration_report(h.service_root, &config)
+#[test]
+async fn explore_liteon_power_shelf() {
+    let h = test_support::liteon_powershelf_bmc().await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
-        .expect("NvidiaDgxVr host exploration should succeed");
+        .unwrap();
 
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
+    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Liteon));
     assert!(!report.systems.is_empty(), "systems must be present");
     assert!(!report.chassis.is_empty(), "chassis must be present");
-
-    let machine_id = report
-        .generate_machine_id(true)
-        .expect("NvidiaDgxVr host report should have enough data for a MachineId")
-        .expect("NvidiaDgxVr host report should generate a predicted-host MachineId");
-
     assert!(
-        machine_id.machine_type().is_predicted_host(),
-        "expected a PredictedHost machine type for a non-DPU tray"
+        report
+            .service
+            .iter()
+            .any(|service| service.id == "FirmwareInventory"),
+        "firmware inventory service must be present"
+    );
+    assert!(
+        report
+            .machine_setup_status
+            .as_ref()
+            .is_some_and(|status| !status.diffs.is_empty() || status.is_done),
+        "machine setup status must be present and structurally valid"
     );
 }

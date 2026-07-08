@@ -14,44 +14,39 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-mod common;
-
 use bmc_explorer::hw::HwType;
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_explorer::test_support::detect_hw_type;
 use bmc_mock::test_support;
-use model::site_explorer::{EndpointType, InternalLockdownStatus};
+use model::site_explorer::EndpointType;
 use tokio::test;
 
-/// A Lenovo GB300 (AMI BMC) must classify as the GB300 platform regardless of the
-/// host BMC vendor. GB300 is detected from the NVIDIA "NVIDIA GB300" GPU chassis
-/// (`is_gb300()`), so this also guards the detection decouple: the platform is
-/// resolved up front from the HGX signature, with the ODM only selecting the variant.
+use crate::common;
+
+/// An SMC GB300 runs a Supermicro OpenBMC host BMC, so its ServiceRoot reports
+/// `Vendor: Supermicro` / `Product: GB NVL` with no OEM key. It must classify as
+/// the GB300 platform (resolved from the NVIDIA GB300 GPU chassis, then routed by
+/// the Supermicro vendor string), and `SupermicroGb300` maps to BMCVendor::Supermicro.
 #[test]
-async fn explore_lenovo_gb300() {
-    let h = test_support::lenovo_gb300_bmc().await;
+async fn explore_supermicro_gb300() {
+    let h = test_support::supermicro_gb300_bmc().await;
     let config = common::explorer_config();
 
-    // Decisive assertion: resolves to LenovoGb300 (the GB300 platform), proving
-    // GB300 was recognized on an AMI host. Passes before and after the decouple.
+    // Decisive assertion: an SMC GB300 must resolve to SupermicroGb300, not the
+    // generic Supermicro fallback. Both map to BMCVendor::Supermicro, so a report
+    // vendor assertion alone would not prove the SupermicroGb300 arm was taken.
     assert_eq!(
         detect_hw_type(h.service_root.clone(), &config)
             .await
             .unwrap(),
-        Some(HwType::LenovoGb300),
+        Some(HwType::SupermicroGb300),
     );
 
     let report = nv_generate_exploration_report(h.service_root, &config)
         .await
         .unwrap();
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
-    // LenovoGb300 -> BMCVendor::LenovoAMI; proves GB300 was recognized on an AMI host.
-    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::LenovoAMI));
+    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Supermicro));
     assert!(!report.systems.is_empty(), "systems must be present");
     assert!(!report.chassis.is_empty(), "chassis must be present");
-
-    let lockdown = report
-        .lockdown_status
-        .expect("GB300 lockdown status must be populated");
-    assert_eq!(lockdown.status, InternalLockdownStatus::Partial);
 }

@@ -14,13 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-mod common;
-
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, test_support};
 use mac_address::MacAddress;
 use model::site_explorer::EndpointType;
 use tokio::test;
+
+use crate::common;
 
 #[test]
 async fn explore_bluefield4_and_generate_machine_id_from_bluefield_bmc_chassis_serial() {

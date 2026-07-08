@@ -22,6 +22,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
 [dependencies]
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.

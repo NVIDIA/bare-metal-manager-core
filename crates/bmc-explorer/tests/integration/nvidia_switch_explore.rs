@@ -14,36 +14,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-mod common;
-
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::test_support;
-use model::site_explorer::{EndpointType, InternalLockdownStatus};
+use model::site_explorer::EndpointType;
 use tokio::test;
 
+use crate::common;
+
 #[test]
-async fn explore_hpe_proliant_dl380a_gen11() {
-    let h = test_support::hpe_proliant_dl380a_gen11_bmc().await;
+async fn explore_nvidia_switch() {
+    let h = test_support::nvidia_switch_nd5200_ld_bmc().await;
     let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
 
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
-    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Hpe));
+    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
     assert!(!report.systems.is_empty(), "systems must be present");
     assert!(!report.chassis.is_empty(), "chassis must be present");
-
-    let system = &report.systems[0];
-    assert_eq!(system.model.as_deref(), Some("ProLiant DL380a Gen11"));
-
-    // The mock presents the locked-down production state:
-    // UsbBoot=Disabled and iLO VirtualNICEnabled=false.
-    let lockdown = report
-        .lockdown_status
-        .as_ref()
-        .expect("lockdown status must be present for HPE");
-    assert_eq!(lockdown.status, InternalLockdownStatus::Enabled);
-
+    assert!(
+        report
+            .service
+            .iter()
+            .any(|service| service.id == "FirmwareInventory"),
+        "firmware inventory service must be present"
+    );
     assert!(
         report
             .machine_setup_status
