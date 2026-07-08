@@ -58,13 +58,20 @@ NICo continuously monitors hardware health via Redfish polling and DPU agent tel
 NICo schedules UEFI and BMC firmware updates on healthy, unoccupied hosts — entirely out-of-band, without disrupting active tenants. Updates are applied against the site baseline and tracked in the per-machine firmware inventory.
 
 **Tenant transitions (sanitization)**
-When a tenant releases a host, NICo performs a full cleanup sequence before the host re-enters the available pool:
+When a tenant releases a host, NICo performs a full cleanup sequence before the host re-enters the available pool. Host and platform sanitization covers:
 1. Secure erase of all NVMe storage
 2. GPU memory and system memory wipe
 3. TPM reset
 4. Re-attestation via Measured Boot and TPM verification
 5. Firmware integrity re-validation
-6. Network isolation state cleared and re-provisioned for the next tenant
+
+Network cleanup runs in the same transition and returns the host to a tenant-free state before any reuse:
+- **Tenant configuration removed.** NICo removes the prior tenant's configuration from the DPU data path, detaches every host interface from the tenant VPC/overlay, and returns the DPU (and any DPA/Spectrum X interfaces) to the admin overlay — the fail-closed default in which the host carries no tenant traffic.
+- **Routes withdrawn and addresses reclaimed.** As the tenant VRF is torn down, its BGP EVPN routes are withdrawn from the fabric, and tenant IP, VNI, and DPU-loopback allocations are released back to their pools.
+- **DHCP and metadata re-pointed.** The DPU-side DHCP and metadata services are reconfigured for the post-tenant phase, so the released host boots the discovery image rather than the prior tenant's OS or metadata.
+- **Convergence gated.** NICo does not report the release complete until the DPU confirms it has moved off all tenant networks, which prevents a released instance from lingering on the wire or leaking connectivity, addresses, or metadata to the next tenant.
+
+For the step-by-step operator view, see [Tenant Lifecycle Cleanup](../operations/tenant-lifecycle-cleanup.md#network-cleanup-between-tenants).
 
 **Break-fix**
 NICo supports directed provisioning for break-fix workflows: targeted machine provisioning to specific hosts, machine labels for tracking machines under repair, and issue reporting APIs for integration with service management tooling.
