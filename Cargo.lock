@@ -1641,6 +1641,7 @@ dependencies = [
 name = "carbide-dhcp-server"
 version = "0.1.0"
 dependencies = [
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-test-support",
@@ -1653,6 +1654,7 @@ dependencies = [
  "ipnetwork",
  "logfmt",
  "lru 0.18.0",
+ "metrics-endpoint",
  "prost",
  "serde",
  "serde_yaml",

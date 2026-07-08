@@ -19,6 +19,7 @@ mod cache;
 mod command_line;
 mod errors;
 mod grpc_server;
+mod metrics;
 mod modes;
 mod packet_handler;
 mod rpc;
@@ -31,12 +32,15 @@ use std::sync::Arc;
 
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use cache::CacheEntry;
+use carbide_instrument::emit;
 use carbide_rpc_utils::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
 use grpc_server::{ControlRequest, run_grpc_server};
 use lru::LruCache;
+use metrics::{DhcpPacketDropped, DhcpReplySent, DropReason};
+use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use modes::DhcpMode;
 use modes::controller::Controller;
 use modes::dpu::{Dpu, get_host_config};
@@ -162,13 +166,21 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
                         // TryAcquireError::NoPermits; Not checking explicitly.
                         let Ok(permit) = rate_limiter.clone().try_acquire_owned() else {
                             // drop packet.
-                            tracing::error!("Dropping packet because of rate limiting.");
+                            emit(DhcpPacketDropped {
+                                reason: DropReason::RateLimited,
+                                error: "parallel packet handling limit reached".to_string(),
+                            });
                             continue;
                         };
 
                         // Not a valid packet.
                         if len < MINIMUM_DHCP_PKT_SIZE {
-                            tracing::error!("Dropping packet because it is smaller than min length.");
+                            emit(DhcpPacketDropped {
+                                reason: DropReason::TooShort,
+                                error: format!(
+                                    "{len} bytes is below the {MINIMUM_DHCP_PKT_SIZE}-byte minimum"
+                                ),
+                            });
                             continue;
                         }
 
@@ -220,12 +232,18 @@ fn setup_tracing() -> Result<(), Box<dyn Error>> {
         .add_directive("hickory_resolver::name_server=info".parse().unwrap())
         .add_directive("hickory_proto=info".parse().unwrap());
 
+    // Counts every log line into carbide_log_events_total from startup; the
+    // counts are exposed once main() installs the meter provider. The env
+    // filter sits on the registry as a global filter so the counting layer
+    // and the logfmt output see exactly the same events.
+    let log_events = carbide_instrument::LogEventsMetric::new("nico-dhcp");
     tracing_subscriber::registry()
+        .with(log_events.layer())
         .with(
             logfmt::layer()
-                .with_event_fields([logfmt::EventField::with_default("component", "nico-dhcp")])
-                .with_filter(env_filter),
+                .with_event_fields([logfmt::EventField::with_default("component", "nico-dhcp")]),
         )
+        .with(env_filter)
         .try_init()?;
     Ok(())
 }
@@ -466,6 +484,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
+    // Install the global meter provider before the first packet is processed
+    // so every emitted event exports, whether or not the scrape endpoint is
+    // served below.
+    let metrics_setup = new_metrics_setup("carbide-dhcp-server", "forge-system", true)
+        .map_err(|e| format!("Failed to set up metrics: {e}"))?;
+    carbide_instrument::log_events::register(&metrics_setup.meter);
+
+    // Must keep meter_provider alive for the lifetime of the server;
+    // dropping it shuts down the Prometheus exporter.
+    let _metrics_guard = metrics_setup.meter_provider;
+
+    if let Some(ref addr_str) = args.metrics_listen_addr {
+        let metrics_listen_addr: SocketAddr = addr_str
+            .parse()
+            .map_err(|e| format!("Invalid --metrics-listen-addr '{}': {}", addr_str, e))?;
+        let metrics_config = MetricsEndpointConfig {
+            address: metrics_listen_addr,
+            registry: metrics_setup.registry,
+            health_controller: Some(metrics_setup.health_controller),
+        };
+        // The endpoint's /health and /ready report process liveness (the
+        // default HealthController state), not packet-serving readiness --
+        // don't point a DHCP-serving probe at them.
+        tokio::spawn(async move {
+            tracing::info!("Spawning metrics endpoint on {}", metrics_config.address);
+            if let Err(e) = run_metrics_endpoint(&metrics_config).await {
+                tracing::error!("Metrics endpoint error: {}", e);
+            }
+        });
+    }
+
     if let Some(ref addr_str) = args.grpc_listen_addr {
         let grpc_listen_addr: SocketAddr = addr_str
             .parse()
@@ -589,11 +638,14 @@ async fn process(
     dhcp_timestamps: Arc<Mutex<DhcpTimestamps>>,
 ) {
     if !addr.is_ipv4() {
-        tracing::error!("Dropping ivp6 packet.");
+        emit(DhcpPacketDropped {
+            reason: DropReason::NotIpv4,
+            error: format!("source address {addr} is not IPv4"),
+        });
         return;
     }
 
-    tracing::info!("Received packet [{}] from {}", buf[0], addr);
+    tracing::debug!("Received packet [{}] from {}", buf[0], addr);
 
     let packet = match packet_handler::process_packet(
         buf,
@@ -606,16 +658,26 @@ async fn process(
     {
         Ok(packet) => packet,
         Err(err) => {
-            tracing::error!("Dropping packet because of error: {}", err);
+            emit(DhcpPacketDropped {
+                reason: DropReason::from(&err),
+                error: err.to_string(),
+            });
             return;
         }
     };
 
     let dest_address = handler.get_destination_address(&packet);
     match packet.send(dest_address, socket).await {
-        Ok(_) => {}
+        Ok(_) => {
+            emit(DhcpReplySent {
+                message_type: packet.message_type,
+            });
+        }
         Err(err) => {
-            tracing::error!("Packet sending failed because of error: {}", err);
+            emit(DhcpPacketDropped {
+                reason: DropReason::SendFailed,
+                error: err,
+            });
         }
     }
 
@@ -661,6 +723,7 @@ mod test {
             host_config: Some(td.path().join("host.yaml").display().to_string()),
             mode: ServerMode::Dpu,
             grpc_listen_addr: None,
+            metrics_listen_addr: None,
         }
     }
 
@@ -830,6 +893,7 @@ mod test {
             ),
             mode: crate::command_line::ServerMode::Dpu,
             grpc_listen_addr: None,
+            metrics_listen_addr: None,
         }
     }
 
@@ -913,6 +977,36 @@ mod test {
         let packet = Message::decode(&mut dhcproto::Decoder::new(packet.encoded_packet())).unwrap();
 
         assert_eq!(packet.yiaddr(), Ipv4Addr::from([10, 217, 132, 204]));
+    }
+
+    /// The request counter ticks for every decoded packet -- including one
+    /// whose processing then fails -- labelled by the packet's message type.
+    #[tokio::test]
+    async fn process_packet_counts_the_decoded_request() {
+        // No other test in this binary processes an Inform, so this label's
+        // delta is immune to tests running in parallel.
+        let byte_stream = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Inform);
+        let handler: Box<dyn DhcpMode> = Box::new(Test {});
+        let config = init(get_test_args()).await.unwrap();
+        let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
+            std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
+        )));
+
+        let metrics = carbide_instrument::testing::MetricsCapture::start();
+        let result = packet_handler::process_packet(
+            &byte_stream,
+            &config,
+            "vlan200",
+            &*handler,
+            &mut machine_cache,
+        )
+        .await;
+
+        assert!(matches!(result, Err(DhcpError::UnhandledMessageType(..))));
+        assert_eq!(
+            metrics.counter_delta("carbide_dhcp_requests_total", &[("message_type", "inform")]),
+            1.0
+        );
     }
 
     #[tokio::test]
@@ -1068,6 +1162,13 @@ mod test {
         .await
         .unwrap();
 
+        // The reply type the send path counts lease grants under matches the
+        // encoded reply.
+        assert_eq!(
+            encoded_packet.message_type,
+            crate::metrics::MessageTypeLabel::Ack
+        );
+
         let packet = Message::decode(&mut Decoder::new(encoded_packet.encoded_packet())).unwrap();
         assert_eq!(
             packet.opts().get(OptionCode::MessageType).unwrap().clone(),
@@ -1094,6 +1195,12 @@ mod test {
         )
         .await
         .unwrap();
+
+        // The nak_packet branch reports the refusal, not the request's type.
+        assert_eq!(
+            encoded_packet.message_type,
+            crate::metrics::MessageTypeLabel::Nak
+        );
 
         let packet = Message::decode(&mut Decoder::new(encoded_packet.encoded_packet())).unwrap();
         assert_eq!(
