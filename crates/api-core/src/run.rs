@@ -139,6 +139,9 @@ pub async fn run(
 
     let metrics = create_metrics()?;
     create_metric_for_spancount_reader(&metrics.meter, tconf.spancount_reader);
+    // Counts are process-global, so this exposes the host's layer too when an
+    // embedding binary (the integration harness) owns the subscriber.
+    carbide_instrument::log_events::register(&metrics.meter);
 
     // All background tasks that run "forever" (until canceled) are added to this JoinSet. When
     // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,

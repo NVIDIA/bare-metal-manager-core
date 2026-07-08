@@ -88,6 +88,7 @@ async fn main() -> Result<(), Error> {
     // Run metrics endpoint
     let metrics_setup = setup_metrics()?;
     let meter = metrics_setup.meter.clone();
+    carbide_instrument::log_events::register(&meter);
     metrics::start(
         config.metrics_endpoint,
         metrics_setup,

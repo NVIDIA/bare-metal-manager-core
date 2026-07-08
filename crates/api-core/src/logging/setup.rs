@@ -119,6 +119,7 @@ pub fn setup_logging(
     let logfmt_stdout_formatter = logfmt::layer().with_event_fields(event_fields);
     let spancount_layer = spancounter::layer();
     let spancount_reader = spancount_layer.reader();
+    let log_events = carbide_instrument::LogEventsMetric::new("nico-api");
 
     // Used as part of a layer for collecting + brodcasting
     // log events to the admin web UI.
@@ -170,6 +171,7 @@ pub fn setup_logging(
             };
 
         tracing_subscriber::registry()
+            .with(log_events.layer().with_filter(initial_log_filter.clone()))
             .with(spancount_layer.with_filter(log_level))
             .with(maybe_otel_tracing_layer)
             .with(logfmt_stdout_formatter.with_filter(logfmt_stdout_filter))

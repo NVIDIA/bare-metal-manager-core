@@ -315,6 +315,9 @@ impl<T, E> From<&Result<T, E>> for Outcome {
     }
 }
 
+pub mod log_events;
+pub use log_events::LogEventsMetric;
+
 #[cfg(feature = "test-support")]
 pub mod testing;
 
