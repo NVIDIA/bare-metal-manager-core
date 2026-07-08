@@ -24,11 +24,12 @@ use std::iter;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use carbide_instrument::{Event, LabelValue, emit};
 use dns_record::DnsResourceRecordType;
 use eyre::Report;
 use hickory_resolver::proto::op::ResponseCode;
 use hickory_resolver::proto::rr::rdata::PTR;
-use hickory_resolver::proto::rr::{DNSClass, Name, RData};
+use hickory_resolver::proto::rr::{DNSClass, Name, RData, RecordType};
 use hickory_server::net::runtime::Time;
 use hickory_server::proto::op::Metadata;
 use hickory_server::proto::rr::Record;
@@ -168,6 +169,113 @@ fn content_to_rdata(qtype: DnsResourceRecordType, content: &str) -> Option<RData
     }
 }
 
+/// The query-type metric label, bounded by construction: the types the server
+/// resolves each get their own value, and everything else — the types answered
+/// with NotImp, and requests whose question section the handler cannot read
+/// (zero or multiple questions) — collapses into `Other`. Wire-level garbage
+/// never reaches the handler, so it is out of scope for these counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum Qtype {
+    A,
+    Aaaa,
+    Ptr,
+    Other,
+}
+
+impl From<RecordType> for Qtype {
+    fn from(qtype: RecordType) -> Self {
+        match qtype {
+            RecordType::A => Qtype::A,
+            RecordType::AAAA => Qtype::Aaaa,
+            RecordType::PTR => Qtype::Ptr,
+            _ => Qtype::Other,
+        }
+    }
+}
+
+/// The response-code metric label, bounded by construction: the codes the
+/// server returns — NoError plus `classify_failure`'s negative set — each get
+/// their own value, and any other RFC code collapses into `Other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum Rcode {
+    NoError,
+    FormErr,
+    NxDomain,
+    ServFail,
+    Refused,
+    NotImp,
+    Other,
+}
+
+impl From<ResponseCode> for Rcode {
+    fn from(code: ResponseCode) -> Self {
+        match code {
+            ResponseCode::NoError => Rcode::NoError,
+            ResponseCode::FormErr => Rcode::FormErr,
+            ResponseCode::NXDomain => Rcode::NxDomain,
+            ResponseCode::ServFail => Rcode::ServFail,
+            ResponseCode::Refused => Rcode::Refused,
+            ResponseCode::NotImp => Rcode::NotImp,
+            _ => Rcode::Other,
+        }
+    }
+}
+
+/// A query arrived, counted by query type: the request rate is the signal, so
+/// no per-query log line is built.
+#[derive(Event)]
+#[event(
+    name = "carbide_dns_queries_total",
+    component = "carbide-dns",
+    log = off,
+    metric = counter,
+    describe = "The number of DNS queries received, by query type"
+)]
+struct DnsQueryReceived {
+    #[label]
+    qtype: Qtype,
+}
+
+/// A response the server actually sent (counted after `send_response`
+/// succeeds), by response code: the split between NoError and the negatives
+/// (NXDomain, ServFail, ...) is what a dashboard watches, and comparing it
+/// against the query counter shows requests that never produced a response.
+#[derive(Event)]
+#[event(
+    name = "carbide_dns_responses_total",
+    component = "carbide-dns",
+    log = off,
+    metric = counter,
+    describe = "The number of DNS responses sent, by response code"
+)]
+struct DnsResponseSent {
+    #[label]
+    rcode: Rcode,
+}
+
+/// A request ran to completion: its duration records as a distribution by
+/// query type and response code. Metric-only: the historical "Request
+/// completed" info line stays exactly as it has always been -- this server
+/// logs JSON, where field types are part of the schema, and the derive
+/// renders context fields as strings -- so the histogram fires beside the
+/// untouched log line rather than replacing it.
+#[derive(Event)]
+#[event(
+    name = "carbide_dns_request_duration_milliseconds",
+    component = "carbide-dns",
+    log = off,
+    metric = histogram,
+    describe = "Time to process a DNS query, by query type and response code"
+)]
+struct DnsRequestCompleted {
+    #[label]
+    qtype: Qtype,
+    #[label]
+    rcode: Rcode,
+    #[observation]
+    took: Duration,
+}
+
 #[async_trait::async_trait]
 impl RequestHandler for DnsServer {
     async fn handle_request<R: ResponseHandler, T: Time>(
@@ -180,17 +288,30 @@ impl RequestHandler for DnsServer {
         let request_info = match request.request_info() {
             Ok(request_info) => request_info,
             Err(_) => {
-                return response_handle
+                // The query never parsed, so its type is unknowable -- it
+                // counts under `other` so the query and response counters
+                // stay comparable even for malformed traffic.
+                emit(DnsQueryReceived {
+                    qtype: Qtype::Other,
+                });
+                let response_info = response_handle
                     .send_response(
                         MessageResponseBuilder::new(&request.queries, None)
                             .error_msg(&request.metadata, ResponseCode::FormErr),
                     )
                     .await
                     .unwrap();
+                emit(DnsResponseSent {
+                    rcode: Rcode::FormErr,
+                });
+                return response_info;
             }
         };
         let qtype = request_info.query.query_type();
         let qname = request_info.query.name().to_string();
+
+        let qtype_label = Qtype::from(qtype);
+        emit(DnsQueryReceived { qtype: qtype_label });
 
         // Attach the span to the request future with `Instrument` rather than an
         // `Entered` guard. A guard held across an `.await` is not dropped when the
@@ -212,12 +333,16 @@ impl RequestHandler for DnsServer {
                 _ => {
                     warn!(%qname, %qtype, "Unsupported query type");
                     let response = MessageResponseBuilder::from_message_request(request);
-                    return response_handle
+                    let response_info = response_handle
                         .send_response(
                             response.error_msg(request_info.metadata, ResponseCode::NotImp),
                         )
                         .await
                         .unwrap();
+                    emit(DnsResponseSent {
+                        rcode: Rcode::NotImp,
+                    });
+                    return response_info;
                 }
             };
 
@@ -301,6 +426,11 @@ impl RequestHandler for DnsServer {
                 duration_ms = duration.as_millis(),
                 "Request completed"
             );
+            emit(DnsRequestCompleted {
+                qtype: qtype_label,
+                rcode: Rcode::from(response_code),
+                took: duration,
+            });
 
             response_header.response_code = response_code;
             let message = message.build(
@@ -311,7 +441,11 @@ impl RequestHandler for DnsServer {
                 iter::empty(),
             );
 
-            response_handle.send_response(message).await.unwrap()
+            let response_info = response_handle.send_response(message).await.unwrap();
+            emit(DnsResponseSent {
+                rcode: Rcode::from(response_code),
+            });
+            response_info
         }
         .instrument(span)
         .await
@@ -572,6 +706,115 @@ mod tests {
             "a type the gate never dispatches here yields nothing" {
                 (DnsResourceRecordType::SOA, "unused") => None,
             }
+        );
+    }
+
+    #[test]
+    fn qtype_label_gives_resolvable_types_their_own_value() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |qtype: RecordType| Qtype::from(qtype);
+            "the types the server resolves" {
+                RecordType::A => Qtype::A,
+                RecordType::AAAA => Qtype::Aaaa,
+                RecordType::PTR => Qtype::Ptr,
+            }
+            "everything else collapses into Other" {
+                RecordType::MX => Qtype::Other,
+                RecordType::SOA => Qtype::Other,
+                RecordType::TXT => Qtype::Other,
+                RecordType::ANY => Qtype::Other,
+            }
+        );
+    }
+
+    #[test]
+    fn rcode_label_gives_returned_codes_their_own_value() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |code: ResponseCode| Rcode::from(code);
+            "the codes the server returns" {
+                ResponseCode::NoError => Rcode::NoError,
+                ResponseCode::FormErr => Rcode::FormErr,
+                ResponseCode::NXDomain => Rcode::NxDomain,
+                ResponseCode::ServFail => Rcode::ServFail,
+                ResponseCode::Refused => Rcode::Refused,
+                ResponseCode::NotImp => Rcode::NotImp,
+            }
+            "codes the server never returns collapse into Other" {
+                ResponseCode::NotAuth => Rcode::Other,
+                ResponseCode::NXRRSet => Rcode::Other,
+                ResponseCode::Unknown(999) => Rcode::Other,
+            }
+        );
+    }
+
+    /// The per-request events are metric-only: one emit moves the declared
+    /// instrument under the derive's snake_case label values, and no log line
+    /// is built.
+    #[test]
+    fn dns_request_events_move_their_metrics_without_logging() {
+        use carbide_instrument::testing::{MetricsCapture, capture_logs};
+
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            emit(DnsQueryReceived { qtype: Qtype::A });
+            emit(DnsQueryReceived {
+                qtype: Qtype::Other,
+            });
+            emit(DnsResponseSent {
+                rcode: Rcode::NoError,
+            });
+            emit(DnsResponseSent {
+                rcode: Rcode::NotImp,
+            });
+            emit(DnsRequestCompleted {
+                qtype: Qtype::A,
+                rcode: Rcode::NoError,
+                took: Duration::from_millis(250),
+            });
+        });
+
+        // All three events are metric-only: the historical "Request
+        // completed" info line is ordinary production code beside the
+        // histogram emit, not part of the event.
+        assert!(
+            logs.is_empty(),
+            "request-rate events are metric-only: {logs:?}"
+        );
+
+        assert_eq!(
+            metrics.counter_delta("carbide_dns_queries_total", &[("qtype", "a")]),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta("carbide_dns_queries_total", &[("qtype", "other")]),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta("carbide_dns_responses_total", &[("rcode", "no_error")]),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta("carbide_dns_responses_total", &[("rcode", "not_imp")]),
+            1.0
+        );
+        assert_eq!(
+            metrics.histogram_count_delta(
+                "carbide_dns_request_duration_milliseconds",
+                &[("qtype", "a"), ("rcode", "no_error")],
+            ),
+            1
+        );
+        let sum = metrics.histogram_sum_delta(
+            "carbide_dns_request_duration_milliseconds",
+            &[("qtype", "a"), ("rcode", "no_error")],
+        );
+        assert!(
+            (sum - 250.0).abs() < 1e-9,
+            "a 250ms request records 250 in the milliseconds histogram, got {sum}"
         );
     }
 }
