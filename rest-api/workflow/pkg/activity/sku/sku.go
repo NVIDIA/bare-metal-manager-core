@@ -16,7 +16,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ManageSku is an activity wrapper for managing SKU inventory that allows injecting DB access

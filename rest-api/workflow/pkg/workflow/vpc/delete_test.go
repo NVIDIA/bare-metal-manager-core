@@ -14,8 +14,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	vpcActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 type DeleteVpcTestSuite struct {

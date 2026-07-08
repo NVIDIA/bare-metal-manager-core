@@ -31,7 +31,7 @@ import (
 	tmocks "go.temporal.io/sdk/mocks"
 
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // TestCreateDpuExtensionServiceHandler_Handle tests the Create DPU Extension Service handler

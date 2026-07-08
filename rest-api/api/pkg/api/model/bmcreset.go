@@ -4,7 +4,7 @@
 package model
 
 import (
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // APIMachineBMCResetRequest represents a request to reset the BMC of a Machine

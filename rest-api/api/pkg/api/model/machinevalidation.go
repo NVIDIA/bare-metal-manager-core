@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 

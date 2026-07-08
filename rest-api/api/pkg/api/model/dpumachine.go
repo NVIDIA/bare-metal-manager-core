@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // APIDpuNetworkConfig represents the complete network configuration for a DPU

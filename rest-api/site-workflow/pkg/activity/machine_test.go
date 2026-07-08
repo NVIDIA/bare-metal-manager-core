@@ -16,8 +16,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc"
 
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/util"
 )

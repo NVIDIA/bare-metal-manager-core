@@ -17,7 +17,7 @@ import (
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 var (

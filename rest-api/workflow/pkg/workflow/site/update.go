@@ -6,7 +6,7 @@ package site
 import (
 	"time"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	temporallog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
