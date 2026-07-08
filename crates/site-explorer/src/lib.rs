@@ -818,7 +818,7 @@ impl SiteExplorer {
         self.check_preconditions(metrics).await?;
 
         let update_explored_endpoints_start = Instant::now();
-        let expected_endpoint_index = self.update_explored_endpoints(metrics).await?;
+        let expected_endpoint_index = Box::pin(self.update_explored_endpoints(metrics)).await?;
         metrics.record_phase_latency(
             "update_explored_endpoints",
             update_explored_endpoints_start.elapsed(),
@@ -845,13 +845,13 @@ impl SiteExplorer {
         // However since host information rarely changes (we never reassign MachineInterfaces),
         // this should be ok. The most noticeable effect is that ManagedHost population might be delayed a bit.
         let identify_managed_hosts_start = Instant::now();
-        let mut identified_hosts = self
+        let mut identified_hosts = Box::pin(self
             .identify_managed_hosts(
                 metrics,
                 &expected_endpoint_index,
                 explored_dpus,
                 explored_hosts,
-            )
+            ))
             .await?;
         metrics.record_phase_latency(
             "identify_managed_hosts",
