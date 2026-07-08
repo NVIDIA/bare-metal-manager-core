@@ -15,17 +15,9 @@
  * limitations under the License.
  */
 
-use std::thread::sleep;
-use std::time::{Duration, Instant};
-
 use carbide_utils::cmd::{Cmd, CmdError};
 use regex::Regex;
-use rpc::machine_discovery::{DpuData, LldpSwitchData};
-use tracing::{debug, warn};
-
-use crate::lldp_collector::get_port_lldp_info;
-
-const LLDP_PORTS: &[&str] = &["p0", "p1", "oob_net0"];
+use rpc::machine_discovery::DpuData;
 
 #[derive(thiserror::Error, Debug)]
 pub enum DpuEnumerationError {
@@ -37,50 +29,6 @@ pub enum DpuEnumerationError {
     Cmd(#[from] CmdError),
     #[error("DPU enumeration failed reading '{0}': {1}")]
     Read(&'static str, String),
-    #[error("LLDP error: {0}")]
-    Lldp(String),
-}
-
-pub fn wait_until_all_ports_available() {
-    const MAX_TIMEOUT: Duration = Duration::from_secs(60 * 5);
-    const RETRY_TIME: Duration = Duration::from_secs(5);
-    let now = Instant::now();
-    let mut ports_read = vec![];
-
-    for port in LLDP_PORTS.iter() {
-        while now.elapsed() <= MAX_TIMEOUT {
-            match get_port_lldp_info(port) {
-                Ok(_) => {
-                    ports_read.push(port);
-                    break;
-                }
-                Err(_e) => {
-                    warn!(port, "Port is not available yet.");
-                    sleep(RETRY_TIME);
-                }
-            }
-        }
-    }
-
-    debug!("lldp: Ports {:?} are read successfully.", ports_read);
-}
-
-// LLDP was broken in multiple forge versions. It was fixed in HBN 2.1/ doca 2.6, as per
-// https://redmine.mellanox.com/issues/3753899
-// 2.1 aligns with XX.40.1000 firmwware, so if the middle section of firmware is equal or greater
-// than 40, then LLDP should work.
-
-// LLDP is not fully configured on sites and causes issues. It makes the dpu agent hang at startup.
-// For now this will return false until a better fix is worked out.
-pub fn is_lldp_working(_fw_version: &str) -> bool {
-    /*
-    fw_version
-        .split('.')
-        .nth(1) // second chunk is what we care about
-        .and_then(|m| m.parse::<u8>().ok()) // turn it into a number
-        .is_some_and(|n| n >= 40) // ensure its greater than or equal to 2.1 (40)
-     */
-    false
 }
 
 fn get_flint_query() -> Result<String, DpuEnumerationError> {
@@ -192,21 +140,6 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         factory_mac.insert(14, ':');
     }
 
-    let mut switches: Vec<LldpSwitchData> = vec![];
-
-    if is_lldp_working(&fw_ver[0]) {
-        wait_until_all_ports_available();
-        for port in LLDP_PORTS.iter() {
-            match get_port_lldp_info(port) {
-                Ok(Some(lldp_info)) => {
-                    switches.push(lldp_info);
-                }
-                Ok(None) => {}
-                Err(_e) => {}
-            }
-        }
-    }
-
     let dpu_info = DpuData {
         part_number: part_number[0].clone(),
         part_description: device_description[0].clone(),
@@ -214,55 +147,9 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         factory_mac_address: factory_mac,
         firmware_version: fw_ver[0].clone(),
         firmware_date: fw_date[0].clone(),
-        switches,
+        // Left empty here; LLDP neighbors are collected and reported separately
+        // by the lldp_collector/lldp_reporter.
+        switches: vec![],
     };
     Ok(dpu_info)
-}
-
-#[cfg(test)]
-mod tests {
-    use carbide_test_support::value_scenarios;
-
-    use crate::hardware_enumeration::dpu;
-
-    // `is_lldp_working` is currently stubbed to always return `false` (the
-    // firmware-version parse is commented out pending a real LLDP fix). Every
-    // input -- valid versions, boundary `40`, and garbage -- must yield `false`.
-    #[test]
-    fn is_lldp_working_always_false() {
-        value_scenarios!(
-            run = dpu::is_lldp_working;
-            "below the 40 boundary" {
-                "xx.39.yyyy" => false,
-            }
-
-            "at the 40 boundary" {
-                "xx.40.yyyy" => false,
-            }
-
-            "above the 40 boundary" {
-                "xx.41.yyyy" => false,
-            }
-
-            "non-numeric middle chunk" {
-                "xx.zz.yyyy" => false,
-            }
-
-            "no dots at all" {
-                "junk" => false,
-            }
-
-            "empty string" {
-                "" => false,
-            }
-
-            "well-formed high version" {
-                "22.99.1000" => false,
-            }
-
-            "single leading dot" {
-                ".40." => false,
-            }
-        );
-    }
 }
