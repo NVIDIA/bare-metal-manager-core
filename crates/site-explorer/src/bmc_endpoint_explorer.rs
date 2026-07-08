@@ -45,6 +45,35 @@ use super::redfish::RedfishClient;
 
 const BMC_AUTH_RETRY_DURATION: Duration = Duration::from_secs(3);
 
+/// The site explorer moved a device's BMC root password onto the site-wide
+/// credential during ingestion (or failed to). Rotations are infrequent and
+/// security-relevant: the counter is the audit signal by outcome, and the log
+/// line carries the device address plus the error when one occurred.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_site_explorer_bmc_password_rotations_total",
+    component = "site-explorer",
+    log = info,
+    metric = counter,
+    message = "BMC root password rotation finished",
+    describe = "Number of BMC root password rotations onto the site-wide credential, by \
+                outcome"
+)]
+struct BmcPasswordRotationFinished {
+    #[label]
+    outcome: carbide_instrument::Outcome,
+    #[context]
+    bmc_ip_address: SocketAddr,
+    /// The device's stable identity (it keys the vault credential entry).
+    #[context]
+    bmc_mac_address: MacAddress,
+    #[context]
+    vendor: RedfishVendor,
+    /// The rotation failure, when there was one; empty on success.
+    #[context]
+    error: String,
+}
+
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct BmcEndpointExplorer {
     redfish_client: RedfishClient,
@@ -329,20 +358,26 @@ impl BmcEndpointExplorer {
             // match Forge's sitewide BMC root password (from the factory default).
             // return an error if we cannot log into the machine's BMC using current credentials
             let sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
-            let rotated = self
+            let rotation = self
                 .set_bmc_root_password(
                     bmc_ip_address,
                     vendor,
                     current_bmc_credentials,
                     sitewide_bmc_password,
                 )
-                .await?;
-
-            tracing::info!(
-                %bmc_ip_address, %bmc_mac_address, %vendor,
-                "Site explorer successfully updated the root password for {bmc_mac_address} to the sitewide BMC root password"
-            );
-            rotated
+                .await;
+            carbide_instrument::emit(BmcPasswordRotationFinished {
+                outcome: carbide_instrument::Outcome::from(&rotation),
+                bmc_ip_address,
+                bmc_mac_address,
+                vendor,
+                error: rotation
+                    .as_ref()
+                    .err()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            });
+            rotation?
         };
 
         // set the BMC root credentials in vault for this machine
@@ -1585,5 +1620,76 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
             report1.revision_id,
             report2.revision_id
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::Outcome;
+    use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
+
+    use super::*;
+
+    /// One emit per rotation attempt writes the INFO log line and moves
+    /// carbide_site_explorer_bmc_password_rotations_total, split by outcome.
+    #[test]
+    fn bmc_password_rotation_counts_both_outcomes() {
+        let metrics = MetricsCapture::start();
+        let bmc_ip_address: SocketAddr = "10.2.3.4:443".parse().expect("socket address");
+        let bmc_mac_address: MacAddress = "aa:bb:cc:dd:ee:ff".parse().expect("mac address");
+
+        let logs = capture_logs(|| {
+            carbide_instrument::emit(BmcPasswordRotationFinished {
+                outcome: Outcome::Ok,
+                bmc_ip_address,
+                bmc_mac_address,
+                vendor: RedfishVendor::Dell,
+                error: String::new(),
+            });
+            carbide_instrument::emit(BmcPasswordRotationFinished {
+                outcome: Outcome::Error,
+                bmc_ip_address,
+                bmc_mac_address,
+                vendor: RedfishVendor::Dell,
+                error: "unable to log into the BMC".to_string(),
+            });
+        });
+
+        assert_eq!(logs.len(), 2);
+        for log in &logs {
+            assert_eq!(log.level, tracing::Level::INFO);
+            assert_eq!(log.message, "BMC root password rotation finished");
+        }
+        let field = |log: &CapturedLog, name: &str| {
+            log.fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        };
+        assert_eq!(field(&logs[0], "outcome"), Some("ok".to_string()));
+        assert_eq!(
+            field(&logs[0], "bmc_ip_address"),
+            Some("10.2.3.4:443".to_string())
+        );
+        assert_eq!(field(&logs[1], "outcome"), Some("error".to_string()));
+        assert_eq!(
+            field(&logs[1], "error"),
+            Some("unable to log into the BMC".to_string())
+        );
+
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_site_explorer_bmc_password_rotations_total",
+                &[("outcome", "ok")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_site_explorer_bmc_password_rotations_total",
+                &[("outcome", "error")]
+            ),
+            1.0
+        );
     }
 }
