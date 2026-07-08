@@ -475,6 +475,7 @@ This is a **one-to-one deployment**: one site per NICo installation. The site is
 To verify the site was registered correctly:
 
 ```bash
+export NICO_API_NAME=nico
 nicocli site list
 ```
 
