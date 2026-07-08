@@ -877,8 +877,9 @@ func Test_tenantConfigUpMigration(t *testing.T) {
 	err := dbSession.DB.ResetModel(context.Background(), (*model.Tenant)(nil))
 	assert.Nil(t, err)
 
-	// Drop foreign key constraints
-	_, err = dbSession.DB.Exec("ALTER TABLE tenant ALTER COLUMN config DROP NOT NULL")
+	// The tenant.config column has been removed from the current Tenant model,
+	// so recreate it here to exercise this historical migration in isolation.
+	_, err = dbSession.DB.Exec("ALTER TABLE tenant ADD COLUMN config jsonb")
 	assert.NoError(t, err)
 
 	// Create initial data
@@ -887,31 +888,23 @@ func Test_tenantConfigUpMigration(t *testing.T) {
 	ipu := model.TestBuildUser(t, dbSession, uuid.NewString(), ipOrg, ipRoles)
 
 	tnOrg1 := "test-tenant-org-1"
-	tnOrg2 := "test-tenant-org-2"
-	tnOrg3 := "test-tenant-org-3"
 
 	tenant1 := model.TestBuildTenant(t, dbSession, "test-tenant-1", tnOrg1, ipu)
 
+	// Simulate a legacy row with a NULL config prior to the migration.
 	_, err = dbSession.DB.Exec("UPDATE tenant SET config = NULL where id = ?", tenant1.ID)
 	assert.NoError(t, err)
-
-	tenant2 := model.TestBuildTenant(t, dbSession, "test-tenant-2", tnOrg2, ipu)
-	assert.NotNil(t, tenant2.Config)
 
 	// Call up migration function
 	err = tenantConfigUpMigration(ctx, dbSession.DB)
 	assert.NoError(t, err)
 
-	// GetAll operating systems and verify
-	tnDAO := model.NewTenantDAO(dbSession)
-	tns, _, err := tnDAO.GetAll(ctx, nil, model.TenantFilterInput{Orgs: []string{tenant1.Org}}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
-	assert.Nil(t, err)
-	assert.Equal(t, 1, len(tns))
-	assert.Equal(t, tenant1.ID, tns[0].ID)
-
-	// Check that config is not null
-	assert.NotNil(t, tns[0].Config)
-
-	tenant3 := model.TestBuildTenant(t, dbSession, "test-tenant-3", tnOrg3, ipu)
-	assert.NotNil(t, tenant3.Config)
+	// The migration backfills NULL configs with an empty JSON object, so no
+	// tenant row should have a NULL config after it runs.
+	nullConfigCount, err := dbSession.DB.NewSelect().
+		Table("tenant").
+		Where("config IS NULL").
+		Count(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, nullConfigCount)
 }

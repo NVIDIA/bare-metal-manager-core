@@ -528,7 +528,7 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		Name:           "privileged-tenant",
 		Org:            privilegedTenantOrg,
 		OrgDisplayName: cutil.GetPtr("Privileged Tenant Org"),
-		CreatedBy: privilegedTenantUserID,
+		CreatedBy:      privilegedTenantUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(privilegedTenant).Exec(ctx)
 	assert.Nil(t, err)
@@ -573,7 +573,7 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		Name:           "dual-role-tenant",
 		Org:            dualRoleOrg,
 		OrgDisplayName: cutil.GetPtr("Dual Role Org"),
-		CreatedBy: dualRoleUserID,
+		CreatedBy:      dualRoleUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(dualRoleTenant).Exec(ctx)
 	assert.Nil(t, err)
