@@ -61,7 +61,7 @@ behavior, your nico instance will need to have the following set:
 
 ```toml
 [site_explorer]
-override_target_port = 2000
+bmc_proxy = "127.0.0.1:2000"  # override_target_ip/port are deprecated
 # Probably also want to configure these, although it is unrelated to the port issue
 enabled = true
 create_machines = true
@@ -118,6 +118,6 @@ setup with the appropriate overrides for redfish so that it will send all reques
 > Note: If you follow the above steps to configure nico and machine-a-tron in your cluster, then running
 > machine-a-tron locally will not work, because nico will be configured to always use the in-cluster machine-a-tron
 > for all libredfish calls. If you want to go back to running the TUI locally, you'll want to manually edit the
-> generated nico-api-site-config.toml and drop the `override_target_host` line. You may also want to edit the
+> generated nico-api-site-config.toml and drop the `bmc_proxy` line. You may also want to edit the
 > `mat.toml` in the same directory and set the host_count to 0 so that the in-cluster machine-a-tron doesn't run any
 > mock machines.

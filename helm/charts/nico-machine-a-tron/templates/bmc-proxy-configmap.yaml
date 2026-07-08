@@ -19,7 +19,10 @@ data:
 
     http {
       upstream machine_a_tron_backend {
-        server {{ include "nico-machine-a-tron.name" . }}:{{ .Values.service.bmcMock.port }};
+        {{- /* must match the bmc-mock Service name (service.yaml) — the bare
+             chart name is not a Service; nginx exits at startup with
+             "host not found in upstream" */}}
+        server {{ include "nico-machine-a-tron.name" . }}-bmc-mock:{{ .Values.service.bmcMock.port }};
         keepalive 256;
       }
 
@@ -41,8 +44,13 @@ data:
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto $scheme;
-          # Key header: tells machine-a-tron which BMC IP was requested
-          proxy_set_header Forwarded "host=$server_addr";
+          # Key header: tells machine-a-tron which BMC IP was requested.
+          # $host (the client's requested host = the BMC LoadBalancer IP it
+          # dialed) — NOT $server_addr: kube-proxy DNATs the LB IP to the
+          # nginx pod IP before the connection arrives, so $server_addr is
+          # the pod IP and every registry lookup 404s ("no router configured
+          # for host: 10.233.x.x").
+          proxy_set_header Forwarded "host=$host";
           proxy_ssl_verify off;
         }
       }

@@ -9,6 +9,12 @@ metadata:
     app.kubernetes.io/component: nginx-bmc-proxy
 spec:
   replicas: {{ .Values.nginxBmcProxy.replicas | default 1 }}
+  ## With required anti-affinity and replicas == node count, a surge pod can
+  ## never schedule — rolling updates deadlock. Take one down first instead.
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       {{- include "nico-machine-a-tron.selectorLabels" . | nindent 6 }}
@@ -21,15 +27,28 @@ spec:
       annotations:
         checksum/nginx-config: {{ include (print $.Template.BasePath "/bmc-proxy-configmap.yaml") . | sha256sum }}
     spec:
-      ## Pod affinity: schedule nginx on the same node as machine-a-tron
-      ## to minimize network hops between proxy and backend
+      ## Spread proxies across nodes (REQUIRED anti-affinity): the per-BMC
+      ## Services use externalTrafficPolicy Local, so a node without a proxy
+      ## pod cannot reach any BMC LoadBalancer IP — in-cluster clients
+      ## (site-explorer inside nico-api) see intermittent "Unreachable".
+      ## Co-location with machine-a-tron is kept only as a soft preference;
+      ## the old REQUIRED podAffinity stacked every replica on the mat node.
       affinity:
-        podAffinity:
+        podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
                   {{- include "nico-machine-a-tron.selectorLabels" . | nindent 18 }}
+                  app.kubernetes.io/component: nginx-bmc-proxy
               topologyKey: kubernetes.io/hostname
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "nico-machine-a-tron.selectorLabels" . | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: nginx
           image: {{ .Values.nginxBmcProxy.image | default "nginx:alpine" }}

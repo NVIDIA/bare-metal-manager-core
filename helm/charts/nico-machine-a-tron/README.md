@@ -38,7 +38,7 @@ flowchart TD
 **Use this for development environments where only simulated machines are needed.**
 
 In this mode, NICo's Site-Explorer is configured to redirect ALL Redfish calls to
-machine-a-tron via `override_target_host`. This is simple but **incompatible with
+machine-a-tron via `site_explorer.bmc_proxy`. This is simple but **incompatible with
 real hardware** since all BMC traffic goes to the mock.
 
 ### Architecture
@@ -54,7 +54,7 @@ flowchart LR
         BMC[Machine-A-Tron Pod<br/>BMC Mock]
     end
 
-    SE -->|"ALL Redfish calls<br/>override_target_host"| BMC
+    SE -->|"ALL Redfish calls<br/>bmc_proxy"| BMC
     BMC <-->|"gRPC: DHCP, status"| API
 ```
 
@@ -78,9 +78,16 @@ helm upgrade --install nico ./helm \
 enabled = true
 create_machines = true
 
-# Redirect ALL Redfish calls to machine-a-tron
-override_target_host = "nico-machine-a-tron-bmc-mock"
-override_target_port = 1266
+# Redirect ALL Redfish calls to machine-a-tron.
+# NB: the field is `bmc_proxy` — a single "host:port" string — and the
+# CROSS-NAMESPACE FQDN is required (site-explorer runs in nico-system; a bare
+# service name does not resolve). override_target_ip/port are deprecated;
+# override_target_host was never a valid field. The Redfish client injects
+# "Forwarded: host=<original BMC IP>" itself, which the mock's registry routes
+# on — this mode scales to the full simulated fleet (validated at 13,500 BMC
+# endpoints) and is the RECOMMENDED path for simulation-only clusters. Use
+# MetalLB mode below only when simulated BMCs must coexist with real hardware.
+bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local:1266"
 ```
 
 **3. Configure NICo Networks:**
@@ -190,9 +197,8 @@ helm upgrade --install nico ./helm \
 enabled = true
 create_machines = true
 
-# DO NOT set override_target_host - let NICo connect to actual BMC IPs
-# override_target_host = ...  # NOT SET!
-# override_target_port = ...  # NOT SET!
+# DO NOT set bmc_proxy - let NICo connect to actual BMC IPs
+# bmc_proxy = ...  # NOT SET!
 ```
 
 **3. Configure Separate Networks:**

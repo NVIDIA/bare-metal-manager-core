@@ -8,13 +8,13 @@
 ##    - NICo Site-Explorer redirects ALL Redfish calls to machine-a-tron
 ##    - Simple setup, no MetalLB required
 ##    - INCOMPATIBLE with real hardware (all BMC traffic goes to mock)
-##    - Requires: NICo site config with override_target_host set
+##    - Requires: NICo site config with site_explorer.bmc_proxy set
 ##
 ## 2. METALLB MODE (Large-Scale Testing) - nginxBmcProxy.enabled: true
 ##    - Each simulated BMC gets dedicated external IP via MetalLB
 ##    - Compatible with real hardware (can run alongside real machines)
 ##    - Requires: MetalLB with BGP for scale, dedicated IP range
-##    - Requires: NICo site config WITHOUT override_target_host
+##    - Requires: NICo site config WITHOUT site_explorer.bmc_proxy
 ##
 ## See README.md for detailed setup instructions for each mode.
 ##
