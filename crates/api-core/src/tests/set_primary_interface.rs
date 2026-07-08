@@ -402,14 +402,64 @@ async fn test_set_primary_interface_repairs_dpu_host_with_no_admin_primary(
         .execute(&env.pool)
         .await?;
 
-    // Promoting the Admin interface must succeed (repair), not error after the BMC call.
-    env.api
-        .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
+    // Hold the admin segment lock while the repair starts. The handler must wait for this lock
+    // before updating the interface row, or it can deadlock with DPU discovery's segment-first
+    // transaction.
+    let mut blocker_txn = db::Transaction::begin(&env.pool).await?;
+    let blocker_pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+        .fetch_one(blocker_txn.as_pgconn())
+        .await?;
+    db::machine_interface::load_and_lock_all_admin_segments(&mut blocker_txn).await?;
+
+    let api = env.api.clone();
+    let set_primary_task = tokio::spawn(async move {
+        api.set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
             host_machine_id: Some(host_id),
             interface_id: Some(promote_id),
             reboot: false,
         }))
-        .await?;
+        .await
+    });
+
+    let wait_result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS (\
+                     SELECT 1 FROM pg_locks \
+                     WHERE locktype = 'advisory' AND NOT granted \
+                       AND $1 = ANY(pg_blocking_pids(pid))\
+                 )",
+            )
+            .bind(blocker_pid)
+            .fetch_one(&env.pool)
+            .await?;
+            if waiting {
+                return Ok::<(), sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .map_err(|_| {
+        std::io::Error::other("set-primary-interface did not wait for the admin segment lock")
+    });
+
+    let row_lock_result =
+        sqlx::query("SELECT id FROM machine_interfaces WHERE id = $1::uuid FOR UPDATE NOWAIT")
+            .bind(promote_id)
+            .fetch_one(&env.pool)
+            .await;
+
+    blocker_txn.commit().await?;
+    let set_primary_result = set_primary_task.await?;
+
+    wait_result??;
+    row_lock_result.map_err(|err| {
+        std::io::Error::other(format!(
+            "set-primary-interface locked the target row before the admin segment: {err}",
+        ))
+    })?;
+    set_primary_result?;
 
     // The promoted interface is now the only primary.
     let primaries_now: Vec<_> = {

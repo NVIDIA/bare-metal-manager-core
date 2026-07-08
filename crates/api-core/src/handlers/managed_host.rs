@@ -283,6 +283,10 @@ async fn set_primary_interface_core(
     if current_primary_is_admin {
         db::machine_interface::reconcile_admin_addresses_for_host(&mut txn, &host_machine_id)
             .await?;
+    } else {
+        // The repair path has no current admin primary to reconcile, but it still must acquire
+        // segment locks before the primary-interface row updates below.
+        db::machine_interface::load_and_lock_all_admin_segments(&mut txn).await?;
     }
 
     // update the primary interface: clear the old primary (if any), then set the new.
