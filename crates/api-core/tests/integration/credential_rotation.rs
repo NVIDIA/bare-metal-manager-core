@@ -19,13 +19,15 @@ use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, CredentialType, CredentialWriter,
     Credentials, NicLockdownIkm,
 };
-use rpc::forge::forge_server::Forge;
+use carbide_test_harness::prelude::*;
 use rpc::forge::{
     CredentialRotationStatusRequest, RotateCredentialRequest, RotationCredentialType,
 };
 use tonic::Code;
 
-use crate::tests::common::api_fixtures::create_test_env;
+async fn init(pool: PgPool) -> TestHarness {
+    TestHarness::builder(pool).build().await
+}
 
 /// Pulls the password out of a stored credential, failing the test if the key
 /// is missing or not a username/password pair.
@@ -45,13 +47,13 @@ fn site_creds(password: &str) -> Credentials {
     }
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_auto_generates_versioned_secret_and_bumps_target(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     // bmc is backfilled at target 0; an auto-generated rotation advances to 1.
     let result = env
-        .api
+        .api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             password: None,
@@ -65,7 +67,7 @@ async fn rotate_auto_generates_versioned_secret_and_bumps_target(pool: sqlx::PgP
 
     // The versioned rotate-TO secret exists at v1 and satisfies the policy.
     let versioned = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::SiteWideRootVersioned { version: 1 },
         },
@@ -80,7 +82,7 @@ async fn rotate_auto_generates_versioned_secret_and_bumps_target(pool: sqlx::PgP
     // consumers read the v1 secret above; the unversioned path keeps its v0 value
     // (here, unset in the test env).
     let unversioned = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::SiteWideRoot,
         },
@@ -94,7 +96,7 @@ async fn rotate_auto_generates_versioned_secret_and_bumps_target(pool: sqlx::PgP
     // Status now reports target 1 with no devices converged yet (the engine is
     // not part of this change), so the rotation reads as complete-but-empty.
     let status = env
-        .api
+        .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             device_mac: None,
@@ -113,13 +115,13 @@ async fn rotate_auto_generates_versioned_secret_and_bumps_target(pool: sqlx::PgP
     );
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_supersedes_on_repeat(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     for expected in [1, 2, 3] {
         let result = env
-            .api
+            .api()
             .rotate_credential(tonic::Request::new(RotateCredentialRequest {
                 credential_type: RotationCredentialType::RotationHostUefi.into(),
                 password: None,
@@ -135,12 +137,12 @@ async fn rotate_supersedes_on_repeat(pool: sqlx::PgPool) {
     }
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_with_explicit_password_uses_it_verbatim(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     let password = "Str0ng-Explicit-Pw!";
-    env.api
+    env.api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationLockdownIkm.into(),
             password: Some(password.to_string()),
@@ -152,7 +154,7 @@ async fn rotate_with_explicit_password_uses_it_verbatim(pool: sqlx::PgPool) {
     // Lockdown IKM is version-addressed with no alias; the v1 secret is the
     // explicit value verbatim.
     let versioned = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::NicLockdownIkm {
             credential_type: NicLockdownIkm::SiteWide { version: 1 },
         },
@@ -162,12 +164,12 @@ async fn rotate_with_explicit_password_uses_it_verbatim(pool: sqlx::PgPool) {
     assert_eq!(versioned, password);
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_rejects_weak_explicit_password(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     let err = env
-        .api
+        .api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationHostUefi.into(),
             password: Some("weak".to_string()),
@@ -179,7 +181,7 @@ async fn rotate_rejects_weak_explicit_password(pool: sqlx::PgPool) {
 
     // The rejected rotation must not have advanced the target or written a v1.
     let stored = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::HostUefiSiteVersioned { version: 1 },
     )
     .await;
@@ -189,12 +191,12 @@ async fn rotate_rejects_weak_explicit_password(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_and_status_reject_nvos(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     let rotate_err = env
-        .api
+        .api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationNvos.into(),
             password: None,
@@ -205,7 +207,7 @@ async fn rotate_and_status_reject_nvos(pool: sqlx::PgPool) {
     assert_eq!(rotate_err.code(), Code::FailedPrecondition);
 
     let status_err = env
-        .api
+        .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationNvos.into(),
             device_mac: None,
@@ -215,12 +217,12 @@ async fn rotate_and_status_reject_nvos(pool: sqlx::PgPool) {
     assert_eq!(status_err.code(), Code::FailedPrecondition);
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_dpu_uefi_writes_versioned_secret(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     let result = env
-        .api
+        .api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationDpuUefi.into(),
             password: None,
@@ -232,7 +234,7 @@ async fn rotate_dpu_uefi_writes_versioned_secret(pool: sqlx::PgPool) {
     assert_eq!(result.target_version, 1);
 
     stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::DpuUefiSiteVersioned { version: 1 },
     )
     .await
@@ -242,7 +244,7 @@ async fn rotate_dpu_uefi_writes_versioned_secret(pool: sqlx::PgPool) {
     // rotation. uefi_setup resolves the live version from `target_version`, so
     // the unversioned path keeps its v0 value (unset in the test env).
     let unversioned = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::DpuUefi {
             credential_type: CredentialType::SiteDefault,
         },
@@ -259,13 +261,14 @@ async fn rotate_dpu_uefi_writes_versioned_secret(pool: sqlx::PgPool) {
 // auto-generated retry must *adopt* that staged secret (not overwrite it with a
 // freshly generated password) and complete the rotation, so the value devices
 // will converge to is stable across the retry.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_adopts_already_staged_secret_on_retry(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     // Simulate the pre-existing v1 secret left by the crashed attempt.
     let prestaged = "PreStaged-Rotate-Pw-1!";
-    env.test_credential_manager
+    env.api()
+        .credential_manager()
         .set_credentials(
             &CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::SiteWideRootVersioned { version: 1 },
@@ -275,7 +278,7 @@ async fn rotate_adopts_already_staged_secret_on_retry(pool: sqlx::PgPool) {
         .await
         .unwrap();
 
-    env.api
+    env.api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             password: None,
@@ -286,7 +289,7 @@ async fn rotate_adopts_already_staged_secret_on_retry(pool: sqlx::PgPool) {
 
     // The adopted (not regenerated) value is what the versioned slot now holds.
     let versioned = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::SiteWideRootVersioned { version: 1 },
         },
@@ -299,7 +302,7 @@ async fn rotate_adopts_already_staged_secret_on_retry(pool: sqlx::PgPool) {
     );
     // BMC is table-driven: the retry must not write the unversioned site path.
     let unversioned = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::SiteWideRoot,
         },
@@ -314,11 +317,12 @@ async fn rotate_adopts_already_staged_secret_on_retry(pool: sqlx::PgPool) {
 // An explicit-password rotation that lands on a version already staged with a
 // *different* password is a genuine conflict (a competing rotation claimed the
 // slot) and must be reported, not silently overwritten.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_explicit_conflicts_with_differently_staged_version(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
-    env.test_credential_manager
+    env.api()
+        .credential_manager()
         .set_credentials(
             &CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::SiteWideRootVersioned { version: 1 },
@@ -329,7 +333,7 @@ async fn rotate_explicit_conflicts_with_differently_staged_version(pool: sqlx::P
         .unwrap();
 
     let err = env
-        .api
+        .api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             password: Some("My-Explicit-Different-1!".to_string()),
@@ -342,7 +346,7 @@ async fn rotate_explicit_conflicts_with_differently_staged_version(pool: sqlx::P
     // The conflicting attempt must not have overwritten the staged secret or
     // advanced the target.
     let versioned = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::SiteWideRootVersioned { version: 1 },
         },
@@ -354,7 +358,7 @@ async fn rotate_explicit_conflicts_with_differently_staged_version(pool: sqlx::P
         "a conflicting explicit rotation must not overwrite the staged secret"
     );
     let status = env
-        .api
+        .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             device_mac: None,
@@ -370,12 +374,12 @@ async fn rotate_explicit_conflicts_with_differently_staged_version(pool: sqlx::P
 
 // The proto3 zero value (unset family) must be rejected rather than defaulting
 // to a destructive BMC rotation.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn rotate_rejects_unspecified_credential_type(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     let err = env
-        .api
+        .api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::Unspecified.into(),
             password: None,
@@ -386,11 +390,11 @@ async fn rotate_rejects_unspecified_credential_type(pool: sqlx::PgPool) {
     assert_eq!(err.code(), Code::InvalidArgument);
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn host_uefi_rotation_writes_versioned_secret_only(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
-    env.api
+    env.api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationHostUefi.into(),
             password: None,
@@ -400,7 +404,7 @@ async fn host_uefi_rotation_writes_versioned_secret_only(pool: sqlx::PgPool) {
         .expect("host uefi rotation should succeed");
 
     stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::HostUefiSiteVersioned { version: 1 },
     )
     .await
@@ -410,7 +414,7 @@ async fn host_uefi_rotation_writes_versioned_secret_only(pool: sqlx::PgPool) {
     // rotation. uefi_setup / clear resolve the live version from the rotation
     // table, so the unversioned path keeps its v0 value (unset in the test env).
     let unversioned = stored_password(
-        &env.test_credential_manager,
+        env.api().credential_manager(),
         &CredentialKey::HostUefi {
             credential_type: CredentialType::SiteDefault,
         },
@@ -439,12 +443,12 @@ async fn insert_device_row(pool: &sqlx::PgPool, mac: &str, current_version: i32)
 // A device-scoped status report collapses the aggregate counts to the single
 // device and carries the per-device detail. A converged device reads complete;
 // a device behind the target reads pending.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn status_for_device_reports_single_device_detail(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     // Advance bmc to target 1 so a device can sit on either side of it.
-    env.api
+    env.api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             password: None,
@@ -453,13 +457,13 @@ async fn status_for_device_reports_single_device_detail(pool: sqlx::PgPool) {
         .await
         .expect("rotation should succeed");
 
-    insert_device_row(&env.pool, "02:00:00:00:00:01", 1).await;
-    insert_device_row(&env.pool, "02:00:00:00:00:02", 0).await;
+    insert_device_row(&env.api().database_connection, "02:00:00:00:00:01", 1).await;
+    insert_device_row(&env.api().database_connection, "02:00:00:00:00:02", 0).await;
 
     // Converged device: counts collapse to converged=1 and the rotation reads
     // complete for that device.
     let converged = env
-        .api
+        .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             device_mac: Some("02:00:00:00:00:01".to_string()),
@@ -480,7 +484,7 @@ async fn status_for_device_reports_single_device_detail(pool: sqlx::PgPool) {
 
     // Device behind the target: pending=1 and not complete.
     let pending = env
-        .api
+        .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             device_mac: Some("02:00:00:00:00:02".to_string()),
@@ -500,12 +504,12 @@ async fn status_for_device_reports_single_device_detail(pool: sqlx::PgPool) {
 // collapse to quarantined=1 (not pending), the MAC is listed, the rotation reads
 // incomplete, and the richer detail fields (backoff window, attempts, redacted
 // error, in-flight version) are carried through to the proto.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn status_for_quarantined_device_reports_detail(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     // Advance bmc to target 1 so the device can sit behind the target.
-    env.api
+    env.api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             password: None,
@@ -523,12 +527,12 @@ async fn status_for_quarantined_device_reports_detail(pool: sqlx::PgPool) {
          VALUES ('02:00:00:00:00:07'::macaddr, 'bmc', 0, 1, 2, 'redacted boom', \
                  now() + interval '1 hour')",
     )
-    .execute(&env.pool)
+    .execute(&env.api().database_connection)
     .await
     .unwrap();
 
     let status = env
-        .api
+        .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             device_mac: Some("02:00:00:00:00:07".to_string()),
@@ -563,12 +567,12 @@ async fn status_for_quarantined_device_reports_detail(pool: sqlx::PgPool) {
 
 // A MAC with no rotation record is a NotFound, not a fabricated "pending"
 // status, so a mistyped MAC is surfaced rather than silently misreported.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn status_for_unknown_device_mac_is_not_found(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     let err = env
-        .api
+        .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             device_mac: Some("02:00:00:00:00:ff".to_string()),
@@ -579,12 +583,12 @@ async fn status_for_unknown_device_mac_is_not_found(pool: sqlx::PgPool) {
 }
 
 // A malformed MAC is a client error (InvalidArgument), not an internal error.
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn status_for_malformed_device_mac_is_invalid_argument(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+    let env = init(pool).await;
 
     let err = env
-        .api
+        .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationBmc.into(),
             device_mac: Some("not-a-mac".to_string()),
