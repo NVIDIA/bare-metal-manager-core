@@ -25,7 +25,7 @@ use super::client::{
 use crate::HealthError;
 use crate::bmc::{CREDENTIAL_REFRESH_TIMEOUT, CredentialProvider, is_auth_error};
 use crate::collectors::{IterationResult, PeriodicCollector};
-use crate::config::NvueRestConfig;
+use crate::config::{MtlsProfileConfig, NvueRestConfig};
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
 use crate::sink::{
     Classification, CollectorEvent, DataSink, EventContext, HealthReport, HealthReportAlert,
@@ -141,9 +141,17 @@ fn fan_led_to_state(state: Option<&str>) -> Option<&'static str> {
 }
 
 pub struct NvueRestCollectorConfig {
+    /// User-facing NVUE REST collector settings from the health service configuration.
     pub rest_config: NvueRestConfig,
+
+    /// Optional sink that receives NVUE REST health reports and events.
     pub data_sink: Option<Arc<dyn DataSink>>,
+
+    /// Credential source used to authenticate to NVUE REST.
     pub credential_provider: Arc<dyn CredentialProvider>,
+
+    /// mTLS profile used for HTTPS polling when configured.
+    pub(crate) tls_config: Option<MtlsProfileConfig>,
 }
 
 pub struct NvueRestCollector {
@@ -167,16 +175,18 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             Some(EndpointMetadata::Switch(s)) => s.serial.clone(),
             _ => endpoint.addr.mac.to_string(),
         };
-        let switch_ip = endpoint.addr.ip.to_string();
+
         let event_context = EventContext::from_endpoint(endpoint.as_ref(), COLLECTOR_NAME);
 
         let rest_cfg = &config.rest_config;
         // self_signed_tls is always true -- TLS cert provisioning on switches is not yet implemented
         let client = RestClient::new(
             switch_id.clone(),
-            &switch_ip,
+            endpoint.addr.ip,
+            endpoint.addr.port,
             rest_cfg.request_timeout,
             true,
+            config.tls_config,
             rest_cfg.paths.clone(),
         )?;
 
@@ -191,6 +201,8 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
     }
 
     async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
+        self.client.ensure_http_client().await?;
+
         if !self.client.has_credentials()
             && let Err(error) = self.refresh_rest_credentials().await
         {
@@ -1493,9 +1505,11 @@ mod tests {
         let addr = test_addr();
         let client = RestClient::new(
             "test-switch".to_string(),
-            &addr.ip.to_string(),
+            addr.ip,
+            addr.port,
             Duration::from_millis(10),
             true,
+            None,
             paths_all_disabled(),
         )
         .expect("rest client builds");

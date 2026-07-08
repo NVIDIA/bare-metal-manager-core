@@ -16,6 +16,7 @@
  */
 
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,7 +28,7 @@ use serde::de::Error as _;
 use url::Url;
 
 use crate::HealthError;
-use crate::config::NvueRestPaths;
+use crate::config::{MtlsProfileConfig, NvueRestPaths};
 
 const NVUE_SYSTEM_HEALTH: &str = "/nvue_v1/system/health";
 const NVUE_SYSTEM_REBOOT_REASON: &str = "/nvue_v1/system/reboot/reason";
@@ -76,38 +77,97 @@ pub struct RestClient {
     base_url: Url,
     credentials: ArcSwapOption<UsernamePassword>,
     paths: NvueRestPaths,
-    client: Client,
+    http_client: RestHttpClient,
+}
+
+enum RestHttpClient {
+    Legacy(Client),
+
+    // Store the HTTP client prepared for the current switch-target iteration.
+    // The resolver override is target-specific when `[tls.switch].tls_server_name`
+    // is set, so sharing one reqwest client across switch IPs would be incorrect.
+    Tls {
+        config: MtlsProfileConfig,
+        request_timeout: Duration,
+
+        // When set, base_url uses `[tls.switch].tls_server_name` for SNI and
+        // certificate verification, while reqwest resolves it to this socket
+        // address locally.
+        resolve_addr: Option<SocketAddr>,
+
+        client: Option<Client>,
+    },
 }
 
 impl RestClient {
     pub fn new(
         switch_id: String,
-        host: &str,
+        connect_ip: IpAddr,
+        port: Option<u16>,
         request_timeout: Duration,
         self_signed_tls: bool,
+        tls_config: Option<MtlsProfileConfig>,
         paths: NvueRestPaths,
     ) -> Result<Self, HealthError> {
-        let raw_url = format!("https://{host}");
+        let tls_server_name = tls_config
+            .as_ref()
+            .and_then(|config| config.tls_server_name.clone());
+
+        let port = port.unwrap_or(443);
+        let resolve_addr = tls_server_name
+            .as_ref()
+            .map(|_| SocketAddr::new(connect_ip, port));
+
+        // When `tls_server_name` is configured, the URL host and HTTP Host
+        // header use that shared TLS identity. Reqwest resolves it to the
+        // discovered switch IP through the target-scoped client override below.
+        // This matches current switch behavior, which accepts the shared host.
+        let host = tls_server_name
+            .as_deref()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| match connect_ip {
+                IpAddr::V4(ip) => ip.to_string(),
+                IpAddr::V6(ip) => format!("[{ip}]"),
+            });
+
+        let raw_url = if port == 443 {
+            format!("https://{host}")
+        } else {
+            format!("https://{host}:{port}")
+        };
+
         let base_url = Url::parse(&raw_url)
             .map_err(|e| HealthError::HttpError(format!("{raw_url}: invalid base URL: {e}")))?;
 
-        let mut builder = Client::builder().timeout(request_timeout);
+        let http_client = match tls_config {
+            Some(config) => RestHttpClient::Tls {
+                config,
+                request_timeout,
+                resolve_addr,
+                client: None,
+            },
+            None => {
+                let mut builder = Client::builder().timeout(request_timeout);
 
-        if self_signed_tls {
-            // ! dangerously accept the self-signed certificate.
-            builder = builder.danger_accept_invalid_certs(true);
-        }
+                if self_signed_tls {
+                    // ! dangerously accept the self-signed certificate.
+                    builder = builder.danger_accept_invalid_certs(true);
+                }
 
-        let client = builder.build().map_err(|e| {
-            HealthError::HttpError(format!("{base_url}: failed to create HTTP client: {e}"))
-        })?;
+                let client = builder.build().map_err(|e| {
+                    HealthError::HttpError(format!("{base_url}: failed to create HTTP client: {e}"))
+                })?;
+
+                RestHttpClient::Legacy(client)
+            }
+        };
 
         Ok(Self {
             switch_id,
             base_url,
             credentials: ArcSwapOption::empty(),
             paths,
-            client,
+            http_client,
         })
     }
 
@@ -130,8 +190,28 @@ impl RestClient {
             base_url,
             credentials: ArcSwapOption::empty(),
             paths,
-            client,
+            http_client: RestHttpClient::Legacy(client),
         })
+    }
+
+    /// Rebuilds the target-scoped HTTP client before NVUE REST requests.
+    ///
+    /// When an mTLS profile is configured, the client is rebuilt once per poll
+    /// iteration. This keeps certificate reload behavior deterministic and
+    /// avoids a global cache that would need switch inventory synchronization.
+    pub async fn ensure_http_client(&mut self) -> Result<(), HealthError> {
+        if let RestHttpClient::Tls {
+            config,
+            request_timeout,
+            resolve_addr,
+            client,
+        } = &mut self.http_client
+        {
+            *client =
+                Some(crate::tls::reqwest_client(config, *request_timeout, *resolve_addr).await?);
+        }
+
+        Ok(())
     }
 
     pub fn set_credentials(&self, creds: UsernamePassword) {
@@ -273,7 +353,21 @@ impl RestClient {
         url: Url,
         extra_query: &[(&str, &str)],
     ) -> Result<T, HealthError> {
-        let mut request = self.client.get(url.as_str());
+        let client = match &self.http_client {
+            RestHttpClient::Legacy(client) => client,
+            RestHttpClient::Tls {
+                client: Some(client),
+                ..
+            } => client,
+            RestHttpClient::Tls { .. } => {
+                return Err(HealthError::HttpError(format!(
+                    "{url}: mTLS HTTP client was not prepared for switch {}",
+                    self.switch_id
+                )));
+            }
+        };
+
+        let mut request = client.get(url.as_str());
 
         // GET /interface (returning a collection) defaults to rev=applied, not operational.
         // There is inconsistency across the NVUE Endpoints, so we need to check each.

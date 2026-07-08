@@ -43,8 +43,9 @@ hyper-rustls = { workspace = true, features = ["http2"] }
 hyper-util = { workspace = true }
 mac_address = { workspace = true }
 prometheus = { workspace = true }
-reqwest = { workspace = true, features = ["query", "json"] }
+reqwest = { workspace = true, features = ["query", "json", "rustls"] }
 rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
@@ -80,6 +81,7 @@ nv-redfish = { workspace = true, features = [
 ] }
 rand = { workspace = true }
 url = { workspace = true, features = ["serde"] }
+x509-parser = { workspace = true }
 
 # [local-dependencies]
 carbide-health-report = { path = "../health-report" }
@@ -100,7 +102,9 @@ bench-hooks = []
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }
 criterion = { workspace = true }
+rcgen = { workspace = true }
 tempfile = { workspace = true }
+time = { workspace = true }
 
 [[bench]]
 name = "sink_pipeline"

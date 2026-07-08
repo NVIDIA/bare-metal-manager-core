@@ -2006,14 +2006,17 @@ dependencies = [
  "prost",
  "prost-types",
  "rand 0.10.1",
+ "rcgen",
  "reqwest 0.13.4",
  "rustls",
+ "rustls-pemfile",
  "rustls-pki-types",
  "serde",
  "serde_json",
  "serde_with",
  "tempfile",
  "thiserror 2.0.18",
+ "time",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -2023,6 +2026,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "x509-parser",
 ]
 
 [[package]]

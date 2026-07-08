@@ -29,8 +29,9 @@ use crate::config::{
     Config, Configurable, DiscoveryConfig, FirmwareCollectorConfig as FirmwareCollectorOptions,
     LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
     LogsCollectorConfig as LogsCollectorOptions, MetricsCollectorConfig as MetricsCollectorOptions,
-    NmxcCollectorConfig as NmxcCollectorOptions, NmxtCollectorConfig as NmxtCollectorOptions,
-    NvueCollectorConfig as NvueCollectorOptions, SensorCollectorConfig as SensorCollectorOptions,
+    MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions,
+    NmxtCollectorConfig as NmxtCollectorOptions, NvueCollectorConfig as NvueCollectorOptions,
+    SensorCollectorConfig as SensorCollectorOptions,
 };
 use crate::limiter::RateLimiter;
 use crate::metrics::{MetricsManager, operation_duration_buckets_seconds};
@@ -231,6 +232,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) nmxt_config: Configurable<NmxtCollectorOptions>,
     pub(crate) nmxc_config: Configurable<NmxcCollectorOptions>,
     pub(crate) nvue_config: Configurable<NvueCollectorOptions>,
+    pub(crate) tls_config: Option<MtlsProfileConfig>,
 
     /// Whether any enabled sink consumes `CollectorEvent::Log` payloads.
     pub(crate) log_event_sink_enabled: bool,
@@ -245,6 +247,15 @@ impl DiscoveryLoopContext {
         limiter: Arc<dyn RateLimiter>,
         metrics_manager: Arc<MetricsManager>,
         config: Arc<Config>,
+    ) -> Result<Self, HealthError> {
+        Self::new_with_tls_config(limiter, metrics_manager, config, None)
+    }
+
+    pub(crate) fn new_with_tls_config(
+        limiter: Arc<dyn RateLimiter>,
+        metrics_manager: Arc<MetricsManager>,
+        config: Arc<Config>,
+        tls_config: Option<MtlsProfileConfig>,
     ) -> Result<Self, HealthError> {
         let registry = metrics_manager.global_registry();
 
@@ -283,6 +294,7 @@ impl DiscoveryLoopContext {
             nmxt_config: config.collectors.nmxt.clone(),
             nmxc_config: config.collectors.nmxc.clone(),
             nvue_config: config.collectors.nvue.clone(),
+            tls_config: tls_config.or_else(|| config.tls.switch.clone()),
             log_event_sink_enabled: config.sinks.includes_log_events(),
             log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
             logs_include_diagnostics: config.sinks.includes_log_diagnostics(),
@@ -297,6 +309,7 @@ mod tests {
 
     use super::*;
     use crate::collectors::Collector;
+    use crate::config::MtlsProfileConfig;
 
     fn noop_collector() -> Collector {
         Collector::spawn_task(|_| async {})
@@ -321,5 +334,33 @@ mod tests {
 
         assert!(removed.contains(&Cow::Borrowed("removed-gNMI-endpoint")));
         assert!(!removed.contains(&Cow::Borrowed("active-rest-endpoint")));
+    }
+
+    #[test]
+    fn context_carries_tls_switch_config() {
+        let mut config = Config::default();
+
+        let tls_config = MtlsProfileConfig {
+            ca_cert_path: "/switch/ca.crt".into(),
+            client_cert_path: "/switch/tls.crt".into(),
+            client_key_path: "/switch/tls.key".into(),
+            tls_server_name: Some("switches.example.forge".to_string()),
+        };
+
+        config.tls.switch = Some(tls_config.clone());
+
+        let context = DiscoveryLoopContext::new(
+            Arc::new(crate::limiter::NoopLimiter),
+            Arc::new(MetricsManager::new("tls_context").expect("metrics manager")),
+            Arc::new(config),
+        )
+        .expect("context should initialize");
+
+        let actual_tls_config = context
+            .tls_config
+            .as_ref()
+            .expect("[tls.switch] config should be present");
+
+        assert_eq!(actual_tls_config, &tls_config);
     }
 }

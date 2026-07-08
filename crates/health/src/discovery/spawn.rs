@@ -454,6 +454,7 @@ fn spawn_switch_host_collectors(
             NmxtCollectorConfig {
                 nmxt_config: nmxt_cfg.clone(),
                 data_sink: data_sink.clone(),
+                tls_config: ctx.tls_config.clone(),
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),
@@ -501,6 +502,7 @@ fn spawn_switch_host_collectors(
                 bmc.clone(),
                 NmxcCollectorConfig {
                     nmxc_config: nmxc_cfg.clone(),
+                    tls_config: ctx.tls_config.clone(),
                 },
                 data_sink,
                 StreamingCollectorStartContext {
@@ -555,6 +557,7 @@ fn spawn_switch_host_collectors(
                 rest_config: rest_cfg.clone(),
                 data_sink: data_sink.clone(),
                 credential_provider,
+                tls_config: ctx.tls_config.clone(),
             },
             CollectorStartContext {
                 limiter: ctx.limiter.clone(),
@@ -598,6 +601,7 @@ fn spawn_switch_host_collectors(
             credential_provider,
             collector_registry,
             data_sink.clone(),
+            ctx.tls_config.clone(),
         ) {
             Ok(handle) => {
                 ctx.collectors
