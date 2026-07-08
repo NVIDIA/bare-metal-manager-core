@@ -307,6 +307,7 @@ core-protogen:
 	echo "Generating protobuf for Core"
 	cd proto/core && buf generate
 	go fmt ./...
+	cd ../ && python3 scripts/check_source_headers.py --fix
 
 flow-proto:
 	$(MAKE) flow-proto-clean

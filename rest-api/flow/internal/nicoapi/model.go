@@ -6,17 +6,17 @@ package nicoapi
 import (
 	"time"
 
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // model.go abstracts the raw grpc definitions away.  Don't bother implementing fields you don't think you'll use.
 
-func stringsToMachineIds(machineIds []string) (ret []*pb.MachineId) {
+func stringsToMachineIds(machineIds []string) (ret []*corev1.MachineId) {
 	if len(machineIds) == 0 {
 		return nil
 	}
 	for _, cur := range machineIds {
-		ret = append(ret, &pb.MachineId{Id: cur})
+		ret = append(ret, &corev1.MachineId{Id: cur})
 	}
 	return ret
 }
@@ -44,7 +44,7 @@ type MachinePosition struct {
 	TopologyID       *int32
 }
 
-func machineDetailFromPb(machine *pb.Machine) MachineDetail {
+func machineDetailFromPb(machine *corev1.Machine) MachineDetail {
 	detail := MachineDetail{
 		MachineID:      machine.Id.Id,
 		State:          machine.State,
@@ -94,7 +94,7 @@ func machineDetailFromPb(machine *pb.Machine) MachineDetail {
 	return detail
 }
 
-func machinePositionFromPb(pos *pb.MachinePositionInfo) MachinePosition {
+func machinePositionFromPb(pos *corev1.MachinePositionInfo) MachinePosition {
 	return MachinePosition{
 		MachineID:        pos.MachineId.Id,
 		PhysicalSlotNum:  pos.PhysicalSlotNumber,
@@ -118,17 +118,17 @@ type MachinePowerState struct {
 	PowerState PowerState
 }
 
-func machinePowerStateFromPb(state *pb.PowerOptions) MachinePowerState {
+func machinePowerStateFromPb(state *corev1.PowerOptions) MachinePowerState {
 	return MachinePowerState{MachineID: state.HostId.Id, PowerState: powerStateFromPb(state.ActualState)}
 }
 
-func powerStateFromPb(state pb.PowerState) (ret PowerState) {
+func powerStateFromPb(state corev1.PowerState) (ret PowerState) {
 	switch state {
-	case pb.PowerState_Off:
+	case corev1.PowerState_Off:
 		ret = PowerStateOff
-	case pb.PowerState_On:
+	case corev1.PowerState_On:
 		ret = PowerStateOn
-	case pb.PowerState_PowerManagerDisabled:
+	case corev1.PowerState_PowerManagerDisabled:
 		ret = PowerStateDisabled
 	default:
 		ret = PowerStateUnknown
@@ -137,16 +137,16 @@ func powerStateFromPb(state pb.PowerState) (ret PowerState) {
 	return ret
 }
 
-func powerStateToPb(state PowerState) pb.PowerState {
+func powerStateToPb(state PowerState) corev1.PowerState {
 	switch state {
 	case PowerStateOff:
-		return pb.PowerState_Off
+		return corev1.PowerState_Off
 	case PowerStateOn:
-		return pb.PowerState_On
+		return corev1.PowerState_On
 	case PowerStateDisabled:
-		return pb.PowerState_PowerManagerDisabled
+		return corev1.PowerState_PowerManagerDisabled
 	default:
-		return pb.PowerState_Off
+		return corev1.PowerState_Off
 	}
 }
 
@@ -191,22 +191,22 @@ func (s SystemPowerControl) String() string {
 	}
 }
 
-func (s SystemPowerControl) toPb() pb.AdminPowerControlRequest_SystemPowerControl {
+func (s SystemPowerControl) toPb() corev1.AdminPowerControlRequest_SystemPowerControl {
 	switch s {
 	case PowerControlOn, PowerControlForceOn:
-		return pb.AdminPowerControlRequest_On
+		return corev1.AdminPowerControlRequest_On
 	case PowerControlGracefulShutdown:
-		return pb.AdminPowerControlRequest_GracefulShutdown
+		return corev1.AdminPowerControlRequest_GracefulShutdown
 	case PowerControlForceOff:
-		return pb.AdminPowerControlRequest_ForceOff
+		return corev1.AdminPowerControlRequest_ForceOff
 	case PowerControlGracefulRestart, PowerControlWarmReset:
-		return pb.AdminPowerControlRequest_GracefulRestart
+		return corev1.AdminPowerControlRequest_GracefulRestart
 	case PowerControlForceRestart:
-		return pb.AdminPowerControlRequest_ForceRestart
+		return corev1.AdminPowerControlRequest_ForceRestart
 	case PowerControlColdReset:
-		return pb.AdminPowerControlRequest_ACPowercycle
+		return corev1.AdminPowerControlRequest_ACPowercycle
 	default:
-		return pb.AdminPowerControlRequest_On
+		return corev1.AdminPowerControlRequest_On
 	}
 }
 
@@ -216,7 +216,7 @@ type MachineInterface struct {
 	Addresses  []string // IP addresses assigned to this interface
 }
 
-func machineInterfaceFromPb(iface *pb.MachineInterface) MachineInterface {
+func machineInterfaceFromPb(iface *corev1.MachineInterface) MachineInterface {
 	return MachineInterface{
 		MacAddress: iface.MacAddress,
 		Addresses:  iface.Address,
@@ -256,7 +256,7 @@ type ExpectedSwitchInfo struct {
 	Metadata           map[string]string
 }
 
-func expectedSwitchInfoFromPb(es *pb.ExpectedSwitch) ExpectedSwitchInfo {
+func expectedSwitchInfoFromPb(es *corev1.ExpectedSwitch) ExpectedSwitchInfo {
 	info := ExpectedSwitchInfo{
 		BMCMACAddress:      es.GetBmcMacAddress(),
 		SwitchSerialNumber: es.GetSwitchSerialNumber(),
@@ -281,7 +281,7 @@ type LinkedExpectedSwitch struct {
 	SwitchSerialNumber string
 }
 
-func linkedExpectedSwitchFromPb(les *pb.LinkedExpectedSwitch) LinkedExpectedSwitch {
+func linkedExpectedSwitchFromPb(les *corev1.LinkedExpectedSwitch) LinkedExpectedSwitch {
 	info := LinkedExpectedSwitch{
 		BMCMACAddress:      les.GetBmcMacAddress(),
 		SwitchSerialNumber: les.GetSwitchSerialNumber(),
@@ -304,7 +304,7 @@ type LinkedExpectedPowerShelf struct {
 	ShelfSerialNumber    string
 }
 
-func linkedExpectedPowerShelfFromPb(leps *pb.LinkedExpectedPowerShelf) LinkedExpectedPowerShelf {
+func linkedExpectedPowerShelfFromPb(leps *corev1.LinkedExpectedPowerShelf) LinkedExpectedPowerShelf {
 	info := LinkedExpectedPowerShelf{
 		BMCMACAddress:     leps.GetBmcMacAddress(),
 		ShelfSerialNumber: leps.GetShelfSerialNumber(),
@@ -357,14 +357,14 @@ func (s BringUpState) String() string {
 }
 
 func bringUpStateFromPb(
-	s pb.MachineIngestionState,
+	s corev1.MachineIngestionState,
 ) BringUpState {
 	switch s {
-	case pb.MachineIngestionState_WaitingForIngestion:
+	case corev1.MachineIngestionState_WaitingForIngestion:
 		return BringUpStateWaitingForIngestion
-	case pb.MachineIngestionState_IngestionMachineNotCreated:
+	case corev1.MachineIngestionState_IngestionMachineNotCreated:
 		return BringUpStateMachineNotCreated
-	case pb.MachineIngestionState_IngestionMachineCreated:
+	case corev1.MachineIngestionState_IngestionMachineCreated:
 		return BringUpStateMachineCreated
 	default:
 		return BringUpStateNotDiscovered
@@ -434,7 +434,7 @@ type ExpectedPowerShelfDetail struct {
 // metadataToGo extracts name, description and labels from a proto Metadata
 // message into plain Go values. A nil metadata yields zero values and a nil
 // labels map.
-func metadataToGo(md *pb.Metadata) (name, description string, labels map[string]string) {
+func metadataToGo(md *corev1.Metadata) (name, description string, labels map[string]string) {
 	if md == nil {
 		return "", "", nil
 	}
@@ -454,7 +454,7 @@ func metadataToGo(md *pb.Metadata) (name, description string, labels map[string]
 	return name, description, labels
 }
 
-func expectedRackDetailFromPb(er *pb.ExpectedRack) ExpectedRackDetail {
+func expectedRackDetailFromPb(er *corev1.ExpectedRack) ExpectedRackDetail {
 	d := ExpectedRackDetail{
 		RackProfileID: er.GetRackProfileId().GetId(),
 	}
@@ -465,7 +465,7 @@ func expectedRackDetailFromPb(er *pb.ExpectedRack) ExpectedRackDetail {
 	return d
 }
 
-func expectedMachineDetailFromPb(em *pb.ExpectedMachine) ExpectedMachineDetail {
+func expectedMachineDetailFromPb(em *corev1.ExpectedMachine) ExpectedMachineDetail {
 	d := ExpectedMachineDetail{
 		BMCMACAddress:       em.GetBmcMacAddress(),
 		ChassisSerialNumber: em.GetChassisSerialNumber(),
@@ -483,7 +483,7 @@ func expectedMachineDetailFromPb(em *pb.ExpectedMachine) ExpectedMachineDetail {
 	return d
 }
 
-func expectedSwitchDetailFromPb(es *pb.ExpectedSwitch) ExpectedSwitchDetail {
+func expectedSwitchDetailFromPb(es *corev1.ExpectedSwitch) ExpectedSwitchDetail {
 	d := ExpectedSwitchDetail{
 		BMCMACAddress:      es.GetBmcMacAddress(),
 		BMCIPAddress:       es.GetBmcIpAddress(),
@@ -499,7 +499,7 @@ func expectedSwitchDetailFromPb(es *pb.ExpectedSwitch) ExpectedSwitchDetail {
 	return d
 }
 
-func expectedPowerShelfDetailFromPb(eps *pb.ExpectedPowerShelf) ExpectedPowerShelfDetail {
+func expectedPowerShelfDetailFromPb(eps *corev1.ExpectedPowerShelf) ExpectedPowerShelfDetail {
 	d := ExpectedPowerShelfDetail{
 		BMCMACAddress:     eps.GetBmcMacAddress(),
 		BMCIPAddress:      eps.GetBmcIpAddress(),
