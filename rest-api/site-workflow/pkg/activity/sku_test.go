@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -101,7 +101,7 @@ func TestManageSkuInventory_DiscoverSkuInventory(t *testing.T) {
 				tc.AssertNumberOfCalls(t, "ExecuteWorkflow", totalPages)
 			}
 
-			inventory, ok := tc.Calls[0].Arguments[4].(*cwssaws.SkuInventory)
+			inventory, ok := tc.Calls[0].Arguments[4].(*corev1.SkuInventory)
 			assert.True(t, ok)
 
 			if tt.args.wantTotalItems == 0 {
@@ -110,7 +110,7 @@ func TestManageSkuInventory_DiscoverSkuInventory(t *testing.T) {
 				assert.Equal(t, tt.fields.cloudPageSize, len(inventory.Skus))
 			}
 
-			assert.Equal(t, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
+			assert.Equal(t, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
 			assert.Equal(t, totalPages, int(inventory.InventoryPage.TotalPages))
 			assert.Equal(t, 1, int(inventory.InventoryPage.CurrentPage))
 			assert.Equal(t, tt.fields.cloudPageSize, int(inventory.InventoryPage.PageSize))

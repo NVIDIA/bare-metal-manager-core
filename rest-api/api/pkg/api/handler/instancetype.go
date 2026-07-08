@@ -25,7 +25,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
 	cwma "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/machine"
@@ -1463,7 +1463,7 @@ func (dith DeleteInstanceTypeHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteInstanceTypeRequest := &cwssaws.DeleteInstanceTypeRequest{
+		deleteInstanceTypeRequest := &corev1.DeleteInstanceTypeRequest{
 			Id: it.ID.String(),
 		}
 

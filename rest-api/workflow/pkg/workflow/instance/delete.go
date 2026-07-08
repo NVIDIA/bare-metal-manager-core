@@ -12,7 +12,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	instanceActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
 
@@ -41,8 +41,8 @@ func DeleteInstanceByID(ctx workflow.Context, instanceID uuid.UUID) error {
 
 	var instanceManager instanceActivity.ManageInstance
 
-	request := &cwssaws.InstanceReleaseRequest{
-		Id: &cwssaws.InstanceId{
+	request := &corev1.InstanceReleaseRequest{
+		Id: &corev1.InstanceId{
 			Value: instanceID.String(),
 		},
 	}

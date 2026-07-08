@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/rs/zerolog/log"
 	tClient "go.temporal.io/sdk/client"
@@ -39,7 +39,7 @@ func (msi *ManageSiteConfigInventory) DiscoverSiteConfigInventory(ctx context.Co
 		return cClient.ErrCoreGrpcClientNotConnected
 	}
 
-	buildInfo, err := grpcClient.GrpcServiceClient().Version(ctx, &cwssaws.VersionRequest{})
+	buildInfo, err := grpcClient.GrpcServiceClient().Version(ctx, &corev1.VersionRequest{})
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to retrieve Site runtime config using Core gRPC API")
 		return err

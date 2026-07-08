@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +59,7 @@ func TestManageSiteConfigInventory_DiscoverSiteConfigInventory(t *testing.T) {
 	assert.Equal(t, "update-site-config-inventory-"+siteID.String(), workflowOptions.ID)
 	assert.Equal(t, "test-queue", workflowOptions.TaskQueue)
 
-	buildInfo, ok := tc.Calls[0].Arguments[4].(*cwssaws.BuildInfo)
+	buildInfo, ok := tc.Calls[0].Arguments[4].(*corev1.BuildInfo)
 	require.True(t, ok)
 	assert.Equal(t, siteFabricPrefixes, buildInfo.GetRuntimeConfig().GetSiteFabricPrefixes())
 }

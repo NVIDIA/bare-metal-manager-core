@@ -12,7 +12,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	vpcActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
 
@@ -40,8 +40,8 @@ func DeleteVpcByID(ctx workflow.Context, vpcID uuid.UUID) error {
 
 	var vpcManager vpcActivity.ManageVPC
 
-	request := &cwssaws.VpcDeletionRequest{
-		Id: &cwssaws.VpcId{Value: vpcID.String()},
+	request := &corev1.VpcDeletionRequest{
+		Id: &corev1.VpcId{Value: vpcID.String()},
 	}
 
 	err := workflow.ExecuteActivity(ctx, vpcManager.DeleteVpcOnSite, request).Get(ctx, nil)
