@@ -1378,15 +1378,17 @@ impl OperatorError for EndpointExplorationError {
             | EndpointExplorationError::SecretsEngineError { .. }
             | EndpointExplorationError::SetCredentials { .. }
             | EndpointExplorationError::AvoidLockout => Some(
-                "Set or correct this endpoint's BMC credentials with the Admin CLI \
-                 (`nico-admin-cli credential add-bmc`), then re-explore it with \
+                "Set or correct this endpoint's BMC credentials with \
+                 `PUT /v2/org/{org}/nico/credential/bmc` or \
+                 `nicocli bmc-credential create`, then re-explore it with \
                  `nico-admin-cli site-explorer refresh <bmc-ip>`.",
             ),
             EndpointExplorationError::IntermittentUnauthorized { .. } => Some(
                 "Transient: site explorer retries automatically on its next run (~2 min), or \
                  force one now with `nico-admin-cli site-explorer refresh <bmc-ip>`. If \
                  unauthorized responses persist across runs, correct the BMC credentials with \
-                 `nico-admin-cli credential add-bmc`.",
+                 `PUT /v2/org/{org}/nico/credential/bmc` or \
+                 `nicocli bmc-credential create`.",
             ),
             EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
                 Some(Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
@@ -2581,6 +2583,45 @@ mod tests {
     }
 
     #[test]
+    fn credential_error_schemas_use_rest_first_mitigation() {
+        value_scenarios!(
+            run = |error: EndpointExplorationError| error
+                .operator_error_schema()
+                .mitigation
+                .is_some_and(|mitigation| {
+                    mitigation.contains("PUT /v2/org/{org}/nico/credential/bmc")
+                        && mitigation.contains("nicocli bmc-credential create")
+                        && !mitigation.contains("nico-admin-cli credential add-bmc")
+                });
+            "credential errors" {
+                EndpointExplorationError::Unauthorized {
+                    details: "unauthorized".to_string(),
+                    response_body: None,
+                    response_code: Some(401),
+                } => true,
+                EndpointExplorationError::MissingCredentials {
+                    key: "bmc".to_string(),
+                    cause: "missing".to_string(),
+                } => true,
+                EndpointExplorationError::SecretsEngineError {
+                    cause: "unavailable".to_string(),
+                } => true,
+                EndpointExplorationError::SetCredentials {
+                    key: "bmc".to_string(),
+                    cause: "failed".to_string(),
+                } => true,
+                EndpointExplorationError::AvoidLockout => true,
+                EndpointExplorationError::IntermittentUnauthorized {
+                    details: "temporary unauthorized response".to_string(),
+                    response_body: None,
+                    response_code: Some(401),
+                    consecutive_count: 1,
+                } => true,
+            }
+        );
+    }
+
+    #[test]
     fn intermittent_unauthorized_error_schema_describes_retryable_action() {
         let error = EndpointExplorationError::IntermittentUnauthorized {
             details: "temporary unauthorized response".to_string(),
@@ -2597,10 +2638,11 @@ mod tests {
         );
         assert_eq!(schema.error_code.to_string(), "NICO-SITEEXPLORER-145");
         // The mitigation answers "how do I retry?" and "what does escalate mean?"
-        // with concrete Admin CLI commands.
+        // with concrete Site Explorer and credential operations.
         let mitigation = schema.mitigation.as_deref().expect("has a mitigation");
         assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
-        assert!(mitigation.contains("nico-admin-cli credential add-bmc"));
+        assert!(mitigation.contains("PUT /v2/org/{org}/nico/credential/bmc"));
+        assert!(mitigation.contains("nicocli bmc-credential create"));
     }
 
     #[test]
