@@ -116,12 +116,12 @@ func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteI
 
 		// Only propagate PUBLIC templates into REST.
 		if reported.Scope != cwssaws.IpxeTemplateScope_PUBLIC {
-			logger.Debug().Str("Name", reported.Name).Str("Scope", reported.Scope.String()).Msg("Skipping non-public iPXE template")
+			logger.Debug().Str("Name", reported.Name).Str("Visibility", reported.Scope.String()).Msg("Skipping non-public iPXE template")
 			continue
 		}
 
 		reportedTemplateIDs[templateID] = true
-		reportedScope := ipxeScopeToString(reported.Scope)
+		reportedVisibility := ipxeVisibilityToString(reported.Scope)
 
 		// Look up the global template row (if any).
 		globalTmpl, getErr := templateDAO.Get(ctx, nil, templateID)
@@ -139,7 +139,7 @@ func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteI
 				RequiredParams:    reported.RequiredParams,
 				ReservedParams:    reported.ReservedParams,
 				RequiredArtifacts: reported.RequiredArtifacts,
-				Scope:             reportedScope,
+				Visibility:        reportedVisibility,
 			}
 			if _, cerr := templateDAO.Create(ctx, nil, input); cerr != nil {
 				logger.Error().Err(cerr).Str("Name", reported.Name).Msg("Failed to create iPXE template in DB")
@@ -155,7 +155,7 @@ func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteI
 				Str("ExistingName", globalTmpl.Name).
 				Msg("Template ID reused with different name, skipping")
 			continue
-		} else if globalTmpl.Scope != reportedScope ||
+		} else if globalTmpl.Visibility != reportedVisibility ||
 			globalTmpl.Template != reported.Template ||
 			!reflect.DeepEqual(globalTmpl.RequiredParams, reported.RequiredParams) ||
 			!reflect.DeepEqual(globalTmpl.ReservedParams, reported.ReservedParams) ||
@@ -167,7 +167,7 @@ func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteI
 				RequiredParams:    cutil.GetPtr(reported.RequiredParams),
 				ReservedParams:    cutil.GetPtr(reported.ReservedParams),
 				RequiredArtifacts: cutil.GetPtr(reported.RequiredArtifacts),
-				Scope:             cutil.GetPtr(reportedScope),
+				Visibility:        cutil.GetPtr(reportedVisibility),
 			}
 			if _, uerr := templateDAO.Update(ctx, nil, input); uerr != nil {
 				logger.Error().Err(uerr).Str("Name", reported.Name).Msg("Failed to update iPXE template in DB")
@@ -240,11 +240,11 @@ func NewManageIpxeTemplate(dbSession *cdb.Session, siteClientPool *sc.ClientPool
 	}
 }
 
-// ipxeScopeToString converts the IpxeTemplateScope enum from the gRPC proto
-// to the lowercase string representation stored in the database.
-func ipxeScopeToString(scope cwssaws.IpxeTemplateScope) string {
+// ipxeVisibilityToString converts the IpxeTemplateScope enum from the gRPC proto
+// to the visibility string representation stored in the database.
+func ipxeVisibilityToString(scope cwssaws.IpxeTemplateScope) string {
 	if scope == cwssaws.IpxeTemplateScope_PUBLIC {
-		return cdbm.IpxeTemplateScopePublic
+		return cdbm.IpxeTemplateVisibilityPublic
 	}
-	return cdbm.IpxeTemplateScopeInternal
+	return cdbm.IpxeTemplateVisibilityInternal
 }

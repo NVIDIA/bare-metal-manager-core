@@ -113,7 +113,7 @@ func TestManageIpxeTemplate_Reconcile_CreateUpdateDelete(t *testing.T) {
 	assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
 }
 
-func TestManageIpxeTemplate_InternalScopeFiltered(t *testing.T) {
+func TestManageIpxeTemplate_InternalVisibilityFiltered(t *testing.T) {
 	ctx := context.Background()
 	_ = config.GetTestConfig()
 
@@ -147,13 +147,13 @@ func TestManageIpxeTemplate_InternalScopeFiltered(t *testing.T) {
 
 	tmpl, err := templateDAO.Get(ctx, nil, publicID)
 	assert.NoError(t, err)
-	assert.Equal(t, cdbm.IpxeTemplateScopePublic, tmpl.Scope)
+	assert.Equal(t, cdbm.IpxeTemplateVisibilityPublic, tmpl.Visibility)
 
 	_, err = templateDAO.Get(ctx, nil, internalID)
 	assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
 }
 
-func TestManageIpxeTemplate_InternalScopeDeletesExistingPublic(t *testing.T) {
+func TestManageIpxeTemplate_InternalVisibilityDeletesExistingPublic(t *testing.T) {
 	ctx := context.Background()
 	_ = config.GetTestConfig()
 
@@ -274,9 +274,9 @@ func TestManageIpxeTemplate_InventoryStatusFailed_Skip(t *testing.T) {
 	// Seed one template + ITSA
 	templateDAO := cdbm.NewIpxeTemplateDAO(dbSession)
 	tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
-		ID:    uuid.New(),
-		Name:  "existing-template",
-		Scope: cdbm.IpxeTemplateScopePublic,
+		ID:         uuid.New(),
+		Name:       "existing-template",
+		Visibility: cdbm.IpxeTemplateVisibilityPublic,
 	})
 	assert.NoError(t, err)
 	itsaDAO := cdbm.NewIpxeTemplateSiteAssociationDAO(dbSession)
@@ -333,7 +333,7 @@ func TestManageIpxeTemplate_EmptyInventory_DeletesAll(t *testing.T) {
 	templateDAO := cdbm.NewIpxeTemplateDAO(dbSession)
 	itsaDAO := cdbm.NewIpxeTemplateSiteAssociationDAO(dbSession)
 	for _, name := range []string{"tmpl-a", "tmpl-b"} {
-		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{ID: uuid.New(), Name: name, Scope: cdbm.IpxeTemplateScopePublic})
+		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{ID: uuid.New(), Name: name, Visibility: cdbm.IpxeTemplateVisibilityPublic})
 		assert.NoError(t, err)
 		_, err = itsaDAO.Create(ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{IpxeTemplateID: tmpl.ID, SiteID: site.ID})
 		assert.NoError(t, err)
