@@ -1431,6 +1431,7 @@ dependencies = [
  "async-trait",
  "bmc-mock",
  "carbide-api",
+ "carbide-api-db",
  "carbide-machine-a-tron",
  "carbide-rpc",
  "carbide-secrets",
@@ -13077,10 +13078,14 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "cargo_metadata",
+ "chrono",
  "clap",
  "eyre",
  "similar 3.1.1",
+ "sqlx",
+ "tokio",
  "toml_edit 0.25.12+spec-1.1.0",
+ "tracing",
  "version-compare 0.2.1",
  "walkdir",
 ]

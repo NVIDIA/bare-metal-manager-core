@@ -3633,7 +3633,7 @@ async fn test_network_details_migration(
     let mut conn = env.pool.acquire().await.unwrap();
     sqlx::query(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../api-db/migrations/20250505194055_network_segment_id_to_network_details.sql"
+        "/../api-db/migrations.pre-squash.20260708172302/20250505194055_network_segment_id_to_network_details.sql"
     )))
     .execute(conn.as_mut())
     .await
