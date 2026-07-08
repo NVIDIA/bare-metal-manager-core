@@ -189,7 +189,8 @@ Each entry supports additional optional fields:
   ```
 
 - **`dpf_enabled`** (bool): Enable/disable DPF for this host.
-- **`dpu_mode`** (`"dpu_mode"` | `"nic_mode"` | `"no_dpu"`): Per-host DPU operating mode.
+- **`dpu_mode`** (`"dpu_mode"` | `"nic_mode"` | `"no_dpu"`): Per-host DPU operating mode. Refer to [Boot Interfaces and DPU Modes](boot-interfaces-and-dpu-modes.md).
+- **`host_nics`** (array): Per-NIC declarations: the boot/primary NIC, its network segment type, and static IPs. Refer to [Boot Interfaces and DPU Modes](boot-interfaces-and-dpu-modes.md).
 - **`bmc_retain_credentials`** (bool): Skip BMC password rotation.
 - **`default_pause_ingestion_and_poweron`** (bool): Pause ingestion and power-on for this host.
 - **`bmc_ip_address`** (string): Static BMC IP (pre-allocates a machine interface).
