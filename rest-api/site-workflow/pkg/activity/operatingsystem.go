@@ -6,14 +6,12 @@ package activity
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/rs/zerolog/log"
-	tClient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -244,68 +242,58 @@ func NewManageOperatingSystemInventory(config ManageInventoryConfig) ManageOpera
 
 // DiscoverOperatingSystemInventory collects Operating System inventory from nico-core and
 // publishes it to the cloud Temporal queue for reconciliation with the operating_system table.
+// It uses the shared paged inventory pipeline (see manageInventoryImpl) so large inventories
+// are chunked and the full reported ID set travels in each page's InventoryPage.ItemIds.
 func (m *ManageOperatingSystemInventory) DiscoverOperatingSystemInventory(ctx context.Context) error {
 	logger := log.With().Str("Activity", "DiscoverOperatingSystemInventory").Logger()
 	logger.Info().Msg("Starting activity")
 
-	workflowOptions := tClient.StartWorkflowOptions{
-		ID:        fmt.Sprintf("update-operating-system-inventory-%s", m.config.SiteID.String()),
-		TaskQueue: m.config.TemporalPublishQueue,
-	}
-	workflowName := "UpdateOperatingSystemInventory"
-
-	coreGrpcClient := m.config.CoreGrpcAtomicClient.GetClient()
-	if coreGrpcClient == nil {
-		return cClient.ErrCoreGrpcClientNotConnected
-	}
-	forgeClient := coreGrpcClient.GrpcServiceClient()
-
-	publishError := func(cause error) error {
-		inv := &cwssaws.OperatingSystemInventory{
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
-			StatusMsg:       cause.Error(),
-			Timestamp:       timestamppb.Now(),
-		}
-		if _, execErr := m.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, m.config.SiteID, inv); execErr != nil {
-			logger.Error().Err(execErr).Msg("Failed to publish inventory error to Cloud")
-			return execErr
-		}
-		return cause
+	inventoryImpl := manageInventoryImpl[*cwssaws.OperatingSystemId, *cwssaws.OperatingSystem, *cwssaws.OperatingSystemInventory]{
+		itemType:               "OperatingSystem",
+		config:                 m.config,
+		internalFindIDs:        operatingSystemFindIDs,
+		internalFindByIDs:      operatingSystemFindByIDs,
+		internalPagedInventory: operatingSystemPagedInventory,
 	}
 
-	// Step 1: fetch all active OS definition IDs from nico-core.
-	idList, err := forgeClient.FindOperatingSystemIds(ctx, &cwssaws.OperatingSystemSearchFilter{})
+	return inventoryImpl.CollectAndPublishInventory(ctx, &logger)
+}
+
+func operatingSystemFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.OperatingSystemId, error) {
+	result, err := grpcClient.GrpcServiceClient().FindOperatingSystemIds(ctx, &cwssaws.OperatingSystemSearchFilter{})
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to retrieve OS definition IDs from nico-core")
-		return publishError(err)
+		return nil, err
 	}
+	return result.GetIds(), nil
+}
 
-	// Step 2: fetch full definitions for all returned IDs.
-	var osDefs []*cwssaws.OperatingSystem
-	if len(idList.GetIds()) > 0 {
-		osList, ferr := forgeClient.FindOperatingSystemsByIds(ctx, &cwssaws.OperatingSystemsByIdsRequest{
-			Ids: idList.GetIds(),
-		})
-		if ferr != nil {
-			logger.Warn().Err(ferr).Msg("Failed to retrieve OS definitions by IDs from nico-core")
-			return publishError(ferr)
-		}
-		osDefs = osList.GetOperatingSystems()
+func operatingSystemFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.OperatingSystemId) ([]*cwssaws.OperatingSystem, error) {
+	result, err := grpcClient.GrpcServiceClient().FindOperatingSystemsByIds(ctx, &cwssaws.OperatingSystemsByIdsRequest{
+		Ids: ids,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.GetOperatingSystems(), nil
+}
+
+func operatingSystemPagedInventory(allItemIDs []*cwssaws.OperatingSystemId, pagedItems []*cwssaws.OperatingSystem, input *pagedInventoryInput) *cwssaws.OperatingSystemInventory {
+	itemIDs := []string{}
+	for _, id := range allItemIDs {
+		itemIDs = append(itemIDs, id.GetValue())
 	}
 
 	inventory := &cwssaws.OperatingSystemInventory{
-		InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-		StatusMsg:        "Successfully retrieved from nico-core",
-		Timestamp:        timestamppb.Now(),
-		OperatingSystems: osDefs,
+		OperatingSystems: pagedItems,
+		Timestamp: &timestamppb.Timestamp{
+			Seconds: time.Now().Unix(),
+		},
+		InventoryStatus: input.status,
+		StatusMsg:       input.statusMessage,
+		InventoryPage:   input.buildPage(),
 	}
-
-	if _, err = m.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, m.config.SiteID, inventory); err != nil {
-		logger.Error().Err(err).Msg("Failed to publish OS definition inventory to Cloud")
-		return err
+	if inventory.InventoryPage != nil {
+		inventory.InventoryPage.ItemIds = itemIDs
 	}
-
-	logger.Info().Msgf("Published %d Operating Systems to Cloud", len(osDefs))
-	logger.Info().Msg("Completed activity")
-	return nil
+	return inventory
 }

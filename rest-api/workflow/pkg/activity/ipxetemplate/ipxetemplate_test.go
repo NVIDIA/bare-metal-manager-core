@@ -113,6 +113,79 @@ func TestManageIpxeTemplate_Reconcile_CreateUpdateDelete(t *testing.T) {
 	assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
 }
 
+// TestManageIpxeTemplate_PagedInventory verifies that when inventory is delivered in
+// multiple pages, deletions are reconciled only on the final page and against the full
+// reported set carried in InventoryPage.ItemIds (not the per-page Templates subset).
+func TestManageIpxeTemplate_PagedInventory(t *testing.T) {
+	ctx := context.Background()
+	_ = config.GetTestConfig()
+
+	dbSession := cwu.TestInitDB(t)
+	defer dbSession.Close()
+	cwu.TestSetupSchema(t, dbSession)
+
+	ipOrg := "test-ip-org-paged"
+	ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
+	ipu := cwu.TestBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg}, ipRoles)
+	ip := cwu.TestBuildInfrastructureProvider(t, dbSession, "test-provider-paged", ipOrg, ipu)
+	site := cwu.TestBuildSite(t, dbSession, ip, "test-site-paged", cdbm.SiteStatusRegistered, nil, ipu)
+
+	mit := NewManageIpxeTemplate(dbSession, cwu.TestTemporalSiteClientPool(t))
+	templateDAO := cdbm.NewIpxeTemplateDAO(dbSession)
+	itsaDAO := cdbm.NewIpxeTemplateSiteAssociationDAO(dbSession)
+
+	// Seed an existing template + association that is ABSENT from the reported set,
+	// so it must be deleted -- but only after the final page.
+	staleID := uuid.New()
+	_, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
+		ID: staleID, Name: "stale", Template: "#!ipxe\n", Visibility: cdbm.IpxeTemplateVisibilityPublic,
+	})
+	assert.NoError(t, err)
+	_, err = itsaDAO.Create(ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{IpxeTemplateID: staleID, SiteID: site.ID})
+	assert.NoError(t, err)
+
+	idA := uuid.New()
+	idB := uuid.New()
+	tmpl := func(id uuid.UUID, name string) *cwssaws.IpxeTemplate {
+		return &cwssaws.IpxeTemplate{Id: &cwssaws.IpxeTemplateId{Value: id.String()}, Name: name, Scope: cwssaws.IpxeTemplateScope_PUBLIC}
+	}
+
+	// The full reported set (spanning both pages) travels in every page's ItemIds.
+	itemIDs := []string{idA.String(), idB.String()}
+
+	// Page 1 of 2 reports only template A; ItemIds carries the full set {A, B}.
+	page1 := &cwssaws.IpxeTemplateInventory{
+		InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		Templates:       []*cwssaws.IpxeTemplate{tmpl(idA, "tmpl-a")},
+		InventoryPage:   &cwssaws.InventoryPage{CurrentPage: 1, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: itemIDs},
+	}
+	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, page1))
+
+	// After page 1 the stale template must survive: deletion is deferred to the final page.
+	_, err = templateDAO.Get(ctx, nil, staleID)
+	assert.NoError(t, err, "stale template must not be deleted before the final page")
+
+	// Page 2 of 2 (final) reports template B; ItemIds still carries {A, B}.
+	page2 := &cwssaws.IpxeTemplateInventory{
+		InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		Templates:       []*cwssaws.IpxeTemplate{tmpl(idB, "tmpl-b")},
+		InventoryPage:   &cwssaws.InventoryPage{CurrentPage: 2, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: itemIDs},
+	}
+	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, page2))
+
+	// Final page: templates A and B are present, stale is deleted.
+	names := map[string]bool{}
+	for _, g := range templatesForSite(t, dbSession, site.ID) {
+		names[g.Name] = true
+	}
+	assert.True(t, names["tmpl-a"], "template A reported in ItemIds must survive")
+	assert.True(t, names["tmpl-b"], "template B reported in ItemIds must survive")
+	assert.False(t, names["stale"], "stale template absent from the reported set must be deleted")
+
+	_, err = templateDAO.Get(ctx, nil, staleID)
+	assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+}
+
 func TestManageIpxeTemplate_InternalVisibilityFiltered(t *testing.T) {
 	ctx := context.Background()
 	_ = config.GetTestConfig()

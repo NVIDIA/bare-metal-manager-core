@@ -36,7 +36,7 @@ func (api *API) RegisterCron() error {
 
 // registerInventoryCron schedules a periodic inventory discovery workflow on the
 // subscribe queue.
-func (api *API) registerInventoryCron(label, workflowIDPrefix string, workflowFn interface{}) error {
+func (api *API) registerInventoryCron(label, workflowIDPrefix string, workflowFunc interface{}) error {
 	ManagerAccess.Data.EB.Log.Info().Msgf("%s: Registering Inventory Collect/Publish cron", label)
 
 	workflowID := workflowIDPrefix + ManagerAccess.Conf.EB.Temporal.TemporalSubscribeNamespace
@@ -57,7 +57,7 @@ func (api *API) registerInventoryCron(label, workflowIDPrefix string, workflowFn
 	we, err := ManagerAccess.Data.EB.Managers.Workflow.Temporal.Subscriber.ExecuteWorkflow(
 		context.Background(),
 		workflowOptions,
-		workflowFn,
+		workflowFunc,
 	)
 
 	if err != nil {

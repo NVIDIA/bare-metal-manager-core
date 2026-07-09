@@ -778,48 +778,73 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 	// Image-based OSes are not managed by this inventory, so we restrict to iPXE types only.
 	// Exception: global- and limited-scoped OSes are owned by REST and must not be
 	// deleted based on Site's inventory (Site is not their source of truth)
-	allIpxeOSes, _, err := osDAO.GetAll(ctx, nil, cdbm.OperatingSystemFilterInput{
-		OsTypes:                  []string{cdbm.OperatingSystemTypeIPXE, cdbm.OperatingSystemTypeTemplatedIPXE},
-		InfrastructureProviderID: &site.InfrastructureProviderID,
-	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch iPXE Operating Systems from DB for deletion reconciliation")
-		return err
-	}
-
-	// Scope deletion to the reporting Site: only OSes associated with this Site
-	// are candidates, so a provider's OSes that live at a different Site are not
-	// soft-deleted just because they are absent from this Site's inventory.
-	siteOssas, _, err := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{
-		SiteIDs: []uuid.UUID{siteID},
-	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch Operating System Site Associations for deletion reconciliation")
-		return err
-	}
-	siteOSIDs := make(map[uuid.UUID]struct{}, len(siteOssas))
-	for _, ossa := range siteOssas {
-		siteOSIDs[ossa.OperatingSystemID] = struct{}{}
-	}
-
-	for _, ipxeOS := range allIpxeOSes {
-		if ipxeOS.IpxeOsScope != nil && *ipxeOS.IpxeOsScope != cdbm.OperatingSystemScopeLocal {
-			continue
+	//
+	// Inventory may be paged: each page carries only a subset in OperatingSystems but the
+	// full reported ID set in InventoryPage.ItemIds. Deletion must therefore run against
+	// the complete reported set, and only once per sweep — on the final page — so that an
+	// earlier page does not prematurely soft-delete an OS that appears on a later page.
+	page := inventory.GetInventoryPage()
+	isFinalPage := page == nil || page.TotalPages == 0 || page.CurrentPage == page.TotalPages
+	if isFinalPage {
+		// Build the complete set of reported OS IDs. When paging is in use the full set
+		// lives in InventoryPage.ItemIds; otherwise the single message's OperatingSystems
+		// already is the complete set (captured above in reportedOSIDs).
+		deletionReportedIDs := reportedOSIDs
+		if page != nil && len(page.ItemIds) > 0 {
+			deletionReportedIDs = mapset.NewSet[uuid.UUID]()
+			for _, strID := range page.ItemIds {
+				id, perr := uuid.Parse(strID)
+				if perr != nil {
+					logger.Error().Err(perr).Str("ID", strID).Msg("Failed to parse OS ID from inventory page, skipping")
+					continue
+				}
+				deletionReportedIDs.Add(id)
+			}
 		}
 
-		// Only OSes associated with the reporting Site are deletion candidates.
-		if _, associatedWithSite := siteOSIDs[ipxeOS.ID]; !associatedWithSite {
-			continue
+		allIpxeOSes, _, derr := osDAO.GetAll(ctx, nil, cdbm.OperatingSystemFilterInput{
+			OsTypes:                  []string{cdbm.OperatingSystemTypeIPXE, cdbm.OperatingSystemTypeTemplatedIPXE},
+			InfrastructureProviderID: &site.InfrastructureProviderID,
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("Failed to fetch iPXE Operating Systems from DB for deletion reconciliation")
+			return derr
 		}
 
-		slogger := logger.With().Str("OperatingSystemID", ipxeOS.ID.String()).Logger()
+		// Scope deletion to the reporting Site: only OSes associated with this Site
+		// are candidates, so a provider's OSes that live at a different Site are not
+		// soft-deleted just because they are absent from this Site's inventory.
+		siteOssas, _, derr := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{
+			SiteIDs: []uuid.UUID{siteID},
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("Failed to fetch Operating System Site Associations for deletion reconciliation")
+			return derr
+		}
+		siteOSIDs := make(map[uuid.UUID]struct{}, len(siteOssas))
+		for _, ossa := range siteOssas {
+			siteOSIDs[ossa.OperatingSystemID] = struct{}{}
+		}
 
-		if !reportedOSIDs.Contains(ipxeOS.ID) {
-			slogger.Info().Msg("Soft-deleting iPXE OS absent from Site inventory")
-			serr := osDAO.Delete(ctx, nil, ipxeOS.ID)
-			if serr != nil {
-				slogger.Error().Err(serr).Msg("Failed to soft-delete OS, DB error")
+		for _, ipxeOS := range allIpxeOSes {
+			if ipxeOS.IpxeOsScope != nil && *ipxeOS.IpxeOsScope != cdbm.OperatingSystemScopeLocal {
 				continue
+			}
+
+			// Only OSes associated with the reporting Site are deletion candidates.
+			if _, associatedWithSite := siteOSIDs[ipxeOS.ID]; !associatedWithSite {
+				continue
+			}
+
+			slogger := logger.With().Str("OperatingSystemID", ipxeOS.ID.String()).Logger()
+
+			if !deletionReportedIDs.Contains(ipxeOS.ID) {
+				slogger.Info().Msg("Soft-deleting iPXE OS absent from Site inventory")
+				serr := osDAO.Delete(ctx, nil, ipxeOS.ID)
+				if serr != nil {
+					slogger.Error().Err(serr).Msg("Failed to soft-delete OS, DB error")
+					continue
+				}
 			}
 		}
 	}

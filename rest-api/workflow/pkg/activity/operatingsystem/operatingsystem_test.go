@@ -489,10 +489,10 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		st := util.TestBuildSite(t, dbSession, ip, "site-create", cdbm.SiteStatusRegistered, nil, ipu)
 
 		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
-			ID:       uuid.New(),
-			Name:     "tmpl-create",
-			Template: "#!ipxe\n",
-			Scope:    "Public",
+			ID:         uuid.New(),
+			Name:       "tmpl-create",
+			Template:   "#!ipxe\n",
+			Visibility: "Public",
 		})
 		require.NoError(t, err)
 		_, err = itsaDAO.Create(ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{IpxeTemplateID: tmpl.ID, SiteID: st.ID})
@@ -541,10 +541,10 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		// Template exists but has no association with this Site.
 		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
-			ID:       uuid.New(),
-			Name:     "tmpl-skip",
-			Template: "#!ipxe\n",
-			Scope:    "Public",
+			ID:         uuid.New(),
+			Name:       "tmpl-skip",
+			Template:   "#!ipxe\n",
+			Visibility: "Public",
 		})
 		require.NoError(t, err)
 
@@ -578,7 +578,7 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		// Template associated with the Site (the current, valid reference).
 		tmplA, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
-			ID: uuid.New(), Name: "tmpl-noverwrite-a", Template: "#!ipxe\n", Scope: "Public",
+			ID: uuid.New(), Name: "tmpl-noverwrite-a", Template: "#!ipxe\n", Visibility: "Public",
 		})
 		require.NoError(t, err)
 		_, err = itsaDAO.Create(ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{IpxeTemplateID: tmplA.ID, SiteID: st.ID})
@@ -586,7 +586,7 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		// Template NOT associated with the Site (an unavailable reference).
 		tmplB, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
-			ID: uuid.New(), Name: "tmpl-noverwrite-b", Template: "#!ipxe\n", Scope: "Public",
+			ID: uuid.New(), Name: "tmpl-noverwrite-b", Template: "#!ipxe\n", Visibility: "Public",
 		})
 		require.NoError(t, err)
 
@@ -718,6 +718,84 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		survivor, err := osDAO.GetByID(ctx, nil, otherOSID, nil)
 		require.NoError(t, err, "OS associated with a different Site must not be soft-deleted")
 		require.NotNil(t, survivor)
+	})
+
+	t.Run("paged inventory only reconciles deletions on the final page using ItemIds", func(t *testing.T) {
+		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-paged", "provider-paged-org", ipu)
+		st := util.TestBuildSite(t, dbSession, ip, "site-paged", cdbm.SiteStatusRegistered, nil, ipu)
+
+		// Three provider-owned Local raw iPXE OSes, each associated with the reporting Site.
+		mkOS := func(name string) uuid.UUID {
+			id := uuid.New()
+			_, err := osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
+				ID:                       id,
+				Name:                     name,
+				Org:                      st.Org,
+				InfrastructureProviderID: &ip.ID,
+				OsType:                   cdbm.OperatingSystemTypeIPXE,
+				IpxeScript:               cutil.GetPtr("#!ipxe\n"),
+				IpxeOsScope:              cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
+				Status:                   cdbm.OperatingSystemStatusReady,
+				CreatedBy:                ipu.ID,
+			})
+			require.NoError(t, err)
+			_, err = ossaDAO.Create(ctx, nil, cdbm.OperatingSystemSiteAssociationCreateInput{
+				OperatingSystemID: id, SiteID: st.ID, Status: cdbm.OperatingSystemSiteAssociationStatusSynced, CreatedBy: ipu.ID,
+			})
+			require.NoError(t, err)
+			return id
+		}
+		osA := mkOS("paged-os-a")
+		osB := mkOS("paged-os-b")
+		osC := mkOS("paged-os-c") // absent from the reported set: must be deleted, but only after the final page
+
+		reportedProto := func(id uuid.UUID, name string) *cwssaws.OperatingSystem {
+			return &cwssaws.OperatingSystem{
+				Id:         &cwssaws.OperatingSystemId{Value: id.String()},
+				Name:       name,
+				Type:       cwssaws.OperatingSystemType_OS_TYPE_IPXE,
+				Status:     cwssaws.TenantState_READY,
+				IsActive:   true,
+				IpxeScript: cutil.GetPtr("#!ipxe\n"),
+				Updated:    time.Now().Format(time.RFC3339),
+			}
+		}
+
+		// The full reported set (spans both pages) travels in every page's ItemIds.
+		itemIDs := []string{osA.String(), osB.String()}
+
+		// Page 1 of 2 reports only osA, but ItemIds carries the full set {osA, osB}.
+		page1 := &cwssaws.OperatingSystemInventory{
+			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*cwssaws.OperatingSystem{reportedProto(osA, "paged-os-a")},
+			Timestamp:        timestamppb.Now(),
+			InventoryPage:    &cwssaws.InventoryPage{CurrentPage: 1, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: itemIDs},
+		}
+		require.NoError(t, newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, page1))
+
+		// After page 1, no deletion may have run: osC (absent from ItemIds) and osB
+		// (absent from page 1's OperatingSystems) must both still exist.
+		_, err := osDAO.GetByID(ctx, nil, osC, nil)
+		require.NoError(t, err, "osC must not be deleted before the final page")
+		_, err = osDAO.GetByID(ctx, nil, osB, nil)
+		require.NoError(t, err, "osB must not be deleted by an earlier page that omits it from OperatingSystems")
+
+		// Page 2 of 2 (final) reports osB; ItemIds still carries the full set {osA, osB}.
+		page2 := &cwssaws.OperatingSystemInventory{
+			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*cwssaws.OperatingSystem{reportedProto(osB, "paged-os-b")},
+			Timestamp:        timestamppb.Now(),
+			InventoryPage:    &cwssaws.InventoryPage{CurrentPage: 2, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: itemIDs},
+		}
+		require.NoError(t, newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, page2))
+
+		// Final page: deletion runs against the full ItemIds set. osA and osB survive; osC is gone.
+		_, err = osDAO.GetByID(ctx, nil, osA, nil)
+		require.NoError(t, err, "osA reported in ItemIds must survive")
+		_, err = osDAO.GetByID(ctx, nil, osB, nil)
+		require.NoError(t, err, "osB reported in ItemIds must survive")
+		_, err = osDAO.GetByID(ctx, nil, osC, nil)
+		assert.ErrorIs(t, err, cdb.ErrDoesNotExist, "osC absent from the full reported set must be soft-deleted on the final page")
 	})
 
 	t.Run("returns error for nil inventory", func(t *testing.T) {
