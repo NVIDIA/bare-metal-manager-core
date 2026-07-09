@@ -16963,8 +16963,6 @@ components:
           allowOverride: false
         - name: debian-12-amd64
           description: Official Debian 12 for AMD/Intel
-          imageUrl: 'https://saimei.ftp.acc.umu.se/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2'
-          imageSha: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
           imageDisk: /dev/sda
