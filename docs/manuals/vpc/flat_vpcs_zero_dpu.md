@@ -72,7 +72,7 @@ abbreviated as `…/nico/...` thereafter.
 |---|---|---|
 | Put hosts in NIC / no-DPU mode (site-wide `dpu_mode`, per-host `ExpectedMachine.dpu_mode`) | Operator | **TOML** — Day 0 / rare; API restart |
 | Declare `HostInband` underlay segments | Operator | **TOML** (`[networks.<name>]`, `type = "hostinband"`) — Day 0 |
-| Create an additional `HostInband` segment after Day 0 | Operator | **TOML** (`[networks]`) + API restart, or **`nico-admin-cli`** (`network-segment create`) — see [Configuring HostInband Segments](#2-configuring-hostinband-network-segments) |
+| Create an additional `HostInband` segment after initial setup | Operator | **Restart-applied TOML** (`[networks]`), or runtime **`nico-admin-cli`** (`network-segment create`) — see [Configuring HostInband Segments](#2-configuring-hostinband-network-segments) |
 | Inspect / delete a `HostInband` segment | Operator | **`nico-admin-cli`** (`network-segment show` / `delete`) |
 | Create an instance type and associate zero-DPU machines | Operator | **REST** `…/nico/instance-type` · `nicocli` |
 | Bind a `HostInband` segment to a Flat VPC | Tenant *(VPC owner)* | Set the VPC on the segment (see below) |
@@ -197,13 +197,15 @@ after Day 0 in either of two ways:
 
 Note the current CLI surface for the runtime path:
 
-- `nico-admin-cli network-segment create` creates a segment at runtime. For a
-  `HostInband` segment pass `--segment-type host-inband` with `--name`,
-  `--prefix`, and `--gateway` (host-inband segments also need `--subdomain-id`);
-  run `nico-admin-cli network-segment create --help` for the full flag set. The
-  REST API / `nicocli` do not expose operator network-segment management (the
-  REST `/subnet` endpoints are the tenant subnet surface, not operator
-  `HostInband` segments).
+- `nico-admin-cli --cloud-unsafe-op=<username> network-segment create` creates a
+  segment at runtime. The global `--cloud-unsafe-op` acknowledgment is required
+  and must not be used against a production site. For a `HostInband` segment,
+  pass `--segment-type host-inband` with `--name`, `--prefix`, and
+  `--subdomain-id`; add `--gateway` when the IPv4 prefix has a gateway. Run
+  `nico-admin-cli network-segment create --help` for the full flag set. The REST
+  API / `nicocli` do not expose operator network-segment management (the REST
+  `/subnet` endpoints are the tenant subnet surface, not operator `HostInband`
+  segments).
 - `nico-admin-cli network-segment show` and `nico-admin-cli network-segment delete`
   exist for inspecting and removing segments.
 
