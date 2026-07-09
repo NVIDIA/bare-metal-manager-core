@@ -86,6 +86,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_RANDOM}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-api
     context: rest-api
+    buildKit: {}
     skipPush: true
   nico-rest-workflow:
     image: localhost:5000/nico-rest-workflow
@@ -93,6 +94,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_RANDOM}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-workflow
     context: rest-api
+    buildKit: {}
     skipPush: true
   nico-rest-site-manager:
     image: localhost:5000/nico-rest-site-manager
@@ -100,6 +102,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_RANDOM}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-site-manager
     context: rest-api
+    buildKit: {}
     skipPush: true
   nico-rest-site-agent:
     image: localhost:5000/nico-rest-site-agent
@@ -107,6 +110,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_RANDOM}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-site-agent
     context: rest-api
+    buildKit: {}
     skipPush: true
   nico-rest-db:
     image: localhost:5000/nico-rest-db
@@ -114,6 +118,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_RANDOM}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-db
     context: rest-api
+    buildKit: {}
     skipPush: true
   nico-rest-cert-manager:
     image: localhost:5000/nico-rest-cert-manager
@@ -121,6 +126,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_RANDOM}
     dockerfile: rest-api/docker/local/Dockerfile.nico-rest-cert-manager
     context: rest-api
+    buildKit: {}
     skipPush: true
   nico-mcp:
     image: localhost:5000/nico-mcp
@@ -128,6 +134,7 @@ images:
       - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_RANDOM}
     dockerfile: rest-api/docker/local/Dockerfile.nico-mcp
     context: rest-api
+    buildKit: {}
     skipPush: true
 
 deployments:
