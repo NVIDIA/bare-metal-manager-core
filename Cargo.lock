@@ -3599,6 +3599,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-api-test-helper",
+ "carbide-instrument",
  "carbide-macros",
  "carbide-rack",
  "carbide-redfish",
