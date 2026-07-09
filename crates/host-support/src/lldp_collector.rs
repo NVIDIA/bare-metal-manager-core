@@ -1,13 +1,12 @@
-use crate::hardware_enumeration::PCI_SUBCLASS;
+use std::fs;
+
 use ::rpc::machine_discovery as rpc_discovery;
 use carbide_utils::cmd::Cmd;
 use libudev::Device;
 use serde::{Deserialize, Serialize};
-use serde_with::{OneOrMany, serde_as};
-use std::collections::HashMap;
-use std::fs;
-use std::net::IpAddr;
 use tracing::{debug, warn};
+
+use crate::hardware_enumeration::PCI_SUBCLASS;
 
 #[derive(thiserror::Error, Debug)]
 pub enum LldpCollectorError {
@@ -21,54 +20,65 @@ pub enum LldpCollectorError {
 
 pub type LldpCollectorResult<T> = Result<T, LldpCollectorError>;
 
+// `lldpcli -f json0` renders every field as a JSON array of objects: simple values
+// become `{ "value": "..." }`, typed ids become `{ "type": "...", "value": "..." }`,
+// and — crucially — each LLDP neighbor is emitted as its own `interface` array entry
+// (even multiple neighbors sharing one physical port), which (the older) map-keyed
+// `-f json` format could not represent.
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LldpCapabilityData {
-    #[serde(rename = "type")]
-    pub capability_type: String,
-    pub enabled: bool,
+pub struct LldpValue {
+    pub value: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LldpIdData {
+pub struct LldpId {
     #[serde(rename = "type")]
     pub id_type: String,
     pub value: String,
 }
 
-#[serde_as]
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LldpChassisData {
-    pub id: LldpIdData,
-    pub descr: String,
-    #[serde(rename = "mgmt-ip", default)]
-    #[serde_as(as = "OneOrMany<_>")]
-    pub management_ip_address: Vec<IpAddr>, // we get an array with ipv4 and ipv6 addresses
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct LldpChassis {
     #[serde(default)]
-    pub capability: Vec<LldpCapabilityData>,
+    pub id: Vec<LldpId>,
+    #[serde(default)]
+    pub name: Vec<LldpValue>,
+    #[serde(default)]
+    pub descr: Vec<LldpValue>,
+    #[serde(rename = "mgmt-ip", default)]
+    pub mgmt_ip: Vec<LldpValue>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct LldpPort {
+    #[serde(default)]
+    pub id: Vec<LldpId>,
+    #[serde(default)]
+    pub descr: Vec<LldpValue>,
+    #[serde(default)]
+    pub ttl: Vec<LldpValue>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LldpPortData {
-    pub id: LldpIdData,
-    pub descr: Option<String>,
-    pub ttl: String,
+pub struct LldpInterfaceEntry {
+    pub name: String, // local interface name (host side)
+    #[serde(default)]
+    pub chassis: Vec<LldpChassis>,
+    #[serde(default)]
+    pub port: Vec<LldpPort>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LldpQueryData {
-    pub age: String,
-    pub chassis: HashMap<String, LldpChassisData>, // the key in this hash is the tor name
-    pub port: LldpPortData,
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct LldpRoot {
+    #[serde(default)]
+    pub interface: Vec<LldpInterfaceEntry>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LldpInterface {
-    pub interface: HashMap<String, LldpQueryData>, // the key in this hash is the port #, eg. p0
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct LldpResponse {
-    pub lldp: LldpInterface,
+    #[serde(default)]
+    pub lldp: Vec<LldpRoot>,
 }
 
 /// Lightweight per-interface LLDP snapshot for periodic reporting (host + DPU).
@@ -101,9 +111,11 @@ pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<(String, rpc_discover
         let Some(mac) = read_interface_mac(ifname) else {
             continue;
         };
-        if let Some(lldp) = lldp_for_device(&device) {
-            out.push((mac, lldp));
-        }
+        out.extend(
+            lldp_for_device(&device)
+                .into_iter()
+                .map(|lldp| (mac.clone(), lldp)),
+        );
     }
     Ok(out)
 }
@@ -134,170 +146,181 @@ fn read_interface_mac(ifname: &str) -> Option<String> {
     Some(mac.to_string())
 }
 
-/// Best-effort LLDP neighbor for a net device's kernel interface name.
+/// Best-effort LLDP neighbors for a net device's kernel interface name.
 ///
-/// Returns `None` when the device has no kernel name, `lldpd`/`lldpcli` is
-/// unavailable, or no neighbor is advertised on the port. Never blocks (a single
-/// `lldpcli` query per interface, unlike `wait_until_all_ports_available`).
-fn lldp_for_device(device: &Device) -> Option<rpc_discovery::LldpSwitchData> {
-    let ifname = device.sysname()?.to_str()?;
+/// Returns an empty vec when the device has no kernel name, `lldpd`/`lldpcli` is
+/// unavailable, or no neighbor is advertised on the port. A single physical port
+/// may report several neighbors, hence a `Vec`. Never blocks (a single `lldpcli`
+/// query per interface, unlike `wait_until_all_ports_available`).
+fn lldp_for_device(device: &Device) -> Vec<rpc_discovery::LldpSwitchData> {
+    let Some(ifname) = device.sysname().and_then(|s| s.to_str()) else {
+        return Vec::new();
+    };
     match get_port_lldp_info(ifname) {
         Ok(lldp) => lldp,
         Err(e) => {
             tracing::debug!(ifname, "no LLDP neighbor: {e}");
-            None
+            Vec::new()
         }
     }
 }
 
-/// Get LLDP port info.
+/// Get raw `lldpcli -f json0` output for a port.
 pub fn get_lldp_port_info(port: &str) -> LldpCollectorResult<String> {
-    if cfg!(test) {
-        const TEST_DATA: &str = "test/lldp_query.json";
-        std::fs::read_to_string(TEST_DATA).map_err(|e| {
-            warn!("Could not read LLDP json: {e}");
-            LldpCollectorError::Read(TEST_DATA, e.to_string())
+    let lldp_cmd = format!("lldpcli -f json0 show neighbors ports {port}");
+    Cmd::new("bash")
+        .args(vec!["-c", lldp_cmd.as_str()])
+        .output()
+        .map_err(|e| {
+            warn!("Could not discover LLDP peer for {port}, {e}");
+            LldpCollectorError::Lldp(e.to_string())
         })
-    } else {
-        let lldp_cmd = format!("lldpcli -f json show neighbors ports {port}");
-        Cmd::new("bash")
-            .args(vec!["-c", lldp_cmd.as_str()])
-            .output()
-            .map_err(|e| {
-                warn!("Could not discover LLDP peer for {port}, {e}");
-                LldpCollectorError::Lldp(e.to_string())
-            })
-    }
 }
 
-/// query lldp info for a port, translate to simpler tor struct for discovery info.
+/// query lldp info for a port, translate to simpler tor structs for discovery info.
 ///
-/// Returns `Ok(None)` when the port advertises no LLDP neighbor.
-pub fn get_port_lldp_info(
-    port: &str,
-) -> LldpCollectorResult<Option<rpc_discovery::LldpSwitchData>> {
-    let lldp_json: String = get_lldp_port_info(port)?;
+/// Returns an empty vec when the port advertises no LLDP neighbor.
+pub fn get_port_lldp_info(port: &str) -> LldpCollectorResult<Vec<rpc_discovery::LldpSwitchData>> {
+    parse_port_lldp(&get_lldp_port_info(port)?)
+}
 
-    // deserialize
-    let lldp_resp: LldpResponse = match serde_json::from_str(lldp_json.as_str()) {
-        Ok(x) => x,
-        Err(e) => {
-            warn!("Could not deserialize LLDP response {lldp_json}, {e}");
-            return Err(LldpCollectorError::Lldp(e.to_string()));
-        }
-    };
+/// Parse `lldpcli -f json0` output into one `LldpSwitchData` per neighbor.
+///
+/// Each `lldp[].interface[]` entry is a distinct neighbor. Entries advertising no
+/// chassis are skipped; missing id/description/mgmt-ip degrade to empty values.
+fn parse_port_lldp(lldp_json: &str) -> LldpCollectorResult<Vec<rpc_discovery::LldpSwitchData>> {
+    let lldp_resp: LldpResponse = serde_json::from_str(lldp_json).map_err(|e| {
+        warn!("Could not deserialize LLDP response {lldp_json}, {e}");
+        LldpCollectorError::Lldp(e.to_string())
+    })?;
 
-    let mut lldp_info: rpc_discovery::LldpSwitchData = Default::default();
-    // copy over useful fields
-    if let Some(lldp_data) = lldp_resp.lldp.interface.get(port) {
-        for (tor, tor_data) in lldp_data.chassis.iter() {
-            lldp_info.name = tor.to_string();
-            lldp_info.id = format!("{}={}", tor_data.id.id_type, tor_data.id.value);
-            lldp_info.description = tor_data.descr.to_string();
-            lldp_info.local_port = port.to_string();
+    let mut neighbors = Vec::new();
+    for entry in lldp_resp.lldp.iter().flat_map(|root| root.interface.iter()) {
+        let Some(chassis) = entry.chassis.first() else {
+            debug!("No LLDP chassis data for port {}", entry.name);
+            continue;
+        };
 
-            // management_ip_address if missing we just replace it with empty list.
-            lldp_info.ip_address = tor_data
-                .management_ip_address
-                .iter()
-                .map(|ip| ip.to_string())
-                .collect();
-        }
-        lldp_info.remote_port =
-            format!("{}={}", lldp_data.port.id.id_type, lldp_data.port.id.value);
-    } else {
-        debug!("No LLDP switch data for port {port}");
-        return Ok(None);
+        let (id_type, id_value) = chassis
+            .id
+            .first()
+            .map(|id| (id.id_type.clone(), id.value.clone()))
+            .unwrap_or_default();
+        let (remote_port_type, remote_port_value) = entry
+            .port
+            .first()
+            .and_then(|port| port.id.first())
+            .map(|id| (id.id_type.clone(), id.value.clone()))
+            .unwrap_or_default();
+
+        // The `deprecated` allow keeps the legacy combined `id`/`remote_port`
+        // strings populated for backward compatibility until consumers migrate
+        // to the split *_type/*_value fields.
+        #[allow(deprecated)]
+        neighbors.push(rpc_discovery::LldpSwitchData {
+            name: chassis
+                .name
+                .first()
+                .map(|n| n.value.clone())
+                .unwrap_or_default(),
+            id: format!("{id_type}={id_value}"),
+            description: chassis
+                .descr
+                .first()
+                .map(|d| d.value.clone())
+                .unwrap_or_default(),
+            local_port: entry.name.clone(),
+            ip_address: chassis.mgmt_ip.iter().map(|ip| ip.value.clone()).collect(),
+            remote_port: format!("{remote_port_type}={remote_port_value}"),
+            id_type,
+            id_value,
+            remote_port_type,
+            remote_port_value,
+        });
     }
 
-    Ok(Some(lldp_info))
+    Ok(neighbors)
 }
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::Outcome::*;
-    use carbide_test_support::scenarios;
+    use super::parse_port_lldp;
 
-    use super::get_port_lldp_info;
+    // Three LLDP neighbors on a single physical port (`vlldp`). `-f json0` emits
+    // each as its own `interface` array entry, so `parse_port_lldp` must yield one
+    // `LldpSwitchData` per entry, in order, with no mgmt-ip or description.
+    const MULTI_NEIGHBOR: &str = r#"{
+      "lldp": [
+        { "interface": [
+          { "name": "vlldp", "chassis": [
+              { "id": [{"type":"local","value":"host-00"}], "name": [{"value":"neighbor-00"}] }],
+            "port": [{ "id": [{"type":"ifname","value":"port-00"}], "ttl": [{"value":"120"}] }] },
+          { "name": "vlldp", "chassis": [
+              { "id": [{"type":"local","value":"host-01"}], "name": [{"value":"neighbor-01"}] }],
+            "port": [{ "id": [{"type":"ifname","value":"port-01"}], "ttl": [{"value":"120"}] }] },
+          { "name": "vlldp", "chassis": [
+              { "id": [{"type":"local","value":"host-02"}], "name": [{"value":"neighbor-02"}] }],
+            "port": [{ "id": [{"type":"ifname","value":"port-02"}], "ttl": [{"value":"120"}] }] }
+        ] }
+      ]
+    }"#;
 
-    // `get_port_lldp_info` reads the `test/lldp_query.json` fixture (in `cfg(test)`
-    // it ignores the live `lldpcli` command) and then looks the requested port up
-    // in `lldp.interface`. The lookup, the `OneOrMany` mgmt-ip flattening, and the
-    // tor/port field formatting are all pure given that fixture, so we pin the
-    // facts each known port produces and the not-found rejection path.
-    //
-    // The yielded value for each row is `(first_ip, ip_count, name, remote_port)`.
+    // Single neighbor carrying two mgmt-ips (v4 + v6) and a description — the shape
+    // of a real `lldpcli -f json0 show neighbors ports p0`.
+    const SINGLE_NEIGHBOR: &str = r#"{
+      "lldp": [
+        { "interface": [
+          { "name": "p0", "chassis": [
+              { "id": [{"type":"mac","value":"00:11:22:33:44:55"}],
+                "name": [{"value":"example-switch-01"}],
+                "descr": [{"value":"Cumulus Linux version 5.11.1 running on Mellanox switch"}],
+                "mgmt-ip": [{"value":"192.0.2.10"},{"value":"2001:db8::10"}] }],
+            "port": [{ "id": [{"type":"ifname","value":"swp2"}], "ttl": [{"value":"120"}] }] }
+        ] }
+      ]
+    }"#;
+
     #[test]
-    fn get_port_lldp_info_translates_fixture() {
-        scenarios!(
-            run = |port| {
-                let info = get_port_lldp_info(port).map_err(drop)?.ok_or(())?;
-                let first_ip = info.ip_address.first().cloned().unwrap_or_default();
-                Ok::<_, ()>((first_ip, info.ip_address.len(), info.name, info.remote_port))
-            };
-            "oob_net0: single (scalar) mgmt-ip" {
-                "oob_net0" => Yields((
-                    "10.180.253.66".to_string(),
-                    1,
-                    "RNO1-M03-B17-IPMI-01".to_string(),
-                    "ifname=swp7".to_string(),
-                )),
-            }
-
-            "p0: array mgmt-ip keeps first (v4) and counts both" {
-                "p0" => Yields((
-                    "10.180.253.67".to_string(),
-                    2,
-                    "RNO1-M03-B17-IPMI-01".to_string(),
-                    "ifname=swp7".to_string(),
-                )),
-            }
-
-            "p1: distinct array mgmt-ip, first is v4" {
-                "p1" => Yields((
-                    "10.180.253.66".to_string(),
-                    2,
-                    "RNO1-M03-B17-IPMI-01".to_string(),
-                    "ifname=swp7".to_string(),
-                )),
-            }
-
-            "unknown port: not present in the fixture interface map" {
-                "p99" => Fails,
-            }
-
-            "empty port name: also absent" {
-                "" => Fails,
-            }
-        );
+    #[allow(deprecated)]
+    fn parses_multiple_neighbors_on_one_port() {
+        let neighbors = parse_port_lldp(MULTI_NEIGHBOR).expect("parse");
+        assert_eq!(neighbors.len(), 3);
+        for (i, n) in neighbors.iter().enumerate() {
+            assert_eq!(n.name, format!("neighbor-0{i}"));
+            // split fields plus the legacy combined strings
+            assert_eq!(n.id_type, "local");
+            assert_eq!(n.id_value, format!("host-0{i}"));
+            assert_eq!(n.id, format!("local=host-0{i}"));
+            assert_eq!(n.remote_port_type, "ifname");
+            assert_eq!(n.remote_port_value, format!("port-0{i}"));
+            assert_eq!(n.remote_port, format!("ifname=port-0{i}"));
+            assert_eq!(n.local_port, "vlldp");
+            assert!(n.ip_address.is_empty());
+            assert!(n.description.is_empty());
+        }
     }
 
-    // The tor-id and description formatting on the resolved switch is its own
-    // contract: `id` is rendered `"{id_type}={value}"` and `description`/`local_port`
-    // are copied verbatim. Token-contains keeps this robust to fixture churn.
-    //
-    // The yielded value is whether every expected token appears in the rendered field.
     #[test]
-    fn get_port_lldp_info_formats_fields() {
-        scenarios!(
-            run = |(port, tokens): (&str, &[&str])| {
-                let info = get_port_lldp_info(port).map_err(drop)?.ok_or(())?;
-                // Concatenate the formatted fields this row may inspect; every token
-                // must appear somewhere across id / description / local_port.
-                let haystack = format!("{} {} {}", info.id, info.description, info.local_port);
-                Ok::<_, ()>(tokens.iter().all(|t| haystack.contains(t)))
-            };
-            "id renders mac type=value for oob_net0" {
-                ("oob_net0", &["mac=", "0c:29:ef:d9:1c:20"][..]) => Yields(true),
-            }
+    #[allow(deprecated)]
+    fn parses_single_neighbor_with_mgmt_ips() {
+        let neighbors = parse_port_lldp(SINGLE_NEIGHBOR).expect("parse");
+        assert_eq!(neighbors.len(), 1);
+        let n = &neighbors[0];
+        assert_eq!(n.name, "example-switch-01");
+        assert_eq!(n.id_type, "mac");
+        assert_eq!(n.id_value, "00:11:22:33:44:55");
+        assert_eq!(n.id, "mac=00:11:22:33:44:55");
+        assert_eq!(n.local_port, "p0");
+        assert_eq!(n.remote_port_type, "ifname");
+        assert_eq!(n.remote_port_value, "swp2");
+        assert_eq!(n.remote_port, "ifname=swp2");
+        assert_eq!(n.ip_address, vec!["192.0.2.10", "2001:db8::10"]);
+        assert!(n.description.contains("Cumulus Linux"));
+    }
 
-            "description carried verbatim for p0" {
-                ("p0", &["Cumulus Linux", "DELL S3048ON"][..]) => Yields(true),
-            }
-
-            "local_port echoes the requested port" {
-                ("p1", &["p1"][..]) => Yields(true),
-            }
-        );
+    #[test]
+    fn parses_no_neighbors_as_empty() {
+        let neighbors = parse_port_lldp(r#"{"lldp":[{"interface":[]}]}"#).expect("parse");
+        assert!(neighbors.is_empty());
     }
 }
