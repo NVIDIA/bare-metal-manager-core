@@ -129,7 +129,8 @@ site_ready=false
 machines_ready=false
 machine_count=0
 fresh_cycle=false
-for attempt in {1..60}; do
+# A clean cluster may need a second three-minute inventory cycle after Core discovers machines.
+for attempt in {1..90}; do
   site_ready=false
   machines_ready=false
   machine_count=0
@@ -184,7 +185,7 @@ for attempt in {1..60}; do
       "${site_id}" "${machine_count}"
     break
   fi
-  if [[ "${attempt}" == "60" ]]; then
+  if [[ "${attempt}" == "90" ]]; then
     printf 'REST integration verification failed: site_ready=%s machines_ready=%s machines=%s fresh_cycle=%s\n' \
       "${site_ready}" "${machines_ready}" "${machine_count}" "${fresh_cycle}" >&2
     exit 1
