@@ -1597,10 +1597,12 @@ name = "carbide-certs"
 version = "0.0.0"
 dependencies = [
  "carbide-host-support",
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-tls",
  "eyre",
  "rand 0.10.1",
+ "tokio",
  "tonic",
  "tracing",
 ]

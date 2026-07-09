@@ -40,6 +40,7 @@ fn test_metrics() {
     let metrics = crate::instrumentation::create_metrics(meter.clone());
     metrics.record_machine_boot_time(1740171762);
     metrics.record_agent_start_time(1740171801);
+    metrics.record_client_cert_expiry_time(|| Some(1742763762));
 
     let network_monitor_metrics = NetworkMonitorMetricsState::initialize(
         meter,
@@ -94,4 +95,36 @@ fn test_metrics() {
 
     let prom_metrics = String::from_utf8(buffer).unwrap();
     assert_eq!(prom_metrics, include_str!("fixtures/metrics.txt"));
+}
+
+/// A metrics collection that finds no readable client certificate exports no
+/// expiry series at all, rather than a misleading placeholder value.
+#[test]
+fn client_cert_expiry_gauge_exports_nothing_without_a_certificate() {
+    let prometheus_registry = prometheus::Registry::new();
+    let metrics_exporter = opentelemetry_prometheus::exporter()
+        .with_registry(prometheus_registry.clone())
+        .without_scope_info()
+        .without_target_info()
+        .build()
+        .unwrap();
+    let meter_provider = opentelemetry_sdk::metrics::MeterProviderBuilder::default()
+        .with_reader(metrics_exporter)
+        .build();
+    let meter = meter_provider.meter("agent");
+
+    let metrics = crate::instrumentation::create_metrics(meter);
+    metrics.record_client_cert_expiry_time(|| None);
+
+    let exported: Vec<String> = prometheus_registry
+        .gather()
+        .iter()
+        .map(|family| family.name().to_string())
+        .collect();
+    assert!(
+        !exported
+            .iter()
+            .any(|name| name.contains("client_cert_expiry_time_seconds")),
+        "an unreadable certificate must export no expiry series: {exported:?}"
+    );
 }
