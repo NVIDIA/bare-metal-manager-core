@@ -286,10 +286,11 @@ func (meps *ManageExpectedPowerShelf) CreateExpectedPowerShelfOnSite(ctx context
 	start := time.Now()
 	_, err = grpcServiceClient.AddExpectedPowerShelf(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "AddExpectedPowerShelf", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create Expected Power Shelf using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -325,10 +326,11 @@ func (meps *ManageExpectedPowerShelf) UpdateExpectedPowerShelfOnSite(ctx context
 	start := time.Now()
 	_, err = grpcServiceClient.UpdateExpectedPowerShelf(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateExpectedPowerShelf", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update Expected Power Shelf using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -455,10 +457,11 @@ func (meps *ManageExpectedPowerShelf) DeleteExpectedPowerShelfOnSite(ctx context
 	start := time.Now()
 	_, err = grpcServiceClient.DeleteExpectedPowerShelf(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "DeleteExpectedPowerShelf", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete Expected Power Shelf using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

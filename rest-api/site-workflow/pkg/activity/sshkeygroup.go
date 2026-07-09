@@ -129,10 +129,11 @@ func (mmi *ManageSSHKeyGroup) CreateSSHKeyGroupOnSite(ctx context.Context, reque
 	start := time.Now()
 	_, err = grpcServiceClient.CreateTenantKeyset(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "CreateTenantKeyset", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create SSH Key Group using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -170,10 +171,11 @@ func (mmi *ManageSSHKeyGroup) UpdateSSHKeyGroupOnSite(ctx context.Context, reque
 	start := time.Now()
 	_, err = grpcServiceClient.UpdateTenantKeyset(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateTenantKeyset", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update SSH Key Group using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -209,10 +211,11 @@ func (mmi *ManageSSHKeyGroup) DeleteSSHKeyGroupOnSite(ctx context.Context, reque
 	start := time.Now()
 	_, err = grpcServiceClient.DeleteTenantKeyset(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "DeleteTenantKeyset", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete SSH Key Group using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

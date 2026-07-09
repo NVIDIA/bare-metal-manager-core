@@ -161,10 +161,11 @@ func (mv *ManageVPC) CreateVpcOnSite(ctx context.Context, request *cwssaws.VpcCr
 	start := time.Now()
 	controllerVpc, err := grpcServiceClient.CreateVpc(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "CreateVpc", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create VPC using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return controllerVpc, nil
 }
@@ -201,10 +202,11 @@ func (mv *ManageVPC) UpdateVpcOnSite(ctx context.Context, request *cwssaws.VpcUp
 	start := time.Now()
 	_, err = grpcServiceClient.UpdateVpc(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateVpc", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update VPC using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -240,10 +242,11 @@ func (mv *ManageVPC) DeleteVpcOnSite(ctx context.Context, request *cwssaws.VpcDe
 	start := time.Now()
 	_, err = grpcServiceClient.DeleteVpc(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "DeleteVpc", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete VPC using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -278,10 +281,11 @@ func (mv *ManageVPC) UpdateVpcVirtualizationOnSite(ctx context.Context, request 
 	start := time.Now()
 	_, err = grpcServiceClient.UpdateVpcVirtualization(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateVpcVirtualization", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update VPC virtualization using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

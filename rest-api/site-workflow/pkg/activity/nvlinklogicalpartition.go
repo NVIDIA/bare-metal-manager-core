@@ -141,10 +141,11 @@ func (mnvllp *ManageNVLinkLogicalPartition) CreateNVLinkLogicalPartitionOnSite(c
 	start := time.Now()
 	nvLinkLogicalPartition, err := grpcServiceClient.CreateNVLinkLogicalPartition(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "CreateNVLinkLogicalPartition", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create NVLink Logical Partition using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nvLinkLogicalPartition, nil
 }
@@ -185,10 +186,11 @@ func (mnvllp *ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionOnSite(c
 	start := time.Now()
 	_, err = grpcServiceClient.UpdateNVLinkLogicalPartition(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateNVLinkLogicalPartition", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update NVLink Logical Partition using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -222,10 +224,11 @@ func (mnvllp *ManageNVLinkLogicalPartition) DeleteNVLinkLogicalPartitionOnSite(c
 	start := time.Now()
 	_, err = grpcServiceClient.DeleteNVLinkLogicalPartition(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "DeleteNVLinkLogicalPartition", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete NVLink Logical Partition using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

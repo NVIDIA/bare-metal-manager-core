@@ -55,10 +55,11 @@ func (mm *ManageInstanceType) CreateInstanceTypeOnSite(ctx context.Context, requ
 	start := time.Now()
 	_, err = grpcServiceClient.CreateInstanceType(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "CreateInstanceType", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create InstanceType using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -92,10 +93,11 @@ func (mm *ManageInstanceType) UpdateInstanceTypeOnSite(ctx context.Context, requ
 	start := time.Now()
 	_, err = grpcServiceClient.UpdateInstanceType(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateInstanceType", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update config for InstanceType using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -129,10 +131,11 @@ func (mm *ManageInstanceType) DeleteInstanceTypeOnSite(ctx context.Context, requ
 	start := time.Now()
 	_, err = grpcServiceClient.DeleteInstanceType(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "DeleteInstanceType", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete InstanceType using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -169,10 +172,11 @@ func (mm *ManageInstanceType) AssociateMachinesWithInstanceTypeOnSite(ctx contex
 	start := time.Now()
 	_, err = grpcServiceClient.AssociateMachinesWithInstanceType(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "AssociateMachinesWithInstanceType", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to associate Machines with InstanceType using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -207,10 +211,11 @@ func (mm *ManageInstanceType) RemoveMachineInstanceTypeAssociationOnSite(ctx con
 	start := time.Now()
 	_, err = grpcServiceClient.RemoveMachineInstanceTypeAssociation(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "RemoveMachineInstanceTypeAssociation", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to associate Machines with InstanceType using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

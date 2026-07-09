@@ -59,10 +59,11 @@ func (mm *ManageNetworkSecurityGroup) CreateNetworkSecurityGroupOnSite(ctx conte
 	start := time.Now()
 	_, err = rpcServiceClient.CreateNetworkSecurityGroup(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "CreateNetworkSecurityGroup", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create NetworkSecurityGroup using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -99,10 +100,11 @@ func (mm *ManageNetworkSecurityGroup) UpdateNetworkSecurityGroupOnSite(ctx conte
 	start := time.Now()
 	_, err = rpcServiceClient.UpdateNetworkSecurityGroup(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateNetworkSecurityGroup", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update config for NetworkSecurityGroup using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -139,10 +141,11 @@ func (mm *ManageNetworkSecurityGroup) DeleteNetworkSecurityGroupOnSite(ctx conte
 	start := time.Now()
 	_, err = rpcServiceClient.DeleteNetworkSecurityGroup(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "DeleteNetworkSecurityGroup", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete NetworkSecurityGroup using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

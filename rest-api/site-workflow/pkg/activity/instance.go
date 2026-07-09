@@ -54,10 +54,11 @@ func (mm *ManageInstance) UpdateInstanceOnSite(ctx context.Context, request *cws
 	start := time.Now()
 	_, err = grpcServiceClient.UpdateInstanceConfig(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateInstanceConfig", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update config for Instance using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -91,10 +92,11 @@ func (mm *ManageInstance) CreateInstanceOnSite(ctx context.Context, request *cws
 	start := time.Now()
 	_, err = grpcServiceClient.AllocateInstance(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "AllocateInstance", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create Instance using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -133,12 +135,12 @@ func (mm *ManageInstance) CreateInstancesOnSite(ctx context.Context, request *cw
 	start := time.Now()
 	_, err = grpcServiceClient.AllocateInstances(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "AllocateInstances", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to batch create Instances using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
-	logger.Info().Int("Count", len(request.InstanceRequests)).Msg("Completed batch instance allocation activity")
+	logger.Info().Int("Count", len(request.InstanceRequests)).Dur("grpc_duration", duration).Msg("Completed batch instance allocation activity")
 	return nil
 }
 
@@ -171,10 +173,11 @@ func (mm *ManageInstance) RebootInstanceOnSite(ctx context.Context, request *cws
 	start := time.Now()
 	_, err = grpcServiceClient.InvokeInstancePower(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "InvokeInstancePower", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to reboot Instance using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -208,10 +211,11 @@ func (mm *ManageInstance) DeleteInstanceOnSite(ctx context.Context, request *cws
 	start := time.Now()
 	_, err = grpcServiceClient.ReleaseInstance(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "ReleaseInstance", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete Instance using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

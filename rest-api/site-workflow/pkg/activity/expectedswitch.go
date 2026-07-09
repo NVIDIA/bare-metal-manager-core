@@ -286,10 +286,11 @@ func (mes *ManageExpectedSwitch) CreateExpectedSwitchOnSite(ctx context.Context,
 	start := time.Now()
 	_, err = grpcServiceClient.AddExpectedSwitch(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "AddExpectedSwitch", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create Expected Switch using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -325,10 +326,11 @@ func (mes *ManageExpectedSwitch) UpdateExpectedSwitchOnSite(ctx context.Context,
 	start := time.Now()
 	_, err = grpcServiceClient.UpdateExpectedSwitch(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "UpdateExpectedSwitch", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update Expected Switch using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -450,10 +452,11 @@ func (mes *ManageExpectedSwitch) DeleteExpectedSwitchOnSite(ctx context.Context,
 	start := time.Now()
 	_, err = grpcServiceClient.DeleteExpectedSwitch(ctx, request)
 	duration := time.Since(start)
-	logGrpcCallLatency(&logger, "DeleteExpectedSwitch", duration, err)
 	if err != nil {
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete Expected Switch using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
