@@ -158,7 +158,7 @@ for attempt in {1..60}; do
       <<<"${machines}" 2>/dev/null || printf '0')"
   fi
 
-  cloud_worker_logs="$(kubectl logs deployment/nico-rest-cloud-worker \
+  site_worker_logs="$(kubectl logs deployment/nico-rest-site-worker \
     -n "${REST_NAMESPACE}" --since-time="${inventory_started_at}" 2>/dev/null || true)"
   fresh_cycle="$(jq -Rrs --arg site_id "${site_id}" '
     [splits("\n") | fromjson?
@@ -176,7 +176,7 @@ for attempt in {1..60}; do
         .complete = true
       else . end
     ) | .complete
-  ' <<<"${cloud_worker_logs}" 2>/dev/null || printf 'false')"
+  ' <<<"${site_worker_logs}" 2>/dev/null || printf 'false')"
 
   if [[ "${site_ready}" == "true" && "${machines_ready}" == "true" && \
     "${fresh_cycle}" == "true" ]]; then
