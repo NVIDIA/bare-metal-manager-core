@@ -82,6 +82,7 @@ const (
 	Flow_ListOperationRunTargets_FullMethodName  = "/v1.Flow/ListOperationRunTargets"
 	Flow_PauseOperationRun_FullMethodName        = "/v1.Flow/PauseOperationRun"
 	Flow_ResumeOperationRun_FullMethodName       = "/v1.Flow/ResumeOperationRun"
+	Flow_AdvanceOperationRunPhase_FullMethodName = "/v1.Flow/AdvanceOperationRunPhase"
 	Flow_CancelOperationRun_FullMethodName       = "/v1.Flow/CancelOperationRun"
 )
 
@@ -158,6 +159,7 @@ type FlowClient interface {
 	ListOperationRunTargets(ctx context.Context, in *ListOperationRunTargetsRequest, opts ...grpc.CallOption) (*ListOperationRunTargetsResponse, error)
 	PauseOperationRun(ctx context.Context, in *PauseOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error)
 	ResumeOperationRun(ctx context.Context, in *ResumeOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error)
+	AdvanceOperationRunPhase(ctx context.Context, in *AdvanceOperationRunPhaseRequest, opts ...grpc.CallOption) (*OperationRun, error)
 	CancelOperationRun(ctx context.Context, in *CancelOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error)
 }
 
@@ -759,6 +761,16 @@ func (c *flowClient) ResumeOperationRun(ctx context.Context, in *ResumeOperation
 	return out, nil
 }
 
+func (c *flowClient) AdvanceOperationRunPhase(ctx context.Context, in *AdvanceOperationRunPhaseRequest, opts ...grpc.CallOption) (*OperationRun, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OperationRun)
+	err := c.cc.Invoke(ctx, Flow_AdvanceOperationRunPhase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowClient) CancelOperationRun(ctx context.Context, in *CancelOperationRunRequest, opts ...grpc.CallOption) (*OperationRun, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OperationRun)
@@ -842,6 +854,7 @@ type FlowServer interface {
 	ListOperationRunTargets(context.Context, *ListOperationRunTargetsRequest) (*ListOperationRunTargetsResponse, error)
 	PauseOperationRun(context.Context, *PauseOperationRunRequest) (*OperationRun, error)
 	ResumeOperationRun(context.Context, *ResumeOperationRunRequest) (*OperationRun, error)
+	AdvanceOperationRunPhase(context.Context, *AdvanceOperationRunPhaseRequest) (*OperationRun, error)
 	CancelOperationRun(context.Context, *CancelOperationRunRequest) (*OperationRun, error)
 	mustEmbedUnimplementedFlowServer()
 }
@@ -1029,6 +1042,9 @@ func (UnimplementedFlowServer) PauseOperationRun(context.Context, *PauseOperatio
 }
 func (UnimplementedFlowServer) ResumeOperationRun(context.Context, *ResumeOperationRunRequest) (*OperationRun, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResumeOperationRun not implemented")
+}
+func (UnimplementedFlowServer) AdvanceOperationRunPhase(context.Context, *AdvanceOperationRunPhaseRequest) (*OperationRun, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AdvanceOperationRunPhase not implemented")
 }
 func (UnimplementedFlowServer) CancelOperationRun(context.Context, *CancelOperationRunRequest) (*OperationRun, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CancelOperationRun not implemented")
@@ -2116,6 +2132,24 @@ func _Flow_ResumeOperationRun_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Flow_AdvanceOperationRunPhase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AdvanceOperationRunPhaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServer).AdvanceOperationRunPhase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Flow_AdvanceOperationRunPhase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServer).AdvanceOperationRunPhase(ctx, req.(*AdvanceOperationRunPhaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Flow_CancelOperationRun_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CancelOperationRunRequest)
 	if err := dec(in); err != nil {
@@ -2376,6 +2410,10 @@ var Flow_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResumeOperationRun",
 			Handler:    _Flow_ResumeOperationRun_Handler,
+		},
+		{
+			MethodName: "AdvanceOperationRunPhase",
+			Handler:    _Flow_AdvanceOperationRunPhase_Handler,
 		},
 		{
 			MethodName: "CancelOperationRun",
