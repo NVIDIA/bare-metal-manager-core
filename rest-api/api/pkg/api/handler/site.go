@@ -850,8 +850,8 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 	if includeGpuStats {
 		gpuStats, err = common.GetSiteGPUStats(ctx, nil, gash.dbSession, logger, &provider.ID, nil)
 		if err != nil {
-			logger.Error().Err(err).Msg("unable to request GPU stats for Site")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Unable to request GPU stats for Site", nil)
+			logger.Error().Err(err).Msg("error retrieving GPU stats by site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving GPU stats by site", nil)
 		}
 	}
 

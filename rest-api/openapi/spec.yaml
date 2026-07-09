@@ -14538,6 +14538,10 @@ components:
               allocatedInUse: 3
               allocatedNotInUse: 3
               unallocated: 5
+          gpuStats:
+            - name: NVIDIA GB200
+              gpus: 64
+              machines: 16
           capabilities:
             nativeNetworking: true
             networkSecurityGroup: true
@@ -24181,6 +24185,13 @@ components:
         machines:
           type: integer
           description: Number of machines that have this GPU capability
+      examples:
+        - name: NVIDIA GB200
+          gpus: 64
+          machines: 16
+        - name: NVIDIA H100
+          gpus: 8
+          machines: 1
     MachineStatusBreakdown:
       title: MachineStatusBreakdown
       description: Machine counts broken down by status

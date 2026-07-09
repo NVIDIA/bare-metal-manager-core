@@ -813,10 +813,9 @@ func (mcd MachineCapabilitySQLDAO) GetGPUStatsBySite(ctx context.Context, tx *db
 
 	stats := []GPUSiteStat{}
 
-	// bun applies the soft-delete filter for the mc model automatically; the
-	// joined machine table needs an explicit not-deleted predicate.
 	query := db.GetIDB(tx, mcd.dbSession).NewSelect().Model((*MachineCapability)(nil)).
 		Join("JOIN machine AS m ON m.id = mc.machine_id AND m.deleted IS NULL").
+		Where("mc.deleted IS NULL").
 		Where("mc.type = ?", MachineCapabilityTypeGPU).
 		ColumnExpr("m.site_id AS site_id").
 		ColumnExpr("mc.name AS name").
