@@ -49,7 +49,7 @@ type ManageOsImage struct {
 // Activity functions
 
 // UpdateOsImagesInDB takes information pushed by Site Agent for a collection of image based OSs associated with the Site and updates the DB
-func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUID, osImageInventory *cwssaws.OsImageInventory) ([]uuid.UUID, error) {
+func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUID, osImageInventory *corev1.OsImageInventory) ([]uuid.UUID, error) {
 	logger := log.With().Str("Activity", "UpdateOsImagesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -159,12 +159,12 @@ func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUI
 			}
 
 			switch controllerOsImage.Status {
-			case cwssaws.OsImageStatus_ImageInProgress, cwssaws.OsImageStatus_ImageUninitialized, cwssaws.OsImageStatus_ImageDisabled:
+			case corev1.OsImageStatus_ImageInProgress, corev1.OsImageStatus_ImageUninitialized, corev1.OsImageStatus_ImageDisabled:
 				ossaStatusMessage = cutil.GetPtr("OS Image is still syncing")
-			case cwssaws.OsImageStatus_ImageReady:
+			case corev1.OsImageStatus_ImageReady:
 				ossaStatus = cdbm.OperatingSystemSiteAssociationStatusSynced
 				ossaStatusMessage = cutil.GetPtr("OS Image is ready to use")
-			case cwssaws.OsImageStatus_ImageFailed:
+			case corev1.OsImageStatus_ImageFailed:
 				ossaStatus = cdbm.OperatingSystemSiteAssociationStatusError
 				if ossaStatusMessage == nil || *ossaStatusMessage == "" {
 					ossaStatusMessage = cutil.GetPtr("OS Image failed to sync on Site")
@@ -407,7 +407,7 @@ func (mos ManageOsImage) UpdateOperatingSystemStatusInDB(ctx context.Context, os
 }
 
 // UpdateOperatingSystemsInDB reconciles the operating_system table for a Site based on Operating Systems reported from Site
-func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID uuid.UUID, inventory *cwssaws.OperatingSystemInventory) error {
+func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID uuid.UUID, inventory *corev1.OperatingSystemInventory) error {
 	logger := log.With().Str("Activity", "UpdateOperatingSystemsInDB").Str("Site ID", siteID.String()).Logger()
 	logger.Info().Msg("Starting activity")
 
@@ -415,7 +415,7 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 		return errors.New("UpdateOperatingSystemsInDB called with nil inventory")
 	}
 
-	if inventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if inventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("Received failed inventory status from Site Agent, skipping")
 		return nil
 	}

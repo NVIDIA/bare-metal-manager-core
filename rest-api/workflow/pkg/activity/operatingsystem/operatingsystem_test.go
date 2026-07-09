@@ -499,16 +499,16 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		require.NoError(t, err)
 
 		osID := uuid.New()
-		inventory := &cwssaws.OperatingSystemInventory{
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-			OperatingSystems: []*cwssaws.OperatingSystem{
+		inventory := &corev1.OperatingSystemInventory{
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{
 				{
-					Id:             &cwssaws.OperatingSystemId{Value: osID.String()},
+					Id:             &corev1.OperatingSystemId{Value: osID.String()},
 					Name:           "reported-templated-os",
-					Type:           cwssaws.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
-					Status:         cwssaws.TenantState_READY,
+					Type:           corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
+					Status:         corev1.TenantState_READY,
 					IsActive:       true,
-					IpxeTemplateId: &cwssaws.IpxeTemplateId{Value: tmpl.ID.String()},
+					IpxeTemplateId: &corev1.IpxeTemplateId{Value: tmpl.ID.String()},
 					Updated:        time.Now().Format(time.RFC3339),
 				},
 			},
@@ -549,16 +549,16 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		require.NoError(t, err)
 
 		osID := uuid.New()
-		inventory := &cwssaws.OperatingSystemInventory{
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-			OperatingSystems: []*cwssaws.OperatingSystem{
+		inventory := &corev1.OperatingSystemInventory{
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{
 				{
-					Id:             &cwssaws.OperatingSystemId{Value: osID.String()},
+					Id:             &corev1.OperatingSystemId{Value: osID.String()},
 					Name:           "reported-templated-os-skip",
-					Type:           cwssaws.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
-					Status:         cwssaws.TenantState_READY,
+					Type:           corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
+					Status:         corev1.TenantState_READY,
 					IsActive:       true,
-					IpxeTemplateId: &cwssaws.IpxeTemplateId{Value: tmpl.ID.String()},
+					IpxeTemplateId: &corev1.IpxeTemplateId{Value: tmpl.ID.String()},
 					Updated:        time.Now().Format(time.RFC3339),
 				},
 			},
@@ -611,16 +611,16 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		// Site reports the OS with a newer timestamp but referencing a template
 		// that is not associated with the Site. The definition update must be
 		// skipped so the existing (valid) template reference is preserved.
-		inventory := &cwssaws.OperatingSystemInventory{
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-			OperatingSystems: []*cwssaws.OperatingSystem{
+		inventory := &corev1.OperatingSystemInventory{
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{
 				{
-					Id:             &cwssaws.OperatingSystemId{Value: osID.String()},
+					Id:             &corev1.OperatingSystemId{Value: osID.String()},
 					Name:           "renamed-should-not-apply",
-					Type:           cwssaws.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
-					Status:         cwssaws.TenantState_READY,
+					Type:           corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
+					Status:         corev1.TenantState_READY,
 					IsActive:       true,
-					IpxeTemplateId: &cwssaws.IpxeTemplateId{Value: tmplB.ID.String()},
+					IpxeTemplateId: &corev1.IpxeTemplateId{Value: tmplB.ID.String()},
 					Updated:        time.Now().Add(time.Hour).Format(time.RFC3339),
 				},
 			},
@@ -664,9 +664,9 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		require.NoError(t, err)
 
 		// Empty inventory: the Site no longer reports the OS, so it must be soft-deleted.
-		inventory := &cwssaws.OperatingSystemInventory{
-			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-			OperatingSystems: []*cwssaws.OperatingSystem{},
+		inventory := &corev1.OperatingSystemInventory{
+			InventoryStatus:  corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{},
 			Timestamp:        timestamppb.Now(),
 		}
 
@@ -706,9 +706,9 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		// stReporting reports an empty inventory. Deletion reconciliation must be
 		// scoped to stReporting and leave the OS that belongs to stOther intact.
-		inventory := &cwssaws.OperatingSystemInventory{
-			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-			OperatingSystems: []*cwssaws.OperatingSystem{},
+		inventory := &corev1.OperatingSystemInventory{
+			InventoryStatus:  corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{},
 			Timestamp:        timestamppb.Now(),
 		}
 
@@ -749,12 +749,12 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		osB := mkOS("paged-os-b")
 		osC := mkOS("paged-os-c") // absent from the reported set: must be deleted, but only after the final page
 
-		reportedProto := func(id uuid.UUID, name string) *cwssaws.OperatingSystem {
-			return &cwssaws.OperatingSystem{
-				Id:         &cwssaws.OperatingSystemId{Value: id.String()},
+		reportedProto := func(id uuid.UUID, name string) *corev1.OperatingSystem {
+			return &corev1.OperatingSystem{
+				Id:         &corev1.OperatingSystemId{Value: id.String()},
 				Name:       name,
-				Type:       cwssaws.OperatingSystemType_OS_TYPE_IPXE,
-				Status:     cwssaws.TenantState_READY,
+				Type:       corev1.OperatingSystemType_OS_TYPE_IPXE,
+				Status:     corev1.TenantState_READY,
 				IsActive:   true,
 				IpxeScript: cutil.GetPtr("#!ipxe\n"),
 				Updated:    time.Now().Format(time.RFC3339),
@@ -765,11 +765,11 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		itemIDs := []string{osA.String(), osB.String()}
 
 		// Page 1 of 2 reports only osA, but ItemIds carries the full set {osA, osB}.
-		page1 := &cwssaws.OperatingSystemInventory{
-			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-			OperatingSystems: []*cwssaws.OperatingSystem{reportedProto(osA, "paged-os-a")},
+		page1 := &corev1.OperatingSystemInventory{
+			InventoryStatus:  corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{reportedProto(osA, "paged-os-a")},
 			Timestamp:        timestamppb.Now(),
-			InventoryPage:    &cwssaws.InventoryPage{CurrentPage: 1, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: itemIDs},
+			InventoryPage:    &corev1.InventoryPage{CurrentPage: 1, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: itemIDs},
 		}
 		require.NoError(t, newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, page1))
 
@@ -781,11 +781,11 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		require.NoError(t, err, "osB must not be deleted by an earlier page that omits it from OperatingSystems")
 
 		// Page 2 of 2 (final) reports osB; ItemIds still carries the full set {osA, osB}.
-		page2 := &cwssaws.OperatingSystemInventory{
-			InventoryStatus:  cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-			OperatingSystems: []*cwssaws.OperatingSystem{reportedProto(osB, "paged-os-b")},
+		page2 := &corev1.OperatingSystemInventory{
+			InventoryStatus:  corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{reportedProto(osB, "paged-os-b")},
 			Timestamp:        timestamppb.Now(),
-			InventoryPage:    &cwssaws.InventoryPage{CurrentPage: 2, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: itemIDs},
+			InventoryPage:    &corev1.InventoryPage{CurrentPage: 2, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: itemIDs},
 		}
 		require.NoError(t, newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, page2))
 

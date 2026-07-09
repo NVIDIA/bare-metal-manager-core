@@ -17,7 +17,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 type UpdateIpxeTemplateTestSuite struct {
@@ -40,7 +40,7 @@ func (s *UpdateIpxeTemplateTestSuite) Test_UpdateIpxeTemplateInventory_Success()
 	var metricsManager cwm.ManageInventoryMetrics
 
 	siteID := uuid.New()
-	inv := &cwssaws.IpxeTemplateInventory{Templates: []*cwssaws.IpxeTemplate{}}
+	inv := &corev1.IpxeTemplateInventory{Templates: []*corev1.IpxeTemplate{}}
 
 	s.env.RegisterActivity(templateManager.UpdateIpxeTemplatesInDB)
 	s.env.OnActivity(templateManager.UpdateIpxeTemplatesInDB, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -58,7 +58,7 @@ func (s *UpdateIpxeTemplateTestSuite) Test_UpdateIpxeTemplateInventory_ActivityF
 	var metricsManager cwm.ManageInventoryMetrics
 
 	siteID := uuid.New()
-	inv := &cwssaws.IpxeTemplateInventory{Templates: []*cwssaws.IpxeTemplate{}}
+	inv := &corev1.IpxeTemplateInventory{Templates: []*corev1.IpxeTemplate{}}
 
 	s.env.RegisterActivity(templateManager.UpdateIpxeTemplatesInDB)
 	s.env.OnActivity(templateManager.UpdateIpxeTemplatesInDB, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("UpdateIpxeTemplatesInDB failure"))
@@ -77,7 +77,7 @@ func (s *UpdateIpxeTemplateTestSuite) Test_UpdateIpxeTemplateInventory_ActivityF
 }
 
 func (s *UpdateIpxeTemplateTestSuite) Test_UpdateIpxeTemplateInventory_InvalidSiteID() {
-	inv := &cwssaws.IpxeTemplateInventory{Templates: []*cwssaws.IpxeTemplate{}}
+	inv := &corev1.IpxeTemplateInventory{Templates: []*corev1.IpxeTemplate{}}
 
 	s.env.ExecuteWorkflow(UpdateIpxeTemplateInventory, "not-a-valid-uuid", inv)
 	s.True(s.env.IsWorkflowCompleted())

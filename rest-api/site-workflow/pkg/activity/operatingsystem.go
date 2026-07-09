@@ -248,7 +248,7 @@ func (m *ManageOperatingSystemInventory) DiscoverOperatingSystemInventory(ctx co
 	logger := log.With().Str("Activity", "DiscoverOperatingSystemInventory").Logger()
 	logger.Info().Msg("Starting activity")
 
-	inventoryImpl := manageInventoryImpl[*cwssaws.OperatingSystemId, *cwssaws.OperatingSystem, *cwssaws.OperatingSystemInventory]{
+	inventoryImpl := manageInventoryImpl[*corev1.OperatingSystemId, *corev1.OperatingSystem, *corev1.OperatingSystemInventory]{
 		itemType:               "OperatingSystem",
 		config:                 m.config,
 		internalFindIDs:        operatingSystemFindIDs,
@@ -259,16 +259,16 @@ func (m *ManageOperatingSystemInventory) DiscoverOperatingSystemInventory(ctx co
 	return inventoryImpl.CollectAndPublishInventory(ctx, &logger)
 }
 
-func operatingSystemFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.OperatingSystemId, error) {
-	result, err := grpcClient.GrpcServiceClient().FindOperatingSystemIds(ctx, &cwssaws.OperatingSystemSearchFilter{})
+func operatingSystemFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*corev1.OperatingSystemId, error) {
+	result, err := grpcClient.GrpcServiceClient().FindOperatingSystemIds(ctx, &corev1.OperatingSystemSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
 	return result.GetIds(), nil
 }
 
-func operatingSystemFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.OperatingSystemId) ([]*cwssaws.OperatingSystem, error) {
-	result, err := grpcClient.GrpcServiceClient().FindOperatingSystemsByIds(ctx, &cwssaws.OperatingSystemsByIdsRequest{
+func operatingSystemFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*corev1.OperatingSystemId) ([]*corev1.OperatingSystem, error) {
+	result, err := grpcClient.GrpcServiceClient().FindOperatingSystemsByIds(ctx, &corev1.OperatingSystemsByIdsRequest{
 		Ids: ids,
 	})
 	if err != nil {
@@ -277,13 +277,13 @@ func operatingSystemFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcC
 	return result.GetOperatingSystems(), nil
 }
 
-func operatingSystemPagedInventory(allItemIDs []*cwssaws.OperatingSystemId, pagedItems []*cwssaws.OperatingSystem, input *pagedInventoryInput) *cwssaws.OperatingSystemInventory {
+func operatingSystemPagedInventory(allItemIDs []*corev1.OperatingSystemId, pagedItems []*corev1.OperatingSystem, input *pagedInventoryInput) *corev1.OperatingSystemInventory {
 	itemIDs := []string{}
 	for _, id := range allItemIDs {
 		itemIDs = append(itemIDs, id.GetValue())
 	}
 
-	inventory := &cwssaws.OperatingSystemInventory{
+	inventory := &corev1.OperatingSystemInventory{
 		OperatingSystems: pagedItems,
 		Timestamp: &timestamppb.Timestamp{
 			Seconds: time.Now().Unix(),

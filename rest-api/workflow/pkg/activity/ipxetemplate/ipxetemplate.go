@@ -13,7 +13,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -34,7 +34,7 @@ type ManageIpxeTemplate struct {
 // we ensure the global row exists with current fields and that an ITSA row exists for
 // the reporting site. Templates no longer reported by this site have their ITSA
 // removed; if no ITSA remains anywhere for a template, the global row is hard-deleted.
-func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteID uuid.UUID, inventory *cwssaws.IpxeTemplateInventory) error {
+func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteID uuid.UUID, inventory *corev1.IpxeTemplateInventory) error {
 	logger := log.With().Str("Activity", "UpdateIpxeTemplatesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -44,7 +44,7 @@ func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteI
 		return errors.New("UpdateIpxeTemplatesInDB called with nil inventory")
 	}
 
-	if inventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if inventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("Received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}
@@ -115,7 +115,7 @@ func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteI
 		}
 
 		// Only propagate PUBLIC templates into REST.
-		if reported.Scope != cwssaws.IpxeTemplateScope_PUBLIC {
+		if reported.Scope != corev1.IpxeTemplateScope_PUBLIC {
 			logger.Debug().Str("Name", reported.Name).Str("Visibility", reported.Scope.String()).Msg("Skipping non-public iPXE template")
 			continue
 		}
@@ -242,8 +242,8 @@ func NewManageIpxeTemplate(dbSession *cdb.Session, siteClientPool *sc.ClientPool
 
 // ipxeVisibilityToString converts the IpxeTemplateScope enum from the gRPC proto
 // to the visibility string representation stored in the database.
-func ipxeVisibilityToString(scope cwssaws.IpxeTemplateScope) string {
-	if scope == cwssaws.IpxeTemplateScope_PUBLIC {
+func ipxeVisibilityToString(scope corev1.IpxeTemplateScope) string {
+	if scope == corev1.IpxeTemplateScope_PUBLIC {
 		return cdbm.IpxeTemplateVisibilityPublic
 	}
 	return cdbm.IpxeTemplateVisibilityInternal

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	ipxeTemplateActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/ipxetemplate"
 
@@ -20,7 +20,7 @@ import (
 
 // UpdateIpxeTemplateInventory is a workflow called by the Site Agent to update iPXE template
 // inventory for a Site
-func UpdateIpxeTemplateInventory(ctx workflow.Context, siteID string, inventory *cwssaws.IpxeTemplateInventory) (err error) {
+func UpdateIpxeTemplateInventory(ctx workflow.Context, siteID string, inventory *corev1.IpxeTemplateInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateIpxeTemplateInventory").Str("Site ID", siteID).Logger()
 
 	startTime := workflow.Now(ctx)

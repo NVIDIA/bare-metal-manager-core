@@ -7,8 +7,8 @@ import (
 	"context"
 	"time"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -41,7 +41,7 @@ func (mii *ManageIpxeTemplateInventory) DiscoverIpxeTemplateInventory(ctx contex
 	logger := log.With().Str("Activity", "DiscoverIpxeTemplateInventory").Logger()
 	logger.Info().Msg("Starting activity")
 
-	inventoryImpl := manageInventoryImpl[*cwssaws.IpxeTemplateId, *cwssaws.IpxeTemplate, *cwssaws.IpxeTemplateInventory]{
+	inventoryImpl := manageInventoryImpl[*corev1.IpxeTemplateId, *corev1.IpxeTemplate, *corev1.IpxeTemplateInventory]{
 		itemType:               "IpxeTemplate",
 		config:                 mii.config,
 		internalFindIDs:        ipxeTemplateFindIDs,
@@ -55,21 +55,21 @@ func (mii *ManageIpxeTemplateInventory) DiscoverIpxeTemplateInventory(ctx contex
 
 // iPXE templates have no find-by-ID API on the Site Controller, so the ID-based
 // collection path is intentionally unimplemented to route through the fallback.
-func ipxeTemplateFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.IpxeTemplateId, error) {
+func ipxeTemplateFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*corev1.IpxeTemplateId, error) {
 	return nil, gstatus.Error(gcodes.Unimplemented, "")
 }
 
-func ipxeTemplateFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.IpxeTemplateId) ([]*cwssaws.IpxeTemplate, error) {
+func ipxeTemplateFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*corev1.IpxeTemplateId) ([]*corev1.IpxeTemplate, error) {
 	return nil, gstatus.Error(gcodes.Unimplemented, "")
 }
 
-func ipxeTemplatePagedInventory(allItemIDs []*cwssaws.IpxeTemplateId, pagedItems []*cwssaws.IpxeTemplate, input *pagedInventoryInput) *cwssaws.IpxeTemplateInventory {
+func ipxeTemplatePagedInventory(allItemIDs []*corev1.IpxeTemplateId, pagedItems []*corev1.IpxeTemplate, input *pagedInventoryInput) *corev1.IpxeTemplateInventory {
 	itemIDs := []string{}
 	for _, id := range allItemIDs {
 		itemIDs = append(itemIDs, id.GetValue())
 	}
 
-	inventory := &cwssaws.IpxeTemplateInventory{
+	inventory := &corev1.IpxeTemplateInventory{
 		Templates: pagedItems,
 		Timestamp: &timestamppb.Timestamp{
 			Seconds: time.Now().Unix(),
@@ -88,16 +88,16 @@ func ipxeTemplatePagedInventory(allItemIDs []*cwssaws.IpxeTemplateId, pagedItems
 // PUBLIC ones (core is the source of truth; one-way sync). Both the returned IDs and the
 // returned templates are filtered so the full reported ID set carried in InventoryPage.ItemIds
 // contains only PUBLIC templates.
-func ipxeTemplateFindFallback(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.IpxeTemplateId, []*cwssaws.IpxeTemplate, error) {
-	result, err := grpcClient.GrpcServiceClient().ListIpxeTemplates(ctx, &cwssaws.ListIpxeTemplatesRequest{})
+func ipxeTemplateFindFallback(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*corev1.IpxeTemplateId, []*corev1.IpxeTemplate, error) {
+	result, err := grpcClient.GrpcServiceClient().ListIpxeTemplates(ctx, &corev1.ListIpxeTemplatesRequest{})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var ids []*cwssaws.IpxeTemplateId
-	var templates []*cwssaws.IpxeTemplate
+	var ids []*corev1.IpxeTemplateId
+	var templates []*corev1.IpxeTemplate
 	for _, t := range result.GetTemplates() {
-		if t.GetScope() == cwssaws.IpxeTemplateScope_PUBLIC {
+		if t.GetScope() == corev1.IpxeTemplateScope_PUBLIC {
 			templates = append(templates, t)
 			ids = append(ids, t.GetId())
 		}

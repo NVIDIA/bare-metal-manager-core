@@ -16,7 +16,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateOsImageInventory is a workflow called by Site Agent to update image based Operating System for a Site
@@ -82,7 +82,7 @@ func UpdateOsImageInventory(ctx workflow.Context, siteID string, osImageInventor
 
 // UpdateOperatingSystemInventory is a workflow called by the Site Agent to reconcile Operating Systems
 // synced from nico-core into the operating_system table.
-func UpdateOperatingSystemInventory(ctx workflow.Context, siteID string, inventory *cwssaws.OperatingSystemInventory) (err error) {
+func UpdateOperatingSystemInventory(ctx workflow.Context, siteID string, inventory *corev1.OperatingSystemInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateOperatingSystemInventory").Str("Site ID", siteID).Logger()
 
 	startTime := workflow.Now(ctx)
