@@ -23,7 +23,7 @@ import (
 	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwsv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -46,7 +46,7 @@ type ManageSubnet struct {
 // Activity functions
 
 // UpdateSubnetsInDB is a Temporal activity that takes a collection of Subnet/Network Segment data pushed by Site Agent and updates the DB
-func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, subnetInventory *cwsv1.SubnetInventory) ([]cwm.InventoryObjectLifecycleEvent, error) {
+func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, subnetInventory *corev1.SubnetInventory) ([]cwm.InventoryObjectLifecycleEvent, error) {
 	logger := log.With().Str("Activity", "UpdateSubnetsInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -66,7 +66,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		return nil, err
 	}
 
-	if subnetInventory.InventoryStatus == cwsv1.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if subnetInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil, nil
 	}
@@ -128,7 +128,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		}
 
 		if subnet == nil {
-			if controllerSegment.SegmentType == cwsv1.NetworkSegmentType_TENANT {
+			if controllerSegment.SegmentType == corev1.NetworkSegmentType_TENANT {
 				logger.Error().Str("Controller Segment ID", controllerSegment.Id.Value).Msg("Network Segment does not have a Subnet record in DB, possibly created directly on Site")
 			}
 			continue
@@ -368,19 +368,19 @@ func (ms ManageSubnet) deleteSubnetFromDB(ctx context.Context, tx *cdb.Tx, subne
 }
 
 // Utility function to get NICo Subent status from Controller Segment state
-func getNICoSubnetStatus(controllerNetworkSegmentTenantState cwsv1.TenantState) (string, string) {
+func getNICoSubnetStatus(controllerNetworkSegmentTenantState corev1.TenantState) (string, string) {
 	switch controllerNetworkSegmentTenantState {
-	case cwsv1.TenantState_PROVISIONING:
+	case corev1.TenantState_PROVISIONING:
 		return cdbm.SubnetStatusProvisioning, "Subnet is being provisioned on Site"
-	case cwsv1.TenantState_READY:
+	case corev1.TenantState_READY:
 		return cdbm.SubnetStatusReady, "Subnet is ready for use"
-	case cwsv1.TenantState_CONFIGURING:
+	case corev1.TenantState_CONFIGURING:
 		return cdbm.SubnetStatusProvisioning, "Subnet is being configured on Site"
-	case cwsv1.TenantState_TERMINATING:
+	case corev1.TenantState_TERMINATING:
 		return cdbm.SubnetStatusDeleting, "Subnet is being deleted on Site"
-	case cwsv1.TenantState_TERMINATED:
+	case corev1.TenantState_TERMINATED:
 		return cdbm.SubnetStatusDeleted, "Subnet has been deleted on Site"
-	case cwsv1.TenantState_FAILED:
+	case corev1.TenantState_FAILED:
 		return cdbm.SubnetStatusError, "Subnet is in error state"
 	default:
 		return cdbm.SubnetStatusError, "Subnet status is unknown"

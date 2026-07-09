@@ -25,7 +25,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	tmocks "go.temporal.io/sdk/mocks"
 
@@ -192,12 +192,12 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 		pagedInvIds = append(pagedInvIds, nvllp.ID.String())
 	}
 
-	pagedCtrlNvllps := []*cwssaws.NVLinkLogicalPartition{}
+	pagedCtrlNvllps := []*corev1.NVLinkLogicalPartition{}
 	for i := 0; i < 34; i++ {
-		ctrlNvllp := &cwssaws.NVLinkLogicalPartition{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: pagedIbps[i].ID.String()},
-			Config: &cwssaws.NVLinkLogicalPartitionConfig{
-				Metadata: &cwssaws.Metadata{
+		ctrlNvllp := &corev1.NVLinkLogicalPartition{
+			Id: &corev1.NVLinkLogicalPartitionId{Value: pagedIbps[i].ID.String()},
+			Config: &corev1.NVLinkLogicalPartitionConfig{
+				Metadata: &corev1.Metadata{
 					Name: pagedIbps[i].ID.String(),
 				},
 			},
@@ -220,7 +220,7 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 	type args struct {
 		ctx                             context.Context
 		siteID                          uuid.UUID
-		nvLinkLogicalPartitionInventory *cwssaws.NVLinkLogicalPartitionInventory
+		nvLinkLogicalPartitionInventory *corev1.NVLinkLogicalPartitionInventory
 	}
 
 	tests := []struct {
@@ -245,8 +245,8 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				nvLinkLogicalPartitionInventory: &cwssaws.NVLinkLogicalPartitionInventory{
-					Partitions: []*cwssaws.NVLinkLogicalPartition{},
+				nvLinkLogicalPartitionInventory: &corev1.NVLinkLogicalPartitionInventory{
+					Partitions: []*corev1.NVLinkLogicalPartition{},
 				},
 			},
 			wantErr: true,
@@ -261,71 +261,71 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 			args: args{
 				ctx:    ctx,
 				siteID: st1.ID,
-				nvLinkLogicalPartitionInventory: &cwssaws.NVLinkLogicalPartitionInventory{
-					Partitions: []*cwssaws.NVLinkLogicalPartition{
+				nvLinkLogicalPartitionInventory: &corev1.NVLinkLogicalPartitionInventory{
+					Partitions: []*corev1.NVLinkLogicalPartition{
 						{
-							Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp1.ID.String()},
-							Config: &cwssaws.NVLinkLogicalPartitionConfig{
-								Metadata: &cwssaws.Metadata{
+							Id: &corev1.NVLinkLogicalPartitionId{Value: nvllp1.ID.String()},
+							Config: &corev1.NVLinkLogicalPartitionConfig{
+								Metadata: &corev1.Metadata{
 									Name:        nvllp1.ID.String(),
 									Description: "Test description updated",
 								},
 							},
-							Status: &cwssaws.NVLinkLogicalPartitionStatus{
-								State: cwssaws.TenantState_PROVISIONING,
+							Status: &corev1.NVLinkLogicalPartitionStatus{
+								State: corev1.TenantState_PROVISIONING,
 							},
 						},
 						{
-							Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp2.ID.String()},
-							Config: &cwssaws.NVLinkLogicalPartitionConfig{
-								Metadata: &cwssaws.Metadata{
+							Id: &corev1.NVLinkLogicalPartitionId{Value: nvllp2.ID.String()},
+							Config: &corev1.NVLinkLogicalPartitionConfig{
+								Metadata: &corev1.Metadata{
 									Name: nvllp2.ID.String(),
 								},
 							},
 						},
 						{
-							Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp3.ID.String()},
-							Config: &cwssaws.NVLinkLogicalPartitionConfig{
-								Metadata: &cwssaws.Metadata{
+							Id: &corev1.NVLinkLogicalPartitionId{Value: nvllp3.ID.String()},
+							Config: &corev1.NVLinkLogicalPartitionConfig{
+								Metadata: &corev1.Metadata{
 									Name:        nvllp3.ID.String(),
 									Description: "Test description updated",
 								},
 							},
-							Status: &cwssaws.NVLinkLogicalPartitionStatus{
-								State: cwssaws.TenantState_PROVISIONING,
+							Status: &corev1.NVLinkLogicalPartitionStatus{
+								State: corev1.TenantState_PROVISIONING,
 							},
 						},
 						{
-							Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp8.ID.String()},
-							Config: &cwssaws.NVLinkLogicalPartitionConfig{
-								Metadata: &cwssaws.Metadata{
+							Id: &corev1.NVLinkLogicalPartitionId{Value: nvllp8.ID.String()},
+							Config: &corev1.NVLinkLogicalPartitionConfig{
+								Metadata: &corev1.Metadata{
 									Name: nvllp8.ID.String(),
 								},
 							},
-							Status: &cwssaws.NVLinkLogicalPartitionStatus{
-								State: cwssaws.TenantState_READY,
+							Status: &corev1.NVLinkLogicalPartitionStatus{
+								State: corev1.TenantState_READY,
 							},
 						},
 						{
-							Id: &cwssaws.NVLinkLogicalPartitionId{Value: uuid.NewString()},
-							Config: &cwssaws.NVLinkLogicalPartitionConfig{
-								Metadata: &cwssaws.Metadata{
+							Id: &corev1.NVLinkLogicalPartitionId{Value: uuid.NewString()},
+							Config: &corev1.NVLinkLogicalPartitionConfig{
+								Metadata: &corev1.Metadata{
 									Name: nvllp9.ID.String(),
 								},
 							},
-							Status: &cwssaws.NVLinkLogicalPartitionStatus{
-								State: cwssaws.TenantState_READY,
+							Status: &corev1.NVLinkLogicalPartitionStatus{
+								State: corev1.TenantState_READY,
 							},
 						},
 						{
-							Id: &cwssaws.NVLinkLogicalPartitionId{Value: uuid.NewString()},
-							Config: &cwssaws.NVLinkLogicalPartitionConfig{
-								Metadata: &cwssaws.Metadata{
+							Id: &corev1.NVLinkLogicalPartitionId{Value: uuid.NewString()},
+							Config: &corev1.NVLinkLogicalPartitionConfig{
+								Metadata: &corev1.Metadata{
 									Name: nvllp10.ID.String(),
 								},
 							},
-							Status: &cwssaws.NVLinkLogicalPartitionStatus{
-								State: cwssaws.TenantState_READY,
+							Status: &corev1.NVLinkLogicalPartitionStatus{
+								State: corev1.TenantState_READY,
 							},
 						},
 					},
@@ -347,11 +347,11 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 			args: args{
 				ctx:    ctx,
 				siteID: st1.ID,
-				nvLinkLogicalPartitionInventory: &cwssaws.NVLinkLogicalPartitionInventory{
-					Partitions:      []*cwssaws.NVLinkLogicalPartition{},
+				nvLinkLogicalPartitionInventory: &corev1.NVLinkLogicalPartitionInventory{
+					Partitions:      []*corev1.NVLinkLogicalPartition{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -371,10 +371,10 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				nvLinkLogicalPartitionInventory: &cwssaws.NVLinkLogicalPartitionInventory{
+				nvLinkLogicalPartitionInventory: &corev1.NVLinkLogicalPartitionInventory{
 					Partitions: pagedCtrlNvllps[0:10],
 					Timestamp:  timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -395,10 +395,10 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				nvLinkLogicalPartitionInventory: &cwssaws.NVLinkLogicalPartitionInventory{
+				nvLinkLogicalPartitionInventory: &corev1.NVLinkLogicalPartitionInventory{
 					Partitions: pagedCtrlNvllps[30:34],
 					Timestamp:  timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 4,
 						TotalPages:  4,
 						PageSize:    10,

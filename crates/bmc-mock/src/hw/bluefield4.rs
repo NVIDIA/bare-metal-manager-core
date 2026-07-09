@@ -140,6 +140,7 @@ impl Bluefield4<'_> {
                 })),
                 storage: Some(vec![]),
                 processors: Some(vec![]),
+                serial_console: None,
                 secure_boot_available: true,
             }],
         }
@@ -158,6 +159,7 @@ impl Bluefield4<'_> {
                     .build(),
                 ]),
                 host_interfaces: None,
+                serial_interfaces: None,
                 firmware_version: Some("BF4-26.04-4"),
                 oem: None,
             }],

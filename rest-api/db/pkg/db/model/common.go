@@ -6,7 +6,7 @@ package model
 import (
 	"strconv"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -27,13 +27,13 @@ type Labels map[string]string
 // representation. Returns nil for a nil map; an empty map yields a
 // non-nil empty slice so callers can distinguish "labels explicitly
 // cleared" from "no labels at all".
-func (l Labels) ToProto() []*cwssaws.Label {
+func (l Labels) ToProto() []*corev1.Label {
 	if l == nil {
 		return nil
 	}
-	protoLabels := make([]*cwssaws.Label, 0, len(l))
+	protoLabels := make([]*corev1.Label, 0, len(l))
 	for k, v := range l {
-		protoLabels = append(protoLabels, &cwssaws.Label{
+		protoLabels = append(protoLabels, &corev1.Label{
 			Key:   k,
 			Value: &v,
 		})
@@ -47,7 +47,7 @@ func (l Labels) ToProto() []*cwssaws.Label {
 // so callers can distinguish "no labels reported" from "labels explicitly
 // cleared". Entries with an empty key are skipped; a label with a nil
 // value resolves to an empty string.
-func (l *Labels) FromProto(protoLabels []*cwssaws.Label) {
+func (l *Labels) FromProto(protoLabels []*corev1.Label) {
 	if protoLabels == nil {
 		*l = nil
 		return
@@ -101,7 +101,7 @@ type expectedComponentLabelsInput struct {
 // colliding user label, since the field value is the authoritative inventory
 // data. Returns nil when there are no labels at all. Name and description are
 // not labels -- callers set those on Metadata directly.
-func (in expectedComponentLabelsInput) ToProto() []*cwssaws.Label {
+func (in expectedComponentLabelsInput) ToProto() []*corev1.Label {
 	// Merge through a map so a system field overrides a colliding user label.
 	merged := make(map[string]string, len(in.Labels)+5)
 	for k, v := range in.Labels {

@@ -110,10 +110,7 @@ func (t dispatchRunTransition) apply(
 	case dispatchRunTransitionPause:
 		run.Pause(t.reason, t.message)
 	case dispatchRunTransitionStart:
-		run.Start(now)
-		if len(t.message) > 0 {
-			run.StatusMessage = t.message
-		}
+		run.Start(now, t.message)
 	}
 }
 
@@ -138,24 +135,25 @@ func (d *Dispatcher) decide(
 		), nil
 	}
 
-	if prep.summary.targetCount == 0 {
-		return newStopDecision(failRunTransition("operation run has no targets")), nil
-	}
-
 	if prep.run.Status.IsTerminal() {
 		return newStopDecision(dispatchRunTransition{}), nil
 	}
 
-	if prep.summary.isAllTerminal() {
-		if prep.summary.failedOrTerminated == prep.summary.targetCount {
-			return newStopDecision(failRunTransition("operation run failed")), nil
+	if prep.summary.TargetCount == 0 {
+		return newStopDecision(failRunTransition("operation run has no targets")), nil
+	}
+
+	if status, ok := prep.summary.TerminalRunStatus(); ok {
+		message := status.Message()
+		if status == operationrun.OperationRunStatusFailed {
+			return newStopDecision(failRunTransition(message)), nil
 		}
 
-		if prep.summary.failedOrTerminated > 0 {
+		if status == operationrun.OperationRunStatusCompletedWithFailures {
 			return newStopDecision(
 				dispatchRunTransition{
 					kind:    dispatchRunTransitionCompleteWithFailures,
-					message: "operation run completed with failed targets",
+					message: message,
 				},
 			), nil
 		}
@@ -163,13 +161,12 @@ func (d *Dispatcher) decide(
 		return newStopDecision(
 			dispatchRunTransition{
 				kind:    dispatchRunTransitionComplete,
-				message: "operation run completed",
+				message: message,
 			},
 		), nil
 	}
 
-	phase := prep.summary.currentPhase
-	targets := prep.summary.currentPhaseTargets
+	targets := prep.summary.CurrentPhaseTargets
 
 	conflictDecision := prep.conflictPolicy.evaluate(targets, now)
 	if conflictDecision.pause {
@@ -179,8 +176,7 @@ func (d *Dispatcher) decide(
 	}
 
 	safetyDecision := prep.safetyPolicy.evaluate(
-		targets,
-		prep.summary.completedPhaseTargets,
+		prep.summary.TargetPhaseSummary,
 	)
 	if safetyDecision.pause {
 		return newStopDecision(
@@ -189,8 +185,7 @@ func (d *Dispatcher) decide(
 	}
 
 	phaseDecision := prep.phasePolicy.evaluate(
-		targets,
-		phase,
+		prep.summary.TargetPhaseSummary,
 		prep.summary.previousPhaseTerminalChanged(),
 	)
 	if phaseDecision.pause {

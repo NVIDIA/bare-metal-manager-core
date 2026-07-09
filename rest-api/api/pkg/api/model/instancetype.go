@@ -11,7 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // APIInstanceTypeCreateRequest is the data structure to capture user request to create a new InstanceType
@@ -57,9 +57,9 @@ func (itcr *APIInstanceTypeCreateRequest) Validate() error {
 // per-capability wire rules (device type / InactiveDevices / numeric
 // bounds) are enforced by `Validate` so this method stays a pure
 // mapper.
-func (itcr *APIInstanceTypeCreateRequest) ToProto(it *cdbm.InstanceType) *cwssaws.CreateInstanceTypeRequest {
+func (itcr *APIInstanceTypeCreateRequest) ToProto(it *cdbm.InstanceType) *corev1.CreateInstanceTypeRequest {
 	itProto := it.ToProto()
-	return &cwssaws.CreateInstanceTypeRequest{
+	return &corev1.CreateInstanceTypeRequest{
 		Id:                     &itProto.Id,
 		Metadata:               itProto.Metadata,
 		InstanceTypeAttributes: itProto.Attributes,
@@ -99,9 +99,9 @@ func (itur *APIInstanceTypeUpdateRequest) Validate() error {
 // unchanged fields stay populated.
 //
 // The method trusts that the request has already been Validated.
-func (itur *APIInstanceTypeUpdateRequest) ToProto(it *cdbm.InstanceType) *cwssaws.UpdateInstanceTypeRequest {
+func (itur *APIInstanceTypeUpdateRequest) ToProto(it *cdbm.InstanceType) *corev1.UpdateInstanceTypeRequest {
 	itProto := it.ToProto()
-	return &cwssaws.UpdateInstanceTypeRequest{
+	return &corev1.UpdateInstanceTypeRequest{
 		Id:                     itProto.Id,
 		Metadata:               itProto.Metadata,
 		InstanceTypeAttributes: itProto.Attributes,

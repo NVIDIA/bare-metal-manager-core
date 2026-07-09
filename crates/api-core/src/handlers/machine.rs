@@ -776,7 +776,7 @@ fn snapshot_map_to_rpc_machines(
     };
 
     for (machine_id, snapshot) in snapshots.into_iter() {
-        if let Some(rpc_machine) = snapshot.rpc_machine_state(
+        if let Some(rpc_machine) = snapshot.into_rpc_machine_state(
             match machine_id.machine_type().is_dpu() {
                 true => Some(&machine_id),
                 false => None,

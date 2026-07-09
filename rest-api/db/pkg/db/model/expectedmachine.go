@@ -12,7 +12,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -93,16 +93,16 @@ func (h HostLifecycleProfile) HasSetFields() bool {
 
 // ToProto returns the workflow proto for this profile, or nil when no setting
 // is present so the outer field stays unset and Core preserves its DB value.
-func (h HostLifecycleProfile) ToProto() *cwssaws.HostLifecycleProfile {
+func (h HostLifecycleProfile) ToProto() *corev1.HostLifecycleProfile {
 	if !h.HasSetFields() {
 		return nil
 	}
-	return &cwssaws.HostLifecycleProfile{DisableLockdown: h.DisableLockdown}
+	return &corev1.HostLifecycleProfile{DisableLockdown: h.DisableLockdown}
 }
 
 // FromProto populates the receiver from a workflow proto profile. A nil proto
 // clears the receiver to its zero value.
-func (h *HostLifecycleProfile) FromProto(proto *cwssaws.HostLifecycleProfile) {
+func (h *HostLifecycleProfile) FromProto(proto *corev1.HostLifecycleProfile) {
 	if proto == nil {
 		*h = HostLifecycleProfile{}
 		return
@@ -121,9 +121,9 @@ type ExpectedMachineCredentials struct {
 // ToProto builds the workflow proto for this ExpectedMachine. BMC
 // credentials are passed in because they aren't persisted on the record;
 // labels are read from em.Labels.
-func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.ExpectedMachine {
-	proto := &cwssaws.ExpectedMachine{
-		Id:                       &cwssaws.UUID{Value: em.ID.String()},
+func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *corev1.ExpectedMachine {
+	proto := &corev1.ExpectedMachine{
+		Id:                       &corev1.UUID{Value: em.ID.String()},
 		BmcMacAddress:            em.BmcMacAddress,
 		ChassisSerialNumber:      em.ChassisSerialNumber,
 		FallbackDpuSerialNumbers: em.FallbackDpuSerialNumbers,
@@ -134,7 +134,7 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 		proto.BmcIpAddress = em.BmcIpAddress
 	}
 	if em.RackID != nil {
-		proto.RackId = &cwssaws.RackId{Id: *em.RackID}
+		proto.RackId = &corev1.RackId{Id: *em.RackID}
 	}
 	if em.Name != nil {
 		proto.Name = em.Name
@@ -169,7 +169,7 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 		proto.BmcPassword = *creds.Password
 	}
 
-	metadata := &cwssaws.Metadata{
+	metadata := &corev1.Metadata{
 		Labels: expectedComponentLabelsInput{
 			Manufacturer: em.Manufacturer,
 			Model:        em.Model,
@@ -196,7 +196,7 @@ func (em *ExpectedMachine) ToProto(creds ExpectedMachineCredentials) *cwssaws.Ex
 // table). A nil proto is a no-op. An invalid or missing proto.Id leaves
 // em.ID unchanged so the caller can validate the proto's UUID before
 // calling.
-func (em *ExpectedMachine) FromProto(proto *cwssaws.ExpectedMachine, linkedMachineID *string) {
+func (em *ExpectedMachine) FromProto(proto *corev1.ExpectedMachine, linkedMachineID *string) {
 	if proto == nil {
 		return
 	}

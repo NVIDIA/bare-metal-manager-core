@@ -18,7 +18,7 @@ import (
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -73,8 +73,8 @@ func TestCreateMachineValidationTestHandler(t *testing.T) {
 
 	createWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.MachineValidationTestAddUpdateResponse)
-			*response = &cwssaws.MachineValidationTestAddUpdateResponse{
+			response := value.(**corev1.MachineValidationTestAddUpdateResponse)
+			*response = &corev1.MachineValidationTestAddUpdateResponse{
 				TestId:  testID,
 				Version: testVersion,
 			}
@@ -92,9 +92,9 @@ func TestCreateMachineValidationTestHandler(t *testing.T) {
 
 	getWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.MachineValidationTestsGetResponse)
-			*response = &cwssaws.MachineValidationTestsGetResponse{
-				Tests: []*cwssaws.MachineValidationTest{
+			response := value.(**corev1.MachineValidationTestsGetResponse)
+			*response = &corev1.MachineValidationTestsGetResponse{
+				Tests: []*corev1.MachineValidationTest{
 					{
 						TestId:  testID,
 						Version: testVersion,
@@ -314,8 +314,8 @@ func TestUpdateMachineValidationTestHandler(t *testing.T) {
 
 	updateWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.MachineValidationTestAddUpdateResponse)
-			*response = &cwssaws.MachineValidationTestAddUpdateResponse{
+			response := value.(**corev1.MachineValidationTestAddUpdateResponse)
+			*response = &corev1.MachineValidationTestAddUpdateResponse{
 				TestId:  testID,
 				Version: testVersion,
 			}
@@ -333,9 +333,9 @@ func TestUpdateMachineValidationTestHandler(t *testing.T) {
 
 	getWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.MachineValidationTestsGetResponse)
-			*response = &cwssaws.MachineValidationTestsGetResponse{
-				Tests: []*cwssaws.MachineValidationTest{
+			response := value.(**corev1.MachineValidationTestsGetResponse)
+			*response = &corev1.MachineValidationTestsGetResponse{
+				Tests: []*corev1.MachineValidationTest{
 					{
 						TestId:  testID,
 						Version: testVersion,
@@ -492,9 +492,9 @@ func TestGetAllMachineValidationTestHandler(t *testing.T) {
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
 
 	// tests
-	var workflowResponse []*cwssaws.MachineValidationTest
+	var workflowResponse []*corev1.MachineValidationTest
 	for i := 0; i < 20; i++ {
-		workflowResponse = append(workflowResponse, &cwssaws.MachineValidationTest{
+		workflowResponse = append(workflowResponse, &corev1.MachineValidationTest{
 			TestId:  fmt.Sprintf("test-id-%d", i),
 			Version: "version-1",
 		})
@@ -513,8 +513,8 @@ func TestGetAllMachineValidationTestHandler(t *testing.T) {
 
 	updateWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.MachineValidationTestsGetResponse)
-			*response = &cwssaws.MachineValidationTestsGetResponse{
+			response := value.(**corev1.MachineValidationTestsGetResponse)
+			*response = &corev1.MachineValidationTestsGetResponse{
 				Tests: workflowResponse,
 			}
 			return nil
@@ -666,9 +666,9 @@ func TestGetMachineValidationTestHandler(t *testing.T) {
 
 	updateWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.MachineValidationTestsGetResponse)
-			*response = &cwssaws.MachineValidationTestsGetResponse{
-				Tests: []*cwssaws.MachineValidationTest{
+			response := value.(**corev1.MachineValidationTestsGetResponse)
+			*response = &corev1.MachineValidationTestsGetResponse{
+				Tests: []*corev1.MachineValidationTest{
 					{
 						TestId:  testID,
 						Version: testVersion,
@@ -806,9 +806,9 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
 
 	// tests
-	var workflowResponse []*cwssaws.MachineValidationResult
+	var workflowResponse []*corev1.MachineValidationResult
 	for i := 0; i < 20; i++ {
-		workflowResponse = append(workflowResponse, &cwssaws.MachineValidationResult{
+		workflowResponse = append(workflowResponse, &corev1.MachineValidationResult{
 			Name: fmt.Sprintf("test-result-%d", i),
 		})
 	}
@@ -826,8 +826,8 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 
 	updateWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.MachineValidationResultList)
-			*response = &cwssaws.MachineValidationResultList{
+			response := value.(**corev1.MachineValidationResultList)
+			*response = &corev1.MachineValidationResultList{
 				Results: workflowResponse,
 			}
 			return nil
@@ -963,9 +963,9 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
 
 	// tests
-	var workflowResponse []*cwssaws.MachineValidationRun
+	var workflowResponse []*corev1.MachineValidationRun
 	for i := 0; i < 20; i++ {
-		workflowResponse = append(workflowResponse, &cwssaws.MachineValidationRun{
+		workflowResponse = append(workflowResponse, &corev1.MachineValidationRun{
 			Name: fmt.Sprintf("test-run-%d", i),
 		})
 	}
@@ -983,8 +983,8 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 
 	updateWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.MachineValidationRunList)
-			*response = &cwssaws.MachineValidationRunList{
+			response := value.(**corev1.MachineValidationRunList)
+			*response = &corev1.MachineValidationRunList{
 				Runs: workflowResponse,
 			}
 			return nil
@@ -1120,9 +1120,9 @@ func TestGetAllMachineValidationExternalConfigHandler(t *testing.T) {
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
 
 	// tests
-	var workflowResponse []*cwssaws.MachineValidationExternalConfig
+	var workflowResponse []*corev1.MachineValidationExternalConfig
 	for i := 0; i < 20; i++ {
-		workflowResponse = append(workflowResponse, &cwssaws.MachineValidationExternalConfig{
+		workflowResponse = append(workflowResponse, &corev1.MachineValidationExternalConfig{
 			Name: fmt.Sprintf("test-ext-cfg-%d", i),
 		})
 	}
@@ -1140,8 +1140,8 @@ func TestGetAllMachineValidationExternalConfigHandler(t *testing.T) {
 
 	getWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.GetMachineValidationExternalConfigsResponse)
-			*response = &cwssaws.GetMachineValidationExternalConfigsResponse{
+			response := value.(**corev1.GetMachineValidationExternalConfigsResponse)
+			*response = &corev1.GetMachineValidationExternalConfigsResponse{
 				Configs: workflowResponse,
 			}
 			return nil
@@ -1278,8 +1278,8 @@ func TestGetMachineValidationExternalConfigHandler(t *testing.T) {
 
 	expCfgName := "test-ext-cfg-13"
 	// tests
-	var workflowResponse []*cwssaws.MachineValidationExternalConfig
-	workflowResponse = append(workflowResponse, &cwssaws.MachineValidationExternalConfig{
+	var workflowResponse []*corev1.MachineValidationExternalConfig
+	workflowResponse = append(workflowResponse, &corev1.MachineValidationExternalConfig{
 		Name: expCfgName,
 	})
 
@@ -1296,8 +1296,8 @@ func TestGetMachineValidationExternalConfigHandler(t *testing.T) {
 
 	getWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.GetMachineValidationExternalConfigsResponse)
-			*response = &cwssaws.GetMachineValidationExternalConfigsResponse{
+			response := value.(**corev1.GetMachineValidationExternalConfigsResponse)
+			*response = &corev1.GetMachineValidationExternalConfigsResponse{
 				Configs: workflowResponse,
 			}
 			return nil
@@ -1316,8 +1316,8 @@ func TestGetMachineValidationExternalConfigHandler(t *testing.T) {
 
 	emptyWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.GetMachineValidationExternalConfigsResponse)
-			*response = &cwssaws.GetMachineValidationExternalConfigsResponse{}
+			response := value.(**corev1.GetMachineValidationExternalConfigsResponse)
+			*response = &corev1.GetMachineValidationExternalConfigsResponse{}
 			return nil
 		},
 	)
@@ -1482,9 +1482,9 @@ func TestCreateMachineValidationExternalConfigHandler(t *testing.T) {
 
 	getWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.GetMachineValidationExternalConfigsResponse)
-			*response = &cwssaws.GetMachineValidationExternalConfigsResponse{
-				Configs: []*cwssaws.MachineValidationExternalConfig{
+			response := value.(**corev1.GetMachineValidationExternalConfigsResponse)
+			*response = &corev1.GetMachineValidationExternalConfigsResponse{
+				Configs: []*corev1.MachineValidationExternalConfig{
 					{
 						Name:   extCfgName,
 						Config: extCfgRaw,
@@ -1692,9 +1692,9 @@ func TestUpdateMachineValidationExternalConfigHandler(t *testing.T) {
 	getWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
 			if beforeUpdate {
-				response := value.(**cwssaws.GetMachineValidationExternalConfigsResponse)
-				*response = &cwssaws.GetMachineValidationExternalConfigsResponse{
-					Configs: []*cwssaws.MachineValidationExternalConfig{
+				response := value.(**corev1.GetMachineValidationExternalConfigsResponse)
+				*response = &corev1.GetMachineValidationExternalConfigsResponse{
+					Configs: []*corev1.MachineValidationExternalConfig{
 						{
 							Name:   extCfgName,
 							Config: extCfgRaw,
@@ -1703,9 +1703,9 @@ func TestUpdateMachineValidationExternalConfigHandler(t *testing.T) {
 				}
 				beforeUpdate = false
 			} else {
-				response := value.(**cwssaws.GetMachineValidationExternalConfigsResponse)
-				*response = &cwssaws.GetMachineValidationExternalConfigsResponse{
-					Configs: []*cwssaws.MachineValidationExternalConfig{
+				response := value.(**corev1.GetMachineValidationExternalConfigsResponse)
+				*response = &corev1.GetMachineValidationExternalConfigsResponse{
+					Configs: []*corev1.MachineValidationExternalConfig{
 						{
 							Name:        extCfgName,
 							Config:      extCfgRaw,

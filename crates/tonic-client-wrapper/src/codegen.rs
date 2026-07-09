@@ -146,11 +146,18 @@ impl CodeGenerator {
     pub fn write_rpc_client_wrapper<P: AsRef<Path>>(&self, out: P) -> Result<()> {
         let mut wrapper_methods = TokenStream::new();
 
-        self.proto_fds
+        let mut labeled_methods = Vec::new();
+        for fd in &self.proto_fds {
+            for svc in &fd.service {
+                let service_label = svc.name().to_snake_case();
+                for method in &svc.method {
+                    labeled_methods.push((service_label.clone(), method));
+                }
+            }
+        }
+        labeled_methods
             .iter()
-            .flat_map(|fd| &fd.service)
-            .flat_map(|svc| &svc.method)
-            .map(|m| self.make_rpc_wrapper_method(m))
+            .map(|(service_label, m)| self.make_rpc_wrapper_method(service_label, m))
             .collect::<Result<Vec<_>>>()? // fail if any of the wrappers failed
             .into_iter()
             .for_each(|m| wrapper_methods.append_all(m));
@@ -391,8 +398,15 @@ impl CodeGenerator {
         })
     }
 
-    fn make_rpc_wrapper_method(&self, method: &MethodDescriptorProto) -> Result<TokenStream> {
+    fn make_rpc_wrapper_method(
+        &self,
+        service_label: &str,
+        method: &MethodDescriptorProto,
+    ) -> Result<TokenStream> {
         let method_name: TokenStream = method.name().to_snake_case().parse()?;
+        // Compile-time literals from the proto: the bounded `backend` and
+        // `operation` labels for the outbound-call RED metric.
+        let operation_label = method.name().to_snake_case();
         let input_type_str = self.convert_protobuf_type_to_rust_type(method.input_type())?;
         let input_type: TokenStream = input_type_str.parse()?;
         let output_type: TokenStream = self
@@ -410,7 +424,9 @@ impl CodeGenerator {
                     where
                         S: tonic::IntoStreamingRequest<Message = #input_type>,
                     {
-                        self.connection().await?.#method_name(request).await
+                        ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
+                            self.connection().await?.#method_name(request).await
+                        }).await
                     }
                 })
             }
@@ -421,12 +437,14 @@ impl CodeGenerator {
                     where
                         S: tonic::IntoStreamingRequest<Message = #input_type>,
                     {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .#method_name(request)
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
+                            Ok(self
+                                .connection()
+                                .await?
+                                .#method_name(request)
+                                .await?
+                                .into_inner())
+                        }).await
                     }
                 })
             }
@@ -435,13 +453,15 @@ impl CodeGenerator {
                 let token_stream = if input_type_str == "()" {
                     quote! {
                         pub async fn #method_name(&self) -> Result<tonic::codec::Streaming<#output_type>, tonic::Status> {
-                            Ok(self
-                                .connection()
-                                .await?
-                                .#method_name(tonic::Request::new(()))
-                                .await?
-                                .into_inner())
-                        }
+                                ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
+                                    Ok(self
+                                        .connection()
+                                        .await?
+                                        .#method_name(tonic::Request::new(()))
+                                        .await?
+                                        .into_inner())
+                                }).await
+                            }
                     }
                 } else {
                     let has_zero_fields = method
@@ -453,24 +473,28 @@ impl CodeGenerator {
                     if has_zero_fields {
                         quote! {
                             pub async fn #method_name(&self) -> Result<tonic::codec::Streaming<#output_type>, tonic::Status> {
-                                Ok(self
-                                    .connection()
-                                    .await?
-                                    .#method_name(tonic::Request::new(#input_type {}))
-                                    .await?
-                                    .into_inner())
-                            }
+                                    ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
+                                        Ok(self
+                                            .connection()
+                                            .await?
+                                            .#method_name(tonic::Request::new(#input_type {}))
+                                            .await?
+                                            .into_inner())
+                                    }).await
+                                }
                         }
                     } else {
                         quote! {
                             pub async fn #method_name<T: Into<#input_type>>(&self, request: T) -> Result<tonic::codec::Streaming<#output_type>, tonic::Status> {
-                                Ok(self
-                                    .connection()
-                                    .await?
-                                    .#method_name(tonic::Request::new(request.into()))
-                                    .await?
-                                    .into_inner())
-                            }
+                                    ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
+                                        Ok(self
+                                            .connection()
+                                            .await?
+                                            .#method_name(tonic::Request::new(request.into()))
+                                            .await?
+                                            .into_inner())
+                                    }).await
+                                }
                         }
                     }
                 };
@@ -481,13 +505,15 @@ impl CodeGenerator {
                 let token_stream = if input_type_str == "()" {
                     quote! {
                         pub async fn #method_name(&self) -> Result<#output_type, tonic::Status> {
-                            Ok(self
-                                .connection()
-                                .await?
-                                .#method_name(tonic::Request::new(()))
-                                .await?
-                                .into_inner())
-                        }
+                                ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
+                                    Ok(self
+                                        .connection()
+                                        .await?
+                                        .#method_name(tonic::Request::new(()))
+                                        .await?
+                                        .into_inner())
+                                }).await
+                            }
                     }
                 } else {
                     let has_zero_fields = method
@@ -499,24 +525,28 @@ impl CodeGenerator {
                     if has_zero_fields {
                         quote! {
                             pub async fn #method_name(&self) -> Result<#output_type, tonic::Status> {
-                                Ok(self
-                                    .connection()
-                                    .await?
-                                    .#method_name(tonic::Request::new(#input_type {}))
-                                    .await?
-                                    .into_inner())
-                            }
+                                    ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
+                                        Ok(self
+                                            .connection()
+                                            .await?
+                                            .#method_name(tonic::Request::new(#input_type {}))
+                                            .await?
+                                            .into_inner())
+                                    }).await
+                                }
                         }
                     } else {
                         quote! {
                             pub async fn #method_name<T: Into<#input_type>>(&self, request: T) -> Result<#output_type, tonic::Status> {
-                                Ok(self
-                                    .connection()
-                                    .await?
-                                    .#method_name(tonic::Request::new(request.into()))
-                                    .await?
-                                    .into_inner())
-                            }
+                                    ::carbide_instrument::red::instrumented(#service_label, #operation_label, async move {
+                                        Ok(self
+                                            .connection()
+                                            .await?
+                                            .#method_name(tonic::Request::new(request.into()))
+                                            .await?
+                                            .into_inner())
+                                    }).await
+                                }
                         }
                     }
                 };
@@ -647,17 +677,16 @@ mod tests {
 
         {
             let rpc = methods.get("VoidRpc").unwrap();
-            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            let wrapper = generator
+                .make_rpc_wrapper_method("test_service", rpc)
+                .unwrap();
             assert_eq!(
                 wrapper.to_string(),
                 quote! {
                     pub async fn void_rpc(&self) -> Result<crate::test::SomeResponse, tonic::Status> {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .void_rpc(tonic::Request::new(crate::test::VoidRequest {}))
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented("test_service", "void_rpc", async move {
+                            Ok(self.connection().await?.void_rpc(tonic::Request::new(crate::test::VoidRequest {})).await?.into_inner())
+                        }).await
                     }
                 }
                     .to_string()
@@ -666,17 +695,16 @@ mod tests {
 
         {
             let rpc = methods.get("SingleMessageRpc").unwrap();
-            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            let wrapper = generator
+                .make_rpc_wrapper_method("test_service", rpc)
+                .unwrap();
             assert_eq!(
                 wrapper.to_string(),
                 quote! {
                     pub async fn single_message_rpc<T: Into<crate::test::SingleMessageRequest>>(&self, request: T) -> Result<crate::test::SomeResponse, tonic::Status> {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .single_message_rpc(tonic::Request::new(request.into()))
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented("test_service", "single_message_rpc", async move {
+                            Ok(self.connection().await?.single_message_rpc(tonic::Request::new(request.into())).await?.into_inner())
+                        }).await
                     }
                 }
                 .to_string()
@@ -685,17 +713,16 @@ mod tests {
 
         {
             let rpc = methods.get("SinglePrimitiveRpc").unwrap();
-            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            let wrapper = generator
+                .make_rpc_wrapper_method("test_service", rpc)
+                .unwrap();
             assert_eq!(
                 wrapper.to_string(),
                 quote! {
                     pub async fn single_primitive_rpc<T: Into<crate::test::SinglePrimitiveRequest>>(&self, request: T) -> Result<crate::test::SomeResponse, tonic::Status> {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .single_primitive_rpc(tonic::Request::new(request.into()))
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented("test_service", "single_primitive_rpc", async move {
+                            Ok(self.connection().await?.single_primitive_rpc(tonic::Request::new(request.into())).await?.into_inner())
+                        }).await
                     }
                 }
                     .to_string()
@@ -704,17 +731,16 @@ mod tests {
 
         {
             let rpc = methods.get("SingleOneOfMessageRpc").unwrap();
-            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            let wrapper = generator
+                .make_rpc_wrapper_method("test_service", rpc)
+                .unwrap();
             assert_eq!(
                 wrapper.to_string(),
                 quote! {
                     pub async fn single_one_of_message_rpc<T: Into<crate::test::SingleOneOfMessageRequest>>(&self, request: T) -> Result<crate::test::SomeResponse, tonic::Status> {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .single_one_of_message_rpc(tonic::Request::new(request.into()))
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented("test_service", "single_one_of_message_rpc", async move {
+                            Ok(self.connection().await?.single_one_of_message_rpc(tonic::Request::new(request.into())).await?.into_inner())
+                        }).await
                     }
                 }
                     .to_string()
@@ -723,17 +749,16 @@ mod tests {
 
         {
             let rpc = methods.get("SingleOneOfPrimitiveRpc").unwrap();
-            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            let wrapper = generator
+                .make_rpc_wrapper_method("test_service", rpc)
+                .unwrap();
             assert_eq!(
                 wrapper.to_string(),
                 quote! {
                     pub async fn single_one_of_primitive_rpc<T: Into<crate::test::SingleOneOfPrimitiveRequest>>(&self, request: T) -> Result<crate::test::SomeResponse, tonic::Status> {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .single_one_of_primitive_rpc(tonic::Request::new(request.into()))
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented("test_service", "single_one_of_primitive_rpc", async move {
+                            Ok(self.connection().await?.single_one_of_primitive_rpc(tonic::Request::new(request.into())).await?.into_inner())
+                        }).await
                     }
                 }
                     .to_string()
@@ -742,17 +767,16 @@ mod tests {
 
         {
             let rpc = methods.get("MultiRpc").unwrap();
-            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            let wrapper = generator
+                .make_rpc_wrapper_method("test_service", rpc)
+                .unwrap();
             assert_eq!(
                 wrapper.to_string(),
                 quote! {
                     pub async fn multi_rpc<T: Into<crate::test::MultiRequest>>(&self, request: T) -> Result<crate::test::SomeResponse, tonic::Status> {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .multi_rpc(tonic::Request::new(request.into()))
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented("test_service", "multi_rpc", async move {
+                            Ok(self.connection().await?.multi_rpc(tonic::Request::new(request.into())).await?.into_inner())
+                        }).await
                     }
                 }
                     .to_string()
@@ -761,17 +785,16 @@ mod tests {
 
         {
             let rpc = methods.get("ExternRpc").unwrap();
-            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            let wrapper = generator
+                .make_rpc_wrapper_method("test_service", rpc)
+                .unwrap();
             assert_eq!(
                 wrapper.to_string(),
                 quote! {
                     pub async fn extern_rpc<T: Into<crate::test::ExternRequest>>(&self, request: T) -> Result<crate::test::SomeResponse, tonic::Status> {
-                        Ok(self
-                            .connection()
-                            .await?
-                            .extern_rpc(tonic::Request::new(request.into()))
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented("test_service", "extern_rpc", async move {
+                            Ok(self.connection().await?.extern_rpc(tonic::Request::new(request.into())).await?.into_inner())
+                        }).await
                     }
                 }
                     .to_string()
@@ -780,17 +803,16 @@ mod tests {
 
         {
             let rpc = methods.get("SingleStreamingMessageRpc").unwrap();
-            let wrapper = generator.make_rpc_wrapper_method(rpc).unwrap();
+            let wrapper = generator
+                .make_rpc_wrapper_method("test_service", rpc)
+                .unwrap();
             assert_eq!(
                 wrapper.to_string(),
                 quote! {
                     pub async fn single_streaming_message_rpc<T: Into<crate::test::SingleMessageRequest>>(&self, request: T) -> Result<tonic::codec::Streaming<crate::test::SomeResponse>, tonic::Status> {
-                       Ok(self
-                            .connection()
-                            .await?
-                            .single_streaming_message_rpc(tonic::Request::new(request.into()))
-                            .await?
-                            .into_inner())
+                        ::carbide_instrument::red::instrumented("test_service", "single_streaming_message_rpc", async move {
+                            Ok(self.connection().await?.single_streaming_message_rpc(tonic::Request::new(request.into())).await?.into_inner())
+                        }).await
                     }
                 }
                 .to_string()

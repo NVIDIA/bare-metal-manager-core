@@ -1054,6 +1054,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-host-support",
  "carbide-http-connector",
+ "carbide-instrument",
  "carbide-metrics-utils",
  "carbide-network",
  "carbide-rpc",
@@ -1168,6 +1169,7 @@ dependencies = [
  "carbide-health-metrics",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-http-connector",
  "carbide-ib-fabric",
  "carbide-ib-partition-controller",
  "carbide-instrument",
@@ -1393,6 +1395,7 @@ dependencies = [
  "carbide-version",
  "chrono",
  "config-version",
+ "criterion",
  "dns-record",
  "duration-str",
  "eyre",
@@ -1431,6 +1434,8 @@ dependencies = [
  "async-trait",
  "bmc-mock",
  "carbide-api",
+ "carbide-api-db",
+ "carbide-instrument",
  "carbide-machine-a-tron",
  "carbide-rpc",
  "carbide-secrets",
@@ -1498,6 +1503,7 @@ dependencies = [
  "lazy_static",
  "mac_address",
  "oauth2",
+ "regex",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -1519,8 +1525,10 @@ dependencies = [
 name = "carbide-authn"
 version = "0.0.0"
 dependencies = [
+ "carbide-instrument",
  "carbide-test-support",
  "hyper",
+ "rcgen",
  "serde",
  "thiserror 2.0.18",
  "tonic",
@@ -1537,6 +1545,7 @@ dependencies = [
  "axum-extra",
  "bytes",
  "carbide-authn",
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
@@ -1601,6 +1610,7 @@ dependencies = [
 name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
@@ -1636,6 +1646,7 @@ dependencies = [
 name = "carbide-dhcp-server"
 version = "0.1.0"
 dependencies = [
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-rpc-utils",
  "carbide-test-support",
@@ -1648,6 +1659,7 @@ dependencies = [
  "ipnetwork",
  "logfmt",
  "lru 0.18.0",
+ "metrics-endpoint",
  "prost",
  "serde",
  "serde_yaml",
@@ -1668,6 +1680,7 @@ name = "carbide-dns"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
@@ -1864,6 +1877,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "carbide-health-report",
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-secrets",
  "carbide-test-support",
@@ -1925,6 +1939,7 @@ dependencies = [
  "axum-server",
  "carbide-dpu-agent-utils",
  "carbide-dpu-fmds-shared",
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-tls",
  "carbide-uuid",
@@ -1966,6 +1981,7 @@ dependencies = [
  "async-trait",
  "base64",
  "carbide-health-report",
+ "carbide-instrument",
  "carbide-rpc",
  "carbide-test-support",
  "carbide-tls",
@@ -2035,6 +2051,7 @@ version = "0.0.0"
 dependencies = [
  "base64",
  "carbide-dpu-agent-utils",
+ "carbide-instrument",
  "carbide-libmlx",
  "carbide-rpc",
  "carbide-rpc-utils",
@@ -2077,6 +2094,7 @@ dependencies = [
  "hickory-resolver",
  "hyper",
  "hyper-util",
+ "opentelemetry 0.32.0",
  "socket2",
  "tokio",
  "tokio-socks",
@@ -2094,12 +2112,14 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-health-report",
+ "carbide-ib-fabric",
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
+ "config-version",
  "duration-str",
  "eyre",
  "figment",
@@ -2116,6 +2136,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
@@ -2136,6 +2157,7 @@ dependencies = [
  "eyre",
  "sqlx",
  "state-controller",
+ "tokio",
  "tracing",
 ]
 
@@ -2147,6 +2169,8 @@ dependencies = [
  "carbide-instrument-macros",
  "carbide-test-support",
  "ctor",
+ "dashmap",
+ "futures-util",
  "opentelemetry 0.32.0",
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
@@ -2722,6 +2746,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-http-connector",
+ "carbide-instrument",
  "carbide-ipxe-renderer",
  "carbide-libmlx-model",
  "carbide-measured-boot",
@@ -2735,6 +2760,7 @@ dependencies = [
  "chrono",
  "clap",
  "config-version",
+ "criterion",
  "csv",
  "data-encoding",
  "dns-record",
@@ -2913,6 +2939,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-firmware",
  "carbide-health-report",
+ "carbide-instrument",
  "carbide-ipmi",
  "carbide-metrics-utils",
  "carbide-network",
@@ -6597,6 +6624,7 @@ dependencies = [
  "http",
  "prost",
  "serde",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tonic",
@@ -13076,10 +13104,14 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "cargo_metadata",
+ "chrono",
  "clap",
  "eyre",
  "similar 3.1.1",
+ "sqlx",
+ "tokio",
  "toml_edit 0.25.12+spec-1.1.0",
+ "tracing",
  "version-compare 0.2.1",
  "walkdir",
 ]

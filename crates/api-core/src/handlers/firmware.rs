@@ -132,7 +132,16 @@ pub(crate) async fn get_desired_firmware_versions(
 ) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
     log_request_data(&request);
 
-    let entries = effective_host_firmware_snapshot(api)
+    let entries = load_desired_firmware_version_entries(api).await?;
+    Ok(Response::new(rpc::GetDesiredFirmwareVersionsResponse {
+        entries,
+    }))
+}
+
+pub(crate) async fn load_desired_firmware_version_entries(
+    api: &Api,
+) -> Result<Vec<rpc::DesiredFirmwareVersionEntry>, CarbideError> {
+    effective_host_firmware_snapshot(api)
         .await?
         .into_values()
         .map(|firmware| {
@@ -151,10 +160,7 @@ pub(crate) async fn get_desired_firmware_versions(
             })
         })
         .try_collect()
-        .map_err(CarbideError::from)?;
-    Ok(Response::new(rpc::GetDesiredFirmwareVersionsResponse {
-        entries,
-    }))
+        .map_err(CarbideError::from)
 }
 
 pub(crate) async fn upsert_host_firmware_config(

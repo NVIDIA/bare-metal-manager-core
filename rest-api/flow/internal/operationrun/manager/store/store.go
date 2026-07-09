@@ -113,6 +113,29 @@ func (s *PostgresStore) Get(
 	return dao.OperationRunFrom(&row), nil
 }
 
+// LockOperationRun implements Store.
+func (s *PostgresStore) LockOperationRun(
+	ctx context.Context,
+	id uuid.UUID,
+) (*operationrun.OperationRun, error) {
+	var row dbmodel.OperationRun
+
+	err := s.idb(ctx).NewSelect().
+		Model(&row).
+		Where("orun.id = ?", id).
+		For("UPDATE").
+		Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("operation run %s not found: %w", id, sql.ErrNoRows)
+		}
+
+		return nil, err
+	}
+
+	return dao.OperationRunFrom(&row), nil
+}
+
 // List implements Store.
 func (s *PostgresStore) List(
 	ctx context.Context,

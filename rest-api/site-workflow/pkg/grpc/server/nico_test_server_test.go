@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestInvokeInstancePower(t *testing.T) {
@@ -20,7 +20,7 @@ func TestInvokeInstancePower(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		request       *cwssaws.InstancePowerRequest
+		request       *corev1.InstancePowerRequest
 		wantCode      codes.Code
 		wantMessage   string
 		wantResultNil bool
@@ -33,15 +33,15 @@ func TestInvokeInstancePower(t *testing.T) {
 		},
 		{
 			name:          "missing instance ID",
-			request:       &cwssaws.InstancePowerRequest{},
+			request:       &corev1.InstancePowerRequest{},
 			wantCode:      codes.InvalidArgument,
 			wantMessage:   "Invalid request argument",
 			wantResultNil: true,
 		},
 		{
 			name: "empty instance ID",
-			request: &cwssaws.InstancePowerRequest{
-				InstanceId: &cwssaws.InstanceId{},
+			request: &corev1.InstancePowerRequest{
+				InstanceId: &corev1.InstanceId{},
 			},
 			wantCode:      codes.InvalidArgument,
 			wantMessage:   "Invalid request argument",
@@ -49,26 +49,26 @@ func TestInvokeInstancePower(t *testing.T) {
 		},
 		{
 			name: "reset existing instance",
-			request: &cwssaws.InstancePowerRequest{
-				InstanceId: &cwssaws.InstanceId{Value: instanceID},
-				Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
+			request: &corev1.InstancePowerRequest{
+				InstanceId: &corev1.InstanceId{Value: instanceID},
+				Operation:  corev1.InstancePowerRequest_POWER_RESET,
 			},
 			wantCode: codes.OK,
 		},
 		{
 			name: "invalid operation for existing instance",
-			request: &cwssaws.InstancePowerRequest{
-				InstanceId: &cwssaws.InstanceId{Value: instanceID},
-				Operation:  cwssaws.InstancePowerRequest_Operation(1),
+			request: &corev1.InstancePowerRequest{
+				InstanceId: &corev1.InstanceId{Value: instanceID},
+				Operation:  corev1.InstancePowerRequest_Operation(1),
 			},
 			wantCode:    codes.InvalidArgument,
 			wantMessage: "Invalid operation in request",
 		},
 		{
 			name: "unknown instance",
-			request: &cwssaws.InstancePowerRequest{
-				InstanceId: &cwssaws.InstanceId{Value: "87654321-4321-8765-09ba-fedcba987654"},
-				Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
+			request: &corev1.InstancePowerRequest{
+				InstanceId: &corev1.InstanceId{Value: "87654321-4321-8765-09ba-fedcba987654"},
+				Operation:  corev1.InstancePowerRequest_POWER_RESET,
 			},
 			wantCode:      codes.NotFound,
 			wantMessage:   `Instance with ID "87654321-4321-8765-09ba-fedcba987654" not found`,
@@ -77,8 +77,8 @@ func TestInvokeInstancePower(t *testing.T) {
 	}
 
 	server := &NICoServerImpl{
-		ins: map[string]*cwssaws.Instance{
-			instanceID: {Id: &cwssaws.InstanceId{Value: instanceID}},
+		ins: map[string]*corev1.Instance{
+			instanceID: {Id: &corev1.InstanceId{Value: instanceID}},
 		},
 	}
 

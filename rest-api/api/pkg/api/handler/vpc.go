@@ -34,7 +34,7 @@ import (
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
@@ -307,7 +307,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 
 	var vpc *cdbm.Vpc
 	var ssd *cdbm.StatusDetail
-	controllerVpc := &cwssaws.Vpc{}
+	controllerVpc := &corev1.Vpc{}
 
 	// timeoutResp lets the closure signal a post-rollback handler — the
 	// TerminateWorkflow call has to run after the closure returns so that
@@ -1065,9 +1065,9 @@ func (uvvh UpdateVPCVirtualizationHandler) Handle(c echo.Context) error {
 		}
 
 		// VPC virtualization type can only be updated to FNN, the request validator guarantees that
-		siteVirtualizationType := cwssaws.VpcVirtualizationType_FNN
-		siteRequest := &cwssaws.VpcUpdateVirtualizationRequest{
-			Id:                        &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
+		siteVirtualizationType := corev1.VpcVirtualizationType_FNN
+		siteRequest := &corev1.VpcUpdateVirtualizationRequest{
+			Id:                        &corev1.VpcId{Value: vpc.GetSiteID().String()},
 			NetworkVirtualizationType: &siteVirtualizationType,
 		}
 
@@ -1738,8 +1738,8 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteVpcRequest := &cwssaws.VpcDeletionRequest{
-			Id: &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
+		deleteVpcRequest := &corev1.VpcDeletionRequest{
+			Id: &corev1.VpcId{Value: vpc.GetSiteID().String()},
 		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{

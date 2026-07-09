@@ -12,8 +12,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	rActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
 )
 
 // CreateTaskRuleTestSuite tests the CreateTaskRule workflow

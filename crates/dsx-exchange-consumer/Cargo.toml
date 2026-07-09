@@ -26,6 +26,7 @@ name = "carbide-dsx-exchange-consumer"
 path = "src/main.rs"
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
 async-trait = { workspace = true }
 chrono = { features = ["serde"], workspace = true }
 figment = { workspace = true, features = ["toml", "env"] }

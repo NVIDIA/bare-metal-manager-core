@@ -941,10 +941,10 @@ impl HostProfile {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        MachineSnapshotPgJson::deserialize(json)
-            .map_err(|err| sqlx::Error::Decode(err.into()))?
-            .try_into()
+        // Json<T> deserializes the row bytes straight into the snapshot
+        // struct, skipping the intermediate serde_json::Value DOM.
+        let json: sqlx::types::Json<MachineSnapshotPgJson> = row.try_get(0)?;
+        json.0.try_into()
     }
 }
 
@@ -1070,12 +1070,12 @@ impl Machine {
     }
 
     pub fn to_capabilities(&self) -> Option<MachineCapabilitiesSet> {
-        self.hardware_info.clone().map(|info| {
+        self.hardware_info.as_ref().map(|info| {
             MachineCapabilitiesSet::from_hardware_info(
                 info,
                 self.infiniband_status_observation.as_ref(),
                 self.associated_dpu_machine_ids(),
-                self.interfaces.clone(),
+                &self.interfaces,
             )
         })
     }

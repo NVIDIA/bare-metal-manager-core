@@ -11,13 +11,13 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
 
 // SetMachineMaintenance is a workflow to set Machine maintenance mode using SetMaintenanceOnSite activity
-func SetMachineMaintenance(ctx workflow.Context, request *cwssaws.MaintenanceRequest) error {
+func SetMachineMaintenance(ctx workflow.Context, request *corev1.MaintenanceRequest) error {
 	logger := log.With().Str("Workflow", "SetMachineMaintenance").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -52,7 +52,7 @@ func SetMachineMaintenance(ctx workflow.Context, request *cwssaws.MaintenanceReq
 	return nil
 }
 
-func UpdateMachineMetadata(ctx workflow.Context, request *cwssaws.MachineMetadataUpdateRequest) error {
+func UpdateMachineMetadata(ctx workflow.Context, request *corev1.MachineMetadataUpdateRequest) error {
 	logger := log.With().Str("Workflow", "UpdateMachineMetadata").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -88,7 +88,7 @@ func UpdateMachineMetadata(ctx workflow.Context, request *cwssaws.MachineMetadat
 }
 
 // CreateMachineHealthReport inserts the tenant-reported OnlineRepair health report on Site.
-func CreateMachineHealthReport(ctx workflow.Context, request *cwssaws.InsertMachineHealthReportRequest) error {
+func CreateMachineHealthReport(ctx workflow.Context, request *corev1.InsertMachineHealthReportRequest) error {
 	logger := log.With().Str("Workflow", "CreateMachineHealthReport").Logger()
 	logger.Info().Msg("Starting workflow")
 
@@ -115,7 +115,7 @@ func CreateMachineHealthReport(ctx workflow.Context, request *cwssaws.InsertMach
 }
 
 // DeleteMachineHealthReport removes the tenant-reported OnlineRepair health report on Site.
-func DeleteMachineHealthReport(ctx workflow.Context, request *cwssaws.RemoveMachineHealthReportRequest) error {
+func DeleteMachineHealthReport(ctx workflow.Context, request *corev1.RemoveMachineHealthReportRequest) error {
 	logger := log.With().Str("Workflow", "DeleteMachineHealthReport").Logger()
 	logger.Info().Msg("Starting workflow")
 
@@ -178,7 +178,7 @@ func CollectAndPublishMachineInventory(ctx workflow.Context) error {
 }
 
 // GetDpuMachines is a workflow to retrieve DPU Machines by IDs with network configuration
-func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) ([]*cwssaws.DpuMachine, error) {
+func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) ([]*corev1.DpuMachine, error) {
 	logger := log.With().Str("Workflow", "GetDpuMachines").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -202,7 +202,7 @@ func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) ([]*cwssaws.Dp
 	// Invoke GetDpuMachinesByIDs activity
 	var machineManager activity.ManageMachine
 
-	var result []*cwssaws.DpuMachine
+	var result []*corev1.DpuMachine
 	err := workflow.ExecuteActivity(ctx, machineManager.GetDpuMachinesByIDs, dpuMachineIDs).Get(ctx, &result)
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "GetDpuMachinesByIDs").Msg("Failed to execute activity from workflow")

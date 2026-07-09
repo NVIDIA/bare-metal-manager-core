@@ -13,7 +13,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	siteActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/site"
 )
 
@@ -36,8 +36,8 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInvent
 
 	siteID := uuid.New()
 	prefixes := []string{"10.0.0.0/16", "2001:db8::/64"}
-	buildInfo := &cwssaws.BuildInfo{
-		RuntimeConfig: &cwssaws.RuntimeConfig{
+	buildInfo := &corev1.BuildInfo{
+		RuntimeConfig: &corev1.RuntimeConfig{
 			SiteFabricPrefixes: prefixes,
 		},
 	}
@@ -55,8 +55,8 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInvent
 
 	siteID := uuid.New()
 	prefixes := []string{"10.0.0.0/16"}
-	buildInfo := &cwssaws.BuildInfo{
-		RuntimeConfig: &cwssaws.RuntimeConfig{
+	buildInfo := &corev1.BuildInfo{
+		RuntimeConfig: &corev1.RuntimeConfig{
 			SiteFabricPrefixes: prefixes,
 		},
 	}
@@ -75,7 +75,7 @@ func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInvent
 }
 
 func (s *UpdateSiteConfigInventoryWorkflowTestSuite) Test_UpdateSiteConfigInventoryWorkflow_InvalidSiteID() {
-	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, "not-a-site-id", &cwssaws.BuildInfo{})
+	s.env.ExecuteWorkflow(UpdateSiteConfigInventory, "not-a-site-id", &corev1.BuildInfo{})
 	s.True(s.env.IsWorkflowCompleted())
 	s.Error(s.env.GetWorkflowError())
 }

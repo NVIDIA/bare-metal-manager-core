@@ -13,7 +13,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	ipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -78,9 +78,9 @@ func (vpcr *APIVpcPrefixCreateRequest) Validate() error {
 // `VpcPrefixCreationRequest` with an unset `VpcId`, which the Site
 // agent will reject. The current handler always provides a hydrated
 // parent VPC.
-func (vpcr *APIVpcPrefixCreateRequest) ToProto(vp *cdbm.VpcPrefix, vpc *cdbm.Vpc) *cwssaws.VpcPrefixCreationRequest {
+func (vpcr *APIVpcPrefixCreateRequest) ToProto(vp *cdbm.VpcPrefix, vpc *cdbm.Vpc) *corev1.VpcPrefixCreationRequest {
 	vpProto := vp.ToProto(vpc)
-	return &cwssaws.VpcPrefixCreationRequest{
+	return &corev1.VpcPrefixCreationRequest{
 		Id:       vpProto.Id,
 		VpcId:    vpProto.VpcId,
 		Config:   vpProto.Config,
@@ -127,9 +127,9 @@ func (vpur *APIVpcPrefixUpdateRequest) Validate() error {
 // sending the post-merge state matches the pre-existing handler
 // behaviour. Currently only `Metadata.Name` flows over (`Prefix` is
 // immutable for VpcPrefix and rejected by Validate).
-func (vpur *APIVpcPrefixUpdateRequest) ToProto(vp *cdbm.VpcPrefix) *cwssaws.VpcPrefixUpdateRequest {
+func (vpur *APIVpcPrefixUpdateRequest) ToProto(vp *cdbm.VpcPrefix) *corev1.VpcPrefixUpdateRequest {
 	vpProto := vp.ToProto(nil)
-	return &cwssaws.VpcPrefixUpdateRequest{
+	return &corev1.VpcPrefixUpdateRequest{
 		Id:       vpProto.Id,
 		Metadata: vpProto.Metadata,
 	}

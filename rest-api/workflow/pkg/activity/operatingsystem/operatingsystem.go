@@ -17,7 +17,7 @@ import (
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
@@ -28,12 +28,12 @@ const (
 
 var (
 	// ControllerOsImageStatusMap is a list of valid status for the Controller Os Image
-	ControllerOsImageStatusMap = map[cwssaws.OsImageStatus]bool{
-		cwssaws.OsImageStatus_ImageInProgress:    true,
-		cwssaws.OsImageStatus_ImageUninitialized: true,
-		cwssaws.OsImageStatus_ImageDisabled:      true,
-		cwssaws.OsImageStatus_ImageReady:         true,
-		cwssaws.OsImageStatus_ImageFailed:        true,
+	ControllerOsImageStatusMap = map[corev1.OsImageStatus]bool{
+		corev1.OsImageStatus_ImageInProgress:    true,
+		corev1.OsImageStatus_ImageUninitialized: true,
+		corev1.OsImageStatus_ImageDisabled:      true,
+		corev1.OsImageStatus_ImageReady:         true,
+		corev1.OsImageStatus_ImageFailed:        true,
 	}
 )
 
@@ -47,7 +47,7 @@ type ManageOsImage struct {
 // Activity functions
 
 // UpdateOsImagesInDB takes information pushed by Site Agent for a collection of image based OSs associated with the Site and updates the DB
-func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUID, osImageInventory *cwssaws.OsImageInventory) ([]uuid.UUID, error) {
+func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUID, osImageInventory *corev1.OsImageInventory) ([]uuid.UUID, error) {
 	logger := log.With().Str("Activity", "UpdateOsImagesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -64,7 +64,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 		return nil, err
 	}
 
-	if osImageInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if osImageInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil, nil
 	}
@@ -157,12 +157,12 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 			}
 
 			switch controllerOsImage.Status {
-			case cwssaws.OsImageStatus_ImageInProgress, cwssaws.OsImageStatus_ImageUninitialized, cwssaws.OsImageStatus_ImageDisabled:
+			case corev1.OsImageStatus_ImageInProgress, corev1.OsImageStatus_ImageUninitialized, corev1.OsImageStatus_ImageDisabled:
 				ossaStatusMessage = cwutil.GetPtr("OS Image is still syncing")
-			case cwssaws.OsImageStatus_ImageReady:
+			case corev1.OsImageStatus_ImageReady:
 				ossaStatus = cdbm.OperatingSystemSiteAssociationStatusSynced
 				ossaStatusMessage = cwutil.GetPtr("OS Image is ready to use")
-			case cwssaws.OsImageStatus_ImageFailed:
+			case corev1.OsImageStatus_ImageFailed:
 				ossaStatus = cdbm.OperatingSystemSiteAssociationStatusError
 				if ossaStatusMessage == nil || *ossaStatusMessage == "" {
 					ossaStatusMessage = cwutil.GetPtr("OS Image failed to sync on Site")

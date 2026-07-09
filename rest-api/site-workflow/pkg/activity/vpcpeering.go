@@ -8,9 +8,9 @@ import (
 	"errors"
 	"time"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -29,7 +29,7 @@ func NewManageVpcPeering(coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient) Man
 }
 
 // Function to create VpcPeering with NICo
-func (mvp *ManageVpcPeering) CreateVpcPeeringOnSite(ctx context.Context, request *cwssaws.VpcPeeringCreationRequest) error {
+func (mvp *ManageVpcPeering) CreateVpcPeeringOnSite(ctx context.Context, request *corev1.VpcPeeringCreationRequest) error {
 	logger := log.With().Str("Activity", "CreateVpcPeeringOnSite").Logger()
 
 	logger.Info().Msg("Starting activity'")
@@ -72,7 +72,7 @@ func (mvp *ManageVpcPeering) CreateVpcPeeringOnSite(ctx context.Context, request
 }
 
 // Function to delete VpcPeering on NICo
-func (mvp *ManageVpcPeering) DeleteVpcPeeringOnSite(ctx context.Context, request *cwssaws.VpcPeeringDeletionRequest) error {
+func (mvp *ManageVpcPeering) DeleteVpcPeeringOnSite(ctx context.Context, request *corev1.VpcPeeringDeletionRequest) error {
 	logger := log.With().Str("Activity", "DeleteVpcPeeringOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -124,7 +124,7 @@ func (mvi *ManageVpcPeeringInventory) DiscoverVpcPeeringInventory(ctx context.Co
 	logger := log.With().Str("Activity", "DiscoverVpcPeeringInventory").Logger()
 	logger.Info().Msg("Starting activity")
 
-	inventoryImpl := manageInventoryImpl[*cwssaws.VpcPeeringId, *cwssaws.VpcPeering, *cwssaws.VPCPeeringInventory]{
+	inventoryImpl := manageInventoryImpl[*corev1.VpcPeeringId, *corev1.VpcPeering, *corev1.VPCPeeringInventory]{
 		itemType:               "VpcPeering",
 		config:                 mvi.config,
 		internalFindIDs:        vpcPeeringFindIDs,
@@ -134,18 +134,18 @@ func (mvi *ManageVpcPeeringInventory) DiscoverVpcPeeringInventory(ctx context.Co
 	return inventoryImpl.CollectAndPublishInventory(ctx, &logger)
 }
 
-func vpcPeeringFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.VpcPeeringId, error) {
+func vpcPeeringFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*corev1.VpcPeeringId, error) {
 	grpcServiceClient := grpcClient.GrpcServiceClient()
-	resp, err := grpcServiceClient.FindVpcPeeringIds(ctx, &cwssaws.VpcPeeringSearchFilter{})
+	resp, err := grpcServiceClient.FindVpcPeeringIds(ctx, &corev1.VpcPeeringSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
 	return resp.VpcPeeringIds, nil
 }
 
-func vpcPeeringFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.VpcPeeringId) ([]*cwssaws.VpcPeering, error) {
+func vpcPeeringFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*corev1.VpcPeeringId) ([]*corev1.VpcPeering, error) {
 	grpcServiceClient := grpcClient.GrpcServiceClient()
-	req := &cwssaws.VpcPeeringsByIdsRequest{
+	req := &corev1.VpcPeeringsByIdsRequest{
 		VpcPeeringIds: ids,
 	}
 	resp, err := grpcServiceClient.FindVpcPeeringsByIds(ctx, req)
@@ -155,14 +155,14 @@ func vpcPeeringFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient
 	return resp.GetVpcPeerings(), nil
 }
 
-func vpcPeeringPagedInventory(allItemIDs []*cwssaws.VpcPeeringId, pagedItems []*cwssaws.VpcPeering, input *pagedInventoryInput) *cwssaws.VPCPeeringInventory {
+func vpcPeeringPagedInventory(allItemIDs []*corev1.VpcPeeringId, pagedItems []*corev1.VpcPeering, input *pagedInventoryInput) *corev1.VPCPeeringInventory {
 	itemIDs := []string{}
 	for _, id := range allItemIDs {
 		itemIDs = append(itemIDs, id.GetValue())
 	}
 
 	// Create an inventory page with the subset of VpcPeerings
-	inventory := &cwssaws.VPCPeeringInventory{
+	inventory := &corev1.VPCPeeringInventory{
 		VpcPeerings: pagedItems,
 		Timestamp: &timestamppb.Timestamp{
 			Seconds: time.Now().Unix(),

@@ -273,6 +273,91 @@ func TestAPIExpectedSwitchCreateRequest_Validate(t *testing.T) {
 			},
 			expectErr: false,
 		},
+		// NvosMacAddresses validation tests
+		{
+			desc: "ok when NvosMacAddresses entries are valid MACs",
+			obj: APIExpectedSwitchCreateRequest{
+				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
+				BmcMacAddress:      "00:11:22:33:44:55",
+				DefaultBmcUsername: &validUsername,
+				DefaultBmcPassword: &validPassword,
+				SwitchSerialNumber: validSwitchSerial,
+				NvosMacAddresses:   []string{"00:11:22:33:44:66", "00:11:22:33:44:77"},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "error when NvosMacAddresses entry is not a MAC",
+			obj: APIExpectedSwitchCreateRequest{
+				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
+				BmcMacAddress:      "00:11:22:33:44:55",
+				DefaultBmcUsername: &validUsername,
+				DefaultBmcPassword: &validPassword,
+				SwitchSerialNumber: validSwitchSerial,
+				NvosMacAddresses:   []string{"00:11:22:33:44:66", "not-a-mac"},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when NvosMacAddresses entry is empty",
+			obj: APIExpectedSwitchCreateRequest{
+				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
+				BmcMacAddress:      "00:11:22:33:44:55",
+				DefaultBmcUsername: &validUsername,
+				DefaultBmcPassword: &validPassword,
+				SwitchSerialNumber: validSwitchSerial,
+				NvosMacAddresses:   []string{""},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "ok when NvosMacAddresses is an empty list",
+			obj: APIExpectedSwitchCreateRequest{
+				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
+				BmcMacAddress:      "00:11:22:33:44:55",
+				DefaultBmcUsername: &validUsername,
+				DefaultBmcPassword: &validPassword,
+				SwitchSerialNumber: validSwitchSerial,
+				NvosMacAddresses:   []string{},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "error when NvosMacAddresses has duplicate entries",
+			obj: APIExpectedSwitchCreateRequest{
+				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
+				BmcMacAddress:      "00:11:22:33:44:55",
+				DefaultBmcUsername: &validUsername,
+				DefaultBmcPassword: &validPassword,
+				SwitchSerialNumber: validSwitchSerial,
+				NvosMacAddresses:   []string{"00:11:22:33:44:66", "00:11:22:33:44:66"},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when NvosMacAddresses entries duplicate across separator styles",
+			obj: APIExpectedSwitchCreateRequest{
+				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
+				BmcMacAddress:      "00:11:22:33:44:55",
+				DefaultBmcUsername: &validUsername,
+				DefaultBmcPassword: &validPassword,
+				SwitchSerialNumber: validSwitchSerial,
+				NvosMacAddresses:   []string{"00:11:22:33:44:66", "00-11-22-33-44-66"},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when NvosMacAddresses entry is not in the published 6-octet format",
+			obj: APIExpectedSwitchCreateRequest{
+				SiteID:             "550e8400-e29b-41d4-a716-446655440000",
+				BmcMacAddress:      "00:11:22:33:44:55",
+				DefaultBmcUsername: &validUsername,
+				DefaultBmcPassword: &validPassword,
+				SwitchSerialNumber: validSwitchSerial,
+				NvosMacAddresses:   []string{"0011.2233.4455"},
+			},
+			expectErr: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
@@ -291,6 +376,7 @@ func TestNewAPIExpectedSwitch(t *testing.T) {
 		BmcMacAddress:      "00:11:22:33:44:55",
 		SwitchSerialNumber: "SWITCH123",
 		BmcIpAddress:       &bmcIP,
+		NvosMacAddresses:   []string{"00:11:22:33:44:66", "00:11:22:33:44:77"},
 		Labels:             map[string]string{"env": "test", "zone": "us-west-1"},
 		Created:            cdb.GetCurTime(),
 		Updated:            cdb.GetCurTime(),
@@ -314,6 +400,7 @@ func TestNewAPIExpectedSwitch(t *testing.T) {
 			assert.Equal(t, tc.dbObj.BmcMacAddress, got.BmcMacAddress)
 			assert.Equal(t, tc.dbObj.SwitchSerialNumber, got.SwitchSerialNumber)
 			assert.Equal(t, tc.dbObj.BmcIpAddress, got.BmcIpAddress)
+			assert.Equal(t, APINvosMacAddresses(tc.dbObj.NvosMacAddresses), got.NvosMacAddresses)
 			assert.Equal(t, map[string]string(tc.dbObj.Labels), got.Labels)
 			assert.Equal(t, tc.dbObj.Created, got.Created)
 			assert.Equal(t, tc.dbObj.Updated, got.Updated)
@@ -519,6 +606,63 @@ func TestAPIExpectedSwitchUpdateRequest_Validate(t *testing.T) {
 				BmcIpAddress:       nil,
 			},
 			expectErr: false,
+		},
+		// NvosMacAddresses validation tests
+		{
+			desc: "ok when NvosMacAddresses entries are valid MACs",
+			obj: APIExpectedSwitchUpdateRequest{
+				SwitchSerialNumber: &validSwitchSerial,
+				NvosMacAddresses:   []string{"00:11:22:33:44:66", "00:11:22:33:44:77"},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "error when NvosMacAddresses entry is not a MAC",
+			obj: APIExpectedSwitchUpdateRequest{
+				SwitchSerialNumber: &validSwitchSerial,
+				NvosMacAddresses:   []string{"not-a-mac"},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when NvosMacAddresses entry is empty",
+			obj: APIExpectedSwitchUpdateRequest{
+				SwitchSerialNumber: &validSwitchSerial,
+				NvosMacAddresses:   []string{""},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "ok when NvosMacAddresses is an empty list",
+			obj: APIExpectedSwitchUpdateRequest{
+				SwitchSerialNumber: &validSwitchSerial,
+				NvosMacAddresses:   []string{},
+			},
+			expectErr: false,
+		},
+		{
+			desc: "error when NvosMacAddresses has duplicate entries",
+			obj: APIExpectedSwitchUpdateRequest{
+				SwitchSerialNumber: &validSwitchSerial,
+				NvosMacAddresses:   []string{"00:11:22:33:44:66", "00:11:22:33:44:66"},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when NvosMacAddresses entries duplicate across separator styles",
+			obj: APIExpectedSwitchUpdateRequest{
+				SwitchSerialNumber: &validSwitchSerial,
+				NvosMacAddresses:   []string{"00:11:22:33:44:66", "00-11-22-33-44-66"},
+			},
+			expectErr: true,
+		},
+		{
+			desc: "error when NvosMacAddresses entry is not in the published 6-octet format",
+			obj: APIExpectedSwitchUpdateRequest{
+				SwitchSerialNumber: &validSwitchSerial,
+				NvosMacAddresses:   []string{"0011.2233.4455"},
+			},
+			expectErr: true,
 		},
 	}
 

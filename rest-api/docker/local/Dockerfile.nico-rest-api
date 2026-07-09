@@ -36,7 +36,7 @@ COPY api/ ./api/
 COPY common/ ./common/
 COPY auth/ ./auth/
 COPY db/ ./db/
-COPY workflow-schema/ ./workflow-schema/
+COPY proto/ ./proto/
 COPY workflow/ ./workflow/
 COPY site-workflow/ ./site-workflow/
 COPY ipam/ ./ipam/

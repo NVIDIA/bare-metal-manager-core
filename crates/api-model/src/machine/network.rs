@@ -154,6 +154,7 @@ pub struct ManagedHostNetworkConfig {
     /// merging in DPU-specific configs.
     pub use_admin_network: Option<bool>,
     pub quarantine_state: Option<ManagedHostQuarantineState>,
+    pub use_admin_network_changed: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +193,7 @@ impl Default for ManagedHostNetworkConfig {
             secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
+            use_admin_network_changed: None,
         }
     }
 }
@@ -207,6 +209,7 @@ mod tests {
     use config_version::ConfigVersion;
 
     use super::*;
+    use crate::test_support::machine_snapshot::config_version;
 
     // A stable MachineId for status observations; `any_observed_version_changed`
     // never inspects it, so any valid id does.
@@ -217,12 +220,6 @@ mod tests {
     // A fixed timestamp so observations built in tests compare deterministically.
     fn observed_at() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()
-    }
-
-    // ConfigVersion built from its string form so the timestamp is deterministic
-    // (ConfigVersion::new() stamps `now()`, which makes two calls unequal).
-    fn config_version(version_nr: u64) -> ConfigVersion {
-        ConfigVersion::from_str(&format!("V{version_nr}-T1000000")).unwrap()
     }
 
     // A MachineNetworkStatusObservation carrying only the fields
@@ -287,11 +284,13 @@ mod tests {
                     secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
                     use_admin_network: Some(true),
                     quarantine_state: None,
+                    use_admin_network_changed: None,
                 } => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                     secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
                     use_admin_network: Some(true),
                     quarantine_state: None,
+                    use_admin_network_changed: None,
                 }),
             }
 
@@ -305,6 +304,7 @@ mod tests {
                     ))),
                     use_admin_network: Some(false),
                     quarantine_state: None,
+                    use_admin_network_changed: None,
                 } => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
                         0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
@@ -314,6 +314,7 @@ mod tests {
                     ))),
                     use_admin_network: Some(false),
                     quarantine_state: None,
+                    use_admin_network_changed: None,
                 }),
             }
         );
@@ -367,6 +368,7 @@ mod tests {
             secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
+            use_admin_network_changed: None,
         };
         let json = serde_json::to_string(&config).unwrap();
         // Ensure IpAddr serializes IPv4 same as Ipv4Addr.
@@ -395,6 +397,10 @@ mod tests {
             run = |flag| flag;
             "use_admin_network defaults to Some(true)" {
                 default.use_admin_network => Some(true),
+            }
+
+            "use_admin_network_changed defaults to None" {
+                default.use_admin_network_changed => None,
             }
         );
         Check {
@@ -594,6 +600,7 @@ mod tests {
                         reason: Some("noisy".to_string()),
                         mode: ManagedHostQuarantineMode::BlockAllTraffic,
                     }),
+                    use_admin_network_changed: None,
                 }),
             }
 
@@ -603,6 +610,7 @@ mod tests {
                     secondary_overlay_vtep_ip: None,
                     use_admin_network: None,
                     quarantine_state: None,
+                    use_admin_network_changed: None,
                 }),
             }
 
@@ -653,6 +661,7 @@ mod tests {
                         reason: Some("flooded".to_string()),
                         mode: ManagedHostQuarantineMode::BlockAllTraffic,
                     }),
+                    use_admin_network_changed: None,
                 } => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                     secondary_overlay_vtep_ip: None,
@@ -661,6 +670,7 @@ mod tests {
                         reason: Some("flooded".to_string()),
                         mode: ManagedHostQuarantineMode::BlockAllTraffic,
                     }),
+                    use_admin_network_changed: None,
                 }),
             }
         );

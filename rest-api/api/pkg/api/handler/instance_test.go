@@ -31,8 +31,8 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -553,7 +553,7 @@ func testUpdateMachineToMissing(t *testing.T, dbSession *cdb.Session, m *cdbm.Ma
 func testUpdateMachineStatusAndControllerState(t *testing.T, dbSession *cdb.Session, m *cdbm.Machine, status string, controllerState string) *cdbm.Machine {
 	m.Status = status
 	if controllerState != "" {
-		m.Metadata = &cdbm.SiteControllerMachine{Machine: &cwssaws.Machine{State: controllerState}}
+		m.Metadata = &cdbm.SiteControllerMachine{Machine: &corev1.Machine{State: controllerState}}
 	} else {
 		m.Metadata = nil
 	}
@@ -657,7 +657,7 @@ func testUpdateOSIsActive(t *testing.T, dbSession *cdb.Session, ins *cdbm.Operat
 }
 
 // assertInterfaceRoutingProfilePrefixes verifies proto routing profile prefix order.
-func assertInterfaceRoutingProfilePrefixes(t *testing.T, actual *cwssaws.InstanceInterfaceRoutingProfile, expected []string) {
+func assertInterfaceRoutingProfilePrefixes(t *testing.T, actual *corev1.InstanceInterfaceRoutingProfile, expected []string) {
 	t.Helper()
 	require.NotNil(t, actual)
 	require.Len(t, actual.AllowedAnycastPrefixes, len(expected))
@@ -668,9 +668,9 @@ func assertInterfaceRoutingProfilePrefixes(t *testing.T, actual *cwssaws.Instanc
 
 func TestBuildInstanceNetworkConfig(t *testing.T) {
 	controllerVpcID := uuid.New()
-	interfaceConfigs := []*cwssaws.InstanceInterfaceConfig{
+	interfaceConfigs := []*corev1.InstanceInterfaceConfig{
 		{
-			NetworkSegmentId: &cwssaws.NetworkSegmentId{Value: uuid.NewString()},
+			NetworkSegmentId: &corev1.NetworkSegmentId{Value: uuid.NewString()},
 		},
 	}
 
@@ -3790,7 +3790,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			}
 
 			if len(tsc.Calls) > 0 && len(tsc.Calls[len(tsc.Calls)-1].Arguments) > 3 {
-				req := tsc.Calls[len(tsc.Calls)-1].Arguments[3].(*cwssaws.InstanceAllocationRequest)
+				req := tsc.Calls[len(tsc.Calls)-1].Arguments[3].(*corev1.InstanceAllocationRequest)
 
 				// Check that the list of IDs match in size and order.
 				if len(tt.args.reqData.SSHKeyGroupIDs) > 0 {
@@ -4222,10 +4222,10 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	nsgTenant1Site3 := testBuildNetworkSecurityGroup(t, dbSession, "test-nsg-4", tn1, st3, cdbm.NetworkSecurityGroupStatusReady)
 	assert.NotNil(t, nsgTenant1Site3)
 
-	setVpcProp := func(vpc *cdbm.Vpc, related []string, unprop []string, status cwssaws.NetworkSecurityGroupPropagationStatus) {
+	setVpcProp := func(vpc *cdbm.Vpc, related []string, unprop []string, status corev1.NetworkSecurityGroupPropagationStatus) {
 		vpc.NetworkSecurityGroupID = &nsgTenant1Site3.ID
 		vpc.NetworkSecurityGroupPropagationDetails = &cdbm.NetworkSecurityGroupPropagationDetails{
-			NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{
+			NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{
 				Id:                      vpc.ID.String(),
 				Status:                  status,
 				RelatedInstanceIds:      related,
@@ -4235,14 +4235,14 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 		testUpdateVPC(t, dbSession, vpc)
 	}
 
-	setVpcProp(vpcPrimaryFull, []string{instUpdateFull.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcSecondaryFull, []string{instUpdateFull.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcPrimaryFull, []string{instUpdateRebootFull.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcSecondaryFull, []string{instUpdateRebootFull.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcPrimaryNone, []string{instUpdateNone.ID.String()}, []string{instUpdateNone.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
-	setVpcProp(vpcSecondaryNone, []string{instUpdateNone.ID.String()}, []string{instUpdateNone.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
-	setVpcProp(vpcPrimaryPartial, []string{instUpdatePartial.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcSecondaryPartial, []string{instUpdatePartial.ID.String()}, []string{instUpdatePartial.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcPrimaryFull, []string{instUpdateFull.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcSecondaryFull, []string{instUpdateFull.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcPrimaryFull, []string{instUpdateRebootFull.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcSecondaryFull, []string{instUpdateRebootFull.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcPrimaryNone, []string{instUpdateNone.ID.String()}, []string{instUpdateNone.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcSecondaryNone, []string{instUpdateNone.ID.String()}, []string{instUpdateNone.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcPrimaryPartial, []string{instUpdatePartial.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcSecondaryPartial, []string{instUpdatePartial.ID.String()}, []string{instUpdatePartial.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
 
 	// Add Network DPU capability to Instance Type
 	common.TestBuildMachineCapability(t, dbSession, nil, &ist4.ID, cdbm.MachineCapabilityTypeNetwork, "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller", nil, nil, cutil.GetPtr("Mellanox Technologies"), cutil.GetPtr(2), cutil.GetPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
@@ -7085,10 +7085,10 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			if tt.verifySiteControllerRequest {
 				// Collect the last matching ExecuteWorkflow call for this instance
 				// (multiple tests may trigger calls for the same instance; verify only against the current test's call)
-				var siteReq *cwssaws.InstanceConfigUpdateRequest
+				var siteReq *corev1.InstanceConfigUpdateRequest
 				for _, call := range ttscm.Calls {
 					if call.Method == "ExecuteWorkflow" && call.Arguments[2] == "UpdateInstance" {
-						req := call.Arguments[3].(*cwssaws.InstanceConfigUpdateRequest)
+						req := call.Arguments[3].(*corev1.InstanceConfigUpdateRequest)
 						if req.InstanceId.Value == tt.args.reqInstance {
 							siteReq = req
 						}
@@ -7115,7 +7115,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 
 						// Subnet case if we have both NetworkSegmentId and NetworkDetails
 						if siteIfc.NetworkSegmentId != nil && siteIfc.NetworkDetails != nil {
-							ifcNd, ok := siteIfc.NetworkDetails.(*cwssaws.InstanceInterfaceConfig_SegmentId)
+							ifcNd, ok := siteIfc.NetworkDetails.(*corev1.InstanceInterfaceConfig_SegmentId)
 							assert.True(t, ok)
 							assert.Equal(t, ifcNd.SegmentId, siteIfc.NetworkSegmentId)
 
@@ -7125,9 +7125,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 
 						// VpcPrefix case if we have only NetworkDetails
 						if siteIfc.NetworkDetails != nil && siteIfc.NetworkSegmentId == nil {
-							ifcNd, ok := siteIfc.NetworkDetails.(*cwssaws.InstanceInterfaceConfig_VpcPrefixId)
+							ifcNd, ok := siteIfc.NetworkDetails.(*corev1.InstanceInterfaceConfig_VpcPrefixId)
 							assert.True(t, ok)
-							assert.Equal(t, ifcNd.VpcPrefixId.Value, siteIfc.NetworkDetails.(*cwssaws.InstanceInterfaceConfig_VpcPrefixId).VpcPrefixId.Value)
+							assert.Equal(t, ifcNd.VpcPrefixId.Value, siteIfc.NetworkDetails.(*corev1.InstanceInterfaceConfig_VpcPrefixId).VpcPrefixId.Value)
 
 							//Make sure order is same as the request received
 							assert.Equal(t, ifcNd.VpcPrefixId.Value, reqInsIfcs[i].VpcPrefixID.String())
@@ -7400,10 +7400,10 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instPartial.ID, nil, &vpcPrefixPrimaryPartial.ID, nil, cdbm.InterfaceStatusPending))
 	assert.NotNil(t, testInstanceBuildInstanceInterface(t, dbSession, instPartial.ID, nil, &vpcPrefixSecondaryPartial.ID, nil, cdbm.InterfaceStatusPending))
 
-	setVpcProp := func(vpc *cdbm.Vpc, related []string, unprop []string, status cwssaws.NetworkSecurityGroupPropagationStatus) {
+	setVpcProp := func(vpc *cdbm.Vpc, related []string, unprop []string, status corev1.NetworkSecurityGroupPropagationStatus) {
 		vpc.NetworkSecurityGroupID = &nsg1.ID
 		vpc.NetworkSecurityGroupPropagationDetails = &cdbm.NetworkSecurityGroupPropagationDetails{
-			NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{
+			NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{
 				Id:                      vpc.ID.String(),
 				Status:                  status,
 				RelatedInstanceIds:      related,
@@ -7413,12 +7413,12 @@ func TestGetInstanceHandler_Handle(t *testing.T) {
 		testUpdateVPC(t, dbSession, vpc)
 	}
 
-	setVpcProp(vpcPrimaryFull, []string{instFull.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcSecondaryFull, []string{instFull.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcPrimaryNone, []string{instNone.ID.String()}, []string{instNone.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
-	setVpcProp(vpcSecondaryNone, []string{instNone.ID.String()}, []string{instNone.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
-	setVpcProp(vpcPrimaryPartial, []string{instPartial.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcSecondaryPartial, []string{instPartial.ID.String()}, []string{instPartial.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcPrimaryFull, []string{instFull.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcSecondaryFull, []string{instFull.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcPrimaryNone, []string{instNone.ID.String()}, []string{instNone.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcSecondaryNone, []string{instNone.ID.String()}, []string{instNone.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcPrimaryPartial, []string{instPartial.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcSecondaryPartial, []string{instPartial.ID.String()}, []string{instPartial.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
 
 	e := echo.New()
 	cfg := common.GetTestConfig()
@@ -8101,10 +8101,10 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 	common.TestBuildStatusDetail(t, dbSession, instPartial.ID.String(), cdbm.InstanceStatusPending, cutil.GetPtr("request received, pending processing"))
 	common.TestBuildStatusDetail(t, dbSession, instPartial.ID.String(), cdbm.InstanceStatusProvisioning, cutil.GetPtr("Instance is being provisioned on Site"))
 
-	setVpcProp := func(vpc *cdbm.Vpc, related []string, unprop []string, status cwssaws.NetworkSecurityGroupPropagationStatus) {
+	setVpcProp := func(vpc *cdbm.Vpc, related []string, unprop []string, status corev1.NetworkSecurityGroupPropagationStatus) {
 		vpc.NetworkSecurityGroupID = &nsg1.ID
 		vpc.NetworkSecurityGroupPropagationDetails = &cdbm.NetworkSecurityGroupPropagationDetails{
-			NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{
+			NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{
 				Id:                      vpc.ID.String(),
 				Status:                  status,
 				RelatedInstanceIds:      related,
@@ -8114,12 +8114,12 @@ func TestGetAllInstanceHandler_Handle(t *testing.T) {
 		testUpdateVPC(t, dbSession, vpc)
 	}
 
-	setVpcProp(vpcPrimaryFull, []string{instFull.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcSecondaryFull, []string{instFull.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcPrimaryNone, []string{instNone.ID.String()}, []string{instNone.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
-	setVpcProp(vpcSecondaryNone, []string{instNone.ID.String()}, []string{instNone.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
-	setVpcProp(vpcPrimaryPartial, []string{instPartial.ID.String()}, []string{}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
-	setVpcProp(vpcSecondaryPartial, []string{instPartial.ID.String()}, []string{instPartial.ID.String()}, cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcPrimaryFull, []string{instFull.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcSecondaryFull, []string{instFull.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcPrimaryNone, []string{instNone.ID.String()}, []string{instNone.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcSecondaryNone, []string{instNone.ID.String()}, []string{instNone.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
+	setVpcProp(vpcPrimaryPartial, []string{instPartial.ID.String()}, []string{}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL)
+	setVpcProp(vpcSecondaryPartial, []string{instPartial.ID.String()}, []string{instPartial.ID.String()}, corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_NONE)
 
 	// Setup instances with specific IP addresses for IP filtering tests
 	// Use instances from the array so they're both on st1 and will be on the same page
@@ -9870,7 +9870,7 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 			mockSiteClient, ok := siteClient.(*tmocks.Client)
 			require.True(t, ok, "site temporal client should be a test mock")
 
-			var releaseReq *cwssaws.InstanceReleaseRequest
+			var releaseReq *corev1.InstanceReleaseRequest
 			for i := len(mockSiteClient.Calls) - 1; i >= 0; i-- {
 				call := mockSiteClient.Calls[i]
 				if call.Method != "ExecuteWorkflow" || len(call.Arguments) <= 3 {
@@ -9880,7 +9880,7 @@ func TestDeleteInstanceHandler_Handle(t *testing.T) {
 				if !ok || wfName != "DeleteInstanceV2" {
 					continue
 				}
-				req, ok := call.Arguments[3].(*cwssaws.InstanceReleaseRequest)
+				req, ok := call.Arguments[3].(*corev1.InstanceReleaseRequest)
 				if !ok || req.GetId().GetValue() != tt.args.reqInstance {
 					continue
 				}

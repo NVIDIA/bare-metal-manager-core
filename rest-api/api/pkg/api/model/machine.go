@@ -22,7 +22,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -246,7 +246,7 @@ func (mur APIMachineUpdateRequest) Validate() error {
 	return err
 }
 
-func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID string) (*cwssaws.InsertMachineHealthReportRequest, error) {
+func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID string) (*corev1.InsertMachineHealthReportRequest, error) {
 	mhi := mur.HealthIssue
 
 	m, err := json.Marshal(struct {
@@ -263,7 +263,7 @@ func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID st
 	}
 	msg := string(m)
 
-	alert := &cwssaws.HealthProbeAlert{
+	alert := &corev1.HealthProbeAlert{
 		Id:            MachineHealthAlertIDOnlineRepair,
 		Target:        cutil.GetPtr(MachineTenantReportedIssueAlertID),
 		Message:       msg,
@@ -274,22 +274,22 @@ func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID st
 			MachineAlertClassificationSuppressExternalAlerting,
 		},
 	}
-	hr := &cwssaws.HealthReport{
+	hr := &corev1.HealthReport{
 		Source: MachineHealthOverrideSourceOnlineRepair,
-		Alerts: []*cwssaws.HealthProbeAlert{alert},
+		Alerts: []*corev1.HealthProbeAlert{alert},
 	}
-	return &cwssaws.InsertMachineHealthReportRequest{
-		MachineId: &cwssaws.MachineId{Id: machineID},
-		HealthReportEntry: &cwssaws.HealthReportEntry{
+	return &corev1.InsertMachineHealthReportRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
+		HealthReportEntry: &corev1.HealthReportEntry{
 			Report: hr,
-			Mode:   cwssaws.HealthReportApplyMode_Merge,
+			Mode:   corev1.HealthReportApplyMode_Merge,
 		},
 	}, nil
 }
 
-func (mur APIMachineUpdateRequest) ToRemoveHealthReportRequestProto(machineID string) (*cwssaws.RemoveMachineHealthReportRequest, error) {
-	return &cwssaws.RemoveMachineHealthReportRequest{
-		MachineId: &cwssaws.MachineId{Id: machineID},
+func (mur APIMachineUpdateRequest) ToRemoveHealthReportRequestProto(machineID string) (*corev1.RemoveMachineHealthReportRequest, error) {
+	return &corev1.RemoveMachineHealthReportRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
 		Source:    MachineHealthOverrideSourceOnlineRepair,
 	}, nil
 }
@@ -393,7 +393,7 @@ type APIDMIData struct {
 }
 
 // FromProto populates an APIDMIData from its protobuf form.
-func (admi *APIDMIData) FromProto(protoDMIData *cwssaws.DmiData) {
+func (admi *APIDMIData) FromProto(protoDMIData *corev1.DmiData) {
 	if protoDMIData == nil {
 		return
 	}
@@ -421,7 +421,7 @@ type APIBMCInfo struct {
 }
 
 // FromProto populates an APIBMCInfo from its protobuf form.
-func (abmc *APIBMCInfo) FromProto(protoBmcInfo *cwssaws.BmcInfo) {
+func (abmc *APIBMCInfo) FromProto(protoBmcInfo *corev1.BmcInfo) {
 	if protoBmcInfo == nil {
 		return
 	}
@@ -452,7 +452,7 @@ type APIMachineGPUInfo struct {
 }
 
 // FromProto populates an APIMachineGPUInfo from its protobuf form.
-func (gpu *APIMachineGPUInfo) FromProto(protoGpu *cwssaws.Gpu) {
+func (gpu *APIMachineGPUInfo) FromProto(protoGpu *corev1.Gpu) {
 	if protoGpu == nil {
 		return
 	}
@@ -485,7 +485,7 @@ type APIMachineNetworkInterface struct {
 }
 
 // FromProto populates an APIMachineNetworkInterface from its protobuf form.
-func (ni *APIMachineNetworkInterface) FromProto(protoNI *cwssaws.NetworkInterface) {
+func (ni *APIMachineNetworkInterface) FromProto(protoNI *corev1.NetworkInterface) {
 	if protoNI == nil {
 		return
 	}
@@ -519,7 +519,7 @@ type APIMachineInfiniBandInterface struct {
 }
 
 // FromProto populates an APIMachineInfiniBandInterface from its protobuf form.
-func (ib *APIMachineInfiniBandInterface) FromProto(protoIB *cwssaws.InfinibandInterface) {
+func (ib *APIMachineInfiniBandInterface) FromProto(protoIB *corev1.InfinibandInterface) {
 	if protoIB == nil {
 		return
 	}

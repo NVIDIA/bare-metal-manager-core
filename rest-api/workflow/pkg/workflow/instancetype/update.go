@@ -17,11 +17,11 @@ import (
 
 	instanceTypeActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/instancetype"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateInstanceTypeInventory is a workflow called by Site Agent to update InstanceType inventory for a Site
-func UpdateInstanceTypeInventory(ctx workflow.Context, siteID string, instanceTypeInventory *cwssaws.InstanceTypeInventory) (err error) {
+func UpdateInstanceTypeInventory(ctx workflow.Context, siteID string, instanceTypeInventory *corev1.InstanceTypeInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateInstanceTypeInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

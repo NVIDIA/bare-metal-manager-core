@@ -106,10 +106,7 @@ func blockTarget(
 	retryAfter := now.Add(delay)
 	raw, _ := json.Marshal(state)
 
-	target.Status = operationrun.OperationRunTargetStatusBlocked
-	target.Message = message
-	target.RetryAfter = &retryAfter
-	target.RetryState = raw
+	target.Block(message, retryAfter, raw)
 }
 
 // conflictRetryState is persisted on blocked targets so retry backoff survives

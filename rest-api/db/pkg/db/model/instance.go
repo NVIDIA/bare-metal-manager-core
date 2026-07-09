@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -279,9 +279,9 @@ func (i *Instance) GetSiteID() *uuid.UUID {
 // ToReleaseRequestProto builds the workflow request that asks a Site to
 // release (delete) this Instance. The handler may further set the
 // optional Issue field for break-fix flows after calling this.
-func (i *Instance) ToReleaseRequestProto() *cwssaws.InstanceReleaseRequest {
-	return &cwssaws.InstanceReleaseRequest{
-		Id: &cwssaws.InstanceId{Value: i.GetSiteID().String()},
+func (i *Instance) ToReleaseRequestProto() *corev1.InstanceReleaseRequest {
+	return &corev1.InstanceReleaseRequest{
+		Id: &corev1.InstanceId{Value: i.GetSiteID().String()},
 	}
 }
 

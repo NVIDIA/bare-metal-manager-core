@@ -23,7 +23,7 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // MachineCapabilityType is the domain enum for the kind of capability a
@@ -94,46 +94,46 @@ var (
 // enum. Returns the zero proto value (`MACHINE_CAPABILITY_TYPE_UNSPECIFIED`)
 // for an unknown DB value with a warning logged; `MachineCapability.Validate`
 // is the gate that rejects such values upstream of the wire.
-func (t MachineCapabilityType) ToProto() cwssaws.MachineCapabilityType {
+func (t MachineCapabilityType) ToProto() corev1.MachineCapabilityType {
 	switch t {
 	case MachineCapabilityTypeCPU:
-		return cwssaws.MachineCapabilityType_CAP_TYPE_CPU
+		return corev1.MachineCapabilityType_CAP_TYPE_CPU
 	case MachineCapabilityTypeMemory:
-		return cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY
+		return corev1.MachineCapabilityType_CAP_TYPE_MEMORY
 	case MachineCapabilityTypeGPU:
-		return cwssaws.MachineCapabilityType_CAP_TYPE_GPU
+		return corev1.MachineCapabilityType_CAP_TYPE_GPU
 	case MachineCapabilityTypeStorage:
-		return cwssaws.MachineCapabilityType_CAP_TYPE_STORAGE
+		return corev1.MachineCapabilityType_CAP_TYPE_STORAGE
 	case MachineCapabilityTypeNetwork:
-		return cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK
+		return corev1.MachineCapabilityType_CAP_TYPE_NETWORK
 	case MachineCapabilityTypeInfiniBand:
-		return cwssaws.MachineCapabilityType_CAP_TYPE_INFINIBAND
+		return corev1.MachineCapabilityType_CAP_TYPE_INFINIBAND
 	case MachineCapabilityTypeDPU:
-		return cwssaws.MachineCapabilityType_CAP_TYPE_DPU
+		return corev1.MachineCapabilityType_CAP_TYPE_DPU
 	}
 	log.Warn().Str("Type", string(t)).Msg("unsupported MachineCapabilityType requested")
-	return cwssaws.MachineCapabilityType(0)
+	return corev1.MachineCapabilityType(0)
 }
 
 // FromProto populates the receiver from a workflow proto enum,
 // mirroring `(MachineCapabilityType).ToProto`. An unknown proto enum
 // silently leaves the receiver as the empty string; `(*MachineCapability).Validate`
 // rejects that downstream.
-func (t *MachineCapabilityType) FromProto(p cwssaws.MachineCapabilityType) {
+func (t *MachineCapabilityType) FromProto(p corev1.MachineCapabilityType) {
 	switch p {
-	case cwssaws.MachineCapabilityType_CAP_TYPE_CPU:
+	case corev1.MachineCapabilityType_CAP_TYPE_CPU:
 		*t = MachineCapabilityTypeCPU
-	case cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY:
+	case corev1.MachineCapabilityType_CAP_TYPE_MEMORY:
 		*t = MachineCapabilityTypeMemory
-	case cwssaws.MachineCapabilityType_CAP_TYPE_GPU:
+	case corev1.MachineCapabilityType_CAP_TYPE_GPU:
 		*t = MachineCapabilityTypeGPU
-	case cwssaws.MachineCapabilityType_CAP_TYPE_STORAGE:
+	case corev1.MachineCapabilityType_CAP_TYPE_STORAGE:
 		*t = MachineCapabilityTypeStorage
-	case cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK:
+	case corev1.MachineCapabilityType_CAP_TYPE_NETWORK:
 		*t = MachineCapabilityTypeNetwork
-	case cwssaws.MachineCapabilityType_CAP_TYPE_INFINIBAND:
+	case corev1.MachineCapabilityType_CAP_TYPE_INFINIBAND:
 		*t = MachineCapabilityTypeInfiniBand
-	case cwssaws.MachineCapabilityType_CAP_TYPE_DPU:
+	case corev1.MachineCapabilityType_CAP_TYPE_DPU:
 		*t = MachineCapabilityTypeDPU
 	default:
 		log.Warn().Str("MachineCapabilityType", p.String()).Msg("unsupported MachineCapabilityType requested")
@@ -144,25 +144,25 @@ func (t *MachineCapabilityType) FromProto(p cwssaws.MachineCapabilityType) {
 // ToProto converts a `MachineCapabilityDeviceType` into its workflow
 // proto enum. Returns the zero proto value with a warning logged for
 // unknown DB values; `MachineCapability.Validate` is the upstream gate.
-func (d MachineCapabilityDeviceType) ToProto() cwssaws.MachineCapabilityDeviceType {
+func (d MachineCapabilityDeviceType) ToProto() corev1.MachineCapabilityDeviceType {
 	switch d {
 	case MachineCapabilityDeviceTypeDPU:
-		return cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
+		return corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
 	case MachineCapabilityDeviceTypeNVLink:
-		return cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK
+		return corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK
 	}
 	log.Warn().Str("DeviceType", string(d)).Msg("unsupported MachineCapabilityDeviceType requested")
-	return cwssaws.MachineCapabilityDeviceType(0)
+	return corev1.MachineCapabilityDeviceType(0)
 }
 
 // FromProto populates the receiver from a workflow proto enum,
 // mirroring `(MachineCapabilityDeviceType).ToProto`. An unknown proto
 // enum leaves the receiver as the empty string with a warning logged.
-func (d *MachineCapabilityDeviceType) FromProto(p cwssaws.MachineCapabilityDeviceType) {
+func (d *MachineCapabilityDeviceType) FromProto(p corev1.MachineCapabilityDeviceType) {
 	switch p {
-	case cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU:
+	case corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU:
 		*d = MachineCapabilityDeviceTypeDPU
-	case cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK:
+	case corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK:
 		*d = MachineCapabilityDeviceTypeNVLink
 	default:
 		log.Warn().Str("DeviceType", p.String()).Msg("unsupported MachineCapabilityDeviceType requested")
@@ -290,24 +290,24 @@ func mcPtrsEqual[T comparable](a, b *T) bool {
 // not return errors. Per-enum mapping lives on `MachineCapabilityType`
 // and `MachineCapabilityDeviceType`; numeric width casts trust the
 // request-side `Validate` upstream.
-func (mc *MachineCapability) ToProto() *cwssaws.InstanceTypeMachineCapabilityFilterAttributes {
-	var inactiveDevices *cwssaws.Uint32List
+func (mc *MachineCapability) ToProto() *corev1.InstanceTypeMachineCapabilityFilterAttributes {
+	var inactiveDevices *corev1.Uint32List
 	if mc.InactiveDevices != nil {
-		inactiveDevices = &cwssaws.Uint32List{}
+		inactiveDevices = &corev1.Uint32List{}
 		for _, d := range mc.InactiveDevices {
 			u := cutil.IntPtrToUint32Ptr(&d)
 			inactiveDevices.Items = append(inactiveDevices.Items, *u)
 		}
 	}
 
-	var deviceType *cwssaws.MachineCapabilityDeviceType
+	var deviceType *corev1.MachineCapabilityDeviceType
 	if mc.DeviceType != nil {
-		if dt := mc.DeviceType.ToProto(); dt != cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_UNKNOWN {
+		if dt := mc.DeviceType.ToProto(); dt != corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_UNKNOWN {
 			deviceType = &dt
 		}
 	}
 
-	return &cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+	return &corev1.InstanceTypeMachineCapabilityFilterAttributes{
 		CapabilityType:   mc.Type.ToProto(),
 		Name:             &mc.Name,
 		Frequency:        mc.Frequency,
@@ -332,7 +332,7 @@ func (mc *MachineCapability) ToProto() *cwssaws.InstanceTypeMachineCapabilityFil
 // Name silently leaves Type / Name as their zero values; callers that
 // need to reject such cases should call `(*MachineCapability).Validate()`
 // after `FromProto`. A nil attrs is a no-op (receiver untouched).
-func (mc *MachineCapability) FromProto(attrs *cwssaws.InstanceTypeMachineCapabilityFilterAttributes, idx int) {
+func (mc *MachineCapability) FromProto(attrs *corev1.InstanceTypeMachineCapabilityFilterAttributes, idx int) {
 	if attrs == nil {
 		return
 	}

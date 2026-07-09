@@ -13,7 +13,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -117,12 +117,12 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 		HasCredentials: false,
 		Created:        time.Now().UTC().Round(time.Microsecond),
 		Observability: &cdbm.DpuExtensionServiceObservability{
-			DpuExtensionServiceObservability: &cwssaws.DpuExtensionServiceObservability{
-				Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+			DpuExtensionServiceObservability: &corev1.DpuExtensionServiceObservability{
+				Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 					{
 						Name: &obsName,
-						Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Logging{
-							Logging: &cwssaws.DpuExtensionServiceObservabilityConfigLogging{
+						Config: &corev1.DpuExtensionServiceObservabilityConfig_Logging{
+							Logging: &corev1.DpuExtensionServiceObservabilityConfigLogging{
 								Path: "/var/log/service.log",
 							},
 						},
@@ -151,13 +151,13 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 		pagedInvIds = append(pagedInvIds, dpuExtService.ID.String())
 	}
 
-	pagedCtrlDpuExtensionServices := []*cwssaws.DpuExtensionService{}
+	pagedCtrlDpuExtensionServices := []*corev1.DpuExtensionService{}
 	for i := 0; i < 30; i++ {
 		version := fmt.Sprintf("V1-T%d", time.Now().Unix()*1000000)
-		ctrlDpuExtService := &cwssaws.DpuExtensionService{
+		ctrlDpuExtService := &corev1.DpuExtensionService{
 			ServiceId:  pagedDpuExtensionServices[i].ID.String(),
 			VersionCtr: 2,
-			LatestVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
+			LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
 				Version:       version,
 				Data:          "test-data",
 				Created:       time.Now().UTC().Round(time.Microsecond).Format(DpuExtensionServiceTimeFormat),
@@ -183,7 +183,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 	type args struct {
 		ctx                          context.Context
 		siteID                       uuid.UUID
-		dpuExtensionServiceInventory *cwssaws.DpuExtensionServiceInventory
+		dpuExtensionServiceInventory *corev1.DpuExtensionServiceInventory
 	}
 
 	tests := []struct {
@@ -204,8 +204,8 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				dpuExtensionServiceInventory: &cwssaws.DpuExtensionServiceInventory{
-					DpuExtensionServices: []*cwssaws.DpuExtensionService{},
+				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
+					DpuExtensionServices: []*corev1.DpuExtensionService{},
 				},
 			},
 			wantErr: true,
@@ -220,22 +220,22 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				dpuExtensionServiceInventory: &cwssaws.DpuExtensionServiceInventory{
-					DpuExtensionServices: []*cwssaws.DpuExtensionService{
+				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
+					DpuExtensionServices: []*corev1.DpuExtensionService{
 						{
 							ServiceId:  dpuExtensionService1.ID.String(),
 							VersionCtr: 2,
-							LatestVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
+							LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
 								Version:       "V1-T1761856992374052",
 								Data:          "test-data",
 								Created:       time.Now().UTC().Round(time.Microsecond).Format(DpuExtensionServiceTimeFormat),
 								HasCredential: false,
-								Observability: &cwssaws.DpuExtensionServiceObservability{
-									Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+								Observability: &corev1.DpuExtensionServiceObservability{
+									Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 										{
 											Name: &obsName,
-											Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Prometheus{
-												Prometheus: &cwssaws.DpuExtensionServiceObservabilityConfigPrometheus{
+											Config: &corev1.DpuExtensionServiceObservabilityConfig_Prometheus{
+												Prometheus: &corev1.DpuExtensionServiceObservabilityConfigPrometheus{
 													ScrapeIntervalSeconds: 15,
 													Endpoint:              "http://service-1:9090/metrics",
 												},
@@ -249,7 +249,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 						{
 							ServiceId:  dpuExtensionService2.ID.String(),
 							VersionCtr: 2,
-							LatestVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
+							LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
 								Version:       "V1-T1761856992374088",
 								Data:          "test-data",
 								Created:       time.Now().UTC().Round(time.Microsecond).Format(DpuExtensionServiceTimeFormat),
@@ -260,7 +260,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 						{
 							ServiceId:  dpuExtensionService3.ID.String(),
 							VersionCtr: 1,
-							LatestVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
+							LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
 								Version:       "V1-T1761856992375343",
 								Data:          "test-data",
 								Created:       time.Now().UTC().Round(time.Microsecond).Format(DpuExtensionServiceTimeFormat),
@@ -271,7 +271,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 						{
 							ServiceId:  dpuExtensionService4.ID.String(),
 							VersionCtr: 3,
-							LatestVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
+							LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
 								Version:       "V1-T1761856992376544",
 								Data:          "test-data",
 								Created:       time.Now().UTC().Round(time.Microsecond).Format(DpuExtensionServiceTimeFormat),
@@ -280,7 +280,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 							ActiveVersions: []string{"V1-T1761856992373071", "V1-T1761856992376544"},
 						},
 					},
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				},
 			},
 			updatedDpuExtensionServices: []*cdbm.DpuExtensionService{dpuExtensionService1, dpuExtensionService2, dpuExtensionService3, dpuExtensionService4},
@@ -297,9 +297,9 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				dpuExtensionServiceInventory: &cwssaws.DpuExtensionServiceInventory{
-					DpuExtensionServices: []*cwssaws.DpuExtensionService{},
-					InventoryStatus:      cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
+					DpuExtensionServices: []*corev1.DpuExtensionService{},
+					InventoryStatus:      corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 				},
 			},
 			wantErr: true,
@@ -314,11 +314,11 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				dpuExtensionServiceInventory: &cwssaws.DpuExtensionServiceInventory{
+				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
 					DpuExtensionServices: pagedCtrlDpuExtensionServices[0:10],
 					Timestamp:            timestamppb.Now(),
-					InventoryStatus:      cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus:      corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  3,
 						PageSize:    10,
@@ -340,11 +340,11 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				dpuExtensionServiceInventory: &cwssaws.DpuExtensionServiceInventory{
+				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
 					DpuExtensionServices: pagedCtrlDpuExtensionServices[20:30],
 					Timestamp:            timestamppb.Now(),
-					InventoryStatus:      cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus:      corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 3,
 						TotalPages:  3,
 						PageSize:    10,

@@ -41,6 +41,7 @@ carbide-dpf = { path = "../dpf" }
 carbide-firmware = { path = "../firmware" }
 carbide-health-metrics = { path = "../health-metrics" }
 carbide-health-report = { path = "../health-report" }
+carbide-http-connector = { path = "../http-connector" }
 carbide-instrument = { path = "../instrument" }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-ib-fabric = { path = "../ib-fabric" }

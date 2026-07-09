@@ -15,8 +15,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
-	cwsv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -407,10 +406,10 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 		pagedInvIds = append(pagedInvIds, subnet.ControllerNetworkSegmentID.String())
 	}
 
-	pagedCtrlSubnets := []*cwssaws.NetworkSegment{}
+	pagedCtrlSubnets := []*corev1.NetworkSegment{}
 	for i := 0; i < 34; i++ {
-		ctrlSubnet := &cwssaws.NetworkSegment{
-			Id:   &cwssaws.NetworkSegmentId{Value: pagedSubnets[i].ControllerNetworkSegmentID.String()},
+		ctrlSubnet := &corev1.NetworkSegment{
+			Id:   &corev1.NetworkSegmentId{Value: pagedSubnets[i].ControllerNetworkSegmentID.String()},
 			Name: pagedSubnets[i].Name,
 		}
 		pagedCtrlSubnets = append(pagedCtrlSubnets, ctrlSubnet)
@@ -437,7 +436,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	type args struct {
 		ctx             context.Context
 		siteID          uuid.UUID
-		subnetInventory *cwsv1.SubnetInventory
+		subnetInventory *corev1.SubnetInventory
 	}
 	tests := []struct {
 		name            string
@@ -462,11 +461,11 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				subnetInventory: &cwsv1.SubnetInventory{
-					Segments: []*cwsv1.NetworkSegment{
+				subnetInventory: &corev1.SubnetInventory{
+					Segments: []*corev1.NetworkSegment{
 						{
-							Id:    &cwsv1.NetworkSegmentId{Value: subnet1.ControllerNetworkSegmentID.String()},
-							State: cwsv1.TenantState_READY,
+							Id:    &corev1.NetworkSegmentId{Value: subnet1.ControllerNetworkSegmentID.String()},
+							State: corev1.TenantState_READY,
 						},
 					},
 				},
@@ -484,33 +483,33 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				subnetInventory: &cwsv1.SubnetInventory{
-					Segments: []*cwsv1.NetworkSegment{
+				subnetInventory: &corev1.SubnetInventory{
+					Segments: []*corev1.NetworkSegment{
 						{
-							Id:    &cwsv1.NetworkSegmentId{Value: subnet1.ControllerNetworkSegmentID.String()},
+							Id:    &corev1.NetworkSegmentId{Value: subnet1.ControllerNetworkSegmentID.String()},
 							Name:  subnet1.Name,
-							State: cwsv1.TenantState_READY,
+							State: corev1.TenantState_READY,
 							Mtu:   &mtu,
 						},
 						{
-							Id:    &cwsv1.NetworkSegmentId{Value: subnet5.ControllerNetworkSegmentID.String()},
+							Id:    &corev1.NetworkSegmentId{Value: subnet5.ControllerNetworkSegmentID.String()},
 							Name:  subnet5.Name,
-							State: cwsv1.TenantState_READY,
+							State: corev1.TenantState_READY,
 						},
 						{
-							Id:    &cwsv1.NetworkSegmentId{Value: subnet6.ControllerNetworkSegmentID.String()},
+							Id:    &corev1.NetworkSegmentId{Value: subnet6.ControllerNetworkSegmentID.String()},
 							Name:  subnet6.Name,
-							State: cwsv1.TenantState_READY,
+							State: corev1.TenantState_READY,
 						},
 						{
-							Id:    &cwsv1.NetworkSegmentId{Value: uuid.NewString()},
+							Id:    &corev1.NetworkSegmentId{Value: uuid.NewString()},
 							Name:  subnet8.ID.String(),
-							State: cwsv1.TenantState_READY,
+							State: corev1.TenantState_READY,
 						},
 						{
-							Id:    &cwsv1.NetworkSegmentId{Value: uuid.NewString()},
+							Id:    &corev1.NetworkSegmentId{Value: uuid.NewString()},
 							Name:  subnet9.ID.String(),
-							State: cwsv1.TenantState_READY,
+							State: corev1.TenantState_READY,
 						},
 					},
 				},
@@ -533,11 +532,11 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				subnetInventory: &cwssaws.SubnetInventory{
-					Segments:        []*cwssaws.NetworkSegment{},
+				subnetInventory: &corev1.SubnetInventory{
+					Segments:        []*corev1.NetworkSegment{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -557,10 +556,10 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				subnetInventory: &cwssaws.SubnetInventory{
+				subnetInventory: &corev1.SubnetInventory{
 					Segments:  pagedCtrlSubnets[0:10],
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -580,10 +579,10 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				subnetInventory: &cwssaws.SubnetInventory{
+				subnetInventory: &corev1.SubnetInventory{
 					Segments:  pagedCtrlSubnets[30:34],
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 4,
 						TotalPages:  4,
 						PageSize:    10,

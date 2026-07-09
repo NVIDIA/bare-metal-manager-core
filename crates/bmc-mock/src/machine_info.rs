@@ -311,7 +311,6 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LenovoGB300Nvl
             | HostHardwareType::NvidiaDgxGb300
-            | HostHardwareType::SupermicroGb300Nvl
             | HostHardwareType::NvidiaDgxVr
             | HostHardwareType::LiteOnPowerShelf
             | HostHardwareType::NvidiaDgxH100
@@ -319,6 +318,9 @@ impl HostMachineInfo {
             | HostHardwareType::GenericAmi
             | HostHardwareType::HpeProliantDl380aGen11
             | HostHardwareType::GenericSupermicro => redfish::oem::State::Other,
+            HostHardwareType::SupermicroGb300Nvl => redfish::oem::State::Supermicro(
+                redfish::oem::supermicro::manager::SupermicroState::default(),
+            ),
         }
     }
 
@@ -637,8 +639,8 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::dgx_gb300_nvl::DgxGB300Nvl {
-            system_0_serial_number: "1332425360072".into(),
-            chassis_0_serial_number: "1332425360072".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
+            chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
                 .expect("One DPU must present for DGX GB300 NVL")
@@ -680,8 +682,8 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::supermicro_gb300_nvl::SupermicroGB300Nvl {
-            system_0_serial_number: "A978250X6404492".into(),
-            chassis_0_serial_number: "HA261S056572".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
+            chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
                 .expect("One DPU must present for SMC GB300 NVL")
@@ -717,7 +719,7 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::lenovo_gb300_nvl::LenovoGB300Nvl {
-            system_0_serial_number: "012345678901234567890123".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
             chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
@@ -1059,5 +1061,43 @@ fn gb300_boards<'a>(
                 serial_number: io1.into(),
             },
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mac_address_pool::{Config, PoolConfig};
+
+    fn gb300_host_info(hw_type: HostHardwareType, pool: &mut MacAddressPool) -> HostMachineInfo {
+        let hw_mac_addr_pool = PoolConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 16)
+            .expect("valid hardware MAC pool");
+        let dpu = DpuMachineInfo::new(hw_type, pool, DpuSettings::default());
+        HostMachineInfo::new(hw_type, vec![dpu], pool, hw_mac_addr_pool)
+    }
+
+    #[test]
+    fn gb300_primary_serials_match_machine_serial() {
+        let pool_config =
+            PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
+        let mut pool = MacAddressPool::new(Config {
+            ranges: None,
+            pool: Some(pool_config),
+        });
+
+        let dgx = gb300_host_info(HostHardwareType::NvidiaDgxGb300, &mut pool);
+        let supermicro = gb300_host_info(HostHardwareType::SupermicroGb300Nvl, &mut pool);
+
+        let dgx_redfish = dgx.dgx_gb300_nvl();
+        assert_eq!(dgx_redfish.system_0_serial_number, dgx.serial);
+        assert_eq!(dgx_redfish.chassis_0_serial_number, dgx.serial);
+
+        let supermicro_redfish = supermicro.supermicro_gb300_nvl();
+        assert_eq!(supermicro_redfish.system_0_serial_number, supermicro.serial);
+        assert_eq!(
+            supermicro_redfish.chassis_0_serial_number,
+            supermicro.serial
+        );
+        assert_ne!(dgx.serial, supermicro.serial);
     }
 }

@@ -20,7 +20,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // GetAllMachineHealthReportHandler lists all health reports for a given Machine
@@ -139,8 +139,8 @@ func (h GetAllMachineHealthReportHandler) Handle(c echo.Context) error {
 
 	logger.Info().Str("machine_id", machineID).Str("site_id", site.ID.String()).Msg("Listing Machine health reports via Core gRPC proxy")
 
-	coreResp := &cwssaws.ListHealthReportResponse{}
-	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_ListMachineHealthReports_FullMethodName, &cwssaws.MachineId{Id: machineID}, coreResp, site.ID.String())
+	coreResp := &corev1.ListHealthReportResponse{}
+	apiErr := common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_ListMachineHealthReports_FullMethodName, &corev1.MachineId{Id: machineID}, coreResp, site.ID.String())
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "Failed to list Machine health reports via Core gRPC proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -285,7 +285,7 @@ func (h CreateOrUpdateMachineHealthReportHandler) Handle(c echo.Context) error {
 	logger.Info().Str("machine_id", machineID).Str("source", apiReq.Source).Str("site_id", site.ID.String()).Msg("Inserting Machine health report via Core gRPC proxy")
 
 	protoReq := apiReq.ToProto(machineID, dbUser)
-	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_InsertMachineHealthReport_FullMethodName, protoReq, nil, site.ID.String())
+	apiErr := common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_InsertMachineHealthReport_FullMethodName, protoReq, nil, site.ID.String())
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "Failed to insert Machine health report via Core gRPC proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -419,12 +419,12 @@ func (h DeleteMachineHealthReportHandler) Handle(c echo.Context) error {
 
 	logger.Info().Str("machine_id", machineID).Str("source", source).Str("site_id", site.ID.String()).Msg("Removing Machine health report via Core gRPC proxy")
 
-	protoReq := &cwssaws.RemoveMachineHealthReportRequest{
-		MachineId: &cwssaws.MachineId{Id: machineID},
+	protoReq := &corev1.RemoveMachineHealthReportRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
 		Source:    source,
 	}
 
-	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_RemoveMachineHealthReport_FullMethodName, protoReq, nil, site.ID.String())
+	apiErr := common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_RemoveMachineHealthReport_FullMethodName, protoReq, nil, site.ID.String())
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "Failed to remove Machine health report via Core gRPC proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)

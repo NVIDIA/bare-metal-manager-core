@@ -13,7 +13,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // APIVpcPeeringCreateRequest captures the request data for creating a new VPC peering
@@ -64,9 +64,9 @@ func (vpcr *APIVpcPeeringCreateRequest) Validate() error {
 // request-only data layered on top of the entity for the peering
 // create flow: the API request just carries the same VPC IDs that end
 // up on the entity, so this is a thin wrapper around `vp.ToProto()`.
-func (vpcr *APIVpcPeeringCreateRequest) ToProto(vp *cdbm.VpcPeering) *cwssaws.VpcPeeringCreationRequest {
+func (vpcr *APIVpcPeeringCreateRequest) ToProto(vp *cdbm.VpcPeering) *corev1.VpcPeeringCreationRequest {
 	vpProto := vp.ToProto()
-	return &cwssaws.VpcPeeringCreationRequest{
+	return &corev1.VpcPeeringCreationRequest{
 		Id:        vpProto.Id,
 		VpcId:     vpProto.VpcId,
 		PeerVpcId: vpProto.PeerVpcId,

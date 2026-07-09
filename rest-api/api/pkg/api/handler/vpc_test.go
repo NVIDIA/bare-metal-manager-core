@@ -27,8 +27,8 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -422,9 +422,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 	wrunWithAllocatedVni := &tmocks.WorkflowRun{}
 	wrunWithAllocatedVni.On("GetID").Return(wid)
 	wrunWithAllocatedVni.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		controllerVpc, ok := args.Get(1).(*cwssaws.Vpc)
+		controllerVpc, ok := args.Get(1).(*corev1.Vpc)
 		if ok {
-			controllerVpc.Status = &cwssaws.VpcStatus{
+			controllerVpc.Status = &corev1.VpcStatus{
 				Vni: &allocatedVni,
 			}
 		}
@@ -435,12 +435,12 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 		mock.AnythingOfType("uuid.UUID")).Return(wrun, nil)
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
-		"CreateVPCV2", mock.MatchedBy(func(req *cwssaws.VpcCreationRequest) bool {
+		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
 			return req != nil && req.Name == vpcWithAllocatedVniName
 		})).Return(wrunWithAllocatedVni, nil)
 
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"),
-		"CreateVPCV2", mock.MatchedBy(func(req *cwssaws.VpcCreationRequest) bool {
+		"CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
 			return req == nil || req.Name != vpcWithAllocatedVniName
 		})).Return(wrun, nil)
 
@@ -1133,7 +1133,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 				assert.Equal(t, len(rst.Labels), len(tt.args.reqData.Labels))
 			}
 
-			assert.True(t, tsc.AssertCalled(t, "ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateVPCV2", mock.MatchedBy(func(req *cwssaws.VpcCreationRequest) bool {
+			assert.True(t, tsc.AssertCalled(t, "ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateVPCV2", mock.MatchedBy(func(req *corev1.VpcCreationRequest) bool {
 				if req == nil {
 					return false
 				}
@@ -1739,13 +1739,13 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 				}
 			}
 
-			var lastUpdateVPCReq *cwssaws.VpcUpdateRequest
+			var lastUpdateVPCReq *corev1.VpcUpdateRequest
 			if tt.expectedNVLinkPartitionValue != nil || tt.expectNVLinkPartitionNil || tt.expectedNetworkSecurityGroupValue != nil || tt.expectNetworkSecurityGroupNil {
 				for i := len(tsc.Mock.Calls) - 1; i >= 0; i-- {
 					call := tsc.Mock.Calls[i]
 					if call.Method == "ExecuteWorkflow" && len(call.Arguments) >= 4 {
 						if wfName, ok := call.Arguments[2].(string); ok && wfName == "UpdateVPC" {
-							lastUpdateVPCReq, _ = call.Arguments[3].(*cwssaws.VpcUpdateRequest)
+							lastUpdateVPCReq, _ = call.Arguments[3].(*corev1.VpcUpdateRequest)
 							break
 						}
 					}

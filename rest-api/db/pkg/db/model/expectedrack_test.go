@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 )
 
@@ -35,9 +35,9 @@ func TestExpectedRack_FromProto(t *testing.T) {
 
 	t.Run("nil RackId leaves er.RackID unchanged", func(t *testing.T) {
 		er := &ExpectedRack{RackID: "preserved"}
-		er.FromProto(&cwssaws.ExpectedRack{
+		er.FromProto(&corev1.ExpectedRack{
 			RackId:        nil,
-			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
+			RackProfileId: &corev1.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, "preserved", er.RackID)
@@ -46,9 +46,9 @@ func TestExpectedRack_FromProto(t *testing.T) {
 
 	t.Run("empty RackId leaves er.RackID unchanged", func(t *testing.T) {
 		er := &ExpectedRack{RackID: "preserved"}
-		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:        &cwssaws.RackId{Id: ""},
-			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
+		er.FromProto(&corev1.ExpectedRack{
+			RackId:        &corev1.RackId{Id: ""},
+			RackProfileId: &corev1.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, "preserved", er.RackID)
@@ -57,13 +57,13 @@ func TestExpectedRack_FromProto(t *testing.T) {
 
 	t.Run("populates all proto fields", func(t *testing.T) {
 		er := &ExpectedRack{}
-		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:        &cwssaws.RackId{Id: "rack-1"},
-			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
-			Metadata: &cwssaws.Metadata{
+		er.FromProto(&corev1.ExpectedRack{
+			RackId:        &corev1.RackId{Id: "rack-1"},
+			RackProfileId: &corev1.RackProfileId{Id: "type-A"},
+			Metadata: &corev1.Metadata{
 				Name:        "rack-name",
 				Description: "primary rack",
-				Labels: []*cwssaws.Label{
+				Labels: []*corev1.Label{
 					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
@@ -78,9 +78,9 @@ func TestExpectedRack_FromProto(t *testing.T) {
 
 	t.Run("nil Metadata clears Name/Description and Labels", func(t *testing.T) {
 		er := &ExpectedRack{Name: "stale-name", Description: "stale-desc", Labels: map[string]string{"old": "val"}}
-		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:        &cwssaws.RackId{Id: "rack-1"},
-			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
+		er.FromProto(&corev1.ExpectedRack{
+			RackId:        &corev1.RackId{Id: "rack-1"},
+			RackProfileId: &corev1.RackProfileId{Id: "type-A"},
 			Metadata:      nil,
 		})
 
@@ -97,9 +97,9 @@ func TestExpectedRack_FromProto(t *testing.T) {
 			SiteID:    preservedSiteID,
 			CreatedBy: creator,
 		}
-		er.FromProto(&cwssaws.ExpectedRack{
-			RackId:        &cwssaws.RackId{Id: "rack-1"},
-			RackProfileId: &cwssaws.RackProfileId{Id: "type-A"},
+		er.FromProto(&corev1.ExpectedRack{
+			RackId:        &corev1.RackId{Id: "rack-1"},
+			RackProfileId: &corev1.RackProfileId{Id: "type-A"},
 		})
 
 		assert.Equal(t, preservedID, er.ID)

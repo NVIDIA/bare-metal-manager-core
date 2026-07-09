@@ -16,20 +16,20 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestMachine_NewAPIMachine(t *testing.T) {
 	mID := uuid.NewString()
 
-	machineInfo1 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:    &cwssaws.MachineId{Id: mID},
+	machineInfo1 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:    &corev1.MachineId{Id: mID},
 			State: "Ready",
-			DiscoveryInfo: &cwssaws.DiscoveryInfo{
-				NetworkInterfaces: []*cwssaws.NetworkInterface{
+			DiscoveryInfo: &corev1.DiscoveryInfo{
+				NetworkInterfaces: []*corev1.NetworkInterface{
 					{
-						PciProperties: &cwssaws.PciDeviceProperties{
+						PciProperties: &corev1.PciDeviceProperties{
 							Vendor:      "0x14e4",
 							Device:      "0x165f",
 							Path:        "/devices/pci0000:00/0000:00:1c.5/0000:04:00.0/net/eno8303",
@@ -37,7 +37,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						},
 					},
 					{
-						PciProperties: &cwssaws.PciDeviceProperties{
+						PciProperties: &corev1.PciDeviceProperties{
 							Vendor:      "0x14e4",
 							Device:      "0x165f",
 							Path:        "/devices/pci0000:00/0000:00:1c.5/0000:04:00.1/net/eno8403",
@@ -45,7 +45,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						},
 					},
 					{
-						PciProperties: &cwssaws.PciDeviceProperties{
+						PciProperties: &corev1.PciDeviceProperties{
 							Vendor:      "0x14e4",
 							Device:      "0x16d7",
 							Path:        "/devices/pci0000:30/0000:30:04.0/0000:31:00.0/net/eno12399np0",
@@ -53,7 +53,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						},
 					},
 					{
-						PciProperties: &cwssaws.PciDeviceProperties{
+						PciProperties: &corev1.PciDeviceProperties{
 							Vendor:      "0x14e4",
 							Device:      "0x16d7",
 							Path:        "/devices/pci0000:30/0000:30:04.0/0000:31:00.1/net/eno12409np1",
@@ -61,7 +61,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						},
 					},
 					{
-						PciProperties: &cwssaws.PciDeviceProperties{
+						PciProperties: &corev1.PciDeviceProperties{
 							Vendor:      "0x15b3",
 							Device:      "0xa2d6",
 							Path:        "/devices/pci0000:b0/0000:b0:02.0/0000:b1:00.0/net/enp177s0f0np0",
@@ -70,7 +70,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						},
 					},
 					{
-						PciProperties: &cwssaws.PciDeviceProperties{
+						PciProperties: &corev1.PciDeviceProperties{
 							Vendor:      "0x15b3",
 							Device:      "0xa2d6",
 							Path:        "/devices/pci0000:b0/0000:b0:02.0/0000:b1:00.1/net/enp177s0f1np1",
@@ -79,7 +79,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						},
 					},
 				},
-				BlockDevices: []*cwssaws.BlockDevice{
+				BlockDevices: []*corev1.BlockDevice{
 					{
 						Model:    "NO_MODEL",
 						Revision: "NO_REVISION",
@@ -102,7 +102,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						Revision: "MV.R00-0",
 					},
 				},
-				DmiData: &cwssaws.DmiData{
+				DmiData: &corev1.DmiData{
 					BoardName:     "7Z23CTOLWW",
 					BoardVersion:  "06",
 					BiosVersion:   "U8E122J-1.51",
@@ -113,7 +113,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 					ProductName:   "ThinkSystem SR670 V2",
 					SysVendor:     "Lenovo",
 				},
-				NvmeDevices: []*cwssaws.NvmeDevice{
+				NvmeDevices: []*corev1.NvmeDevice{
 					{
 						Model:       "Dell Ent NVMe CM6 RI 1.92TB",
 						FirmwareRev: "2.1.3",
@@ -127,7 +127,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						FirmwareRev: "2.1.3",
 					},
 				},
-				Gpus: []*cwssaws.Gpu{
+				Gpus: []*corev1.Gpu{
 					{
 						Name:           "NVIDIA H100 PCIe",
 						Serial:         "1654422005434",
@@ -139,9 +139,9 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						PciBusId:       "00000000:17:00.0",
 					},
 				},
-				InfinibandInterfaces: []*cwssaws.InfinibandInterface{
+				InfinibandInterfaces: []*corev1.InfinibandInterface{
 					{
-						PciProperties: &cwssaws.PciDeviceProperties{
+						PciProperties: &corev1.PciDeviceProperties{
 							Vendor:      "Mellanox Technologies",
 							Device:      "MT28908 Family [ConnectX-6]",
 							Path:        "/devices/pci0000:c9/0000:c9:02.0/0000:ca:00.0/infiniband/rocep202s0f0",
@@ -152,7 +152,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						Guid: "1070fd0300bd43ac",
 					},
 					{
-						PciProperties: &cwssaws.PciDeviceProperties{
+						PciProperties: &corev1.PciDeviceProperties{
 							Vendor:      "Mellanox Technologies",
 							Device:      "MT28908 Family [ConnectX-6]",
 							Path:        "/devices/pci0000:c9/0000:c9:02.0/0000:ca:00.1/infiniband/rocep202s0f1",
@@ -164,13 +164,13 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 					},
 				},
 			},
-			BmcInfo: &cwssaws.BmcInfo{
+			BmcInfo: &corev1.BmcInfo{
 				Ip:  cutil.GetPtr("10.100.1.1"),
 				Mac: cutil.GetPtr("00-B0-D0-63-C2-26"),
 			},
-			Health: &cwssaws.HealthReport{
+			Health: &corev1.HealthReport{
 				Source: "aggregate-host-health",
-				Successes: []*cwssaws.HealthProbeSuccess{
+				Successes: []*corev1.HealthProbeSuccess{
 					{
 						Id:     "BgpDaemonEnabled",
 						Target: nil,
@@ -252,7 +252,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 						Target: nil,
 					},
 				},
-				Alerts: []*cwssaws.HealthProbeAlert{
+				Alerts: []*corev1.HealthProbeAlert{
 					{
 						Id:            "HeartbeatTimeout",
 						Target:        cutil.GetPtr("hardware-health"),
@@ -791,7 +791,7 @@ func TestAPIMachineUpdateRequest_ToInsertHealthReportProto(t *testing.T) {
 			require.NotNil(t, got.MachineId)
 			assert.Equal(t, tt.machineID, got.MachineId.Id)
 			require.NotNil(t, got.HealthReportEntry)
-			assert.Equal(t, cwssaws.HealthReportApplyMode_Merge, got.HealthReportEntry.Mode)
+			assert.Equal(t, corev1.HealthReportApplyMode_Merge, got.HealthReportEntry.Mode)
 			require.NotNil(t, got.HealthReportEntry.Report)
 			assert.Equal(t, MachineHealthOverrideSourceOnlineRepair, got.HealthReportEntry.Report.Source)
 

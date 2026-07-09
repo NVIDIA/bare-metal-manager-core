@@ -14,9 +14,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageSubnet is an activity wrapper for Subnet management tasks that allows injecting DB access
@@ -25,7 +25,7 @@ type ManageSubnet struct {
 }
 
 // Function to Create Subnets with the Site Controller
-func (mm *ManageSubnet) CreateSubnetOnSite(ctx context.Context, request *cwssaws.NetworkSegmentCreationRequest) error {
+func (mm *ManageSubnet) CreateSubnetOnSite(ctx context.Context, request *corev1.NetworkSegmentCreationRequest) error {
 	logger := log.With().Str("Activity", "CreateSubnetOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -78,7 +78,7 @@ func (mm *ManageSubnet) CreateSubnetOnSite(ctx context.Context, request *cwssaws
 }
 
 // Function to Delete Subnets with the Site Controller
-func (mm *ManageSubnet) DeleteSubnetOnSite(ctx context.Context, request *cwssaws.NetworkSegmentDeletionRequest) error {
+func (mm *ManageSubnet) DeleteSubnetOnSite(ctx context.Context, request *corev1.NetworkSegmentDeletionRequest) error {
 	logger := log.With().Str("Activity", "DeleteSubnetOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -133,7 +133,7 @@ type ManageSubnetInventory struct {
 func (mmi *ManageSubnetInventory) DiscoverSubnetInventory(ctx context.Context) error {
 	logger := log.With().Str("Activity", "DiscoverSubnetInventory").Logger()
 	logger.Info().Msg("Starting activity")
-	inventoryImpl := manageInventoryImpl[*cwssaws.NetworkSegmentId, *cwssaws.NetworkSegment, *cwssaws.SubnetInventory]{
+	inventoryImpl := manageInventoryImpl[*corev1.NetworkSegmentId, *corev1.NetworkSegment, *corev1.SubnetInventory]{
 		itemType:               "Subnet",
 		config:                 mmi.config,
 		internalFindIDs:        subnetFindIDs,
@@ -150,18 +150,18 @@ func NewManageSubnetInventory(config ManageInventoryConfig) ManageSubnetInventor
 	}
 }
 
-func subnetFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.NetworkSegmentId, error) {
+func subnetFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*corev1.NetworkSegmentId, error) {
 	grpcServiceClient := grpcClient.GrpcServiceClient()
-	idList, err := grpcServiceClient.FindNetworkSegmentIds(ctx, &cwssaws.NetworkSegmentSearchFilter{})
+	idList, err := grpcServiceClient.FindNetworkSegmentIds(ctx, &corev1.NetworkSegmentSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
 	return idList.GetNetworkSegmentsIds(), nil
 }
 
-func subnetFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.NetworkSegmentId) ([]*cwssaws.NetworkSegment, error) {
+func subnetFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*corev1.NetworkSegmentId) ([]*corev1.NetworkSegment, error) {
 	grpcServiceClient := grpcClient.GrpcServiceClient()
-	list, err := grpcServiceClient.FindNetworkSegmentsByIds(ctx, &cwssaws.NetworkSegmentsByIdsRequest{
+	list, err := grpcServiceClient.FindNetworkSegmentsByIds(ctx, &corev1.NetworkSegmentsByIdsRequest{
 		NetworkSegmentsIds: ids,
 	})
 	if err != nil {
@@ -170,14 +170,14 @@ func subnetFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, id
 	return list.GetNetworkSegments(), nil
 }
 
-func subnetPagedInventory(allItemIDs []*cwssaws.NetworkSegmentId, pagedItems []*cwssaws.NetworkSegment, input *pagedInventoryInput) *cwssaws.SubnetInventory {
+func subnetPagedInventory(allItemIDs []*corev1.NetworkSegmentId, pagedItems []*corev1.NetworkSegment, input *pagedInventoryInput) *corev1.SubnetInventory {
 	itemIDs := []string{}
 	for _, id := range allItemIDs {
 		itemIDs = append(itemIDs, id.GetValue())
 	}
 
 	// Create an inventory page
-	inventory := &cwssaws.SubnetInventory{
+	inventory := &corev1.SubnetInventory{
 		Segments: pagedItems,
 		Timestamp: &timestamppb.Timestamp{
 			Seconds: time.Now().Unix(),

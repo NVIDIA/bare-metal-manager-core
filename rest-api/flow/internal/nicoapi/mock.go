@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 type mockClient struct {
@@ -21,7 +21,7 @@ type mockClient struct {
 	leakingSwitchIds            []string
 	firmwareUpdateTimeWindowErr error // If set, SetFirmwareUpdateTimeWindow will return this error
 	adminPowerControlErr        error // If set, AdminPowerControl will return this error
-	desiredFirmwareVersions     []*pb.DesiredFirmwareVersionEntry
+	desiredFirmwareVersions     []*corev1.DesiredFirmwareVersionEntry
 	// Topology lookups exercised by the rack-assignment safety check. Tests
 	// populate these via Set...RackId / Set...HostMachineIds helpers.
 	switchRackIDs              map[string]string // switch ID → rack ID
@@ -342,24 +342,24 @@ func (c *mockClient) RemoveHealthReportOverride(ctx context.Context, machineID s
 	return nil
 }
 
-func (c *mockClient) ComponentPowerControl(ctx context.Context, req *pb.ComponentPowerControlRequest) (*pb.ComponentPowerControlResponse, error) {
-	return &pb.ComponentPowerControlResponse{}, nil
+func (c *mockClient) ComponentPowerControl(ctx context.Context, req *corev1.ComponentPowerControlRequest) (*corev1.ComponentPowerControlResponse, error) {
+	return &corev1.ComponentPowerControlResponse{}, nil
 }
 
-func (c *mockClient) UpdateComponentFirmware(ctx context.Context, req *pb.UpdateComponentFirmwareRequest) (*pb.UpdateComponentFirmwareResponse, error) {
-	return &pb.UpdateComponentFirmwareResponse{}, nil
+func (c *mockClient) UpdateComponentFirmware(ctx context.Context, req *corev1.UpdateComponentFirmwareRequest) (*corev1.UpdateComponentFirmwareResponse, error) {
+	return &corev1.UpdateComponentFirmwareResponse{}, nil
 }
 
-func (c *mockClient) GetComponentFirmwareStatus(ctx context.Context, req *pb.GetComponentFirmwareStatusRequest) (*pb.GetComponentFirmwareStatusResponse, error) {
-	return &pb.GetComponentFirmwareStatusResponse{}, nil
+func (c *mockClient) GetComponentFirmwareStatus(ctx context.Context, req *corev1.GetComponentFirmwareStatusRequest) (*corev1.GetComponentFirmwareStatusResponse, error) {
+	return &corev1.GetComponentFirmwareStatusResponse{}, nil
 }
 
-func (c *mockClient) ListComponentFirmwareVersions(ctx context.Context, req *pb.ListComponentFirmwareVersionsRequest) (*pb.ListComponentFirmwareVersionsResponse, error) {
-	return &pb.ListComponentFirmwareVersionsResponse{}, nil
+func (c *mockClient) ListComponentFirmwareVersions(ctx context.Context, req *corev1.ListComponentFirmwareVersionsRequest) (*corev1.ListComponentFirmwareVersionsResponse, error) {
+	return &corev1.ListComponentFirmwareVersionsResponse{}, nil
 }
 
-func (c *mockClient) GetComponentInventory(ctx context.Context, req *pb.GetComponentInventoryRequest) (*pb.GetComponentInventoryResponse, error) {
-	return &pb.GetComponentInventoryResponse{}, nil
+func (c *mockClient) GetComponentInventory(ctx context.Context, req *corev1.GetComponentInventoryRequest) (*corev1.GetComponentInventoryResponse, error) {
+	return &corev1.GetComponentInventoryResponse{}, nil
 }
 
 func (c *mockClient) GetAllExpectedSwitchesLinked(_ context.Context) ([]LinkedExpectedSwitch, error) {
@@ -370,11 +370,11 @@ func (c *mockClient) GetAllExpectedPowerShelvesLinked(_ context.Context) ([]Link
 	return nil, nil
 }
 
-func (c *mockClient) GetDesiredFirmwareVersions(_ context.Context) ([]*pb.DesiredFirmwareVersionEntry, error) {
+func (c *mockClient) GetDesiredFirmwareVersions(_ context.Context) ([]*corev1.DesiredFirmwareVersionEntry, error) {
 	return c.desiredFirmwareVersions, nil
 }
 
-func (c *mockClient) FindExploredEndpointsByIds(_ context.Context, _ []string) ([]*pb.ExploredEndpoint, error) {
+func (c *mockClient) FindExploredEndpointsByIds(_ context.Context, _ []string) ([]*corev1.ExploredEndpoint, error) {
 	return nil, nil
 }
 

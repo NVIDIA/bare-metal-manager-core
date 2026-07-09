@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ManageNVLinkLogicalPartition is an activity wrapper for managing NVLinkLogicalPartition lifecycle that allows
@@ -29,7 +29,7 @@ type ManageNVLinkLogicalPartition struct {
 
 // Activity functions
 // UpdateNVLinkLogicalPartitionsInDB is a Temporal activity that takes a collection of NVLinkPartition data pushed by Site Agent and updates the DB
-func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx context.Context, siteID uuid.UUID, nvlinklogicalpartitionInventory *cwssaws.NVLinkLogicalPartitionInventory) error {
+func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx context.Context, siteID uuid.UUID, nvlinklogicalpartitionInventory *corev1.NVLinkLogicalPartitionInventory) error {
 	logger := log.With().Str("Activity", "UpdateNVLinkLogicalPartitionsInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -46,7 +46,7 @@ func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx c
 		return err
 	}
 
-	if nvlinklogicalpartitionInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if nvlinklogicalpartitionInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}

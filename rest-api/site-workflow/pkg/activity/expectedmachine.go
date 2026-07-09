@@ -17,10 +17,10 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cclient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageExpectedMachineInventory is an activity wrapper for Expected Machine inventory collection and publishing
@@ -33,8 +33,8 @@ type ManageExpectedMachineInventory struct {
 }
 
 type linkedExpectedMachineInfo struct {
-	expectedMachine       *cwssaws.ExpectedMachine
-	linkedExpectedMachine *cwssaws.LinkedExpectedMachine
+	expectedMachine       *corev1.ExpectedMachine
+	linkedExpectedMachine *corev1.LinkedExpectedMachine
 }
 
 // DiscoverExpectedMachineInventory is an activity to collect Expected Machine inventory and publish to Temporal queue
@@ -61,11 +61,11 @@ func (memi *ManageExpectedMachineInventory) DiscoverExpectedMachineInventory(ctx
 		logger.Warn().Err(err).Msg("Failed to retrieve ExpectedMachines using Core gRPC API")
 
 		// Error encountered before we've published anything, report inventory collection error to Cloud
-		inventory := &cwssaws.ExpectedMachineInventory{
+		inventory := &corev1.ExpectedMachineInventory{
 			Timestamp: &timestamppb.Timestamp{
 				Seconds: time.Now().Unix(),
 			},
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 			StatusMsg:       err.Error(),
 		}
 
@@ -83,11 +83,11 @@ func (memi *ManageExpectedMachineInventory) DiscoverExpectedMachineInventory(ctx
 		logger.Warn().Err(lerr).Msg("Failed to retrieve linked Machine IDs using Core gRPC API")
 
 		// Fatal error - report inventory collection error to Cloud
-		inventory := &cwssaws.ExpectedMachineInventory{
+		inventory := &corev1.ExpectedMachineInventory{
 			Timestamp: &timestamppb.Timestamp{
 				Seconds: time.Now().Unix(),
 			},
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 			StatusMsg:       lerr.Error(),
 		}
 
@@ -100,7 +100,7 @@ func (memi *ManageExpectedMachineInventory) DiscoverExpectedMachineInventory(ctx
 	}
 
 	// LinkedExpectedMachine data is missing ExpectedMachine ID so we build an intermediate map using MAC address
-	linkedMachinesByKey := make(map[string]*cwssaws.LinkedExpectedMachine)
+	linkedMachinesByKey := make(map[string]*corev1.LinkedExpectedMachine)
 	for _, linked := range linkedList.ExpectedMachines {
 		linkedMachinesByKey[linked.BmcMacAddress] = linked
 	}
@@ -127,7 +127,7 @@ func (memi *ManageExpectedMachineInventory) DiscoverExpectedMachineInventory(ctx
 	logger.Info().Int("ExpectedMachine Count", totalCount).Msg("Built ExpectedMachine list")
 
 	if totalCount == 0 {
-		inventoryPage := getPagedExpectedMachineInventory([]linkedExpectedMachineInfo{}, allExpectedMachineIDs, totalCount, 1, memi.cloudPageSize, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No ExpectedMachines reported by Site Controller")
+		inventoryPage := getPagedExpectedMachineInventory([]linkedExpectedMachineInfo{}, allExpectedMachineIDs, totalCount, 1, memi.cloudPageSize, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No ExpectedMachines reported by Site Controller")
 
 		_, serr := memi.temporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, "UpdateExpectedMachineInventory", memi.siteID, inventoryPage)
 		if serr != nil {
@@ -165,7 +165,7 @@ func (memi *ManageExpectedMachineInventory) DiscoverExpectedMachineInventory(ctx
 			totalCount,
 			cloudPage,
 			memi.cloudPageSize,
-			cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 			"Successfully retrieved ExpectedMachines from Site Controller",
 		)
 
@@ -188,17 +188,17 @@ func getPagedExpectedMachineInventory(
 	totalCount int,
 	page int,
 	pageSize int,
-	status cwssaws.InventoryStatus,
+	status corev1.InventoryStatus,
 	statusMessage string,
-) *cwssaws.ExpectedMachineInventory {
+) *corev1.ExpectedMachineInventory {
 	totalPages := totalCount / pageSize
 	if totalCount%pageSize > 0 {
 		totalPages++
 	}
 
 	// Build lists for this page from the sliced info list
-	pagedExpectedMachines := make([]*cwssaws.ExpectedMachine, 0, len(pagedInfo))
-	pagedLinkedMachines := make([]*cwssaws.LinkedExpectedMachine, 0, len(pagedInfo))
+	pagedExpectedMachines := make([]*corev1.ExpectedMachine, 0, len(pagedInfo))
+	pagedLinkedMachines := make([]*corev1.LinkedExpectedMachine, 0, len(pagedInfo))
 
 	for _, info := range pagedInfo {
 		pagedExpectedMachines = append(pagedExpectedMachines, info.expectedMachine)
@@ -209,7 +209,7 @@ func getPagedExpectedMachineInventory(
 	}
 
 	// Create an inventory page with the subset of ExpectedMachines and matching LinkedMachines
-	inventoryPage := &cwssaws.ExpectedMachineInventory{
+	inventoryPage := &corev1.ExpectedMachineInventory{
 		ExpectedMachines: pagedExpectedMachines,
 		LinkedMachines:   pagedLinkedMachines,
 		Timestamp: &timestamppb.Timestamp{
@@ -217,7 +217,7 @@ func getPagedExpectedMachineInventory(
 		},
 		InventoryStatus: status,
 		StatusMsg:       statusMessage,
-		InventoryPage: &cwssaws.InventoryPage{
+		InventoryPage: &corev1.InventoryPage{
 			TotalPages:  int32(totalPages),
 			CurrentPage: int32(page),
 			PageSize:    int32(pageSize),
@@ -255,7 +255,7 @@ func NewManageExpectedMachine(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient
 }
 
 // CreateExpectedMachineOnSite creates Expected Machine with NICo
-func (mem *ManageExpectedMachine) CreateExpectedMachineOnSite(ctx context.Context, request *cwssaws.ExpectedMachine) error {
+func (mem *ManageExpectedMachine) CreateExpectedMachineOnSite(ctx context.Context, request *corev1.ExpectedMachine) error {
 	logger := log.With().Str("Activity", "CreateExpectedMachineOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -295,7 +295,7 @@ func (mem *ManageExpectedMachine) CreateExpectedMachineOnSite(ctx context.Contex
 }
 
 // UpdateExpectedMachineOnSite updates Expected Machine on NICo
-func (mem *ManageExpectedMachine) UpdateExpectedMachineOnSite(ctx context.Context, request *cwssaws.ExpectedMachine) error {
+func (mem *ManageExpectedMachine) UpdateExpectedMachineOnSite(ctx context.Context, request *corev1.ExpectedMachine) error {
 	logger := log.With().Str("Activity", "UpdateExpectedMachineOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -334,7 +334,7 @@ func (mem *ManageExpectedMachine) UpdateExpectedMachineOnSite(ctx context.Contex
 }
 
 // DeleteExpectedMachineOnSite deletes Expected Machine on NICo
-func (mem *ManageExpectedMachine) DeleteExpectedMachineOnSite(ctx context.Context, request *cwssaws.ExpectedMachineRequest) error {
+func (mem *ManageExpectedMachine) DeleteExpectedMachineOnSite(ctx context.Context, request *corev1.ExpectedMachineRequest) error {
 	logger := log.With().Str("Activity", "DeleteExpectedMachineOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -371,7 +371,7 @@ func (mem *ManageExpectedMachine) DeleteExpectedMachineOnSite(ctx context.Contex
 }
 
 // CreateExpectedMachinesOnSite creates multiple Expected Machines with NICo using the nico batch endpoint
-func (mem *ManageExpectedMachine) CreateExpectedMachinesOnSite(ctx context.Context, request *cwssaws.BatchExpectedMachineOperationRequest) (*cwssaws.BatchExpectedMachineOperationResponse, error) {
+func (mem *ManageExpectedMachine) CreateExpectedMachinesOnSite(ctx context.Context, request *corev1.BatchExpectedMachineOperationRequest) (*corev1.BatchExpectedMachineOperationResponse, error) {
 	logger := log.With().Str("Activity", "CreateExpectedMachinesOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -424,7 +424,7 @@ func (mem *ManageExpectedMachine) CreateExpectedMachinesOnSite(ctx context.Conte
 }
 
 // CreateExpectedMachineOnFlow creates an Expected Machine as a component in Flow via AddComponent
-func (mem *ManageExpectedMachine) CreateExpectedMachineOnFlow(ctx context.Context, request *cwssaws.ExpectedMachine) error {
+func (mem *ManageExpectedMachine) CreateExpectedMachineOnFlow(ctx context.Context, request *corev1.ExpectedMachine) error {
 	logger := log.With().Str("Activity", "CreateExpectedMachineOnFlow").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -458,7 +458,7 @@ func (mem *ManageExpectedMachine) CreateExpectedMachineOnFlow(ctx context.Contex
 }
 
 // CreateExpectedMachinesOnFlow creates multiple Expected Machines as components in Flow via AddComponent
-func (mem *ManageExpectedMachine) CreateExpectedMachinesOnFlow(ctx context.Context, request *cwssaws.BatchExpectedMachineOperationRequest) error {
+func (mem *ManageExpectedMachine) CreateExpectedMachinesOnFlow(ctx context.Context, request *corev1.BatchExpectedMachineOperationRequest) error {
 	logger := log.With().Str("Activity", "CreateExpectedMachinesOnFlow").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -502,7 +502,7 @@ func (mem *ManageExpectedMachine) CreateExpectedMachinesOnFlow(ctx context.Conte
 }
 
 // expectedMachineToFlowComponent converts a NICo ExpectedMachine proto to an Flow Component proto
-func expectedMachineToFlowComponent(em *cwssaws.ExpectedMachine) *flowv1.Component {
+func expectedMachineToFlowComponent(em *corev1.ExpectedMachine) *flowv1.Component {
 	component := &flowv1.Component{
 		Type: flowv1.ComponentType_COMPONENT_TYPE_COMPUTE,
 		Info: &flowv1.DeviceInfo{
@@ -555,7 +555,7 @@ func expectedMachineToFlowComponent(em *cwssaws.ExpectedMachine) *flowv1.Compone
 }
 
 // UpdateExpectedMachinesOnSite updates multiple Expected Machines on NICo using the batch endpoint
-func (mem *ManageExpectedMachine) UpdateExpectedMachinesOnSite(ctx context.Context, request *cwssaws.BatchExpectedMachineOperationRequest) (*cwssaws.BatchExpectedMachineOperationResponse, error) {
+func (mem *ManageExpectedMachine) UpdateExpectedMachinesOnSite(ctx context.Context, request *corev1.BatchExpectedMachineOperationRequest) (*corev1.BatchExpectedMachineOperationResponse, error) {
 	logger := log.With().Str("Activity", "UpdateExpectedMachinesOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")

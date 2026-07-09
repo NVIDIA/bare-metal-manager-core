@@ -36,6 +36,8 @@ type ExpectedSwitchUpdateRequest struct {
 	NvOsUsername NullableString `json:"nvOsUsername,omitempty"`
 	// NvOS password for the Expected Switch
 	NvOsPassword NullableString `json:"nvOsPassword,omitempty"`
+	// MAC addresses of the Expected Switch's NvOS management interfaces
+	NvosMacAddresses []string `json:"nvosMacAddresses,omitempty"`
 	// Optional rack identifier for this component
 	RackId NullableString `json:"rackId,omitempty"`
 	// Optional BMC IP address (IPv4 or IPv6). When set, pre-allocates a reserved IP for the BMC.
@@ -374,6 +376,38 @@ func (o *ExpectedSwitchUpdateRequest) SetNvOsPasswordNil() {
 // UnsetNvOsPassword ensures that no value is present for NvOsPassword, not even an explicit nil
 func (o *ExpectedSwitchUpdateRequest) UnsetNvOsPassword() {
 	o.NvOsPassword.Unset()
+}
+
+// GetNvosMacAddresses returns the NvosMacAddresses field value if set, zero value otherwise.
+func (o *ExpectedSwitchUpdateRequest) GetNvosMacAddresses() []string {
+	if o == nil || IsNil(o.NvosMacAddresses) {
+		var ret []string
+		return ret
+	}
+	return o.NvosMacAddresses
+}
+
+// GetNvosMacAddressesOk returns a tuple with the NvosMacAddresses field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *ExpectedSwitchUpdateRequest) GetNvosMacAddressesOk() ([]string, bool) {
+	if o == nil || IsNil(o.NvosMacAddresses) {
+		return nil, false
+	}
+	return o.NvosMacAddresses, true
+}
+
+// HasNvosMacAddresses returns a boolean if a field has been set.
+func (o *ExpectedSwitchUpdateRequest) HasNvosMacAddresses() bool {
+	if o != nil && !IsNil(o.NvosMacAddresses) {
+		return true
+	}
+
+	return false
+}
+
+// SetNvosMacAddresses gets a reference to the given []string and assigns it to the NvosMacAddresses field.
+func (o *ExpectedSwitchUpdateRequest) SetNvosMacAddresses(v []string) {
+	o.NvosMacAddresses = v
 }
 
 // GetRackId returns the RackId field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -825,6 +859,9 @@ func (o ExpectedSwitchUpdateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if o.NvOsPassword.IsSet() {
 		toSerialize["nvOsPassword"] = o.NvOsPassword.Get()
+	}
+	if !IsNil(o.NvosMacAddresses) {
+		toSerialize["nvosMacAddresses"] = o.NvosMacAddresses
 	}
 	if o.RackId.IsSet() {
 		toSerialize["rackId"] = o.RackId.Get()

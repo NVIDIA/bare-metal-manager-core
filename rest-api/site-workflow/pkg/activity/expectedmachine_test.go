@@ -7,9 +7,9 @@ import (
 	"context"
 	"testing"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -135,7 +135,7 @@ func TestManageExpectedMachineInventory_DiscoverExpectedMachineInventory(t *test
 				tc.AssertNumberOfCalls(t, "ExecuteWorkflow", totalPages)
 			}
 
-			inventory, ok := tc.Calls[0].Arguments[4].(*cwssaws.ExpectedMachineInventory)
+			inventory, ok := tc.Calls[0].Arguments[4].(*corev1.ExpectedMachineInventory)
 			assert.True(t, ok)
 
 			if tt.args.wantTotalItems == 0 {
@@ -144,7 +144,7 @@ func TestManageExpectedMachineInventory_DiscoverExpectedMachineInventory(t *test
 				assert.Equal(t, tt.fields.cloudPageSize, len(inventory.ExpectedMachines))
 			}
 
-			assert.Equal(t, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
+			assert.Equal(t, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
 			assert.Equal(t, totalPages, int(inventory.InventoryPage.TotalPages))
 			assert.Equal(t, 1, int(inventory.InventoryPage.CurrentPage))
 			assert.Equal(t, tt.fields.cloudPageSize, int(inventory.InventoryPage.PageSize))
@@ -165,7 +165,7 @@ func TestManageExpectedMachine_CreateExpectedMachineOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.ExpectedMachine
+		request *corev1.ExpectedMachine
 	}
 	tests := []struct {
 		name    string
@@ -180,8 +180,8 @@ func TestManageExpectedMachine_CreateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
-					Id:                  &cwssaws.UUID{Value: "test-machine-001"},
+				request: &corev1.ExpectedMachine{
+					Id:                  &corev1.UUID{Value: "test-machine-001"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN123456789",
 				},
@@ -195,8 +195,8 @@ func TestManageExpectedMachine_CreateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
-					Id:                  &cwssaws.UUID{Value: "test-machine-002"},
+				request: &corev1.ExpectedMachine{
+					Id:                  &corev1.UUID{Value: "test-machine-002"},
 					BmcMacAddress:       "",
 					ChassisSerialNumber: "SN123456789",
 				},
@@ -210,8 +210,8 @@ func TestManageExpectedMachine_CreateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
-					Id:                  &cwssaws.UUID{Value: "test-machine-003"},
+				request: &corev1.ExpectedMachine{
+					Id:                  &corev1.UUID{Value: "test-machine-003"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "",
 				},
@@ -225,7 +225,7 @@ func TestManageExpectedMachine_CreateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
+				request: &corev1.ExpectedMachine{
 					Id:                  nil,
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN123456789",
@@ -240,8 +240,8 @@ func TestManageExpectedMachine_CreateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
-					Id:                  &cwssaws.UUID{Value: "test-machine-004"},
+				request: &corev1.ExpectedMachine{
+					Id:                  &corev1.UUID{Value: "test-machine-004"},
 					BmcMacAddress:       "",
 					ChassisSerialNumber: "",
 				},
@@ -284,7 +284,7 @@ func TestManageExpectedMachine_UpdateExpectedMachineOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.ExpectedMachine
+		request *corev1.ExpectedMachine
 	}
 	tests := []struct {
 		name    string
@@ -299,8 +299,8 @@ func TestManageExpectedMachine_UpdateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
-					Id:                  &cwssaws.UUID{Value: "test-update-001"},
+				request: &corev1.ExpectedMachine{
+					Id:                  &corev1.UUID{Value: "test-update-001"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN123456789",
 				},
@@ -314,7 +314,7 @@ func TestManageExpectedMachine_UpdateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
+				request: &corev1.ExpectedMachine{
 					Id:                  nil,
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN123456789",
@@ -329,8 +329,8 @@ func TestManageExpectedMachine_UpdateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
-					Id:                  &cwssaws.UUID{Value: "test-update-002"},
+				request: &corev1.ExpectedMachine{
+					Id:                  &corev1.UUID{Value: "test-update-002"},
 					BmcMacAddress:       "",
 					ChassisSerialNumber: "SN123456789",
 				},
@@ -344,8 +344,8 @@ func TestManageExpectedMachine_UpdateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
-					Id:                  &cwssaws.UUID{Value: "test-update-003"},
+				request: &corev1.ExpectedMachine{
+					Id:                  &corev1.UUID{Value: "test-update-003"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "",
 				},
@@ -359,8 +359,8 @@ func TestManageExpectedMachine_UpdateExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachine{
-					Id:                  &cwssaws.UUID{Value: "test-update-004"},
+				request: &corev1.ExpectedMachine{
+					Id:                  &corev1.UUID{Value: "test-update-004"},
 					BmcMacAddress:       "",
 					ChassisSerialNumber: "",
 				},
@@ -403,7 +403,7 @@ func TestManageExpectedMachine_DeleteExpectedMachineOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.ExpectedMachineRequest
+		request *corev1.ExpectedMachineRequest
 	}
 	tests := []struct {
 		name    string
@@ -418,8 +418,8 @@ func TestManageExpectedMachine_DeleteExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachineRequest{
-					Id:            &cwssaws.UUID{Value: "test-delete-001"},
+				request: &corev1.ExpectedMachineRequest{
+					Id:            &corev1.UUID{Value: "test-delete-001"},
 					BmcMacAddress: "00:11:22:33:44:55",
 				},
 			},
@@ -432,7 +432,7 @@ func TestManageExpectedMachine_DeleteExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachineRequest{
+				request: &corev1.ExpectedMachineRequest{
 					Id:            nil,
 					BmcMacAddress: "00:11:22:33:44:55",
 				},
@@ -446,8 +446,8 @@ func TestManageExpectedMachine_DeleteExpectedMachineOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.ExpectedMachineRequest{
-					Id:            &cwssaws.UUID{Value: "test-delete-002"},
+				request: &corev1.ExpectedMachineRequest{
+					Id:            &corev1.UUID{Value: "test-delete-002"},
 					BmcMacAddress: "",
 				},
 			},
@@ -489,7 +489,7 @@ func TestManageExpectedMachine_CreateExpectedMachinesOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.BatchExpectedMachineOperationRequest
+		request *corev1.BatchExpectedMachineOperationRequest
 	}
 	tests := []struct {
 		name    string
@@ -504,16 +504,16 @@ func TestManageExpectedMachine_CreateExpectedMachinesOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.BatchExpectedMachineOperationRequest{
-					ExpectedMachines: &cwssaws.ExpectedMachineList{
-						ExpectedMachines: []*cwssaws.ExpectedMachine{
+				request: &corev1.BatchExpectedMachineOperationRequest{
+					ExpectedMachines: &corev1.ExpectedMachineList{
+						ExpectedMachines: []*corev1.ExpectedMachine{
 							{
-								Id:                  &cwssaws.UUID{Value: "test-batch-001"},
+								Id:                  &corev1.UUID{Value: "test-batch-001"},
 								BmcMacAddress:       "00:11:22:33:44:55",
 								ChassisSerialNumber: "SN123456789",
 							},
 							{
-								Id:                  &cwssaws.UUID{Value: "test-batch-002"},
+								Id:                  &corev1.UUID{Value: "test-batch-002"},
 								BmcMacAddress:       "00:11:22:33:44:66",
 								ChassisSerialNumber: "SN987654321",
 							},
@@ -531,9 +531,9 @@ func TestManageExpectedMachine_CreateExpectedMachinesOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.BatchExpectedMachineOperationRequest{
-					ExpectedMachines: &cwssaws.ExpectedMachineList{
-						ExpectedMachines: []*cwssaws.ExpectedMachine{},
+				request: &corev1.BatchExpectedMachineOperationRequest{
+					ExpectedMachines: &corev1.ExpectedMachineList{
+						ExpectedMachines: []*corev1.ExpectedMachine{},
 					},
 				},
 			},
@@ -586,7 +586,7 @@ func TestManageExpectedMachine_UpdateExpectedMachinesOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.BatchExpectedMachineOperationRequest
+		request *corev1.BatchExpectedMachineOperationRequest
 	}
 	tests := []struct {
 		name    string
@@ -601,16 +601,16 @@ func TestManageExpectedMachine_UpdateExpectedMachinesOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.BatchExpectedMachineOperationRequest{
-					ExpectedMachines: &cwssaws.ExpectedMachineList{
-						ExpectedMachines: []*cwssaws.ExpectedMachine{
+				request: &corev1.BatchExpectedMachineOperationRequest{
+					ExpectedMachines: &corev1.ExpectedMachineList{
+						ExpectedMachines: []*corev1.ExpectedMachine{
 							{
-								Id:                  &cwssaws.UUID{Value: "test-batch-update-001"},
+								Id:                  &corev1.UUID{Value: "test-batch-update-001"},
 								BmcMacAddress:       "00:11:22:33:44:55",
 								ChassisSerialNumber: "SN123456789",
 							},
 							{
-								Id:                  &cwssaws.UUID{Value: "test-batch-update-002"},
+								Id:                  &corev1.UUID{Value: "test-batch-update-002"},
 								BmcMacAddress:       "00:11:22:33:44:66",
 								ChassisSerialNumber: "SN987654321",
 							},
@@ -628,9 +628,9 @@ func TestManageExpectedMachine_UpdateExpectedMachinesOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.BatchExpectedMachineOperationRequest{
-					ExpectedMachines: &cwssaws.ExpectedMachineList{
-						ExpectedMachines: []*cwssaws.ExpectedMachine{},
+				request: &corev1.BatchExpectedMachineOperationRequest{
+					ExpectedMachines: &corev1.ExpectedMachineList{
+						ExpectedMachines: []*corev1.ExpectedMachine{},
 					},
 				},
 			},
@@ -675,16 +675,16 @@ func TestManageExpectedMachine_UpdateExpectedMachinesOnSite(t *testing.T) {
 func TestManageExpectedMachine_CreateExpectedMachineOnFlow(t *testing.T) {
 	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
 		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
-		err := mm.CreateExpectedMachineOnFlow(context.Background(), &cwssaws.ExpectedMachine{
-			Id: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
+		err := mm.CreateExpectedMachineOnFlow(context.Background(), &corev1.ExpectedMachine{
+			Id: &corev1.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
 		})
 		assert.NoError(t, err)
 	})
 
 	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
 		mm := ManageExpectedMachine{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
-		err := mm.CreateExpectedMachineOnFlow(context.Background(), &cwssaws.ExpectedMachine{
-			Id: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
+		err := mm.CreateExpectedMachineOnFlow(context.Background(), &corev1.ExpectedMachine{
+			Id: &corev1.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
 		})
 		assert.NoError(t, err)
 	})
@@ -693,10 +693,10 @@ func TestManageExpectedMachine_CreateExpectedMachineOnFlow(t *testing.T) {
 func TestManageExpectedMachine_CreateExpectedMachinesOnFlow(t *testing.T) {
 	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
 		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
-		err := mm.CreateExpectedMachinesOnFlow(context.Background(), &cwssaws.BatchExpectedMachineOperationRequest{
-			ExpectedMachines: &cwssaws.ExpectedMachineList{
-				ExpectedMachines: []*cwssaws.ExpectedMachine{
-					{Id: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001"},
+		err := mm.CreateExpectedMachinesOnFlow(context.Background(), &corev1.BatchExpectedMachineOperationRequest{
+			ExpectedMachines: &corev1.ExpectedMachineList{
+				ExpectedMachines: []*corev1.ExpectedMachine{
+					{Id: &corev1.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001"},
 				},
 			},
 		})
@@ -705,10 +705,10 @@ func TestManageExpectedMachine_CreateExpectedMachinesOnFlow(t *testing.T) {
 
 	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
 		mm := ManageExpectedMachine{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
-		err := mm.CreateExpectedMachinesOnFlow(context.Background(), &cwssaws.BatchExpectedMachineOperationRequest{
-			ExpectedMachines: &cwssaws.ExpectedMachineList{
-				ExpectedMachines: []*cwssaws.ExpectedMachine{
-					{Id: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001"},
+		err := mm.CreateExpectedMachinesOnFlow(context.Background(), &corev1.BatchExpectedMachineOperationRequest{
+			ExpectedMachines: &corev1.ExpectedMachineList{
+				ExpectedMachines: []*corev1.ExpectedMachine{
+					{Id: &corev1.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001"},
 				},
 			},
 		})
@@ -721,11 +721,11 @@ func Test_expectedMachineToFlowComponent(t *testing.T) {
 	int32Ptr := func(i int32) *int32 { return &i }
 
 	t.Run("maps all fields correctly", func(t *testing.T) {
-		em := &cwssaws.ExpectedMachine{
-			Id:                  &cwssaws.UUID{Value: "em-001"},
+		em := &corev1.ExpectedMachine{
+			Id:                  &corev1.UUID{Value: "em-001"},
 			BmcMacAddress:       "AA:BB:CC:DD:EE:FF",
 			ChassisSerialNumber: "CHASSIS-001",
-			RackId:              &cwssaws.RackId{Id: "rack-001"},
+			RackId:              &corev1.RackId{Id: "rack-001"},
 			Name:                strPtr("compute-node-1"),
 			Manufacturer:        strPtr("NVIDIA"),
 			Model:               strPtr("DGX-H100"),
@@ -756,8 +756,8 @@ func Test_expectedMachineToFlowComponent(t *testing.T) {
 	})
 
 	t.Run("handles minimal fields (nil optionals)", func(t *testing.T) {
-		em := &cwssaws.ExpectedMachine{
-			Id: &cwssaws.UUID{Value: "em-002"}, BmcMacAddress: "11:22:33:44:55:66", ChassisSerialNumber: "CHASSIS-002",
+		em := &corev1.ExpectedMachine{
+			Id: &corev1.UUID{Value: "em-002"}, BmcMacAddress: "11:22:33:44:55:66", ChassisSerialNumber: "CHASSIS-002",
 		}
 		component := expectedMachineToFlowComponent(em)
 		assert.Equal(t, flowv1.ComponentType_COMPONENT_TYPE_COMPUTE, component.Type)
@@ -771,17 +771,17 @@ func Test_expectedMachineToFlowComponent(t *testing.T) {
 	})
 
 	t.Run("ignores empty rack_id wrapper", func(t *testing.T) {
-		em := &cwssaws.ExpectedMachine{
-			Id: &cwssaws.UUID{Value: "em-003"}, BmcMacAddress: "22:33:44:55:66:77",
-			ChassisSerialNumber: "CHASSIS-003", RackId: &cwssaws.RackId{Id: ""},
+		em := &corev1.ExpectedMachine{
+			Id: &corev1.UUID{Value: "em-003"}, BmcMacAddress: "22:33:44:55:66:77",
+			ChassisSerialNumber: "CHASSIS-003", RackId: &corev1.RackId{Id: ""},
 		}
 		component := expectedMachineToFlowComponent(em)
 		assert.Nil(t, component.RackId)
 	})
 
 	t.Run("partial position fields", func(t *testing.T) {
-		em := &cwssaws.ExpectedMachine{
-			Id: &cwssaws.UUID{Value: "em-004"}, BmcMacAddress: "33:44:55:66:77:88",
+		em := &corev1.ExpectedMachine{
+			Id: &corev1.UUID{Value: "em-004"}, BmcMacAddress: "33:44:55:66:77:88",
 			ChassisSerialNumber: "CHASSIS-004", SlotId: int32Ptr(5),
 		}
 		component := expectedMachineToFlowComponent(em)

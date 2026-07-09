@@ -1617,6 +1617,110 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     );
 }
 
+/// `Created` is the state every machine row begins in, and a machine rests
+/// there until its initial state sync moves it along -- a just-created host
+/// leaves as soon as its creation flow completes. The controller treats a
+/// handling pass in that window as normal cadence: it records a Wait outcome
+/// (never an error) and leaves the machine parked in Created.
+#[crate::sqlx_test]
+async fn test_host_in_created_waits_for_initial_state_sync(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // Rest the host in Created with a fresh state timestamp (well within the
+    // Created SLA) and no recorded outcome, so the outcome read back below is
+    // the one this handling pass produces.
+    set_host_controller_state_stuck_in(&env, mh.id, &ManagedHostState::Created, 1).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host_machine = mh.host().db_machine(&mut txn).await;
+    txn.rollback().await.unwrap();
+
+    assert_eq!(
+        host_machine.current_state(),
+        &ManagedHostState::Created,
+        "a host in Created should stay parked there until its initial state sync"
+    );
+    let outcome = host_machine
+        .controller_state_outcome
+        .expect("the controller should have handled the host and recorded an outcome");
+    assert!(
+        matches!(
+            &outcome,
+            PersistentStateHandlerOutcome::Wait { reason, .. } if !reason.is_empty()
+        ),
+        "handling a host in Created should record a Wait outcome with a reason, got {outcome:?}"
+    );
+}
+
+/// The machine state controller deliberately dequeues predicted hosts --
+/// machines site-explorer has minted from exploration reports before
+/// discovery promotes them to full hosts. A handling pass over one resting in
+/// `Created` is the same quiet Wait as for a full host: no error, and the
+/// machine stays parked in Created.
+#[crate::sqlx_test]
+async fn test_predicted_host_parked_in_created_waits_for_initial_state_sync(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mock_host = ManagedHostConfig::zero_dpu();
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+    let _mock = common::api_fixtures::site_explorer::ingest_zero_dpu_host_awaiting_first_lease(
+        &env, mock_host,
+    )
+    .await?;
+
+    // The pre-lease machine minted by ingestion: a PredictedHost-type id whose
+    // interfaces are still predictions.
+    let machine_id = {
+        let mut txn = env.db_txn().await;
+        let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+            .await?
+            .expect("zero-DPU ingest should have minted a predicted interface");
+        predicted.machine_id
+    };
+    assert!(
+        machine_id.machine_type().is_predicted_host(),
+        "the pre-lease machine should be a predicted host, got {machine_id}"
+    );
+
+    // Rest the predicted host in Created -- the state every machine row begins
+    // in -- with a fresh state timestamp and no recorded outcome.
+    set_host_controller_state_stuck_in(&env, machine_id, &ManagedHostState::Created, 1).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let search_config = MachineSearchConfig {
+        include_predicted_host: true,
+        ..Default::default()
+    };
+
+    let mut txn = env.db_txn().await;
+    let machine = db::machine::find_one(txn.as_mut(), &machine_id, search_config)
+        .await?
+        .expect("the predicted host machine should still exist");
+    assert_eq!(
+        machine.current_state(),
+        &ManagedHostState::Created,
+        "a predicted host should stay parked in Created until discovery promotes it"
+    );
+    let outcome = machine
+        .controller_state_outcome
+        .expect("the controller should have handled the predicted host and recorded an outcome");
+    assert!(
+        matches!(
+            &outcome,
+            PersistentStateHandlerOutcome::Wait { reason, .. } if !reason.is_empty()
+        ),
+        "handling a predicted host in Created should record a Wait outcome, got {outcome:?}"
+    );
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 async fn test_state_sla(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;

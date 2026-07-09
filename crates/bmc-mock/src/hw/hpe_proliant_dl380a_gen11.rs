@@ -52,6 +52,7 @@ impl HpeProliantDl380aGen11<'_> {
                     .build(),
                 ]),
                 host_interfaces: None,
+                serial_interfaces: None,
                 firmware_version: Some("iLO 6 v1.58"),
                 oem: Some(redfish::manager::Oem::Hpe),
             }],
@@ -119,6 +120,7 @@ impl HpeProliantDl380aGen11<'_> {
                 log_services: None,
                 storage: None,
                 processors: None,
+                serial_console: None,
                 secure_boot_available: true,
                 // Locked-down production state expected by nico: USB boot off,
                 // virtualization on, UEFI HTTP boot available, serial console

@@ -16,11 +16,11 @@ import (
 
 	vpcPeeringActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpcpeering"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateVpcPeeringInventory is a workflow called by Site Agent to update VPC Peering inventory for a Site
-func UpdateVpcPeeringInventory(ctx workflow.Context, siteID string, vpcPeeringInventory *cwssaws.VPCPeeringInventory) error {
+func UpdateVpcPeeringInventory(ctx workflow.Context, siteID string, vpcPeeringInventory *corev1.VPCPeeringInventory) error {
 	logger := log.With().Str("Workflow", "UpdateVpcPeeringInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

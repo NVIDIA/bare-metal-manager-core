@@ -24,6 +24,7 @@ use ::rpc::forge::{
     ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::network_segment::{
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_network_segment, create_tenant_network_segment,
 };
@@ -45,6 +46,114 @@ use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
+async fn set_use_admin_network_changed(
+    env: &api_fixtures::TestEnv,
+    dpu_machine_id: MachineId,
+    value: bool,
+) {
+    let mut txn = env.db_txn().await;
+    db::machine::set_use_admin_network_changed(txn.deref_mut(), &dpu_machine_id, value)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+}
+
+async fn use_admin_network_changed(
+    env: &api_fixtures::TestEnv,
+    dpu_machine_id: MachineId,
+) -> Option<bool> {
+    let mut txn = env.db_txn().await;
+    let dpu = db::machine::find_one(txn.deref_mut(), &dpu_machine_id, Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    txn.commit().await.unwrap();
+    dpu.network_config.value.use_admin_network_changed
+}
+
+async fn bump_dpu_network_config_version(env: &api_fixtures::TestEnv, dpu_machine_id: MachineId) {
+    let mut txn = env.db_txn().await;
+    let dpu = db::machine::find_one(txn.deref_mut(), &dpu_machine_id, Default::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let version = dpu.network_config.version;
+    let value = dpu.network_config.value;
+    db::machine::try_update_network_config(txn.deref_mut(), &dpu_machine_id, version, &value)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+}
+
+async fn record_dpu_network_status(
+    env: &api_fixtures::TestEnv,
+    dpu_machine_id: MachineId,
+    network_config_version: Option<String>,
+) {
+    env.api
+        .record_dpu_network_status(tonic::Request::new(DpuNetworkStatus {
+            dpu_machine_id: Some(dpu_machine_id),
+            dpu_agent_version: Some(dpu::TEST_DPU_AGENT_VERSION.to_string()),
+            observed_at: Some(SystemTime::now().into()),
+            dpu_health: Some(rpc::health::HealthReport {
+                source: "forge-dpu-agent".to_string(),
+                triggered_by: None,
+                observed_at: None,
+                successes: vec![],
+                alerts: vec![],
+            }),
+            network_config_version,
+            instance_id: None,
+            instance_config_version: None,
+            instance_network_config_version: None,
+            interfaces: vec![],
+            network_config_error: None,
+            client_certificate_expiry_unix_epoch_secs: None,
+            fabric_interfaces: vec![],
+            last_dhcp_requests: vec![],
+            dpu_extension_service_version: None,
+            dpu_extension_services: vec![],
+            astra_config_status: None,
+        }))
+        .await
+        .unwrap();
+}
+
+#[crate::sqlx_test]
+async fn test_clear_use_admin_network_changed_keeps_newer_version_flag(pool: sqlx::PgPool) {
+    let env = api_fixtures::create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+
+    set_use_admin_network_changed(&env, dpu_machine_id, true).await;
+    let mut txn = env.db_txn().await;
+    let stale_version = db::machine::find_one(txn.deref_mut(), &dpu_machine_id, Default::default())
+        .await
+        .unwrap()
+        .unwrap()
+        .network_config
+        .version;
+    txn.commit().await.unwrap();
+
+    bump_dpu_network_config_version(&env, dpu_machine_id).await;
+
+    let mut txn = env.db_txn().await;
+    let cleared = db::machine::clear_use_admin_network_changed_if_version_matches(
+        txn.deref_mut(),
+        &dpu_machine_id,
+        &stale_version,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    assert!(!cleared);
+    assert_eq!(
+        use_admin_network_changed(&env, dpu_machine_id).await,
+        Some(true)
+    );
+}
+
 #[crate::sqlx_test]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
@@ -61,6 +170,80 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
         .await;
 
     assert!(response.is_ok());
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_does_not_clear_use_admin_network_changed(
+    pool: sqlx::PgPool,
+) {
+    let env = api_fixtures::create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+
+    set_use_admin_network_changed(&env, dpu_machine_id, true).await;
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.use_admin_network_changed, Some(true));
+    assert_eq!(
+        use_admin_network_changed(&env, dpu_machine_id).await,
+        Some(true)
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_record_dpu_network_status_clears_use_admin_network_changed_for_matching_version(
+    pool: sqlx::PgPool,
+) {
+    let env = api_fixtures::create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+
+    set_use_admin_network_changed(&env, dpu_machine_id, true).await;
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    record_dpu_network_status(
+        &env,
+        dpu_machine_id,
+        Some(response.managed_host_config_version),
+    )
+    .await;
+
+    assert_eq!(
+        use_admin_network_changed(&env, dpu_machine_id).await,
+        Some(false)
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_record_dpu_network_status_keeps_use_admin_network_changed_without_matching_version(
+    pool: sqlx::PgPool,
+) {
+    let env = api_fixtures::create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+
+    set_use_admin_network_changed(&env, dpu_machine_id, true).await;
+    record_dpu_network_status(&env, dpu_machine_id, None).await;
+
+    assert_eq!(
+        use_admin_network_changed(&env, dpu_machine_id).await,
+        Some(true)
+    );
 }
 
 #[crate::sqlx_test]

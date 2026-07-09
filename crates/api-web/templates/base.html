@@ -8,7 +8,7 @@
 	</head>
 	<body class="preload">
 		<nav>
-			<h3><a href="/admin" id="site-name">carbide-web</a></h3>
+			<h3><a href="/admin" id="site-name">NICo &bull; {{ Self::site_name() }}</a></h3>
 			<form action="/admin/search" class="search-container">
 				<input type="search" placeholder="fm100.., 10.2.., etc" name="q" tabindex="1" title="Enter a machine id, UUID, IP address, MAC address, serial number, or shortcode">
 				<input type="submit" value="">
@@ -252,16 +252,6 @@
 				return match ? match[1] : defaultSiteName;
 			}
 
-			// Update the sidebar header label with the deployment site
-			// (e.g. "carbide • dev3" on api-dev3.frg.nvidia.com).
-			function setSiteHeader() {
-				const displayName = getSiteName("localDev");
-				const siteNameElement = document.getElementById("site-name");
-				if (siteNameElement) {
-					siteNameElement.innerHTML = `carbide • ${displayName}`;
-				}
-			}
-
 			function create_el(type, attributes, htmlAttributes) {
 				const el = document.createElement(type);
 				Object.assign(el, attributes);
@@ -346,7 +336,6 @@
 
 			document.addEventListener("DOMContentLoaded", function(event){
 				attachJsonLink();
-				setSiteHeader();
 				prettifyJSONs();
 			});
 

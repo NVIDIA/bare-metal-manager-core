@@ -17,11 +17,11 @@ import (
 
 	networkSecurityGroupActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/networksecuritygroup"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateNetworkSecurityGroupInventory is a workflow called by Site Agent to update NetworkSecurityGroup inventory for a Site
-func UpdateNetworkSecurityGroupInventory(ctx workflow.Context, siteID string, networkSecurityGroupInventory *cwssaws.NetworkSecurityGroupInventory) (err error) {
+func UpdateNetworkSecurityGroupInventory(ctx workflow.Context, siteID string, networkSecurityGroupInventory *corev1.NetworkSecurityGroupInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateNetworkSecurityGroupInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

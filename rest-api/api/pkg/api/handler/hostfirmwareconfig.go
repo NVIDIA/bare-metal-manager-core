@@ -13,7 +13,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // NICo Core (forge.Forge) methods proxied by this handler.
@@ -88,7 +88,7 @@ func (uhfch CreateOrUpdateHostFirmwareConfigHandler) Handle(c echo.Context) erro
 		Str("siteID", apiRequest.SiteID).
 		Msg("upserting Host Firmware Config via Core proxy")
 
-	var protoResponse cwssaws.HostFirmwareConfigResponse
+	var protoResponse corev1.HostFirmwareConfigResponse
 	apiErr = common.ExecuteCoreGRPC(ctx, temporalClient, upsertHostFirmwareConfigMethod, protoRequest, &protoResponse, siteID)
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "failed to upsert Host Firmware Config via Core proxy")

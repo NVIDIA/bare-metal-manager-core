@@ -6,8 +6,8 @@ package workflow
 import (
 	"time"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -52,7 +52,7 @@ func DiscoverExpectedPowerShelfInventory(ctx workflow.Context) error {
 
 // CreateExpectedPowerShelf is a workflow to create a new Expected Power Shelf using the CreateExpectedPowerShelfOnSite activity,
 // then also creates the component in Flow via CreateExpectedPowerShelfOnFlow.
-func CreateExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPowerShelf) error {
+func CreateExpectedPowerShelf(ctx workflow.Context, request *corev1.ExpectedPowerShelf) error {
 	logger := log.With().Str("Workflow", "ExpectedPowerShelf").Str("Action", "Create").Str("ID", request.GetExpectedPowerShelfId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.ShelfSerialNumber).Logger()
 
 	logger.Info().Msg("starting workflow")
@@ -95,7 +95,7 @@ func CreateExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPow
 
 // UpdateExpectedPowerShelf is a workflow to update an Expected Power Shelf using the UpdateExpectedPowerShelfOnSite activity
 // TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
-func UpdateExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPowerShelf) error {
+func UpdateExpectedPowerShelf(ctx workflow.Context, request *corev1.ExpectedPowerShelf) error {
 	logger := log.With().Str("Workflow", "ExpectedPowerShelf").Str("Action", "Update").Str("ID", request.GetExpectedPowerShelfId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.ShelfSerialNumber).Logger()
 
 	logger.Info().Msg("starting workflow")
@@ -131,7 +131,7 @@ func UpdateExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPow
 
 // DeleteExpectedPowerShelf is a workflow to Delete an Expected Power Shelf using the DeleteExpectedPowerShelfOnSite activity
 // TODO: Add Flow DeleteComponent dual-write when update/delete Flow support is implemented
-func DeleteExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPowerShelfRequest) error {
+func DeleteExpectedPowerShelf(ctx workflow.Context, request *corev1.ExpectedPowerShelfRequest) error {
 	logger := log.With().Str("Workflow", "ExpectedPowerShelf").Str("Action", "Delete").Str("ID", request.GetExpectedPowerShelfId().GetValue()).Str("optional MAC address", request.BmcMacAddress).Logger()
 
 	logger.Info().Msg("starting workflow")

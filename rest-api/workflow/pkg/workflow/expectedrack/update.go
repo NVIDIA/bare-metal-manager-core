@@ -15,12 +15,12 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	expectedRackActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedrack"
 )
 
 // UpdateExpectedRackInventory is a workflow called by Site Agent to update ExpectedRack inventory for a Site
-func UpdateExpectedRackInventory(ctx workflow.Context, siteID string, expectedRackInventory *cwssaws.ExpectedRackInventory) (err error) {
+func UpdateExpectedRackInventory(ctx workflow.Context, siteID string, expectedRackInventory *corev1.ExpectedRackInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateExpectedRackInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

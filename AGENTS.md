@@ -195,7 +195,7 @@ The decision rule:
   reviewed escape hatch — but only when the value is bounded *at the call
   site*; anything caller-supplied stays in `#[context]`.
 - **Point-in-time state** ("how many machines are in state X") stays on the
-  existing observable-gauge / `SharedMetricsHolder` pattern — the kit models
+  existing observable-gauge / `SharedMetricsHolder` pattern — the framework models
   occurrences, not state.
 
 New metric names are validated at compile time (`carbide_` prefix, `_total`

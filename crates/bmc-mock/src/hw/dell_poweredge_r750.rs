@@ -105,6 +105,7 @@ impl DellPowerEdgeR750<'_> {
                     .interface_enabled(false)
                     .build(),
                 ]),
+                serial_interfaces: None,
                 firmware_version: Some("6.00.30.00"),
                 oem: Some(redfish::manager::Oem::Dell),
             }],
@@ -173,7 +174,7 @@ impl DellPowerEdgeR750<'_> {
                 model: Some("PowerEdge R750".into()),
                 eth_interfaces: Some(eth_interfaces),
                 serial_number,
-                boot_order_mode: redfish::computer_system::BootOrderMode::DellOem,
+                boot_order_mode: redfish::computer_system::BootOrderMode::OrderedCollection,
                 callbacks,
                 chassis: vec!["System.Embedded.1".into()],
                 boot_options: Some(boot_options),
@@ -193,6 +194,7 @@ impl DellPowerEdgeR750<'_> {
                 // failure.
                 storage: Some(vec![]),
                 processors: None,
+                serial_console: None,
                 secure_boot_available: true,
                 base_bios: Some(redfish::bios::builder(&redfish::bios::resource(system_id))
                     .attributes(json!({

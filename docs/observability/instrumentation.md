@@ -1,6 +1,6 @@
 # NICo Instrumentation
 
-How to instrument significant events with `carbide-instrument`: this kit provides a single declaration that
+How to instrument significant events with `carbide-instrument`: this framework provides a single declaration that
 produces a structured log line, a Prometheus metric, or both -- correlated, consistently
 named, and with metric cardinality bounded by the type system.
 
@@ -20,7 +20,7 @@ named, and with metric cardinality bounded by the type system.
 - **The metric name in the attribute is the exposed name, verbatim** -- what you grep on a
   dashboard is the string in the source. The derive validates it at compile time
   (`carbide_` prefix, `_total` for counters, a unit suffix for histograms).
-- **Point-in-time state (gauges) is unchanged.** The kit models *occurrences*; observable
+- **Point-in-time state (gauges) is unchanged.** The framework models *occurrences*; observable
   gauges and `SharedMetricsHolder` snapshots stay exactly as they are.
 
 Part of the instrumentation-coherency initiative
@@ -70,7 +70,7 @@ struct PowerControlFailed {
     #[label]
     backend: Backend, // enum -> label backend="rms" (metric AND log)
     #[label]
-    outcome: Outcome, // the kit's shared ok|error vocabulary
+    outcome: Outcome, // the framework's shared ok|error vocabulary
     #[context]
     bmc_ip: std::net::IpAddr, // log-only, never a metric label
     #[context]
@@ -117,14 +117,41 @@ Every event declares its log side and its metric side independently:
 
 `log = off` constructs no `tracing` event at all -- it is not "logged then filtered".
 
-For per-instance control (count everything, log only failures), implement
-`Event::log_at()` by hand; derive support for dynamic levels arrives with the
-outbound-call RED helper ([#3172](https://github.com/NVIDIA/infra-controller/issues/3172)).
+For per-instance control (count everything, log only failures), declare `log = dynamic`
+and implement `DynamicLog` -- the derive routes `Event::log_at()` through it:
+
+```rust
+impl DynamicLog for CallFinished {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            Outcome::Error => LogAt::Level(tracing::Level::WARN),
+            Outcome::Ok => LogAt::Off, // counted, never logged
+        }
+    }
+}
+```
+
+## Outbound calls
+
+Every generated gRPC client method is already wrapped: it records
+`carbide_external_call_duration_milliseconds{backend, operation, outcome}` on every
+completion (the histogram's `_count` is the request and error rate) and writes one WARN --
+with the error as log-only context -- on failure. For other outbound boundaries
+(Redfish, HTTP, IPMI), wrap the call directly:
+
+```rust
+let response = carbide_instrument::red::instrumented("redfish", "power_control",
+    client.power_control(&target, action)).await?;
+```
+
+The `backend`/`operation` labels are `&'static str` on purpose: compile-time literals
+only, never values from the wire -- the type is the cardinality guard. Streaming calls
+record time to the stream handle, not the stream's lifetime.
 
 ## Rules for labels and context
 
 A metric's time-series count is the product of its label domains, so every label domain
-must be small and closed. The kit makes that structural instead of a review checklist:
+must be small and closed. The framework makes that structural instead of a review checklist:
 
 - **`#[label]` fields must implement `LabelValue`**, which is derivable **only for
   fieldless enums**. A derived label value is the variant's snake_case name.
@@ -175,15 +202,15 @@ enforces the conventions at compile time:
 - All new metrics use the `carbide_` prefix.
 - Counter names have a `_total` suffix.
 - Histograms end in their unit: `_seconds`, `_milliseconds`, `_microseconds`, `_bytes`.
-- Gauge names (existing pattern, not the kit) are mixed legacy forms; follow established
+- Gauge names (existing pattern, not the framework) are mixed legacy forms; follow established
   neighboring names rather than a single suffix rule.
 
 The name in the attribute is what lands on `/metrics`, byte for byte -- a dashboard name
 greps straight back to the declaring line. (Implementation detail: the Prometheus exporter
-appends the conventional suffix, so the kit registers the instrument
+appends the conventional suffix, so the framework registers the instrument
 without the suffix; the two cancel out to exactly the attribute string.)
 
-**Existing metric names never change.** Migrating a pre-standard site onto the kit keeps
+**Existing metric names never change.** Migrating a pre-standard site onto the framework keeps
 its frozen name via `name_unchecked` (plus an explicit `unit = "..."` for histograms);
 a search for `name_unchecked` finds every grandfathered site, and new metrics cannot
 use the opt-out silently.
@@ -232,7 +259,7 @@ inspection.
 
 - **`LogLimiter`-gated sites**: before migration, the limiter suppresses the log call
   before any event fires, so the true rate is invisible to everything -- including the
-  kit. After migration onto an `Event`, the metric ticks on every occurrence and the
+  framework. After migration onto an `Event`, the metric ticks on every occurrence and the
   limiter gates only the log line.
 - **The logfmt `component` key** continues to come from the subscriber configuration and
   span attributes (as everywhere else); the event's `component` names the subsystem for

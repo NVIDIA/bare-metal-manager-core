@@ -205,9 +205,7 @@ jobs:
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 
       - name: Regenerate protobuf code
-        run: |
-          make core-proto
-          make -C flow gen-nicoapi-pb
+        run: make core-proto
 
       - name: Check for uncommitted changes
         run: bash ../scripts/check-repo-clean.sh "REST protobuf generation"

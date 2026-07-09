@@ -15,15 +15,28 @@
  * limitations under the License.
  */
 
+//! Packet-level counters for the Kea hook, plus the metrics endpoint, health
+//! plumbing, and the certificate-expiry gauge.
+//!
+//! The counters are `carbide-instrument` events declared with `log = off`:
+//! the Kea process installs no tracing subscriber, so the C++ `LOG_ERROR`
+//! lines in `callouts.cc` remain the log side and the events move only the
+//! metric. The two request counters keep their pre-standard names via
+//! `name_unchecked` -- the names and the `reason` label key existing
+//! dashboards select on stay byte-identical. The certificate-expiry gauge is
+//! point-in-time state, not an occurrence, and stays on the observable-gauge
+//! pattern.
+
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
+use carbide_instrument::{Event, LabelValue, emit};
 use metrics_endpoint::{
     HealthController, MetricsEndpointConfig, MetricsSetup, new_metrics_setup, run_metrics_endpoint,
 };
-use opentelemetry::KeyValue;
+use opentelemetry::StringValue;
 use rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use tokio::runtime::Runtime;
 use tokio::time::{interval, timeout};
@@ -32,6 +45,196 @@ use crate::{CONFIG, CarbideDhcpContext, CarbideDhcpMetrics, tls};
 
 const METRICS_CAPTURE_FREQUENCY: Duration = Duration::from_secs(30);
 const READINESS_CHECK_FREQUENCY: Duration = Duration::from_secs(30);
+
+/// The DHCP message type of an outgoing reply, as a bounded metric label.
+///
+/// Built from the raw RFC 2131 message-type code Kea reports for the response
+/// (`Pkt4::getType()`): DHCPOFFER = 2, DHCPACK = 5, DHCPNAK = 6. Those three
+/// are the only types a DHCPv4 server sends, so any other code counts as
+/// `other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub enum ReplyMessageType {
+    Offer,
+    Ack,
+    Nak,
+    Other,
+}
+
+impl From<u8> for ReplyMessageType {
+    fn from(message_type_code: u8) -> Self {
+        match message_type_code {
+            2 => Self::Offer, // DHCPOFFER
+            5 => Self::Ack,   // DHCPACK
+            6 => Self::Nak,   // DHCPNAK
+            _ => Self::Other,
+        }
+    }
+}
+
+/// Why the hook dropped or refused a DHCP request, as the bounded `reason`
+/// label on the grandfathered `carbide-dhcp.dropped_requests` counter.
+///
+/// The rendered strings are part of the metric's contract: the long-counted
+/// reasons render byte-identically to the strings their sites have always
+/// reported (including every `DiscoveryBuilderResult` name, which
+/// `pkt4_receive` passes through verbatim on a discovery failure), and the
+/// newer refusal reasons follow the same PascalCase style.
+/// [`DropReason::Unknown`] closes the domain: a reason string outside this
+/// taxonomy buckets there instead of minting a new time series.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropReason {
+    /// `pkt4_receive` refuses packets that did not arrive through a relay.
+    NonRelayedPacket,
+    /// `pkt4_receive` drops packets whose machine carries no usable IPv4
+    /// address.
+    NoUsableIPv4Address,
+    // One variant per `DiscoveryBuilderResult` name: on a machine-discovery
+    // failure, `pkt4_receive` reports the result's name verbatim as the
+    // reason. `Success` covers the defensive edge where discovery reported
+    // success yet returned no machine object.
+    Success,
+    InvalidDiscoveryBuilderPointer,
+    InvalidMacAddress,
+    InvalidVendorClass,
+    InvalidMachinePointer,
+    BuilderError,
+    FetchMachineError,
+    InvalidCircuitId,
+    TooManyFailuresError,
+    InvalidDesiredAddress,
+    /// `pkt4_send` hit an exception while encoding a response option.
+    OptionEncodingFailed,
+    /// `pkt4_send` found no machine object on the callout context.
+    MissingMachineContext,
+    /// `lease4_select` refused to let Kea assign its selected lease (missing
+    /// hook state, or no usable address from Carbide).
+    AllocationRefused,
+    /// `lease4_renew` refused to let Kea extend an existing lease (missing
+    /// hook state, or no usable address from Carbide).
+    RenewalRefused,
+    /// The FFI reason string was not part of this taxonomy; bucketing keeps
+    /// the label domain closed.
+    Unknown,
+}
+
+impl DropReason {
+    /// Every variant, as the single source for the string mapping and tests.
+    // Every variant must appear here: `From<&str>` resolves FFI strings by
+    // scanning this table, so a variant missing from it buckets to `Unknown`.
+    const ALL: [Self; 17] = [
+        Self::NonRelayedPacket,
+        Self::NoUsableIPv4Address,
+        Self::Success,
+        Self::InvalidDiscoveryBuilderPointer,
+        Self::InvalidMacAddress,
+        Self::InvalidVendorClass,
+        Self::InvalidMachinePointer,
+        Self::BuilderError,
+        Self::FetchMachineError,
+        Self::InvalidCircuitId,
+        Self::TooManyFailuresError,
+        Self::InvalidDesiredAddress,
+        Self::OptionEncodingFailed,
+        Self::MissingMachineContext,
+        Self::AllocationRefused,
+        Self::RenewalRefused,
+        Self::Unknown,
+    ];
+
+    /// The exact string exposed as the metric's `reason` label value, and
+    /// accepted back across the FFI. PascalCase by contract: dashboards
+    /// select on these bytes.
+    const fn as_label(self) -> &'static str {
+        match self {
+            Self::NonRelayedPacket => "NonRelayedPacket",
+            Self::NoUsableIPv4Address => "NoUsableIPv4Address",
+            Self::Success => "Success",
+            Self::InvalidDiscoveryBuilderPointer => "InvalidDiscoveryBuilderPointer",
+            Self::InvalidMacAddress => "InvalidMacAddress",
+            Self::InvalidVendorClass => "InvalidVendorClass",
+            Self::InvalidMachinePointer => "InvalidMachinePointer",
+            Self::BuilderError => "BuilderError",
+            Self::FetchMachineError => "FetchMachineError",
+            Self::InvalidCircuitId => "InvalidCircuitId",
+            Self::TooManyFailuresError => "TooManyFailuresError",
+            Self::InvalidDesiredAddress => "InvalidDesiredAddress",
+            Self::OptionEncodingFailed => "OptionEncodingFailed",
+            Self::MissingMachineContext => "MissingMachineContext",
+            Self::AllocationRefused => "AllocationRefused",
+            Self::RenewalRefused => "RenewalRefused",
+            Self::Unknown => "Unknown",
+        }
+    }
+}
+
+/// Manual rather than derived: the derive renders variant names in
+/// snake_case, and this label's values are the grandfathered PascalCase
+/// strings existing dashboards already select on. The fieldless enum itself
+/// keeps the domain closed.
+impl LabelValue for DropReason {
+    fn label_value(&self) -> StringValue {
+        StringValue::from(self.as_label())
+    }
+}
+
+impl From<&str> for DropReason {
+    /// Maps an FFI reason string onto the taxonomy; anything unrecognized
+    /// buckets to [`DropReason::Unknown`].
+    fn from(reason: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.as_label() == reason)
+            .unwrap_or(Self::Unknown)
+    }
+}
+
+/// A DHCP request reached the hook's `pkt4_receive` callout, whatever becomes
+/// of it next.
+#[derive(Event)]
+#[event(
+    name = "carbide-dhcp.requests",
+    name_unchecked,
+    component = "carbide-dhcp",
+    log = off,
+    metric = counter,
+    describe = "Number of DHCP requests received."
+)]
+pub struct DhcpRequestReceived;
+
+/// The hook dropped or refused a DHCP request. This counts refusal events,
+/// not packets: an exchange that fails at more than one callout (a refused
+/// lease selection and then a missing machine at send time) counts each site.
+#[derive(Event)]
+#[event(
+    name = "carbide-dhcp.dropped_requests",
+    name_unchecked,
+    component = "carbide-dhcp",
+    log = off,
+    metric = counter,
+    describe = "Number of DHCP requests dropped or refused, by reason."
+)]
+pub struct DhcpRequestDropped {
+    #[label]
+    pub reason: DropReason,
+}
+
+/// A fully assembled DHCP reply left `pkt4_send` for transmission: an `offer`
+/// proposes a lease, an `ack` commits one, a `nak` refuses one.
+///
+/// Unlike the two request counters this metric is new, so it uses the
+/// standard name rather than a grandfathered one.
+#[derive(Event)]
+#[event(
+    name = "carbide_dhcp_replies_sent_total",
+    component = "carbide-dhcp",
+    log = off,
+    metric = counter,
+    describe = "Number of DHCP replies sent, by reply message type."
+)]
+pub struct DhcpReplySent {
+    #[label]
+    pub message_type: ReplyMessageType,
+}
 
 pub async fn certificate_loop() {
     let mut interval = tokio::time::interval(METRICS_CAPTURE_FREQUENCY);
@@ -54,18 +257,7 @@ pub async fn certificate_loop() {
 
 fn initialize_metrics(mconf: &MetricsSetup) -> CarbideDhcpMetrics {
     let certificate_expiration_value = Arc::new(AtomicI64::new(0));
-    // initialize metrics.
     let metrics = CarbideDhcpMetrics {
-        total_requests_counter: mconf
-            .meter
-            .u64_counter("carbide-dhcp.requests")
-            .with_description("The total number of DHCP requests")
-            .build(),
-        dropped_requests_counter: mconf
-            .meter
-            .u64_counter("carbide-dhcp.dropped_requests")
-            .with_description("The number of dropped DHCP requests")
-            .build(),
         forge_client_config: tls::build_forge_client_config(),
         certificate_expiration_value: certificate_expiration_value.clone(),
     };
@@ -184,17 +376,36 @@ pub async fn start_readiness_monitoring() {
     }
 }
 
+/// True once [`metrics_server`] has installed the global meter provider and
+/// stored the initialized metrics state.
+///
+/// Event instruments resolve from the global meter once per event type on
+/// first emit, so emitting before the provider install would bind that event
+/// type to the no-op meter for the process lifetime. The gate also keeps an
+/// endpointless configuration recording nothing, as before.
+fn metrics_initialized() -> bool {
+    CONFIG
+        .read()
+        .expect("config lock poisoned")
+        .metrics
+        .is_some()
+}
+
 pub fn increment_total_requests() {
-    if let Some(metrics) = CONFIG.read().expect("config lock poisoned").metrics.clone() {
-        metrics.total_requests_counter.add(1, &[]);
+    if metrics_initialized() {
+        emit(DhcpRequestReceived);
     }
 }
 
-pub fn increment_dropped_requests(reason: String) {
-    if let Some(metrics) = CONFIG.read().expect("config lock poisoned").metrics.clone() {
-        metrics
-            .dropped_requests_counter
-            .add(1, &[KeyValue::new("reason", reason)]);
+pub fn increment_dropped_requests(reason: DropReason) {
+    if metrics_initialized() {
+        emit(DhcpRequestDropped { reason });
+    }
+}
+
+pub fn increment_reply_sent(message_type: ReplyMessageType) {
+    if metrics_initialized() {
+        emit(DhcpReplySent { message_type });
     }
 }
 
@@ -222,19 +433,24 @@ pub fn set_service_healthy(healthy: bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CStr;
+
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
     use prometheus::{Encoder, TextEncoder};
 
     use super::*;
+    use crate::discovery::{DiscoveryBuilderResult, discovery_builder_result_as_str};
 
+    /// The certificate-expiry gauge stays on the per-process meter; its
+    /// exposition is pinned verbatim.
     #[test]
-    fn test_metrics() {
+    fn certificate_gauge_exposition_is_stable() {
         let mconf = new_metrics_setup("carbide-dhcp", "forge-system", false).unwrap();
         let metrics = initialize_metrics(&mconf);
         metrics
             .certificate_expiration_value
             .store(1740173562, Ordering::SeqCst);
-        metrics.total_requests_counter.add(1, &[]);
-        metrics.dropped_requests_counter.add(1, &[]);
 
         let mut buffer = vec![];
         let encoder = TextEncoder::new();
@@ -243,5 +459,295 @@ mod tests {
 
         let prom_metrics = String::from_utf8(buffer).unwrap();
         assert_eq!(prom_metrics, include_str!("../tests/fixtures/metrics.txt"));
+    }
+
+    #[test]
+    fn reply_message_type_maps_the_rfc2131_reply_codes_and_buckets_the_rest() {
+        check_values(
+            [
+                Check {
+                    scenario: "DHCPOFFER (2)",
+                    input: 2u8,
+                    expect: ReplyMessageType::Offer,
+                },
+                Check {
+                    scenario: "DHCPACK (5)",
+                    input: 5,
+                    expect: ReplyMessageType::Ack,
+                },
+                Check {
+                    scenario: "DHCPNAK (6)",
+                    input: 6,
+                    expect: ReplyMessageType::Nak,
+                },
+                Check {
+                    scenario: "DHCPDISCOVER (1) is not a reply type",
+                    input: 1,
+                    expect: ReplyMessageType::Other,
+                },
+                Check {
+                    scenario: "DHCPREQUEST (3) is not a reply type",
+                    input: 3,
+                    expect: ReplyMessageType::Other,
+                },
+                Check {
+                    scenario: "unknown code buckets as other",
+                    input: 250,
+                    expect: ReplyMessageType::Other,
+                },
+            ],
+            ReplyMessageType::from,
+        );
+    }
+
+    /// Pins every `reason` label rendering. The strings are the metric's
+    /// contract: the long-counted reasons must keep their exact legacy bytes,
+    /// and the newer ones must hold still for the same reason.
+    #[test]
+    fn drop_reason_renders_the_contract_strings_byte_identically() {
+        check_values(
+            [
+                Check {
+                    scenario: "non-relayed packet (legacy)",
+                    input: DropReason::NonRelayedPacket,
+                    expect: "NonRelayedPacket",
+                },
+                Check {
+                    scenario: "no usable IPv4 address (legacy)",
+                    input: DropReason::NoUsableIPv4Address,
+                    expect: "NoUsableIPv4Address",
+                },
+                Check {
+                    scenario: "discovery success without machine (legacy)",
+                    input: DropReason::Success,
+                    expect: "Success",
+                },
+                Check {
+                    scenario: "invalid discovery builder pointer (legacy)",
+                    input: DropReason::InvalidDiscoveryBuilderPointer,
+                    expect: "InvalidDiscoveryBuilderPointer",
+                },
+                Check {
+                    scenario: "invalid mac address (legacy)",
+                    input: DropReason::InvalidMacAddress,
+                    expect: "InvalidMacAddress",
+                },
+                Check {
+                    scenario: "invalid vendor class (legacy)",
+                    input: DropReason::InvalidVendorClass,
+                    expect: "InvalidVendorClass",
+                },
+                Check {
+                    scenario: "invalid machine pointer (legacy)",
+                    input: DropReason::InvalidMachinePointer,
+                    expect: "InvalidMachinePointer",
+                },
+                Check {
+                    scenario: "builder error (legacy)",
+                    input: DropReason::BuilderError,
+                    expect: "BuilderError",
+                },
+                Check {
+                    scenario: "fetch machine error (legacy)",
+                    input: DropReason::FetchMachineError,
+                    expect: "FetchMachineError",
+                },
+                Check {
+                    scenario: "invalid circuit id (legacy)",
+                    input: DropReason::InvalidCircuitId,
+                    expect: "InvalidCircuitId",
+                },
+                Check {
+                    scenario: "too many failures (legacy)",
+                    input: DropReason::TooManyFailuresError,
+                    expect: "TooManyFailuresError",
+                },
+                Check {
+                    scenario: "invalid desired address (legacy)",
+                    input: DropReason::InvalidDesiredAddress,
+                    expect: "InvalidDesiredAddress",
+                },
+                Check {
+                    scenario: "option encoding failed (new)",
+                    input: DropReason::OptionEncodingFailed,
+                    expect: "OptionEncodingFailed",
+                },
+                Check {
+                    scenario: "missing machine context (new)",
+                    input: DropReason::MissingMachineContext,
+                    expect: "MissingMachineContext",
+                },
+                Check {
+                    scenario: "allocation refused (new)",
+                    input: DropReason::AllocationRefused,
+                    expect: "AllocationRefused",
+                },
+                Check {
+                    scenario: "renewal refused (new)",
+                    input: DropReason::RenewalRefused,
+                    expect: "RenewalRefused",
+                },
+                Check {
+                    scenario: "unknown bucket",
+                    input: DropReason::Unknown,
+                    expect: "Unknown",
+                },
+            ],
+            DropReason::as_label,
+        );
+    }
+
+    /// The metric label is `as_label` verbatim, for every variant -- the
+    /// string table above therefore pins what lands on the exposition.
+    #[test]
+    fn label_value_renders_as_label_for_every_variant() {
+        for reason in DropReason::ALL {
+            assert_eq!(
+                reason.label_value().as_str(),
+                reason.as_label(),
+                "{reason:?}"
+            );
+        }
+    }
+
+    /// The pkt4_receive discovery-failure site passes
+    /// `discovery_builder_result_as_str(...)` straight through the FFI, so
+    /// every result name must map onto the taxonomy and render back to the
+    /// same bytes -- a new `DiscoveryBuilderResult` variant that fell into
+    /// the `Unknown` bucket would fail here.
+    #[test]
+    fn drop_reason_round_trips_every_discovery_builder_result_string() {
+        for result in [
+            DiscoveryBuilderResult::Success,
+            DiscoveryBuilderResult::InvalidDiscoveryBuilderPointer,
+            DiscoveryBuilderResult::InvalidMacAddress,
+            DiscoveryBuilderResult::InvalidVendorClass,
+            DiscoveryBuilderResult::InvalidMachinePointer,
+            DiscoveryBuilderResult::BuilderError,
+            DiscoveryBuilderResult::FetchMachineError,
+            DiscoveryBuilderResult::InvalidCircuitId,
+            DiscoveryBuilderResult::TooManyFailuresError,
+            DiscoveryBuilderResult::InvalidDesiredAddress,
+        ] {
+            let reason_str = unsafe { CStr::from_ptr(discovery_builder_result_as_str(result)) }
+                .to_str()
+                .unwrap();
+            let reason = DropReason::from(reason_str);
+            assert_ne!(reason, DropReason::Unknown, "{result:?} is unmapped");
+            assert_eq!(reason.label_value().as_str(), reason_str, "{result:?}");
+        }
+    }
+
+    #[test]
+    fn unmapped_reason_strings_bucket_to_unknown() {
+        assert_eq!(DropReason::from("SomeFutureReason"), DropReason::Unknown);
+    }
+
+    /// All three packet counters are metric-only: one emit moves exactly its
+    /// counter -- under the exposed name dashboards use -- and builds no log
+    /// line at all (the Kea process has no tracing subscriber; the C++ log
+    /// lines remain the log side).
+    #[test]
+    fn packet_events_count_under_the_exposed_names_and_never_log() {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            emit(DhcpRequestReceived);
+            emit(DhcpRequestDropped {
+                reason: DropReason::TooManyFailuresError,
+            });
+            emit(DhcpReplySent {
+                message_type: ReplyMessageType::Offer,
+            });
+        });
+
+        assert!(logs.is_empty(), "log = off events must not log: {logs:?}");
+        assert_eq!(
+            metrics.counter_delta("carbide_dhcp_requests_total", &[]),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_dropped_requests_total",
+                &[("reason", "TooManyFailuresError")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_replies_sent_total",
+                &[("message_type", "offer")]
+            ),
+            1.0
+        );
+    }
+
+    /// The C++ callouts reach the counters through the FFI layer: reason
+    /// strings map onto the bounded taxonomy (unknown ones bucket), the raw
+    /// Kea message-type code maps onto the reply label, and nothing records
+    /// until `metrics_server` has initialized metrics -- the gate that also
+    /// guarantees the global meter provider is installed before the first
+    /// emit.
+    #[test]
+    fn ffi_increments_gate_on_initialization_and_map_their_arguments() {
+        let metrics = MetricsCapture::start();
+
+        // Before initialization the gate keeps every counter still. (Nothing
+        // else in this test binary sets `CONFIG.metrics`, so this phase is
+        // deterministic.)
+        unsafe {
+            crate::carbide_increment_total_requests();
+            crate::carbide_increment_dropped_requests(c"NonRelayedPacket".as_ptr());
+        }
+        crate::carbide_increment_reply_sent(5);
+        assert_eq!(
+            metrics.counter_delta("carbide_dhcp_requests_total", &[]),
+            0.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_replies_sent_total",
+                &[("message_type", "ack")]
+            ),
+            0.0
+        );
+
+        // Initialize the way `metrics_server` does (a local registry carries
+        // the gauge; the counters resolve from the global test meter).
+        let mconf = new_metrics_setup("carbide-dhcp", "forge-system", false).unwrap();
+        let initialized = initialize_metrics(&mconf);
+        CONFIG.write().expect("config lock poisoned").metrics = Some(initialized);
+
+        unsafe {
+            crate::carbide_increment_total_requests();
+            crate::carbide_increment_dropped_requests(c"NonRelayedPacket".as_ptr());
+            crate::carbide_increment_dropped_requests(c"NotAReasonWeKnow".as_ptr());
+        }
+        crate::carbide_increment_reply_sent(5); // DHCPACK
+
+        assert_eq!(
+            metrics.counter_delta("carbide_dhcp_requests_total", &[]),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_dropped_requests_total",
+                &[("reason", "NonRelayedPacket")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_dropped_requests_total",
+                &[("reason", "Unknown")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_replies_sent_total",
+                &[("message_type", "ack")]
+            ),
+            1.0
+        );
     }
 }

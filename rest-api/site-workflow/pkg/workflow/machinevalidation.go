@@ -6,15 +6,15 @@ package workflow
 import (
 	"time"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
 // EnableDisableMachineValidationTest is a workflow to enable/disable machine validation test using EnableDisableMachineValidationTestOnSite activity
-func EnableDisableMachineValidationTest(ctx workflow.Context, request *cwssaws.MachineValidationTestEnableDisableTestRequest) error {
+func EnableDisableMachineValidationTest(ctx workflow.Context, request *corev1.MachineValidationTestEnableDisableTestRequest) error {
 	logger := log.With().Str("Workflow", "EnableDisableMachineValidationTest").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -50,7 +50,7 @@ func EnableDisableMachineValidationTest(ctx workflow.Context, request *cwssaws.M
 }
 
 // PersistValidationResult is a workflow to persist validation result using PersistValidationResultOnSite activity
-func PersistValidationResult(ctx workflow.Context, request *cwssaws.MachineValidationResultPostRequest) error {
+func PersistValidationResult(ctx workflow.Context, request *corev1.MachineValidationResultPostRequest) error {
 	logger := log.With().Str("Workflow", "PersistValidationResult").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -86,7 +86,7 @@ func PersistValidationResult(ctx workflow.Context, request *cwssaws.MachineValid
 }
 
 // GetMachineValidationResults is a workflow to get machine validation results using GetMachineValidationResultsFromSite activity
-func GetMachineValidationResults(ctx workflow.Context, request *cwssaws.MachineValidationGetRequest) (*cwssaws.MachineValidationResultList, error) {
+func GetMachineValidationResults(ctx workflow.Context, request *corev1.MachineValidationGetRequest) (*corev1.MachineValidationResultList, error) {
 	logger := log.With().Str("Workflow", "GetMachineValidationResults").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -110,7 +110,7 @@ func GetMachineValidationResults(ctx workflow.Context, request *cwssaws.MachineV
 	// Invoke activity
 	var manager activity.ManageMachineValidation
 
-	var response cwssaws.MachineValidationResultList
+	var response corev1.MachineValidationResultList
 	err := workflow.ExecuteActivity(ctx, manager.GetMachineValidationResultsFromSite, request).Get(ctx, &response)
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "GetMachineValidationResultsFromSite").Msg("Failed to execute activity from workflow")
@@ -123,7 +123,7 @@ func GetMachineValidationResults(ctx workflow.Context, request *cwssaws.MachineV
 }
 
 // GetMachineValidationRuns is a workflow to get machine validation runs using GetMachineValidationRunsFromSite activity
-func GetMachineValidationRuns(ctx workflow.Context, request *cwssaws.MachineValidationRunListGetRequest) (*cwssaws.MachineValidationRunList, error) {
+func GetMachineValidationRuns(ctx workflow.Context, request *corev1.MachineValidationRunListGetRequest) (*corev1.MachineValidationRunList, error) {
 	logger := log.With().Str("Workflow", "GetMachineValidationRuns").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -147,7 +147,7 @@ func GetMachineValidationRuns(ctx workflow.Context, request *cwssaws.MachineVali
 	// Invoke activity
 	var manager activity.ManageMachineValidation
 
-	var response cwssaws.MachineValidationRunList
+	var response corev1.MachineValidationRunList
 	err := workflow.ExecuteActivity(ctx, manager.GetMachineValidationRunsFromSite, request).Get(ctx, &response)
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "GetMachineValidationRunsFromSite").Msg("Failed to execute activity from workflow")
@@ -160,7 +160,7 @@ func GetMachineValidationRuns(ctx workflow.Context, request *cwssaws.MachineVali
 }
 
 // GetMachineValidationTests is a workflow to get machine validation tests using GetMachineValidationTestsFromSite activity
-func GetMachineValidationTests(ctx workflow.Context, request *cwssaws.MachineValidationTestsGetRequest) (*cwssaws.MachineValidationTestsGetResponse, error) {
+func GetMachineValidationTests(ctx workflow.Context, request *corev1.MachineValidationTestsGetRequest) (*corev1.MachineValidationTestsGetResponse, error) {
 	logger := log.With().Str("Workflow", "GetMachineValidationTests").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -184,7 +184,7 @@ func GetMachineValidationTests(ctx workflow.Context, request *cwssaws.MachineVal
 	// Invoke activity
 	var manager activity.ManageMachineValidation
 
-	var response cwssaws.MachineValidationTestsGetResponse
+	var response corev1.MachineValidationTestsGetResponse
 	err := workflow.ExecuteActivity(ctx, manager.GetMachineValidationTestsFromSite, request).Get(ctx, &response)
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "GetMachineValidationTestsFromSite").Msg("Failed to execute activity from workflow")
@@ -197,7 +197,7 @@ func GetMachineValidationTests(ctx workflow.Context, request *cwssaws.MachineVal
 }
 
 // AddMachineValidationTest is a workflow to add machine validation test using AddMachineValidationTestOnSite activity
-func AddMachineValidationTest(ctx workflow.Context, request *cwssaws.MachineValidationTestAddRequest) (*cwssaws.MachineValidationTestAddUpdateResponse, error) {
+func AddMachineValidationTest(ctx workflow.Context, request *corev1.MachineValidationTestAddRequest) (*corev1.MachineValidationTestAddUpdateResponse, error) {
 	logger := log.With().Str("Workflow", "AddMachineValidationTest").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -221,7 +221,7 @@ func AddMachineValidationTest(ctx workflow.Context, request *cwssaws.MachineVali
 	// Invoke activity
 	var manager activity.ManageMachineValidation
 
-	var response cwssaws.MachineValidationTestAddUpdateResponse
+	var response corev1.MachineValidationTestAddUpdateResponse
 	err := workflow.ExecuteActivity(ctx, manager.AddMachineValidationTestOnSite, request).Get(ctx, &response)
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "AddMachineValidationTestOnSite").Msg("Failed to execute activity from workflow")
@@ -234,7 +234,7 @@ func AddMachineValidationTest(ctx workflow.Context, request *cwssaws.MachineVali
 }
 
 // UpdateMachineValidationTest is a workflow to add machine validation test using UpdateMachineValidationTestOnSite activity
-func UpdateMachineValidationTest(ctx workflow.Context, request *cwssaws.MachineValidationTestUpdateRequest) error {
+func UpdateMachineValidationTest(ctx workflow.Context, request *corev1.MachineValidationTestUpdateRequest) error {
 	logger := log.With().Str("Workflow", "UpdateMachineValidationTest").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -270,7 +270,7 @@ func UpdateMachineValidationTest(ctx workflow.Context, request *cwssaws.MachineV
 }
 
 // GetMachineValidationExternalConfigs is a workflow to get machine validation tests using GetMachineValidationExternalConfigsFromSite activity
-func GetMachineValidationExternalConfigs(ctx workflow.Context, request *cwssaws.GetMachineValidationExternalConfigsRequest) (*cwssaws.GetMachineValidationExternalConfigsResponse, error) {
+func GetMachineValidationExternalConfigs(ctx workflow.Context, request *corev1.GetMachineValidationExternalConfigsRequest) (*corev1.GetMachineValidationExternalConfigsResponse, error) {
 	logger := log.With().Str("Workflow", "GetMachineValidationExternalConfigs").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -294,7 +294,7 @@ func GetMachineValidationExternalConfigs(ctx workflow.Context, request *cwssaws.
 	// Invoke activity
 	var manager activity.ManageMachineValidation
 
-	var response cwssaws.GetMachineValidationExternalConfigsResponse
+	var response corev1.GetMachineValidationExternalConfigsResponse
 	err := workflow.ExecuteActivity(ctx, manager.GetMachineValidationExternalConfigsFromSite, request).Get(ctx, &response)
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "GetMachineValidationExternalConfigsFromSite").Msg("Failed to execute activity from workflow")
@@ -307,7 +307,7 @@ func GetMachineValidationExternalConfigs(ctx workflow.Context, request *cwssaws.
 }
 
 // AddUpdateMachineValidationExternalConfig is a workflow to add machine validation test using AddUpdateMachineValidationExternalConfigOnSite activity
-func AddUpdateMachineValidationExternalConfig(ctx workflow.Context, request *cwssaws.AddUpdateMachineValidationExternalConfigRequest) error {
+func AddUpdateMachineValidationExternalConfig(ctx workflow.Context, request *corev1.AddUpdateMachineValidationExternalConfigRequest) error {
 	logger := log.With().Str("Workflow", "AddUpdateMachineValidationExternalConfig").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -343,7 +343,7 @@ func AddUpdateMachineValidationExternalConfig(ctx workflow.Context, request *cws
 }
 
 // RemoveMachineValidationExternalConfig is a workflow to add machine validation test using RemoveMachineValidationExternalConfigOnSite activity
-func RemoveMachineValidationExternalConfig(ctx workflow.Context, request *cwssaws.RemoveMachineValidationExternalConfigRequest) error {
+func RemoveMachineValidationExternalConfig(ctx workflow.Context, request *corev1.RemoveMachineValidationExternalConfigRequest) error {
 	logger := log.With().Str("Workflow", "RemoveMachineValidationExternalConfig").Logger()
 
 	logger.Info().Msg("Starting workflow")

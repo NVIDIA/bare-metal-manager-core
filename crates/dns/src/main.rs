@@ -88,7 +88,9 @@ async fn main() -> Result<(), eyre::Report> {
             let otel_layer =
                 tracing_opentelemetry::layer().with_tracer(tracer_provider.tracer("carbide-dns"));
 
+            let log_events = carbide_instrument::LogEventsMetric::new("nico-dns");
             tracing_subscriber::registry()
+                .with(log_events.layer())
                 .with(fmt::layer().json())
                 .with(env_filter)
                 .with(otel_layer)

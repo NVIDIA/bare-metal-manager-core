@@ -205,6 +205,9 @@ pub fn parse_carbide_config(
     // parsed config, before the web layer exists.
     crate::init_tools(config.web_ui_sidebar_tools.clone());
 
+    // Publish the site name the same way, for the admin-UI sidebar header.
+    crate::init_site_name(config.sitename.clone());
+
     // Publish the deployment-wide host naming policy so the DB layer can read it
     // wherever an interface is [re]named (same way we do it w/ `init_tools` above).
     db::host_naming::configure(config.host_naming_strategy);

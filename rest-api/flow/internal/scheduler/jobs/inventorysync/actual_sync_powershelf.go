@@ -14,9 +14,9 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ func syncPowershelvesNICo(
 	}
 
 	// Direct-write external_id for matched components
-	var shelfIDs []*pb.PowerShelfId
+	var shelfIDs []*corev1.PowerShelfId
 	componentsByShelfID := make(map[string]*model.Component)
 
 	for pmcMac, ps := range expectedByPmcMac {
@@ -104,7 +104,7 @@ func syncPowershelvesNICo(
 			log.Info().Msgf("Powershelf %s (PMC %s): set external_id to Core PowerShelfId %s", ps.ID, pmcMac, shelfID)
 		}
 
-		shelfIDs = append(shelfIDs, &pb.PowerShelfId{Id: leps.PowerShelfID})
+		shelfIDs = append(shelfIDs, &corev1.PowerShelfId{Id: leps.PowerShelfID})
 		componentsByShelfID[leps.PowerShelfID] = ps
 	}
 
@@ -115,9 +115,9 @@ func syncPowershelvesNICo(
 	now := time.Now()
 	inventoryOK := true
 	if len(shelfIDs) > 0 {
-		invResp, err := nicoClient.GetComponentInventory(ctx, &pb.GetComponentInventoryRequest{
-			Target: &pb.GetComponentInventoryRequest_PowerShelfIds{
-				PowerShelfIds: &pb.PowerShelfIdList{Ids: shelfIDs},
+		invResp, err := nicoClient.GetComponentInventory(ctx, &corev1.GetComponentInventoryRequest{
+			Target: &corev1.GetComponentInventoryRequest_PowerShelfIds{
+				PowerShelfIds: &corev1.PowerShelfIdList{Ids: shelfIDs},
 			},
 		})
 		if err != nil {
