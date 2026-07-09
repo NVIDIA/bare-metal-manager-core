@@ -87,8 +87,11 @@ for image in "${images[@]}"; do
   platforms="$(docker buildx imagetools inspect --raw \
     "${IMAGE_REGISTRY}/${image}:${IMAGE_TAG}" | \
     jq -r '[.manifests[].platform | select(.os == "linux") | "\(.os)/\(.architecture)"] | unique | sort | join(",")')"
-  test "${platforms}" = "linux/amd64,linux/arm64"
-  printf '%s: %s\n' "${image}" "${platforms}"
+  if [ "${platforms}" != "linux/amd64,linux/arm64" ]; then
+    printf 'FAIL %s: %s\n' "${image}" "${platforms}" >&2
+    exit 1
+  fi
+  printf 'PASS %s: %s\n' "${image}" "${platforms}"
 done
 ```
 
@@ -111,10 +114,11 @@ The loop should print exactly 14 successful checks:
 | `boot-artifacts-x86_64` | `images-boot-artifacts` |
 | `boot-artifacts-aarch64` | `images-bfb` |
 
-If fewer than 14 checks run, the missing image indicates which sub-target failed. The three
-boot/validation images (`machine-validation`, `boot-artifacts-x86_64`,
-`boot-artifacts-aarch64`) require the full mkosi + Rust toolchain. Use `make images` instead
-of `make images-all` to build only the 11-image deployable stack.
+If the loop exits early, the `FAIL` line identifies which image has an incomplete
+manifest. The three boot/validation images (`machine-validation`,
+`boot-artifacts-x86_64`, `boot-artifacts-aarch64`) require the full mkosi + Rust
+toolchain. Use `make images` instead of `make images-all` to build only the 11-image
+deployable stack.
 
 The architecture-specific Core base images and `-amd64`/`-arm64` service tags are build
 inputs for the bare multi-arch tags. `machine-validation-runner` is the only local-only

@@ -87,7 +87,6 @@ IMAGE_REGISTRY ?= localhost:5000
 IMAGE_TAG ?= latest
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 CI_COMMIT_SHORT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-IMAGE_PLATFORMS := linux/amd64,linux/arm64
 LOCAL_REGISTRY_CONTAINER ?= nico-build-registry
 
 # Intermediate base containers the Core and machine-validation images build FROM.
@@ -99,6 +98,10 @@ CORE_IMAGE_AMD64 := $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)-amd64
 CORE_IMAGE_ARM64 := $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)-arm64
 MACHINE_VALIDATION_IMAGE_AMD64 := $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG)-amd64
 MACHINE_VALIDATION_IMAGE_ARM64 := $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG)-arm64
+BOOT_ARTIFACTS_X86_IMAGE_AMD64 := $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG)-amd64
+BOOT_ARTIFACTS_X86_IMAGE_ARM64 := $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG)-arm64
+BOOT_ARTIFACTS_BFB_IMAGE_AMD64 := $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG)-amd64
+BOOT_ARTIFACTS_BFB_IMAGE_ARM64 := $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG)-arm64
 
 .PHONY: images images-all images-registry images-base images-core images-rest \
         images-machine-validation images-boot-artifacts images-bfb
@@ -164,15 +167,25 @@ images-machine-validation: images-base ## Build the machine-validation runner + 
 
 images-boot-artifacts: images-registry ## Build the x86 boot-artifact image (requires mkosi + rust toolchain on the host)
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
-	docker buildx build --platform $(IMAGE_PLATFORMS) --push --build-arg CONTAINER_RUNTIME_X86_64=alpine:latest \
-		-t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) \
+	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_X86_64=alpine:latest \
+		-t $(BOOT_ARTIFACTS_X86_IMAGE_AMD64) \
 		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
+	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_X86_64=alpine:latest \
+		-t $(BOOT_ARTIFACTS_X86_IMAGE_ARM64) \
+		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) \
+		$(BOOT_ARTIFACTS_X86_IMAGE_AMD64) $(BOOT_ARTIFACTS_X86_IMAGE_ARM64)
 
 images-bfb: images-registry ## Build the aarch64 DPU BFB boot-artifact image (cross-arch; requires mkosi + aarch64 toolchain)
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa
-	docker buildx build --platform $(IMAGE_PLATFORMS) --push --build-arg CONTAINER_RUNTIME_AARCH64=alpine:latest \
-		-t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG) \
+	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_AARCH64=alpine:latest \
+		-t $(BOOT_ARTIFACTS_BFB_IMAGE_AMD64) \
 		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
+	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_AARCH64=alpine:latest \
+		-t $(BOOT_ARTIFACTS_BFB_IMAGE_ARM64) \
+		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG) \
+		$(BOOT_ARTIFACTS_BFB_IMAGE_AMD64) $(BOOT_ARTIFACTS_BFB_IMAGE_ARM64)
 
 # =============================================================================
 # Rest (delegate to rest-api/Makefile)
