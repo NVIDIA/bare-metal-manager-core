@@ -561,18 +561,18 @@ side-by-side, each with its own BFB, `DPUFlavor`, and `DPUDeployment`.
 
 Every active deployment must have a **unique** `deployment_name`, `flavor_name`,
 and `node_label_key`; carbide-api validates this at startup and refuses to start
-if any two deployments collide.
+if any deployments collide.
 
 ```toml
-# BF3 — present by default. Override only if any change is needed.
+# BF3 is present by default. Override only if any change is needed.
 [dpf.deployments.bf3]
 bfb_url         = "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.2-125_26.02_ubuntu-24.04_64k_prod.bfb"
 flavor_name     = "carbide-dpu-flavor"
 deployment_name = "nico-deployment-v2"
 node_label_key  = "carbide.nvidia.com/controlled.node.v2"
 
-# BF4 generic — opt-in. Adding this table provisions BF4 DPUs via a second
-# DPUDeployment alongside BF3. All identifiers must differ from bf3's.
+# BF4 generic is opt-in. Add this table to provision BF4 DPUs via a second
+# DPUDeployment alongside BF3. All identifiers must differ from BF3's.
 [dpf.deployments.bf4_generic]
 bfb_url         = "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-<bf4-version>.bfb"
 flavor_name     = "carbide-dpu-flavor-bf4"
@@ -596,7 +596,7 @@ versions by adding a `[dpf.deployments.<name>.services]` block with the same six
 sub-tables as `[dpf.services]` (`dts`, `doca_hbn`, `dpu_agent`, `dhcp_server`,
 `fmds`, `otel`). This override **replaces** the inherited set for that
 deployment; any service sub-table you omit falls back to its **built-in
-default**, *not* to the top-level `[dpf.services]` value — so specify all six
+default**, *not* to the top-level `[dpf.services]` value, so specify all six
 when using it. The top-level `docker_image_pull_secret` still applies on top of
 the resolved set (every service except `dts` and `doca_hbn`).
 
@@ -633,7 +633,7 @@ Field reference (all under `[dpf]`):
 | TOML key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
-| `docker_image_pull_secret` | string | `dpf-pull-secret` | Pull Secret applied to every mandatory service except `dts`/`doca_hbn`. |
+| `docker_image_pull_secret` | string | `dpf-pull-secret` | Pull Secret applied to every mandatory service except `dts` and `doca_hbn`. |
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
 | `deployments.bf3` | table | BF3 defaults | BF3 DPUDeployment config; always active. |
 | `deployments.bf4_generic` | table | — | BF4 (generic) DPUDeployment config; opt-in, active only when present. |
@@ -775,22 +775,22 @@ read once when the process comes up, and that is the only point at which the
 DPF initialization objects are created in the host cluster.
 
 On startup with `[dpf].enabled = true`, carbide-api creates the following
-objects in the `dpf-operator-system` namespace. It does this **once per active
-deployment** under `[dpf.deployments.*]` (BF3 always, plus `bf4_generic` when
+objects in the `dpf-operator-system` namespace. It does this **once for each active
+deployment** in `[dpf.deployments.*]` (BF3 always, plus `bf4_generic` when
 that table is present), using that deployment's own `bfb_url`, `flavor_name`,
 and `deployment_name`:
 
-- a `Secret` (`bmc-shared-password`) holding the shared BMC password (shared
-  across deployments),
-- a `BFB` CR named `bf-bundle-<sha256(bfb_url)>`, from the deployment's `bfb_url`,
-- a `DPUFlavor` CR named `<flavor_name>-<spec-hash>` (the 16-character hex suffix is a SHA-256 digest of the spec, so any change to the flavor — including adding or changing `[dpf.proxy]` — produces a new name and triggers reprovisioning of that deployment's DPUs),
-- a set of `DPUServiceInterface`, `DPUServiceTemplate`,
-  `DPUServiceConfiguration`, and `DPUServiceNAD` CRs — one per mandatory
+- A `Secret` (`bmc-shared-password`) holding the shared BMC password (shared
+  across deployments)
+- A `BFB` CR named `bf-bundle-<sha256(bfb_url)>`, from the deployment's `bfb_url`
+- A `DPUFlavor` CR named `<flavor_name>-<spec-hash>`. (The 16-character hex suffix is a SHA-256 digest of the spec. Any change to the flavor, including adding or changing `[dpf.proxy]`, produces a new name and triggers reprovisioning of that deployment's DPUs.)
+- A set of `DPUServiceInterface`, `DPUServiceTemplate`,
+  `DPUServiceConfiguration`, and `DPUServiceNAD` CRs, one per mandatory
   DPUService (`dts`, `doca-hbn`, `carbide-dpu-agent`, `carbide-dhcp-server`,
-  `carbide-fmds`, `carbide-otelcol`), built from the deployment's resolved
-  services (its `[dpf.deployments.<name>.services]` override if set, otherwise
-  the top-level `[dpf.services]`),
-- a `DPUDeployment` CR named after the deployment's `deployment_name`, which
+  `carbide-fmds`, and `carbide-otelcol`). The set is built from the deployment's
+  resolved services -- either its `[dpf.deployments.<name>.services]` override if
+  set, otherwise the top-level `[dpf.services]`.
+- A `DPUDeployment` CR named after the deployment's `deployment_name`, which
   references the BFB, the DPUFlavor, and the service templates above, and which
   the DPF operator then reconciles into actual `DPUService` and per-DPU
   resources.
