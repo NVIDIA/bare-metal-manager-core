@@ -320,18 +320,18 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 		}
 	}
 
-	// verify if os created with ipxe script, if yes reject the update if imageURL provided
-	if existingOS.Type == cdbm.OperatingSystemTypeIPXE && osur.ImageURL != nil {
+	isImageBased := existingOS.Type == cdbm.OperatingSystemTypeImage
+
+	// verify if os was not created as image-based, reject the update if imageURL provided
+	if !isImageBased && osur.ImageURL != nil {
 		return validation.Errors{
-			"imageURL": errors.New("unable to set image URL for iPXE based Operating System"),
+			"imageURL": errors.New("unable to set image URL for non-image based Operating System"),
 		}
-	} else if existingOS.Type == cdbm.OperatingSystemTypeImage && osur.IpxeScript != nil {
+	} else if isImageBased && osur.IpxeScript != nil {
 		return validation.Errors{
 			"ipxeScript": errors.New("unable to set iPXE script for image based Operating System"),
 		}
 	}
-
-	isImageBased := existingOS.Type == cdbm.OperatingSystemTypeImage
 
 	if !util.IsNilOrEmptyStrPtr(osur.RootFsID) && osur.RootFsLabel == nil && !util.IsNilOrEmptyStrPtr(existingOS.RootFsLabel) {
 		return validation.Errors{
@@ -402,8 +402,6 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 		)
 	} else {
 		err = validation.ValidateStruct(osur,
-			validation.Field(&osur.ImageURL,
-				validation.Nil.Error("imageURL cannot be specified for iPXE based Operating Systems")),
 			validation.Field(&osur.ImageSHA,
 				validation.Nil.Error("imageSHA cannot be specified if imageURL is not specified")),
 			validation.Field(&osur.ImageAuthType,
