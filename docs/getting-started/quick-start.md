@@ -251,7 +251,7 @@ All IPs must be within the `IPAddressPool` ranges you defined in `values/metallb
 
 ### 3i. (Optional) Pre-set the Site UUID
 
-On a fresh install you normally leave `NICO_SITE_UUID` unset — `setup.sh` resolves it: it tries to reuse the UUID from a prior install (site-agent ConfigMap); if that fails, it adopts an existing REST site with the same name, or mints a UUID and seeds the site record itself (see Step 5). Set it explicitly only to bind the site-agent to a site that already exists:
+On a fresh install, you normally leave `NICO_SITE_UUID` unset. `setup.sh` resolves the UUID in several ways: it tries to reuse the UUID from a prior install (site-agent ConfigMap); if that fails, it adopts an existing REST site with the same name, or mints a UUID and seeds the site record itself (see Step 5). You only need to set the UUID explicitly to bind the site-agent to a site that already exists:
 
 ```bash
 export NICO_SITE_UUID=<your-uuid>   # must be a valid UUID v4 of an existing REST site
