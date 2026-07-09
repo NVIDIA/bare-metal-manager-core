@@ -791,7 +791,11 @@ mod tests {
             "capturing_sink"
         }
 
-        fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
             match event {
                 CollectorEvent::Metric(sample) => {
                     self.samples.lock().unwrap().push((**sample).clone());
@@ -805,6 +809,7 @@ mod tests {
                 | CollectorEvent::Log(_)
                 | CollectorEvent::Firmware(_) => {}
             }
+            Ok(())
         }
     }
 
@@ -924,10 +929,15 @@ mod tests {
                 "capturing_sink"
             }
 
-            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            fn try_handle_event(
+                &self,
+                _context: &EventContext,
+                event: &CollectorEvent,
+            ) -> Result<(), crate::HealthError> {
                 if let CollectorEvent::Metric(sample) = event {
                     self.samples.lock().unwrap().push((**sample).clone());
                 }
+                Ok(())
             }
         }
 
@@ -1054,10 +1064,15 @@ mod tests {
                 "capturing_sink"
             }
 
-            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            fn try_handle_event(
+                &self,
+                _context: &EventContext,
+                event: &CollectorEvent,
+            ) -> Result<(), crate::HealthError> {
                 if let CollectorEvent::Metric(sample) = event {
                     self.samples.lock().unwrap().push((**sample).clone());
                 }
+                Ok(())
             }
         }
 
@@ -1214,10 +1229,15 @@ mod tests {
                 "capturing_sink"
             }
 
-            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            fn try_handle_event(
+                &self,
+                _context: &EventContext,
+                event: &CollectorEvent,
+            ) -> Result<(), crate::HealthError> {
                 if let CollectorEvent::Metric(sample) = event {
                     self.samples.lock().unwrap().push((**sample).clone());
                 }
+                Ok(())
             }
         }
 

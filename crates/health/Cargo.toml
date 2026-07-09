@@ -42,6 +42,7 @@ hyper = { workspace = true }
 hyper-rustls = { workspace = true, features = ["http2"] }
 hyper-util = { workspace = true }
 mac_address = { workspace = true }
+metrics-endpoint = { path = "../metrics-endpoint" }
 prometheus = { workspace = true }
 reqwest = { workspace = true, features = ["query", "json"] }
 rustls = { workspace = true }
@@ -98,6 +99,7 @@ tonic-prost-build = { workspace = true }
 bench-hooks = []
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 criterion = { workspace = true }
 tempfile = { workspace = true }

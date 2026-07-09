@@ -16,6 +16,7 @@
  */
 
 use super::{CollectorEvent, DataSink, EventContext};
+use crate::HealthError;
 use crate::config::TracingSinkConfig;
 
 /// Sink that writes health events through the process tracing subscriber.
@@ -37,7 +38,11 @@ impl DataSink for TracingSink {
         "tracing_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn try_handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
         match event {
             CollectorEvent::MetricCollectionStart => {
                 tracing::info!(
@@ -130,5 +135,7 @@ impl DataSink for TracingSink {
                 );
             }
         }
+
+        Ok(())
     }
 }

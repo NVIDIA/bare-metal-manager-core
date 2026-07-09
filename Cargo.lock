@@ -2001,6 +2001,7 @@ dependencies = [
  "hyper-util",
  "logfmt",
  "mac_address",
+ "metrics-endpoint",
  "nv-redfish",
  "prometheus",
  "prost",

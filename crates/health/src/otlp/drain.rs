@@ -18,10 +18,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_instrument::emit;
 use tonic::transport::Channel;
 
 use super::collector_logs::logs_service_client::LogsServiceClient;
 use super::convert::build_export_request;
+use super::{OtlpExportFailed, OtlpSignal};
 use crate::collectors::{BackoffConfig, ExponentialBackoff};
 use crate::sink::otlp::OtlpQueue;
 use crate::sink::{CollectorEvent, EventContext};
@@ -172,13 +174,13 @@ impl OtlpDrainTask {
                     tokio::time::sleep(delay).await;
                 }
                 Err(status) => {
-                    tracing::error!(
-                        code = ?status.code(),
-                        message = status.message(),
+                    emit(OtlpExportFailed {
+                        signal: OtlpSignal::Logs,
+                        code: status.code().into(),
+                        error: status.message().to_string(),
                         record_count,
                         attempt,
-                        "otlp export failed, dropping batch"
-                    );
+                    });
                     break;
                 }
             }

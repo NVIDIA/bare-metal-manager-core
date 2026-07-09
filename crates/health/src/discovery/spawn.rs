@@ -649,7 +649,13 @@ mod tests {
             "noop"
         }
 
-        fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {}
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            _event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
+            Ok(())
+        }
     }
 
     fn context_with_config(config: Config, metrics_name: &str) -> DiscoveryLoopContext {
