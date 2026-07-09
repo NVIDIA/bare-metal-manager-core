@@ -133,7 +133,7 @@ impl DpuDeploymentRepository for InitializationMock {
         if let Some(mut dep) = self.deployments.get_mut(&ns_key(ns, name))
             && let Some(bfb) = patch.pointer("/spec/dpus/bfb").and_then(|v| v.as_str())
         {
-            dep.spec.dpus.bfb = bfb.to_string();
+            dep.spec.dpus.bfb = Some(bfb.to_string());
         }
         Ok(())
     }

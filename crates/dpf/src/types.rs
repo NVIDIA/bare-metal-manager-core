@@ -350,6 +350,7 @@ impl From<DpuStatusPhase> for DpuPhase {
             DpuStatusPhase::PerformArmForceRestart => {
                 Self::Provisioning("PerformArmForceRestart".into())
             }
+            DpuStatusPhase::UpdateFirmware => Self::Provisioning("UpdateFirmware".into()),
         }
     }
 }

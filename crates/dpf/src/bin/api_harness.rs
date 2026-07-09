@@ -1017,7 +1017,7 @@ async fn show_status(
     }
     for dep in &deployments {
         let name = dep.metadata.name.clone().unwrap_or_default();
-        let bfb = dep.spec.dpus.bfb.clone();
+        let bfb = dep.spec.dpus.bfb.clone().unwrap_or_default();
         tracing::info!(name = %name, bfb = %bfb, "DPUDeployment");
     }
 

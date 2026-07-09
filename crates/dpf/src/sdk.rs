@@ -86,7 +86,6 @@ use crate::watcher::DpuWatcherBuilder;
 
 const SECRET_NAME: &str = "bmc-shared-password";
 const BFB_NAME_PREFIX: &str = "bf-bundle";
-const DPF_OPERATOR_CONFIG: &str = "dpfoperatorconfig";
 /// Label set by the DPF operator on each DPU CR pointing back to its owning
 /// DPUDeployment. Value format: `<namespace>_<deployment_name>`.
 const DPU_OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
@@ -529,6 +528,7 @@ pub fn build_service_template(svc: &ServiceDefinition, namespace: &str) -> DPUSe
                 values: helm_values,
             },
             resource_requirements: None,
+            security: None,
         },
         status: None,
     }
@@ -770,7 +770,7 @@ pub fn build_deployment(
         },
         spec: DpuDeploymentSpec {
             dpus: DpuDeploymentDpus {
-                bfb: bfb_name.to_string(),
+                bfb: Some(bfb_name.to_string()),
                 dpu_sets: Some(vec![DpuDeploymentDpusDpuSets {
                     dpu_annotations: None,
                     dpu_selector: None,
@@ -783,7 +783,7 @@ pub fn build_deployment(
                     dpu_device_selector: None,
                     node_selector: None,
                 }]),
-                flavor: flavor_name.to_string(),
+                flavor: Some(flavor_name.to_string()),
                 node_effect: DpuDeploymentDpusNodeEffect {
                     custom_action: None,
                     custom_label: None,
@@ -798,6 +798,9 @@ pub fn build_deployment(
                     r#type: DpuDeploymentDpusDpuSetStrategyType::OnDelete,
                 },
                 secure_boot: None,
+                astra_enabled: None,
+                blue_field_software: None,
+                flavor_template: None,
             },
             revision_history_limit: None,
             service_chains,
@@ -987,6 +990,7 @@ pub fn build_service_interface(
             Some(DpuServiceInterfaceTemplateSpecTemplateSpecPf {
                 pf_id: iface.pf_id,
                 virtual_network: None,
+                nic_selector: None,
             }),
             None,
         ),
@@ -1003,6 +1007,7 @@ pub fn build_service_interface(
                 pf_id: iface.pf_id,
                 vf_id: iface.vf_id,
                 virtual_network: None,
+                nic_selector: None,
             }),
         ),
         _ => unimplemented!("interface type not supported"),
@@ -1160,20 +1165,6 @@ impl<
         )
         .await?;
 
-        // Use default bf.cfg. In this case, delete bfCFGTemplateConfigMap from dpfoperatorconfig
-        DpfOperatorConfigRepository::patch(
-            &*self.repo,
-            DPF_OPERATOR_CONFIG,
-            &self.namespace,
-            serde_json::json!({
-                "spec": {
-                    "provisioningController": {
-                        "bfCFGTemplateConfigMap": null
-                    }
-                }
-            }),
-        )
-        .await?;
         Ok(())
     }
 }
@@ -1229,6 +1220,10 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
                 pf0_name: None,
                 psid: None,
                 serial_number: info.serial_number,
+                bmc_credential_secret_name: None,
+                cluster: None,
+                nic_device_count: None,
+                values: None,
             },
             status: None,
         };
@@ -1308,6 +1303,7 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
                     g_noi: None,
                     host_agent: None,
                     script: None,
+                    none: None,
                 }),
             },
             status: None,
@@ -1525,8 +1521,9 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
                     return None;
                 };
 
-                let expected_bfb_cr_name = deployment.spec.dpus.bfb.as_str();
-                let expected_flavor = deployment.spec.dpus.flavor.as_str();
+                // TODO: Compare either bfb or bluefield_software
+                let expected_bfb_cr_name = deployment.spec.dpus.bfb.clone().unwrap_or_default();
+                let expected_flavor = deployment.spec.dpus.flavor.clone().unwrap_or_default();
                 let expected_filename = format!("{}-{}.bfb", self.namespace, expected_bfb_cr_name);
 
                 let current_basename = dpu
@@ -1774,7 +1771,7 @@ impl<R: DpuNodeRepository + DpuDeviceRepository + DpuRepository, L> DpfSdk<R, L>
                 dpus.push(DpuSummary {
                     name: d.metadata.name.clone().unwrap_or_default(),
                     labels: d.metadata.labels.clone().unwrap_or_default(),
-                    spec_bfb: d.spec.bfb.clone(),
+                    spec_bfb: d.spec.bfb.clone().unwrap_or_default(),
                     spec_dpu_flavor: Some(d.spec.dpu_flavor.clone()),
                     spec_dpu_device_name: d.spec.dpu_device_name.clone(),
                     spec_dpu_node_name: d.spec.dpu_node_name.clone(),
@@ -2499,7 +2496,7 @@ mod tests {
                 ..Default::default()
             },
             spec: DpuSpec {
-                bfb: "bf-bundle".to_string(),
+                bfb: Some("bf-bundle".to_string()),
                 bmc_ip: None,
                 cluster: None,
                 dpu_device_name: "dpu-001".to_string(),
@@ -2520,6 +2517,7 @@ mod tests {
                 serial_number: "SN123".to_string(),
                 blue_field_software: None,
                 secure_boot: None,
+                astra_enabled: None,
             },
             status: Some(DpuStatus {
                 phase: DpuStatusPhase::Ready,
@@ -2543,6 +2541,11 @@ mod tests {
                 previous_phase: None,
                 redfish_task_id: None,
                 secure_boot: None,
+                deployment_mode: None,
+                hostless: None,
+                identity_mode: None,
+                outdated: None,
+                reboot_status: None,
             }),
         };
         mock.dpus
@@ -2740,6 +2743,10 @@ mod tests {
                 pf0_name: None,
                 psid: None,
                 serial_number: "SN123456".to_string(),
+                bmc_credential_secret_name: None,
+                cluster: None,
+                nic_device_count: None,
+                values: None,
             },
             status: None,
         };
@@ -2786,6 +2793,10 @@ mod tests {
                 pf0_name: None,
                 psid: None,
                 serial_number: "SN123456".to_string(),
+                bmc_credential_secret_name: None,
+                cluster: None,
+                nic_device_count: None,
+                values: None,
             },
             status: None,
         };
