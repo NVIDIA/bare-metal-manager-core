@@ -113,7 +113,7 @@ the "operator". Mocks have no lockout threshold, so this is safe here.
 | Baseline | 1 host × 1 DPU (override mode) | ✅ end-to-end: machines created, full credential rotation exercised |
 | Stage 1 | 100 hosts × 2 DPUs = 300 BMCs (proxy-direct) | ✅ 300/300 endpoints stable, machines created and advancing through `hostinit`/`dpuinit` |
 | Stage 2 | 1000 hosts × 2 DPUs = 3000 BMCs | ✅ **END TO END OK — 3000/3000 machines** in a single unattended script run (~25 min total; creation ≈ 240 machines/min) |
-| Stage 3 | 4500 hosts × 2 DPUs = 13,500 BMCs | ✅ **exploration sweep complete: 13,500/13,500 endpoints**; 10,353 machines at time of writing with the remainder completing autonomously; fleet actively progressing through machine-controller lifecycle states (`dpuinit`, `dpudiscoveringstate`) on dev-sized postgres (4 CPU) |
+| Stage 3 | 4500 hosts × 2 DPUs = 13,500 BMCs | ✅ **13,500/13,500 machines — 100% fleet** (first run: 13,500 endpoints explored, 10k+ machines; consolidated rerun on the #2764 ClusterIP chart + a freshly provisioned cluster: every counter at 100% — 13,500 explored / 13,500 preingestion-complete / 4,500 hosts / 13,500 machines, ~15 h wall clock unattended incl. connectivity outages) |
 
 Stage-3 observations worth reviewers' attention:
 

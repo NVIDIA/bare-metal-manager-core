@@ -25,6 +25,50 @@ export REGISTRY_PULL_SECRET=<NVIDIA_API_KEY>   # only if the pull secret is abse
 helm-prereqs/setup-machine-a-tron.sh           # add -y for non-interactive
 ```
 
+## Quick start: a 4500-host simulated fleet
+
+Build and push the image to the registry of your choice, then run the setup
+script in scale mode. Nothing registry-specific is committed — the image
+location, tag, and pull credentials all come from the environment, exactly
+like `setup.sh`:
+
+```bash
+export KUBECONFIG=/path/to/site/kubeconfig
+export NICO_IMAGE_REGISTRY=<registry>/<repo>     # e.g. registry.example.com/nico
+export MAT_IMAGE_TAG=<tag>                       # tag you built and pushed (see §2)
+export REGISTRY_PULL_SECRET=<api-key>            # omit if the pull secret already exists
+
+MAT_MODE=scale HOST_COUNT=4500 helm-prereqs/setup-machine-a-tron.sh -y
+```
+
+That is the whole procedure. The script exits after its bounded verification
+window while ingestion continues in-cluster; progress is visible with:
+
+```bash
+kubectl exec -n postgres <patroni-primary> -- su postgres -c \
+  "psql -d nico_system_nico -tAc \"SELECT
+     (SELECT count(*) FROM explored_endpoints) || ' explored / ' ||
+     (SELECT count(*) FROM machines) || ' machines';\""
+```
+
+### What to expect (measured on a 3-node dev cluster, dev-sized postgres)
+
+4500 hosts × 2 DPUs = 13,500 BMC endpoints → 13,500 machines.
+
+| Phase | Duration | Notes |
+|---|---|---|
+| Deploy + DHCP registration | ~60–90 min | ~150–180 interfaces/min while 13.5k mock FSMs boot |
+| Exploration sweep | ~3–5 h | overlaps DHCP; `explorations_per_run=120` per cycle |
+| Preingestion | tracks the sweep | ~90% conversion, completes shortly after it |
+| Identification + creation | final ~2–3 h | hosts identify in waves; creation drains at ~150–300 machines per explore cycle |
+| **End to end** | **~6–9 h, unattended** | 100 hosts ≈ 12 min and 1000 hosts ≈ 25 min, for calibration |
+
+The pipeline is autonomous once the script completes — it has run through
+multi-hour client connectivity outages without intervention. Occasional
+nico-api restarts under peak ingestion load are absorbed by the pipeline
+(machines resume within a cycle). Re-running the script is always safe
+(idempotent) and re-registers any expected machines that arrived late.
+
 The rest of this document explains what that script does and why, and is the
 reference for manual deployment or debugging. The script's header comments
 enumerate the non-obvious failure modes it guards against.
@@ -83,7 +127,7 @@ docker login "${NICO_IMAGE_REGISTRY%%/*}" \
   -p "${REGISTRY_PULL_SECRET}"
 ```
 
-For `nvcr.io` the username is the literal string `$oauthtoken`.
+Some registries use a fixed username with API-key auth — set `REGISTRY_PULL_USERNAME` accordingly (default: `$oauthtoken`).
 
 ## 3. Cluster Prerequisites
 

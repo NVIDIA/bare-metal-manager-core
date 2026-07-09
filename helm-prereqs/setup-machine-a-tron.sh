@@ -85,7 +85,6 @@
 #                          pull secret does not already exist in the
 #                          machine-a-tron namespace.
 #   REGISTRY_PULL_USERNAME Username for the pull secret. Default: $oauthtoken
-#                          (correct for nvcr.io).
 #   MAT_NAMESPACE          Deployment namespace. Default: nico-mat
 #   NICO_SYSTEM_NS         NICo Core namespace. Default: nico-system
 #   POSTGRES_NS            Postgres namespace. Default: postgres
