@@ -20,7 +20,7 @@ import (
 // checks if the OperatingSystemUpdateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &OperatingSystemUpdateRequest{}
 
-// OperatingSystemUpdateRequest Request data to update an Operating System. Only image-related attributes can be updated for image-based OS, and only iPXE attributes can be updated for iPXE-based OS
+// OperatingSystemUpdateRequest Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS
 type OperatingSystemUpdateRequest struct {
 	// Name of the Operating System
 	Name NullableString `json:"name,omitempty"`
@@ -28,13 +28,13 @@ type OperatingSystemUpdateRequest struct {
 	Description NullableString `json:"description,omitempty"`
 	// iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified
 	IpxeScript NullableString `json:"ipxeScript,omitempty"`
-	// Original URL from which the Operating System image can be retrieved; required for image-based OS
+	// Original URL from which the Operating System image can be retrieved. Immutable after creation: it may be re-sent unchanged, but changing it is rejected. Create a new Operating System to use a different image.
 	ImageUrl NullableString `json:"imageUrl,omitempty"`
-	// SHA hash of the image file, required for image-based OS
+	// SHA hash of the image file. Immutable after creation: it may be re-sent unchanged, but changing it is rejected.
 	ImageSha NullableString `json:"imageSha,omitempty"`
-	// Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified
+	// Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified. Can be updated independently without re-sending imageUrl/imageSha.
 	ImageAuthType NullableString `json:"imageAuthType,omitempty"`
-	// Auth token to retrieve the image from image URL, required if imageAuthType is specified
+	// Auth token to retrieve the image from image URL, required if imageAuthType is specified. Can be updated independently without re-sending imageUrl/imageSha.
 	ImageAuthToken NullableString `json:"imageAuthToken,omitempty"`
 	// Disk path where the image should be mounted, optional
 	ImageDisk NullableString `json:"imageDisk,omitempty"`
