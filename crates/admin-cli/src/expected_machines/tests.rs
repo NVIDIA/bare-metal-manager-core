@@ -28,6 +28,7 @@ use carbide_test_support::Outcome::*;
 use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
+use super::common::ExpectedMachineJson;
 use super::*;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
@@ -220,6 +221,61 @@ fn parse_replace_all() {
         }
         _ => panic!("expected ReplaceAll variant"),
     }
+}
+
+#[test]
+fn expected_machine_json_accepts_missing_id() {
+    let machine: ExpectedMachineJson = serde_json::from_str(
+        r#"{
+            "bmc_mac_address": "00:11:22:33:44:55",
+            "bmc_username": "admin",
+            "bmc_password": "secret",
+            "chassis_serial_number": "SN123"
+        }"#,
+    )
+    .expect("expected machine without id should parse");
+
+    assert_eq!(machine.id, None);
+}
+
+#[test]
+fn expected_machine_json_accepts_string_id() {
+    let machine: ExpectedMachineJson = serde_json::from_str(
+        r#"{
+            "id": "123e4567-e89b-12d3-a456-426614174000",
+            "bmc_mac_address": "00:11:22:33:44:55",
+            "bmc_username": "admin",
+            "bmc_password": "secret",
+            "chassis_serial_number": "SN123"
+        }"#,
+    )
+    .expect("expected machine with string id should parse");
+
+    assert_eq!(
+        machine.id.as_deref(),
+        Some("123e4567-e89b-12d3-a456-426614174000")
+    );
+}
+
+#[test]
+fn expected_machine_json_accepts_rpc_uuid_id() {
+    let machine: ExpectedMachineJson = serde_json::from_str(
+        r#"{
+            "id": {
+                "value": "123e4567-e89b-12d3-a456-426614174000"
+            },
+            "bmc_mac_address": "00:11:22:33:44:55",
+            "bmc_username": "admin",
+            "bmc_password": "secret",
+            "chassis_serial_number": "SN123"
+        }"#,
+    )
+    .expect("expected machine with RPC UUID id should parse");
+
+    assert_eq!(
+        machine.id.as_deref(),
+        Some("123e4567-e89b-12d3-a456-426614174000")
+    );
 }
 
 // parse_erase ensures erase parses with no arguments.
