@@ -4,7 +4,7 @@ You can use [DevSpace](https://www.devspace.sh) to deploy the complete local inf
 
 The process is broken into two steps:
 
-1. Bootstrap Kubernetes prerequisites. (This only needs to be done once.)
+1. Bootstrap Kubernetes prerequisites. (This only needs to be done once per cluster.)
 2. Run `devspace deploy` to deploy code from this repo
 
 The intent is that the app deploy path stays the same whether the prerequisites are:
@@ -120,6 +120,7 @@ Common usage:
 ```bash
 devspace deploy
 devspace deploy -n nico-system
+devspace deploy --skip-build -n nico-system
 devspace deploy --force-build
 ```
 
@@ -164,17 +165,25 @@ docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devs
 
 DevSpace then deploys the Helm chart with the built `nico-api` image wired into `global.image.repository` and `global.image.tag`, the built `nico-bmc-proxy` image wired into the `nico-bmc-proxy` chart values, and applies the local-only `machine-a-tron` manifest with its image wired into the `Deployment` spec. The REST images are built from the existing `rest-api/docker/local` Dockerfiles and are passed to the three existing REST Helm charts with the same generated tag.
 
-## Re-initializing Core state
+## Resetting the local environment
 
 Once deployed, the `nico-api` container will run and initialize its database, and the `machine-a-tron` container will run a set of mock machines, which will be discovered and ingested into the database, and run through the state machine until they reach a Ready state.
 
-You can purge the deployed product resources by running:
+Reset the complete local environment by running:
 
 ```bash
 devspace purge -n nico-system
 ```
 
-and it will delete the Core and REST Helm releases and the machine-a-tron deployment. Bootstrap-owned services such as PostgreSQL, Vault, Temporal, Keycloak, and cert-manager remain installed.
+The purge pipeline only runs when the current context is `kind-<cluster>`. It deletes and recreates that kind cluster with the same node image, then bootstraps clean prerequisites. This removes all Kubernetes state, including the Core and REST databases, Temporal namespaces and history, Vault data, Keycloak data, certificates, site registration, Helm releases, CRDs, and persistent volumes.
+
+The host Docker images, BuildKit cache, and `.devspace` image metadata are outside the kind node and remain available. Redeploy the last built images without rebuilding them:
+
+```bash
+devspace deploy --skip-build -n nico-system
+```
+
+The pre-deploy hooks load the cached Core and REST images from the host Docker store into the new kind node. Omit `--skip-build` when the source or image definitions have changed since the last build.
 
 To clear only the Core `nico` database, run the nuke-postgres.sh helper script:
 
@@ -191,6 +200,7 @@ devspace deploy -n nico-system
 ## Files
 
 - [`bootstrap-prereqs.sh`](bootstrap-prereqs.sh)
+- [`reset-kind-cluster.sh`](reset-kind-cluster.sh)
 - [`setup-rest-integration.sh`](setup-rest-integration.sh)
 - [`devspace.yaml`](../../../devspace.yaml)
 - [`values.base.yaml`](values.base.yaml)

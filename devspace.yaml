@@ -30,6 +30,10 @@ vars:
     source: env
     default: "18082"
 
+pipelines:
+  purge: |-
+    LOCAL_DEV_NAMESPACE=${DEVSPACE_NAMESPACE} dev/deployment/devspace/reset-kind-cluster.sh
+
 images:
   nico-api:
     image: nico-api
