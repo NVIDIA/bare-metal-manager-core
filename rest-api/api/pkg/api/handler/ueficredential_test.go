@@ -25,16 +25,16 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestCreateUEFICredentialHandlerProxiesCredential(t *testing.T) {
 	for _, tc := range []struct {
 		kind           model.UEFICredentialKind
-		credentialType cwssaws.CredentialType
+		credentialType corev1.CredentialType
 	}{
-		{model.UEFICredentialKindHost, cwssaws.CredentialType_HostUefi},
-		{model.UEFICredentialKindDPU, cwssaws.CredentialType_DpuUefi},
+		{model.UEFICredentialKindHost, corev1.CredentialType_HostUefi},
+		{model.UEFICredentialKindDPU, corev1.CredentialType_DpuUefi},
 	} {
 		t.Run(string(tc.kind), func(t *testing.T) {
 			fixture := newUEFICredentialHandlerFixture(t)
@@ -48,7 +48,7 @@ func TestCreateUEFICredentialHandlerProxiesCredential(t *testing.T) {
 			assert.NotContains(t, string(proxiedReq.RequestJSON), "secret-password")
 			assert.NotEmpty(t, proxiedReq.EncryptedSecrets)
 
-			var coreReq cwssaws.CredentialCreationRequest
+			var coreReq corev1.CredentialCreationRequest
 			require.NoError(t, protojson.Unmarshal(proxiedReq.RequestJSON, &coreReq))
 			assert.Equal(t, tc.credentialType, coreReq.GetCredentialType())
 			assert.Equal(t, coreproxy.RedactedPlaceholder, coreReq.GetPassword())

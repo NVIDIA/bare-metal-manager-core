@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestAPIUEFICredentialRequestValidate(t *testing.T) {
@@ -43,10 +43,10 @@ func TestAPIUEFICredentialRequestValidate(t *testing.T) {
 func TestAPIUEFICredentialRequestToProto(t *testing.T) {
 	for _, tc := range []struct {
 		kind           UEFICredentialKind
-		credentialType cwssaws.CredentialType
+		credentialType corev1.CredentialType
 	}{
-		{UEFICredentialKindHost, cwssaws.CredentialType_HostUefi},
-		{UEFICredentialKindDPU, cwssaws.CredentialType_DpuUefi},
+		{UEFICredentialKindHost, corev1.CredentialType_HostUefi},
+		{UEFICredentialKindDPU, corev1.CredentialType_DpuUefi},
 	} {
 		t.Run(string(tc.kind), func(t *testing.T) {
 			req := APIUEFICredentialRequest{Kind: tc.kind, Password: "pw"}

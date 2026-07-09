@@ -7,7 +7,7 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UEFICredentialKind selects the site-default UEFI credential to create.
@@ -56,12 +56,12 @@ func (r *APIUEFICredentialRequest) Validate() error {
 }
 
 // ToProto converts the validated request into a CredentialCreationRequest.
-func (r *APIUEFICredentialRequest) ToProto() *cwssaws.CredentialCreationRequest {
-	credentialType := cwssaws.CredentialType_HostUefi
+func (r *APIUEFICredentialRequest) ToProto() *corev1.CredentialCreationRequest {
+	credentialType := corev1.CredentialType_HostUefi
 	if r.Kind == UEFICredentialKindDPU {
-		credentialType = cwssaws.CredentialType_DpuUefi
+		credentialType = corev1.CredentialType_DpuUefi
 	}
-	return &cwssaws.CredentialCreationRequest{
+	return &corev1.CredentialCreationRequest{
 		CredentialType: credentialType,
 		Password:       r.Password,
 	}
