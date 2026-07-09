@@ -209,7 +209,7 @@ state_refresh_interval = "30m"
 logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 
 # ==============================================================================
-# TLS: Shared certificate configuration for hardware-health connections
+# TLS: Shared certificate configuration for switch collectors
 # ==============================================================================
 
 # Optional mTLS profile for direct switch collector connections.
@@ -223,14 +223,14 @@ logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 # switch certificates contain DNS SANs instead of IP SANs, set tls_server_name
 # here. The value is used only for TLS SNI and certificate verification, not
 # for DNS resolution or endpoint discovery.
-# For HTTP collectors, this name is also the HTTP Host header. Switch HTTP
-# services must accept that shared host when tls_server_name is configured.
+# For HTTP collectors, the request URL and HTTP Host header stay on the
+# discovered switch IP. Only the TLS server name changes.
 #
 # Rotation behavior:
-# - NMX-T and NVUE REST rebuild one HTTP client per switch-target collector
-#   on each poll iteration. This keeps reload behavior deterministic and avoids
-#   global client cache synchronization when switch inventory changes. Cert file
-#   changes are adopted on the next scrape for that switch target.
+# - NMX-T and NVUE REST share one cached HTTP client for this mTLS profile.
+#   The cache is checked on the shortest enabled HTTP collector poll interval,
+#   so cert file changes are adopted by the next reload window without building
+#   a client per switch target.
 # - NMX-C and NVUE gNMI read refreshed material when a long-lived stream
 #   reconnects.
 # - Existing HTTP clients and long-lived streams are not proactively closed on

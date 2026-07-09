@@ -18,6 +18,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
 use prometheus::{Histogram, HistogramOpts};
@@ -35,6 +36,7 @@ use crate::config::{
 };
 use crate::limiter::RateLimiter;
 use crate::metrics::{MetricsManager, operation_duration_buckets_seconds};
+use crate::tls::MtlsHttpClientProvider;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(super) enum CollectorKind {
@@ -233,6 +235,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) nmxc_config: Configurable<NmxcCollectorOptions>,
     pub(crate) nvue_config: Configurable<NvueCollectorOptions>,
     pub(crate) tls_config: Option<MtlsProfileConfig>,
+    pub(crate) tls_http_client_provider: Option<MtlsHttpClientProvider>,
 
     /// Whether any enabled sink consumes `CollectorEvent::Log` payloads.
     pub(crate) log_event_sink_enabled: bool,
@@ -279,6 +282,17 @@ impl DiscoveryLoopContext {
         )?;
         registry.register(Box::new(discovery_endpoint_fetch_histogram.clone()))?;
 
+        let tls_config = tls_config.or_else(|| config.tls.switch.clone());
+
+        // Periodic HTTP switch collectors share one provider because
+        // `[tls.switch]` is a single profile. The shortest enabled HTTP poll
+        // interval bounds cert reload staleness without rebuilding a client per
+        // switch target.
+        let tls_http_client_provider = tls_config.clone().and_then(|tls_config| {
+            switch_http_reload_interval(&config)
+                .map(|reload_interval| MtlsHttpClientProvider::new(tls_config, reload_interval))
+        });
+
         Ok(Self {
             collectors: CollectorState::new(),
             discovery_iteration_histogram,
@@ -294,12 +308,34 @@ impl DiscoveryLoopContext {
             nmxt_config: config.collectors.nmxt.clone(),
             nmxc_config: config.collectors.nmxc.clone(),
             nvue_config: config.collectors.nvue.clone(),
-            tls_config: tls_config.or_else(|| config.tls.switch.clone()),
+            tls_config,
+            tls_http_client_provider,
             log_event_sink_enabled: config.sinks.includes_log_events(),
             log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
             logs_include_diagnostics: config.sinks.includes_log_diagnostics(),
         })
     }
+}
+
+/// Returns the cadence at which periodic HTTP switch collectors reload mTLS material.
+fn switch_http_reload_interval(config: &Config) -> Option<Duration> {
+    let mut reload_interval = None;
+
+    if let Configurable::Enabled(nmxt_config) = &config.collectors.nmxt {
+        reload_interval = Some(nmxt_config.scrape_interval);
+    }
+
+    if let Configurable::Enabled(nvue_config) = &config.collectors.nvue
+        && let Configurable::Enabled(rest_config) = &nvue_config.rest
+    {
+        reload_interval = Some(
+            reload_interval
+                .map(|existing: Duration| existing.min(rest_config.poll_interval))
+                .unwrap_or(rest_config.poll_interval),
+        );
+    }
+
+    reload_interval
 }
 
 #[cfg(test)]

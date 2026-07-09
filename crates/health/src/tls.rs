@@ -20,28 +20,38 @@
 //! The current profile is used by switch collectors through `[tls.switch]`.
 //! This module owns HTTP and gRPC TLS construction inside the health crate so
 //! collector transport security does not depend on NICo API certificate
-//! settings. Each client build reads and validates the configured certificate
-//! files. Periodic HTTP collectors rebuild their mTLS clients once per poll
-//! iteration so they adopt changed certificate files on the next scrape.
-//! Streaming collectors build a new TLS config when they reconnect.
+//! settings. Periodic HTTP collectors share one cached mTLS client per profile;
+//! the cache refreshes on the configured reload cadence so certificate changes
+//! are adopted without rebuilding a client for every switch target. Streaming
+//! collectors build a new TLS config when they reconnect.
 
 use std::fmt;
 use std::io::BufReader;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Once};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use bytes::Bytes;
+use http::{HeaderName, HeaderValue, Method, Request, StatusCode};
+use http_body_util::{BodyExt, Empty};
+use hyper_rustls::{FixedServerNameResolver, HttpsConnector};
+use hyper_util::client::legacy::Client as HyperClient;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::rt::TokioExecutor;
 use rustls::RootCertStore;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use thiserror::Error;
 use tokio::fs;
+use tokio::sync::RwLock;
 use tonic::transport::{
     Certificate as TonicCertificate, ClientTlsConfig, Identity as TonicIdentity,
 };
+use url::Url;
 use x509_parser::prelude::*;
 
 use crate::config::MtlsProfileConfig;
+
+type HyperMtlsClient = HyperClient<HttpsConnector<HttpConnector>, Empty<Bytes>>;
 
 /// Role for one mTLS profile material file.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -108,24 +118,6 @@ pub(crate) enum TlsError {
         #[source]
         source: rustls::Error,
     },
-
-    #[error("failed to create mTLS profile HTTP CA bundle: {source}")]
-    HttpCaBundle {
-        #[source]
-        source: reqwest::Error,
-    },
-
-    #[error("failed to create mTLS profile HTTP client identity: {source}")]
-    HttpIdentity {
-        #[source]
-        source: reqwest::Error,
-    },
-
-    #[error("failed to create mTLS profile HTTP client: {source}")]
-    HttpClient {
-        #[source]
-        source: reqwest::Error,
-    },
 }
 
 struct TlsMaterial {
@@ -138,47 +130,268 @@ pub(crate) async fn preflight(config: &MtlsProfileConfig) -> Result<(), TlsError
     read_validated_material(config).await.map(|_| ())
 }
 
-/// Builds an HTTP client from the current mTLS profile material.
+/// Cloneable HTTP client built from one validated mTLS profile.
 ///
-/// The DNS name in `[tls.switch].tls_server_name` is used only for SNI and
-/// certificate verification. When it is set, callers pass the discovered switch
-/// socket address so reqwest still connects to the intended switch endpoint.
-pub(crate) async fn reqwest_client(
-    config: &MtlsProfileConfig,
-    timeout: Duration,
-    resolve_addr: Option<SocketAddr>,
-) -> Result<reqwest::Client, TlsError> {
-    let material = read_validated_material(config).await?;
-    let ca_certs = reqwest::Certificate::from_pem_bundle(&material.ca_pem)
-        .map_err(|source| TlsError::HttpCaBundle { source })?;
+/// The client owns its connection pool and TLS configuration. Clones are cheap
+/// handles to the same pool; TLS material changes require building a new
+/// `MtlsHttpClient`.
+#[derive(Clone)]
+pub(crate) struct MtlsHttpClient {
+    inner: HyperMtlsClient,
+}
 
-    let mut identity_pem =
-        Vec::with_capacity(material.client_cert_pem.len() + material.client_key_pem.len() + 1);
+/// Reloading provider for the shared switch mTLS HTTP client.
+///
+/// One provider is shared by all periodic HTTP switch collectors using the same
+/// `[tls.switch]` profile. The provider rebuilds the underlying HTTP client
+/// only after the reload interval expires, so cert file reads, parsing, and
+/// connection-pool construction are not repeated per switch target.
+#[derive(Clone)]
+pub(crate) struct MtlsHttpClientProvider {
+    inner: Arc<MtlsHttpClientProviderInner>,
+}
 
-    identity_pem.extend_from_slice(&material.client_cert_pem);
-    identity_pem.push(b'\n');
-    identity_pem.extend_from_slice(&material.client_key_pem);
+struct MtlsHttpClientProviderInner {
+    config: MtlsProfileConfig,
+    reload_interval: Duration,
+    state: RwLock<MtlsHttpClientProviderState>,
+}
 
-    let identity = reqwest::Identity::from_pem(&identity_pem)
-        .map_err(|source| TlsError::HttpIdentity { source })?;
+struct MtlsHttpClientProviderState {
+    /// Cached client for the most recently accepted TLS material.
+    client: Option<MtlsHttpClient>,
 
-    let mut builder = reqwest::Client::builder()
-        .timeout(timeout)
-        .tls_backend_rustls()
-        .tls_certs_only(ca_certs)
-        .identity(identity);
+    /// Instant at which callers must attempt to rebuild from disk again.
+    next_reload: Option<Instant>,
+}
 
-    if let (Some(tls_server_name), Some(resolve_addr)) =
-        (config.tls_server_name.as_deref(), resolve_addr)
-    {
-        // The DNS name is for SNI and certificate verification only. Override
-        // resolution so HTTP still connects to the discovered switch IP.
-        builder = builder.resolve(tls_server_name, resolve_addr);
+/// Fully buffered response from the small mTLS HTTP client wrapper.
+pub(crate) struct MtlsHttpResponse {
+    pub(crate) status: StatusCode,
+    pub(crate) body: Bytes,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum MtlsHttpError {
+    #[error("failed to create mTLS HTTP request: {source}")]
+    Request {
+        #[source]
+        source: http::Error,
+    },
+
+    #[error("failed to execute mTLS HTTP request: {source}")]
+    Execute {
+        #[source]
+        source: hyper_util::client::legacy::Error,
+    },
+
+    #[error("failed to read mTLS HTTP response body: {source}")]
+    Body {
+        #[source]
+        source: hyper::Error,
+    },
+
+    #[error("mTLS HTTP request timed out after {timeout:?}")]
+    Timeout {
+        timeout: Duration,
+        #[source]
+        source: tokio::time::error::Elapsed,
+    },
+}
+
+impl MtlsHttpClient {
+    /// Sends one GET request and buffers the whole response body.
+    ///
+    /// `request_timeout` covers both request execution and response body
+    /// collection so callers keep the same timeout shape as the previous
+    /// `reqwest` implementation.
+    pub(crate) async fn get(
+        &self,
+        url: &Url,
+        headers: impl IntoIterator<Item = (HeaderName, HeaderValue)>,
+        request_timeout: Duration,
+    ) -> Result<MtlsHttpResponse, MtlsHttpError> {
+        let mut builder = Request::builder().method(Method::GET).uri(url.as_str());
+
+        for (name, value) in headers {
+            builder = builder.header(name, value);
+        }
+
+        let request = builder
+            .body(Empty::<Bytes>::new())
+            .map_err(|source| MtlsHttpError::Request { source })?;
+
+        let response = tokio::time::timeout(request_timeout, async {
+            let response = self
+                .inner
+                .request(request)
+                .await
+                .map_err(|source| MtlsHttpError::Execute { source })?;
+
+            let status = response.status();
+            let body = response
+                .into_body()
+                .collect()
+                .await
+                .map_err(|source| MtlsHttpError::Body { source })?
+                .to_bytes();
+
+            Ok(MtlsHttpResponse { status, body })
+        })
+        .await
+        .map_err(|source| MtlsHttpError::Timeout {
+            timeout: request_timeout,
+            source,
+        })??;
+
+        Ok(response)
+    }
+}
+
+impl MtlsHttpClientProvider {
+    /// Creates a provider for one mTLS profile and reload cadence.
+    ///
+    /// The cadence is chosen by the discovery loop from the shortest enabled
+    /// periodic HTTP switch collector interval.
+    pub(crate) fn new(config: MtlsProfileConfig, reload_interval: Duration) -> Self {
+        Self {
+            inner: Arc::new(MtlsHttpClientProviderInner {
+                config,
+                reload_interval,
+                state: RwLock::new(MtlsHttpClientProviderState {
+                    client: None,
+                    next_reload: None,
+                }),
+            }),
+        }
     }
 
-    builder
-        .build()
-        .map_err(|source| TlsError::HttpClient { source })
+    /// Returns the cached client or rebuilds it from current certificate files.
+    ///
+    /// Once the reload window expires, callers must see the new material or the
+    /// reload error. A failed reload does not advance `next_reload`, so the
+    /// provider does not silently keep returning stale cert material after the
+    /// configured reload point.
+    pub(crate) async fn client(&self) -> Result<MtlsHttpClient, TlsError> {
+        let now = Instant::now();
+
+        {
+            let state = self.inner.state.read().await;
+            if let (Some(client), Some(next_reload)) = (&state.client, state.next_reload)
+                && now < next_reload
+            {
+                return Ok(client.clone());
+            }
+        }
+
+        let mut state = self.inner.state.write().await;
+        let now = Instant::now();
+
+        if let (Some(client), Some(next_reload)) = (&state.client, state.next_reload)
+            && now < next_reload
+        {
+            return Ok(client.clone());
+        }
+
+        // Hold the Tokio write lock while rebuilding so concurrent switch
+        // collectors collapse into one file read, cert validation, and client
+        // construction. This is the expensive operation this cache exists to
+        // serialize.
+        let client = http_client(&self.inner.config).await?;
+
+        state.next_reload = Some(now + self.inner.reload_interval);
+        state.client = Some(client.clone());
+
+        Ok(client)
+    }
+}
+
+/// Builds an HTTP client from the current mTLS profile material.
+///
+/// The URL host remains the discovered switch IP. When
+/// `[tls.switch].tls_server_name` is set, hyper-rustls uses that value only for
+/// SNI and certificate verification.
+pub(crate) async fn http_client(config: &MtlsProfileConfig) -> Result<MtlsHttpClient, TlsError> {
+    let material = read_validated_material(config).await?;
+    let tls_config = http_tls_config(config, &material)?;
+    let mut http_connector = HttpConnector::new();
+
+    http_connector.enforce_http(false);
+
+    let connector = match &config.tls_server_name {
+        Some(tls_server_name) => {
+            let server_name = ServerName::try_from(tls_server_name.clone()).map_err(|source| {
+                TlsError::Parse {
+                    kind: TlsMaterialKind::CaBundle,
+                    path: config.ca_cert_path.clone(),
+                    message: format!("invalid TLS server name: {source}"),
+                }
+            })?;
+
+            hyper_rustls::HttpsConnectorBuilder::new()
+                .with_tls_config(tls_config)
+                .https_only()
+                .with_server_name_resolver(FixedServerNameResolver::new(server_name))
+                .enable_http1()
+                .enable_http2()
+                .wrap_connector(http_connector)
+        }
+        None => hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(tls_config)
+            .https_only()
+            .enable_http1()
+            .enable_http2()
+            .wrap_connector(http_connector),
+    };
+
+    Ok(MtlsHttpClient {
+        inner: HyperClient::builder(TokioExecutor::new()).build(connector),
+    })
+}
+
+fn http_tls_config(
+    config: &MtlsProfileConfig,
+    material: &TlsMaterial,
+) -> Result<rustls::ClientConfig, TlsError> {
+    let ca_certs = parse_certificates(
+        TlsMaterialKind::CaBundle,
+        &config.ca_cert_path,
+        &material.ca_pem,
+    )?;
+
+    let mut root_store = RootCertStore::empty();
+    let (accepted, ignored) = root_store.add_parsable_certificates(ca_certs);
+
+    if accepted == 0 {
+        return Err(TlsError::NoTrustedCa {
+            path: config.ca_cert_path.clone(),
+        });
+    }
+
+    if ignored != 0 {
+        return Err(TlsError::Parse {
+            kind: TlsMaterialKind::CaBundle,
+            path: config.ca_cert_path.clone(),
+            message: format!("{ignored} certificate(s) could not be used as trust anchors"),
+        });
+    }
+
+    let client_certs = parse_certificates(
+        TlsMaterialKind::ClientCertificate,
+        &config.client_cert_path,
+        &material.client_cert_pem,
+    )?;
+
+    let client_key = parse_private_key(&config.client_key_path, &material.client_key_pem)?;
+
+    rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|source| TlsError::InvalidIdentity { source })?
+    .with_root_certificates(root_store)
+    .with_client_auth_cert(client_certs, client_key)
+    .map_err(|source| TlsError::InvalidIdentity { source })
 }
 
 /// Builds a tonic client TLS configuration from the current mTLS profile material.
@@ -556,7 +769,7 @@ mod tests {
         let config = write_material(&dir, &material).await?;
 
         preflight(&config).await?;
-        let _http_client = reqwest_client(&config, Duration::from_secs(1), None).await?;
+        let _http_client = http_client(&config).await?;
 
         let _grpc_tls = tonic_tls_config(&config).await?;
 
@@ -577,7 +790,7 @@ mod tests {
         tokio::fs::write(&config.client_cert_path, &rotated.client_cert_pem).await?;
         tokio::fs::write(&config.client_key_path, &rotated.client_key_pem).await?;
 
-        let _http_client = reqwest_client(&config, Duration::from_secs(1), None).await?;
+        let _http_client = http_client(&config).await?;
 
         Ok(())
     }
@@ -593,7 +806,43 @@ mod tests {
 
         tokio::fs::write(&config.client_key_path, &material.alternate_client_key_pem).await?;
 
-        let result = reqwest_client(&config, Duration::from_secs(1), None).await;
+        let result = http_client(&config).await;
+
+        assert!(matches!(result, Err(TlsError::InvalidIdentity { .. })));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn http_client_provider_reuses_cached_client_until_reload_interval()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = TempDir::new()?;
+        let material = valid_material();
+        let config = write_material(&dir, &material).await?;
+        let provider = MtlsHttpClientProvider::new(config.clone(), Duration::from_secs(3600));
+
+        let _http_client = provider.client().await?;
+
+        tokio::fs::write(&config.client_key_path, &material.alternate_client_key_pem).await?;
+
+        let _cached_http_client = provider.client().await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn http_client_provider_reloads_after_reload_interval()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = TempDir::new()?;
+        let material = valid_material();
+        let config = write_material(&dir, &material).await?;
+        let provider = MtlsHttpClientProvider::new(config.clone(), Duration::ZERO);
+
+        let _http_client = provider.client().await?;
+
+        tokio::fs::write(&config.client_key_path, &material.alternate_client_key_pem).await?;
+
+        let result = provider.client().await;
 
         assert!(matches!(result, Err(TlsError::InvalidIdentity { .. })));
 

@@ -610,9 +610,8 @@ pub struct MtlsProfileConfig {
     /// instead of requiring every switch certificate to include an IP SAN.
     /// This value is never used for endpoint discovery or DNS resolution.
     ///
-    /// For HTTP collectors, this name is also the request URL host and HTTP
-    /// Host header. Switch HTTP services must accept that host when this field
-    /// is configured.
+    /// For HTTP collectors, the request URL and HTTP Host header stay on the
+    /// discovered switch IP. Only the TLS server name changes.
     pub tls_server_name: Option<String>,
 }
 

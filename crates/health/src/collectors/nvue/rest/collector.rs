@@ -25,7 +25,7 @@ use super::client::{
 use crate::HealthError;
 use crate::bmc::{CREDENTIAL_REFRESH_TIMEOUT, CredentialProvider, is_auth_error};
 use crate::collectors::{IterationResult, PeriodicCollector};
-use crate::config::{MtlsProfileConfig, NvueRestConfig};
+use crate::config::NvueRestConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
 use crate::sink::{
     Classification, CollectorEvent, DataSink, EventContext, HealthReport, HealthReportAlert,
@@ -150,8 +150,8 @@ pub struct NvueRestCollectorConfig {
     /// Credential source used to authenticate to NVUE REST.
     pub credential_provider: Arc<dyn CredentialProvider>,
 
-    /// mTLS profile used for HTTPS polling when configured.
-    pub(crate) tls_config: Option<MtlsProfileConfig>,
+    /// Shared mTLS HTTP client provider used for HTTPS polling when configured.
+    pub(crate) tls_http_client_provider: Option<crate::tls::MtlsHttpClientProvider>,
 }
 
 pub struct NvueRestCollector {
@@ -186,7 +186,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             endpoint.addr.port,
             rest_cfg.request_timeout,
             true,
-            config.tls_config,
+            config.tls_http_client_provider,
             rest_cfg.paths.clone(),
         )?;
 
