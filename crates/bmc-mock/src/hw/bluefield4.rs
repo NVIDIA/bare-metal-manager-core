@@ -44,6 +44,9 @@ impl Bluefield4<'_> {
     const SYSTEM_ID: &'static str = "BlueField_0";
     const MANAGER_ID: &'static str = "BlueField_BMC_0";
     const BMC_CHASSIS_ID: &'static str = "BlueField_BMC_0";
+    const NETWORK_ADAPTER_ID: &'static str = "BlueField_NIC_0";
+    const NETWORK_DEVICE_FUNCTION_ID: &'static str = "0";
+    const NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
 
     fn sensor_layout() -> redfish::sensor::Layout {
         // The older BF4 layout exposed these sensors below Card1. Newer
@@ -70,6 +73,7 @@ impl Bluefield4<'_> {
                     model: Some("NA".into()),
                     part_number: Some(self.part_number().into()),
                     serial_number: Some(self.product_serial_number.to_string().into()),
+                    network_adapters: Some(self.network_adapters()),
                     pcie_devices: Some(vec![]),
                     sensors: Some(redfish::sensor::generate_chassis_sensors(
                         "BlueField_0",
@@ -111,6 +115,54 @@ impl Bluefield4<'_> {
                 },
             ],
         }
+    }
+
+    fn network_adapters(&self) -> Vec<redfish::network_adapter::NetworkAdapter> {
+        let function = redfish::network_device_function::builder(
+            &redfish::network_device_function::chassis_resource(
+                Self::SYSTEM_ID,
+                Self::NETWORK_ADAPTER_ID,
+                Self::NETWORK_DEVICE_FUNCTION_ID,
+            ),
+        )
+        .ethernet(json!({
+            "PermanentMACAddress": Self::ndf0_permanent_mac(self.host_mac_address),
+        }))
+        .build();
+
+        vec![
+            redfish::network_adapter::builder_from_nic(
+                &redfish::network_adapter::chassis_resource(
+                    Self::SYSTEM_ID,
+                    Self::NETWORK_ADAPTER_ID,
+                ),
+                &self.host_nic(),
+            )
+            .network_device_functions(
+                &redfish::network_device_function::chassis_collection(
+                    Self::SYSTEM_ID,
+                    Self::NETWORK_ADAPTER_ID,
+                ),
+                vec![function],
+            )
+            .status(redfish::resource::Status::Ok)
+            .build(),
+        ]
+    }
+
+    fn ndf0_permanent_mac(host_mac_address: MacAddress) -> MacAddress {
+        Self::offset_mac(host_mac_address, Self::NDF0_TO_BASE_MAC_OFFSET)
+    }
+
+    fn offset_mac(mac_address: MacAddress, offset: u64) -> MacAddress {
+        let bytes = mac_address.bytes();
+        let value = u64::from_be_bytes([
+            0, 0, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+        ])
+        .checked_add(offset)
+        .expect("BF4 NDF0 MAC offset must not overflow");
+        let bytes = value.to_be_bytes();
+        MacAddress::new([bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]])
     }
 
     pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {

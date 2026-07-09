@@ -59,6 +59,7 @@ thiserror = { workspace = true }
 version-compare = { workspace = true }
 
 [dev-dependencies]
+bmc-explorer = { path = "../bmc-explorer", features = ["test-support"] }
 bmc-mock = { path = "../bmc-mock" }
 opentelemetry-prometheus = { workspace = true }
 prometheus = { workspace = true }
