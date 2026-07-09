@@ -90,7 +90,7 @@ ${SUDO} systemctl enable --now docker.socket
 
 # --- 7. Cross-architecture container support ---------------------------------
 echo "=== [7/9] Registering cross-architecture container support ==="
-${SUDO} docker run --privileged --rm tonistiigi/binfmt --install all
+${SUDO} docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install all
 
 # --- 8. Cargo build tooling ---------------------------------------------------
 echo "=== [8/9] Installing cargo build tooling (cargo-make, cargo-cache) ==="

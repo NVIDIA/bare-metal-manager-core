@@ -35,7 +35,7 @@ steps on an `apt`-based distribution such as Ubuntu 24.04:
 8. `git submodule update --init --recursive`
 9. Start Docker and register cross-architecture support:
    `sudo systemctl enable --now docker.socket`, then
-   `sudo docker run --privileged --rm tonistiigi/binfmt --install all`
+   `sudo docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install all`
 10. `cargo install cargo-make cargo-cache`
 11. `echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee /etc/sysctl.d/99-userns.conf`
 12. `sudo usermod -aG docker $(id -un)`
