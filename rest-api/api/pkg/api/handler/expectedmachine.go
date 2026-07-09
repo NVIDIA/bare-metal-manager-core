@@ -348,24 +348,14 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 	}
 
 	if tenant != nil {
-		privileged, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gaemh.dbSession, tenant, nil)
+		// Get the Sites where the Tenant has effective TargetedInstanceCreation,
+		// honoring per-site TenantSite.config overrides.
+		privilegedSiteIDs, err := common.GetPrivilegedAccessSiteIDsForTenant(ctx, nil, gaemh.dbSession, tenant)
 		if err != nil {
-			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant")
+			logger.Error().Err(err).Msg("error resolving privileged Site access for Tenant")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)
 		}
-		if privileged {
-			// Get IDs for all Sites the privileged Tenant has an access with
-			tenantSiteDAO := cdbm.NewTenantSiteDAO(gaemh.dbSession)
-			tenantSites, _, err := tenantSiteDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}}, paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)}, nil)
-			if err != nil {
-				logger.Error().Err(err).Msg("error retrieving Tenant Sites from DB")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites due to DB error", nil)
-			}
-
-			for _, tenantSite := range tenantSites {
-				filterInput.SiteIDs = append(filterInput.SiteIDs, tenantSite.SiteID)
-			}
-		}
+		filterInput.SiteIDs = append(filterInput.SiteIDs, privilegedSiteIDs...)
 	}
 
 	siteIDStr := c.QueryParam("siteId")
@@ -389,7 +379,7 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 		}
 
 		if !isAssociated && tenant != nil {
-			// We've already populated the filter with Providers the Tenant has an account with
+			// filterInput.SiteIDs already holds the Tenant's effective privileged Sites.
 			isAssociated = slices.Contains(filterInput.SiteIDs, site.ID)
 		}
 

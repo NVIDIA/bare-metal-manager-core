@@ -286,7 +286,7 @@ func TestTenantSiteSQLDAO_GetAll(t *testing.T) {
 
 	sites := []*Site{}
 	siteCount := 30
-	for i := 0; i < siteCount; i++ {
+	for i := range siteCount {
 		site := TestBuildSite(t, dbSession, ip, fmt.Sprintf("test-site-%d", i), ipu)
 		sites = append(sites, site)
 		if i%2 == 0 {

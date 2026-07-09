@@ -295,6 +295,12 @@ func (tssd TenantSiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input Tenant
 		ID: input.TenantSiteID,
 	}
 
+	// Validate mutually exclusive inputs before applying any write so a
+	// rejected request cannot leave the row partially updated.
+	if input.Config != nil && input.RemoveTargetedInstanceCreation {
+		return nil, errors.Wrap(db.ErrInvalidParams, "Config and RemoveTargetedInstanceCreation are mutually exclusive")
+	}
+
 	updatedFields := []string{}
 
 	if input.EnableSerialConsole != nil {
@@ -310,10 +316,6 @@ func (tssd TenantSiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input Tenant
 		if err != nil {
 			return nil, err
 		}
-	}
-
-	if input.Config != nil && input.RemoveTargetedInstanceCreation {
-		return nil, errors.Wrap(db.ErrInvalidParams, "Config and RemoveTargetedInstanceCreation are mutually exclusive")
 	}
 
 	switch {
