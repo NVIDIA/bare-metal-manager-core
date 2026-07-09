@@ -41,6 +41,8 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_endpoint_explorations_count</td><td>gauge</td><td>The amount of endpoint explorations that have been attempted</td></tr>
 <tr><td>carbide_exhausted_reprovision_retry_count</td><td>gauge</td><td>Number of host machines in the system whose host firmware upgrade retry budget is exhausted.</td></tr>
 <tr><td>carbide_external_call_duration_milliseconds</td><td>histogram</td><td>Duration of outbound calls by backend, operation, and outcome; the _count series, split by outcome, gives the request and error rates.</td></tr>
+<tr><td>carbide_firmware_update_failures_total</td><td>counter</td><td>Number of firmware update failures, by update target and cause</td></tr>
+<tr><td>carbide_firmware_updates_total</td><td>counter</td><td>Number of firmware updates started and completed, by update target and phase; only the host target emits both phases</td></tr>
 <tr><td>carbide_gpus_in_use_count</td><td>gauge</td><td>The total number of GPUs that are actively used by tenants in instances in the NICo deployment</td></tr>
 <tr><td>carbide_gpus_total_count</td><td>gauge</td><td>The total number of GPUs available in the NICo deployment</td></tr>
 <tr><td>carbide_gpus_usable_count</td><td>gauge</td><td>The remaining number of GPUs in the NICo deployment which are available for immediate instance creation</td></tr>

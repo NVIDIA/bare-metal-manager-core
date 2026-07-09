@@ -32,6 +32,7 @@ use sqlx::PgConnection;
 use tokio::sync::Mutex;
 
 use super::machine_update_module::MachineUpdateModule;
+use super::metrics::{FirmwareUpdatePhase, FirmwareUpdateProgress, FirmwareUpdateTarget};
 use crate::CarbideResult;
 use crate::cfg::file::CarbideConfig;
 
@@ -90,8 +91,6 @@ impl MachineUpdateModule for HostFirmwareUpdate {
                 continue;
             }
 
-            tracing::info!("Moving {} to host reprovision", machine_update);
-
             db::host_machine_update::trigger_host_reprovisioning_request(
                 &mut txn,
                 "Automated",
@@ -99,6 +98,15 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             )
             .await?;
 
+            // Counted after the trigger succeeds; the commit below spans the
+            // whole batch, so a later DB error can re-count machines on the
+            // next pass -- the same repeat-on-retry the old log line had.
+            carbide_instrument::emit(FirmwareUpdateProgress {
+                target: FirmwareUpdateTarget::Host,
+                phase: FirmwareUpdatePhase::Started,
+                machine_id: *machine_update,
+                detail: String::new(),
+            });
             updates_started.insert(*machine_update);
         }
 
@@ -109,18 +117,21 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         let completed = db::host_machine_update::find_completed_updates(txn).await?;
 
-        if !completed.is_empty() {
-            tracing::info!("Completed host firmware updates: {completed:?}");
-            for machine in completed {
-                db::machine::remove_health_report(
-                    txn,
-                    &machine,
-                    health_report::HealthReportApplyMode::Merge,
-                    HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
-                )
-                .await?;
-                db::machine::update_update_complete(&machine, true, txn).await?;
-            }
+        for machine in completed {
+            db::machine::remove_health_report(
+                txn,
+                &machine,
+                health_report::HealthReportApplyMode::Merge,
+                HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
+            )
+            .await?;
+            db::machine::update_update_complete(&machine, true, txn).await?;
+            carbide_instrument::emit(FirmwareUpdateProgress {
+                target: FirmwareUpdateTarget::Host,
+                phase: FirmwareUpdatePhase::Completed,
+                machine_id: machine,
+                detail: String::new(),
+            });
         }
         Ok(())
     }

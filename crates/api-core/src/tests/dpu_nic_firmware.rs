@@ -17,8 +17,11 @@
 use std::collections::HashSet;
 use std::string::ToString;
 
+use carbide_instrument::testing::MetricsCapture;
 use carbide_machine_controller::health_report::create_host_update_health_report_dpufw;
-use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
+use common::api_fixtures::{
+    TestEnv, create_managed_host, create_managed_host_multi_dpu, create_test_env,
+};
 use model::machine::LoadSnapshotOptions;
 use model::machine_update_module::{
     AutomaticFirmwareUpdateReference, HOST_UPDATE_HEALTH_REPORT_SOURCE,
@@ -40,6 +43,7 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     managed_host.update_nic_firmware_version(&mut txn).await?;
     txn.commit().await?;
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
+        reported_wrong_versions: std::sync::Mutex::new(std::collections::HashSet::new()),
         metrics: None,
         config: env.config.clone(),
         dpf: None,
@@ -53,6 +57,8 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .await
         .expect("Failed to create transaction");
 
+    let metrics = MetricsCapture::start();
+
     let started_count = dpu_nic_firmware_update
         .start_updates(&env.pool, 10, &HashSet::default(), &snapshots)
         .await?;
@@ -60,6 +66,17 @@ async fn test_start_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     assert_eq!(started_count.len(), 1);
     assert!(!started_count.contains(&managed_host.dpu().id));
     assert!(started_count.contains(&managed_host.id));
+
+    // Starting the host's DPU updates moves the progress counter. Other tests
+    // in this binary drive the same emit concurrently (MetricsCapture
+    // serializes only metric-asserting tests), so assert at least one rather
+    // than exactly one.
+    assert!(
+        metrics.counter_delta(
+            "carbide_firmware_updates_total",
+            &[("target", "dpu_nic"), ("phase", "started")],
+        ) >= 1.0
+    );
 
     // Check if health override is placed
     let managed_host = managed_host.snapshot(&mut txn).await;
@@ -89,6 +106,7 @@ async fn test_start_updates_with_multidpu(
     txn.commit().await?;
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
+        reported_wrong_versions: std::sync::Mutex::new(std::collections::HashSet::new()),
         metrics: None,
         config: env.config.clone(),
         dpf: None,
@@ -132,6 +150,7 @@ async fn test_get_updates_in_progress(
     managed_host.update_nic_firmware_version(&mut txn).await?;
     txn.commit().await?;
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
+        reported_wrong_versions: std::sync::Mutex::new(std::collections::HashSet::new()),
         metrics: None,
         config: env.config.clone(),
         dpf: None,
@@ -180,6 +199,7 @@ async fn test_check_for_updates(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     txn.commit().await?;
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
+        reported_wrong_versions: std::sync::Mutex::new(std::collections::HashSet::new()),
         metrics: None,
         config: env.config.clone(),
         dpf: None,
@@ -215,6 +235,7 @@ async fn test_clear_completed_updates(
     txn.commit().await?;
 
     let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
+        reported_wrong_versions: std::sync::Mutex::new(std::collections::HashSet::new()),
         metrics: None,
         config: env.config.clone(),
         dpf: None,
@@ -321,6 +342,123 @@ async fn test_clear_completed_updates(
             .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE)
     );
     assert!(managed_host.aggregate_health.alerts.is_empty());
+
+    Ok(())
+}
+
+/// A DPU that lands on the wrong version keeps its update marker, so the
+/// manager re-sees it every pass -- but the outcome must count once, not once
+/// per poll; a successful update clears the memory so a later wrong landing
+/// is a new outcome.
+#[crate::sqlx_test]
+async fn test_wrong_version_failures_count_once_per_outcome(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_instrument::testing::MetricsCapture;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await?;
+    mh.update_nic_firmware_version(&mut txn).await?;
+    txn.commit().await?;
+
+    let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
+        reported_wrong_versions: std::sync::Mutex::new(std::collections::HashSet::new()),
+        metrics: None,
+        config: env.config.clone(),
+        dpf: None,
+    };
+    let snapshots = get_all_snapshots(&env).await;
+    dpu_nic_firmware_update
+        .start_updates(&env.pool, 10, &HashSet::default(), &snapshots)
+        .await?;
+
+    let land_on_version = |version: &'static str, env: &TestEnv| {
+        let pool = env.pool.clone();
+        let dpu_id = mh.dpu().id.to_string();
+        let host_id = mh.id;
+        async move {
+            let mut txn = pool.begin().await.unwrap();
+            let query = r#"UPDATE machine_topologies SET topology=jsonb_set(topology, '{discovery_data,Info,dpu_info,firmware_version}', $1, false)
+     WHERE machine_id=$2"#;
+            sqlx::query::<_>(query)
+                .bind(sqlx::types::Json(version))
+                .bind(&dpu_id)
+                .execute(&mut *txn)
+                .await
+                .unwrap();
+            let query = r#"UPDATE machines set reprovisioning_requested = NULL where id = $1"#;
+            sqlx::query(query)
+                .bind(&dpu_id)
+                .execute(&mut *txn)
+                .await
+                .unwrap();
+            // The in-update marker the manager looks for when deciding a
+            // reprovision "finished" (mirrors the pretend-completed steps in
+            // test_clear_completed_updates above).
+            let health_override = create_host_update_health_report_dpufw();
+            db::machine::insert_health_report(
+                &mut txn,
+                &host_id,
+                health_report::HealthReportApplyMode::Merge,
+                &health_override,
+                false,
+            )
+            .await
+            .unwrap();
+            txn.commit().await.unwrap();
+        }
+    };
+
+    let metrics = MetricsCapture::start();
+    let wrong_version_delta = || {
+        metrics.counter_delta(
+            "carbide_firmware_update_failures_total",
+            &[
+                ("target", "dpu_nic"),
+                ("cause", "wrong_version_after_update"),
+            ],
+        )
+    };
+
+    // The update "finishes" on a version outside the configured set.
+    land_on_version("0.0.0-wrong", &env).await;
+    let mut txn = env.pool.begin().await?;
+    dpu_nic_firmware_update
+        .clear_completed_updates(&mut txn)
+        .await?;
+    dpu_nic_firmware_update
+        .clear_completed_updates(&mut txn)
+        .await?;
+    txn.commit().await?;
+    assert_eq!(wrong_version_delta(), 1.0, "one outcome, not one per pass");
+
+    // A later pass sees the desired version: markers and the reported memory
+    // both clear.
+    land_on_version("24.42.1000", &env).await;
+    let mut txn = env.pool.begin().await?;
+    dpu_nic_firmware_update
+        .clear_completed_updates(&mut txn)
+        .await?;
+    txn.commit().await?;
+    assert_eq!(wrong_version_delta(), 1.0, "a success is not a failure");
+
+    // A fresh update cycle lands wrong again: that is a new outcome.
+    dpu_nic_firmware_update
+        .start_updates(
+            &env.pool,
+            10,
+            &HashSet::default(),
+            &get_all_snapshots(&env).await,
+        )
+        .await?;
+    land_on_version("0.0.1-wrong", &env).await;
+    let mut txn = env.pool.begin().await?;
+    dpu_nic_firmware_update
+        .clear_completed_updates(&mut txn)
+        .await?;
+    txn.commit().await?;
+    assert_eq!(wrong_version_delta(), 2.0, "a new wrong landing re-reports");
 
     Ok(())
 }

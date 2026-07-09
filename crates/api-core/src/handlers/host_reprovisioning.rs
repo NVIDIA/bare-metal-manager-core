@@ -70,7 +70,7 @@ pub(crate) async fn trigger_host_reprovisioning(
         );
     }
 
-    match req.mode() {
+    let started_initiator = match req.mode() {
         Mode::Set => {
             let initiator = req.initiator().as_str_name();
             db::host_machine_update::trigger_host_reprovisioning_request(
@@ -79,14 +79,31 @@ pub(crate) async fn trigger_host_reprovisioning(
                 &machine_id,
             )
             .await?;
+            Some(initiator)
         }
         Mode::Clear => {
             db::host_machine_update::clear_host_reprovisioning_request(&mut txn, &machine_id)
                 .await?;
+            None
         }
-    }
+    };
 
     txn.commit().await?;
+
+    // Manual initiations pair with the same completion emit the update
+    // manager's automatic path gets, keeping the started-to-completed gap
+    // truthful for every initiator. Counted only after the commit: a
+    // rolled-back trigger never started anything.
+    if let Some(initiator) = started_initiator {
+        carbide_instrument::emit(
+            crate::machine_update_manager::metrics::FirmwareUpdateProgress {
+                target: crate::machine_update_manager::metrics::FirmwareUpdateTarget::Host,
+                phase: crate::machine_update_manager::metrics::FirmwareUpdatePhase::Started,
+                machine_id,
+                detail: initiator.to_string(),
+            },
+        );
+    }
 
     Ok(Response::new(()))
 }
