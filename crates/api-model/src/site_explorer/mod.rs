@@ -546,6 +546,35 @@ impl PCIeDevice {
 
         is_bluefield_part_number(part_number)
     }
+
+    fn bluefield_identity(&self) -> Option<(String, String)> {
+        if !self.is_bluefield() {
+            return None;
+        }
+
+        let part_number = self
+            .part_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|part_number| !part_number.is_empty())?;
+        let serial_number = self
+            .serial_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|serial_number| !serial_number.is_empty())?;
+
+        Some((part_number.to_lowercase(), serial_number.to_lowercase()))
+    }
+
+    fn has_preferred_bluefield_identity(&self) -> bool {
+        self.manufacturer.as_deref().is_some_and(|manufacturer| {
+            let manufacturer = manufacturer.to_lowercase();
+            manufacturer.contains("nvidia") || manufacturer.contains("mellanox")
+        }) || self
+            .name
+            .as_deref()
+            .is_some_and(|name| name.to_lowercase().contains("bluefield"))
+    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
@@ -1858,14 +1887,48 @@ pub struct ExploredMlxDevice {
 }
 
 impl EndpointExplorationReport {
+    /// PCIe devices used by DPU discovery and derived Mellanox inventory.
+    ///
+    /// The raw report remains unchanged. Only records with the same non-empty,
+    /// normalized BlueField part number and serial number are collapsed. When
+    /// duplicates exist, prefer a record whose manufacturer names NVIDIA or
+    /// Mellanox, or whose name identifies a BlueField device.
+    pub fn pcie_devices_for_dpu_discovery(&self) -> Vec<&PCIeDevice> {
+        let mut device_indexes: HashMap<(String, String), usize> = HashMap::new();
+        let mut devices: Vec<&PCIeDevice> = Vec::new();
+
+        for device in self
+            .systems
+            .iter()
+            .flat_map(|system| system.pcie_devices.iter())
+        {
+            let Some(identity) = device.bluefield_identity() else {
+                devices.push(device);
+                continue;
+            };
+
+            if let Some(index) = device_indexes.get(&identity).copied() {
+                if !devices[index].has_preferred_bluefield_identity()
+                    && device.has_preferred_bluefield_identity()
+                {
+                    devices[index] = device;
+                }
+            } else {
+                device_indexes.insert(identity, devices.len());
+                devices.push(device);
+            }
+        }
+
+        devices
+    }
+
     /// Projects this report's Redfish PCIe inventory into [`ExploredMlxDevice`]s --
     /// one per BlueField/Mellanox device, with its part number, NIC firmware and
     /// serial. `dpu_bmc_ip`/`nic_mode` are left unset here; they are filled by
     /// [`collect_explored_mlx_devices`] once a device is matched to its DPU endpoint.
     pub fn explored_mlx_devices(&self, host_bmc_ip: IpAddr) -> Vec<ExploredMlxDevice> {
-        self.systems
-            .iter()
-            .flat_map(|system| system.pcie_devices.iter())
+        self.pcie_devices_for_dpu_discovery()
+            .into_iter()
             .filter(|device| device.is_bluefield())
             .map(|device| ExploredMlxDevice {
                 host_bmc_ip,
@@ -1895,9 +1958,8 @@ impl EndpointExplorationReport {
     /// report's PCIe inventory -- the keys used to match each device to its DPU
     /// endpoint, the same serials [`collect_explored_mlx_devices`] joins on.
     pub fn bluefield_device_serials(&self) -> Vec<String> {
-        self.systems
-            .iter()
-            .flat_map(|system| system.pcie_devices.iter())
+        self.pcie_devices_for_dpu_discovery()
+            .into_iter()
             .filter(|device| device.is_bluefield())
             .filter_map(|device| device.serial_number.as_deref())
             .map(str::trim)
@@ -2017,6 +2079,196 @@ mod explored_mlx_device_tests {
             serial_number: Some(serial.to_string()),
             status: None,
         }
+    }
+
+    fn pcie_with_identity(
+        part: &str,
+        fw: &str,
+        serial: &str,
+        id: &str,
+        manufacturer: Option<&str>,
+        name: Option<&str>,
+    ) -> PCIeDevice {
+        PCIeDevice {
+            manufacturer: manufacturer.map(str::to_string),
+            name: name.map(str::to_string),
+            ..pcie(part, fw, serial, id)
+        }
+    }
+
+    #[test]
+    fn preferred_bluefield_identity_matches_manufacturer_or_name_case_insensitively() {
+        struct Case {
+            name: &'static str,
+            manufacturer: Option<&'static str>,
+            device_name: Option<&'static str>,
+            expected: bool,
+        }
+
+        let cases = [
+            Case {
+                name: "NVIDIA manufacturer",
+                manufacturer: Some("NVIDIA Corporation"),
+                device_name: Some("Network Device"),
+                expected: true,
+            },
+            Case {
+                name: "Mellanox URL manufacturer",
+                manufacturer: Some("https://www.MELLANOX.com"),
+                device_name: Some("Network Device"),
+                expected: true,
+            },
+            Case {
+                name: "BlueField device name",
+                manufacturer: Some("Unknown Vendor"),
+                device_name: Some("blueFIELD-3 DPU"),
+                expected: true,
+            },
+            Case {
+                name: "unrelated device",
+                manufacturer: Some("KIOXIA Corporation"),
+                device_name: Some("Ent NVMe CM7 FIPS E3.S MU 6.4TB"),
+                expected: false,
+            },
+        ];
+
+        for case in cases {
+            let device = pcie_with_identity(
+                "900-9D3B6-00SV-AA0",
+                "32.47.2682",
+                "DPU-SERIAL-1",
+                "0-21-0",
+                case.manufacturer,
+                case.device_name,
+            );
+            assert_eq!(
+                device.has_preferred_bluefield_identity(),
+                case.expected,
+                "{}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_pcie_inventory_only_collapses_duplicate_part_and_serial() {
+        const PART: &str = "900-9D3B6-00SV-AA0";
+        const SERIAL: &str = "DPU-SERIAL-1";
+
+        let report = EndpointExplorationReport {
+            systems: vec![ComputerSystem {
+                pcie_devices: vec![
+                    pcie_with_identity(
+                        " 900-9d3b6-00sv-aa0 ",
+                        "3.0.2",
+                        " dpu-serial-1 ",
+                        "copied-to-ssd",
+                        Some("KIOXIA Corporation"),
+                        Some("Ent NVMe CM7 FIPS E3.S MU 6.4TB"),
+                    ),
+                    pcie_with_identity(
+                        PART,
+                        "32.47.2682",
+                        SERIAL,
+                        "genuine-dpu",
+                        Some("Nvidia"),
+                        Some("BlueField-3 DPU"),
+                    ),
+                    pcie("900-9D3B4-00EN-EA0", "32.47.2682", SERIAL, "different-part"),
+                    pcie(PART, "32.47.2682", "DPU-SERIAL-2", "different-serial"),
+                    pcie(PART, "32.47.2682", "", "empty-serial-1"),
+                    pcie(PART, "32.47.2682", "", "empty-serial-2"),
+                    pcie_with_identity(
+                        "0JKJDC",
+                        "3.0.2",
+                        "PHTBPKK58S00WX",
+                        "ordinary-ssd",
+                        Some("KIOXIA Corporation"),
+                        Some("Ent NVMe CM7 FIPS E3.S MU 6.4TB"),
+                    ),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        assert_eq!(report.systems[0].pcie_devices.len(), 7, "raw inventory");
+        let canonical = report.pcie_devices_for_dpu_discovery();
+        let ids: Vec<&str> = canonical
+            .iter()
+            .filter_map(|device| device.id.as_deref())
+            .collect();
+
+        assert_eq!(canonical.len(), 6);
+        assert_eq!(ids[0], "genuine-dpu");
+        assert!(!ids.contains(&"copied-to-ssd"));
+        assert!(ids.contains(&"different-part"));
+        assert!(ids.contains(&"different-serial"));
+        assert!(ids.contains(&"empty-serial-1"));
+        assert!(ids.contains(&"empty-serial-2"));
+        assert!(ids.contains(&"ordinary-ssd"));
+    }
+
+    #[test]
+    fn explored_mlx_devices_preserves_distinct_serials_and_prefers_genuine_records() {
+        const PART: &str = "900-9D3B6-00SV-AA0";
+        const SERIAL_1: &str = "DPU-SERIAL-1";
+        const SERIAL_2: &str = "DPU-SERIAL-2";
+
+        let report = EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            systems: vec![ComputerSystem {
+                pcie_devices: vec![
+                    pcie_with_identity(
+                        PART,
+                        "3.0.2",
+                        SERIAL_1,
+                        "copied-to-kioxia-ssd",
+                        Some("KIOXIA Corporation"),
+                        Some("Ent NVMe CM7 FIPS E3.S MU 6.4TB"),
+                    ),
+                    pcie_with_identity(
+                        PART,
+                        "32.47.2682",
+                        SERIAL_1,
+                        "genuine-dpu-1",
+                        Some("Nvidia"),
+                        Some("BlueField-3 DPU"),
+                    ),
+                    pcie_with_identity(
+                        PART,
+                        "",
+                        SERIAL_2,
+                        "copied-to-intel-device",
+                        Some("Intel Corporation"),
+                        Some("Xeon IMC0 Mesh to Mem Registers"),
+                    ),
+                    pcie_with_identity(
+                        PART,
+                        "32.47.2682",
+                        SERIAL_2,
+                        "genuine-dpu-2",
+                        Some("Nvidia"),
+                        Some("BlueField-3 DPU"),
+                    ),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(report.systems[0].pcie_devices.len(), 4, "raw inventory");
+        assert_eq!(report.bluefield_device_serials(), vec![SERIAL_1, SERIAL_2]);
+
+        let mut devices = report.explored_mlx_devices("192.0.2.20".parse().unwrap());
+        devices.sort_by(|left, right| left.serial_number.cmp(&right.serial_number));
+
+        assert_eq!(devices.len(), 2);
+        assert_eq!(devices[0].pcie_id.as_deref(), Some("genuine-dpu-1"));
+        assert_eq!(devices[0].firmware_version.as_deref(), Some("32.47.2682"));
+        assert_eq!(devices[0].serial_number.as_deref(), Some(SERIAL_1));
+        assert_eq!(devices[1].pcie_id.as_deref(), Some("genuine-dpu-2"));
+        assert_eq!(devices[1].firmware_version.as_deref(), Some("32.47.2682"));
+        assert_eq!(devices[1].serial_number.as_deref(), Some(SERIAL_2));
     }
 
     fn dpu_report_with_card1_part_number(part_number: Option<&str>) -> EndpointExplorationReport {

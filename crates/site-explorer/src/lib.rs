@@ -1293,19 +1293,17 @@ impl SiteExplorer {
             // per-device logic -- counting, `set_nic_mode` auto-correction, NIC-mode
             // stripping -- lives once in `record_host_dpu_device` / `classify_matched_dpu`.
             let mut dpu_exploration = DpuExplorationState::new();
-            for system in ep.report.systems.iter() {
-                for pcie_device in system.pcie_devices.iter() {
-                    self.record_host_dpu_device(
-                        pcie_device.part_number.as_deref(),
-                        pcie_device.serial_number.as_deref(),
-                        &dpu_sn_to_endpoint,
-                        host_dpu_mode,
-                        &ep,
-                        &mut dpu_exploration,
-                        metrics,
-                    )
-                    .await;
-                }
+            for pcie_device in ep.report.pcie_devices_for_dpu_discovery() {
+                self.record_host_dpu_device(
+                    pcie_device.part_number.as_deref(),
+                    pcie_device.serial_number.as_deref(),
+                    &dpu_sn_to_endpoint,
+                    host_dpu_mode,
+                    &ep,
+                    &mut dpu_exploration,
+                    metrics,
+                )
+                .await;
             }
 
             // A DPU can show up as a chassis instead of a PCIe device on some
