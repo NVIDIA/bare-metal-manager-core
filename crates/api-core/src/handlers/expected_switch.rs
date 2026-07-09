@@ -254,9 +254,7 @@ pub async fn replace_all_expected_switches(
                 })?;
         db_expected_switch::create(&mut txn, switch)
             .await
-            .map_err(|e| CarbideError::Internal {
-                message: format!("Failed to create expected switch: {}", e),
-            })?;
+            .map_err(CarbideError::from)?;
     }
 
     txn.commit().await.map_err(|e| CarbideError::Internal {

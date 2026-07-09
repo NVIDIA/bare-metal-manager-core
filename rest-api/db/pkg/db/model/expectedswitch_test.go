@@ -472,6 +472,31 @@ func TestExpectedSwitchSQLDAO_GetAll(t *testing.T) {
 			expectedError: false,
 		},
 		{
+			desc: "GetAll with NvosMacAddresses filter matches across separator and case",
+			filter: ExpectedSwitchFilterInput{
+				NvosMacAddresses: []string{"00-1b-44-11-3a-D1"},
+			},
+			expectedCount: 1,
+			expectedError: false,
+		},
+		{
+			desc: "GetAll with NvosMacAddresses filter returns nothing for an unclaimed MAC",
+			filter: ExpectedSwitchFilterInput{
+				NvosMacAddresses: []string{"00:1B:44:11:3A:99"},
+			},
+			expectedCount: 0,
+			expectedError: false,
+		},
+		{
+			desc: "GetAll with ExcludeExpectedSwitchIDs drops the excluded switch",
+			filter: ExpectedSwitchFilterInput{
+				NvosMacAddresses:         []string{"00:1B:44:11:3A:D1"},
+				ExcludeExpectedSwitchIDs: []uuid.UUID{created[0].ID},
+			},
+			expectedCount: 0,
+			expectedError: false,
+		},
+		{
 			desc: "GetAll with limit returns objects",
 			pageInput: paginator.PageInput{
 				Offset: cutil.GetPtr(0),
