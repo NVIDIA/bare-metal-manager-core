@@ -141,6 +141,7 @@ nico-bmc-proxy:
 
 nico-machine-a-tron:
   enabled: true
+  namespaceOverride: "nico-mat"
   machineATron:
     nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
   pods:

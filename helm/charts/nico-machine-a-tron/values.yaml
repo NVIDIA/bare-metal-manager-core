@@ -36,11 +36,16 @@ global:
     app.kubernetes.io/part-of: site-controller
 
 image:
+  ## Container image repository. When empty, uses global.image.repository or defaults to nico:latest
   repository: ""
+  ## Container image tag. Defaults to chart appVersion
   tag: ""
   pullPolicy: IfNotPresent
 
 namespaceOverride: ""
+
+## Create namespace when namespaceOverride is set
+createNamespace: true
 
 automountServiceAccountToken: true
 

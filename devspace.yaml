@@ -293,6 +293,12 @@ hooks:
             "${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag}" \
             "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}"
           ;;
+        k3s-*)
+          echo "Loading images into k3s cluster..."
+          docker save "${runtime.images.nico-api.image}:${runtime.images.nico-api.tag}" | sudo k3s ctr images import -
+          docker save "${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag}" | sudo k3s ctr images import -
+          docker save "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}" | sudo k3s ctr images import -
+          ;;
         # Add new local K8s tools here
       esac
   - name: load-rest-images-into-local-cluster
