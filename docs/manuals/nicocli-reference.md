@@ -6,6 +6,8 @@ The [Day One Operations](day_one_operations.md) guide uses this reference for al
 
 ## Installation
 
+Building `nicocli` or `nico-mcp` requires Go 1.26.4 or newer.
+
 Build and install from the `rest-api/` directory of the `infra-controller` repo:
 
 ```
@@ -256,7 +258,7 @@ After login, confirm nicocli can reach the API and your identity is correct:
 ```
 nicocli site list                        # any list returns -> auth works
 nicocli user get                         # returns the caller's user record
-nicocli service-account get              # for service-account deployments only
+nicocli service-account current          # for service-account deployments only
 ```
 
 `user get` returns the authenticated identity as NICo sees it. Service accounts have blank `email`/`firstName`/`lastName`; human users have those populated from the IdP.
@@ -289,14 +291,16 @@ Run `nicocli <resource> --help` to enumerate available actions and sub-resources
 
 ### Action name resolution
 
-The CLI's action-name resolver collapses `get-current-X` operation IDs to a short `get` action when there's no sibling collision. When two operation IDs would collide on the short form, both keep their full names.
+The CLI's action-name resolver maps `get-current-X` operations to `current`. Current-resource statistics map to `stats`, so these operations stay distinct without exposing their full OpenAPI operation IDs.
 
 | Operation ID | Resource | Action name |
 |--------------|----------|-------------|
-| `get-current-user` | `user` | `get` (no collision) |
-| `get-current-service-account` | `service-account` | `get` (no collision) |
-| `get-current-tenant` | `tenant` | `get-current-tenant` (collision with `get-current-tenant-stats`) |
-| `get-current-tenant-stats` | `tenant` | `get-current-tenant-stats` (collision) |
+| `get-user` | `user` | `get` |
+| `get-current-service-account` | `service-account` | `current` |
+| `get-current-tenant` | `tenant` | `current` |
+| `get-current-tenant-stats` | `tenant` | `stats` |
+| `get-current-infrastructure-provider` | `infrastructure-provider` | `current` |
+| `get-current-infrastructure-provider-stats` | `infrastructure-provider` | `stats` |
 
 Use `--help` to confirm the actual action name for any resource if you're unsure.
 
@@ -359,7 +363,7 @@ List and get commands support `--output <format>`:
 
 ```
 nicocli site list --output table
-nicocli tenant get-current-tenant --output yaml
+nicocli tenant current --output yaml
 nicocli audit list --output json --page-size 50 | jq '.[] | select(.statusCode >= 400)'
 ```
 
@@ -402,7 +406,7 @@ The `--query` flag is a **free-text search across `name`, `description`, and `st
 The global `--debug` flag logs the full HTTP request and response for the wrapped command. The bearer token is redacted; everything else is visible:
 
 ```
-$ nicocli --debug tenant get-current-tenant
+$ nicocli --debug tenant current
 time=... msg="API request: GET https://nico.example.com/v2/org/my-org/nico/tenant/current"
 time=... msg="Request headers: {\"Accept\":[\"application/json\"],\"Authorization\":[\"Bearer <redacted>\"]}"
 time=... msg="API response: ... -> 200 OK"
@@ -445,6 +449,61 @@ Behavior:
 - Auto-refreshes tokens 30 seconds before expiry and retries failed requests on `401 Unauthorized` up to three times.
 
 The TUI's interactive forms for `create` commands prompt for fields in order with type-aware pickers. For first-time operators this is significantly easier than constructing JSON bodies by hand. For scripts and automation, fall back to the non-interactive command form.
+
+## MCP Server
+
+`nico-mcp` is a standalone server that exposes every `GET` operation in the embedded NICo OpenAPI specification as a Model Context Protocol tool over streamable HTTP. It is separate from `nicocli`; the `nicocli mcp` command prints build and run instructions but does not start the server.
+
+Build and run it from the `rest-api` directory:
+
+```bash
+make nico-mcp
+nico-mcp --listen :8080 --path /mcp \
+  --base-url https://nico.example.com --org tester
+```
+
+The server has these properties:
+
+- Only OpenAPI `GET` operations are exposed. `POST`, `PATCH`, `PUT`, and `DELETE` operations are excluded.
+- Tool names use `nico_<snake_case(operationId)>`, such as `nico_get_all_site`.
+- The streamable HTTP handler is stateless and returns one `application/json` response for each request. It does not retain MCP session state or emit server-sent events.
+- An inbound `Authorization: Bearer <token>` header is forwarded to NICo REST. NICo REST remains responsible for authentication and authorization.
+
+### Server configuration
+
+| Flag | Environment variable | Description |
+|------|----------------------|-------------|
+| `--listen` | `NICO_MCP_LISTEN` | Listen address. Defaults to `:8080`. |
+| `--path` | `NICO_MCP_PATH` | MCP handler path. Defaults to `/mcp`. |
+| `--shutdown-timeout` | `NICO_MCP_SHUTDOWN_TIMEOUT` | Graceful shutdown timeout. Defaults to `10s`. |
+| `--base-url` | `NICO_BASE_URL` | Default NICo REST base URL. |
+| `--org` | `NICO_ORG` | Default organization for REST requests. |
+| `--api-name` | `NICO_API_NAME` | API path segment. Defaults to `nico`. |
+| `--token` | `NICO_TOKEN` | Default bearer token. |
+| `--debug` | None | Log full HTTP requests and responses. |
+
+Every generated tool also accepts `org`, `base_url`, `api_name`, and `token` arguments. For each call, an explicit tool argument takes precedence over the inbound authorization header for `token`, followed by the server startup default. The server does not read `~/.nico/config.yaml`; `org` and `base_url` must resolve from a tool argument, startup flag, or environment variable.
+
+List the generated tools:
+
+```bash
+curl -sS http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | jq
+```
+
+Call a tool while passing the caller's bearer token through to NICo REST:
+
+```bash
+curl -sS http://localhost:8080/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"nico_get_all_site","arguments":{}}}' | jq
+```
+
+The `helm/rest/nico-mcp` chart deploys the same server as a `ClusterIP` service. Set `global.image.repository` and `global.image.tag` for the `nico-mcp` image. The chart accepts optional `config.baseURL`, `config.org`, and `config.apiName` defaults; bearer tokens are intentionally supplied per request rather than through chart values.
 
 ## Quick Reference
 

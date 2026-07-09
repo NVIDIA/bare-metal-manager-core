@@ -54,7 +54,7 @@ nicocli user get
 NICo uses a lazy creation model for tenants. There is no explicit "create tenant" API call. Instead, a tenant record is automatically created the first time a Tenant Admin retrieves the current tenant for their organization:
 
 ```
-nicocli tenant get-current-tenant
+nicocli tenant current
 ```
 
 If no tenant exists for the configured org, NICo creates one and returns it. If a tenant already exists, the same command returns the existing record. The operation is idempotent.
@@ -78,7 +78,7 @@ If either condition is not met, the API returns HTTP 403. NICo trusts whatever t
 ### Worked Example
 
 ```
-$ nicocli tenant get-current-tenant
+$ nicocli tenant current
 {
   "capabilities": {
     "targetedInstanceCreation": true
@@ -96,14 +96,14 @@ $ nicocli tenant get-current-tenant
 | `id` | UUID identifier for the tenant, used in all subsequent API calls |
 | `org` | Organization name (matches your config `api.org`) |
 | `orgDisplayName` | Human-readable name pulled from the IdP's org metadata |
-| `capabilities.targetedInstanceCreation` | Whether this tenant can specify a particular machine ID when creating instances. Set during initial tenant creation: lazy-create via `tenant get-current-tenant` typically leaves it `false`; the service-account bootstrap path (`service-account get`) sets it `true` for self-tenants. |
+| `capabilities.targetedInstanceCreation` | Whether this tenant can specify a particular machine ID when creating instances. Set during initial tenant creation: lazy-create via `tenant current` typically leaves it `false`; the service-account bootstrap path (`service-account current`) sets it `true` for self-tenants. |
 
 ### Verifying the Tenant
 
 Check tenant health with the stats endpoint:
 
 ```
-nicocli tenant get-current-tenant-stats
+nicocli tenant stats
 ```
 
 Example response for a tenant in active use:
@@ -401,7 +401,7 @@ A tenant can have multiple allocations at the same site with different resource 
 
 ### Allocation Workflow Summary
 
-1. **Provision the tenant** -- `nicocli tenant get-current-tenant`
+1. **Provision the tenant** -- `nicocli tenant current`
 2. **Establish a tenant account** -- Provider admin links provider to tenant org
 3. **Discover available resources** -- List sites, instance types, and IP blocks
 4. **Create compute allocation(s)** -- One per instance type the tenant needs
@@ -732,7 +732,7 @@ See the [Machine Reboot](../playbooks/machine_reboot.md) and [Force Delete](../p
 ### Viewing the Current Tenant
 
 ```
-nicocli tenant get-current-tenant
+nicocli tenant current
 ```
 
 For provider admins needing visibility across tenants, list tenant accounts (a filter flag is required):
@@ -744,7 +744,7 @@ nicocli tenant-account list --infrastructure-provider-id <provider-uuid> --outpu
 ### Monitoring Tenant Health
 
 ```
-nicocli tenant get-current-tenant-stats
+nicocli tenant stats
 ```
 
 Non-zero `error` counts warrant investigation:
@@ -791,7 +791,7 @@ This section ties together the full Day One workflow. The TUI flow is the recomm
 ### Step 1: Provision the Tenant (Tenant Admin)
 
 ```
-nicocli tenant get-current-tenant
+nicocli tenant current
 ```
 
 Idempotent -- creates the tenant lazily on first call.
@@ -867,7 +867,7 @@ For automation, use `--data-file` -- see the Launching an Instance section above
 ### Step 10: Verify
 
 ```
-nicocli tenant get-current-tenant-stats
+nicocli tenant stats
 nicocli instance list --output table
 nicocli instance status-history <instance-id>
 ```
@@ -898,7 +898,7 @@ The instance should reach `Ready` (or `BootCompleted` if `phoneHomeEnabled: true
 Use `--debug` on any command to see the full HTTP request and response. The token is redacted in the log; the path-rewriting from `nico` to whatever `api.name` is set to is visible. Real output:
 
 ```
-$ nicocli --debug tenant get-current-tenant
+$ nicocli --debug tenant current
 time=... msg="API request: GET http://<api>/v2/org/<org>/<api-name>/tenant/current"
 time=... msg="Request headers: {\"Accept\":[\"application/json\"],\"Authorization\":[\"Bearer <redacted>\"]}"
 time=... msg="API response: ... -> 200 OK"
@@ -937,9 +937,9 @@ Flag-first ordering -- always put flags before positional args.
 | Operation | Command | Role Required |
 |-----------|---------|--------------|
 | View current user | `nicocli user get` | Any authenticated user |
-| View current tenant | `nicocli tenant get-current-tenant` | Tenant Admin |
-| View tenant stats | `nicocli tenant get-current-tenant-stats` | Tenant Admin |
-| Service-account status | `nicocli service-account get` | Any authenticated user |
+| View current tenant | `nicocli tenant current` | Tenant Admin |
+| View tenant stats | `nicocli tenant stats` | Tenant Admin |
+| Service-account status | `nicocli service-account current` | Any authenticated user |
 | List tenant accounts | `nicocli tenant-account list --tenant-id <id>` (or `--infrastructure-provider-id`) | Provider or Tenant Admin |
 | Create tenant account | `nicocli tenant-account create --infrastructure-provider-id <id> --tenant-org <org>` | Provider Admin |
 | Accept tenant account | `nicocli tenant-account update --data '{}' <account-id>` | Tenant Admin |

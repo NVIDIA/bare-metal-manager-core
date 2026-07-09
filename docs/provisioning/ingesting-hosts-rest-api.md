@@ -88,6 +88,7 @@ printf '%s' "$NICO_PASSWORD" |
       defaultBmcUsername: $defaultBmcUsername,
       defaultBmcPassword: .,
       chassisSerialNumber: $chassisSerialNumber,
+      hostLifecycleProfile: {disableLockdown: true},
       fallbackDPUSerialNumbers: ["<dpu-serial-1>", "<dpu-serial-2>"],
       labels: {environment: "production", rack: "A1"}
     }' |
@@ -96,6 +97,8 @@ unset NICO_PASSWORD
 ```
 
 `fallbackDPUSerialNumbers` is JSON-only (no flag form) and is needed for DGX-H100 or other machines where the NetworkAdapter serial number is not available in the host Redfish.
+
+`hostLifecycleProfile` is also JSON-only. Set `disableLockdown` to `true` only when the host must remain unlocked during lifecycle management. When the profile is omitted or `disableLockdown` is `false`, NICo applies UEFI lockdown during `HostInit`.
 
 ### Batch (Recommended for Full-Rack Onboarding)
 
@@ -115,6 +118,9 @@ Where `expected-machines.json` is a JSON array of `ExpectedMachineCreateRequest`
     "defaultBmcUsername": "<bmc-user>",
     "defaultBmcPassword": "<bmc-password-1>",
     "chassisSerialNumber": "<chassis-serial-1>",
+    "hostLifecycleProfile": {
+      "disableLockdown": true
+    },
     "rackId": "rack-01"
   },
   {
@@ -143,7 +149,7 @@ The high-level flow:
 1. **Preingestion**: NICo runs a preingestion state machine against each discovered BMC endpoint (host and DPU). It checks BMC clock drift against site time, resetting the BMC if needed. For host endpoints, firmware components are upgraded to the minimum version required for ingestion.
 1. **DPU-host pairing**: Site Explorer correlates host and DPU serial numbers to form matched pairs. Once DPUs are validated and paired, the `ManagedHost` object is created and the state machine starts.
 1. **`DpuDiscoveringState` / `DPUInit`**: NICo configures Secure Boot on the DPU, installs the DPU OS (BFB image), and power-cycles the host to apply the new DPU configuration.
-1. **`HostInit`**: NICo configures BIOS, sets the host boot order, optionally collects TPM attestation measurements, waits for hardware discovery via the `scout` agent, and applies UEFI lockdown. When `scout` reports back, NICo replaces the temporary predicted host ID (prefix `fm100p`) with a stable host ID (prefix `fm100h`) derived from the host's DMI serial data or TPM certificate.
+1. **`HostInit`**: NICo configures BIOS, sets the host boot order, optionally collects TPM attestation measurements, waits for hardware discovery via the `scout` agent, and applies UEFI lockdown unless `hostLifecycleProfile.disableLockdown` is `true`. When `scout` reports back, NICo replaces the temporary predicted host ID (prefix `fm100p`) with a stable host ID (prefix `fm100h`) derived from the host's DMI serial data or TPM certificate.
 1. **`BomValidating` / `Validation`**: NICo validates discovered hardware against the expected SKU. If hardware validation is enabled, the host is rebooted and tested before proceeding.
 1. **`Ready`**: the host transitions through `HostInit/Discovered` and enters the available pool, ready for an instance to be assigned.
 

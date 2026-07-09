@@ -39,7 +39,7 @@ func NewCreateOrUpdateBMCCredentialHandler(dbSession *cdb.Session, scp *sc.Clien
 
 // Handle godoc
 // @Summary Create Or Update BMC Credential
-// @Description Create or update a site-wide or per-BMC root credential. Equivalent to `carbide-admin-cli credential add-bmc`.
+// @Description Create or update a site-wide or per-BMC root credential. Equivalent to `nico-admin-cli credential add-bmc`.
 // @Tags bmc-credential
 // @Accept json
 // @Produce json
