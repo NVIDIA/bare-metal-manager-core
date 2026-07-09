@@ -53,5 +53,6 @@ mod tests {
         ));
         assert!(!chassis_assembly_serial_model("GB200 NVL"));
         assert!(!chassis_assembly_serial_model("1331226010330"));
+        assert!(!chassis_assembly_serial_model("2101326000053"));
     }
 }
