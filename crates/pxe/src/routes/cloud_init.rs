@@ -25,11 +25,13 @@ use axum::routing::get;
 use axum_template::TemplateEngine;
 use base64::Engine as _;
 use carbide_host_support::agent_config;
+use carbide_instrument::emit;
 use carbide_uuid::machine::MachineInterfaceId;
 use rpc::forge;
 use rpc::forge::PxeDomain;
 
 use crate::common::{AppState, Machine};
+use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome};
 
 const DEFAULT_NUM_OF_VFS: u32 = 16;
 const DEFAULT_HBN_BRIDGE: &str = "br-hbn";
@@ -56,8 +58,19 @@ fn generate_forge_agent_config(
     toml::to_string(&config).unwrap_or_else(|e| format!("# serialization error: {e}"))
 }
 
-fn print_and_generate_generic_error(error: String) -> (String, HashMap<String, String>) {
+/// The generic-failure funnel for the cloud-init routes: whatever data was
+/// missing, the client receives the same generic error template, and the
+/// caller says which missing data it was -- the reason label carries the
+/// per-site truth while the response stays generic.
+fn print_and_generate_generic_error(
+    error: String,
+    reason: OutcomeReason,
+) -> (String, HashMap<String, String>) {
     eprintln!("{error}");
+    emit(PxeBootOutcome {
+        endpoint: BootEndpoint::CloudInit,
+        reason,
+    });
     let mut template_data: HashMap<String, String> = HashMap::new();
     template_data.insert(
         "error".to_string(),
@@ -201,6 +214,10 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
         (Some(custom_cloud_init), _) => {
             let mut template_data: HashMap<String, String> = HashMap::new();
             template_data.insert("user_data".to_string(), custom_cloud_init);
+            emit(PxeBootOutcome {
+                endpoint: BootEndpoint::CloudInit,
+                reason: OutcomeReason::Ok,
+            });
             ("user-data-assigned".to_string(), template_data)
         }
         (None, Some(discovery_instructions)) => {
@@ -209,29 +226,37 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                 discovery_instructions.domain,
             ) {
                 (Some(interface), Some(domain)) => match interface.id {
-                    Some(machine_interface_id) => user_data_handler(
-                        machine_interface_id,
-                        interface,
-                        domain,
-                        discovery_instructions.hbn_reps,
-                        discovery_instructions.hbn_sfs,
-                        discovery_instructions.num_of_vfs,
-                        discovery_instructions.vf_intercept_bridge_name,
-                        discovery_instructions.host_representor_intercept_bridging,
-                        discovery_instructions.hbn_bridge,
-                        discovery_instructions.vf_intercept_bridge_port,
-                        discovery_instructions.vf_intercept_bridge_sf,
-                        machine.instructions.api_url_override,
-                        machine.instructions.pxe_url_override,
-                        state.clone(),
+                    Some(machine_interface_id) => {
+                        emit(PxeBootOutcome {
+                            endpoint: BootEndpoint::CloudInit,
+                            reason: OutcomeReason::Ok,
+                        });
+                        user_data_handler(
+                            machine_interface_id,
+                            interface,
+                            domain,
+                            discovery_instructions.hbn_reps,
+                            discovery_instructions.hbn_sfs,
+                            discovery_instructions.num_of_vfs,
+                            discovery_instructions.vf_intercept_bridge_name,
+                            discovery_instructions.host_representor_intercept_bridging,
+                            discovery_instructions.hbn_bridge,
+                            discovery_instructions.vf_intercept_bridge_port,
+                            discovery_instructions.vf_intercept_bridge_sf,
+                            machine.instructions.api_url_override,
+                            machine.instructions.pxe_url_override,
+                            state.clone(),
+                        )
+                    }
+                    None => print_and_generate_generic_error(
+                        format!("The interface ID should not be null: {interface:?}"),
+                        OutcomeReason::InterfaceNotFound,
                     ),
-                    None => print_and_generate_generic_error(format!(
-                        "The interface ID should not be null: {interface:?}"
-                    )),
                 },
-                (d, i) => print_and_generate_generic_error(format!(
-                    "The interface and domain were not found: {i:?}, {d:?}"
-                )),
+                (interface, domain) => print_and_generate_generic_error(
+                    format!("The interface and domain were not found: {interface:?}, {domain:?}"),
+                    OutcomeReason::InterfaceNotFound,
+                ),
             }
         }
         // discovery_instructions can not be None for a non-assigned machine.
@@ -241,6 +266,10 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
         (None, None) => {
             let mut template_data: HashMap<String, String> = HashMap::new();
             template_data.insert("user_data".to_string(), "{}".to_string());
+            emit(PxeBootOutcome {
+                endpoint: BootEndpoint::CloudInit,
+                reason: OutcomeReason::Ok,
+            });
             ("user-data-assigned".to_string(), template_data)
         }
     };
@@ -250,9 +279,10 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
 
 pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match machine.instructions.metadata {
-        None => print_and_generate_generic_error(format!(
-            "No metadata was found for machine {machine:?}"
-        )),
+        None => print_and_generate_generic_error(
+            format!("No metadata was found for machine {machine:?}"),
+            OutcomeReason::MetadataNotFound,
+        ),
         Some(metadata) => {
             let template_data = HashMap::from([
                 ("instance_id".to_string(), metadata.instance_id),
@@ -260,6 +290,10 @@ pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                 ("platform".to_string(), metadata.platform),
             ]);
 
+            emit(PxeBootOutcome {
+                endpoint: BootEndpoint::CloudInit,
+                reason: OutcomeReason::Ok,
+            });
             ("meta-data".to_string(), template_data)
         }
     };
@@ -268,6 +302,10 @@ pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRes
 }
 
 pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
+    emit(PxeBootOutcome {
+        endpoint: BootEndpoint::CloudInit,
+        reason: OutcomeReason::Ok,
+    });
     axum_template::Render(
         "printcontext",
         state.engine.clone(),
@@ -295,33 +333,12 @@ pub fn get_router(path_prefix: &str) -> Router<AppState> {
 mod tests {
     use std::fs;
 
-    use metrics_exporter_prometheus::PrometheusBuilder;
-    use tera::Tera;
+    use carbide_instrument::testing::MetricsCapture;
 
     use super::*;
-    use crate::config::RuntimeConfig;
+    use crate::common::test_app_state;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/test_data");
-
-    fn test_app_state() -> AppState {
-        AppState {
-            engine: axum_template::engine::Engine::from(Tera::default()),
-            runtime_config: RuntimeConfig {
-                internal_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079"
-                    .to_string(),
-                client_facing_api_url: "https://carbide-api.forge".to_string(),
-                pxe_url: "http://carbide-pxe.forge".to_string(),
-                static_pxe_url: "http://carbide-pxe.forge".to_string(),
-                forge_root_ca_path: String::new(),
-                server_cert_path: String::new(),
-                server_key_path: String::new(),
-                bind_address: "0.0.0.0".parse().unwrap(),
-                bind_port: 8080,
-                template_directory: String::new(),
-            },
-            prometheus_handle: PrometheusBuilder::new().build_recorder().handle(),
-        }
-    }
 
     #[test]
     fn forge_agent_config() {
@@ -590,6 +607,56 @@ mod tests {
         assert_eq!(
             context.get("hostname").map(String::as_str),
             Some("node-02.new.forge.example.com"),
+        );
+    }
+
+    /// A meta-data request with no metadata lands in the generic-error
+    /// funnel, which serves the error template and moves the outcome
+    /// counter.
+    #[tokio::test]
+    async fn meta_data_without_metadata_counts_metadata_not_found() {
+        let metrics = MetricsCapture::start();
+
+        let _ = meta_data(
+            Machine {
+                instructions: Default::default(),
+            },
+            State(test_app_state()),
+        )
+        .await;
+
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_pxe_boot_outcomes_total",
+                &[("endpoint", "cloud_init"), ("reason", "metadata_not_found")],
+            ),
+            1.0,
+        );
+    }
+
+    /// A user-data request answered from the tenant's custom cloud-init
+    /// counts as a served outcome.
+    #[tokio::test]
+    async fn user_data_with_custom_cloud_init_counts_ok() {
+        let metrics = MetricsCapture::start();
+
+        let _ = user_data(
+            Machine {
+                instructions: forge::CloudInitInstructions {
+                    custom_cloud_init: Some("#cloud-config".to_string()),
+                    ..Default::default()
+                },
+            },
+            State(test_app_state()),
+        )
+        .await;
+
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_pxe_boot_outcomes_total",
+                &[("endpoint", "cloud_init"), ("reason", "ok")],
+            ),
+            1.0,
         );
     }
 }

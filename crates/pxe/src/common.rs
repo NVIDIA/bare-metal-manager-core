@@ -50,4 +50,33 @@ pub(crate) struct AppState {
     // pub request_metrics: RequestMetrics,
     pub runtime_config: RuntimeConfig,
     pub prometheus_handle: PrometheusHandle,
+    /// The registry behind the global OTel meter, where the instrumentation
+    /// framework's events record; `/metrics` renders it alongside the
+    /// `metrics-exporter-prometheus` recorder above.
+    pub otel_registry: prometheus::Registry,
+}
+
+/// An [`AppState`] for handler tests: an empty template engine, a local
+/// (uninstalled) recorder, and a fresh OTel registry.
+#[cfg(test)]
+pub(crate) fn test_app_state() -> AppState {
+    use metrics_exporter_prometheus::PrometheusBuilder;
+
+    AppState {
+        engine: Engine::from(Tera::default()),
+        runtime_config: RuntimeConfig {
+            internal_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079".to_string(),
+            client_facing_api_url: "https://carbide-api.forge".to_string(),
+            pxe_url: "http://carbide-pxe.forge".to_string(),
+            static_pxe_url: "http://carbide-pxe.forge".to_string(),
+            forge_root_ca_path: String::new(),
+            server_cert_path: String::new(),
+            server_key_path: String::new(),
+            bind_address: "0.0.0.0".parse().unwrap(),
+            bind_port: 8080,
+            template_directory: String::new(),
+        },
+        prometheus_handle: PrometheusBuilder::new().build_recorder().handle(),
+        otel_registry: prometheus::Registry::new(),
+    }
 }
