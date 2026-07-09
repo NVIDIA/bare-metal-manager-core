@@ -40,7 +40,9 @@ pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
 
 use crate::api_client::{ApiClientWrapper, ApiEndpointSource};
 use crate::config::Configurable;
-use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
+use crate::endpoint::{
+    ClusterEndpointSource, CompositeEndpointSource, EndpointSource, StaticEndpointSource,
+};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::processor::{
@@ -143,11 +145,21 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
         ));
         let endpoint_source = Arc::new(ApiEndpointSource::new(
             api_client,
-            reqwest,
+            reqwest.clone(),
             config.bmc_proxy_url.clone(),
             config.cache_size,
         ));
         sources.push(endpoint_source as Arc<dyn EndpointSource>);
+    }
+
+    if let Configurable::Enabled(ref source_cfg) = config.endpoint_sources.cluster {
+        let cluster_source = ClusterEndpointSource::from_config(
+            source_cfg.clone(),
+            &reqwest,
+            config.bmc_proxy_url.as_ref(),
+            config.cache_size,
+        );
+        sources.push(Arc::new(cluster_source));
     }
 
     let composite_source = CompositeEndpointSource::new(sources);

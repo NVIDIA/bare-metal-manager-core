@@ -17,7 +17,7 @@
 
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use figment::Figment;
@@ -84,6 +84,9 @@ pub struct EndpointSourcesConfig {
 
     /// Static BMC endpoints
     pub static_bmc_endpoints: Vec<StaticBmcEndpoint>,
+
+    /// Cluster inventory file source (file or cluster manager JSON RPC)
+    pub cluster: Configurable<ClusterEndpointSourceConfig>,
 }
 
 impl Default for EndpointSourcesConfig {
@@ -91,7 +94,91 @@ impl Default for EndpointSourcesConfig {
         Self {
             carbide_api: Configurable::Enabled(CarbideApiConnectionConfig::default()),
             static_bmc_endpoints: Vec::new(),
+            cluster: Configurable::Disabled,
         }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterEndpointSourceConfig {
+    /// Path to a JSON inventory file containing BMC endpoints and credentials for the cluster.
+    /// Used when `cluster_manager_url` is absent.
+    #[serde(default)]
+    pub inventory_path: PathBuf,
+
+    /// Cluster manager head-node URL (e.g. https://10.x.x.x:8081).
+    /// When set, inventory and credentials are fetched live via cluster manager JSON RPC
+    /// instead of reading `inventory_path`.
+    #[serde(default)]
+    pub cluster_manager_url: Option<url::Url>,
+
+    /// Cluster manager partition to read bmcsettings from (default: "base").
+    /// The cluster manager stores BMC username/password at partition level; this selects which partition.
+    #[serde(default = "default_cluster_manager_partition")]
+    pub cluster_manager_partition: String,
+
+    /// Fallback BMC username if cluster manager JSON RPC does not return one.
+    /// Cluster manager default is "bright" (set during head-node installation).
+    #[serde(default = "default_cluster_manager_username")]
+    pub default_username: String,
+
+    /// Fallback BMC password if cluster manager JSON RPC does not return one.
+    /// Must be set explicitly — no code-level default.
+    #[serde(default)]
+    pub default_password: Option<String>,
+
+    /// Optional BMC port override. None uses the BmcClient default (443/HTTPS).
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+fn default_cluster_manager_partition() -> String {
+    "base".to_string()
+}
+
+fn default_cluster_manager_username() -> String {
+    "bright".to_string()
+}
+
+impl Default for ClusterEndpointSourceConfig {
+    fn default() -> Self {
+        Self {
+            inventory_path: PathBuf::default(),
+            cluster_manager_url: None,
+            cluster_manager_partition: default_cluster_manager_partition(),
+            default_username: default_cluster_manager_username(),
+            default_password: None,
+            port: None,
+        }
+    }
+}
+
+impl ClusterEndpointSourceConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.cluster_manager_url.is_none() && self.inventory_path.as_os_str().is_empty() {
+            return Err(
+                "cluster endpoint source requires either `inventory_path` or `cluster_manager_url`"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ClusterEndpointSourceConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClusterEndpointSourceConfig")
+            .field("inventory_path", &self.inventory_path)
+            .field("cluster_manager_url", &self.cluster_manager_url)
+            .field("cluster_manager_partition", &self.cluster_manager_partition)
+            .field("default_username", &self.default_username)
+            .field(
+                "default_password",
+                &self.default_password.as_ref().map(|_| "<redacted>"),
+            )
+            .field("port", &self.port)
+            .finish()
     }
 }
 
@@ -1297,6 +1384,10 @@ impl Config {
             .enumerate()
         {
             endpoint.validate(index)?;
+        }
+
+        if let Configurable::Enabled(ref cluster_cfg) = self.endpoint_sources.cluster {
+            cluster_cfg.validate()?;
         }
 
         if let Configurable::Enabled(health_report) = &self.sinks.health_report
