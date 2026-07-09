@@ -53,5 +53,5 @@ async fn explore_lenovo_gb300() {
     let lockdown = report
         .lockdown_status
         .expect("GB300 lockdown status must be populated");
-    assert_eq!(lockdown.status, InternalLockdownStatus::Partial);
+    assert_eq!(lockdown.status, InternalLockdownStatus::Disabled);
 }

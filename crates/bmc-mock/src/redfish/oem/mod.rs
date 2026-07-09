@@ -17,6 +17,7 @@
 
 pub mod dell;
 pub mod nvidia;
+pub mod supermicro;
 
 use crate::redfish::Resource;
 
@@ -78,5 +79,6 @@ impl BmcVendor {
 pub enum State {
     NvidiaBluefield(nvidia::bluefield::BluefieldState),
     DellIdrac(dell::idrac::IdracState),
+    Supermicro(supermicro::manager::SupermicroState),
     Other,
 }

@@ -69,6 +69,7 @@ impl DellPowerEdgeR760Bf4<'_> {
                     .interface_enabled(false)
                     .build(),
                 ]),
+                serial_interfaces: None,
                 firmware_version: Some("7.10.50.00"),
                 oem: Some(redfish::manager::Oem::Dell),
             }],
@@ -112,7 +113,7 @@ impl DellPowerEdgeR760Bf4<'_> {
                 model: Some("PowerEdge R760".into()),
                 eth_interfaces: Some(eth_interfaces),
                 serial_number,
-                boot_order_mode: redfish::computer_system::BootOrderMode::DellOem,
+                boot_order_mode: redfish::computer_system::BootOrderMode::OrderedCollection,
                 callbacks,
                 chassis: vec!["System.Embedded.1".into()],
                 boot_options: Some(boot_options),
@@ -125,6 +126,7 @@ impl DellPowerEdgeR760Bf4<'_> {
                 // failure.
                 storage: Some(vec![]),
                 processors: None,
+                serial_console: None,
                 secure_boot_available: true,
                 base_bios: Some(redfish::bios::builder(&redfish::bios::resource(system_id))
                     .attributes(json!({

@@ -91,7 +91,9 @@ pub fn machine_router(
         MachineInfo::Dpu(_) => {
             router.add_routes(crate::redfish::oem::nvidia::bluefield::add_routes)
         }
-        MachineInfo::Host(_) => router.add_routes(crate::redfish::oem::dell::idrac::add_routes),
+        MachineInfo::Host(_) => router
+            .add_routes(crate::redfish::oem::dell::idrac::add_routes)
+            .add_routes(crate::redfish::oem::supermicro::manager::add_routes),
     };
     let manager = Arc::new(ManagerState::new(&machine_info.manager_config()));
     let system_state = Arc::new(crate::redfish::computer_system::SystemState::from_config(

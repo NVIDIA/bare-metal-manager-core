@@ -43,6 +43,7 @@ impl GenericAmi<'_> {
                     .interface_enabled(true)
                     .build(),
                 ]),
+                serial_interfaces: None,
                 firmware_version: Some("47.20.02"),
                 oem: None,
             }],
@@ -100,6 +101,7 @@ impl GenericAmi<'_> {
                         .attributes(json!({"EndlessBoot":""}))
                         .build(),
                 ),
+                serial_console: None,
                 secure_boot_available: false,
             }],
         }
