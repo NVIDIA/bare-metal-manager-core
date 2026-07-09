@@ -69,7 +69,7 @@ An NSG is a tenant-owned object with the following shape:
 
 | Field | Purpose |
 |---|---|
-| `id` | NSG identifier. Optionally supplied by the caller as a UUID at creation; if omitted, NICo generates one. Either way it is returned on the created NSG. A supplied `id` that collides with an existing NSG is rejected with `409 Conflict` |
+| `id` | NSG identifier, optionally supplied by the caller as a UUID at creation. If omitted, NICo generates one. Either way, it is returned on the created NSG. A supplied `id` that collides with an existing NSG is rejected with `409 Conflict`. |
 | `tenant_organization_id` | The owning tenant |
 | `stateful_egress` | When `true`, return traffic for egress flows is permitted automatically. Requires the site-level `stateful_acls_enabled` flag (see below) |
 | `rules` | Ordered list of `NetworkSecurityGroupRule` entries, evaluated by priority |
