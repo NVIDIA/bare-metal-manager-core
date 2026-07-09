@@ -10,6 +10,11 @@
    its affiliates is strictly prohibited.
 */
 
+/*
+ * This protocol specification is the weave specification taken from
+ * https://gitlab-master.nvidia.com/doca-platform-foundation/dpf-vpc/-/blob/main/api/grpc/proto/nvidia/weave/controller/v1/vpc.proto
+ * If the protocol changes, this file will have to be adapted.
+ */
 syntax = "proto3";
 
 package nvidia.weave.controller.v1;

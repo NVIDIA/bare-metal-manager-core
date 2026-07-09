@@ -30,6 +30,7 @@ pub const WEAVE_EW_VPC_FLOW_CONTROLLER_SOCKET_PATH: &str =
 
 async fn weave_ew_vpc_connect_uds(socket_path: &str) -> eyre::Result<Channel> {
     let socket_path = socket_path.to_owned();
+    let socket_path_for_error = socket_path.clone();
     let channel = Endpoint::try_from("http://[::]:50051")
         .map_err(|e| eyre::eyre!("failed to create endpoint: {e}"))?
         .connect_with_connector(service_fn(move |_: Uri| {
@@ -40,9 +41,7 @@ async fn weave_ew_vpc_connect_uds(socket_path: &str) -> eyre::Result<Channel> {
             }
         }))
         .await
-        .map_err(|e| {
-            eyre::eyre!("connect to UDS at {WEAVE_EW_VPC_FLOW_CONTROLLER_SOCKET_PATH}: {e}")
-        })?;
+        .map_err(|e| eyre::eyre!("connect to UDS at {socket_path_for_error}: {e}"))?;
     Ok(channel)
 }
 

@@ -922,12 +922,21 @@ impl MainLoop {
 
                     let joined_result = match (update_result, dhcp_result, astra_config_status) {
                         (Ok(a), Ok(b), Ok(spx_net_status)) => Ok((a | b, spx_net_status)),
-                        (Err(e1), Err(e2), Err(e3)) => Err(eyre::eyre!(
-                            "network update failed: update={e1:#}, dhcp={e2:#}, spx={e3:#}"
-                        )),
-                        (Err(err), _, _) => Err(err.wrap_err("network update failed (update)")),
-                        (_, Err(err), _) => Err(err.wrap_err("network update failed (dhcp)")),
-                        (_, _, Err(err)) => Err(err.wrap_err("network update failed (spx)")),
+                        (update_result, dhcp_result, astra_config_status) => {
+                            let mut errors = Vec::new();
+
+                            if let Err(err) = update_result {
+                                errors.push(format!("update={err:#}"));
+                            }
+                            if let Err(err) = dhcp_result {
+                                errors.push(format!("dhcp={err:#}"));
+                            }
+                            if let Err(err) = astra_config_status {
+                                errors.push(format!("spx={err:#}"));
+                            }
+
+                            Err(eyre::eyre!("network update failed: {}", errors.join(", ")))
+                        }
                     };
                     match joined_result {
                         Ok((has_changed, astra_config_status)) => {
