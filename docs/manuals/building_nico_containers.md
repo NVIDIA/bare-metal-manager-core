@@ -8,7 +8,8 @@ An Ubuntu 24.04 host or VM with at least 150GB of free disk space is required, a
 
 Clone the repo and run the build-host bootstrap. It installs everything needed to build
 the containers and boot artifacts -- system packages, rustup, the mkosi/ipxe git
-submodules, Docker, and the cargo build tooling -- in one idempotent step:
+submodules, Docker with cross-architecture emulation, and the cargo build tooling --
+in one idempotent step:
 
 ```sh
 git clone git@github.com:NVIDIA/infra-controller.git
@@ -32,7 +33,9 @@ steps on an `apt`-based distribution such as Ubuntu 24.04:
 6. `cd infra-controller`
 7. `direnv allow`
 8. `git submodule update --init --recursive`
-9. `sudo systemctl enable docker.socket`
+9. Start Docker and register cross-architecture support:
+   `sudo systemctl enable --now docker.socket`, then
+   `sudo docker run --privileged --rm tonistiigi/binfmt --install all`
 10. `cargo install cargo-make cargo-cache`
 11. `echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee /etc/sysctl.d/99-userns.conf`
 12. `sudo usermod -aG docker $(id -un)`

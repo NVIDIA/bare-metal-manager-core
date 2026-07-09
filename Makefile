@@ -61,7 +61,7 @@ core/check-isolated-package-builds: ## Check each Rust package independently wit
 
 .PHONY: bootstrap
 
-bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, docker, cargo tooling (run once)
+bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, docker, multi-arch emulation, cargo tooling (run once)
 	./scripts/setup-build-host.sh
 
 # =============================================================================
