@@ -24,7 +24,6 @@ use forge_tls::default as tls_default;
 use libc::c_char;
 use metrics_endpoint::HealthController;
 use once_cell::sync::Lazy;
-use opentelemetry::metrics::Counter;
 use rpc::forge_tls_client::ForgeClientConfig;
 use tokio::runtime::{Builder, Runtime};
 
@@ -62,10 +61,11 @@ pub struct CarbideDhcpContext {
     startup_time: chrono::DateTime<chrono::Utc>,
 }
 
+// The request/drop/reply counters are `carbide-instrument` events declared in
+// `metrics.rs` and resolve from the global meter; this struct holds only the
+// state the certificate-expiry gauge reports.
 #[derive(Debug, Clone)]
 pub struct CarbideDhcpMetrics {
-    total_requests_counter: Counter<u64>,
-    dropped_requests_counter: Counter<u64>,
     forge_client_config: ForgeClientConfig,
     certificate_expiration_value: Arc<AtomicI64>,
 }
@@ -238,17 +238,37 @@ pub unsafe extern "C" fn carbide_increment_total_requests() {
     metrics::increment_total_requests();
 }
 
-/// Increments counter for number of dropped requests
+/// Increments counter for number of dropped or refused requests. The reason
+/// string is mapped onto the bounded [`metrics::DropReason`] taxonomy; a
+/// string outside the taxonomy (or a null / non-UTF-8 input) is bucketed as
+/// `Unknown` so the metric's label domain stays closed.
+///
+/// # Safety
+/// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn carbide_increment_dropped_requests(reason: *const c_char) {
+    let reason = if reason.is_null() {
+        metrics::DropReason::Unknown
+    } else {
+        unsafe { CStr::from_ptr(reason) }
+            .to_str()
+            .map_or(metrics::DropReason::Unknown, metrics::DropReason::from)
+    };
+    metrics::increment_dropped_requests(reason);
+}
+
+/// Increments counter for number of DHCP replies sent, labelled by the
+/// reply's message type. `message_type` is the raw RFC 2131 message-type code
+/// from the response packet (`Pkt4::getType()`); the mapping onto the bounded
+/// label lives in [`metrics::ReplyMessageType`].
 ///
 /// # Safety
 ///
 /// None
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_increment_dropped_requests(reason: *const c_char) {
-    unsafe {
-        let reason_value = CStr::from_ptr(reason).to_str().unwrap().to_owned();
-        metrics::increment_dropped_requests(reason_value);
-    }
+pub extern "C" fn carbide_increment_reply_sent(message_type: u8) {
+    metrics::increment_reply_sent(metrics::ReplyMessageType::from(message_type));
 }
 
 #[cfg(test)]

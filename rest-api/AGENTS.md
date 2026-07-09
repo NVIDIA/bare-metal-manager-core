@@ -179,20 +179,35 @@ verification expectations.
 - Tests run with `-p 1` (serial) and often with `-race`.
 - API handlers live in `api/pkg/api/handler/`, request/response models in
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
-- OpenAPI schema in `openapi/spec.yaml` must be updated whenever API
-  endpoints are added or modified.
+- OpenAPI schema in `openapi/spec.yaml` must be updated whenever routes in the
+  published API surface are added or modified.
 - When adding a request/response field to a resource that has both single-item
   and batch endpoints, update the full surface together: single create/update
   DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
   OpenAPI, SDK, and tests. Do not stop after the single handler path.
-- PUT endpoints that create or replace a resource should use
-  `CreateOrUpdate` naming consistently across handlers, summaries,
-  operation IDs, and generated SDK methods.
+- Endpoint handlers should use the following name prefix convention consistently (Instance resource used as example):
+  - GET single object: GetInstanceHandler
+  - GET multiple objects: GetAllInstanceHandler
+  - POST single object: CreateInstanceHandler
+  - POST multiple objects: BatchCreateInstanceHandler
+  - PUT object: CreateOrUpdateInstance
+  - PATCH object: UpdateInstance
+  - PATCH multiple objects: BatchUpdateInstance
+  - DELETE object: DeleteInstance
+- Corresponding API request models should have the following naming convention:
+  - POST: APIInstanceCreateRequest
+  - PATCH: APIInstanceUpdateRequest
+  - PUT: APIInstanceCreateOrUpdateRequest
+  - DELETE: APIInstanceDeleteRequest
+  - GET: Request objects are typically not used for GET requests
+- API models should have the following naming conventions:
+  - APIInstance: For full Instance details
+  - APIInstanceSummary: For summary objects nested under other API resource objects
 - When a JSON request body exists, put IDs such as `siteId` in that body
   and validate them on the DTO; use query parameters for filters/read-only
   selectors.
-- Successful PUT responses should echo accepted non-secret fields, while
-  passwords and other credentials are never returned. Keep OpenAPI
+- Successful POST/PUT responses should return the updated object, but omit
+  passwords and other credentials. Keep OpenAPI
   descriptions focused on the REST contract rather than internal gRPC
   implementation details.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
@@ -201,13 +216,141 @@ verification expectations.
   behavior explicitly. If an operation can power-cycle or otherwise disrupt a
   tenant workload, check `Machine.IsAssigned` (or the equivalent association)
   and reject unless the product requirement explicitly allows Provider Admins
-  to override tenant attachment.
+  to override tenant attachment
+- Avoid declaring new types that are just an array of another type. Simply use an
+  array of the original object
+- Be prudent when declaring utility functions that pass around arbitrary set of
+  arguments. If it's used only once or breaks the flow of reading the caller code,
+  it is often better to keep the logic inline
 
 ### REST endpoints through the Core gRPC proxy
 
 When building or converting a REST endpoint that calls on-site NICo Core through
 the generic gRPC proxy, follow
 [`skills/rest-core-grpc-proxy/SKILL.md`](skills/rest-core-grpc-proxy/SKILL.md).
+
+### REST endpoint implementation patterns
+
+Before adding REST API code, find the nearest existing endpoint family and copy
+its shape. The central route list in `api/pkg/api/routes.go` already covers the
+main patterns:
+
+- Plain DB-backed resources use the resource triplet
+  `api/pkg/api/handler/<resource>.go`, `api/pkg/api/model/<resource>.go`, and
+  corresponding `*_test.go` files. VPC, Instance Type, SSH Key Group, Network
+  Security Group, and Operating System are good references for ordinary
+  create/get/list/update/delete surfaces.
+- Site-scoped cloud-to-site operations pass a site client pool into the handler
+  constructor (`scp *site.ClientPool`) and resolve the site before calling
+  Temporal or Core. VPC, Subnet, Expected Machine/Rack/Switch, Flow Rack/Tray,
+  Machine Validation, and Tenant Identity endpoints are the reference families.
+- Flow-backed inventory and task APIs use Flow request/response protobufs in the
+  API model layer and keep target-shape helpers next to the model or handler
+  that owns the REST shape. Use Rack, Tray, Task, and Task Rule as references.
+- Curated REST endpoints that call NICo Core `forge.Forge` unary methods should
+  use `handler/util/common.ExecuteCoreGRPC` with a typed protobuf request. Do
+  not create a bespoke Temporal workflow for a simple unary Core call. BMC
+  Credential is the reference for auth, site lookup, secret redaction, and a
+  password-free response.
+- Public discovery endpoints belong in `NewWellKnownRoutes`, not the normal
+  authenticated `NewAPIRoutes` list. The Tenant Identity `.well-known/*`
+  endpoints are security-sensitive because they are mounted before auth
+  middleware.
+
+- Use receiver methods named `FromDBModel` and `ToDBModel` for conversions
+  between API and DB models. Prefer `FromDBModel` over new `NewX` conversion
+  constructors as existing models are updated.
+- Give every API model attribute a structured schema; do not expose schemaless
+  JSON. JSON tags use camelCase, and API constants use PascalCase. In exceptional
+  cases where industry standards differ e.g. well known JWKS endpoints - snake_case
+  can be used
+- Review the existing endpoint routes before choosing a new route or attribute
+  name. Published names are compatibility commitments and require deprecation
+  before they can be replaced. Follow these REST conventions:
+  - Use POST to create resources.
+  - Use PATCH to update resources.
+  - Use PUT only when an endpoint supports both creation and update.
+  - End PATCH, GET, and DELETE routes with the resource ID unless the resource
+    has no unique identifier
+  - Return pagination metadata in the `X-Pagination` response header for GET
+    requests that return multiple resources.
+  - Query params are encouraged only for GET requests that return multiple objects
+- API request models should use ozzo validation for simple validations instead of
+  validating data in the handler. Complex validations involving multiple
+  request attributes can be done in `Validate` receiver function. All errors returned
+  from `Validate` receiver function should have `validation.Errors` type
+
+Keep handlers thin and reuse the common surfaces already in the tree:
+
+1. Start handlers with `common.SetupHandler`, defer the span end, check the
+   request user, then validate org membership and roles with the authorization
+   helpers used by the neighboring handler.
+2. Bind request bodies into `api/pkg/api/model` DTOs and call `Validate` before
+   conversion or side effects. Keep syntactic and cross-field request rules in
+   `Validate`; keep auth, ownership, site readiness, and DB-backed checks in the
+   handler where context is available.
+3. Use `IsProviderOrTenant` from `rest-api/api/pkg/api/handler/util/common/common.go`
+   to retrieve Provider and Tenant objects. When adding list endpoints, reuse 
+   `pagination.PageRequest`, `common.ValidateKnownQueryParams`, and `common.GetSearchQuery`.
+4. Put request-to-proto conversion on the API request type and entity-to-proto
+   conversion on the DB model, following the "Proto conversion methods" section
+   below. `ToProto` should trust prior validation instead of returning errors
+   for the same rules.
+5. Use `cdb.WithTx` or `cdb.WithTxResult` for write transactions, and translate
+   closure errors with `common.HandleTxError`. Return `cutil.NewAPIError` inside
+   a transaction closure and `cutil.NewAPIErrorResponse` outside it.
+6. For synchronous Temporal workflows, reuse the existing workflow ID,
+   timeout, task queue, `common.UnwrapWorkflowError`, and
+   `common.TerminateWorkflowOnTimeOut` patterns from the nearest handler instead
+   of inventing new error plumbing.
+7. Return curated REST models, not DB models, Core protobufs, Flow protobufs, or
+   secret-bearing request bodies. Log identifiers, method names, kinds, and
+   site IDs; do not log raw request bodies that may contain credentials
+8. API endpoints should generally return following HTTP codes on success:
+   - GET: 200
+   - POST: 201 if a new object is created, 202 if async processing is triggered with no object to return, otherwise 200
+   - PATCH: 200
+   - PUT: 201 if a new object is created, otherwise 200
+   - DELETE: 204 if object is deleted immediately, 202 if object is deleted async
+   - For 202 or 204 responses where no object can be returned `APIMessageResponse` should be returned
+9. When API handler encounters an error:
+   - Data validation errors should return 400
+   - If an object ID is specified in URL and the corresponding object cannot be found, then 404 should be returned
+   - If an object ID is specified in query param or request JSON data and the corresponding object cannot be found, then 400 should be returned
+   - When resource cannot be created due to another existing resource, 409 should be returned
+   - When user doesn't have permission to execute an action, 403 should be returned
+   - Any unexpected error should return 500
+   - All error response should be returned in `APIError` format
+
+When registering a new route:
+
+- Add it to `NewAPIRoutes` with the existing `/org/:orgName/<apiName>` prefix
+  unless it is a system or public discovery route.
+- Keep literal/static routes such as `/batch`, `/stats`, `/validation`,
+  `/power`, and `.well-known/*` before parameterized `/:id` routes that could
+  otherwise capture them.
+- Update `api/pkg/api/routes_test.go`: increment the route family count, add an
+  `assertRouteExists` check for any new route shape, and add `assertRouteBefore`
+  when a static route could be shadowed by a parameterized route.
+- For routes published in the OpenAPI surface, update `openapi/spec.yaml` in the
+  same change. System and public discovery routes that are intentionally outside
+  that surface are exempt. Keep operation IDs, summaries, handler constructors,
+  handler godoc, and SDK-facing names aligned.
+
+Endpoint tests should follow the changed surface, not just compile it:
+
+- Model tests cover `Validate`, query validation, enum values, list-level
+  constraints, and `ToProto` / `FromProto` mappings.
+- Handler tests cover auth role, org membership, missing user, invalid IDs,
+  ownership/site checks, request validation, status codes, and the response
+  shape
+- List handler tests cover paging inputs and assert the `X-Pagination` response
+  header.
+- Site/Core/Flow handlers should assert the workflow or proxy request arguments,
+  workflow ID inputs, secret field names, timeout behavior where relevant, and
+  that secrets are absent from responses and logs.
+- Route tests and OpenAPI checks are part of the endpoint change; generated SDK
+  updates belong in the same change only when the repo workflow requires them.
 
 ### Prefer range-based iteration over C-style `for` loops
 
