@@ -9090,6 +9090,16 @@ message GetMachineBootInterfacesRequest {
   common.MachineId machine_id = 1;
 }
 
+// A boot interface reference: a NIC's MAC together with its vendor-native
+// Redfish `EthernetInterface.Id`. Mirrors the api-model `MachineBootInterface`
+// pair; `interface_id` is optional here so a pick whose id has not been
+// captured yet still reports its MAC (the model type requires both halves,
+// which the `TryFrom` conversion enforces).
+message MachineBootInterface {
+  string mac_address = 1;
+  optional string interface_id = 2;
+}
+
 // A `machine_interfaces` row's boot interface: the authoritative store for an
 // owned machine. `primary_interface` is the designation `pick_boot_interface`
 // keys on.
@@ -9101,6 +9111,9 @@ message MachineInterfaceBootInterface {
   optional string boot_interface_id = 3;
   // Segment type of the row, when one is known (denormalized from the segment).
   optional string network_segment_type = 4;
+  // The `machine_interfaces` row id, so a candidate reported here can be
+  // handed straight to `SetPrimaryInterface`.
+  common.MachineInterfaceId interface_id = 5;
 }
 
 // A `predicted_machine_interfaces` row's boot interface: the candidate a host
@@ -9153,4 +9166,17 @@ message GetMachineBootInterfacesResponse {
   // different NIC than the effective owned pick, or a predicted primary
   // disagrees). See the handler for the exact comparison.
   bool divergent = 8;
+
+  // What the automatic selection would choose if no row were flagged primary
+  // -- `pick_boot_interface`'s fallback of the lowest-MAC non-underlay row.
+  // Comparing this against the effective pick shows whether a primary
+  // designation is overriding the automatic choice. Absent when no managed
+  // row qualifies; `interface_id` absent until captured for that NIC.
+  MachineBootInterface default_boot_interface = 9;
+
+  // The prediction `pick_boot_prediction` would boot from for a machine still
+  // waiting on its first DHCP lease: the declared primary, else the sole
+  // non-underlay prediction. Absent when there are no predictions or when the
+  // pick refuses to guess among several undeclared NICs.
+  MachineBootInterface predicted_boot_interface = 10;
 }

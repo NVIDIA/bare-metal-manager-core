@@ -224,6 +224,51 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         "a predicted primary on a different MAC than the owned pick is a divergence"
     );
 
+    // Every owned row reports its `machine_interfaces` row id, so a candidate
+    // can be handed straight to `SetPrimaryInterface`.
+    assert!(
+        report
+            .machine_interfaces
+            .iter()
+            .all(|i| i.interface_id.is_some()),
+        "owned rows should report their interface row ids"
+    );
+
+    // The default pick (primary flag masked) names one of the machine's own
+    // non-underlay rows. Its exact identity is the selection logic's business
+    // (unit-tested in api-model); here we assert the wiring.
+    let default_mac = report
+        .default_boot_interface
+        .as_ref()
+        .map(|b| b.mac_address.as_str())
+        .expect("a host with non-underlay rows has a default pick");
+    let default_row = report
+        .machine_interfaces
+        .iter()
+        .find(|i| i.mac_address == default_mac)
+        .expect("the default pick names an owned row");
+    assert_ne!(
+        default_row.network_segment_type.as_deref(),
+        Some(NetworkSegmentType::Underlay.to_string().as_str()),
+        "the default pick never lands on an underlay row"
+    );
+
+    // The predicted pick is the seeded primary-flagged prediction, id and all.
+    let predicted_pick = report
+        .predicted_boot_interface
+        .as_ref()
+        .expect("the predicted pick is reported");
+    assert_eq!(
+        predicted_pick.mac_address,
+        predicted_mac.to_string(),
+        "the predicted pick is the declared-primary prediction"
+    );
+    assert_eq!(
+        predicted_pick.interface_id.as_deref(),
+        Some("NIC.Predicted.1-1-1"),
+        "the predicted pick reports the prediction's captured id"
+    );
+
     Ok(())
 }
 
@@ -248,6 +293,10 @@ async fn test_get_machine_boot_interfaces_agrees_when_only_owned_rows_exist(
     assert!(report.predicted_interfaces.is_empty());
     // The owned primary is the effective pick.
     assert!(report.effective_boot_interface_mac.is_some());
+    // No predictions -> no predicted pick; the owned rows still yield a
+    // default (primary-masked) pick.
+    assert!(report.predicted_boot_interface.is_none());
+    assert!(report.default_boot_interface.is_some());
 
     // With at most one distinct boot-MAC signal (the owned pick; the explored
     // default, when recorded, names the same boot NIC for a DPU host), the

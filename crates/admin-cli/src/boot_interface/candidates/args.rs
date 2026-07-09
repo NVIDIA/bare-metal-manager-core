@@ -22,15 +22,15 @@ use clap::Parser;
 #[command(after_long_help = "\
 EXAMPLES:
 
-Show one machine's boot interfaces across every store:
-    $ nico-admin-cli machine boot-interfaces 12345678-1234-5678-90ab-cdef01234567
+List boot-interface candidates for a machine and the picks among them:
+    $ nico-admin-cli boot-interface candidates 12345678-1234-5678-90ab-cdef01234567
 
-As JSON or YAML (uses the global --output/--format flag):
-    $ nico-admin-cli --output json machine boot-interfaces 12345678-1234-5678-90ab-cdef01234567
-    $ nico-admin-cli --output yaml machine boot-interfaces 12345678-1234-5678-90ab-cdef01234567
+As JSON (the global --format flag):
+    $ nico-admin-cli --format json boot-interface candidates 12345678-1234-5678-90ab-cdef01234567
 
+Tip: hand a candidate to 'boot-interface set' by its MAC or Interface UUID column.
 ")]
 pub struct Args {
-    #[clap(help = "The machine ID whose boot interfaces to gather")]
+    #[clap(help = "The machine ID whose boot-interface candidates to list")]
     pub machine: MachineId,
 }
