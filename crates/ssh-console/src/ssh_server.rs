@@ -208,11 +208,11 @@ impl ServerMetrics {
         Self {
             total_clients: meter
                 .i64_up_down_counter("ssh_console_total_clients")
-                .with_description("The number of SSH clients currently connected to the service")
+                .with_description("Number of SSH clients currently connected to the service")
                 .build(),
             client_auth_failures_total: meter
                 .u64_counter("ssh_console_client_auth_failures")
-                .with_description("The number of SSH clients authentication attempts denied")
+                .with_description("Number of SSH client authentication attempts denied")
                 .build(),
             _auth_enforced: meter
                 .u64_observable_gauge("ssh_console_auth_enforced")

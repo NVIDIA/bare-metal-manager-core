@@ -228,7 +228,7 @@ impl RefreshableTlsAcceptor {
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
-    describe = "The amount of tls connections that were attempted"
+    describe = "Number of inbound TLS connection attempts"
 )]
 struct TlsConnectionAttempted;
 
@@ -240,7 +240,7 @@ struct TlsConnectionAttempted;
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
-    describe = "The amount of tls connections that were successful"
+    describe = "Number of successful TLS connections"
 )]
 struct TlsConnectionSucceeded;
 
@@ -267,7 +267,7 @@ enum ConnectionFailReason {
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
-    describe = "The amount of tcp connections that were failures"
+    describe = "Number of failed inbound TCP connections"
 )]
 struct TlsConnectionFailed {
     #[label]

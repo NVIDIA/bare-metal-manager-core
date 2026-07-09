@@ -37,7 +37,7 @@ where
     let cache = cache.clone();
     meter
         .u64_observable_gauge(format!("{METRICS_PREFIX}_metadata_cache_size"))
-        .with_description("Current number of entries in the metadata cache")
+        .with_description("Number of entries in the metadata cache")
         .with_callback(move |observer| {
             observer.observe(cache.entry_count(), &[]);
         })
@@ -55,7 +55,7 @@ where
     let cache = cache.clone();
     meter
         .u64_observable_gauge(format!("{METRICS_PREFIX}_value_state_cache_size"))
-        .with_description("Current number of entries in the value state cache")
+        .with_description("Number of entries in the value state cache")
         .with_callback(move |observer| {
             observer.observe(cache.entry_count(), &[]);
         })
@@ -79,7 +79,7 @@ where
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
-    describe = "Total number of MQTT messages received"
+    describe = "Number of MQTT messages received"
 )]
 pub struct MessageReceived;
 
@@ -92,7 +92,7 @@ pub struct MessageReceived;
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
-    describe = "Total number of messages successfully processed"
+    describe = "Number of messages successfully processed"
 )]
 pub struct MessageProcessed;
 
@@ -107,7 +107,7 @@ pub struct MessageProcessed;
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
-    describe = "Total number of messages dropped due to queue overflow"
+    describe = "Number of messages dropped due to queue overflow"
 )]
 pub struct MessageDropped;
 
@@ -123,7 +123,7 @@ pub struct MessageDropped;
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
-    describe = "Total number of messages skipped due to deduplication"
+    describe = "Number of messages skipped due to deduplication"
 )]
 pub struct MessageDeduplicated;
 
@@ -146,7 +146,7 @@ impl ConsumerMetrics {
         Self {
             alerts_detected: meter
                 .u64_counter(format!("{METRICS_PREFIX}_alerts_detected_total"))
-                .with_description("Total number of leak alerts detected")
+                .with_description("Number of leak alerts detected")
                 .build(),
         }
     }

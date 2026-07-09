@@ -80,7 +80,7 @@ enum PublishStatus {
     component = "nico-mqtt-common",
     log = off,
     metric = counter,
-    describe = "Total number of MQTT publish attempts"
+    describe = "Number of MQTT publish attempts"
 )]
 struct DsxEventBusPublish {
     #[label]

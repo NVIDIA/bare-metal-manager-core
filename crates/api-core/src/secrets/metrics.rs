@@ -42,7 +42,7 @@ pub enum SecretsOperation {
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "Total number of Postgres secrets operations attempted."
+    describe = "Number of Postgres secrets operations attempted."
 )]
 struct SecretsRequestStarted {
     #[label]
@@ -56,7 +56,7 @@ struct SecretsRequestStarted {
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "Number of Postgres secrets operations that succeeded."
+    describe = "Number of successful Postgres secrets operations."
 )]
 struct SecretsRequestSucceeded {
     #[label]
@@ -70,7 +70,7 @@ struct SecretsRequestSucceeded {
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "Number of Postgres secrets operations that failed."
+    describe = "Number of failed Postgres secrets operations."
 )]
 struct SecretsRequestFailed {
     #[label]

@@ -188,7 +188,7 @@ struct TlsCertsRefreshed;
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "Number of attempted TLS connections"
+    describe = "Number of inbound TLS connection attempts"
 )]
 struct TlsConnectionAttempted;
 
@@ -229,7 +229,7 @@ enum ConnectionFailReason {
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "The amount of tcp connections that were failures"
+    describe = "Number of failed inbound TLS connection attempts"
 )]
 struct TlsConnectionFailed {
     #[label]

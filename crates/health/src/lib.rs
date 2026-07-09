@@ -346,7 +346,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
             "{metrics_prefix}_active_endpoints",
             metrics_prefix = &config.metrics.prefix
         ),
-        "Current number of active endpoints",
+        "Number of active endpoints",
     )?;
     registry.register(Box::new(active_endpoints_gauge.clone()))?;
 

@@ -122,7 +122,7 @@ impl PublishStatsTracker {
             ),
             (
                 "carbide_mqtt_publish_failures",
-                "Number of MQTT message publish attempts that failed",
+                "Number of failed MQTT message publish attempts",
                 &self.failed_count,
             ),
             (

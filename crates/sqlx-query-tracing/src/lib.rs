@@ -325,7 +325,7 @@ impl DatabaseMetricEmitters {
         // per span. It thereby counts the amount of spans - not the amount of DB queries.
         let db_queries_counter = meter
             .u64_counter("carbide-api.db.queries")
-            .with_description("The amount of database queries that occurred inside a span")
+            .with_description("Number of database queries that occurred inside a span")
             .build();
 
         let db_span_query_times = meter

@@ -186,7 +186,7 @@ impl LabelValue for VaultFailureStatusCode {
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "The amount of tls connections that were attempted"
+    describe = "Number of attempted Vault requests"
 )]
 struct VaultRequestAttempted {
     #[label]
@@ -200,7 +200,7 @@ struct VaultRequestAttempted {
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "The amount of tls connections that were successful"
+    describe = "Number of successful Vault requests"
 )]
 struct VaultRequestSucceeded {
     #[label]
@@ -217,7 +217,7 @@ struct VaultRequestSucceeded {
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "The amount of tcp connections that were failures"
+    describe = "Number of failed Vault requests"
 )]
 struct VaultRequestFailed {
     #[label]
@@ -234,7 +234,7 @@ struct VaultRequestFailed {
     component = "nico-api",
     log = off,
     metric = histogram,
-    describe = "the duration of outbound vault requests, in milliseconds"
+    describe = "Duration of outbound Vault requests, in milliseconds"
 )]
 struct VaultRequestDuration {
     #[label]
@@ -1092,7 +1092,7 @@ pub fn create_vault_client(
     let vault_token_time_remaining_until_refresh_gauge = meter
         .f64_gauge("carbide-api.vault.token_time_until_refresh")
         .with_description(
-            "The amount of time, in seconds, until the vault token is required to be refreshed",
+            "The amount of time, in seconds, until the Vault token is required to be refreshed",
         )
         .with_unit("s")
         .build();

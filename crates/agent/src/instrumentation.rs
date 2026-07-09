@@ -94,7 +94,7 @@ impl AgentMetricsState {
 pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
     let http_counter = meter
         .u64_counter("http_requests")
-        .with_description("Total number of HTTP requests made.")
+        .with_description("Number of HTTP requests made.")
         .build();
     let http_req_latency_histogram: Histogram<f64> = meter
         .f64_histogram("request_latency")
@@ -162,7 +162,7 @@ impl NetworkMonitorMetricsState {
             .build();
         let network_monitor_error = meter
             .u64_counter("forge_dpu_agent_network_monitor_error")
-            .with_description("Network monitor errors which are unrelated to network connectivity")
+            .with_description("Network monitor errors unrelated to network connectivity")
             .build();
         let network_communication_error = meter
             .u64_counter("forge_dpu_agent_network_communication_error")

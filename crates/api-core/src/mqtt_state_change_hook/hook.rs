@@ -52,7 +52,7 @@ impl MqttStateChangeHook {
     ///
     /// Spawns a background task to process queued events.
     /// Emits metrics:
-    /// - `forge_dsx_event_bus_publish_count`: Total number of MQTT publish attempts
+    /// - `forge_dsx_event_bus_publish_count`: Number of MQTT publish attempts
     /// - `forge_dsx_event_bus_queue_depth`: Current queue depth
     pub fn new<P: MqttPublisher>(
         client: P,
