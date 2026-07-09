@@ -185,14 +185,29 @@ verification expectations.
   and batch endpoints, update the full surface together: single create/update
   DTOs, batch create/update DTOs, handlers, DAO input structs, persistence,
   OpenAPI, SDK, and tests. Do not stop after the single handler path.
-- PUT endpoints that create or replace a resource should use
-  `CreateOrUpdate` naming consistently across handlers, summaries,
-  operation IDs, and generated SDK methods.
+- Endpoint handlers should use the following name prefix convention consistently (Instance resource used as example):
+  - GET single object: GetInstanceHandler
+  - GET multiple objects: GetAllInstanceHandler
+  - POST single object: CreateInstanceHandler
+  - POST multiple objects: BatchCreateInstanceHandler
+  - PUT object: CreateOrUpdateInstance
+  - PATCH object: UpdateInstance
+  - PATCH multiple objects: BatchUpdateInstance
+  - DELETE object: DeleteInstance
+- Corresponding API request models should have the following naming convention:
+  - POST: APIInstanceCreateRequest
+  - PATCH: APIInstanceUpdateRequest
+  - PUT: APIInstanceCreateOrUpdateRequest
+  - DELETE: APIInstanceDeleteRequest
+  - GET: Request objects are typically not used for GET requests
+- API models should have the following naming conventions:
+  - APIInstance: For full Instance details
+  - APIInstanceSummary: For summary objects nested under other API resource objects
 - When a JSON request body exists, put IDs such as `siteId` in that body
   and validate them on the DTO; use query parameters for filters/read-only
   selectors.
-- Successful PUT responses should echo accepted non-secret fields, while
-  passwords and other credentials are never returned. Keep OpenAPI
+- Successful POST/PUT responses should return the updated object, but omit
+  passwords and other credentials. Keep OpenAPI
   descriptions focused on the REST contract rather than internal gRPC
   implementation details.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
@@ -201,7 +216,12 @@ verification expectations.
   behavior explicitly. If an operation can power-cycle or otherwise disrupt a
   tenant workload, check `Machine.IsAssigned` (or the equivalent association)
   and reject unless the product requirement explicitly allows Provider Admins
-  to override tenant attachment.
+  to override tenant attachment
+- Avoid declaring new types that are just an array of another type. Simply use an
+  array of the original object
+- Be prudent when declaring utility functions that pass around arbitrary set of
+  arguments. If it's used only once or breaks the flow of reading the caller code,
+  it is often better to keep the logic inline
 
 ### REST endpoints through the Core gRPC proxy
 
@@ -241,7 +261,9 @@ main patterns:
   between API and DB models. Prefer `FromDBModel` over new `NewX` conversion
   constructors as existing models are updated.
 - Give every API model attribute a structured schema; do not expose schemaless
-  JSON. JSON tags use camelCase, and API constants use PascalCase.
+  JSON. JSON tags use camelCase, and API constants use PascalCase. In exceptional
+  cases where industry standards differ e.g. well known JWKS endpoints - snake_case
+  can be used
 - Review the existing endpoint routes before choosing a new route or attribute
   name. Published names are compatibility commitments and require deprecation
   before they can be replaced. Follow these REST conventions:
@@ -249,9 +271,14 @@ main patterns:
   - Use PATCH to update resources.
   - Use PUT only when an endpoint supports both creation and update.
   - End PATCH, GET, and DELETE routes with the resource ID unless the resource
-    has no unique identifier.
+    has no unique identifier
   - Return pagination metadata in the `X-Pagination` response header for GET
     requests that return multiple resources.
+  - Query params are encouraged only for GET requests that return multiple objects
+- API request models should use ozzo validation for simple validations instead of
+  validating data in the handler. Complex validations involving multiple
+  request attributes can be done in `Validate` receiver function. All errors returned
+  from `Validate` receiver function should have `validation.Errors` type
 
 Keep handlers thin and reuse the common surfaces already in the tree:
 
@@ -262,10 +289,9 @@ Keep handlers thin and reuse the common surfaces already in the tree:
    conversion or side effects. Keep syntactic and cross-field request rules in
    `Validate`; keep auth, ownership, site readiness, and DB-backed checks in the
    handler where context is available.
-3. Use lookup helpers such as `GetTenantForOrg`, `GetInfrastructureProviderForOrg`,
-   and `GetSiteFromIDString` instead of open-coding org/site/tenant resolution.
-   When adding list endpoints, reuse `pagination.PageRequest`,
-   `common.ValidateKnownQueryParams`, and `common.GetSearchQuery`.
+3. Use `IsProviderOrTenant` from `rest-api/api/pkg/api/handler/util/common/common.go`
+   to retrieve Provider and Tenant objects. When adding list endpoints, reuse 
+   `pagination.PageRequest`, `common.ValidateKnownQueryParams`, and `common.GetSearchQuery`.
 4. Put request-to-proto conversion on the API request type and entity-to-proto
    conversion on the DB model, following the "Proto conversion methods" section
    below. `ToProto` should trust prior validation instead of returning errors
@@ -279,7 +305,22 @@ Keep handlers thin and reuse the common surfaces already in the tree:
    of inventing new error plumbing.
 7. Return curated REST models, not DB models, Core protobufs, Flow protobufs, or
    secret-bearing request bodies. Log identifiers, method names, kinds, and
-   site IDs; do not log raw request bodies that may contain credentials.
+   site IDs; do not log raw request bodies that may contain credentials
+8. API endpoints should generally return following HTTP codes on success:
+   - GET: 200
+   - POST: 201 if a new object is created, 202 if async processing is triggered with no object to return, otherwise 200
+   - PATCH: 200
+   - PUT: 201 if a new object is created, otherwise 200
+   - DELETE: 204 if object is deleted immediately, 202 if object is deleted async
+   - For 202 or 204 responses where no object can be returned `APIMessageResponse` should be returned
+9. When API handler encounters an error:
+   - Data validation errors should return 400
+   - If an object ID is specified in URL and the corresponding object cannot be found, then 404 should be returned
+   - If an object ID is specified in query param or request JSON data and the corresponding object cannot be found, then 400 should be returned
+   - When resource cannot be created due to another existing resource, 409 should be returned
+   - When user doesn't have permission to execute an action, 403 should be returned
+   - Any unexpected error should return 500
+   - All error response should be returned in `APIError` format
 
 When registering a new route:
 
@@ -302,7 +343,7 @@ Endpoint tests should follow the changed surface, not just compile it:
   constraints, and `ToProto` / `FromProto` mappings.
 - Handler tests cover auth role, org membership, missing user, invalid IDs,
   ownership/site checks, request validation, status codes, and the response
-  shape. For accepted deletes, reuse `assertDeletionAcceptedResponse`.
+  shape
 - List handler tests cover paging inputs and assert the `X-Pagination` response
   header.
 - Site/Core/Flow handlers should assert the workflow or proxy request arguments,
