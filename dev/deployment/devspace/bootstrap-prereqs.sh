@@ -146,12 +146,17 @@ install_cert_manager() {
 }
 
 apply_core_objects() {
-  log "Applying namespace and connection objects in ${NAMESPACE}"
+  log "Applying Core namespaces and connection objects in ${NAMESPACE}"
   kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
 metadata:
   name: ${NAMESPACE}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forge-system
 ---
 apiVersion: v1
 kind: Secret
