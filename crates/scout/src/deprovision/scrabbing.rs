@@ -276,10 +276,6 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             // assume it is two raid 0s created by the RAID kit if we see a single raid0 output
             cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "0"]).await?;
             cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "1"]).await?;
-        } else {
-            return Err(CarbideClientError::GenericError(
-                "Could not find a RAID0 or RAID1 on the raid kit".to_string(),
-            ));
         }
 
         // Clean the disks
