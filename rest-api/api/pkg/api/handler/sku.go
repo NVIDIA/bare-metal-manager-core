@@ -103,7 +103,7 @@ func (gash GetAllSkuHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request data is does not belong to current org", nil)
 		}
 	} else if tenant != nil {
-		enabled, err := common.EffectiveTargetedInstanceCreation(ctx, nil, gash.dbSession, tenant, site.ID)
+		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gash.dbSession, tenant, site)
 		if err != nil {
 			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)
@@ -260,7 +260,7 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "SKU does not belong to a Site owned by current org", nil)
 		}
 	} else if tenant != nil {
-		enabled, err := common.EffectiveTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, site.ID)
+		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, site)
 		if err != nil {
 			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)

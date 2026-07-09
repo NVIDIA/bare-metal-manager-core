@@ -348,9 +348,9 @@ func TestBuildTenantAccount(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infra
 
 // TestBuildTenantAccountWithTargetedInstanceCreation creates a test TenantAccount
 // with the TargetedInstanceCreation capability enabled in its config. Privilege is
-// resolved from a Ready TenantAccount config (see EffectiveTargetedInstanceCreation
-// and TenantHasTargetedInstanceCreation), so tests that exercise privileged Tenant
-// paths must enable it on the account rather than only on the legacy Tenant config.
+// resolved from a Ready TenantAccount config (see TenantHasTargetedInstanceCreation),
+// so tests that exercise privileged Tenant paths must enable it on the account rather
+// than only on the legacy Tenant config.
 func TestBuildTenantAccountWithTargetedInstanceCreation(t *testing.T, dbSession *cdb.Session, ip *cdbm.InfrastructureProvider, tenantID *uuid.UUID, tenantOrg string, status string, user *cdbm.User) *cdbm.TenantAccount {
 	taDAO := cdbm.NewTenantAccountDAO(dbSession)
 

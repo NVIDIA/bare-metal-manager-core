@@ -651,7 +651,7 @@ func (gsh GetSiteHandler) Handle(c echo.Context) error {
 		}
 
 		if !isAssociated {
-			enabled, serr := common.EffectiveTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, stID)
+			enabled, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, st)
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site, DB error", nil)
@@ -880,7 +880,7 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 
 		// If Tenant has TargetedInstanceCreation on any Ready TenantAccount,
 		// also retrieve all Sites from Providers where that capability is enabled.
-		privileged, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gash.dbSession, tenant)
+		privileged, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gash.dbSession, tenant, nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error resolving TargetedInstanceCreation for Tenant")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability, DB error", nil)
@@ -1227,7 +1227,7 @@ func (gssdh GetSiteStatusDetailsHandler) Handle(c echo.Context) error {
 		}
 
 		if !isAssociated {
-			enabled, serr := common.EffectiveTargetedInstanceCreation(ctx, nil, gssdh.dbSession, tenant, stID)
+			enabled, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gssdh.dbSession, tenant, st)
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site, DB error", nil)

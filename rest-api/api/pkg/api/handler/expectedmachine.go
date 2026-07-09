@@ -61,7 +61,7 @@ func ValidateProviderOrTenantSiteAccess(ctx context.Context, logger zerolog.Logg
 		// Privileged tenants may access Sites via a Ready TenantAccount with
 		// TargetedInstanceCreation even without an explicit TenantSite row.
 		if !hasAccess {
-			enabled, err := common.EffectiveTargetedInstanceCreation(ctx, nil, dbSession, tenant, site.ID)
+			enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, site)
 			if err != nil {
 				logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 				return false, cutil.NewAPIError(http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)
@@ -348,7 +348,7 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 	}
 
 	if tenant != nil {
-		privileged, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gaemh.dbSession, tenant)
+		privileged, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gaemh.dbSession, tenant, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)

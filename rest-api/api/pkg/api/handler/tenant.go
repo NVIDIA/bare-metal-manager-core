@@ -207,7 +207,7 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 	}
 
 	// Create response
-	hasTargetedInstanceCreation, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gcth.dbSession, tn)
+	hasTargetedInstanceCreation, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gcth.dbSession, tn, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)

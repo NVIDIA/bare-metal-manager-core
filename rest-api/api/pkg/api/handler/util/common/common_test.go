@@ -2991,68 +2991,62 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tc.tenant)
+			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tc.tenant, nil)
 			assert.Nil(t, gerr)
 			assert.Equal(t, tc.expected, got)
 		})
 	}
-}
 
-func TestEffectiveTargetedInstanceCreation(t *testing.T) {
-	ctx := context.Background()
-	dbSession := testCommonInitDB(t)
-	defer dbSession.Close()
+	effOrg := "test-eff-org"
+	effUser := testCommonBuildUser(t, dbSession, uuid.NewString(), []string{effOrg}, []string{authz.ProviderAdminRole})
+	effIP := testCommonBuildInfrastructureProvider(t, dbSession, "Test Provider", effOrg, effUser)
+	site := testCommonBuildSite(t, dbSession, effIP, "Test Site", effUser)
+	site2 := testCommonBuildSite(t, dbSession, effIP, "Test Site 2", effUser)
+	site3 := testCommonBuildSite(t, dbSession, effIP, "Test Site 3", effUser)
 
-	testCommonSetupSchema(t, dbSession)
-
-	org := "test-eff-org"
-	user := testCommonBuildUser(t, dbSession, uuid.NewString(), []string{org}, []string{authz.ProviderAdminRole})
-	ip := testCommonBuildInfrastructureProvider(t, dbSession, "Test Provider", org, user)
-	site := testCommonBuildSite(t, dbSession, ip, "Test Site", user)
-	site2 := testCommonBuildSite(t, dbSession, ip, "Test Site 2", user)
-	site3 := testCommonBuildSite(t, dbSession, ip, "Test Site 3", user)
-
-	tnDAO := cdbm.NewTenantDAO(dbSession)
 	tenant, err := tnDAO.Create(ctx, nil, cdbm.TenantCreateInput{
 		Name:      "tenant",
-		Org:       org + "-tenant",
-		CreatedBy: user.ID,
+		Org:       effOrg + "-tenant",
+		CreatedBy: effUser.ID,
 	})
 	assert.Nil(t, err)
 
-	taDAO := cdbm.NewTenantAccountDAO(dbSession)
 	_, err = taDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
 		AccountNumber:             uuid.NewString(),
 		TenantID:                  &tenant.ID,
 		TenantOrg:                 tenant.Org,
-		InfrastructureProviderID:  ip.ID,
-		InfrastructureProviderOrg: ip.Org,
+		InfrastructureProviderID:  effIP.ID,
+		InfrastructureProviderOrg: effIP.Org,
 		Status:                    cdbm.TenantAccountStatusReady,
 		Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
-		CreatedBy:                 user.ID,
+		CreatedBy:                 effUser.ID,
 	})
 	assert.Nil(t, err)
 
-	cdbm.TestBuildTenantSite(t, dbSession, tenant, site, nil, user)
-	ts2 := cdbm.TestBuildTenantSite(t, dbSession, tenant, site2, &cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)}, user)
+	cdbm.TestBuildTenantSite(t, dbSession, tenant, site, nil, effUser)
+	ts2 := cdbm.TestBuildTenantSite(t, dbSession, tenant, site2, &cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)}, effUser)
 
-	tests := []struct {
+	siteTests := []struct {
 		name     string
-		siteID   uuid.UUID
+		site     *cdbm.Site
 		expected bool
 	}{
-		{name: "global default when no override", siteID: site.ID, expected: true},
-		{name: "limited override disables site", siteID: site2.ID, expected: false},
-		{name: "global default when no tenant_site override", siteID: site3.ID, expected: true},
+		{name: "global default when no override", site: site, expected: true},
+		{name: "limited override disables site", site: site2, expected: false},
+		{name: "global default when no tenant_site override", site: site3, expected: true},
 	}
 
-	for _, tc := range tests {
+	for _, tc := range siteTests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, gerr := EffectiveTargetedInstanceCreation(ctx, nil, dbSession, tenant, tc.siteID)
+			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, tc.site)
 			assert.Nil(t, gerr)
 			assert.Equal(t, tc.expected, got)
 		})
 	}
+
+	privilegedSiteIDs, gerr := GetPrivilegedAccessSiteIDsForTenant(ctx, nil, dbSession, tenant)
+	assert.Nil(t, gerr)
+	assert.ElementsMatch(t, []uuid.UUID{site.ID, site3.ID}, privilegedSiteIDs)
 
 	_ = ts2
 }

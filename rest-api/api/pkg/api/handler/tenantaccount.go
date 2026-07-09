@@ -576,8 +576,8 @@ func (gtah GetTenantAccountHandler) Handle(c echo.Context) error {
 			TenantIDs: []uuid.UUID{*ta.TenantID},
 		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Site"})
 		if err != nil {
-			logger.Error().Err(err).Msg("error retrieving Tenant Sites for Tenant Account")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Account", nil)
+			logger.Error().Err(err).Msg("error retrieving Tenant Sites for Tenant")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant", nil)
 		}
 	}
 

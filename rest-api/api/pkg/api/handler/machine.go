@@ -207,10 +207,8 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 	// request the privileged-tenant pre-gate here (requirePrivilegedTenant=false):
 	// that gate keys off a Ready TenantAccount without site context and would
 	// reject site-privileged tenants (or those whose privilege is per-site)
-	// before machine.SiteID is known. The site-scoped
-	// EffectiveTargetedInstanceCreation checks below are authoritative and
-	// filter results to the providers/sites where the capability is effective,
-	// yielding an empty list rather than a spurious 403.
+	// before siteId is known. Privileged Tenant access is resolved below via
+	// GetPrivilegedAccessSiteIDsForTenant, which honors per-site overrides.
 	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gamh.dbSession, org, dbUser, true, false)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
@@ -239,35 +237,27 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, errMsg, nil)
 	}
 
-	filterInput := cdbm.MachineFilterInput{
-		InfrastructureProviderIDs: []uuid.UUID{},
-	}
+	filterInput := cdbm.MachineFilterInput{}
 
-	// Validate other query params
 	if infrastructureProvider != nil {
-		filterInput.InfrastructureProviderIDs = append(filterInput.InfrastructureProviderIDs, infrastructureProvider.ID)
+		filterInput.InfrastructureProviderIDs = []uuid.UUID{infrastructureProvider.ID}
 	}
 
-	var tenantAccountProviderIDs []uuid.UUID
+	var privilegedSiteIDs []uuid.UUID
 	if tenant != nil {
-		taDAO := cdbm.NewTenantAccountDAO(gamh.dbSession)
-		tas, _, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-			TenantIDs: []uuid.UUID{tenant.ID},
-			Statuses:  []string{cdbm.TenantAccountStatusReady},
-		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{})
+		var serr error
+		privilegedSiteIDs, serr = common.GetPrivilegedAccessSiteIDsForTenant(ctx, nil, gamh.dbSession, tenant)
 		if serr != nil {
-			logger.Error().Err(serr).Msg("error retrieving Tenant Accounts for Tenant")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Tenant Accounts for Tenant", nil)
+			logger.Error().Err(serr).Msg("error resolving privileged Site access for Tenant")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify privileges for Tenant", nil)
 		}
-
-		for _, ta := range tas {
-			tenantAccountProviderIDs = append(tenantAccountProviderIDs, ta.InfrastructureProviderID)
+		if len(privilegedSiteIDs) == 0 {
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled for any Site", nil)
 		}
 	}
 
 	// Validate site id if provided
 	qSiteID := c.QueryParam("siteId")
-	var filterSite *cdbm.Site
 	if qSiteID != "" {
 		site, serr := common.GetSiteFromIDString(ctx, nil, qSiteID, gamh.dbSession)
 		if serr != nil {
@@ -277,71 +267,22 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			logger.Error().Err(serr).Str("Site ID", qSiteID).Msg("error retrieving Site specified in query")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Site specified in query", nil)
 		}
-		filterSite = site
 
-		isAssociated := false
 		if infrastructureProvider != nil {
-			// Check if Site belongs to org's Infrastructure Provider
-			if site.InfrastructureProviderID == infrastructureProvider.ID {
-				isAssociated = true
+			if site.InfrastructureProviderID != infrastructureProvider.ID {
+				logger.Error().Msg("Site is not associated with org")
+				return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site specified in query", nil)
 			}
-		}
-
-		if !isAssociated && tenant != nil {
-			isAssociated = slices.Contains(tenantAccountProviderIDs, site.InfrastructureProviderID)
-		}
-
-		if isAssociated {
 			filterInput.SiteIDs = []uuid.UUID{site.ID}
 		} else {
-			logger.Error().Msg("Site is not associated with org")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site specified in query", nil)
+			if !slices.Contains(privilegedSiteIDs, site.ID) {
+				logger.Error().Msg("Site is not associated with org")
+				return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site specified in query", nil)
+			}
+			filterInput.SiteIDs = []uuid.UUID{site.ID}
 		}
-	}
-
-	if tenant != nil {
-		if filterSite != nil {
-			enabledForSite, serr := common.EffectiveTargetedInstanceCreation(ctx, nil, gamh.dbSession, tenant, filterSite.ID)
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error checking effective targeted instance creation for Site")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify privileges for Site", nil)
-			}
-			if enabledForSite {
-				filterInput.InfrastructureProviderIDs = append(filterInput.InfrastructureProviderIDs, filterSite.InfrastructureProviderID)
-			}
-		} else {
-			siteDAO := cdbm.NewSiteDAO(gamh.dbSession)
-			privilegedProviderIDs := make(map[uuid.UUID]struct{})
-			for _, providerID := range tenantAccountProviderIDs {
-				if _, listed := privilegedProviderIDs[providerID]; listed {
-					continue
-				}
-
-				sites, _, serr := siteDAO.GetAll(ctx, nil, cdbm.SiteFilterInput{
-					InfrastructureProviderIDs: []uuid.UUID{providerID},
-				}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-				if serr != nil {
-					logger.Error().Err(serr).Msg("error retrieving Sites for privileged Tenant")
-					return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Sites for privileged Tenant", nil)
-				}
-
-				for _, site := range sites {
-					enabledForSite, serr := common.EffectiveTargetedInstanceCreation(ctx, nil, gamh.dbSession, tenant, site.ID)
-					if serr != nil {
-						logger.Error().Err(serr).Msg("error checking effective targeted instance creation for Site")
-						return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify privileges for Site", nil)
-					}
-					if enabledForSite {
-						privilegedProviderIDs[providerID] = struct{}{}
-						break
-					}
-				}
-			}
-
-			for providerID := range privilegedProviderIDs {
-				filterInput.InfrastructureProviderIDs = append(filterInput.InfrastructureProviderIDs, providerID)
-			}
-		}
+	} else if tenant != nil {
+		filterInput.SiteIDs = privilegedSiteIDs
 	}
 
 	// Validate InstanceType ID if provided
@@ -666,7 +607,10 @@ func (gmh GetMachineHandler) Handle(c echo.Context) error {
 		isAssociated = true
 		isProviderOrPrivilegedTenant = true
 	} else if tenant != nil {
-		enabledForSite, serr := common.EffectiveTargetedInstanceCreation(ctx, nil, gmh.dbSession, tenant, machine.SiteID)
+		enabledForSite, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gmh.dbSession, tenant, &cdbm.Site{
+			ID:                       machine.SiteID,
+			InfrastructureProviderID: machine.InfrastructureProviderID,
+		})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error checking effective targeted instance creation for Machine's Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error verifying capability for Machine's Site", nil)
@@ -767,7 +711,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 	// pre-gate here (requirePrivilegedTenant=false): that gate keys off the
 	// legacy tenant-level flag and would reject TenantAccount-privileged
 	// tenants before machine.SiteID is known. The site-scoped
-	// EffectiveTargetedInstanceCreation check is the authoritative decision.
+	// TenantHasTargetedInstanceCreation check is the authoritative decision.
 	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, umh.dbSession, org, dbUser, false, false)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
@@ -808,7 +752,10 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 	// Validate if Tenant is allowed to update Machine
 	if tenant != nil {
 		// Check if Tenant is privileged
-		enabledForSite, serr := common.EffectiveTargetedInstanceCreation(ctx, nil, umh.dbSession, tenant, machine.SiteID)
+		enabledForSite, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, umh.dbSession, tenant, &cdbm.Site{
+			ID:                       machine.SiteID,
+			InfrastructureProviderID: machine.InfrastructureProviderID,
+		})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error checking effective targeted instance creation for Machine's Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error verifying capability for Machine's Site, DB error", nil)
