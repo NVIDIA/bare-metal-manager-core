@@ -695,14 +695,26 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 		// Local-scoped OSes (Site is the source of truth for the definition).
 		// Global/Limited OSes are REST-owned: skip the definition update and rely solely on
 		// the aggregate status recomputation that runs at the end of this function.
-		// Backfill: older records may have been created with tenant_id set and no
-		// infrastructure_provider_id (before this ownership model was established).
+		// Backfill: older records may have been created without an
+		// infrastructure_provider_id or org (before this ownership model was established);
+		// these fill in the missing values for provider-owned (Local) records.
 		needsProviderBackfill := isLocalScope && existingOS.InfrastructureProviderID == nil
 		needsOrgBackfill := isLocalScope && existingOS.Org == "" && site.Org != ""
 		needsIsActiveCorrection := isLocalScope && existingOS.IsActive != reportedOS.IsActive
-		needsTenantClear := isLocalScope && existingOS.TenantID != nil
 
-		if isLocalScope && (coreUpdated.After(existingOS.Updated) || needsProviderBackfill || needsOrgBackfill || needsIsActiveCorrection || needsTenantClear) {
+		// Data-integrity guard: a Local-scoped OS (nil scope is treated as Local) is
+		// provider-owned by definition and must not carry a tenant_id. No correct path
+		// can produce such a row -- the API/sync create paths never set tenant_id on a
+		// Local OS, and the ipxe_os_scope backfill migration maps tenant-owned iPXE to
+		// Global. Its presence therefore signals an upstream bug, so flag it and skip
+		// rather than silently clearing the tenant (which would hide the error and
+		// irreversibly reassign ownership from tenant to provider).
+		if isLocalScope && existingOS.TenantID != nil {
+			slogger.Error().Msg("Local-scoped Operating System unexpectedly has tenant_id set; skipping update (data-integrity anomaly, not auto-repairing)")
+			continue
+		}
+
+		if isLocalScope && (coreUpdated.After(existingOS.Updated) || needsProviderBackfill || needsOrgBackfill || needsIsActiveCorrection) {
 			controllerState := cdbm.OperatingSystemStatusFromProtoMap[reportedOS.Status]
 			if controllerState == "" {
 				slogger.Warn().Str("Status", reportedOS.Status.String()).Msg("Received unknown status from Site, using `Syncing` as default")
@@ -757,18 +769,6 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			if _, uerr := osDAO.Update(ctx, nil, updateInput); uerr != nil {
 				slogger.Error().Err(uerr).Msg("Failed to update Operating System, DB error")
 				continue
-			}
-			// Backfill: if the record previously had a tenant_id (old ownership model), clear it.
-			// Provider-owned OSes must not have tenant_id set.
-			if existingOS.TenantID != nil {
-				_, cerr := osDAO.Clear(ctx, nil, cdbm.OperatingSystemClearInput{
-					OperatingSystemId: existingOS.ID,
-					TenantID:          true,
-				})
-				if cerr != nil {
-					slogger.Error().Err(cerr).Msg("Failed to clear Tenant ID from Provider owned Operating System, DB error")
-					continue
-				}
 			}
 		}
 	}
