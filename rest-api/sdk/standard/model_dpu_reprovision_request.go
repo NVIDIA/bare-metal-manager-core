@@ -24,9 +24,9 @@ var _ MappedNullable = &DpuReprovisionRequest{}
 
 // DpuReprovisionRequest Request to trigger DPU reprovisioning for a Machine
 type DpuReprovisionRequest struct {
-	// DPU reprovisioning mode.
+	// Use Set to start reprovisioning, Clear to remove a pending request, or Restart to restart DPUs that already have a request. Restart accepts a host Machine ID only.
 	Mode string `json:"mode"`
-	// Whether to update firmware during reprovisioning.
+	// Deprecated compatibility field. Firmware is always verified and updated during reprovisioning.
 	UpdateFirmware *bool `json:"updateFirmware,omitempty"`
 	// Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
 	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance,omitempty"`
