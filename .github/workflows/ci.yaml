@@ -170,8 +170,6 @@ jobs:
 
           set -euo pipefail
 
-          # Fetch tags for accurate git describe
-          git fetch --tags --force
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Using Git describe to extract version as VERSION and HELM_VERSION"
@@ -1243,7 +1241,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           MERGE_BASE="$(git merge-base HEAD origin/main)"
           BASE_PROTO_DIR="$(mktemp -d)"
           trap 'rm -rf "${BASE_PROTO_DIR}"' EXIT
