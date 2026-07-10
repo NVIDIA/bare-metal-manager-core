@@ -254,10 +254,10 @@ pub async fn start(
         vendor = "NVIDIA"
 
         [rack_profiles.NVL72.rack_capabilities.switch]
-        count = 9
+        count = 0
 
         [rack_profiles.NVL72.rack_capabilities.power_shelf]
-        count = 8
+        count = 0
 
         [firmware_global]
         autoupdate = true

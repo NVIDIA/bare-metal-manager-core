@@ -101,6 +101,10 @@ Enumerating a function's input variants as grouped `carbide-test-support` scenar
 or explicit cases (`check_cases` / `check_values`) is the easiest way to reach thorough coverage of parsers, validators,
 conversions, and the like.
 
+Keep test rack-profile capability counts aligned with the inventory the fixture
+actually instantiates. Use zero for unsupported component types so tests do not
+generate expected-but-absent discovery errors.
+
 ### Linting and Formatting
 
 ```bash
