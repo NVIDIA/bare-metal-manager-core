@@ -33,9 +33,9 @@ use forge_tls::client_config::{
 };
 use mac_address::MacAddress;
 use machine_a_tron::{
-    AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MachineATronArgs,
-    MachineATronConfig, MachineATronContext, MockSshServerHandle, PromptBehavior, Tui, TuiHostLogs,
-    api_throttler, spawn_mock_ssh_server,
+    AppEvent, BmcMockRegistry, BmcRegistrationMode, ControlState, MachineATron, MachineATronArgs,
+    MachineATronConfig, MachineATronContext, MachineStatusConfig, MockSshServerHandle,
+    PromptBehavior, Tui, TuiHostLogs, api_throttler, append_control_routes, spawn_mock_ssh_server,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -169,10 +169,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ),
     });
 
+    let bmc_mock_certs_dir = app_config.bmc_mock_certs_dir.clone();
+
     let app_context = Arc::new(MachineATronContext {
         app_config,
         forge_client_config,
-        bmc_mock_certs_dir: None,
+        bmc_mock_certs_dir,
         bmc_registration_mode,
         api_throttler,
         desired_firmware_versions,
@@ -185,18 +187,45 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut mat = MachineATron::new(app_context.clone());
 
-    // If we're using a combined BMC mock that routes to each mock machine using headers, launch it now
+    // Machines are created paused here. While paused, their actors do not advance the FSM, so
+    // BMC DHCP and shared-router registration cannot run before the combined BMC mock listener is
+    // started below.
+    let machine_handles = mat.make_machines(true).await?;
+
+    // Persist them once in case of unclean shutdown
+    app_context.app_config.write_persisted_machines(
+        machine_handles
+            .iter()
+            .map(|m| m.persisted())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )?;
+
+    // If we're using a combined BMC mock that routes to each mock machine using headers, launch it
+    // after the machines are created so the control UI can report their handles.
     let maybe_bmc_mock_handles: Option<(CombinedServer, Option<MockSshServerHandle>)> =
         match &app_context.bmc_registration_mode {
             BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
-                let certs_dir = PathBuf::from(forge_root_ca_path.clone())
-                    .parent()
-                    .map(Path::to_path_buf);
+                let certs_dir = app_context
+                    .bmc_mock_certs_dir
+                    .as_ref()
+                    .cloned()
+                    .or_else(|| {
+                        PathBuf::from(forge_root_ca_path.clone())
+                            .parent()
+                            .map(Path::to_path_buf)
+                    });
 
                 let server_config = bmc_mock::tls::server_config(certs_dir)?;
-                let bmc_https_mock = bmc_mock::CombinedServer::run(
+                let control_state = ControlState::new(
+                    machine_handles.clone(),
+                    MachineStatusConfig::new(bmc_mock_port),
+                );
+                let bmc_router = bmc_mock::combined_router(bmc_mock_registry.clone());
+                let router = append_control_routes(bmc_router, control_state);
+                let bmc_https_mock = bmc_mock::CombinedServer::run_router(
                     "bmc-mock",
-                    bmc_mock_registry.clone(),
+                    router,
                     Some(ListenerOrAddress::Address(
                         format!("0.0.0.0:{bmc_mock_port}").parse().unwrap(),
                     )),
@@ -232,17 +261,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 None
             }
         };
-
-    let machine_handles = mat.make_machines(true).await?;
-
-    // Persist them once in case of unclean shutdown
-    app_context.app_config.write_persisted_machines(
-        machine_handles
-            .iter()
-            .map(|m| m.persisted())
-            .collect::<Vec<_>>()
-            .as_slice(),
-    )?;
 
     // Run TUI
     let (app_tx, app_rx) = mpsc::channel(5000);

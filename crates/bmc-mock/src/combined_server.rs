@@ -19,14 +19,13 @@ use std::collections::HashMap;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::Arc;
 
-use axum::{Router, ServiceExt};
+use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tower::Layer;
 use tower_http::normalize_path::NormalizePathLayer;
 
-use crate::combined_service::CombinedService;
+use crate::combined_service::combined_router;
 
 pub enum ListenerOrAddress {
     Listener(TcpListener),
@@ -75,6 +74,20 @@ impl CombinedServer {
         listener_or_address: Option<ListenerOrAddress>,
         server_config: rustls::ServerConfig,
     ) -> Self {
+        Self::run_router(
+            name,
+            combined_router(routers_by_ip_address),
+            listener_or_address,
+            server_config,
+        )
+    }
+
+    pub fn run_router(
+        name: &str,
+        router: Router,
+        listener_or_address: Option<ListenerOrAddress>,
+        server_config: rustls::ServerConfig,
+    ) -> Self {
         let config = RustlsConfig::from_config(Arc::new(server_config));
 
         let axum_handle = axum_server::Handle::new();
@@ -103,15 +116,13 @@ impl CombinedServer {
         };
         tracing::info!("Listening on {}", addr);
 
-        let service = CombinedService::new(routers_by_ip_address);
-
         // Inject middleware to normalize request URIs by dropping the trailing slash
-        let service = NormalizePathLayer::trim_trailing_slash().layer(service);
+        let router = router.layer(NormalizePathLayer::trim_trailing_slash());
         let join_handle = tokio::task::Builder::new()
             .name(name)
             .spawn(async move {
                 server
-                    .serve(service.into_make_service())
+                    .serve(router.into_make_service())
                     .await
                     .inspect_err(|e| {
                         tracing::error!("BMC mock could not listen on address {}: {}", addr, e)

@@ -192,6 +192,9 @@ pub struct MachineATronConfig {
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
 
+    #[serde(default)]
+    pub bmc_mock_certs_dir: Option<PathBuf>,
+
     /// Set this to true if you want each mock machine to run a mock BMC ssh server. This is useful
     /// for testing things like ssh-console.
     #[serde(default = "default_false")]

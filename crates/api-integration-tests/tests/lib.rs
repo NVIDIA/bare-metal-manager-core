@@ -1187,6 +1187,7 @@ where
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         log_file: None,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
+        bmc_mock_certs_dir: None,
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
         use_single_bmc_mock: false, // unused, we're constructing machines ourselves

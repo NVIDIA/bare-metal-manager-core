@@ -18,6 +18,7 @@ pub mod api_client;
 pub mod api_throttler;
 mod bmc_mock_wrapper;
 mod config;
+mod control_router;
 mod dhcp_wrapper;
 mod dpu_machine;
 mod host_machine;
@@ -26,6 +27,7 @@ mod machine_fsm;
 mod machine_state_machine;
 mod machine_utils;
 mod mock_ssh_server;
+mod status;
 mod subnet;
 mod tabs;
 mod tui;
@@ -39,6 +41,7 @@ pub use config::{
     MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig, PersistedDpuMachine,
     PersistedHostMachine,
 };
+pub use control_router::{ControlState, append as append_control_routes};
 pub use dpu_machine::DpuMachineHandle;
 pub use host_machine::HostMachineHandle;
 pub use machine_a_tron::{AppEvent, MachineATron};
@@ -47,6 +50,7 @@ pub use mock_ssh_server::{
     Credentials as MockSshCredentials, MockSshServerHandle, PromptBehavior,
     spawn as spawn_mock_ssh_server,
 };
+pub use status::{MachineStatus, MachineStatusConfig, MachinesStatusResponse};
 pub use tui::{Tui, UiUpdate};
 pub use tui_host_logs::TuiHostLogs;
 
