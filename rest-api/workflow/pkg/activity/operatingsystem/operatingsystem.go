@@ -676,7 +676,6 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			}
 		}
 
-		// TODO: Is this correct?
 		if !isLocalScope {
 			globalOrLimitedOSIDs[reportedOSID] = struct{}{}
 		}
