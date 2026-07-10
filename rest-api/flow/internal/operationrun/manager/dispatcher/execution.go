@@ -15,6 +15,8 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 )
 
+const idempotencyKeyPrefix = "operation-run-target:"
+
 func (d *Dispatcher) execute(
 	prep *preparedDispatch,
 	decision dispatchDecision,
@@ -220,12 +222,6 @@ func (d *Dispatcher) submit(
 
 	taskID := taskIDs[0]
 	target.Submit(taskID, "submitted")
-
-	// TODO: Make operation-run submissions fully idempotent by passing a
-	// stable task ID or idempotency key through TaskManager.SubmitTask. The
-	// claim lease prevents permanent quota starvation, but a crash after
-	// task creation and before this state update can still leave an orphan
-	// task that the dispatcher cannot associate back to this target.
 	return true, d.updateTargetAfterSubmit(ctx, target)
 }
 
@@ -279,7 +275,12 @@ func operationRequestForTarget(
 		ConflictStrategy: operation.ConflictStrategyReject,
 		RuleID:           operations.ExtractRuleID(info),
 		RequiredRackID:   target.RackID,
+		IdempotencyKey:   targetIdempotencyKey(target.ID),
 	}, nil
+}
+
+func targetIdempotencyKey(targetID uuid.UUID) string {
+	return idempotencyKeyPrefix + targetID.String()
 }
 
 // targetReadyForSubmission identifies targets that can be claimed now,

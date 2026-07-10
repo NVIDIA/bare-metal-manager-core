@@ -62,6 +62,14 @@ type Request struct {
 	// this would need to become []uuid.UUID (or a separate AllowedRackIDs
 	// field). Do not add that generalization until there is a concrete caller.
 	RequiredRackID uuid.UUID
+
+	// IdempotencyKey, when set, makes submission create or return one task for
+	// this request. It is only valid for requests constrained to one rack.
+	IdempotencyKey string
+}
+
+func (r *Request) HasIdempotencyKey() bool {
+	return r != nil && r.IdempotencyKey != ""
 }
 
 func (r *Request) Validate() error {
@@ -75,6 +83,10 @@ func (r *Request) Validate() error {
 
 	if err := r.TargetSpec.Validate(); err != nil {
 		return fmt.Errorf("invalid target spec: %w", err)
+	}
+
+	if r.HasIdempotencyKey() && r.RequiredRackID == uuid.Nil {
+		return fmt.Errorf("idempotency key requires RequiredRackID")
 	}
 
 	return nil
