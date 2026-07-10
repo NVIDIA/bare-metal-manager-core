@@ -5,8 +5,6 @@ syntax = "proto3";
 
 package scout_firmware_upgrade;
 
-option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
-
 message ScoutFirmwareUpgradeTask {
   string upgrade_task_id = 1;
   string component_type = 2;

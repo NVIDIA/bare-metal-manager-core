@@ -46,9 +46,8 @@ type InfiniBandPartition struct {
 	// MTU configured for the InfiniBand Partition
 	Mtu NullableInt32 `json:"mtu,omitempty"`
 	// Whether SHARP is enabled for the InfiniBand Partition
-	EnableSharp *bool `json:"enableSharp,omitempty"`
-	// String key-value pairs describing InfiniBand Partition labels. Up to 10 key-value pairs can be specified
-	Labels map[string]string `json:"labels,omitempty"`
+	EnableSharp *bool             `json:"enableSharp,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
 	// Status of the InfiniBand Partition
 	Status *InfiniBandPartitionStatus `json:"status,omitempty"`
 	// Chronological status history for the InfiniBand Partition

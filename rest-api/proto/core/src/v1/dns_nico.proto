@@ -5,10 +5,8 @@ syntax = "proto3";
 
 package dns;
 
-import "common_nico.proto";
+import "common.proto";
 import "google/protobuf/timestamp.proto";
-
-option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
 
 message DnsResourceRecordLookupRequest {
   string qtype = 1;
@@ -33,8 +31,7 @@ message DnsResourceRecord {
   optional string auth = 7;
 }
 
-// WARNING: This type conflicts with Metadata in nico_nico.proto and must be renamed to DomainMetadata
-message DomainMetadata {
+message Metadata {
   repeated string allow_axfr_from = 2;
 }
 message DomainMetadataRequest {
@@ -42,7 +39,7 @@ message DomainMetadataRequest {
 }
 
 message DomainMetadataResponse {
-  DomainMetadata result = 1;
+  Metadata result = 1;
 }
 
 message DomainList {
@@ -79,7 +76,7 @@ message Domain {
   google.protobuf.Timestamp created = 3;
   google.protobuf.Timestamp updated = 4;
   google.protobuf.Timestamp deleted = 5;
-  DomainMetadata metadata = 6;
+  Metadata metadata = 6;
   optional string soa = 7;
 }
 
@@ -93,7 +90,7 @@ message UpdateDomainRequest {
 
 message DomainSearchQuery {
   optional common.DomainId id = 1;
-  optional string name = 2;
+  optional string name = 2; 
 }
 
 message DomainDeletionRequest {
@@ -102,3 +99,5 @@ message DomainDeletionRequest {
 
 message DomainDeletionResult{
 }
+
+

@@ -37,22 +37,31 @@ type VPC struct {
 	SiteId *string `json:"siteId,omitempty"`
 	// Legacy attribute, contains the same value as ID
 	ControllerVpcId NullableString `json:"controllerVpcId,omitempty"`
-	// Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.
+	// Deprecated: use `config.networkVirtualizationType`. Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.
+	// Deprecated
 	NetworkVirtualizationType NullableString `json:"networkVirtualizationType,omitempty"`
-	// Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
+	// Deprecated: use `config.routingProfile`. Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
+	// Deprecated
 	RoutingProfile NullableString `json:"routingProfile,omitempty"`
-	// Explicitly requested VNI for the VPC if one was requested at creation time
+	// Deprecated: use `config.requestedVni`. Explicitly requested VNI for the VPC if one was requested at creation time
+	// Deprecated
 	RequestedVni NullableInt32 `json:"requestedVni,omitempty"`
-	// Active VNI assigned to the VPC
+	// Deprecated: use `runtimeStatus.vni`. Active VNI assigned to the VPC
+	// Deprecated
 	Vni NullableInt32 `json:"vni,omitempty"`
-	// ID of the Network Security Group attached to the VPC
+	// Deprecated: use `config.networkSecurityGroupId`. ID of the Network Security Group attached to the VPC
+	// Deprecated
 	NetworkSecurityGroupId NullableString `json:"networkSecurityGroupId,omitempty"`
 	// Propagation details for the attached Network Security Group
 	NetworkSecurityGroupPropagationDetails *NetworkSecurityGroupPropagationDetails `json:"networkSecurityGroupPropagationDetails,omitempty"`
-	// ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
-	NvLinkLogicalPartitionId NullableString `json:"nvLinkLogicalPartitionId,omitempty"`
-	// String key-value pairs describing VPC labels
-	Labels map[string]string `json:"labels,omitempty"`
+	// Deprecated: use `config.nvLinkLogicalPartitionId`. ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
+	// Deprecated
+	NvLinkLogicalPartitionId NullableString    `json:"nvLinkLogicalPartitionId,omitempty"`
+	Labels                   map[string]string `json:"labels,omitempty"`
+	// Desired configuration for the VPC
+	Config *VpcConfig `json:"config,omitempty"`
+	// Observed runtime status for the VPC
+	RuntimeStatus *VpcRuntimeStatus `json:"runtimeStatus,omitempty"`
 	// Status of the VPC
 	Status *VpcStatus `json:"status,omitempty"`
 	// History of status changes for the VPC
@@ -327,6 +336,7 @@ func (o *VPC) UnsetControllerVpcId() {
 }
 
 // GetNetworkVirtualizationType returns the NetworkVirtualizationType field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *VPC) GetNetworkVirtualizationType() string {
 	if o == nil || IsNil(o.NetworkVirtualizationType.Get()) {
 		var ret string
@@ -338,6 +348,7 @@ func (o *VPC) GetNetworkVirtualizationType() string {
 // GetNetworkVirtualizationTypeOk returns a tuple with the NetworkVirtualizationType field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *VPC) GetNetworkVirtualizationTypeOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -355,6 +366,7 @@ func (o *VPC) HasNetworkVirtualizationType() bool {
 }
 
 // SetNetworkVirtualizationType gets a reference to the given NullableString and assigns it to the NetworkVirtualizationType field.
+// Deprecated
 func (o *VPC) SetNetworkVirtualizationType(v string) {
 	o.NetworkVirtualizationType.Set(&v)
 }
@@ -370,6 +382,7 @@ func (o *VPC) UnsetNetworkVirtualizationType() {
 }
 
 // GetRoutingProfile returns the RoutingProfile field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *VPC) GetRoutingProfile() string {
 	if o == nil || IsNil(o.RoutingProfile.Get()) {
 		var ret string
@@ -381,6 +394,7 @@ func (o *VPC) GetRoutingProfile() string {
 // GetRoutingProfileOk returns a tuple with the RoutingProfile field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *VPC) GetRoutingProfileOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -398,6 +412,7 @@ func (o *VPC) HasRoutingProfile() bool {
 }
 
 // SetRoutingProfile gets a reference to the given NullableString and assigns it to the RoutingProfile field.
+// Deprecated
 func (o *VPC) SetRoutingProfile(v string) {
 	o.RoutingProfile.Set(&v)
 }
@@ -413,6 +428,7 @@ func (o *VPC) UnsetRoutingProfile() {
 }
 
 // GetRequestedVni returns the RequestedVni field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *VPC) GetRequestedVni() int32 {
 	if o == nil || IsNil(o.RequestedVni.Get()) {
 		var ret int32
@@ -424,6 +440,7 @@ func (o *VPC) GetRequestedVni() int32 {
 // GetRequestedVniOk returns a tuple with the RequestedVni field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *VPC) GetRequestedVniOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
@@ -441,6 +458,7 @@ func (o *VPC) HasRequestedVni() bool {
 }
 
 // SetRequestedVni gets a reference to the given NullableInt32 and assigns it to the RequestedVni field.
+// Deprecated
 func (o *VPC) SetRequestedVni(v int32) {
 	o.RequestedVni.Set(&v)
 }
@@ -456,6 +474,7 @@ func (o *VPC) UnsetRequestedVni() {
 }
 
 // GetVni returns the Vni field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *VPC) GetVni() int32 {
 	if o == nil || IsNil(o.Vni.Get()) {
 		var ret int32
@@ -467,6 +486,7 @@ func (o *VPC) GetVni() int32 {
 // GetVniOk returns a tuple with the Vni field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *VPC) GetVniOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
@@ -484,6 +504,7 @@ func (o *VPC) HasVni() bool {
 }
 
 // SetVni gets a reference to the given NullableInt32 and assigns it to the Vni field.
+// Deprecated
 func (o *VPC) SetVni(v int32) {
 	o.Vni.Set(&v)
 }
@@ -499,6 +520,7 @@ func (o *VPC) UnsetVni() {
 }
 
 // GetNetworkSecurityGroupId returns the NetworkSecurityGroupId field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *VPC) GetNetworkSecurityGroupId() string {
 	if o == nil || IsNil(o.NetworkSecurityGroupId.Get()) {
 		var ret string
@@ -510,6 +532,7 @@ func (o *VPC) GetNetworkSecurityGroupId() string {
 // GetNetworkSecurityGroupIdOk returns a tuple with the NetworkSecurityGroupId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *VPC) GetNetworkSecurityGroupIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -527,6 +550,7 @@ func (o *VPC) HasNetworkSecurityGroupId() bool {
 }
 
 // SetNetworkSecurityGroupId gets a reference to the given NullableString and assigns it to the NetworkSecurityGroupId field.
+// Deprecated
 func (o *VPC) SetNetworkSecurityGroupId(v string) {
 	o.NetworkSecurityGroupId.Set(&v)
 }
@@ -574,6 +598,7 @@ func (o *VPC) SetNetworkSecurityGroupPropagationDetails(v NetworkSecurityGroupPr
 }
 
 // GetNvLinkLogicalPartitionId returns the NvLinkLogicalPartitionId field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *VPC) GetNvLinkLogicalPartitionId() string {
 	if o == nil || IsNil(o.NvLinkLogicalPartitionId.Get()) {
 		var ret string
@@ -585,6 +610,7 @@ func (o *VPC) GetNvLinkLogicalPartitionId() string {
 // GetNvLinkLogicalPartitionIdOk returns a tuple with the NvLinkLogicalPartitionId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *VPC) GetNvLinkLogicalPartitionIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -602,6 +628,7 @@ func (o *VPC) HasNvLinkLogicalPartitionId() bool {
 }
 
 // SetNvLinkLogicalPartitionId gets a reference to the given NullableString and assigns it to the NvLinkLogicalPartitionId field.
+// Deprecated
 func (o *VPC) SetNvLinkLogicalPartitionId(v string) {
 	o.NvLinkLogicalPartitionId.Set(&v)
 }
@@ -646,6 +673,70 @@ func (o *VPC) HasLabels() bool {
 // SetLabels gets a reference to the given map[string]string and assigns it to the Labels field.
 func (o *VPC) SetLabels(v map[string]string) {
 	o.Labels = v
+}
+
+// GetConfig returns the Config field value if set, zero value otherwise.
+func (o *VPC) GetConfig() VpcConfig {
+	if o == nil || IsNil(o.Config) {
+		var ret VpcConfig
+		return ret
+	}
+	return *o.Config
+}
+
+// GetConfigOk returns a tuple with the Config field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *VPC) GetConfigOk() (*VpcConfig, bool) {
+	if o == nil || IsNil(o.Config) {
+		return nil, false
+	}
+	return o.Config, true
+}
+
+// HasConfig returns a boolean if a field has been set.
+func (o *VPC) HasConfig() bool {
+	if o != nil && !IsNil(o.Config) {
+		return true
+	}
+
+	return false
+}
+
+// SetConfig gets a reference to the given VpcConfig and assigns it to the Config field.
+func (o *VPC) SetConfig(v VpcConfig) {
+	o.Config = &v
+}
+
+// GetRuntimeStatus returns the RuntimeStatus field value if set, zero value otherwise.
+func (o *VPC) GetRuntimeStatus() VpcRuntimeStatus {
+	if o == nil || IsNil(o.RuntimeStatus) {
+		var ret VpcRuntimeStatus
+		return ret
+	}
+	return *o.RuntimeStatus
+}
+
+// GetRuntimeStatusOk returns a tuple with the RuntimeStatus field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *VPC) GetRuntimeStatusOk() (*VpcRuntimeStatus, bool) {
+	if o == nil || IsNil(o.RuntimeStatus) {
+		return nil, false
+	}
+	return o.RuntimeStatus, true
+}
+
+// HasRuntimeStatus returns a boolean if a field has been set.
+func (o *VPC) HasRuntimeStatus() bool {
+	if o != nil && !IsNil(o.RuntimeStatus) {
+		return true
+	}
+
+	return false
+}
+
+// SetRuntimeStatus gets a reference to the given VpcRuntimeStatus and assigns it to the RuntimeStatus field.
+func (o *VPC) SetRuntimeStatus(v VpcRuntimeStatus) {
+	o.RuntimeStatus = &v
 }
 
 // GetStatus returns the Status field value if set, zero value otherwise.
@@ -830,6 +921,12 @@ func (o VPC) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Labels) {
 		toSerialize["labels"] = o.Labels
+	}
+	if !IsNil(o.Config) {
+		toSerialize["config"] = o.Config
+	}
+	if !IsNil(o.RuntimeStatus) {
+		toSerialize["runtimeStatus"] = o.RuntimeStatus
 	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status

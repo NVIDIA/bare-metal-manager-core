@@ -57,9 +57,8 @@ type ExpectedMachineCreateRequest struct {
 	// Host ID within the tray
 	HostId NullableInt32 `json:"hostId,omitempty"`
 	// When true, this host is eligible for DPF-based provisioning.
-	IsDpfEnabled NullableBool `json:"isDpfEnabled,omitempty"`
-	// User-defined key-value pairs for organizing and categorizing Expected Machines
-	Labels map[string]string `json:"labels,omitempty"`
+	IsDpfEnabled NullableBool      `json:"isDpfEnabled,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
 	// Optional per-host lifecycle profile
 	HostLifecycleProfile *HostLifecycleProfile `json:"hostLifecycleProfile,omitempty"`
 }

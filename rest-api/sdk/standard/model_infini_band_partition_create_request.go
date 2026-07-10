@@ -29,8 +29,7 @@ type InfiniBandPartitionCreateRequest struct {
 	// Optional description of the Partition
 	Description NullableString `json:"description,omitempty"`
 	// ID of the Site the Partition should belong to
-	SiteId string `json:"siteId"`
-	// String key-value pairs describing Partition labels. Up to 10 key-value pairs can be specified
+	SiteId string            `json:"siteId"`
 	Labels map[string]string `json:"labels,omitempty"`
 }
 

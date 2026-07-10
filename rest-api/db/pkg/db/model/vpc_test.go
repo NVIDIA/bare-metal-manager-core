@@ -1530,6 +1530,13 @@ func TestVpc_ToProto(t *testing.T) {
 		assert.Equal(t, "prod", *got.Metadata.Labels[0].Value)
 		require.NotNil(t, got.DefaultNvlinkLogicalPartitionId)
 		assert.Equal(t, nvllpID.String(), got.DefaultNvlinkLogicalPartitionId.Value)
+
+		require.NotNil(t, got.Config)
+		assert.Equal(t, "org-1", got.Config.TenantOrganizationId)
+		require.NotNil(t, got.Config.NetworkSecurityGroupId)
+		assert.Equal(t, "nsg-1", *got.Config.NetworkSecurityGroupId)
+		require.NotNil(t, got.Config.DefaultNvlinkLogicalPartitionId)
+		assert.Equal(t, nvllpID.String(), got.Config.DefaultNvlinkLogicalPartitionId.Value)
 	})
 
 	t.Run("nil description and labels yield zero-value metadata", func(t *testing.T) {
@@ -1681,5 +1688,138 @@ func TestVpc_FromProto(t *testing.T) {
 			Metadata: &corev1.Metadata{Name: ""},
 		})
 		assert.Equal(t, "top-level-fallback", v.Name)
+	})
+}
+
+func TestVpc_ToProto_ConfigStatusCompat(t *testing.T) {
+	id := uuid.New()
+	fnn := VpcFNN
+	requestedVni := 4242
+	activeVni := 9999
+	routingProfile := "INTERNAL"
+	nsg := "nsg-42"
+
+	v := &Vpc{
+		ID:                        id,
+		Org:                       "org-1",
+		Name:                      "vpc-a",
+		NetworkVirtualizationType: &fnn,
+		Vni:                       &requestedVni,
+		ActiveVni:                 &activeVni,
+		RoutingProfile:            &routingProfile,
+		NetworkSecurityGroupID:    &nsg,
+	}
+
+	got := v.ToProto()
+	require.NotNil(t, got.Config)
+	assert.Equal(t, "org-1", got.Config.TenantOrganizationId)
+	require.NotNil(t, got.Config.NetworkVirtualizationType)
+	assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.Config.NetworkVirtualizationType)
+	require.NotNil(t, got.Config.Vni)
+	assert.Equal(t, uint32(requestedVni), *got.Config.Vni)
+	require.NotNil(t, got.Config.RoutingProfileType)
+	assert.Equal(t, routingProfile, *got.Config.RoutingProfileType)
+	require.NotNil(t, got.Config.NetworkSecurityGroupId)
+	assert.Equal(t, nsg, *got.Config.NetworkSecurityGroupId)
+
+	require.NotNil(t, got.Status)
+	require.NotNil(t, got.Status.Vni)
+	assert.Equal(t, uint32(activeVni), *got.Status.Vni)
+
+	// Deprecated flat mirrors stay populated for compatibility.
+	assert.Equal(t, "org-1", got.TenantOrganizationId)
+	require.NotNil(t, got.NetworkVirtualizationType)
+	assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.NetworkVirtualizationType)
+	require.NotNil(t, got.Vni)
+	assert.Equal(t, uint32(requestedVni), *got.Vni)
+	require.NotNil(t, got.DeprecatedVni)
+	assert.Equal(t, uint32(activeVni), *got.DeprecatedVni)
+	require.NotNil(t, got.RoutingProfileType)
+	assert.Equal(t, routingProfile, *got.RoutingProfileType)
+	require.NotNil(t, got.NetworkSecurityGroupId)
+	assert.Equal(t, nsg, *got.NetworkSecurityGroupId)
+}
+
+func TestVpc_FromProto_ConfigFallback(t *testing.T) {
+	id := uuid.New()
+	nvllpID := uuid.New()
+	nsg := "nsg-config"
+	fnnEnum := corev1.VpcVirtualizationType_FNN
+	requestedVni := uint32(12001)
+	activeVni := uint32(12002)
+	routingProfile := "INTERNAL"
+
+	v := &Vpc{}
+	v.FromProto(&corev1.Vpc{
+		Id: &corev1.VpcId{Value: id.String()},
+		Config: &corev1.VpcConfig{
+			TenantOrganizationId:   "org-config",
+			NetworkSecurityGroupId: &nsg,
+			NetworkVirtualizationType: &fnnEnum,
+			Vni:                    &requestedVni,
+			RoutingProfileType:     &routingProfile,
+			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: nvllpID.String()},
+		},
+		Status: &corev1.VpcStatus{Vni: &activeVni},
+		Metadata: &corev1.Metadata{Name: "vpc-config"},
+	})
+
+	assert.Equal(t, "org-config", v.Org)
+	require.NotNil(t, v.NetworkSecurityGroupID)
+	assert.Equal(t, nsg, *v.NetworkSecurityGroupID)
+	require.NotNil(t, v.NetworkVirtualizationType)
+	assert.Equal(t, VpcFNN, *v.NetworkVirtualizationType)
+	require.NotNil(t, v.Vni)
+	assert.Equal(t, int(requestedVni), *v.Vni)
+	require.NotNil(t, v.ActiveVni)
+	assert.Equal(t, int(activeVni), *v.ActiveVni)
+	require.NotNil(t, v.RoutingProfile)
+	assert.Equal(t, routingProfile, *v.RoutingProfile)
+	require.NotNil(t, v.NVLinkLogicalPartitionID)
+	assert.Equal(t, nvllpID, *v.NVLinkLogicalPartitionID)
+}
+
+func TestVpcProtoCompatHelpers(t *testing.T) {
+	fnnEnum := corev1.VpcVirtualizationType_FNN
+	routingProfile := "EXTERNAL"
+	nsg := "nsg-flat"
+
+	t.Run("prefers structured config over deprecated flat fields", func(t *testing.T) {
+		proto := &corev1.Vpc{
+			Config: &corev1.VpcConfig{
+				NetworkVirtualizationType: &fnnEnum,
+				RoutingProfileType:        &routingProfile,
+				NetworkSecurityGroupId:    &nsg,
+			},
+			NetworkVirtualizationType: cutil.GetPtr(corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER),
+			RoutingProfileType:        cutil.GetPtr("INTERNAL"),
+			NetworkSecurityGroupId:    cutil.GetPtr("nsg-deprecated"),
+		}
+
+		virtType := VpcProtoNetworkVirtualizationType(proto)
+		require.NotNil(t, virtType)
+		assert.Equal(t, VpcFNN, *virtType)
+		assert.Equal(t, routingProfile, *VpcProtoRoutingProfile(proto))
+		assert.Equal(t, nsg, *VpcProtoNetworkSecurityGroupID(proto))
+	})
+
+	t.Run("allocated VNI prefers status.vni over deprecated_vni", func(t *testing.T) {
+		statusVni := uint32(100)
+		deprecatedVni := uint32(200)
+		proto := &corev1.Vpc{
+			Status:        &corev1.VpcStatus{Vni: &statusVni},
+			DeprecatedVni: &deprecatedVni,
+		}
+		got := VpcProtoAllocatedVNI(proto)
+		require.NotNil(t, got)
+		assert.Equal(t, 100, *got)
+	})
+
+	t.Run("allocated VNI falls back to deprecated_vni when status is absent", func(t *testing.T) {
+		deprecatedVni := uint32(200)
+		proto := &corev1.Vpc{DeprecatedVni: &deprecatedVni}
+		got := VpcProtoAllocatedVNI(proto)
+		require.NotNil(t, got)
+		assert.Equal(t, 200, *got)
 	})
 }

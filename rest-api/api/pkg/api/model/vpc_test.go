@@ -534,6 +534,16 @@ func TestNewAPIVpc(t *testing.T) {
 			assert.Equal(t, tt.want.StatusHistory, got.StatusHistory)
 			assert.Equal(t, tt.want.Created, got.Created)
 			assert.Equal(t, tt.want.Updated, got.Updated)
+
+			assert.Equal(t, tt.want.Name, got.Config.Name)
+			assert.Equal(t, tt.want.Description, got.Config.Description)
+			assert.Equal(t, tt.want.SiteID, got.Config.SiteID)
+			assert.Equal(t, tt.want.NetworkVirtualizationType, got.Config.NetworkVirtualizationType)
+			assert.Equal(t, tt.want.RoutingProfile, got.Config.RoutingProfile)
+			assert.Equal(t, tt.want.RequestedVni, got.Config.RequestedVni)
+			assert.Equal(t, tt.want.NetworkSecurityGroupID, got.Config.NetworkSecurityGroupID)
+			assert.Equal(t, tt.want.Labels, got.Config.Labels)
+			assert.Equal(t, tt.want.Vni, got.RuntimeStatus.Vni)
 		})
 	}
 }

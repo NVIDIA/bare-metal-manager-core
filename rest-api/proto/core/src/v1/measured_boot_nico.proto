@@ -9,8 +9,6 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
-
 ////////////////////////////////////////////////////////////////////////////////
 // RPC messages for Bundles
 ////////////////////////////////////////////////////////////////////////////////
@@ -285,7 +283,7 @@ message ShowMeasurementJournalsResponse {
 
 message ListMeasurementJournalRequest {
   oneof selector {
-    string machine_id = 1;
+    string machine_id = 1; 
   }
 }
 
@@ -454,7 +452,7 @@ message PromoteMeasurementReportResponse {
 // pcr_registers: An optional list of PCR register indexes to
 //                select, which is a comma-separated list of
 //                numbers and/or X-Y combinations. For example,
-//
+//   
 
 message RevokeMeasurementReportRequest {
   MeasurementReportId report_id = 1;
@@ -529,7 +527,7 @@ message ShowMeasurementReportsResponse {
 
 message ListMeasurementReportRequest {
   oneof selector {
-    string machine_id = 1;
+    string machine_id = 1; 
   }
 }
 
@@ -730,7 +728,7 @@ message ListMeasurementSystemProfileBundlesResponse {
 //
 // selector: Select how you want to query the profile, where:
 //      profile_id: Select by profile ID.
-//
+//   
 
 message ListMeasurementSystemProfileMachinesRequest {
   oneof selector {
@@ -937,7 +935,7 @@ enum ImportSiteResult {
 }
 
 message ListAttestationSummaryRequest {
-
+  
 }
 
 message ListAttestationSummaryResponse {

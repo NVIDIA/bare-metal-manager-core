@@ -15361,14 +15361,16 @@ components:
             - ETHERNET_VIRTUALIZER
             - FNN
             - FLAT
-          description: 'Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.'
+          deprecated: true
+          description: 'Deprecated: use `config.networkVirtualizationType`. Network virtualization type of the VPC. Flat VPCs hold instances on zero-DPU hosts (or hosts with their DPU in NIC mode); their interfaces are bound to underlay (HostInband) network segments and NICo does not drive their data plane.'
         routingProfile:
           type:
             - string
             - 'null'
           minLength: 3
           maxLength: 64
-          description: Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.
+          deprecated: true
+          description: 'Deprecated: use `config.routingProfile`. Routing profile type for the VPC. Populated when Site has Native Networking enabled and network virtualization type is `FNN`.'
         requestedVni:
           type:
             - integer
@@ -15376,7 +15378,8 @@ components:
           minimum: 1
           maximum: 65535
           readOnly: true
-          description: Explicitly requested VNI for the VPC if one was requested at creation time
+          deprecated: true
+          description: 'Deprecated: use `config.requestedVni`. Explicitly requested VNI for the VPC if one was requested at creation time'
         vni:
           type:
             - integer
@@ -15384,12 +15387,14 @@ components:
           minimum: 1
           maximum: 65535
           readOnly: true
-          description: Active VNI assigned to the VPC
+          deprecated: true
+          description: 'Deprecated: use `runtimeStatus.vni`. Active VNI assigned to the VPC'
         networkSecurityGroupId:
           type:
             - string
             - 'null'
-          description: ID of the Network Security Group attached to the VPC
+          deprecated: true
+          description: 'Deprecated: use `config.networkSecurityGroupId`. ID of the Network Security Group attached to the VPC'
         networkSecurityGroupPropagationDetails:
           $ref: '#/components/schemas/NetworkSecurityGroupPropagationDetails'
           description: Propagation details for the attached Network Security Group
@@ -15398,10 +15403,19 @@ components:
             - string
             - 'null'
           format: uuid
-          description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
+          deprecated: true
+          description: 'Deprecated: use `config.nvLinkLogicalPartitionId`. ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to'
         labels:
           $ref: '#/components/schemas/Labels'
           description: String key-value pairs describing VPC labels
+        config:
+          $ref: '#/components/schemas/VpcConfig'
+          readOnly: true
+          description: Desired configuration for the VPC
+        runtimeStatus:
+          $ref: '#/components/schemas/VpcRuntimeStatus'
+          readOnly: true
+          description: Observed runtime status for the VPC
         status:
           $ref: '#/components/schemas/VpcStatus'
           readOnly: true
@@ -15433,6 +15447,76 @@ components:
         - Configuring
         - Deleting
         - Error
+    VpcConfig:
+      title: VpcConfig
+      type: object
+      description: Desired configuration for a VPC
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 256
+          description: Name of the VPC
+        description:
+          type:
+            - string
+            - 'null'
+          description: Description of the VPC
+        siteId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: ID of the Site the VPC belongs to
+        networkVirtualizationType:
+          type:
+            - string
+            - 'null'
+          enum:
+            - ETHERNET_VIRTUALIZER
+            - FNN
+            - FLAT
+          description: Network virtualization type of the VPC
+        routingProfile:
+          type:
+            - string
+            - 'null'
+          minLength: 3
+          maxLength: 64
+          description: Routing profile type for the VPC
+        requestedVni:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          maximum: 65535
+          description: Explicitly requested VNI for the VPC if one was requested at creation time
+        networkSecurityGroupId:
+          type:
+            - string
+            - 'null'
+          description: ID of the Network Security Group attached to the VPC
+        nvLinkLogicalPartitionId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: ID of the default NVLink Logical Partition that GPUs for all Instances in the VPC will attach to
+        labels:
+          $ref: '#/components/schemas/Labels'
+          description: String key-value pairs describing VPC labels
+    VpcRuntimeStatus:
+      title: VpcRuntimeStatus
+      type: object
+      description: Observed runtime status for a VPC
+      properties:
+        vni:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          maximum: 65535
+          description: Active VNI allocated to the VPC
     VpcCreateRequest:
       title: VpcCreateRequest
       type: object

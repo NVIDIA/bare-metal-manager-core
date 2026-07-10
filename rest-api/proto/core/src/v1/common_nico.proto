@@ -5,8 +5,6 @@ syntax = "proto3";
 
 package common;
 
-option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
-
 message MachineId {
   string id = 1;
 }

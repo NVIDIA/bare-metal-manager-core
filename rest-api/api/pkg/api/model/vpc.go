@@ -287,6 +287,63 @@ func (avvur APIVpcVirtualizationUpdateRequest) Validate(existingVpc *cdbm.Vpc) e
 	return nil
 }
 
+// APIVpcConfig captures the desired configuration for a VPC.
+type APIVpcConfig struct {
+	// Name is the name of the VPC
+	Name string `json:"name"`
+	// Description is the description of the VPC
+	Description *string `json:"description"`
+	// SiteID is the ID of the Site
+	SiteID *string `json:"siteId"`
+	// NetworkVirtualizationType is a VPC virtualization type
+	NetworkVirtualizationType *string `json:"networkVirtualizationType"`
+	// RoutingProfile is the applied routing profile for the VPC, when known.
+	RoutingProfile *string `json:"routingProfile"`
+	// RequestedVni is the explicitly requested VPC VNI at creation time _if_ one was requested.
+	RequestedVni *int `json:"requestedVni"`
+	// NetworkSecurityGroupID is the ID of attached NSG, if any
+	NetworkSecurityGroupID *string `json:"networkSecurityGroupId"`
+	// NVLinkLogicalPartitionID is the ID of the NVLinkLogicalPartition
+	NVLinkLogicalPartitionID *string `json:"nvLinkLogicalPartitionId"`
+	// Labels is VPC labels specified by user
+	Labels map[string]string `json:"labels"`
+}
+
+// APIVpcRuntimeStatus captures observed runtime status for a VPC.
+type APIVpcRuntimeStatus struct {
+	// Vni is the active/actual VNI of the VPC, regardless of whether it was
+	// explicitly requested or auto-allocated.
+	Vni *int `json:"vni"`
+}
+
+func newAPIVpcConfig(dbVpc cdbm.Vpc) APIVpcConfig {
+	cfg := APIVpcConfig{
+		Name:                   dbVpc.Name,
+		Description:            dbVpc.Description,
+		SiteID:                 util.GetUUIDPtrToStrPtr(&dbVpc.SiteID),
+		Labels:                 dbVpc.Labels,
+		NetworkSecurityGroupID: dbVpc.NetworkSecurityGroupID,
+		RequestedVni:           dbVpc.Vni,
+	}
+	if dbVpc.NetworkVirtualizationType != nil {
+		cfg.NetworkVirtualizationType = dbVpc.NetworkVirtualizationType
+	}
+	if dbVpc.RoutingProfile != nil {
+		routingProfile := normalizeAPIVpcRoutingProfileFromSite(*dbVpc.RoutingProfile)
+		cfg.RoutingProfile = &routingProfile
+	}
+	if dbVpc.NVLinkLogicalPartitionID != nil {
+		cfg.NVLinkLogicalPartitionID = util.GetUUIDPtrToStrPtr(dbVpc.NVLinkLogicalPartitionID)
+	}
+	return cfg
+}
+
+func newAPIVpcRuntimeStatus(dbVpc cdbm.Vpc) APIVpcRuntimeStatus {
+	return APIVpcRuntimeStatus{
+		Vni: dbVpc.ActiveVni,
+	}
+}
+
 // APIVpc is a data structure to capture information about VPC at the API layer
 type APIVpc struct {
 	// ID is the unique UUID v4 identifier of the VPC in NICo Cloud
@@ -336,6 +393,10 @@ type APIVpc struct {
 	Status string `json:"status"`
 	// StatusHistory is the status detail records for the VPC over time
 	StatusHistory []APIStatusDetail `json:"statusHistory"`
+	// Config is the desired configuration for the VPC
+	Config APIVpcConfig `json:"config"`
+	// RuntimeStatus is the observed runtime status for the VPC
+	RuntimeStatus APIVpcRuntimeStatus `json:"runtimeStatus"`
 	// CreatedAt indicates the ISO datetime string for when the entity was created
 	Created time.Time `json:"created"`
 	// Updated indicates the ISO datetime string for when the VPC was last updated
@@ -360,6 +421,8 @@ func NewAPIVpc(dbVpc cdbm.Vpc, dbsds []cdbm.StatusDetail) APIVpc {
 		Updated:                                dbVpc.Updated,
 		RequestedVni:                           dbVpc.Vni,
 		Vni:                                    dbVpc.ActiveVni,
+		Config:                                 newAPIVpcConfig(dbVpc),
+		RuntimeStatus:                          newAPIVpcRuntimeStatus(dbVpc),
 	}
 
 	if dbVpc.NetworkVirtualizationType != nil {
