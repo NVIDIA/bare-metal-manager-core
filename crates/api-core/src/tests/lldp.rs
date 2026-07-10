@@ -105,6 +105,7 @@ async fn test_lldp_topology_force_delete(
                 delete_bmc_interfaces: true,
                 delete_bmc_credentials: false,
                 allow_delete_with_orphaned_dpf_crds: false,
+                delete_device_identity: false,
             },
         ))
         .await

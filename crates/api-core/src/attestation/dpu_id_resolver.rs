@@ -297,4 +297,77 @@ mod tests {
         let got = resolver.enrolled_machine_id(legacy_dpu_id()).await.unwrap();
         assert_eq!(got, None);
     }
+
+    fn device_rooted_dpu_id() -> MachineId {
+        MachineId::new(MachineIdSource::DpuDeviceCert, [9u8; 32], MachineType::Dpu)
+    }
+
+    // `force-delete --delete-device-identity` clears the binding so the DPU
+    // re-keys. Deleting by the device-rooted id removes it.
+    #[crate::sqlx_test]
+    async fn delete_binding_by_machine_id_removes_it(pool: sqlx::PgPool) {
+        use db::attestation::dpu_device_cert_status as binding;
+        let device_id = device_rooted_dpu_id();
+        let mut conn = pool.acquire().await.unwrap();
+        binding::upsert(
+            &mut conn,
+            device_id,
+            Some(legacy_dpu_id()),
+            &[1u8; 32],
+            "SERIAL123",
+            None,
+            &Utc::now(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            binding::get_by_machine_id(&mut conn, device_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        let removed = binding::delete_by_machine_id(&mut conn, device_id)
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert!(
+            binding::get_by_machine_id(&mut conn, device_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    // A DPU that fell back to (or kept) its legacy id is force-deleted by that
+    // legacy id; deleting by it must still clear the device-identity binding.
+    #[crate::sqlx_test]
+    async fn delete_binding_by_legacy_id_removes_it(pool: sqlx::PgPool) {
+        use db::attestation::dpu_device_cert_status as binding;
+        let device_id = device_rooted_dpu_id();
+        let legacy = legacy_dpu_id();
+        let mut conn = pool.acquire().await.unwrap();
+        binding::upsert(
+            &mut conn,
+            device_id,
+            Some(legacy),
+            &[1u8; 32],
+            "SERIAL123",
+            None,
+            &Utc::now(),
+        )
+        .await
+        .unwrap();
+
+        let removed = binding::delete_by_machine_id(&mut conn, legacy)
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert!(
+            binding::get_by_machine_id(&mut conn, device_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
 }

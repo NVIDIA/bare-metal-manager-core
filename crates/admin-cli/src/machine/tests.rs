@@ -187,6 +187,30 @@ fn parse_force_delete() {
             assert!(!args.delete_interfaces);
             assert!(!args.allow_delete_with_instance);
             assert!(!args.allow_delete_with_orphaned_dpf_crds);
+            assert!(!args.delete_device_identity);
+        }
+        _ => panic!("expected ForceDelete variant"),
+    }
+}
+
+// parse_force_delete_device_identity ensures the --delete-device-identity flag
+// parses and threads into the request.
+#[test]
+fn parse_force_delete_device_identity() {
+    let cmd = Cmd::try_parse_from([
+        "machine",
+        "force-delete",
+        "--machine",
+        TEST_MACHINE_ID,
+        "--delete-device-identity",
+    ])
+    .expect("should parse force-delete --delete-device-identity");
+
+    match cmd {
+        Cmd::ForceDelete(args) => {
+            assert!(args.delete_device_identity);
+            let req = rpc::forge::AdminForceDeleteMachineRequest::from(&args);
+            assert!(req.delete_device_identity);
         }
         _ => panic!("expected ForceDelete variant"),
     }

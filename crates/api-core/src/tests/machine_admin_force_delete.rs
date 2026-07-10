@@ -328,6 +328,7 @@ async fn test_admin_force_delete_orders_locks_against_exploration(pool: sqlx::Pg
             delete_bmc_interfaces: true,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_device_identity: false,
         }))
         .await
     });
@@ -387,6 +388,7 @@ async fn force_delete(
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_device_identity: false,
         }))
         .await
         .unwrap()
@@ -818,6 +820,7 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_device_identity: false,
         }))
         .await
         .unwrap_err();
@@ -975,6 +978,7 @@ async fn test_admin_force_delete_retains_boot_interface_ids(pool: sqlx::PgPool) 
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
             allow_delete_with_orphaned_dpf_crds: false,
+            delete_device_identity: false,
         }))
         .await
         .unwrap()

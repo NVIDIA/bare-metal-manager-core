@@ -92,6 +92,28 @@ pub async fn get_by_machine_id(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Deletes any device-identity binding associated with `machine_id`, matching
+/// on either the device-rooted `machine_id` or the `legacy_machine_id`. This
+/// lets a force-deleted DPU re-key: without removing the binding,
+/// [`get_by_legacy_machine_id`] would recognize the DPU by its serial-derived id
+/// and pin it back to the same device-rooted id on the next discovery. Returns
+/// the number of binding rows removed.
+pub async fn delete_by_machine_id(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<u64> {
+    let query = "DELETE FROM dpu_device_cert_status \
+         WHERE machine_id = ($1) OR legacy_machine_id = ($1)";
+
+    let result = sqlx::query(query)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(result.rows_affected())
+}
+
 /// Looks up the binding by the DPU's legacy (serial-derived) id, recognizing a
 /// DPU that previously adopted a device-rooted id.
 pub async fn get_by_legacy_machine_id(

@@ -4715,6 +4715,12 @@ message AdminForceDeleteMachineRequest {
 
   // Allow force delete of machine with orphaned dpf crds
   bool allow_delete_with_orphaned_dpf_crds = 5;
+
+  // Should we also delete each DPU's device-identity binding
+  // (dpu_device_cert_status)? Removing it lets the DPU re-key to a fresh
+  // device-rooted machine_id on its next discovery instead of being pinned back
+  // to the previous one by its serial-derived legacy id.
+  bool delete_device_identity = 6;
 }
 
 // Response to AdminForceDeleteMachine call

@@ -196,6 +196,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 delete_bmc_interfaces: false,
                 delete_bmc_credentials: false,
                 allow_delete_with_orphaned_dpf_crds: false,
+                delete_device_identity: false,
             },
         ))
         .await

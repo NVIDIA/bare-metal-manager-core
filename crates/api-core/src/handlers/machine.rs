@@ -749,6 +749,26 @@ pub(crate) async fn admin_force_delete_machine(
         }
         db::machine::force_cleanup(&mut txn, &dpu_machine.id).await?;
 
+        if request.delete_device_identity {
+            match db::attestation::dpu_device_cert_status::delete_by_machine_id(
+                &mut txn,
+                dpu_machine.id,
+            )
+            .await
+            {
+                Ok(removed) => tracing::info!(
+                    "Removed {removed} DPU device-identity binding(s) for machine {}",
+                    dpu_machine.id
+                ),
+                // Best-effort: a failure here must not block the force delete.
+                Err(e) => tracing::error!(
+                    "Could not remove DPU device-identity binding for machine {}: {}",
+                    dpu_machine.id,
+                    e
+                ),
+            }
+        }
+
         if request.delete_interfaces {
             for interface in &dpu_machine.interfaces {
                 db::machine_interface::delete(&interface.id, &mut txn).await?;

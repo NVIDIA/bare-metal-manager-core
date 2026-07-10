@@ -29,6 +29,10 @@ Force delete a machine and its interfaces (redeploy kea afterward):
     $ nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 \
     --delete-interfaces
 
+Force delete a DPU and drop its device-identity binding so it re-keys on next discovery:
+    $ nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 \
+    --delete-device-identity
+
 ")]
 pub struct Args {
     #[clap(
@@ -64,6 +68,13 @@ pub struct Args {
         help = "Delete machine even if DPF CRDs exist and DPF is disabled at the site level. This flag acknowledges that orphaned DPF resources may remain"
     )]
     pub allow_delete_with_orphaned_dpf_crds: bool,
+
+    #[clap(
+        long,
+        action,
+        help = "Also delete each DPU's device-identity binding (dpu_device_cert_status) so the DPU re-keys to a fresh device-rooted machine_id on its next discovery, instead of being pinned back to its previous id by its serial-derived legacy id."
+    )]
+    pub delete_device_identity: bool,
 }
 
 impl From<&Args> for AdminForceDeleteMachineRequest {
@@ -74,6 +85,7 @@ impl From<&Args> for AdminForceDeleteMachineRequest {
             delete_bmc_interfaces: args.delete_bmc_interfaces,
             delete_bmc_credentials: args.delete_bmc_credentials,
             allow_delete_with_orphaned_dpf_crds: args.allow_delete_with_orphaned_dpf_crds,
+            delete_device_identity: args.delete_device_identity,
         }
     }
 }

@@ -13,8 +13,9 @@ nico-admin-cli-machine-force-delete - Force delete a machine
 \[**-b**\|**--delete-bmc-interfaces**\]
 \[**-c**\|**--delete-bmc-credentials**\]
 \[**--allow-delete-with-instance**\]
-\[**--allow-delete-with-orphaned-dpf-crds**\] \[**--extended**\]
-\[**--sort-by**\] \[**-h**\|**--help**\]
+\[**--allow-delete-with-orphaned-dpf-crds**\]
+\[**--delete-device-identity**\] \[**--extended**\] \[**--sort-by**\]
+\[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
@@ -43,6 +44,12 @@ destroying the user instance as well.
 Delete machine even if DPF CRDs exist and DPF is disabled at the site
 level. This flag acknowledges that orphaned DPF resources may remain
 
+**--delete-device-identity**  
+Also delete each DPU's device-identity binding (dpu_device_cert_status)
+so the DPU re-keys to a fresh device-rooted machine_id on its next
+discovery, instead of being pinned back to its previous id by its
+serial-derived legacy id.
+
 **--extended**  
 Extended result output.
 
@@ -68,6 +75,7 @@ Print help (see a summary with -h)
 ```sh
 nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567
 nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 --delete-interfaces
+nico-admin-cli machine force-delete --machine 12345678-1234-5678-90ab-cdef01234567 --delete-device-identity
 ```
 
 ---
