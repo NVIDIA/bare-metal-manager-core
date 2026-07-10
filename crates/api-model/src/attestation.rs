@@ -14,9 +14,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
+
+/// Returned by a [`DpuDeviceIdentityResolver`] when the configured attestation
+/// mode is `required` but no verified hardware identity is available.
+#[derive(Debug, thiserror::Error)]
+#[error("DPU device identity required but unavailable: {0}")]
+pub struct DpuDeviceIdentityRequired(pub String);
+
+/// Resolves a DPU's `machine_id` from its BlueField IRoT device-identity
+/// certificate chain.
+///
+/// The implementation lives in `api-core` (certificate verification + the
+/// backward-compatibility selection policy). It is called from `site-explorer`
+/// at exploration time — before the id is used for host linking / network
+/// config — so a new DPU receives a hardware-rooted id at creation. Dependency
+/// inversion (trait here, impl in api-core) avoids a site-explorer → api-core
+/// crate cycle.
+#[async_trait]
+pub trait DpuDeviceIdentityResolver: Send + Sync {
+    /// `irot_chain_pem` is the IRoT cert chain fetched from the DPU BMC, or
+    /// `None` if it could not be fetched. Returns the device-rooted id when the
+    /// chain verifies under the configured mode, otherwise `legacy_id`; or an
+    /// error in `required` mode when no verified identity is available.
+    async fn resolve_dpu_machine_id(
+        &self,
+        irot_chain_pem: Option<&str>,
+        legacy_id: MachineId,
+    ) -> Result<MachineId, DpuDeviceIdentityRequired>;
+}
 
 #[derive(FromRow, Debug)]
 pub struct EkCertVerificationStatus {

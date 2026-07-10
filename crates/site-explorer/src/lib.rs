@@ -40,6 +40,7 @@ use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use librms::RmsApi;
 use mac_address::MacAddress;
+use model::attestation::DpuDeviceIdentityResolver;
 use model::errors::OperatorError;
 use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
@@ -293,6 +294,9 @@ pub struct SiteExplorer {
     machine_creator: MachineCreator,
     switch_creator: SwitchCreator,
     boot_order_tracker: BootOrderTracker,
+    /// Resolves a DPU's hardware-rooted `machine_id` from its BlueField IRoT at
+    /// exploration time; `None` when DPU device attestation is disabled.
+    dpu_id_resolver: Option<Arc<dyn DpuDeviceIdentityResolver>>,
     // rms_client: Option<Arc<dyn RmsApi>>,
 }
 
@@ -313,6 +317,7 @@ impl SiteExplorer {
         rack_profiles: RackProfileConfig,
         rms_client: Option<Arc<dyn RmsApi>>,
         credential_manager: Arc<dyn CredentialManager>,
+        dpu_id_resolver: Option<Arc<dyn DpuDeviceIdentityResolver>>,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -348,6 +353,7 @@ impl SiteExplorer {
             firmware_config,
             work_lock_manager_handle,
             endpoint_exploration_locks,
+            dpu_id_resolver,
             boot_order_tracker: BootOrderTracker::default(),
         }
     }
@@ -2229,6 +2235,7 @@ impl SiteExplorer {
             let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
             let fw_config_snapshot = fw_config_snapshot.clone();
             let database_connection = self.database_connection.clone();
+            let dpu_id_resolver = self.dpu_id_resolver.clone();
 
             task_set.push(
                 async move {
@@ -2313,6 +2320,34 @@ impl SiteExplorer {
                         let report_enrich_start = Instant::now();
                         enrich_endpoint_exploration_report(report, &fw_config_snapshot);
                         steps.report_enrich = Some(report_enrich_start.elapsed());
+                    }
+
+                    // For a DPU, upgrade the legacy serial-derived machine_id to
+                    // a hardware-rooted one derived from its BlueField IRoT when
+                    // device attestation is enabled (a resolver is present). The
+                    // id must be finalized here: downstream host linking and
+                    // network config are keyed by machine_id.
+                    let mut dpu_identity_error: Option<String> = None;
+                    if let (Ok(report), Some(resolver)) = (&mut result, &dpu_id_resolver)
+                        && report.is_dpu()
+                        && let Some(legacy_id) = report.machine_id
+                    {
+                        let irot_pem = endpoint_explorer
+                            .fetch_dpu_irot_chain_pem(bmc_target_addr, endpoint.iface)
+                            .await;
+                        match resolver
+                            .resolve_dpu_machine_id(irot_pem.as_deref(), legacy_id)
+                            .await
+                        {
+                            Ok(machine_id) => report.machine_id = Some(machine_id),
+                            Err(e) => dpu_identity_error = Some(e.to_string()),
+                        }
+                    }
+                    if let Some(details) = dpu_identity_error {
+                        // `required` mode with no verified identity: fail this
+                        // endpoint's exploration rather than enrolling a DPU
+                        // without a hardware-rooted id.
+                        result = Err(EndpointExplorationError::Other { details });
                     }
 
                     Ok(Some(EndpointExplorationTaskResult {

@@ -80,6 +80,63 @@ impl RedfishClient {
             .await
     }
 
+    /// Fetches the BlueField DPU IRoT device-identity certificate chain (PEM)
+    /// from the DPU BMC over Redfish SPDM `ComponentIntegrity`. Returns `None`
+    /// (logging the reason) on any failure — no IRoT component, Redfish error,
+    /// bad credentials — so callers can apply a best-effort policy.
+    pub async fn get_dpu_irot_chain_pem(
+        &self,
+        bmc_ip_address: SocketAddr,
+        username: String,
+        password: String,
+    ) -> Option<String> {
+        // SPDM `ComponentIntegrity` id of the BlueField DPU Initial Root of
+        // Trust. Matched case-insensitively (vendor casing is inconsistent).
+        const BLUEFIELD_DPU_IROT: &str = "Bluefield_DPU_IRoT";
+
+        let client = self
+            .create_redfish_client(
+                bmc_ip_address,
+                RedfishAuth::Direct(username, password),
+                None,
+            )
+            .await
+            .map_err(
+                |e| tracing::warn!(%bmc_ip_address, "IRoT: redfish client creation failed: {e}"),
+            )
+            .ok()?;
+
+        let integrities = client
+            .get_component_integrities()
+            .await
+            .map_err(
+                |e| tracing::warn!(%bmc_ip_address, "IRoT: get_component_integrities failed: {e}"),
+            )
+            .ok()?;
+
+        let cert_link = integrities
+            .members
+            .into_iter()
+            .find(|m| m.id.eq_ignore_ascii_case(BLUEFIELD_DPU_IROT))
+            .and_then(|m| m.spdm)
+            .map(|s| {
+                s.identity_authentication
+                    .responder_authentication
+                    .component_certificate
+                    .odata_id
+            })?;
+
+        let ca_cert = client
+            .get_component_ca_certificate(&cert_link)
+            .await
+            .map_err(|e| {
+                tracing::warn!(%bmc_ip_address, "IRoT: get_component_ca_certificate failed: {e}")
+            })
+            .ok()?;
+
+        Some(ca_cert.certificate_string)
+    }
+
     async fn create_anon_redfish_client(
         &self,
         bmc_ip_address: SocketAddr,

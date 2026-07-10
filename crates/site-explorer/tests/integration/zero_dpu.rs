@@ -72,6 +72,7 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
             api.runtime_config.rack_profiles.clone(),
             None,
             api.credential_manager().clone(),
+            None,
         ),
         endpoint_explorer,
     );

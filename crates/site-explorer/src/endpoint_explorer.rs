@@ -46,6 +46,19 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
 
+    /// Fetches a DPU's BlueField IRoT device-identity certificate chain (PEM)
+    /// from its BMC, used to derive a hardware-rooted `machine_id` at
+    /// exploration time. Returns `None` by default (non-BMC explorers, or when
+    /// there is no IRoT); [`BmcEndpointExplorer`](crate::BmcEndpointExplorer)
+    /// overrides it with an authenticated Redfish fetch.
+    async fn fetch_dpu_irot_chain_pem(
+        &self,
+        _address: SocketAddr,
+        _interface: &MachineInterfaceSnapshot,
+    ) -> Option<String> {
+        None
+    }
+
     async fn check_preconditions(
         &self,
         metrics: &mut SiteExplorationMetrics,

@@ -1603,6 +1603,20 @@ async fn initialize_and_start_controllers<'a>(
         }
         config
     };
+    // DPU device-identity: resolve a hardware-rooted machine_id from the
+    // BlueField IRoT at exploration time. Only wired when attestation is
+    // enabled; `None` (disabled) leaves DPUs on their legacy serial-derived id.
+    let dpu_id_resolver: Option<Arc<dyn model::attestation::DpuDeviceIdentityResolver>> =
+        (carbide_config.dpu_device_attestation.mode
+            != crate::attestation::dpu_device::DpuDeviceAttestationMode::Disabled)
+            .then(|| {
+                Arc::new(
+                    crate::attestation::dpu_id_resolver::ApiDpuDeviceIdentityResolver::new(
+                        db_pool.clone(),
+                        carbide_config.dpu_device_attestation.mode,
+                    ),
+                ) as Arc<dyn model::attestation::DpuDeviceIdentityResolver>
+            });
     SiteExplorer::new(
         db_pool.clone(),
         site_explorer_config,
@@ -1615,6 +1629,7 @@ async fn initialize_and_start_controllers<'a>(
         carbide_config.rack_profiles.clone(),
         rms_client.clone(),
         credential_manager.clone(),
+        dpu_id_resolver,
     )
     .start(join_set, cancel_token.clone())?;
 

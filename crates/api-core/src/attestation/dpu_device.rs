@@ -417,9 +417,12 @@ mod tests {
         let ca = make_ca("NVIDIA BlueField Device CA");
         let device = make_device(&ca, "MT-irot-001", (2030, 1, 1));
 
-        let verified =
-            verify_device_cert_chain(&[device.cert_der.clone()], &[ca.cert_der.clone()], now())
-                .unwrap();
+        let verified = verify_device_cert_chain(
+            std::slice::from_ref(&device.cert_der),
+            std::slice::from_ref(&ca.cert_der),
+            now(),
+        )
+        .unwrap();
 
         assert_eq!(verified.device_serial, "MT-irot-001");
         assert_eq!(verified.machine_id.source(), MachineIdSource::DpuDeviceCert);
@@ -509,7 +512,7 @@ mod tests {
     fn trailing_bytes_after_cert_are_rejected() {
         let ca = make_ca("NVIDIA BlueField Device CA");
         let device = make_device(&ca, "MT-trailing", (2030, 1, 1));
-        let mut der = device.cert_der.clone();
+        let mut der = device.cert_der;
         der.push(0x00); // attacker-appended trailing byte
         let err = verify_device_cert_chain(&[der], &[ca.cert_der], now()).unwrap_err();
         assert!(

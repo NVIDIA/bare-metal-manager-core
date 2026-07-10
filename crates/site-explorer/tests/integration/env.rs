@@ -72,6 +72,7 @@ pub fn test_site_explorer(
         api.runtime_config.rack_profiles.clone(),
         None,
         api.credential_manager().clone(),
+        None,
     );
     TestSiteExplorer::new(site_explorer, endpoint_explorer)
 }

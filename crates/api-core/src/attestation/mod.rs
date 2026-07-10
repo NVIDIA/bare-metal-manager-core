@@ -23,6 +23,7 @@ pub mod measured_boot;
 
 pub mod digest_crate_shim;
 pub mod dpu_device;
+pub mod dpu_id_resolver;
 pub mod tpm_ca_cert;
 
 use carbide_uuid::machine::MachineId;

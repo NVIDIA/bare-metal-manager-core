@@ -618,6 +618,21 @@ impl BmcEndpointExplorer {
 
 #[async_trait::async_trait]
 impl EndpointExplorer for BmcEndpointExplorer {
+    async fn fetch_dpu_irot_chain_pem(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Option<String> {
+        let Credentials::UsernamePassword { username, password } = self
+            .get_bmc_root_credentials(interface.mac_address)
+            .await
+            .map_err(|e| tracing::warn!(%address, "IRoT: BMC root credential lookup failed: {e}"))
+            .ok()?;
+        self.redfish_client
+            .get_dpu_irot_chain_pem(address, username, password)
+            .await
+    }
+
     async fn check_preconditions(
         &self,
         metrics: &mut SiteExplorationMetrics,

@@ -1742,6 +1742,7 @@ pub async fn create_test_env_with_overrides(
         site_explorer_rack_profiles,
         rms_sim.as_rms_client(),
         credential_manager.clone(),
+        None,
     );
 
     // Create some instance types
