@@ -267,6 +267,30 @@ pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRes
     axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
+fn extract_network_config(custom_cloud_init: &str) -> Option<String> {
+    let value: serde_yaml::Value = serde_yaml::from_str(custom_cloud_init).ok()?;
+    let network = value.get("network")?.clone();
+    serde_yaml::to_string(&network).ok()
+}
+
+pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+    let network_config_yaml = machine
+        .instructions
+        .custom_cloud_init
+        .as_deref()
+        .and_then(extract_network_config)
+        .unwrap_or_default();
+
+    let mut template_data: HashMap<String, String> = HashMap::new();
+    template_data.insert("network_config".to_string(), network_config_yaml);
+
+    axum_template::Render(
+        "network-config".to_string(),
+        state.engine.clone(),
+        template_data,
+    )
+}
+
 pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
     axum_template::Render(
         "printcontext",
@@ -288,6 +312,10 @@ pub fn get_router(path_prefix: &str) -> Router<AppState> {
         .route(
             format!("{}/{}", path_prefix, "vendor-data").as_str(),
             get(vendor_data),
+        )
+        .route(
+            format!("{}/{}", path_prefix, "network-config").as_str(),
+            get(network_config),
         )
 }
 
@@ -592,4 +620,33 @@ mod tests {
             Some("node-02.new.forge.example.com"),
         );
     }
+}
+
+#[test]
+fn extract_network_config_returns_network_key_as_yaml() {
+    let cloud_init = "#cloud-config\nnetwork:\n  version: 2\n  ethernets:\n    eth0:\n      addresses:\n        - 10.10.10.50/24\nwrite_files:\n  - path: /tmp/foo\n    content: bar\n";
+
+    let extracted = extract_network_config(cloud_init).expect("network key should be extracted");
+    let parsed: serde_yaml::Value = serde_yaml::from_str(&extracted).unwrap();
+
+    assert_eq!(parsed.get("version").unwrap().as_u64().unwrap(), 2);
+    assert!(
+        parsed
+            .get("ethernets")
+            .and_then(|e| e.get("eth0"))
+            .is_some(),
+        "expected eth0 config to be present in extracted network-config"
+    );
+}
+
+#[test]
+fn extract_network_config_returns_none_when_no_network_key() {
+    let cloud_init = "#cloud-config\nwrite_files:\n  - path: /tmp/foo\n    content: bar\n";
+    assert!(extract_network_config(cloud_init).is_none());
+}
+
+#[test]
+fn extract_network_config_returns_none_on_invalid_yaml() {
+    let cloud_init = "not: valid: yaml: at: all: :::";
+    assert!(extract_network_config(cloud_init).is_none());
 }

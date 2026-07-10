@@ -2637,6 +2637,7 @@ dependencies = [
  "mime",
  "pin-project-lite",
  "serde",
+ "serde_yaml",
  "tempfile",
  "tera",
  "tokio",
