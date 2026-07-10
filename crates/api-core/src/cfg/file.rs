@@ -1483,6 +1483,16 @@ pub struct DpuDeviceAttestationConfig {
     /// discovery for a new DPU when a verified device identity is unavailable.
     #[serde(default)]
     pub mode: crate::attestation::dpu_device::DpuDeviceAttestationMode,
+
+    /// Optional directory of trusted NVIDIA BlueField device root CA
+    /// certificates (`.pem`, `.cer`, or `.der` files) to seed into
+    /// `dpu_device_ca_certs` on startup. Idempotent — already-trusted roots are
+    /// skipped — so operators can mount the roots (e.g. a Kubernetes Secret) and
+    /// have them re-seeded on every deploy instead of running
+    /// `nico-admin-cli dpu-device-ca add` by hand. A malformed file is logged
+    /// and skipped rather than failing startup.
+    #[serde(default)]
+    pub ca_cert_dir: Option<PathBuf>,
 }
 
 impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBounds {

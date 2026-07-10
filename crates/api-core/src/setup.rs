@@ -429,6 +429,18 @@ pub async fn start_api(
         // root is not yet configured.
         crate::dpa::lockdown::ensure_lockdown_ikm_seeded(&*credential_manager).await?;
 
+        // Idempotently seed trusted DPU device (BlueField IRoT) root CA
+        // certificates from the configured directory, so the roots survive a
+        // redeploy without an operator re-running `nico-admin-cli dpu-device-ca
+        // add`. No-op when unconfigured.
+        if let Some(ca_cert_dir) = &carbide_config.dpu_device_attestation.ca_cert_dir {
+            crate::attestation::dpu_device_ca_seed::seed_device_ca_certs_from_dir(
+                &db_pool,
+                ca_cert_dir,
+            )
+            .await?;
+        }
+
         // Initial credential-rotation bookkeeping is backfilled by the
         // `*_credential_rotation_backfill` data migration (see its header for the
         // ordering invariants), not seeded here.

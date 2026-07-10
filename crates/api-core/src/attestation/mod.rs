@@ -22,6 +22,7 @@
 pub mod measured_boot;
 
 pub mod digest_crate_shim;
+pub mod dpu_device_ca_seed;
 pub mod dpu_id_resolver;
 pub mod tpm_ca_cert;
 
