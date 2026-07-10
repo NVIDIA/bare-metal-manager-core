@@ -557,7 +557,8 @@ Each DPU generation is provisioned by its own `DPUDeployment`, configured under
 `[dpf.deployments.<name>]`. **BF3** is always present with built-in defaults;
 **BF4 (generic)** is opt-in and is activated only when a
 `[dpf.deployments.bf4_generic]` table is present. Both deployments run
-side-by-side, each with its own BFB, `DPUFlavor`, and `DPUDeployment`.
+side-by-side, each with its own `DPUFlavor` and `DPUDeployment`. BF3 uses a
+BFB URL (`bfb_url`) and BF4 uses a `[bluefield_software]` block instead of a BFB.
 
 Every active deployment must have a **unique** `deployment_name`, `flavor_name`,
 and `node_label_key`; carbide-api validates this at startup and refuses to start
@@ -574,17 +575,28 @@ node_label_key  = "carbide.nvidia.com/controlled.node.v2"
 # BF4 generic is opt-in. Add this table to provision BF4 DPUs via a second
 # DPUDeployment alongside BF3. All identifiers must differ from BF3's.
 [dpf.deployments.bf4_generic]
-bfb_url         = "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-<bf4-version>.bfb"
-flavor_name     = "carbide-dpu-flavor-bf4"
-deployment_name = "nico-deployment-bf4"
+# NOTE: bfb_url must NOT be set here. BF4 uses bluefield_software instead.
+flavor_name    = "dpu-flavor-bf4" 
+deployment_name = "dpu-deployment-bf4"
 node_label_key  = "carbide.nvidia.com/controlled.node.bf4"
+ 
+[dpf.deployments.bf4_generic.bluefield_software]
+# Shared across all PSIDs
+os_iso = "https://artifacts.example.com/bfb.3.3.x.iso"
+ 
+# PSID -> PLDM firmware bundle URL.
+# Currently exactly one PSID entry is supported.
+[dpf.deployments.bf4_generic.bluefield_software.pldm_fw_bundle]
+"MT_000000xxxx" = "https://artifacts.example.com/bf4/mt_000000xxxx.pldm"
 ```
 
 Per-deployment field reference:
 
 | TOML key | Required | Default (bf3) | Meaning |
 | --- | :---: | --- | --- |
-| `bfb_url` | no | BF3 bf-bundle URL | BlueField firmware bundle (BFB) used to provision the DPU. |
+| `bfb_url` | no | BF3 bf-bundle URL | BlueField firmware bundle (BFB) used to provision the DPU. Mutually exclusive with `bluefield_software`. |
+| `bluefield_software.os_iso` | BF4 only | — | OS ISO URL used by BF4 deployments in place of a BFB. Required when `bluefield_software` is set. |
+| `bluefield_software.pldm_fw_bundle` | BF4 only | — | Map of PSID → PLDM firmware bundle URL. Currently exactly one entry is supported. |
 | `flavor_name` | yes | `carbide-dpu-flavor` | `DPUFlavor` CR name for this deployment. |
 | `deployment_name` | yes | `nico-deployment-v2` | `DPUDeployment` CR name. |
 | `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
