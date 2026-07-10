@@ -266,6 +266,8 @@ fn hpe_proliant(host: &HostMachineInfo) -> DiscoveryInfo {
                 model: "VO001920KXPTN".into(),
                 firmware_rev: "HPK0".into(),
                 serial,
+                size_mb: None,
+                pci_path: None,
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -328,6 +330,8 @@ fn wiwynn_gb200(host: &HostMachineInfo) -> DiscoveryInfo {
                 model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),
                 firmware_rev: "LDDL4U2Q".into(),
                 serial: format!("BDFAKESERNUM{index}"),
+                size_mb: None,
+                pci_path: None,
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -383,6 +387,8 @@ fn lenovo_gb300(host: &HostMachineInfo) -> DiscoveryInfo {
                 model: (*model).into(),
                 firmware_rev: (*firmware_rev).into(),
                 serial: (*serial).into(),
+                size_mb: None,
+                pci_path: None,
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -514,11 +520,15 @@ fn nvidia_dgx_h100(host: &HostMachineInfo) -> DiscoveryInfo {
                 model: "Micron_7450_MTFDKBG1T9TFR".into(),
                 firmware_rev: "E2MU200".into(),
                 serial: format!("MicronFAKESERNUM{index}"),
+                size_mb: None,
+                pci_path: None,
             })
             .chain((0..8).map(|index| NvmeDevice {
                 model: "KCM6DRUL3T84".into(),
                 firmware_rev: "0107".into(),
                 serial: format!("KCMFAKESERNUM{index}"),
+                size_mb: None,
+                pci_path: None,
             }))
             .collect(),
         dmi_data: Some(DmiData {

@@ -122,6 +122,8 @@ impl TryFrom<rpc::machine_discovery::NvmeDevice> for NvmeDevice {
             model: dev.model,
             firmware_rev: dev.firmware_rev,
             serial: dev.serial,
+            size_mb: dev.size_mb,
+            pci_path: dev.pci_path,
         })
     }
 }
@@ -134,6 +136,8 @@ impl TryFrom<NvmeDevice> for rpc::machine_discovery::NvmeDevice {
             model: dev.model,
             firmware_rev: dev.firmware_rev,
             serial: dev.serial,
+            size_mb: dev.size_mb,
+            pci_path: dev.pci_path,
         })
     }
 }
