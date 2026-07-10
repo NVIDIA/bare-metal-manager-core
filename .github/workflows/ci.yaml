@@ -159,10 +159,35 @@ jobs:
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Using Git describe to extract version as VERSION and HELM_VERSION"
-          VERSION=$(git describe --tags --first-parent --always --long)
-          # HELM_VERSION strips leading 'v' for strict SemVer and replaces the last '-' with '.'
-          HELM_VERSION_BASE="${VERSION#v}"
-          HELM_VERSION=$(echo "$HELM_VERSION_BASE" | sed 's/\(.*\)-/\1./')
+          # On a tagged commit this collapses to the clean tag (ex v2.0.0-rc.1);
+          # otherwise it is the long form (ex v2.0.0-3-gabc1234) for dev builds.
+          VERSION=$(git describe --tags --first-parent --always)
+
+          # Record whether describe returned a long (dev) tag ending in '-g<sha>' or a
+          # short/clean (pre)release tag. Only long tags need the helm suffix rewrite.
+          if [[ "$VERSION" =~ -g[0-9a-f]+$ ]]; then
+            IS_LONG_TAG="true"
+          else
+            IS_LONG_TAG="false"
+          fi
+
+          # HELM_VERSION strips leading 'v' for strict SemVer. For long (dev) tags the
+          # git-describe suffix '-<N>-g<sha>' has its last '-' rewritten to '.'; short
+          # (pre)release tags (ex v2.0.0, v2.0.0-rc.3) are already valid SemVer as-is.
+          HELM_VERSION="${VERSION#v}"
+          if [[ "$IS_LONG_TAG" == "true" ]]; then
+            HELM_VERSION=$(echo "$HELM_VERSION" | sed 's/\(.*\)-/\1./')
+          fi
+
+          # Strict SemVer validation. Regex adapted to POSIX ERE (non-capturing
+          # groups '(?:...)' -> '(...)', '\d' -> '[0-9]') from the official suggested
+          # SemVer regex:
+          # https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
+          SEMVER_STRICT='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?$'
+          if [[ ! "$HELM_VERSION" =~ $SEMVER_STRICT ]]; then
+            echo "::error::HELM_VERSION '${HELM_VERSION}' (derived from VERSION '${VERSION}') failed strict SemVer validation"
+            exit 1
+          fi
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "helm_version=${HELM_VERSION}" >> $GITHUB_OUTPUT
