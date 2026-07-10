@@ -1166,6 +1166,7 @@ async fn initialize_and_start_controllers<'a>(
             client.connect().await.map_err(|e| {
                 eyre::eyre!("Failed to connect DSX Exchange Event Bus MQTT client: {e}")
             })?;
+            client.register_metrics(&meter, "dsx_event_bus");
 
             tracing::info!(
                 "DSX Exchange Event Bus enabled, publishing to {}:{}",
@@ -1530,8 +1531,10 @@ async fn initialize_and_start_controllers<'a>(
     .start(join_set, cancel_token.clone())?;
 
     if carbide_config.is_dpa_enabled() {
-        let mqtt_client =
-            Some(start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?);
+        let dpa_mqtt_client =
+            start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
+        dpa_mqtt_client.register_metrics(&meter, "dpa");
+        let mqtt_client = Some(dpa_mqtt_client);
 
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 

@@ -44,11 +44,14 @@ pub enum MqttMessage {
 
 /// Connect to MQTT and return a receiver for incoming messages.
 ///
-/// Sets up the MQTT client, registers message handlers, subscribes to topics,
-/// and connects. Returns a receiver that yields messages with drop-on-overflow.
+/// Sets up the MQTT client, registers message handlers and the client's
+/// queue/publish/connection metrics on the meter, subscribes to topics,
+/// and connects. Returns a receiver that yields messages with
+/// drop-on-overflow.
 pub async fn connect(
     config: &MqttConfig,
     metrics: ConsumerMetrics,
+    meter: &opentelemetry::metrics::Meter,
     credential_reader: Arc<dyn CredentialReader>,
 ) -> Result<mpsc::Receiver<MqttMessage>, DsxConsumerError> {
     let (tx, rx) = mpsc::channel(config.queue_capacity);
@@ -73,6 +76,7 @@ pub async fn connect(
     let client = MqtteaClient::new(&config.endpoint, config.port, &client_id, Some(options))
         .await
         .map_err(|e| DsxConsumerError::Mqtt(e.to_string()))?;
+    client.register_metrics(meter, "dsx_exchange_consumer");
 
     // Register message types with distinct suffix patterns.
     // mqttea converts simple strings to suffix regex: "Metadata" -> "/Metadata$"

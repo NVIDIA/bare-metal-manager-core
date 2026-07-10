@@ -7175,10 +7175,15 @@ name = "mqttea"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-instrument",
  "carbide-test-support",
  "chrono",
  "clap",
  "oauth2",
+ "opentelemetry 0.32.0",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
  "prost",
  "prost-build",
  "prost-types",
