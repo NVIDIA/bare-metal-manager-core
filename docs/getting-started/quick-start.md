@@ -307,18 +307,18 @@ cd helm-prereqs/
 ./setup.sh -y     # non-interactive — deploys everything
 ```
 
-Common options can be combined as needed:
+You can combine common options as needed:
 
 | Option | Effect |
 |--------|--------|
-| `-y` | Accept setup prompts automatically. |
-| `--skip-core` | Skip the Phase 6 NICo Core Helm release. |
-| `--skip-rest` | Skip all Phase 7 NICo REST phases. |
-| `--skip-flow` | Skip Phase 7h NICo Flow. Also set `flow.enabled=false` in `helm-prereqs/values.yaml` to omit Flow prerequisites. |
 | `--core-values <file>` | Use site-specific NICo Core values for Phase 6. |
+| `--debug` | Enable shell tracing. This may print secrets, so protect the logs. |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest file or kustomize directory. |
 | `--site-overlay <dir>` | Apply a site kustomize overlay after Phase 6. |
-| `--debug` | Enable shell tracing. This may print secrets, so protect the logs. |
+| `--skip-core` | Skip the Phase 6 NICo Core Helm release. |
+| `--skip-flow` | Skip Phase 7h NICo Flow. Also set `flow.enabled=false` in `helm-prereqs/values.yaml` to omit Flow prerequisites. |
+| `--skip-rest` | Skip all Phase 7 NICo REST phases. |
+| `-y` | Accept setup prompts automatically. |
 
 The `setup.sh` script installs all prerequisites and NICo components in sequential phases:
 
@@ -351,7 +351,7 @@ external-secrets           (external-secrets/external-secrets 0.14.3)
 nico-prereqs               (this Helm chart - nico-system namespace)
 NICo Core                  (../helm - nico-core.yaml values)
 NICo REST                  (../helm/rest/nico-rest)
-  ├── nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
+  ├── nico-rest-ca-issuer   (ClusterIssuer - cert-manager.io)
   ├── postgres StatefulSet  (temporal + keycloak databases)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)

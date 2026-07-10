@@ -182,7 +182,7 @@ It supports these common deployment modes:
 | `-y` | Non-interactive mode; accept setup prompts automatically. |
 | `--skip-core` | Install prerequisites and REST, but skip the NICo Core Helm release. |
 | `--skip-rest` | Install prerequisites and Core, but skip all REST phases and REST repo checks. |
-| `--skip-flow` | Skip NICo Flow in Phase 7h. Also set `flow.enabled=false` in `values.yaml` to omit Flow prerequisites. |
+| `--skip-flow` | Skip NICo Flow in Phase 7h. You can also set `flow.enabled=false` in `values.yaml` to omit Flow prerequisites. |
 | `--skip-core --skip-rest` | Infrastructure-only run; image tags, image registry, and REST repo are not required. |
 | `--core-values <file>` | Use site-specific Core values instead of `helm-prereqs/values/nico-core.yaml`. |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest file or kustomize directory. |
@@ -214,7 +214,7 @@ NICo Core                  (../helm - nico-core.yaml values)
   ├── nico-ssh-console-rs   (Deployment - SSH console proxy)
   └── unbound               (Deployment - .forge zone DNS, opt-in)
 NICo REST                  (../helm/rest/nico-rest)
-  ├── nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
+  ├── nico-rest-ca-issuer   (ClusterIssuer - cert-manager.io)
   ├── postgres StatefulSet  (temporal + keycloak + NICo databases)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
