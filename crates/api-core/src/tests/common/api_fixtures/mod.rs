@@ -474,6 +474,10 @@ impl TestEnv {
                             }
                         }
                         MachineValidatingState::RebootHost { .. } => state.clone(),
+                        MachineValidatingState::PrepareBootRepair { .. }
+                        | MachineValidatingState::UnlockForBootRepair { .. }
+                        | MachineValidatingState::RepairBootConfig { .. }
+                        | MachineValidatingState::LockAfterBootRepair { .. } => state.clone(),
                     }
                 }
             },

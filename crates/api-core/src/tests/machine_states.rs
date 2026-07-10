@@ -3151,6 +3151,117 @@ async fn test_set_boot_order_reassert_window_expiry_bounds_reapplies(pool: sqlx:
     }
 }
 
+/// A host that cannot return from a validation reboot because its boot config
+/// reverted (the boot NIC dropped off the BMC's inventory during POST, so the
+/// BIOS reset the HTTP-boot device) gets repaired in place: validation unlocks
+/// the BMC, re-drives the boot-order flow (re-assert, reboot to apply,
+/// reorder, verify), re-locks, and resumes validation from its reboot step --
+/// instead of pacing reboots that can never succeed.
+#[crate::sqlx_test]
+async fn test_machine_validation_repairs_reverted_boot_config(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+    let boot_nic_mac = host_inband_nic_mac(&env, host_id).await;
+
+    // The validation reboot's POST reverted the boot config, and HostInit
+    // enabled lockdown before validation reached this point: BIOS writes
+    // bounce off the BMC until it is unlocked.
+    env.redfish_sim.set_is_bios_setup(false);
+    env.redfish_sim.set_is_boot_order_setup(false);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Enabled);
+
+    // Park the host mid-validation, waiting on a reboot that cannot land
+    // (the state is newer than the host's last reported boot).
+    set_host_controller_state_stuck_in(
+        &env,
+        host_id,
+        &ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Discovery".to_string(),
+                    id: MachineValidationId::new(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
+            },
+        },
+        0,
+    )
+    .await;
+
+    let checkpoint = env.redfish_sim.timepoint();
+
+    // Detection through re-assert: the flow notices the reverted config,
+    // unlocks the BMC, and re-asserts the HTTP-boot device.
+    for _ in 0..6 {
+        env.run_machine_state_controller_iteration().await;
+        if env
+            .redfish_sim
+            .actions_since(&checkpoint)
+            .all_hosts()
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. }))
+        {
+            break;
+        }
+    }
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "validation boot repair should re-assert the reverted HTTP boot device, got: {actions:?}"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .contains(&libredfish::EnabledDisabled::Disabled),
+        "boot repair should unlock the BMC before writing BIOS settings"
+    );
+
+    // The repair reboot applies the re-asserted device.
+    env.redfish_sim.set_is_bios_setup(true);
+
+    // The repair completes (reorder + verify), re-locks the BMC, and resumes
+    // validation from its reboot step.
+    let mut resumed = false;
+    for _ in 0..20 {
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        if matches!(
+            host.current_state(),
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::RebootHost { .. },
+                },
+            }
+        ) {
+            resumed = true;
+            break;
+        }
+    }
+    assert!(
+        resumed,
+        "the repaired host should resume validation from its reboot step"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .iter()
+            .all(|l| *l == libredfish::EnabledDisabled::Enabled),
+        "boot repair should re-lock the BMC once the boot config is repaired"
+    );
+
+    // Across the repair, the re-assert targeting the boot NIC preceded the reorder.
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert_machine_setup_precedes_reorder_for(&actions, boot_nic_mac);
+}
+
 /// When HostInit/PollingBiosSetup retry budget is exhausted, enter Failed and recover via is_bios_setup.
 #[crate::sqlx_test]
 async fn test_polling_bios_setup_exhausted_enters_failed_and_recovers_when_bios_setup_true(

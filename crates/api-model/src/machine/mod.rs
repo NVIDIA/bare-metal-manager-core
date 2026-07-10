@@ -1284,6 +1284,25 @@ pub enum MachineValidatingState {
         #[serde(default = "default_true")]
         is_enabled: bool,
     },
+    /// Machine validation ensures the host's boot device config is in place.
+    /// When it reads reverted -- however it drifted (changed externally, a
+    /// BIOS quirk, or the boot NIC dropping off the BMC's inventory during a
+    /// reboot's POST) -- these states correct it, mirroring host boot repair:
+    /// unlock the BMC, drive the boot-order flow, re-lock, resume validation.
+    PrepareBootRepair {
+        validation_id: MachineValidationId,
+    },
+    UnlockForBootRepair {
+        validation_id: MachineValidationId,
+        unlock_host_state: UnlockHostState,
+    },
+    RepairBootConfig {
+        validation_id: MachineValidationId,
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    LockAfterBootRepair {
+        validation_id: MachineValidationId,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "validation_type", rename_all = "lowercase")]
@@ -2660,6 +2679,12 @@ pub fn state_sla(
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
                 }
                 MachineValidatingState::RebootHost { .. } => {
+                    StateSla::with_sla(slas::VALIDATION, time_in_state)
+                }
+                MachineValidatingState::PrepareBootRepair { .. }
+                | MachineValidatingState::UnlockForBootRepair { .. }
+                | MachineValidatingState::RepairBootConfig { .. }
+                | MachineValidatingState::LockAfterBootRepair { .. } => {
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
                 }
             },

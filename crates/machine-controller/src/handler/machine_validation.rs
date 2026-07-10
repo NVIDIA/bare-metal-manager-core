@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 use carbide_uuid::machine_validation::MachineValidationId;
-use libredfish::SystemPowerControl;
+use libredfish::{EnabledDisabled, RedfishError, SystemPowerControl};
 use model::machine::{
     FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
-    ValidationState,
+    SetBootOrderInfo, SetBootOrderState, UnlockHostState, ValidationState,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use state_controller::state_handler::{
@@ -27,7 +27,30 @@ use state_controller::state_handler::{
 
 use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
 use crate::context::{MachineStateHandlerContextObjects, MachineStateHandlerServices};
-use crate::handler::{handler_host_power_control, rebooted, trigger_reboot_if_needed};
+use crate::handler::{
+    RequiredBootInterface, SetBootOrderOutcome, handler_host_power_control, host_power_control,
+    load_boot_predictions, rebooted, redfish_error, require_boot_interface, set_host_boot_order,
+    trigger_reboot_if_needed, wait,
+};
+
+/// The validation flavor of the managed-host state, so the repair arms can
+/// transition between validation substates without repeating the wrapper.
+fn validating(machine_validation: MachineValidatingState) -> ManagedHostState {
+    ManagedHostState::Validation {
+        validation_state: ValidationState::MachineValidation { machine_validation },
+    }
+}
+
+/// The starting point for the boot-order flow when validation boot repair
+/// re-drives it: the flow itself checks what is already in place and only
+/// re-applies what the reboot reverted.
+fn boot_repair_start() -> SetBootOrderInfo {
+    SetBootOrderInfo {
+        set_boot_order_jid: None,
+        set_boot_order_state: SetBootOrderState::SetBootOrder,
+        retry_count: 0,
+    }
+}
 
 async fn skip_machine_validation(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -122,6 +145,46 @@ pub(crate) async fn handle_machine_validation_state(
                 is_enabled,
             );
             if !rebooted(&mh_snapshot.host_snapshot) {
+                // Ensure the boot config is still what it should be while
+                // waiting. If it reads reverted -- changed externally, a BIOS
+                // quirk, or the boot NIC dropping off the BMC's inventory
+                // during the reboot's POST -- the host can't boot into the
+                // validation environment, and further reboots can't restore a
+                // setting that is gone. Correct it instead of pacing forever.
+                let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+                if let RequiredBootInterface::Ready(boot_interface) = require_boot_interface(
+                    mh_snapshot,
+                    &predictions,
+                    "verifying the boot config during validation",
+                    |message| message,
+                )? {
+                    let redfish_client = ctx
+                        .services
+                        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+                        .await?;
+                    match boot_interface
+                        .run(|bi| redfish_client.is_bios_setup(Some(bi)))
+                        .await
+                    {
+                        Ok(false) => {
+                            tracing::warn!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                "Boot config reads reverted while waiting for the validation reboot; correcting it via boot repair",
+                            );
+                            return Ok(StateHandlerOutcome::transition(validating(
+                                MachineValidatingState::PrepareBootRepair { validation_id: *id },
+                            )));
+                        }
+                        Ok(true) => {}
+                        Err(e) => {
+                            tracing::warn!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                error = %e,
+                                "Could not verify the boot config while waiting for the validation reboot; will retry",
+                            );
+                        }
+                    }
+                }
                 let status = trigger_reboot_if_needed(
                     &mh_snapshot.host_snapshot,
                     mh_snapshot,
@@ -173,6 +236,206 @@ pub(crate) async fn handle_machine_validation_state(
                 }
             }
             Ok(StateHandlerOutcome::do_nothing())
+        }
+        MachineValidatingState::PrepareBootRepair { validation_id } => {
+            // Boot repair writes BIOS settings, and lockdown was enabled
+            // earlier in HostInit -- writes bounce off a locked BMC. Check and
+            // unlock first, mirroring host boot repair.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+                .await?;
+
+            let next = match redfish_client.lockdown_status().await {
+                Err(RedfishError::NotSupported(_)) => {
+                    tracing::info!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "BMC vendor does not support checking lockdown status during validation boot repair",
+                    );
+                    MachineValidatingState::RepairBootConfig {
+                        validation_id: *validation_id,
+                        set_boot_order_info: boot_repair_start(),
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        error = %e,
+                        "Failed to fetch lockdown status during validation boot repair",
+                    );
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "Failed to fetch lockdown status: {e}"
+                    )));
+                }
+                Ok(lockdown_status) if !lockdown_status.is_fully_disabled() => {
+                    tracing::info!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "Lockdown is enabled during validation boot repair; disabling before boot config writes",
+                    );
+                    MachineValidatingState::UnlockForBootRepair {
+                        validation_id: *validation_id,
+                        unlock_host_state: UnlockHostState::DisableLockdown,
+                    }
+                }
+                Ok(_) => MachineValidatingState::RepairBootConfig {
+                    validation_id: *validation_id,
+                    set_boot_order_info: boot_repair_start(),
+                },
+            };
+
+            Ok(StateHandlerOutcome::transition(validating(next)))
+        }
+        MachineValidatingState::UnlockForBootRepair {
+            validation_id,
+            unlock_host_state,
+        } => {
+            // Mirror host boot repair's unlock choreography.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+                .await?;
+
+            let next = match unlock_host_state {
+                UnlockHostState::DisableLockdown => {
+                    // Tolerate a vendor that reports lockdown status but does
+                    // not support setting it, symmetric with the re-lock step.
+                    match redfish_client.lockdown_bmc(EnabledDisabled::Disabled).await {
+                        Ok(()) => {}
+                        Err(RedfishError::NotSupported(_)) => {
+                            tracing::info!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                "BMC vendor does not support disabling lockdown during validation boot repair",
+                            );
+                        }
+                        Err(e) => return Err(redfish_error("lockdown_bmc", e)),
+                    }
+
+                    let vendor = mh_snapshot.host_snapshot.bmc_vendor();
+                    if vendor.is_supermicro() {
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            %vendor,
+                            "BMC lockdown disabled; rebooting host so Redfish reflects actual boot state",
+                        );
+                        MachineValidatingState::UnlockForBootRepair {
+                            validation_id: *validation_id,
+                            unlock_host_state: UnlockHostState::RebootHost,
+                        }
+                    } else {
+                        MachineValidatingState::RepairBootConfig {
+                            validation_id: *validation_id,
+                            set_boot_order_info: boot_repair_start(),
+                        }
+                    }
+                }
+                UnlockHostState::RebootHost => {
+                    host_power_control(
+                        redfish_client.as_ref(),
+                        &mh_snapshot.host_snapshot,
+                        SystemPowerControl::ForceRestart,
+                        ctx,
+                    )
+                    .await
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre::eyre!(
+                            "failed to ForceRestart host after disabling BMC lockdown: {}",
+                            e
+                        ))
+                    })?;
+
+                    MachineValidatingState::UnlockForBootRepair {
+                        validation_id: *validation_id,
+                        unlock_host_state: UnlockHostState::WaitForUefiBoot,
+                    }
+                }
+                UnlockHostState::WaitForUefiBoot => {
+                    let entered_at = mh_snapshot.host_snapshot.state.version.timestamp();
+                    if wait(
+                        &entered_at,
+                        host_handler_params.reachability_params.uefi_boot_wait,
+                    ) {
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "Waiting for UEFI boot to complete on {} after post-unlock reboot",
+                            mh_snapshot.host_snapshot.id
+                        )));
+                    }
+                    MachineValidatingState::RepairBootConfig {
+                        validation_id: *validation_id,
+                        set_boot_order_info: boot_repair_start(),
+                    }
+                }
+            };
+
+            Ok(StateHandlerOutcome::transition(validating(next)))
+        }
+        MachineValidatingState::RepairBootConfig {
+            validation_id,
+            set_boot_order_info,
+        } => {
+            // Re-drive the boot-order flow: it checks what is already in
+            // place, re-asserts the reverted HTTP-boot device (rebooting to
+            // apply it), sets the boot order, and verifies -- the same engine
+            // the boot-configuration stages use.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+                .await?;
+
+            match set_host_boot_order(
+                ctx,
+                &host_handler_params.reachability_params,
+                redfish_client.as_ref(),
+                mh_snapshot,
+                set_boot_order_info.clone(),
+            )
+            .await?
+            {
+                SetBootOrderOutcome::Continue(info) => Ok(StateHandlerOutcome::transition(
+                    validating(MachineValidatingState::RepairBootConfig {
+                        validation_id: *validation_id,
+                        set_boot_order_info: info,
+                    }),
+                )),
+                SetBootOrderOutcome::Done => Ok(StateHandlerOutcome::transition(validating(
+                    MachineValidatingState::LockAfterBootRepair {
+                        validation_id: *validation_id,
+                    },
+                ))),
+                SetBootOrderOutcome::WaitingForReboot(reason)
+                | SetBootOrderOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
+            }
+        }
+        MachineValidatingState::LockAfterBootRepair { validation_id } => {
+            // Restore the lockdown that boot repair temporarily opened, then
+            // resume validation from its reboot step.
+            let redfish_client = ctx
+                .services
+                .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+                .await?;
+
+            if mh_snapshot.host_snapshot.host_profile.disable_lockdown {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Skipping lockdown re-enable after validation boot repair per expected-machine config",
+                );
+            } else {
+                match redfish_client.lockdown_bmc(EnabledDisabled::Enabled).await {
+                    Ok(()) => {}
+                    Err(RedfishError::NotSupported(_)) => {
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            "BMC vendor does not support re-enabling lockdown after validation boot repair",
+                        );
+                    }
+                    Err(e) => return Err(redfish_error("lockdown_bmc", e)),
+                }
+            }
+
+            Ok(StateHandlerOutcome::transition(validating(
+                MachineValidatingState::RebootHost {
+                    validation_id: *validation_id,
+                },
+            )))
         }
     }
 }
