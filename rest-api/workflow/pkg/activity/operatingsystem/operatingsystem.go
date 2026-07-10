@@ -606,6 +606,10 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				return nil
 			})
 			if txErr != nil {
+				// The inner DAO failures log their own specifics; this also
+				// surfaces begin/commit failures, which WithTx returns but no
+				// inner handler logs, so they aren't swallowed silently here.
+				slogger.Error().Err(txErr).Msg("Failed to create Operating System in transaction, skipping")
 				continue
 			}
 
