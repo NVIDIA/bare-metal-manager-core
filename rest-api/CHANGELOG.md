@@ -1,18 +1,24 @@
 # Changelog
 
-All notable changes to **NVIDIA Infra Controller REST** are documented in this file.
-Each release lists pull requests grouped by category, with the most recent version first.
+This file is the historical record for independent **NVIDIA Infra Controller REST**
+releases through v1.6.0. Future release information is maintained only in the
+[unified NICo release notes](../docs/release-notes.md).
+
+Each release lists pull requests grouped by category, with the most recent version
+first. Entries within each category preserve their published order.
 
 ---
 
 ## [v1.6.0](https://github.com/NVIDIA/infra-controller/rest-api/releases/tag/v1.6.0)
 
-> [!NOTE]
-> This release is compatible with Core **v0.10.x**.
+<Note>
+This release is compatible with Core **v0.10.x**.
+</Note>
 
-> [!IMPORTANT]
-> This is the last independent release of NICo REST. Future releases will be part of the unified NICo repository located at [infra-controller](https://github.com/NVIDIA/infra-controller).
-
+<Warning>
+This is the last independent release of NICo REST. Future releases are documented
+in the [unified NICo release notes](../docs/release-notes.md).
+</Warning>
 
 ### Features
 
@@ -136,11 +142,15 @@ Each release lists pull requests grouped by category, with the most recent versi
 
 ## [v1.5.0](https://github.com/NVIDIA/infra-controller/rest-api/releases/tag/v1.5.0)
 
-> [!NOTE]
-> This release is compatible with Core **v0.9.x**.
+<Note>
+This release is compatible with Core **v0.9.x**.
+</Note>
 
-> [!IMPORTANT]
-> In our effort to unify the product name, starting from `v1.5.0` the image names are now prefixed with `nico-` instead of `carbide-`. Docker images produced by the make commands will now have the `nico-` prefix.
+<Warning>
+In our effort to unify the product name, starting from `v1.5.0` the image names
+are now prefixed with `nico-` instead of `carbide-`. Docker images produced by
+the make commands will now have the `nico-` prefix.
+</Warning>
 
 ### Features
 - **Rename carbide/forge to NVIDIA Infrastructure Controller (NICo)** ([#432](https://github.com/NVIDIA/infra-controller/rest-api/pull/432))
@@ -319,8 +329,9 @@ Each release lists pull requests grouped by category, with the most recent versi
 
 ## [v1.4.0](https://github.com/NVIDIA/infra-controller/rest-api/releases/tag/v1.4.0)
 
-> [!NOTE]
-> This release is compatible with Core **v0.8.x**.
+<Note>
+This release is compatible with Core **v0.8.x**.
+</Note>
 
 ### Features
 
@@ -452,8 +463,9 @@ Each release lists pull requests grouped by category, with the most recent versi
 
 ## [v1.3.0](https://github.com/NVIDIA/infra-controller/rest-api/releases/tag/v1.3.0)
 
-> [!NOTE]
-> This release is compatible with Core **v0.7.x**.
+<Note>
+This release is compatible with Core **v0.7.x**.
+</Note>
 
 ### Features
 
@@ -530,8 +542,9 @@ Each release lists pull requests grouped by category, with the most recent versi
 
 ## [v1.2.1](https://github.com/NVIDIA/infra-controller/rest-api/releases/tag/v1.2.1)
 
-> [!NOTE]
-> This release is compatible with Core **v0.6.x**.
+<Note>
+This release is compatible with Core **v0.6.x**.
+</Note>
 
 ### Features
 
@@ -609,8 +622,9 @@ Each release lists pull requests grouped by category, with the most recent versi
 
 ## [v1.2.0](https://github.com/NVIDIA/infra-controller/rest-api/releases/tag/v1.2.0)
 
-> [!NOTE]
-> This release is compatible with Core **v0.6.x**.
+<Note>
+This release is compatible with Core **v0.6.x**.
+</Note>
 
 ### Features
 
