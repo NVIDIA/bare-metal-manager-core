@@ -1212,38 +1212,6 @@ impl Default for DpfDeploymentConfig {
     }
 }
 
-impl DpfDeploymentConfig {
-    /// Per-PSID DPUDeployment CR name for a BF4 deployment: the base
-    /// `deployment_name` with the sanitized PSID appended. Each PSID gets its own
-    /// DPUDeployment referencing a PSID-specific `BlueFieldSoftware` CR.
-    pub fn per_psid_deployment_name(&self, psid: &str) -> String {
-        format!("{}-{}", self.deployment_name, sanitize_psid(psid))
-    }
-
-    /// Per-PSID node selector label key for a BF4 deployment: the base
-    /// `node_label_key` with the sanitized PSID appended, so each PSID's DPUNodes
-    /// are matched only by their own DPUDeployment.
-    pub fn per_psid_node_label_key(&self, psid: &str) -> String {
-        format!("{}-{}", self.node_label_key, sanitize_psid(psid))
-    }
-}
-
-/// Normalize a PSID (e.g. `MT_0000000884`) into a form usable in Kubernetes
-/// resource names and label keys: lowercased, with any character outside
-/// `[a-z0-9.-]` replaced by `-`.
-fn sanitize_psid(psid: &str) -> String {
-    psid.to_ascii_lowercase()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
-
 /// BlueFieldSoftware spec for BF4-class DPU provisioning. Mirrors the `spec` of
 /// the `provisioning.dpu.nvidia.com/v1alpha1` `BlueFieldSoftware` CR.
 ///
@@ -1352,6 +1320,21 @@ impl DpfDeploymentsConfig {
             );
         }
 
+        // BF4 is BlueFieldSoftware-only. `bfb_url` is BF3-specific; a bf4_generic
+        // deployment must use `bluefield_software`. Reject the BFB-only case here
+        // so it fails at config validation rather than later at SDK startup,
+        // which unconditionally requires `bluefield_software` for bf4_generic.
+        if self
+            .bf4_generic
+            .as_ref()
+            .is_some_and(|cfg| cfg.bfb_url.is_some() && cfg.bluefield_software.is_none())
+        {
+            errors.push(
+                "deployment \"bf4_generic\" must set bluefield_software; BF4 does not support bfb_url"
+                    .to_string(),
+            );
+        }
+
         for (name, cfg) in self.all() {
             match (&cfg.bfb_url, &cfg.bluefield_software) {
                 (Some(_), Some(_)) => errors.push(format!(
@@ -1360,9 +1343,14 @@ impl DpfDeploymentsConfig {
                 (None, None) => errors.push(format!(
                     "deployment {name:?} sets neither bfb_url nor bluefield_software; set exactly one"
                 )),
-                (None, Some(bfs)) if bfs.pldm_fw_bundle.is_empty() => errors.push(format!(
-                    "deployment {name:?} sets bluefield_software but its pldm_fw_bundle PSID map is empty; \
-                     add at least one PSID → PLDM bundle URL entry"
+                // Exactly one PSID entry is allowed for now. Multi-PSID support
+                // is pending a DPF change that lets one `BlueFieldSoftware` CR
+                // carry a PSID→PLDM map; until then a single BF4 deployment uses
+                // the one entry's PLDM bundle.
+                (None, Some(bfs)) if bfs.pldm_fw_bundle.len() != 1 => errors.push(format!(
+                    "deployment {name:?} bluefield_software.pldm_fw_bundle must have exactly one \
+                     PSID → PLDM bundle URL entry (found {}).",
+                    bfs.pldm_fw_bundle.len()
                 )),
                 _ => {}
             }
@@ -5012,32 +5000,51 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
     fn validate_provisioning_sources_rejects_bf3_bluefield_software() {
         // bf3 is BFB-only: setting bluefield_software on it is always invalid,
         // even though the same block would be valid on bf4_generic.
-        let mut bf3 = DpfDeploymentConfig::default();
-        bf3.bfb_url = None;
-        bf3.bluefield_software = Some(DpfBlueFieldSoftwareConfig {
-            os_iso: "http://example.com/os.iso".to_string(),
-            pldm_fw_bundle: BTreeMap::from([(
-                "MT_0000000884".to_string(),
-                "http://example.com/fw.pldm".to_string(),
-            )]),
-        });
         let deployments = DpfDeploymentsConfig {
-            bf3,
+            bf3: bf4_config(None, Some(bf4_with_psids(&["MT_0000000884"]))),
             bf4_generic: None,
         };
         assert!(deployments.validate_provisioning_sources().is_err());
     }
 
+    fn bf4_with_psids(psids: &[&str]) -> DpfBlueFieldSoftwareConfig {
+        DpfBlueFieldSoftwareConfig {
+            os_iso: "http://example.com/os.iso".to_string(),
+            pldm_fw_bundle: psids
+                .iter()
+                .map(|p| (p.to_string(), format!("http://example.com/{p}.pldm")))
+                .collect(),
+        }
+    }
+
     #[test]
-    fn per_psid_names_append_sanitized_psid() {
-        let cfg = bf4_config(None, None);
-        assert_eq!(
-            cfg.per_psid_deployment_name("MT_0000000884"),
-            "bf4-dep-mt-0000000884"
-        );
-        assert_eq!(
-            cfg.per_psid_node_label_key("MT_0000000884"),
-            "carbide.nvidia.com/bf4-mt-0000000884"
-        );
+    fn validate_provisioning_sources_rejects_bf4_bfb_url() {
+        // bf4_generic is BlueFieldSoftware-only: bfb_url without bluefield_software
+        // passes the exactly-one check but fails at SDK startup, so reject it here.
+        let deployments = DpfDeploymentsConfig {
+            bf3: DpfDeploymentConfig::default(),
+            bf4_generic: Some(bf4_config(Some("http://example.com/test.bfb"), None)),
+        };
+        assert!(deployments.validate_provisioning_sources().is_err());
+    }
+
+    #[test]
+    fn validate_provisioning_sources_requires_exactly_one_psid() {
+        // Exactly one PSID entry is accepted.
+        let one = DpfDeploymentsConfig {
+            bf3: DpfDeploymentConfig::default(),
+            bf4_generic: Some(bf4_config(None, Some(bf4_with_psids(&["MT_0000000884"])))),
+        };
+        assert!(one.validate_provisioning_sources().is_ok());
+
+        // More than one PSID is rejected (multi-PSID support is pending a DPF change).
+        let many = DpfDeploymentsConfig {
+            bf3: DpfDeploymentConfig::default(),
+            bf4_generic: Some(bf4_config(
+                None,
+                Some(bf4_with_psids(&["MT_0000000884", "MT_0000000992"])),
+            )),
+        };
+        assert!(many.validate_provisioning_sources().is_err());
     }
 }

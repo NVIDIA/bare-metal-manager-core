@@ -688,20 +688,19 @@ async fn initialize_dpf_sdk(
         .await
         .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
 
-    // Builds the SDK init config for one concrete DPUDeployment. BF4 blocks fan
-    // out to one call per PSID, each with a distinct deployment name, deployment
-    // type (carrying the PSID), and a PSID-specific BlueFieldSoftware source.
+    // Builds the SDK init config for one DPUDeployment. BF4 uses a single
+    // `BlueFieldSoftware` source (the CR itself carries the PSID→PLDM mapping);
+    // config validation guarantees exactly one PSID entry.
     let make_init_config =
         |deployment: &crate::cfg::file::DpfDeploymentConfig,
          deployment_type: DpuDeploymentType,
-         deployment_name: String,
          bluefield_software: Option<carbide_dpf::BlueFieldSoftwareParams>| {
             let services = carbide_config.dpf.resolved_services_for(deployment);
             carbide_dpf::InitDpfResourcesConfig {
                 bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
                 bluefield_software,
                 flavor_name: deployment.flavor_name.clone(),
-                deployment_name,
+                deployment_name: deployment.deployment_name.clone(),
                 services: crate::dpf_services::mandatory_services(&services),
                 proxy: carbide_config.dpf.proxy.clone(),
                 deployment_type,
@@ -709,39 +708,31 @@ async fn initialize_dpf_sdk(
         };
 
     let bf3 = &carbide_config.dpf.deployments.bf3;
-    sdk.create_initialization_objects(&make_init_config(
-        bf3,
-        DpuDeploymentType::Bf3,
-        bf3.deployment_name.clone(),
-        None,
-    ))
-    .await
-    .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
+    sdk.create_initialization_objects(&make_init_config(bf3, DpuDeploymentType::Bf3, None))
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
 
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
-        // Validation guarantees `bluefield_software` is set with a non-empty
-        // PSID map for a BF4 deployment.
+        // Validation guarantees `bluefield_software` is set with exactly one PSID
+        // entry for a BF4 deployment.
         let bfs = bf4.bluefield_software.as_ref().ok_or_else(|| {
             eyre::eyre!("bf4_generic DPF deployment is missing bluefield_software")
         })?;
-        for (psid, pldm_url) in &bfs.pldm_fw_bundle {
-            let params = carbide_dpf::BlueFieldSoftwareParams {
-                os_iso: bfs.os_iso.clone(),
-                pldm_fw_bundle: Some(pldm_url.clone()),
-            };
-            sdk.create_initialization_objects(&make_init_config(
-                bf4,
-                DpuDeploymentType::Bf4Generic { psid: psid.clone() },
-                bf4.per_psid_deployment_name(psid),
-                Some(params),
-            ))
-            .await
-            .map_err(|err| {
-                eyre::eyre!(
-                    "Failed to initialize bf4_generic DPF deployment for PSID {psid}: {err}"
-                )
+        let pldm_url =
+            bfs.pldm_fw_bundle.values().next().ok_or_else(|| {
+                eyre::eyre!("bf4_generic DPF deployment has an empty pldm_fw_bundle")
             })?;
-        }
+        let params = carbide_dpf::BlueFieldSoftwareParams {
+            os_iso: bfs.os_iso.clone(),
+            pldm_fw_bundle: Some(pldm_url.clone()),
+        };
+        sdk.create_initialization_objects(&make_init_config(
+            bf4,
+            DpuDeploymentType::Bf4Generic,
+            Some(params),
+        ))
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
     }
 
     Ok(Some(Arc::new(DpfSdkOps::new(
@@ -774,17 +765,11 @@ fn build_deployment_type_labels(
         make_labels(&carbide_config.dpf.deployments.bf3.node_label_key),
     )]);
 
-    // BF4 deployments fan out per PSID: each PSID has its own node selector label
-    // key so its DPUNodes are matched only by its own DPUDeployment.
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
-        if let Some(bfs) = &bf4.bluefield_software {
-            for psid in bfs.pldm_fw_bundle.keys() {
-                map.insert(
-                    DpuDeploymentType::Bf4Generic { psid: psid.clone() },
-                    make_labels(&bf4.per_psid_node_label_key(psid)),
-                );
-            }
-        }
+        map.insert(
+            DpuDeploymentType::Bf4Generic,
+            make_labels(&bf4.node_label_key),
+        );
     }
 
     map

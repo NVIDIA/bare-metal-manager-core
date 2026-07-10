@@ -360,9 +360,7 @@ async fn test_create_initialization_objects_bluefield_software() {
             pldm_fw_bundle: Some("http://example.com/fw.pldm".to_string()),
         }),
         deployment_name: "bf4-dep".to_string(),
-        deployment_type: DpuDeploymentType::Bf4Generic {
-            psid: "MT_0000000884".to_string(),
-        },
+        deployment_type: DpuDeploymentType::Bf4Generic,
         ..Default::default()
     };
 

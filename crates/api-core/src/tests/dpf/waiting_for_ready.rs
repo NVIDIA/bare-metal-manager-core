@@ -58,7 +58,7 @@ fn expect_provisioning(mock: &mut MockDpfOperations) {
     mock.expect_register_dpu_device().returning(|_| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(Some(DpuDeploymentType::Bf3)));
+        .returning(|_| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
 }
 

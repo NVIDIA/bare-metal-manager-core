@@ -264,14 +264,12 @@ pub struct DpuFlavorBridgeDefinition {
 /// Deployment type of a DPU — used to route devices to the correct
 /// DPUDeployment and select the appropriate DPUFlavor configuration.
 ///
-/// BF4-class DPUs are provisioned from a `BlueFieldSoftware` CR whose PLDM
-/// firmware bundle is PSID-specific, so each PSID gets its own DPUDeployment.
-/// The [`Bf4Generic`](Self::Bf4Generic) variant therefore carries the PSID so
-/// a DPU can be routed to the matching deployment.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// BF4-class DPUs are provisioned from a single `BlueFieldSoftware` CR (the CR
+/// itself carries the PSID→PLDM mapping), so there is one BF4 deployment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DpuDeploymentType {
     Bf3,
-    Bf4Generic { psid: String },
+    Bf4Generic,
 }
 
 /// Information about a DPU device (DPUDevice CR).

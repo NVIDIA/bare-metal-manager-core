@@ -173,22 +173,10 @@ fn waiting_for_ready_exit_state(
     }
 }
 
-/// Outcome of registering the DPUDevices and DPUNode for a host.
-enum DpuRegistration {
-    /// Devices and node registered; provisioning can advance.
-    Ready,
-    /// Devices registered, but the primary DPU's deployment type could not be
-    /// resolved yet because the DPF operator has not populated the DPUDevice
-    /// `status.psid` (BF4). The caller should wait and retry — the device
-    /// creation calls are idempotent, so retrying is a no-op until the PSID
-    /// appears.
-    WaitingForPsid,
-}
-
 async fn create_and_register_dpudevices_and_dpunode(
     state: &ManagedHostStateSnapshot,
     dpf_sdk: &dyn DpfOperations,
-) -> Result<DpuRegistration, StateHandlerError> {
+) -> Result<(), StateHandlerError> {
     let primary_dpu_id = state
         .host_snapshot
         .interfaces
@@ -200,9 +188,6 @@ async fn create_and_register_dpudevices_and_dpunode(
             missing: "primary_dpu",
         })?;
 
-    // Register the DPUDevice CRs first. This does not need the deployment type;
-    // the DPF operator populates each device's `status.psid` afterwards, which
-    // BF4 DPUs need to select their per-PSID DPUDeployment.
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
             .hardware_info
@@ -232,15 +217,9 @@ async fn create_and_register_dpudevices_and_dpunode(
             object_id: state.host_snapshot.id.to_string(),
             missing: "primary_dpu_snapshot",
         })?;
-    // For BF4 this reads the PSID from the (now-created) primary DPUDevice's
-    // status; `None` means the operator has not populated it yet.
-    let Some(deployment_type) = dpf_sdk
+    let deployment_type = dpf_sdk
         .deployment_type_for_dpu(primary_dpu)
-        .await
-        .map_err(dpf_error)?
-    else {
-        return Ok(DpuRegistration::WaitingForPsid);
-    };
+        .map_err(dpf_error)?;
 
     let device_ids: Vec<String> = state
         .dpu_snapshots
@@ -258,12 +237,8 @@ async fn create_and_register_dpudevices_and_dpunode(
         .await
         .map_err(dpf_error)?;
 
-    Ok(DpuRegistration::Ready)
+    Ok(())
 }
-
-/// Reason string for waiting on the DPF operator to populate `status.psid`.
-const WAITING_FOR_PSID_REASON: &str =
-    "waiting for DPF operator to populate DPUDevice status.psid (BF4 PSID routing)";
 
 /// Build the correct failure state depending on whether the host is currently
 /// `Assigned` (DPU reprovision path). When `Assigned`, we preserve the outer
@@ -312,14 +287,8 @@ async fn handle_dpf_provisioning(
     state: &ManagedHostStateSnapshot,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    match create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
-        Err(err) => return Ok(dpf_cr_creation_failed(state, &err)),
-        Ok(DpuRegistration::WaitingForPsid) => {
-            return Ok(StateHandlerOutcome::wait(
-                WAITING_FOR_PSID_REASON.to_string(),
-            ));
-        }
-        Ok(DpuRegistration::Ready) => {}
+    if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
+        return Ok(dpf_cr_creation_failed(state, &err));
     }
 
     let next =
@@ -481,14 +450,8 @@ async fn handle_dpf_reprovisioning(
             host = %state.host_snapshot.id,
             "DPUDevice/DPUNode CRs do not exist, creating them before reprovisioning"
         );
-        match create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
-            Err(err) => return Ok(dpf_cr_creation_failed(state, &err)),
-            Ok(DpuRegistration::WaitingForPsid) => {
-                return Ok(StateHandlerOutcome::wait(
-                    WAITING_FOR_PSID_REASON.to_string(),
-                ));
-            }
-            Ok(DpuRegistration::Ready) => {}
+        if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
+            return Ok(dpf_cr_creation_failed(state, &err));
         }
         let next = transition_all_dpus_to_dpf_state(
             DpfState::WaitingForReady { phase_detail: None },
@@ -529,16 +492,9 @@ pub async fn handle_dpf_state(
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
-    let Some(deployment_type) = dpf_sdk
+    let deployment_type = dpf_sdk
         .deployment_type_for_dpu(dpu_snapshot)
-        .await
-        .map_err(dpf_error)?
-    else {
-        // BF4 PSID not yet populated in the DPUDevice status; wait and retry.
-        return Ok(StateHandlerOutcome::wait(
-            WAITING_FOR_PSID_REASON.to_string(),
-        ));
-    };
+        .map_err(dpf_error)?;
     if !dpf_sdk
         .verify_node_labels(&node_name, deployment_type)
         .await

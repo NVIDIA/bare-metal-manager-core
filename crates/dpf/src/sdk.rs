@@ -512,6 +512,18 @@ async fn create_bluefield_software<R: BlueFieldSoftwareRepository>(
         Err(DpfError::KubeError(kube::Error::Api(ref err)))
             if err.is_already_exists() || err.is_conflict() =>
         {
+            // Reuse the existing CR only if it is not being torn down; otherwise
+            // the DPUDeployment would reference a source that is disappearing.
+            let existing = BlueFieldSoftwareRepository::get(repo, &name, namespace).await?;
+            if existing
+                .as_ref()
+                .is_some_and(|b| b.metadata.deletion_timestamp.is_some())
+            {
+                return Err(DpfError::InvalidState(format!(
+                    "BlueFieldSoftware {name} is being deleted (has deletionTimestamp); \
+                     cannot reuse until the old resource is fully removed"
+                )));
+            }
             tracing::debug!(bluefield_software = %name, "BlueFieldSoftware already exists, reusing");
             Ok(name)
         }
@@ -527,7 +539,7 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
     namespace: &str,
     default_flavor_name: &str,
     proxy: &Option<DpfProxyDetails>,
-    deployment_type: &DpuDeploymentType,
+    deployment_type: DpuDeploymentType,
 ) -> Result<String, DpfError> {
     let mut flavor = crate::flavor::default_flavor_for(namespace, proxy, deployment_type)?;
     let name = flavor.unique_name(default_flavor_name)?;
@@ -1154,7 +1166,7 @@ async fn create_flavor_services_and_deployment<
     source: &DpuProvisioningSource,
     default_flavor_name: &str,
     proxy: &Option<DpfProxyDetails>,
-    deployment_type: &DpuDeploymentType,
+    deployment_type: DpuDeploymentType,
 ) -> Result<(), DpfError> {
     let flavor_name =
         create_dpu_flavor(repo, namespace, default_flavor_name, proxy, deployment_type).await?;
@@ -1175,8 +1187,7 @@ async fn create_flavor_services_and_deployment<
         }
     }
 
-    let deployment_node_labels =
-        labeler.node_labels_for_deployment_type(deployment_type.clone())?;
+    let deployment_node_labels = labeler.node_labels_for_deployment_type(deployment_type)?;
     let deployment = build_deployment(
         services,
         deployment_name,
@@ -1238,7 +1249,7 @@ impl<
             &source,
             &config.flavor_name,
             &config.proxy,
-            &config.deployment_type,
+            config.deployment_type,
         )
         .await?;
 
@@ -1337,22 +1348,6 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
         let cr_name = dpu_device_cr_name(dpu_device_name);
         DpuDeviceRepository::delete(&*self.repo, &cr_name, &self.namespace).await
     }
-
-    /// Read the PSID reported in a DPUDevice's `status`. `dpu_device_name` is the
-    /// raw device ID (without the `device-` CR prefix).
-    ///
-    /// The DPF operator discovers the PSID out-of-band (via the BMC) and writes
-    /// it to `status.psid` after the DPUDevice CR is created, so this returns
-    /// `Ok(None)` until the device exists and has been reconciled. BF4-class DPUs
-    /// use this PSID to select their per-PSID DPUDeployment.
-    pub async fn dpu_device_psid(&self, dpu_device_name: &str) -> Result<Option<String>, DpfError> {
-        let cr_name = dpu_device_cr_name(dpu_device_name);
-        let device = DpuDeviceRepository::get(&*self.repo, &cr_name, &self.namespace).await?;
-        Ok(device
-            .and_then(|d| d.status)
-            .and_then(|s| s.psid)
-            .filter(|psid| !psid.is_empty()))
-    }
 }
 
 impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
@@ -1371,7 +1366,7 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
                 labels: {
                     let mut labels = self
                         .labeler
-                        .node_labels_for_deployment_type(info.deployment_type.clone())?;
+                        .node_labels_for_deployment_type(info.deployment_type)?;
                     labels.extend(self.labeler.node_context_labels(&info));
                     if labels.is_empty() {
                         None
@@ -3003,7 +2998,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
-            &DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();
@@ -3040,7 +3035,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &proxy,
-            &DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();
@@ -3092,7 +3087,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
-            &DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap_err();
@@ -3124,7 +3119,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
-            &DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap_err();
@@ -3154,7 +3149,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
-            &DpuDeploymentType::Bf3,
+            DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();

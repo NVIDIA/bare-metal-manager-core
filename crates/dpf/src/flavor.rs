@@ -130,12 +130,10 @@ pub fn default_flavor_for(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
     // Selects the DPUFlavor variant to build for the given deployment type.
-    deployment_type: &DpuDeploymentType,
+    deployment_type: DpuDeploymentType,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
     match deployment_type {
-        // All PSID-specific BF4 deployments share one flavor (the flavor spec is
-        // PSID-independent); only the BlueFieldSoftware CR differs per PSID.
-        DpuDeploymentType::Bf4Generic { .. } => flavor_bf4(namespace, proxy),
+        DpuDeploymentType::Bf4Generic => flavor_bf4(namespace, proxy),
         DpuDeploymentType::Bf3 => default_flavor(namespace, proxy),
     }
 }
