@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Write};
 
 use chrono::{DateTime, Utc};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -138,11 +139,40 @@ pub struct SkuComponentInfinibandDevices {
 pub struct SkuComponentStorage {
     pub model: String,
     pub count: u32,
+    /// Inclusive lower bound (MB) each drive in this group must meet. `None`
+    /// means no lower bound. Only consulted for schema version >= 5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_size_mb: Option<u32>,
+    /// Inclusive upper bound (MB) each drive in this group must meet. `None`
+    /// means no upper bound. Only consulted for schema version >= 5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_size_mb: Option<u32>,
+    /// Regex patterns matched against a drive's sysfs/PCI path to validate its
+    /// physical location. Empty means the drive location is not checked. On a
+    /// discovered (actual) SKU this holds the concrete path of each drive.
+    /// Only consulted for schema version >= 5.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pci_patterns: Vec<String>,
 }
 
 impl Display for SkuComponentStorage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "model: {} count {}", self.model, self.count)
+        write!(f, "model: {} count {}", self.model, self.count)?;
+        match (self.min_size_mb, self.max_size_mb) {
+            (None, None) => {}
+            (min, max) => write!(
+                f,
+                " size {}-{} MB",
+                min.map(|v| v.to_string())
+                    .unwrap_or_else(|| "*".to_string()),
+                max.map(|v| v.to_string())
+                    .unwrap_or_else(|| "*".to_string()),
+            )?,
+        }
+        if !self.pci_patterns.is_empty() {
+            write!(f, " pci {:?}", self.pci_patterns)?;
+        }
+        Ok(())
     }
 }
 
@@ -180,6 +210,11 @@ pub struct SkuStatus {
     // expected machine.
     pub last_generate_attempt: Option<DateTime<Utc>>,
 }
+
+/// First SKU schema version that validates storage by drive size range and
+/// PCI location instead of by model. Versions below this keep the legacy
+/// model + count storage comparison.
+pub const SKU_VERSION_WITH_DRIVE_LOCATION: u32 = 5;
 
 /// diff an actual sku against an expected sku and return the differences.
 ///
@@ -335,27 +370,10 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
         ));
     }
 
-    let mut actual_storage: HashMap<String, SkuComponentStorage> = actual_sku
-        .components
-        .storage
-        .iter()
-        .map(|s| (s.model.clone(), s.clone()))
-        .collect();
-
-    for es in &expected_sku.components.storage {
-        if let Some(actual_storage) = actual_storage.remove(&es.model) {
-            if actual_storage.count != es.count {
-                diffs.push(format!(
-                    "Expected device count ({}) does not match actual ({}) for storage model ({})",
-                    es.count, actual_storage.count, actual_storage.model,
-                ));
-            }
-        } else {
-            diffs.push(format!("Missing storage config: {es}"));
-        };
-    }
-    for s in actual_storage.values() {
-        diffs.push(format!("Found unexpected storage config: {s}"));
+    if expected_sku.schema_version >= SKU_VERSION_WITH_DRIVE_LOCATION {
+        diff_storage_by_location(actual_sku, expected_sku, &mut diffs);
+    } else {
+        diff_storage_by_model(actual_sku, expected_sku, &mut diffs);
     }
 
     // Vendor and Model fields do not contain useful information.  They seem limited and encoded somehow.
@@ -380,4 +398,375 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
         }
     }
     diffs
+}
+
+/// Legacy (schema version < 5) storage comparison: match discovered storage to
+/// expected storage by model and compare counts.
+fn diff_storage_by_model(actual_sku: &Sku, expected_sku: &Sku, diffs: &mut Vec<String>) {
+    let mut actual_storage: HashMap<String, SkuComponentStorage> = actual_sku
+        .components
+        .storage
+        .iter()
+        .map(|s| (s.model.clone(), s.clone()))
+        .collect();
+
+    for es in &expected_sku.components.storage {
+        if let Some(actual_storage) = actual_storage.remove(&es.model) {
+            if actual_storage.count != es.count {
+                diffs.push(format!(
+                    "Expected device count ({}) does not match actual ({}) for storage model ({})",
+                    es.count, actual_storage.count, actual_storage.model,
+                ));
+            }
+        } else {
+            diffs.push(format!("Missing storage config: {es}"));
+        };
+    }
+    for s in actual_storage.values() {
+        diffs.push(format!("Found unexpected storage config: {s}"));
+    }
+}
+
+/// A single discovered drive, projected out of an actual (generated) SKU where
+/// each storage entry represents one drive: `pci_patterns[0]` is its concrete
+/// path and `min_size_mb == max_size_mb` is its capacity.
+struct DiscoveredDrive<'a> {
+    path: Option<&'a str>,
+    size_mb: Option<u32>,
+}
+
+impl DiscoveredDrive<'_> {
+    fn describe(&self) -> String {
+        format!(
+            "path {}, size {}",
+            self.path.unwrap_or("<unknown>"),
+            self.size_mb
+                .map(|v| format!("{v} MB"))
+                .unwrap_or_else(|| "<unknown>".to_string()),
+        )
+    }
+
+    fn size_in_range(&self, min: Option<u32>, max: Option<u32>) -> bool {
+        // Unknown size cannot be shown to violate a bound.
+        let Some(size) = self.size_mb else {
+            return true;
+        };
+        min.is_none_or(|m| size >= m) && max.is_none_or(|m| size <= m)
+    }
+}
+
+/// Storage comparison for schema version >= 5. Model is intentionally ignored;
+/// each expected storage group is validated by drive size range, count, and PCI
+/// location patterns. Fails safely (emits a diff) when an expected drive is
+/// missing, when a location is ambiguous, when a drive is the wrong size, or
+/// when a discovered drive is not expected anywhere.
+fn diff_storage_by_location(actual_sku: &Sku, expected_sku: &Sku, diffs: &mut Vec<String>) {
+    let drives: Vec<DiscoveredDrive> = actual_sku
+        .components
+        .storage
+        .iter()
+        .map(|s| DiscoveredDrive {
+            path: s.pci_patterns.first().map(|p| p.as_str()),
+            size_mb: s.min_size_mb,
+        })
+        .collect();
+
+    // Track which discovered drives have been claimed by an expected group so
+    // that leftovers can be reported as unexpected.
+    let mut claimed = vec![false; drives.len()];
+
+    for es in &expected_sku.components.storage {
+        if es.pci_patterns.is_empty() {
+            // No location constraint: claim up to `count` unclaimed drives that
+            // fall within the size range.
+            let mut matched = 0u32;
+            for (i, drive) in drives.iter().enumerate() {
+                if matched >= es.count {
+                    break;
+                }
+                if !claimed[i] && drive.size_in_range(es.min_size_mb, es.max_size_mb) {
+                    claimed[i] = true;
+                    matched += 1;
+                }
+            }
+            if matched != es.count {
+                diffs.push(format!(
+                    "Expected {} storage drive(s) ({es}) but found {matched} matching the size range",
+                    es.count,
+                ));
+            }
+            continue;
+        }
+
+        // Location-constrained group: every pattern must match at least one
+        // drive, the group must claim exactly `count` drives, and each claimed
+        // drive must be within the size range.
+        let mut group_claimed: Vec<usize> = Vec::new();
+        for pattern in &es.pci_patterns {
+            let re = match Regex::new(pattern) {
+                Ok(re) => re,
+                Err(err) => {
+                    diffs.push(format!("Invalid storage PCI pattern \"{pattern}\": {err}"));
+                    continue;
+                }
+            };
+            let hits: Vec<usize> = drives
+                .iter()
+                .enumerate()
+                .filter(|(i, drive)| !claimed[*i] && drive.path.is_some_and(|p| re.is_match(p)))
+                .map(|(i, _)| i)
+                .collect();
+
+            if hits.is_empty() {
+                diffs.push(format!(
+                    "Expected storage drive at PCI location /{pattern}/ not found"
+                ));
+                continue;
+            }
+            for i in hits {
+                if !claimed[i] {
+                    claimed[i] = true;
+                    group_claimed.push(i);
+                }
+            }
+        }
+
+        if group_claimed.len() as u32 != es.count {
+            diffs.push(format!(
+                "Expected {} storage drive(s) ({es}) but matched {} at those PCI locations",
+                es.count,
+                group_claimed.len(),
+            ));
+        }
+
+        for i in group_claimed {
+            if !drives[i].size_in_range(es.min_size_mb, es.max_size_mb) {
+                diffs.push(format!(
+                    "Storage drive ({}) is outside expected size range {}-{} MB",
+                    drives[i].describe(),
+                    es.min_size_mb
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "*".to_string()),
+                    es.max_size_mb
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "*".to_string()),
+                ));
+            }
+        }
+    }
+
+    for (i, drive) in drives.iter().enumerate() {
+        if !claimed[i] {
+            diffs.push(format!(
+                "Found unexpected storage drive ({})",
+                drive.describe()
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sku(schema_version: u32, storage: Vec<SkuComponentStorage>) -> Sku {
+        Sku {
+            schema_version,
+            id: "test".to_string(),
+            description: String::new(),
+            created: DateTime::<Utc>::from_timestamp(0, 0).unwrap(),
+            components: SkuComponents {
+                chassis: SkuComponentChassis::default(),
+                cpus: Vec::new(),
+                gpus: Vec::new(),
+                memory: Vec::new(),
+                infiniband_devices: Vec::new(),
+                storage,
+                tpm: None,
+            },
+            device_type: None,
+        }
+    }
+
+    /// A discovered drive as an actual (generated) v5 storage entry.
+    fn drive(path: &str, size_mb: u32) -> SkuComponentStorage {
+        SkuComponentStorage {
+            model: "nvme".to_string(),
+            count: 1,
+            min_size_mb: Some(size_mb),
+            max_size_mb: Some(size_mb),
+            pci_patterns: vec![path.to_string()],
+        }
+    }
+
+    /// An expected v5 storage group.
+    fn expected(
+        count: u32,
+        min: Option<u32>,
+        max: Option<u32>,
+        patterns: &[&str],
+    ) -> SkuComponentStorage {
+        SkuComponentStorage {
+            model: String::new(),
+            count,
+            min_size_mb: min,
+            max_size_mb: max,
+            pci_patterns: patterns.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    const PATH_A: &str = "/devices/pci0000:00/0000:04:00.0/nvme/nvme0/nvme0n1";
+    const PATH_B: &str = "/devices/pci0000:00/0000:05:00.0/nvme/nvme1/nvme1n1";
+
+    fn v5_storage_diffs(
+        actual: Vec<SkuComponentStorage>,
+        expected: Vec<SkuComponentStorage>,
+    ) -> Vec<String> {
+        diff_skus(&sku(5, actual), &sku(5, expected))
+    }
+
+    #[test]
+    fn v5_exact_location_and_size_match() {
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)],
+            vec![
+                expected(1, Some(3_800_000), Some(4_000_000), &[r"0000:04:00\.0"]),
+                expected(1, Some(3_800_000), Some(4_000_000), &[r"0000:05:00\.0"]),
+            ],
+        );
+        assert!(diffs.is_empty(), "expected no diffs, got {diffs:?}");
+    }
+
+    #[test]
+    fn v5_missing_expected_location() {
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000)],
+            vec![expected(1, None, None, &[r"0000:09:00\.0"])],
+        );
+        assert!(
+            diffs.iter().any(|d| d.contains("not found")),
+            "got {diffs:?}"
+        );
+        // The unmatched discovered drive is reported as unexpected.
+        assert!(
+            diffs.iter().any(|d| d.contains("unexpected storage drive")),
+            "got {diffs:?}"
+        );
+    }
+
+    #[test]
+    fn v5_unexpected_extra_drive() {
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)],
+            vec![expected(1, None, None, &[r"0000:04:00\.0"])],
+        );
+        assert!(
+            diffs
+                .iter()
+                .any(|d| d.contains("unexpected storage drive") && d.contains("0000:05:00.0")),
+            "got {diffs:?}"
+        );
+    }
+
+    #[test]
+    fn v5_drive_size_out_of_range() {
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 1_920_000)],
+            vec![expected(
+                1,
+                Some(3_800_000),
+                Some(4_000_000),
+                &[r"0000:04:00\.0"],
+            )],
+        );
+        assert!(
+            diffs
+                .iter()
+                .any(|d| d.contains("outside expected size range")),
+            "got {diffs:?}"
+        );
+    }
+
+    #[test]
+    fn v5_broad_pattern_count_mismatch() {
+        // One pattern matches both drives but only one is expected.
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)],
+            vec![expected(1, None, None, &[r"nvme"])],
+        );
+        assert!(
+            diffs.iter().any(|d| d.contains("but matched 2")),
+            "got {diffs:?}"
+        );
+    }
+
+    #[test]
+    fn v5_broad_pattern_count_match() {
+        // One pattern matching all drives, count set to match, is accepted.
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)],
+            vec![expected(2, None, None, &[r"/nvme/"])],
+        );
+        assert!(diffs.is_empty(), "expected no diffs, got {diffs:?}");
+    }
+
+    #[test]
+    fn v5_invalid_pattern_fails_soft() {
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000)],
+            vec![expected(1, None, None, &["0000:04:00(.0"])],
+        );
+        assert!(
+            diffs
+                .iter()
+                .any(|d| d.contains("Invalid storage PCI pattern")),
+            "got {diffs:?}"
+        );
+    }
+
+    #[test]
+    fn v5_size_only_no_location() {
+        // Empty patterns: validate by size range and count only.
+        let ok = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)],
+            vec![expected(2, Some(3_800_000), Some(4_000_000), &[])],
+        );
+        assert!(ok.is_empty(), "expected no diffs, got {ok:?}");
+
+        let bad = v5_storage_diffs(
+            vec![drive(PATH_A, 1_920_000)],
+            vec![expected(1, Some(3_800_000), Some(4_000_000), &[])],
+        );
+        assert!(
+            bad.iter().any(|d| d.contains("matching the size range")),
+            "got {bad:?}"
+        );
+    }
+
+    #[test]
+    fn legacy_v4_still_matches_by_model() {
+        // Under v4 the model is compared and size/pci fields are ignored.
+        let actual = vec![SkuComponentStorage {
+            model: "MODEL_X".to_string(),
+            count: 4,
+            min_size_mb: None,
+            max_size_mb: None,
+            pci_patterns: Vec::new(),
+        }];
+        let expected_match = actual.clone();
+        assert!(diff_skus(&sku(4, actual.clone()), &sku(4, expected_match)).is_empty());
+
+        let expected_wrong = vec![SkuComponentStorage {
+            model: "MODEL_Y".to_string(),
+            count: 4,
+            min_size_mb: None,
+            max_size_mb: None,
+            pci_patterns: Vec::new(),
+        }];
+        let diffs = diff_skus(&sku(4, actual), &sku(4, expected_wrong));
+        assert!(
+            diffs.iter().any(|d| d.contains("Missing storage config")),
+            "got {diffs:?}"
+        );
+    }
 }
