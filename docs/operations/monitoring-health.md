@@ -224,12 +224,14 @@ carbide_hardware_health_hw_metric_bandwidth_percent
 carbide_hardware_health_hw_metric_input_power_watts
 ```
 
-Series carry entity labels (`processor_id`, `memory_id`, `drive_id`,
-`powersupply_id`, `system_id`, `model`, ...) plus the standard identity labels
-added by the sink (`machine_id`, `endpoint_ip`, `serial_number`, `rack_id`,
-...), with `collector_type="metrics_collector"`. The same series names are
-emitted on the OTLP sink when `[sinks.otlp]` is configured, so Grafana queries
-resolve identically across both paths.
+On the Prometheus endpoint, series carry entity labels (`processor_id`,
+`memory_id`, `drive_id`, `powersupply_id`, `system_id`, `model`, ...) plus the
+standard identity labels added by the sink (`machine_id`, `endpoint_ip`,
+`serial_number`, `rack_id`, ...), with `collector_type="metrics_collector"`.
+The OTLP sink (`[sinks.otlp]`) emits the same metric *names*, but places the
+identity context on OTLP resource attributes rather than datapoint labels;
+whether those appear as query labels depends on the backend (VictoriaMetrics,
+for example, flattens resource attributes onto every series).
 
 Entity discovery runs as its own periodic task (`[collectors.discovery]`,
 always on) that walks each BMC's Redfish Systems and Chassis trees and
@@ -592,28 +594,31 @@ Labels:
 | `classification` | The health-alert classification. |
 | `in_use` | Machines only: whether a tenant instance uses the host. |
 
-Emission is opt-in per classification to keep cardinality bounded. It is
-disabled by default; enable it in the NICo API config by listing the
-classifications to emit:
+Emission is opt-in per classification to contain cardinality: series count
+still scales with fleet size (one series per matching object per listed
+classification — an object carrying two enabled classifications emits two
+series), but only for the classifications you list. It is disabled by
+default; enable it in the NICo API config by listing the classifications to
+emit:
 
 ```toml
 [observability]
 per_object_metrics_for_classifications = ["Hardware", "PreventAllocations"]
 ```
 
-Each listed classification adds up to one series per matching object. With an
-empty list (the default) the metric is not registered at all; the aggregate
-health metrics are unaffected either way. Series disappear automatically when
-the object becomes healthy, loses the classification, or is deleted (entries
-expire after the state controllers' `metric_hold_time`).
+With an empty list (the default) the metric is not registered at all; the
+aggregate health metrics are unaffected either way. Series disappear
+automatically when the object becomes healthy, loses the classification, or
+is deleted — entries are retained for the registry's hold period, which is
+configured slightly longer than the state controllers' `metric_hold_time`.
 
 Example: list hosts blocked from allocations by a hardware problem, or alert
-when one rack accumulates hardware-unhealthy machines:
+when hardware-unhealthy machines accumulate fleet-wide:
 
 ```promql
 carbide_object_unhealthy_by_classification_count{object_type="machine",classification="Hardware",in_use="false"}
 
-count(carbide_object_unhealthy_by_classification_count{classification="Hardware"}) > 10
+count(carbide_object_unhealthy_by_classification_count{object_type="machine",classification="Hardware"}) > 10
 ```
 
 DPU metrics:
