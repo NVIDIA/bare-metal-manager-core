@@ -7,11 +7,11 @@ For local development on macOS, this setup runs the full stack (core+rest) on ma
 - rest: everything runs in docker
 
 **Usage:**
-- start NICo API (core) with `./dev/mac-local-dev/run-nico-api.sh`<br>
+- start NICo API (core) with `dev/mac-local-dev/run-nico-api.sh`<br>
   You can access `nico-api` admin at https://localhost:1079/admin
 - start NICo REST API (rest) with `cd rest-api && make kind-reset LOCAL_CORE=true`<br>
   `make` will display all relevant URLs and credentials for the REST API, Temporal, and Keycloak.
-- you can test the full stack integration (REST API client -> REST API -> NICo API) by running `dev/mac-local-dev/check-rest-core-integration.sh`.
+- you can test the full-stack integration (REST API client -> REST API -> NICo API) by running `dev/mac-local-dev/check-rest-core-integration.sh`.
 
 > **Limitations**
 > - TPM / attestation features require Linux and a physical TPM — they are disabled in this setup.

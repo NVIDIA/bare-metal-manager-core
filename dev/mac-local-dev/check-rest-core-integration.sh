@@ -173,7 +173,7 @@ else
     UPDATE_TAG=$(kubectl exec -n "$PG_NAMESPACE" "$PG_STATEFULSET" -- \
         psql -U "$PG_USER" -d "$PG_DB" -c \
         "UPDATE site SET status = 'Registered', updated = NOW() WHERE id = '$SITE_ID';" \
-        2>&1 | grep -E '^UPDATE')
+        2>&1 | grep -E '^UPDATE' || true)
 
     [[ -z "$UPDATE_TAG" ]] && die "DB update produced no UPDATE tag — check site ID and postgres connectivity"
     UPDATED_ROWS=$(echo "$UPDATE_TAG" | awk '{print $2}')
@@ -204,7 +204,7 @@ else
     UPDATE_TAG=$(kubectl exec -n "$PG_NAMESPACE" "$PG_STATEFULSET" -- \
         psql -U "$PG_USER" -d "$PG_DB" -c \
         "UPDATE site SET config = jsonb_set(COALESCE(config, '{}'), '{image_based_operating_system}', 'true'), updated = NOW() WHERE id = '$SITE_ID';" \
-        2>&1 | grep -E '^UPDATE')
+        2>&1 | grep -E '^UPDATE' || true)
 
     [[ -z "$UPDATE_TAG" ]] && die "DB update produced no UPDATE tag — check site ID and postgres connectivity"
     UPDATED_ROWS=$(echo "$UPDATE_TAG" | awk '{print $2}')
