@@ -88,6 +88,7 @@ IMAGE_TAG ?= latest
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 CI_COMMIT_SHORT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LOCAL_REGISTRY_CONTAINER ?= nico-build-registry
+BOOT_ARTIFACTS_RUNTIME_IMAGE ?= docker.io/library/alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 
 # Intermediate base containers the Core and machine-validation images build FROM.
 CORE_BUILD_CONTAINER_AMD64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)-amd64
@@ -167,10 +168,10 @@ images-machine-validation: images-base ## Build the machine-validation runner + 
 
 images-boot-artifacts: images-registry ## Build the x86 boot-artifact image (requires mkosi + rust toolchain on the host)
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
-	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_X86_64=alpine:latest \
+	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_X86_64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
 		-t $(BOOT_ARTIFACTS_X86_IMAGE_AMD64) \
 		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
-	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_X86_64=alpine:latest \
+	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_X86_64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
 		-t $(BOOT_ARTIFACTS_X86_IMAGE_ARM64) \
 		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
 	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) \
@@ -178,10 +179,10 @@ images-boot-artifacts: images-registry ## Build the x86 boot-artifact image (req
 
 images-bfb: images-registry ## Build the aarch64 DPU BFB boot-artifact image (cross-arch; requires mkosi + aarch64 toolchain)
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa
-	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_AARCH64=alpine:latest \
+	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
 		-t $(BOOT_ARTIFACTS_BFB_IMAGE_AMD64) \
 		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
-	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_AARCH64=alpine:latest \
+	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
 		-t $(BOOT_ARTIFACTS_BFB_IMAGE_ARM64) \
 		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
 	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG) \
