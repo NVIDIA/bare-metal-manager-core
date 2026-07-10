@@ -16,7 +16,7 @@
  */
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -1293,8 +1293,22 @@ impl SiteExplorer {
             // per-device logic -- counting, `set_nic_mode` auto-correction, NIC-mode
             // stripping -- lives once in `record_host_dpu_device` / `classify_matched_dpu`.
             let mut dpu_exploration = DpuExplorationState::new();
+            let mut seen_bluefield_serials = HashSet::new();
             for system in ep.report.systems.iter() {
                 for pcie_device in system.pcie_devices.iter() {
+                    if let Some(serial_number) = duplicate_bluefield_serial(
+                        pcie_device.part_number.as_deref(),
+                        pcie_device.serial_number.as_deref(),
+                        &mut seen_bluefield_serials,
+                    ) {
+                        tracing::warn!(
+                            host_bmc_ip = %ep.address,
+                            %serial_number,
+                            pcie_device_id = ?pcie_device.id,
+                            "duplicate BlueField serial in host PCIe inventory; skipping duplicate record",
+                        );
+                        continue;
+                    }
                     self.record_host_dpu_device(
                         pcie_device.part_number.as_deref(),
                         pcie_device.serial_number.as_deref(),
@@ -3620,6 +3634,24 @@ fn get_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Option<MacAddress> {
     }
 }
 
+/// Returns the normalized serial when a host PCIe record repeats a BlueField
+/// serial already seen during this host's ingestion pass.
+fn duplicate_bluefield_serial<'a>(
+    part_number: Option<&str>,
+    serial_number: Option<&'a str>,
+    seen: &mut HashSet<&'a str>,
+) -> Option<&'a str> {
+    if !part_number
+        .map(str::trim)
+        .is_some_and(is_bluefield_part_number)
+    {
+        return None;
+    }
+
+    let serial_number = serial_number.map(str::trim).filter(|s| !s.is_empty())?;
+    (!seen.insert(serial_number)).then_some(serial_number)
+}
+
 /// State from exploring a host's DPUs and pairing them with DPU BMCs.
 ///
 /// The two counts are only ever incremented (monotonic), so the
@@ -3988,6 +4020,71 @@ mod tests {
         exploration.reported_total = 5;
         exploration.running_as_nic_total = 2;
         assert_eq!(exploration.expected_managed_total(), 3);
+    }
+
+    #[test]
+    fn duplicate_bluefield_serial_only_flags_repeated_bluefield_serials() {
+        struct Case {
+            name: &'static str,
+            devices: &'static [(Option<&'static str>, Option<&'static str>)],
+            expected: &'static [bool],
+        }
+
+        let cases = [
+            Case {
+                name: "duplicate BlueField serial",
+                devices: &[
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                ],
+                expected: &[false, true],
+            },
+            Case {
+                name: "trimmed duplicate BlueField serial",
+                devices: &[
+                    (Some("900-9D3B6-00SV-AA0"), Some(" DPU-SERIAL-1 ")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                ],
+                expected: &[false, true],
+            },
+            Case {
+                name: "distinct BlueField serials",
+                devices: &[
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-2")),
+                ],
+                expected: &[false, false],
+            },
+            Case {
+                name: "non-BlueField does not reserve serial",
+                devices: &[
+                    (Some("0JKJDC"), Some("DPU-SERIAL-1")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                ],
+                expected: &[false, false],
+            },
+            Case {
+                name: "missing and empty serials are not duplicates",
+                devices: &[
+                    (Some("900-9D3B6-00SV-AA0"), None),
+                    (Some("900-9D3B6-00SV-AA0"), Some("")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("   ")),
+                ],
+                expected: &[false, false, false],
+            },
+        ];
+
+        for case in cases {
+            let mut seen = HashSet::new();
+            let actual: Vec<bool> = case
+                .devices
+                .iter()
+                .map(|(part_number, serial_number)| {
+                    duplicate_bluefield_serial(*part_number, *serial_number, &mut seen).is_some()
+                })
+                .collect();
+            assert_eq!(actual, case.expected, "{}", case.name);
+        }
     }
 
     #[test]
