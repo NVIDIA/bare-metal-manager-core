@@ -14,7 +14,6 @@ import (
 
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	operationrunplanner "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/planner"
-	operationrunstore "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager/store"
 )
 
 // Manager is the operation-run business logic boundary used by service code.
@@ -30,19 +29,38 @@ type Manager interface {
 		id uuid.UUID,
 		opts operationrun.TargetListOptions,
 	) ([]*operationrun.OperationRunTarget, int32, error)
+	Pause(ctx context.Context, id uuid.UUID) (*operationrun.OperationRun, error)
+	Resume(ctx context.Context, id uuid.UUID) (*operationrun.OperationRun, error)
+	AdvancePhase(
+		ctx context.Context,
+		id uuid.UUID,
+		expectedPhaseIndex *int32,
+	) (*operationrun.OperationRun, error)
+	Cancel(
+		ctx context.Context,
+		id uuid.UUID,
+		reason string,
+		canceller TaskCanceller,
+	) (*operationrun.OperationRun, error)
 }
 
 var _ Manager = (*ManagerImpl)(nil)
 
+// TaskCanceller is the child-task cancellation surface used by
+// CancelOperationRun.
+type TaskCanceller interface {
+	CancelTask(ctx context.Context, taskID uuid.UUID) error
+}
+
 // ManagerImpl implements Manager.
 type ManagerImpl struct {
-	store   operationrunstore.Store
+	store   Store
 	planner operationrunplanner.Planner
 }
 
 // New creates an operation-run manager.
 func New(
-	store operationrunstore.Store,
+	store Store,
 	planner operationrunplanner.Planner,
 ) (*ManagerImpl, error) {
 	manager := &ManagerImpl{store: store, planner: planner}

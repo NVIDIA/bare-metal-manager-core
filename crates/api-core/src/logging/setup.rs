@@ -21,15 +21,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use carbide_metrics_utils::OtelView;
 use eyre::WrapErr;
 use opentelemetry::metrics::{Meter, MeterProvider};
-use opentelemetry::trace::{
-    Link, SamplingDecision, SamplingResult, SpanKind, TraceContextExt, TracerProvider,
-};
+use opentelemetry::trace::{Link, SpanKind, TraceContextExt, TracerProvider};
 use opentelemetry::{Context, KeyValue, TraceId, Value, global};
-use opentelemetry_otlp::{ExportConfig, WithExportConfig};
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
-use opentelemetry_sdk::trace::ShouldSample;
+use opentelemetry_sdk::trace::{SamplingDecision, SamplingResult, ShouldSample};
 use opentelemetry_semantic_conventions as semcov;
 use spancounter::SpanCountReader;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
@@ -121,6 +119,7 @@ pub fn setup_logging(
     let logfmt_stdout_formatter = logfmt::layer().with_event_fields(event_fields);
     let spancount_layer = spancounter::layer();
     let spancount_reader = spancount_layer.reader();
+    let log_events = carbide_instrument::LogEventsMetric::new("nico-api");
 
     // Used as part of a layer for collecting + brodcasting
     // log events to the admin web UI.
@@ -150,10 +149,7 @@ pub fn setup_logging(
                     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
                         .with_tonic()
                         .with_protocol(opentelemetry_otlp::Protocol::Grpc)
-                        .with_export_config(ExportConfig {
-                            endpoint: Some(endpoint),
-                            ..Default::default()
-                        })
+                        .with_endpoint(endpoint)
                         .build()?;
 
                     let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
@@ -175,6 +171,7 @@ pub fn setup_logging(
             };
 
         tracing_subscriber::registry()
+            .with(log_events.layer().with_filter(initial_log_filter.clone()))
             .with(spancount_layer.with_filter(log_level))
             .with(maybe_otel_tracing_layer)
             .with(logfmt_stdout_formatter.with_filter(logfmt_stdout_filter))

@@ -19,7 +19,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 var (
@@ -110,12 +110,12 @@ type SSHKeyGroupSiteAssociationFilterInput struct {
 // ToKeysetIdentifierProto builds the workflow proto identifier for this
 // association's SSH Key Group, scoped to the owning organization. The
 // SSHKeyGroup relation must be loaded for Org to be present.
-func (skgsa *SSHKeyGroupSiteAssociation) ToKeysetIdentifierProto() *cwssaws.TenantKeysetIdentifier {
+func (skgsa *SSHKeyGroupSiteAssociation) ToKeysetIdentifierProto() *corev1.TenantKeysetIdentifier {
 	var org string
 	if skgsa.SSHKeyGroup != nil {
 		org = skgsa.SSHKeyGroup.Org
 	}
-	return &cwssaws.TenantKeysetIdentifier{
+	return &corev1.TenantKeysetIdentifier{
 		KeysetId:       skgsa.SSHKeyGroupID.String(),
 		OrganizationId: org,
 	}
@@ -131,12 +131,12 @@ func (skgsa *SSHKeyGroupSiteAssociation) ToKeysetIdentifierProto() *cwssaws.Tena
 // Request-shape protos (create / update / delete) are layered on top
 // of this method and source the canonical wire fields from here so
 // the per-method translations stay focused.
-func (skgsa *SSHKeyGroupSiteAssociation) ToProto(content *cwssaws.TenantKeysetContent) *cwssaws.TenantKeyset {
+func (skgsa *SSHKeyGroupSiteAssociation) ToProto(content *corev1.TenantKeysetContent) *corev1.TenantKeyset {
 	var version string
 	if skgsa.Version != nil {
 		version = *skgsa.Version
 	}
-	return &cwssaws.TenantKeyset{
+	return &corev1.TenantKeyset{
 		KeysetIdentifier: skgsa.ToKeysetIdentifierProto(),
 		KeysetContent:    content,
 		Version:          version,
@@ -147,7 +147,7 @@ func (skgsa *SSHKeyGroupSiteAssociation) ToProto(content *cwssaws.TenantKeysetCo
 // representation. A nil proto is a no-op. This is the inverse of
 // `ToProto` and exists for convention symmetry — currently no code
 // path on the cloud side reconstructs a full association entity
-// from a `cwssaws.TenantKeyset` (the site is the destination, not
+// from a `corev1.TenantKeyset` (the site is the destination, not
 // the source), but the method is provided so future reconciliation
 // flows have a single canonical entry point.
 //
@@ -161,7 +161,7 @@ func (skgsa *SSHKeyGroupSiteAssociation) ToProto(content *cwssaws.TenantKeysetCo
 //     association: SSH keys are persisted on `SSHKeyAssociation`
 //     rows, and reconstruction of those rows is the responsibility
 //     of a higher-level reconciliation flow.
-func (skgsa *SSHKeyGroupSiteAssociation) FromProto(proto *cwssaws.TenantKeyset) {
+func (skgsa *SSHKeyGroupSiteAssociation) FromProto(proto *corev1.TenantKeyset) {
 	if proto == nil {
 		return
 	}
@@ -182,9 +182,9 @@ func (skgsa *SSHKeyGroupSiteAssociation) FromProto(proto *cwssaws.TenantKeyset) 
 // create this Tenant Keyset. content carries the synced public-key
 // material (built by the caller from SSH Key Associations); the
 // canonical wire fields are sourced from `ToProto`.
-func (skgsa *SSHKeyGroupSiteAssociation) ToCreateRequestProto(content *cwssaws.TenantKeysetContent) *cwssaws.CreateTenantKeysetRequest {
+func (skgsa *SSHKeyGroupSiteAssociation) ToCreateRequestProto(content *corev1.TenantKeysetContent) *corev1.CreateTenantKeysetRequest {
 	tk := skgsa.ToProto(content)
-	return &cwssaws.CreateTenantKeysetRequest{
+	return &corev1.CreateTenantKeysetRequest{
 		KeysetIdentifier: tk.KeysetIdentifier,
 		KeysetContent:    tk.KeysetContent,
 		Version:          tk.Version,
@@ -194,9 +194,9 @@ func (skgsa *SSHKeyGroupSiteAssociation) ToCreateRequestProto(content *cwssaws.T
 // ToUpdateRequestProto builds the workflow request that asks a Site to
 // update this Tenant Keyset. See ToCreateRequestProto for content
 // semantics.
-func (skgsa *SSHKeyGroupSiteAssociation) ToUpdateRequestProto(content *cwssaws.TenantKeysetContent) *cwssaws.UpdateTenantKeysetRequest {
+func (skgsa *SSHKeyGroupSiteAssociation) ToUpdateRequestProto(content *corev1.TenantKeysetContent) *corev1.UpdateTenantKeysetRequest {
 	tk := skgsa.ToProto(content)
-	return &cwssaws.UpdateTenantKeysetRequest{
+	return &corev1.UpdateTenantKeysetRequest{
 		KeysetIdentifier: tk.KeysetIdentifier,
 		KeysetContent:    tk.KeysetContent,
 		Version:          tk.Version,
@@ -205,8 +205,8 @@ func (skgsa *SSHKeyGroupSiteAssociation) ToUpdateRequestProto(content *cwssaws.T
 
 // ToDeletionRequestProto builds the workflow request that asks a Site
 // to delete this Tenant Keyset.
-func (skgsa *SSHKeyGroupSiteAssociation) ToDeletionRequestProto() *cwssaws.DeleteTenantKeysetRequest {
-	return &cwssaws.DeleteTenantKeysetRequest{
+func (skgsa *SSHKeyGroupSiteAssociation) ToDeletionRequestProto() *corev1.DeleteTenantKeysetRequest {
+	return &corev1.DeleteTenantKeysetRequest{
 		KeysetIdentifier: skgsa.ToKeysetIdentifierProto(),
 	}
 }

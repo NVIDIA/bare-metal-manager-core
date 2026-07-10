@@ -11,7 +11,10 @@ use sqlx::PgPool;
 use crate::compute_tray_manager::{Backend as ComputeBackend, ComputeTrayManager};
 use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
-use crate::nv_switch_manager::{Backend as NvSwitchBackend, NvSwitchManager};
+use crate::nv_switch_manager::{
+    Backend as NvSwitchBackend, ConfigureSwitchCertificateJobStatus, NvSwitchManager,
+    SwitchEndpoint,
+};
 use crate::power_shelf_manager::{Backend as PowerShelfBackend, PowerShelfManager};
 use crate::rms::{RmsSwitchSystemImageStatusApi, validate_rms_backend_rack_profiles};
 
@@ -39,6 +42,26 @@ pub struct ComponentManager {
 }
 
 impl ComponentManager {
+    pub async fn configure_switch_certificate(
+        &self,
+        endpoint: &SwitchEndpoint,
+        domain_name: Option<&str>,
+        services: Option<&[i32]>,
+    ) -> Result<String, ComponentManagerError> {
+        self.nv_switch
+            .configure_switch_certificate(endpoint, domain_name, services)
+            .await
+    }
+
+    pub async fn get_configure_switch_certificate_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
+        self.nv_switch
+            .get_configure_switch_certificate_job_status(job_id)
+            .await
+    }
+
     pub fn new(
         nv_switch: Arc<dyn NvSwitchManager>,
         power_shelf: Arc<dyn PowerShelfManager>,
@@ -108,7 +131,7 @@ pub async fn build_component_manager(
                 rack_profiles.clone(),
             ))
         }
-        NvSwitchBackend::Mock => Arc::new(crate::mock::MockNvSwitchManager),
+        NvSwitchBackend::Mock => Arc::new(crate::mock::MockNvSwitchManager::default()),
     };
 
     let power_shelf: Arc<dyn PowerShelfManager> = match config.power_shelf_backend {

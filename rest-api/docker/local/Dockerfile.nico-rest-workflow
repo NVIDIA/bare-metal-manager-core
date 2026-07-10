@@ -37,7 +37,7 @@ COPY common/ ./common/
 COPY db/ ./db/
 COPY ipam/ ./ipam/
 COPY site-workflow/ ./site-workflow/
-COPY workflow-schema/ ./workflow-schema/
+COPY proto/ ./proto/
 COPY site-manager/ ./site-manager/
 COPY cert-manager/ ./cert-manager/
 

@@ -99,8 +99,19 @@ async fn test_find_rack_by_id(pool: PgPool) {
 
 #[sqlx_test]
 async fn test_force_delete_rack_success(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    let env = TestHarness::builder(pool).build().await;
+    let env = TestHarness::builder(pool.clone()).build().await;
     let TestRack { id: rack_id } = env.create_rack().await;
+
+    let mut txn = pool.begin().await?;
+    db::state_history::persist(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Rack,
+        &rack_id,
+        &"retained-before-force-delete",
+        config_version::ConfigVersion::initial(),
+    )
+    .await?;
+    txn.commit().await?;
 
     let response = env
         .api()
@@ -122,6 +133,20 @@ async fn test_force_delete_rack_success(pool: PgPool) -> Result<(), Box<dyn std:
         .racks;
 
     assert!(racks.is_empty(), "Rack should be hard-deleted");
+
+    let mut conn = pool.acquire().await?;
+    let history = db::state_history::for_object(
+        &mut conn,
+        db::state_history::StateHistoryTableId::Rack,
+        &rack_id,
+    )
+    .await?;
+    assert!(
+        history
+            .iter()
+            .any(|record| record.state == r#""retained-before-force-delete""#),
+        "Rack state history should be retained",
+    );
 
     Ok(())
 }

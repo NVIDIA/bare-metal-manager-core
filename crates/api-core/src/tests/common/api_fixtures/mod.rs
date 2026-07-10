@@ -368,6 +368,11 @@ impl TestEnv {
             .into(),
             switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
             credential_manager: self.test_credential_manager.clone(),
+            component_manager: self.test_component_manager.clone(),
+            nmx_cluster_switch_mtls_services:
+                component_manager::config::switch_mtls_services_as_i32(
+                    &component_manager::config::effective_nmx_cluster_switch_mtls_services(&[]),
+                ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
         }
     }
@@ -1652,6 +1657,9 @@ pub async fn create_test_env_with_overrides(
                 db_pool: db_pool.clone(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
+                switch_mtls_services: component_manager::config::switch_mtls_services_as_i32(
+                    &component_manager::config::effective_switch_mtls_services(&[]),
+                ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1676,6 +1684,11 @@ pub async fn create_test_env_with_overrides(
                 .into(),
                 switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
                 credential_manager: credential_manager.clone(),
+                component_manager: test_component_manager.clone(),
+                nmx_cluster_switch_mtls_services:
+                    component_manager::config::switch_mtls_services_as_i32(
+                        &component_manager::config::effective_nmx_cluster_switch_mtls_services(&[]),
+                    ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),

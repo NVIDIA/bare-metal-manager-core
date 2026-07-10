@@ -635,6 +635,8 @@ impl InternalRBACRules {
         x.perm("UpdatePowerOption", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("CreateBmcUser", vec![ForgeAdminCLI]);
         x.perm("DeleteBmcUser", vec![ForgeAdminCLI]);
+        x.perm("SetBmcRootPassword", vec![ForgeAdminCLI]);
+        x.perm("ProbeBmcVendor", vec![ForgeAdminCLI]);
         x.perm("SetFirmwareUpdateTimeWindow", vec![ForgeAdminCLI, Flow]);
         x.perm("ListHostFirmware", vec![ForgeAdminCLI, Flow]);
         x.perm("EnableInfiniteBoot", vec![ForgeAdminCLI]);
@@ -886,6 +888,10 @@ impl InternalRBACRules {
         x.perm("ComponentPowerControl", vec![ForgeAdminCLI, Flow]);
         x.perm("GetComponentInventory", vec![ForgeAdminCLI, Flow]);
         x.perm("UpdateComponentFirmware", vec![ForgeAdminCLI, Flow]);
+        x.perm(
+            "ComponentConfigureSwitchCertificate",
+            vec![ForgeAdminCLI, Flow],
+        );
         x.perm("GetComponentFirmwareStatus", vec![ForgeAdminCLI, Flow]);
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
         x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);

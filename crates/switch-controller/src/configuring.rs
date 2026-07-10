@@ -19,11 +19,15 @@
 
 use carbide_secrets::credentials::{CredentialKey, Credentials};
 use carbide_uuid::switch::SwitchId;
-use model::switch::{ConfiguringState, Switch, SwitchControllerState, ValidatingState};
+use model::switch::{ConfigureCertificateState, ConfiguringState, Switch, SwitchControllerState};
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
+use crate::certificate::{
+    ConfigureSwitchCertificateMode, StartConfigureSwitchCertificateResult,
+    poll_configure_switch_certificate_job, start_configure_switch_certificate,
+};
 use crate::context::SwitchStateHandlerContextObjects;
 
 /// Handles the Configuring state for a switch.
@@ -33,11 +37,14 @@ pub async fn handle_configuring(
     ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
     let config_state = match &state.controller_state.value {
-        SwitchControllerState::Configuring { config_state } => config_state,
+        SwitchControllerState::Configuring { config_state } => config_state.clone(),
         _ => unreachable!("handle_configuring called with non-Configuring state"),
     };
 
     match config_state {
+        ConfiguringState::ConfigureCertificate {
+            configure_certificate,
+        } => handle_configure_certificate(switch_id, state, ctx, configure_certificate).await,
         ConfiguringState::RotateOsPassword => {
             handle_rotate_os_password(switch_id, state, ctx).await
         }
@@ -68,15 +75,11 @@ async fn handle_rotate_os_password(
             bmc_mac_address
         );
         return Ok(StateHandlerOutcome::transition(
-            SwitchControllerState::Validating {
-                validating_state: ValidatingState::ValidationComplete,
-            },
+            SwitchControllerState::FetchInfo,
         ));
     }
 
-    let outcome = StateHandlerOutcome::transition(SwitchControllerState::Validating {
-        validating_state: ValidatingState::ValidationComplete,
-    });
+    let outcome = StateHandlerOutcome::transition(SwitchControllerState::FetchInfo);
 
     // REQ-6 (set NVOS from factory) is not implemented yet, so this is gated off.
     // Today NICo does not change the NVOS password from the factory default: it
@@ -172,5 +175,73 @@ async fn handle_rotate_os_password(
         );
 
         Ok(outcome)
+    }
+}
+
+async fn handle_configure_certificate(
+    switch_id: &SwitchId,
+    state: &mut Switch,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    configure_certificate: ConfigureCertificateState,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    match configure_certificate {
+        ConfigureCertificateState::Start => {
+            handle_configure_certificate_start(switch_id, state, ctx).await
+        }
+        ConfigureCertificateState::WaitForComplete { job_id } => {
+            handle_configure_certificate_wait_for_complete(switch_id, ctx, &job_id).await
+        }
+    }
+}
+
+async fn handle_configure_certificate_start(
+    switch_id: &SwitchId,
+    state: &Switch,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    match start_configure_switch_certificate(
+        switch_id,
+        state,
+        ctx,
+        None,
+        ConfigureSwitchCertificateMode::BringUp,
+    )
+    .await?
+    {
+        StartConfigureSwitchCertificateResult::EarlyTransition(outcome) => Ok(outcome),
+        StartConfigureSwitchCertificateResult::JobStarted(job_id) => Ok(
+            StateHandlerOutcome::transition(SwitchControllerState::Configuring {
+                config_state: ConfiguringState::ConfigureCertificate {
+                    configure_certificate: ConfigureCertificateState::WaitForComplete { job_id },
+                },
+            }),
+        ),
+    }
+}
+
+async fn handle_configure_certificate_wait_for_complete(
+    switch_id: &SwitchId,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    job_id: &str,
+) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    match poll_configure_switch_certificate_job(switch_id, ctx, job_id).await? {
+        crate::certificate::ConfigureSwitchCertificatePollOutcome::Completed => {
+            tracing::info!(
+                %job_id,
+                "Switch {:?}: switch certificate configuration completed",
+                switch_id
+            );
+            Ok(StateHandlerOutcome::transition(
+                SwitchControllerState::Configuring {
+                    config_state: ConfiguringState::RotateOsPassword,
+                },
+            ))
+        }
+        crate::certificate::ConfigureSwitchCertificatePollOutcome::Failed(cause) => Ok(
+            StateHandlerOutcome::transition(SwitchControllerState::Error { cause }),
+        ),
+        crate::certificate::ConfigureSwitchCertificatePollOutcome::InProgress => Ok(
+            StateHandlerOutcome::wait(format!("switch certificate job {job_id} in progress")),
+        ),
     }
 }

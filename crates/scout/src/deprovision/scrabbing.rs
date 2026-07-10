@@ -276,10 +276,6 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             // assume it is two raid 0s created by the RAID kit if we see a single raid0 output
             cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "0"]).await?;
             cmdrun::run_prog(lenovo_mnv_cli_prog, ["vd", "-a", "delete", "-i", "1"]).await?;
-        } else {
-            return Err(CarbideClientError::GenericError(
-                "Could not find a RAID0 or RAID1 on the raid kit".to_string(),
-            ));
         }
 
         // Clean the disks
@@ -916,7 +912,7 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
                     let slot = p.slot.unwrap();
                     // Set P1 (required - all IB devices have P1)
                     match cmdrun::run_prog(
-                        "mstconfig",
+                        "mlxconfig",
                         ["-y", "-d", &slot, "set", "KEEP_IB_LINK_UP_P1=1"],
                     )
                     .await
@@ -934,7 +930,7 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
                     }
                     // Set P2 (optional - only dual-port devices have P2)
                     match cmdrun::run_prog(
-                        "mstconfig",
+                        "mlxconfig",
                         ["-y", "-d", &slot, "set", "KEEP_IB_LINK_UP_P2=1"],
                     )
                     .await
@@ -978,7 +974,7 @@ async fn reset_ib_devices() -> Result<(), CarbideClientError> {
             for ib in ibs {
                 if let Some(p) = ib.pci_properties {
                     let slot = p.slot.unwrap();
-                    match cmdrun::run_prog("mstconfig", ["-y", "-d", &slot, "reset"]).await {
+                    match cmdrun::run_prog("mlxconfig", ["-y", "-d", &slot, "reset"]).await {
                         Ok(_) => {
                             tracing::info!("reset IB device {} successfully.", slot);
                         }

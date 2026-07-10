@@ -100,6 +100,8 @@ impl StaticEndpointSource {
                     StaticSwitchEndpointRole::Bmc => SwitchEndpointRole::Bmc,
                     StaticSwitchEndpointRole::Host => SwitchEndpointRole::Host,
                 };
+
+                let nmxc_enabled = switch.nmxc_enabled.unwrap_or(switch.is_primary);
                 let nmxt_enabled = switch.nmxt_enabled.unwrap_or(switch.is_primary);
 
                 Some(EndpointMetadata::Switch(SwitchData {
@@ -109,6 +111,7 @@ impl StaticEndpointSource {
                     tray_index: switch.tray_index,
                     endpoint_role,
                     is_primary: switch.is_primary,
+                    nmxc_enabled,
                     nmxt_enabled,
                 }))
             } else if let Some(machine) = &cfg.machine {
@@ -326,6 +329,7 @@ mod tests {
                 tray_index: Some(3),
                 endpoint_role: StaticSwitchEndpointRole::Host,
                 is_primary: true,
+                nmxc_enabled: None,
                 nmxt_enabled: None,
             }),
             rack_id: None,
@@ -343,6 +347,7 @@ mod tests {
                 assert_eq!(s.tray_index, Some(3));
                 assert_eq!(s.endpoint_role, SwitchEndpointRole::Host);
                 assert!(s.is_primary);
+                assert!(s.nmxc_enabled);
                 assert!(s.nmxt_enabled);
             }
             other => panic!("expected Switch metadata, got {other:?}"),

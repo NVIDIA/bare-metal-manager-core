@@ -7,7 +7,7 @@ import (
 	"time"
 
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // APISku is the data structure to capture API representation of a SKU
@@ -154,7 +154,7 @@ type APISkuTpm struct {
 }
 
 // NewAPISkuComponents converts proto SkuComponents to API SkuComponents
-func NewAPISkuComponents(protoComponents *cwssaws.SkuComponents) *APISkuComponents {
+func NewAPISkuComponents(protoComponents *corev1.SkuComponents) *APISkuComponents {
 	if protoComponents == nil {
 		return nil
 	}

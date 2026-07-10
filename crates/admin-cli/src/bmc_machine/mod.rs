@@ -24,6 +24,8 @@ mod enable_infinite_boot;
 mod is_infinite_boot_enabled;
 mod lockdown;
 mod lockdown_status;
+mod probe_vendor;
+mod set_root_password;
 
 #[cfg(test)]
 mod tests;
@@ -49,4 +51,10 @@ pub enum Cmd {
     Lockdown(lockdown::Args),
     #[clap(about = "Check lockdown status")]
     LockdownStatus(lockdown_status::Args),
+    #[clap(
+        about = "Set a BMC's root password out-of-band (for fleet rotation use `credential rotate`)"
+    )]
+    SetRootPassword(set_root_password::Args),
+    #[clap(about = "Resolve a BMC's Redfish vendor")]
+    ProbeVendor(probe_vendor::Args),
 }

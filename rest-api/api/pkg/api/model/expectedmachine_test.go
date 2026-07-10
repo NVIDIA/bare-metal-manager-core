@@ -13,7 +13,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -1022,8 +1022,8 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 					DeviceType:           cutil.GetPtr("gpu"),
 					AssociatedMachineIds: []string{"machine-1", "machine-2"},
 					Components: &cdbm.SkuComponents{
-						SkuComponents: &cwssaws.SkuComponents{
-							Cpus: []*cwssaws.SkuComponentCpu{
+						SkuComponents: &corev1.SkuComponents{
+							Cpus: []*corev1.SkuComponentCpu{
 								{
 									Vendor:      "Intel",
 									Model:       "Xeon Gold 6354",
@@ -1031,7 +1031,7 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 									Count:       2,
 								},
 							},
-							Gpus: []*cwssaws.SkuComponentGpu{
+							Gpus: []*corev1.SkuComponentGpu{
 								{
 									Vendor:      "NVIDIA",
 									Model:       "A100",
@@ -1039,14 +1039,14 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 									Count:       8,
 								},
 							},
-							Memory: []*cwssaws.SkuComponentMemory{
+							Memory: []*corev1.SkuComponentMemory{
 								{
 									CapacityMb: 524288,
 									Count:      16,
 									MemoryType: "DDR4",
 								},
 							},
-							Storage: []*cwssaws.SkuComponentStorage{
+							Storage: []*corev1.SkuComponentStorage{
 								{
 									Vendor:     "Samsung",
 									Model:      "PM9A3",
@@ -1054,11 +1054,11 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 									Count:      4,
 								},
 							},
-							Chassis: &cwssaws.SkuComponentChassis{
+							Chassis: &corev1.SkuComponentChassis{
 								Vendor: "Dell",
 								Model:  "PowerEdge R750xa",
 							},
-							Tpm: &cwssaws.SkuComponentTpm{
+							Tpm: &corev1.SkuComponentTpm{
 								Vendor:  "Infineon",
 								Version: "2.0",
 							},
@@ -1169,7 +1169,7 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 					DeviceType:           cutil.GetPtr("storage"),
 					AssociatedMachineIds: []string{},
 					Components: &cdbm.SkuComponents{
-						SkuComponents: &cwssaws.SkuComponents{},
+						SkuComponents: &corev1.SkuComponents{},
 					},
 				},
 			},
@@ -1199,8 +1199,8 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 				Updated:                  time.Now(),
 				Sku: &cdbm.SKU{
 					Components: &cdbm.SkuComponents{
-						SkuComponents: &cwssaws.SkuComponents{
-							Gpus: []*cwssaws.SkuComponentGpu{
+						SkuComponents: &corev1.SkuComponents{
+							Gpus: []*corev1.SkuComponentGpu{
 								{
 									Vendor:      "NVIDIA",
 									Model:       "A100",
@@ -1214,7 +1214,7 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 									Count:       4,
 								},
 							},
-							Storage: []*cwssaws.SkuComponentStorage{
+							Storage: []*corev1.SkuComponentStorage{
 								{
 									Vendor:     "Samsung",
 									Model:      "PM9A3",
@@ -1260,8 +1260,8 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 				Updated:                  time.Now(),
 				Sku: &cdbm.SKU{
 					Components: &cdbm.SkuComponents{
-						SkuComponents: &cwssaws.SkuComponents{
-							Cpus: []*cwssaws.SkuComponentCpu{
+						SkuComponents: &corev1.SkuComponents{
+							Cpus: []*corev1.SkuComponentCpu{
 								{
 									Vendor:      "AMD",
 									Model:       "EPYC 7763",
@@ -1269,7 +1269,7 @@ func TestNewAPIExpectedMachineWithSkuComponents(t *testing.T) {
 									Count:       2,
 								},
 							},
-							Chassis: &cwssaws.SkuComponentChassis{
+							Chassis: &corev1.SkuComponentChassis{
 								Vendor: "HPE",
 								Model:  "ProLiant DL380",
 							},

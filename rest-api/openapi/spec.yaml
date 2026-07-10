@@ -182,6 +182,10 @@ tags:
   - name: Operating System
     description: |-
       Operating Systems in NICo are typically iPXE scripts that are used to boot Machines.
+
+      Deprecation history:
+
+      - `isCloudInit` on create and update requests is deprecated and ignored; the response field is derived from whether `userData` is non-empty.
   - name: Instance Type
     description: |-
       Instance Types allow grouping Machines into a pool defined by their capabilities. Providers can then allocate a portion of the Instance Type pool to a Tenant.
@@ -4352,6 +4356,9 @@ paths:
                   switchSerialNumber: SWITCH-12345
                   nvOsUsername: nvadmin
                   nvOsPassword: nvpassword123
+                  nvosMacAddresses:
+                    - '00:1A:2B:3C:4D:60'
+                    - '00:1A:2B:3C:4D:61'
                   labels:
                     environment: production
                     rack: A1
@@ -4515,6 +4522,9 @@ paths:
                   switchSerialNumber: SWITCH-54321
                   nvOsUsername: newnvadmin
                   nvOsPassword: newnvpassword123
+                  nvosMacAddresses:
+                    - '00:1A:2B:3C:4D:62'
+                    - '00:1A:2B:3C:4D:63'
                   labels:
                     environment: staging
                     rack: B2
@@ -4570,15 +4580,15 @@ paths:
       summary: Retrieve all SKUs
       operationId: get-all-sku
       description: |-
-        Retrieve all SKUs (Stock Keeping Units) for the Infrastructure Provider or privileged Tenant.
+        Retrieve all SKUs (Stock Keeping Units) for a Site.
 
         SKUs represent unique hardware configurations discovered at sites. They are automatically derived from machine characteristics.
 
         A `siteId` query parameter is required for all requests.
 
-        For Infrastructure Providers: Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled. User must have authorization role with `TENANT_ADMIN` suffix. The Tenant must have an account with the Site's Infrastructure Provider.
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
       parameters:
         - schema:
             type: string
@@ -7846,7 +7856,7 @@ paths:
                       rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
                       ipxeScript: null
                       userData: null
-                      isCloudInit: true
+                      isCloudInit: false
                       phoneHomeEnabled: false
                       allowOverride: false
                       siteAssociations:
@@ -8133,7 +8143,7 @@ paths:
                   rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
                   rootFsLabel: null
                   userData: null
-                  isCloudInit: true
+                  isCloudInit: false
                   phoneHomeEnabled: false
                   allowOverride: false
       tags:
@@ -8181,7 +8191,7 @@ paths:
                     rootFsLabel: null
                     ipxeScript: null
                     userData: null
-                    isCloudInit: true
+                    isCloudInit: false
                     phoneHomeEnabled: false
                     allowOverride: false
                     siteAssociations:
@@ -9101,7 +9111,11 @@ paths:
 
         Instance Type attribute updates, maintenance attribute updates and labels updates must be specified in separate requests. They cannot be processed at the same time.
 
-        Some attributes can only be updated by Provider, while others can be updated by Provider or a Privileged Tenant.
+        Some attributes can only be updated by Provider, while others can be updated by Provider or a privileged Tenant.
+
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
       requestBody:
         content:
           application/json:
@@ -9157,7 +9171,7 @@ paths:
           description: Describes an error response for 500 Internal Server Error
           $ref: '#/components/responses/GenericHttpError'
       description: Org must have an Infrastructure Provider entity. Machine must belong to the Provider. User must have authorization role with `PROVIDER_ADMIN` suffix. Machine must meet certain criteria to be eligible for deletion.
-  '/v2/org/{org}/nico/machine/{machineId}/bmc-reset':
+  '/v2/org/{org}/nico/machine/{machineId}/bmc/reset':
     parameters:
       - schema:
           type: string
@@ -9171,7 +9185,7 @@ paths:
         in: path
         required: true
         description: ID of the Machine
-    post:
+    patch:
       summary: Reset Machine BMC
       tags:
         - BMC Reset
@@ -9180,7 +9194,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/BmcResetRequest'
+              $ref: '#/components/schemas/BMCResetRequest'
       responses:
         '202':
           description: Machine BMC reset request was accepted
@@ -9204,7 +9218,9 @@ paths:
       description: |-
         Reset BMC of a specific Machine.
         
-        User must have authorization role with `PROVIDER_ADMIN` suffix.
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/dpu/reprovision':
     parameters:
       - schema:
@@ -9251,7 +9267,10 @@ paths:
       operationId: reprovision-machine-dpu
       description: |-
         Trigger DPU reprovisioning for a Machine. It may be necessary to create a `HostUpdateInProgress` health report for the Machine before DPU reprovisioning can be triggered.
-        User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/health-report':
     parameters:
       - schema:
@@ -9285,11 +9304,13 @@ paths:
           $ref: '#/components/responses/NotFoundError'
         '500':
           $ref: '#/components/responses/GenericHttpError'
-      operationId: get-machine-health-report
+      operationId: get-all-machine-health-report
       description: |-
         Get all health reports for a specific Machine.
 
-        User must have authorization role with `PROVIDER_ADMIN` suffix.
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
+
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
     put:
       summary: Create or update Machine health report
       tags:
@@ -9319,7 +9340,9 @@ paths:
       description: |-
         Add or update health report override for a specific Machine.
         
-        User must have authorization role with `PROVIDER_ADMIN` suffix.
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/health-report/{source}':
     parameters:
       - schema:
@@ -9359,7 +9382,9 @@ paths:
       description: |-
         Remove a health report override for a specific Machine.
 
-        User must have authorization role with `PROVIDER_ADMIN` suffix.
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled and Tenant Account with Machine's Provider. User must have authorization role with `TENANT_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/power':
     parameters:
       - schema:
@@ -9414,7 +9439,7 @@ paths:
       description: |-
         Execute power control actions for a specific Machine.
         
-        User must have authorization role with `PROVIDER_ADMIN` suffix.
+        Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:
@@ -13521,15 +13546,18 @@ components:
         macAddress:
           type: string
           description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
-    BmcResetRequest:
+    BMCResetRequest:
       type: object
-      title: BmcResetRequest
+      title: BMCResetRequest
       description: Request to reset a Machine BMC
       properties:
         useIpmiTool:
           type: boolean
           default: false
           description: Reset the BMC via ipmitool instead of Redfish.
+        acknowledgeAttachedInstance:
+          type: boolean
+          description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
       examples:
         - useIpmiTool: true
     DpuReprovisionRequest:
@@ -13550,6 +13578,9 @@ components:
           type: boolean
           default: false
           description: Whether to update firmware during reprovisioning.
+        acknowledgeAttachedInstance:
+          type: boolean
+          description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
       examples:
         - mode: Restart
           updateFirmware: true
@@ -13935,7 +13966,7 @@ components:
           type: string
           description: Power control action to apply.
           enum:
-            - 'On'
+            - On
             - GracefulShutdown
             - ForceOff
             - GracefulRestart
@@ -13943,7 +13974,10 @@ components:
             - ACPowercycle
         acknowledgeAttachedInstance:
           type: boolean
-          description: Acknowledges that an Instance is currently attached to the Machine.
+          description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
+      examples:
+        - action: ForceRestart
+          acknowledgeAttachedInstance: true
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
@@ -16502,7 +16536,7 @@ components:
           rootFsLabel: null
           ipxeScript: null
           userData: null
-          isCloudInit: true
+          isCloudInit: false
           phoneHomeEnabled: false
           isActive: true
           deactivationNote: null
@@ -16678,7 +16712,7 @@ components:
           description: User data for the Operating System
         isCloudInit:
           type: boolean
-          description: Specified when the Operating System is cloud-init based
+          description: Whether the Operating System is cloud-init based; true if there is non-empty `userData`, false otherwise.
         phoneHomeEnabled:
           type: boolean
           description: Indicates whether the Phone Home service should be enabled or disabled for Operating System
@@ -16811,7 +16845,7 @@ components:
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
           imageDisk: /dev/sda
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
-          isCloudInit: true
+          isCloudInit: false
           allowOverride: false
       description: Request data to create an OperatingSystem
       properties:
@@ -16898,7 +16932,8 @@ components:
           description: User data for the Operating System
         isCloudInit:
           type: boolean
-          description: Specified when the Operating System is cloud-init based
+          deprecated: true
+          description: 'Deprecated and ignored: whether the Operating System is cloud-init based. Value now derived from `userData`.'
         allowOverride:
           type: boolean
           description: Indicates if the user data can be overridden at Instance creation time
@@ -16920,7 +16955,7 @@ components:
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
           imageDisk: /dev/sda
           rootFsId: 6c2ac315-3040-4728-94eb-b66d320206c1
-          isCloudInit: true
+          isCloudInit: false
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
@@ -16993,7 +17028,8 @@ components:
           type:
             - boolean
             - 'null'
-          description: Specified when the Operating System is cloud-init based
+          deprecated: true
+          description: 'Deprecated and ignored: whether the Operating System is cloud-init based. Value now derived from `userData`.'
         allowOverride:
           type:
             - boolean
@@ -20420,16 +20456,16 @@ components:
           type:
             - boolean
             - 'null'
-          description: Set to `true` to enable maintenance mode and to `false` to disable maintenance mode. Can be set by Provider or Privileged Tenant.
+          description: Set to `true` to enable maintenance mode and to `false` to disable maintenance mode. Can be set by Provider or privileged Tenant.
         maintenanceMessage:
           type:
             - string
             - 'null'
-          description: Optional message describing the reason for moving Machine into maintenance mode. Can be updated by Provider or Privileged Tenant.
+          description: Optional message describing the reason for moving Machine into maintenance mode. Can be updated by Provider or privileged Tenant.
           minLength: 5
           maxLength: 256
         labels:
-          description: 'Machine labels will be overwritten, include existing labels to preserve them. Can be updated by Provider or Privileged Tenant.'
+          description: 'Machine labels will be overwritten, include existing labels to preserve them. Can be updated by Provider or privileged Tenant.'
           $ref: '#/components/schemas/Labels'
         onlineRepair:
           $ref: '#/components/schemas/MachineOnlineRepair'
@@ -21950,6 +21986,9 @@ components:
           bmcMacAddress: '00:1A:2B:3C:4D:5E'
           bmcIpAddress: '192.168.1.100'
           switchSerialNumber: SWITCH-12345
+          nvosMacAddresses:
+            - '00:1A:2B:3C:4D:60'
+            - '00:1A:2B:3C:4D:61'
           rackId: rack-01
           manufacturer: NVIDIA
           labels:
@@ -21975,6 +22014,13 @@ components:
         switchSerialNumber:
           type: string
           description: Serial number of the Expected Switch
+        nvosMacAddresses:
+          type: array
+          uniqueItems: true
+          description: MAC addresses of the Expected Switch's NvOS management interfaces
+          items:
+            type: string
+            pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
         rackId:
           type:
             - string
@@ -22052,6 +22098,9 @@ components:
           switchSerialNumber: SWITCH-12345
           nvOsUsername: nvadmin
           nvOsPassword: nvpassword123
+          nvosMacAddresses:
+            - '00:1A:2B:3C:4D:60'
+            - '00:1A:2B:3C:4D:61'
           rackId: rack-01
           manufacturer: NVIDIA
           labels:
@@ -22093,6 +22142,13 @@ components:
             - string
             - 'null'
           description: NvOS password for the Expected Switch
+        nvosMacAddresses:
+          type: array
+          uniqueItems: true
+          description: MAC addresses of the Expected Switch's NvOS management interfaces
+          items:
+            type: string
+            pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
         rackId:
           type:
             - string
@@ -22161,6 +22217,9 @@ components:
           switchSerialNumber: SWITCH-54321
           nvOsUsername: newnvadmin
           nvOsPassword: newnvpassword123
+          nvosMacAddresses:
+            - '00:1A:2B:3C:4D:62'
+            - '00:1A:2B:3C:4D:63'
           rackId: rack-02
           manufacturer: NVIDIA
           labels:
@@ -22208,6 +22267,13 @@ components:
             - string
             - 'null'
           description: NvOS password for the Expected Switch
+        nvosMacAddresses:
+          type: array
+          uniqueItems: true
+          description: MAC addresses of the Expected Switch's NvOS management interfaces
+          items:
+            type: string
+            pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
         rackId:
           type:
             - string

@@ -626,12 +626,6 @@ impl ExploredDpu {
             .report
             .create_temporary_dmi_data(serial_number, vendor, model);
 
-        let chassis_map = self
-            .report
-            .chassis
-            .iter()
-            .map(|x| (x.id.as_str(), x))
-            .collect::<HashMap<_, _>>();
         let inventory_map = self.report.get_inventory_map();
 
         let dpu_data = DpuData {
@@ -639,15 +633,21 @@ impl ExploredDpu {
                 .host_pf_mac_address
                 .ok_or(ModelError::MissingArgument("Missing base mac"))?
                 .to_string(),
-            part_number: chassis_map
-                .get("Card1")
-                .and_then(|value| value.part_number.as_ref())
-                .unwrap_or(&"".to_string())
+            part_number: self
+                .report
+                .chassis
+                .iter()
+                .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                .find_map(chassis_part_number)
+                .unwrap_or("")
                 .to_string(),
-            part_description: chassis_map
-                .get("Card1")
-                .and_then(|value| value.model.as_ref())
-                .unwrap_or(&"".to_string())
+            part_description: self
+                .report
+                .chassis
+                .iter()
+                .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                .find_map(chassis_model)
+                .unwrap_or("")
                 .to_string(),
             firmware_version: inventory_map
                 .get("DPU_NIC")
@@ -837,8 +837,8 @@ impl EndpointExplorationReport {
                 // `Bluefield_BMC` on some trays, `BlueField_BMC_0` on others).
                 self.chassis
                     .iter()
-                    .find(|chassis| is_dpu_product_chassis_id(&chassis.id))
-                    .and_then(chassis_part_number)
+                    .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                    .find_map(chassis_part_number)
             })
     }
 
@@ -877,7 +877,7 @@ impl EndpointExplorationReport {
         if !self
             .systems
             .first()
-            .map(|system| system.id == "Bluefield")
+            .map(is_bluefield_system)
             .unwrap_or(false)
         {
             return None;
@@ -890,8 +890,14 @@ impl EndpointExplorationReport {
             .collect::<HashMap<_, _>>();
         let model = chassis_map
             .get("Card1")
-            .and_then(|value| value.model.as_ref())
-            .unwrap_or(&"".to_string())
+            .and_then(|value| chassis_model(value))
+            .or_else(|| {
+                self.chassis
+                    .iter()
+                    .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                    .find_map(chassis_model)
+            })
+            .unwrap_or("")
             .to_string();
         match model.to_lowercase() {
             value if value.contains("bluefield 2") => Some(DpuModel::BlueField2),
@@ -942,13 +948,18 @@ impl EndpointExplorationReport {
             .or_else(|| {
                 self.is_dpu().then(|| {
                     // BF4 reports no system serial in Redfish. The stable product serial is
-                    // on the Bluefield_BMC chassis; use that explicit chassis ID instead of
+                    // on the product BMC chassis; use its known legacy/new IDs instead of
                     // depending on chassis collection order or unrelated component serials.
                     self.chassis
                         .iter()
-                        .find(|chassis| chassis.id == "Bluefield_BMC")
-                        .and_then(|chassis| chassis.serial_number.as_deref().map(str::trim))
-                        .filter(|serial| !serial.trim().is_empty())
+                        .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                        .find_map(|chassis| {
+                            chassis
+                                .serial_number
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|serial| !serial.is_empty())
+                        })
                 })?
             })
     }
@@ -1467,7 +1478,7 @@ pub enum PowerState {
 }
 
 /// `Manager` definition. Matches redfish definition
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Manager {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1752,9 +1763,25 @@ pub fn is_bf4_dpu_part_number(part_number: &str) -> bool {
         || normalized_part_number.starts_with("900-9d4a4")
 }
 
-/// Whether a DPU BMC chassis member carries the card product identity (part/serial).
+/// Whether a DPU BMC chassis member carries the card product identity
+/// (part/model/serial).
+///
+/// Older Redfish reports publish this identity on `Card1`; newer BF4 firmware may
+/// instead publish it on the integrated BMC chassis (`Bluefield_BMC` or
+/// `BlueField_BMC_0`). These IDs are expected to be mutually exclusive as product
+/// identity sources in real reports, so callers can select the first matching
+/// chassis.
 fn is_dpu_product_chassis_id(id: &str) -> bool {
-    matches!(id, "Bluefield_BMC" | "BlueField_BMC_0")
+    matches!(id, "Card1" | "Bluefield_BMC" | "BlueField_BMC_0")
+}
+
+/// Whether a Redfish ComputerSystem id identifies a BlueField DPU system.
+///
+/// Firmware is inconsistent: older dumps expose `/redfish/v1/Systems/Bluefield`
+/// while newer BF4 firmware exposes `/redfish/v1/Systems/BlueField_0`. Accept
+/// both so DPU detection is not silently skipped.
+pub fn is_bluefield_system(system: &ComputerSystem) -> bool {
+    matches!(system.id.as_str(), "Bluefield" | "BlueField_0")
 }
 
 fn chassis_part_number(chassis: &Chassis) -> Option<&str> {
@@ -1763,6 +1790,14 @@ fn chassis_part_number(chassis: &Chassis) -> Option<&str> {
         .as_deref()
         .map(str::trim)
         .filter(|part_number| !part_number.is_empty())
+}
+
+fn chassis_model(chassis: &Chassis) -> Option<&str> {
+    chassis
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
 }
 
 // returns true if the passed in string is a BlueField part number
@@ -1953,14 +1988,18 @@ impl EndpointExplorationReport {
             .or_else(|| {
                 // BF4 Redfish does not currently expose the product serial or
                 // DPU/NIC mode on the system object. The stable product serial
-                // lives on the Bluefield_BMC chassis and matches the serial the
+                // lives on the product BMC chassis and matches the serial the
                 // host BMC reports for the PCIe/network-adapter device.
                 self.chassis
                     .iter()
-                    .find(|chassis| chassis.id == "Bluefield_BMC")
-                    .and_then(|chassis| chassis.serial_number.as_deref())
-                    .map(str::trim)
-                    .filter(|serial| !serial.is_empty())
+                    .filter(|chassis| is_dpu_product_chassis_id(&chassis.id))
+                    .find_map(|chassis| {
+                        chassis
+                            .serial_number
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|serial| !serial.is_empty())
+                    })
             })
     }
 }
@@ -2073,7 +2112,11 @@ mod explored_mlx_device_tests {
     ) -> EndpointExplorationReport {
         EndpointExplorationReport {
             systems: vec![ComputerSystem {
-                id: "Bluefield".to_string(),
+                id: if bmc_chassis_id == "BlueField_BMC_0" {
+                    "BlueField_0".to_string()
+                } else {
+                    "Bluefield".to_string()
+                },
                 ..Default::default()
             }],
             chassis: vec![
@@ -2163,6 +2206,34 @@ mod explored_mlx_device_tests {
             Some("900-9D3B6-00CV-AA0"),
             "Card1 part number must win when present"
         );
+    }
+
+    #[test]
+    fn recognizes_legacy_and_new_bluefield_system_ids() {
+        let system = |id: &str| ComputerSystem {
+            id: id.to_string(),
+            ..Default::default()
+        };
+        assert!(is_bluefield_system(&system("Bluefield")));
+        assert!(is_bluefield_system(&system("BlueField_0")));
+        assert!(!is_bluefield_system(&system("Bluefield_0")));
+    }
+
+    #[test]
+    fn new_bf4_ids_use_bmc_chassis_for_identity_and_pairing() {
+        const SERIAL: &str = "MT2610604VN4";
+        let mut report = dpu_report_with_bf4_bmc_chassis("BlueField_BMC_0", "900-9D4A4-00CB-TS4");
+        let bmc_chassis = report
+            .chassis
+            .iter_mut()
+            .find(|chassis| chassis.id == "BlueField_BMC_0")
+            .unwrap();
+        bmc_chassis.serial_number = Some(SERIAL.to_string());
+        bmc_chassis.model = Some("B4240".to_string());
+
+        assert_eq!(report.identify_dpu(), Some(DpuModel::Unknown));
+        assert_eq!(report.machine_id_serial_number(), Some(SERIAL));
+        assert_eq!(report.dpu_pairing_serial_number(), Some(SERIAL));
     }
 
     #[test]

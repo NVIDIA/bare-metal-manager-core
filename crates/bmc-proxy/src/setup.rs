@@ -48,7 +48,9 @@ pub fn setup_logging(debug: bool) -> SetupResult<()> {
             .from_env()?,
     );
 
+    let log_events = carbide_instrument::LogEventsMetric::new("nico-bmc-proxy");
     tracing_subscriber::registry()
+        .with(log_events.layer().with_filter(log_filter.clone()))
         .with(
             logfmt::layer()
                 .with_event_fields([logfmt::EventField::with_default(

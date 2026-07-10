@@ -28,7 +28,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // testTemporalSiteClientPool Building site client pool
@@ -137,7 +137,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 	}
 
 	expectedPowerShelvesToUpdate := []*cdbm.ExpectedPowerShelf{}
-	pagedCtrlExpectedPowerShelves := []*cwssaws.ExpectedPowerShelf{}
+	pagedCtrlExpectedPowerShelves := []*corev1.ExpectedPowerShelf{}
 
 	for i := 0; i < 34; i++ {
 		// Convert DB BmcIpAddress (*string) to proto BmcIpAddress (string)
@@ -146,8 +146,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			protoBmcIpAddress = *pagedExpectedPowerShelves[i].BmcIpAddress
 		}
 
-		ctrlExpectedPowerShelf := &cwssaws.ExpectedPowerShelf{
-			ExpectedPowerShelfId: &cwssaws.UUID{Value: pagedExpectedPowerShelves[i].ID.String()},
+		ctrlExpectedPowerShelf := &corev1.ExpectedPowerShelf{
+			ExpectedPowerShelfId: &corev1.UUID{Value: pagedExpectedPowerShelves[i].ID.String()},
 			BmcMacAddress:        pagedExpectedPowerShelves[i].BmcMacAddress,
 			ShelfSerialNumber:    pagedExpectedPowerShelves[i].ShelfSerialNumber,
 			BmcIpAddress:         protoBmcIpAddress,
@@ -155,8 +155,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 
 		// Add labels to controller expected power shelves
 		if i%5 == 0 {
-			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
+			ctrlExpectedPowerShelf.Metadata = &corev1.Metadata{
+				Labels: []*corev1.Label{
 					{Key: "rack", Value: cutil.GetPtr(fmt.Sprintf("rack-%d", i/5))},
 					{Key: "position", Value: cutil.GetPtr(fmt.Sprintf("pos-%d", i))},
 				},
@@ -180,16 +180,16 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 		// Test label updates: add/modify labels for some power shelves
 		if i == 1 {
 			// Add labels to a power shelf that didn't have them before
-			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
+			ctrlExpectedPowerShelf.Metadata = &corev1.Metadata{
+				Labels: []*corev1.Label{
 					{Key: "new-label", Value: cutil.GetPtr("new-value")},
 				},
 			}
 			expectedPowerShelvesToUpdate = append(expectedPowerShelvesToUpdate, pagedExpectedPowerShelves[i])
 		} else if i == 5 {
 			// Modify existing labels
-			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
+			ctrlExpectedPowerShelf.Metadata = &corev1.Metadata{
+				Labels: []*corev1.Label{
 					{Key: "rack", Value: cutil.GetPtr(fmt.Sprintf("rack-updated-%d", i/5))},
 					{Key: "position", Value: cutil.GetPtr(fmt.Sprintf("pos-%d", i))},
 					{Key: "status", Value: cutil.GetPtr("active")},
@@ -198,8 +198,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			expectedPowerShelvesToUpdate = append(expectedPowerShelvesToUpdate, pagedExpectedPowerShelves[i])
 		} else if i == 10 {
 			// Remove labels (set to empty labels array)
-			ctrlExpectedPowerShelf.Metadata = &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{},
+			ctrlExpectedPowerShelf.Metadata = &corev1.Metadata{
+				Labels: []*corev1.Label{},
 			}
 			expectedPowerShelvesToUpdate = append(expectedPowerShelvesToUpdate, pagedExpectedPowerShelves[i])
 		} else if i == 15 {
@@ -228,7 +228,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 	type args struct {
 		ctx                         context.Context
 		siteID                      uuid.UUID
-		expectedPowerShelfInventory *cwssaws.ExpectedPowerShelfInventory
+		expectedPowerShelfInventory *corev1.ExpectedPowerShelfInventory
 	}
 
 	tests := []struct {
@@ -263,8 +263,8 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				expectedPowerShelfInventory: &cwssaws.ExpectedPowerShelfInventory{
-					ExpectedPowerShelves: []*cwssaws.ExpectedPowerShelf{},
+				expectedPowerShelfInventory: &corev1.ExpectedPowerShelfInventory{
+					ExpectedPowerShelves: []*corev1.ExpectedPowerShelf{},
 				},
 			},
 			wantErr: true,
@@ -279,10 +279,10 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				expectedPowerShelfInventory: &cwssaws.ExpectedPowerShelfInventory{
-					ExpectedPowerShelves: []*cwssaws.ExpectedPowerShelf{},
+				expectedPowerShelfInventory: &corev1.ExpectedPowerShelfInventory{
+					ExpectedPowerShelves: []*corev1.ExpectedPowerShelf{},
 					Timestamp:            timestamppb.Now(),
-					InventoryStatus:      cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+					InventoryStatus:      corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 				},
 			},
 			wantErr: false,
@@ -297,11 +297,11 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				expectedPowerShelfInventory: &cwssaws.ExpectedPowerShelfInventory{
-					ExpectedPowerShelves: []*cwssaws.ExpectedPowerShelf{},
+				expectedPowerShelfInventory: &corev1.ExpectedPowerShelfInventory{
+					ExpectedPowerShelves: []*corev1.ExpectedPowerShelf{},
 					Timestamp:            timestamppb.Now(),
-					InventoryStatus:      cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus:      corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -321,11 +321,11 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				expectedPowerShelfInventory: &cwssaws.ExpectedPowerShelfInventory{
+				expectedPowerShelfInventory: &corev1.ExpectedPowerShelfInventory{
 					ExpectedPowerShelves: pagedCtrlExpectedPowerShelves[0:20],
 					Timestamp:            timestamppb.Now(),
-					InventoryStatus:      cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus:      corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  2,
 						PageSize:    20,
@@ -347,11 +347,11 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				expectedPowerShelfInventory: &cwssaws.ExpectedPowerShelfInventory{
+				expectedPowerShelfInventory: &corev1.ExpectedPowerShelfInventory{
 					ExpectedPowerShelves: pagedCtrlExpectedPowerShelves[20:34],
 					Timestamp:            timestamppb.Now(),
-					InventoryStatus:      cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus:      corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 2,
 						TotalPages:  2,
 						PageSize:    20,
@@ -373,15 +373,15 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				expectedPowerShelfInventory: &cwssaws.ExpectedPowerShelfInventory{
-					ExpectedPowerShelves: []*cwssaws.ExpectedPowerShelf{
+				expectedPowerShelfInventory: &corev1.ExpectedPowerShelfInventory{
+					ExpectedPowerShelves: []*corev1.ExpectedPowerShelf{
 						{
-							ExpectedPowerShelfId: &cwssaws.UUID{Value: uuid.New().String()},
+							ExpectedPowerShelfId: &corev1.UUID{Value: uuid.New().String()},
 							BmcMacAddress:        "00:11:22:33:44:FF",
 							ShelfSerialNumber:    "SHELF-SN-NEW-1",
 							BmcIpAddress:         "10.0.0.100",
-							Metadata: &cwssaws.Metadata{
-								Labels: []*cwssaws.Label{
+							Metadata: &corev1.Metadata{
+								Labels: []*corev1.Label{
 									{Key: "environment", Value: cutil.GetPtr("test")},
 									{Key: "datacenter", Value: cutil.GetPtr("dc1")},
 								},
@@ -389,7 +389,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 						},
 					},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				},
 			},
 			expectedPowerShelvesToUpdate: []*cdbm.ExpectedPowerShelf{},
@@ -427,7 +427,7 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB(t *testing.T) {
 				updated := powerShelvesByID[eps.ID]
 				assert.NotNil(t, updated, fmt.Sprintf("ExpectedPowerShelf %v should exist", eps.ID))
 				// Find the corresponding controller power shelf
-				var ctrlEPS *cwssaws.ExpectedPowerShelf
+				var ctrlEPS *corev1.ExpectedPowerShelf
 				for _, ceps := range tt.args.expectedPowerShelfInventory.ExpectedPowerShelves {
 					if ceps.ExpectedPowerShelfId.Value == eps.ID.String() {
 						ctrlEPS = ceps
@@ -524,10 +524,10 @@ func TestManageExpectedPowerShelf_UpdateExpectedPowerShelvesInDB_RaceCondition(t
 	}
 
 	// Send inventory without this power shelf - it should NOT be deleted due to race condition
-	inventory := &cwssaws.ExpectedPowerShelfInventory{
-		ExpectedPowerShelves: []*cwssaws.ExpectedPowerShelf{},
+	inventory := &corev1.ExpectedPowerShelfInventory{
+		ExpectedPowerShelves: []*corev1.ExpectedPowerShelf{},
 		Timestamp:            timestamppb.Now(),
-		InventoryStatus:      cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		InventoryStatus:      corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 	}
 
 	err = mei.UpdateExpectedPowerShelvesInDB(ctx, st.ID, inventory)

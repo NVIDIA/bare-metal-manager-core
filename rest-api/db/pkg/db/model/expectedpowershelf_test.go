@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 )
 
@@ -38,8 +38,8 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 
 	t.Run("invalid id leaves eps.ID unchanged", func(t *testing.T) {
 		eps := &ExpectedPowerShelf{ID: id}
-		eps.FromProto(&cwssaws.ExpectedPowerShelf{
-			ExpectedPowerShelfId: &cwssaws.UUID{Value: "not-a-uuid"},
+		eps.FromProto(&corev1.ExpectedPowerShelf{
+			ExpectedPowerShelfId: &corev1.UUID{Value: "not-a-uuid"},
 			BmcMacAddress:        "aa:bb",
 		})
 
@@ -49,12 +49,12 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 
 	t.Run("populates all proto fields", func(t *testing.T) {
 		eps := &ExpectedPowerShelf{}
-		eps.FromProto(&cwssaws.ExpectedPowerShelf{
-			ExpectedPowerShelfId: &cwssaws.UUID{Value: id.String()},
+		eps.FromProto(&corev1.ExpectedPowerShelf{
+			ExpectedPowerShelfId: &corev1.UUID{Value: id.String()},
 			BmcMacAddress:        "aa:bb:cc:dd:ee:ff",
 			ShelfSerialNumber:    "SSN-1",
 			BmcIpAddress:         "10.0.0.1",
-			RackId:               &cwssaws.RackId{Id: rackID},
+			RackId:               &corev1.RackId{Id: rackID},
 			Name:                 &name,
 			Manufacturer:         &manufacturer,
 			Model:                &model,
@@ -62,8 +62,8 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 			SlotId:               &slot,
 			TrayIdx:              &trayIdx,
 			HostId:               &host,
-			Metadata: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
+			Metadata: &corev1.Metadata{
+				Labels: []*corev1.Label{
 					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
@@ -90,8 +90,8 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 
 	t.Run("empty BmcIpAddress yields nil pointer", func(t *testing.T) {
 		eps := &ExpectedPowerShelf{BmcIpAddress: cutil.GetPtr("stale")}
-		eps.FromProto(&cwssaws.ExpectedPowerShelf{
-			ExpectedPowerShelfId: &cwssaws.UUID{Value: id.String()},
+		eps.FromProto(&corev1.ExpectedPowerShelf{
+			ExpectedPowerShelfId: &corev1.UUID{Value: id.String()},
 			BmcIpAddress:         "",
 		})
 
@@ -101,8 +101,8 @@ func TestExpectedPowerShelf_FromProto(t *testing.T) {
 	t.Run("nil RackId clears eps.RackID", func(t *testing.T) {
 		stale := "stale-rack"
 		eps := &ExpectedPowerShelf{RackID: &stale}
-		eps.FromProto(&cwssaws.ExpectedPowerShelf{
-			ExpectedPowerShelfId: &cwssaws.UUID{Value: id.String()},
+		eps.FromProto(&corev1.ExpectedPowerShelf{
+			ExpectedPowerShelfId: &corev1.UUID{Value: id.String()},
 			BmcMacAddress:        "aa:bb",
 		})
 

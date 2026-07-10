@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	iActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/temporal"
@@ -83,8 +83,8 @@ func (cemts *CreateExpectedMachineTestSuite) AfterTest(suiteName, testName strin
 func (cemts *CreateExpectedMachineTestSuite) Test_CreateExpectedMachine_Success() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.ExpectedMachine{
-		Id:            &cwssaws.UUID{Value: "test-create-workflow-001"},
+	request := &corev1.ExpectedMachine{
+		Id:            &corev1.UUID{Value: "test-create-workflow-001"},
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
@@ -105,8 +105,8 @@ func (cemts *CreateExpectedMachineTestSuite) Test_CreateExpectedMachine_Success(
 func (cemts *CreateExpectedMachineTestSuite) Test_CreateExpectedMachine_Failure() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.ExpectedMachine{
-		Id:            &cwssaws.UUID{Value: "test-create-workflow-001"},
+	request := &corev1.ExpectedMachine{
+		Id:            &corev1.UUID{Value: "test-create-workflow-001"},
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
@@ -128,8 +128,8 @@ func (cemts *CreateExpectedMachineTestSuite) Test_CreateExpectedMachine_Failure(
 func (cemts *CreateExpectedMachineTestSuite) Test_CreateExpectedMachine_CoreSuccess_FlowFailure() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.ExpectedMachine{
-		Id:            &cwssaws.UUID{Value: "test-create-workflow-001"},
+	request := &corev1.ExpectedMachine{
+		Id:            &corev1.UUID{Value: "test-create-workflow-001"},
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
@@ -169,8 +169,8 @@ func (uemts *UpdateExpectedMachineTestSuite) AfterTest(suiteName, testName strin
 func (uemts *UpdateExpectedMachineTestSuite) Test_UpdateExpectedMachine_Success() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.ExpectedMachine{
-		Id:            &cwssaws.UUID{Value: "test-create-workflow-001"},
+	request := &corev1.ExpectedMachine{
+		Id:            &corev1.UUID{Value: "test-create-workflow-001"},
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
@@ -187,8 +187,8 @@ func (uemts *UpdateExpectedMachineTestSuite) Test_UpdateExpectedMachine_Success(
 func (uemts *UpdateExpectedMachineTestSuite) Test_UpdateExpectedMachine_Failure() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.ExpectedMachine{
-		Id:            &cwssaws.UUID{Value: "test-create-workflow-001"},
+	request := &corev1.ExpectedMachine{
+		Id:            &corev1.UUID{Value: "test-create-workflow-001"},
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
@@ -226,8 +226,8 @@ func (demts *DeleteExpectedMachineTestSuite) AfterTest(suiteName, testName strin
 func (demts *DeleteExpectedMachineTestSuite) Test_DeleteExpectedMachine_Success() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.ExpectedMachineRequest{
-		Id:            &cwssaws.UUID{Value: "test-delete-workflow-001"},
+	request := &corev1.ExpectedMachineRequest{
+		Id:            &corev1.UUID{Value: "test-delete-workflow-001"},
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
@@ -244,8 +244,8 @@ func (demts *DeleteExpectedMachineTestSuite) Test_DeleteExpectedMachine_Success(
 func (demts *DeleteExpectedMachineTestSuite) Test_DeleteExpectedMachine_Failure() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.ExpectedMachineRequest{
-		Id:            &cwssaws.UUID{Value: "test-delete-workflow-001"},
+	request := &corev1.ExpectedMachineRequest{
+		Id:            &corev1.UUID{Value: "test-delete-workflow-001"},
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
@@ -283,16 +283,16 @@ func (cemts *CreateExpectedMachinesTestSuite) AfterTest(suiteName, testName stri
 func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_Success() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.BatchExpectedMachineOperationRequest{
-		ExpectedMachines: &cwssaws.ExpectedMachineList{
-			ExpectedMachines: []*cwssaws.ExpectedMachine{
+	request := &corev1.BatchExpectedMachineOperationRequest{
+		ExpectedMachines: &corev1.ExpectedMachineList{
+			ExpectedMachines: []*corev1.ExpectedMachine{
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-create-001"},
+					Id:                  &corev1.UUID{Value: "test-batch-create-001"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN001",
 				},
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-create-002"},
+					Id:                  &corev1.UUID{Value: "test-batch-create-002"},
 					BmcMacAddress:       "00:11:22:33:44:66",
 					ChassisSerialNumber: "SN002",
 				},
@@ -304,8 +304,8 @@ func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_Succes
 	firstMachine := request.GetExpectedMachines().GetExpectedMachines()[0]
 	secondMachine := request.GetExpectedMachines().GetExpectedMachines()[1]
 
-	expectedResponse := &cwssaws.BatchExpectedMachineOperationResponse{
-		Results: []*cwssaws.ExpectedMachineOperationResult{
+	expectedResponse := &corev1.BatchExpectedMachineOperationResponse{
+		Results: []*corev1.ExpectedMachineOperationResult{
 			{
 				Id:              firstMachine.GetId(),
 				Success:         true,
@@ -332,7 +332,7 @@ func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_Succes
 	cemts.True(cemts.env.IsWorkflowCompleted())
 	cemts.NoError(cemts.env.GetWorkflowError())
 
-	var response cwssaws.BatchExpectedMachineOperationResponse
+	var response corev1.BatchExpectedMachineOperationResponse
 	err := cemts.env.GetWorkflowResult(&response)
 	cemts.NoError(err)
 	cemts.Equal(2, len(response.Results))
@@ -351,16 +351,16 @@ func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_Succes
 func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_PartialSuccess() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.BatchExpectedMachineOperationRequest{
-		ExpectedMachines: &cwssaws.ExpectedMachineList{
-			ExpectedMachines: []*cwssaws.ExpectedMachine{
+	request := &corev1.BatchExpectedMachineOperationRequest{
+		ExpectedMachines: &corev1.ExpectedMachineList{
+			ExpectedMachines: []*corev1.ExpectedMachine{
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-create-001"},
+					Id:                  &corev1.UUID{Value: "test-batch-create-001"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN001",
 				},
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-create-002"},
+					Id:                  &corev1.UUID{Value: "test-batch-create-002"},
 					BmcMacAddress:       "00:11:22:33:44:66",
 					ChassisSerialNumber: "SN002",
 				},
@@ -373,8 +373,8 @@ func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_Partia
 	secondMachine := request.GetExpectedMachines().GetExpectedMachines()[1]
 	duplicateMacMsg := "duplicate MAC address"
 
-	expectedResponse := &cwssaws.BatchExpectedMachineOperationResponse{
-		Results: []*cwssaws.ExpectedMachineOperationResult{
+	expectedResponse := &corev1.BatchExpectedMachineOperationResponse{
+		Results: []*corev1.ExpectedMachineOperationResult{
 			{
 				Id:              firstMachine.GetId(),
 				Success:         true,
@@ -402,7 +402,7 @@ func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_Partia
 	cemts.True(cemts.env.IsWorkflowCompleted())
 	cemts.NoError(cemts.env.GetWorkflowError())
 
-	var response cwssaws.BatchExpectedMachineOperationResponse
+	var response corev1.BatchExpectedMachineOperationResponse
 	err := cemts.env.GetWorkflowResult(&response)
 	cemts.NoError(err)
 	cemts.Equal(2, len(response.Results))
@@ -419,11 +419,11 @@ func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_Partia
 func (cemts *CreateExpectedMachinesTestSuite) Test_CreateExpectedMachines_Failure() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.BatchExpectedMachineOperationRequest{
-		ExpectedMachines: &cwssaws.ExpectedMachineList{
-			ExpectedMachines: []*cwssaws.ExpectedMachine{
+	request := &corev1.BatchExpectedMachineOperationRequest{
+		ExpectedMachines: &corev1.ExpectedMachineList{
+			ExpectedMachines: []*corev1.ExpectedMachine{
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-create-001"},
+					Id:                  &corev1.UUID{Value: "test-batch-create-001"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN001",
 				},
@@ -469,16 +469,16 @@ func (uemts *UpdateExpectedMachinesTestSuite) AfterTest(suiteName, testName stri
 func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Success() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.BatchExpectedMachineOperationRequest{
-		ExpectedMachines: &cwssaws.ExpectedMachineList{
-			ExpectedMachines: []*cwssaws.ExpectedMachine{
+	request := &corev1.BatchExpectedMachineOperationRequest{
+		ExpectedMachines: &corev1.ExpectedMachineList{
+			ExpectedMachines: []*corev1.ExpectedMachine{
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-update-001"},
+					Id:                  &corev1.UUID{Value: "test-batch-update-001"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN001",
 				},
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-update-002"},
+					Id:                  &corev1.UUID{Value: "test-batch-update-002"},
 					BmcMacAddress:       "00:11:22:33:44:66",
 					ChassisSerialNumber: "SN002",
 				},
@@ -490,8 +490,8 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Succes
 	firstMachine := request.GetExpectedMachines().GetExpectedMachines()[0]
 	secondMachine := request.GetExpectedMachines().GetExpectedMachines()[1]
 
-	expectedResponse := &cwssaws.BatchExpectedMachineOperationResponse{
-		Results: []*cwssaws.ExpectedMachineOperationResult{
+	expectedResponse := &corev1.BatchExpectedMachineOperationResponse{
+		Results: []*corev1.ExpectedMachineOperationResult{
 			{
 				Id:              firstMachine.GetId(),
 				Success:         true,
@@ -514,7 +514,7 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Succes
 	uemts.True(uemts.env.IsWorkflowCompleted())
 	uemts.NoError(uemts.env.GetWorkflowError())
 
-	var response cwssaws.BatchExpectedMachineOperationResponse
+	var response corev1.BatchExpectedMachineOperationResponse
 	err := uemts.env.GetWorkflowResult(&response)
 	uemts.NoError(err)
 	uemts.Equal(2, len(response.Results))
@@ -533,16 +533,16 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Succes
 func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_PartialSuccess() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.BatchExpectedMachineOperationRequest{
-		ExpectedMachines: &cwssaws.ExpectedMachineList{
-			ExpectedMachines: []*cwssaws.ExpectedMachine{
+	request := &corev1.BatchExpectedMachineOperationRequest{
+		ExpectedMachines: &corev1.ExpectedMachineList{
+			ExpectedMachines: []*corev1.ExpectedMachine{
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-update-001"},
+					Id:                  &corev1.UUID{Value: "test-batch-update-001"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN001",
 				},
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-update-002"},
+					Id:                  &corev1.UUID{Value: "test-batch-update-002"},
 					BmcMacAddress:       "00:11:22:33:44:66",
 					ChassisSerialNumber: "SN002",
 				},
@@ -555,8 +555,8 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Partia
 	secondMachine := request.GetExpectedMachines().GetExpectedMachines()[1]
 	notFoundMsg := "machine not found"
 
-	expectedResponse := &cwssaws.BatchExpectedMachineOperationResponse{
-		Results: []*cwssaws.ExpectedMachineOperationResult{
+	expectedResponse := &corev1.BatchExpectedMachineOperationResponse{
+		Results: []*corev1.ExpectedMachineOperationResult{
 			{
 				Id:              firstMachine.GetId(),
 				Success:         true,
@@ -580,7 +580,7 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Partia
 	uemts.True(uemts.env.IsWorkflowCompleted())
 	uemts.NoError(uemts.env.GetWorkflowError())
 
-	var response cwssaws.BatchExpectedMachineOperationResponse
+	var response corev1.BatchExpectedMachineOperationResponse
 	err := uemts.env.GetWorkflowResult(&response)
 	uemts.NoError(err)
 	uemts.Equal(2, len(response.Results))
@@ -597,11 +597,11 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Partia
 func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Failure() {
 	var expectedMachineManager iActivity.ManageExpectedMachine
 
-	request := &cwssaws.BatchExpectedMachineOperationRequest{
-		ExpectedMachines: &cwssaws.ExpectedMachineList{
-			ExpectedMachines: []*cwssaws.ExpectedMachine{
+	request := &corev1.BatchExpectedMachineOperationRequest{
+		ExpectedMachines: &corev1.ExpectedMachineList{
+			ExpectedMachines: []*corev1.ExpectedMachine{
 				{
-					Id:                  &cwssaws.UUID{Value: "test-batch-update-001"},
+					Id:                  &corev1.UUID{Value: "test-batch-update-001"},
 					BmcMacAddress:       "00:11:22:33:44:55",
 					ChassisSerialNumber: "SN001",
 				},

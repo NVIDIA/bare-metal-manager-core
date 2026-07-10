@@ -65,6 +65,22 @@ pub async fn load_all(
         .collect())
 }
 
+/// Loads the IDs of every managed host (non-DPU machine), including predicted
+/// hosts.
+///
+/// This is a cheap projection of the host set used by [`load_all`]: it touches
+/// only the `machines` table and returns just IDs, skipping the expensive
+/// per-host snapshot JSON aggregation. Callers that need to process a very
+/// large fleet without holding every snapshot in memory can page the IDs and
+/// hydrate snapshots in bounded batches via [`load_by_machine_ids`].
+pub async fn load_host_ids(txn: impl DbReader<'_>) -> Result<Vec<MachineId>, DatabaseError> {
+    sqlx::query_scalar::<_, MachineId>("SELECT id FROM machines WHERE NOT starts_with(id, $1)")
+        .bind(MachineType::Dpu.id_prefix())
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("managed_host::load_host_ids", e))
+}
+
 /// Loads ManagedHost snapshots from the database for all enumerated machines
 ///
 /// The method works for Host and DPU Machine IDs

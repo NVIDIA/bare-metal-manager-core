@@ -11,7 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
@@ -19,7 +19,7 @@ import (
 // CreateSubnetV2 is a workflow to create new Subnets using the CreateSubnetOnSite activity
 // V1 (CreateSubnet) is found cloud-workflow and uses a different activity that does not speak
 // to nico directly.
-func CreateSubnetV2(ctx workflow.Context, request *cwssaws.NetworkSegmentCreationRequest) error {
+func CreateSubnetV2(ctx workflow.Context, request *corev1.NetworkSegmentCreationRequest) error {
 	logger := log.With().Str("Workflow", "Subnet").Str("Action", "Create").Str("VPC ID", request.VpcId.String()).Str("Name", request.Name).Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -56,7 +56,7 @@ func CreateSubnetV2(ctx workflow.Context, request *cwssaws.NetworkSegmentCreatio
 // DeleteSubnetV2 is a workflow to delete Subnets using the DeleteSubnetOnSite activity
 // V1 (DeleteSubnet) is found cloud-workflow and uses a different activity that does not speak
 // to nico directly.
-func DeleteSubnetV2(ctx workflow.Context, request *cwssaws.NetworkSegmentDeletionRequest) error {
+func DeleteSubnetV2(ctx workflow.Context, request *corev1.NetworkSegmentDeletionRequest) error {
 	logger := log.With().Str("Workflow", "Subnet").Str("Action", "Delete").Str("Subnet ID", request.GetId().GetValue()).Logger()
 
 	logger.Info().Msg("Starting workflow")

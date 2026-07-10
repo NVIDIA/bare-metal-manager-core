@@ -11,7 +11,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -80,14 +80,14 @@ type Tenant struct {
 // ToCreateRequestProto builds a CreateTenantRequest proto for sending this Tenant
 // to a Site. Falls back to Org for the metadata Name when OrgDisplayName
 // isn't set.
-func (tn *Tenant) ToCreateRequestProto() *cwssaws.CreateTenantRequest {
+func (tn *Tenant) ToCreateRequestProto() *corev1.CreateTenantRequest {
 	name := tn.Org
 	if tn.OrgDisplayName != nil {
 		name = *tn.OrgDisplayName
 	}
-	return &cwssaws.CreateTenantRequest{
+	return &corev1.CreateTenantRequest{
 		OrganizationId: tn.Org,
-		Metadata: &cwssaws.Metadata{
+		Metadata: &corev1.Metadata{
 			Name: name,
 		},
 	}
@@ -95,14 +95,14 @@ func (tn *Tenant) ToCreateRequestProto() *cwssaws.CreateTenantRequest {
 
 // ToUpdateRequestProto builds an UpdateTenantRequest proto for sending this Tenant
 // to a Site.
-func (tn *Tenant) ToUpdateRequestProto() *cwssaws.UpdateTenantRequest {
+func (tn *Tenant) ToUpdateRequestProto() *corev1.UpdateTenantRequest {
 	name := tn.Org
 	if tn.OrgDisplayName != nil {
 		name = *tn.OrgDisplayName
 	}
-	return &cwssaws.UpdateTenantRequest{
+	return &corev1.UpdateTenantRequest{
 		OrganizationId: tn.Org,
-		Metadata: &cwssaws.Metadata{
+		Metadata: &corev1.Metadata{
 			Name: name,
 		},
 	}

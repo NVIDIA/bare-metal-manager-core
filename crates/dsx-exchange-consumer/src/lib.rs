@@ -63,6 +63,7 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
 
     let registry = metrics_setup.registry;
     let meter = metrics_setup.meter;
+    carbide_instrument::log_events::register(&meter);
 
     // Spawn metrics server
     let metrics_config = metrics_endpoint::MetricsEndpointConfig {

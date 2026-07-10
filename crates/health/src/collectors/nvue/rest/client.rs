@@ -30,11 +30,13 @@ use crate::HealthError;
 use crate::config::NvueRestPaths;
 
 const NVUE_SYSTEM_HEALTH: &str = "/nvue_v1/system/health";
+const NVUE_SYSTEM_REBOOT_REASON: &str = "/nvue_v1/system/reboot/reason";
 const NVUE_CLUSTER_APPS: &str = "/nvue_v1/cluster/apps";
 const NVUE_SDN_PARTITIONS: &str = "/nvue_v1/sdn/partition";
 const NVUE_INTERFACES: &str = "/nvue_v1/interface";
 const NVUE_PLATFORM_ENVIRONMENT_FAN: &str = "/nvue_v1/platform/environment/fan";
 const NVUE_PLATFORM_ENVIRONMENT_TEMPERATURE: &str = "/nvue_v1/platform/environment/temperature";
+const NVUE_PLATFORM_ENVIRONMENT_LEAKAGE: &str = "/nvue_v1/platform/environment/leakage";
 const NVUE_PLATFORM_ENVIRONMENT: &str = "/nvue_v1/platform/environment";
 
 #[derive(Clone)]
@@ -50,6 +52,23 @@ impl std::fmt::Debug for UsernamePassword {
             .field("password", &self.password.as_ref().map(|_| "<redacted>"))
             .finish()
     }
+}
+
+/// Result envelope for NVUE REST paths where HTTP 200 `null` is meaningful.
+///
+/// `Null` means the request succeeded and NVUE returned a JSON `null` body, so
+/// the collector can apply endpoint-specific unavailable handling instead of
+/// acting as if the path was disabled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OptionalNvueResponse<T> {
+    /// Path disabled by caller; no HTTP request was made.
+    Disabled,
+
+    /// Path was polled and returned a top-level JSON `null`.
+    Null,
+
+    /// Path was polled and returned a concrete response payload.
+    Present(T),
 }
 
 pub struct RestClient {
@@ -92,6 +111,29 @@ impl RestClient {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_with_base_url_for_test(
+        switch_id: String,
+        base_url: Url,
+        request_timeout: Duration,
+        paths: NvueRestPaths,
+    ) -> Result<Self, HealthError> {
+        let client = Client::builder()
+            .timeout(request_timeout)
+            .build()
+            .map_err(|e| {
+                HealthError::HttpError(format!("{base_url}: failed to create HTTP client: {e}"))
+            })?;
+
+        Ok(Self {
+            switch_id,
+            base_url,
+            credentials: ArcSwapOption::empty(),
+            paths,
+            client,
+        })
+    }
+
     pub fn set_credentials(&self, creds: UsernamePassword) {
         self.credentials.store(Some(Arc::new(creds)));
     }
@@ -110,6 +152,17 @@ impl RestClient {
         }
         let url = self.join_path(NVUE_SYSTEM_HEALTH)?;
         self.do_get(url, &[]).await.map(Some)
+    }
+
+    pub async fn get_system_reboot_reason(
+        &self,
+    ) -> Result<OptionalNvueResponse<RebootReasonResponse>, HealthError> {
+        if !self.paths.system_reboot_reason_enabled {
+            return Ok(OptionalNvueResponse::Disabled);
+        }
+
+        let url = self.join_path(NVUE_SYSTEM_REBOOT_REASON)?;
+        self.do_get_nullable(url, &[]).await
     }
 
     pub async fn get_cluster_apps(&self) -> Result<Option<ClusterAppsResponse>, HealthError> {
@@ -146,6 +199,17 @@ impl RestClient {
         }
         let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT_TEMPERATURE)?;
         self.do_get(url, &[]).await.map(Some)
+    }
+
+    pub async fn get_platform_environment_leakage(
+        &self,
+    ) -> Result<OptionalNvueResponse<LeakageEnvironmentResponse>, HealthError> {
+        if !self.paths.platform_environment_leakage_enabled {
+            return Ok(OptionalNvueResponse::Disabled);
+        }
+
+        let url = self.join_path(NVUE_PLATFORM_ENVIRONMENT_LEAKAGE)?;
+        self.do_get_nullable(url, &[]).await
     }
 
     pub async fn get_platform_environment(
@@ -248,6 +312,20 @@ impl RestClient {
             ))
         })
     }
+
+    async fn do_get_nullable<T: for<'de> Deserialize<'de>>(
+        &self,
+        url: Url,
+        extra_query: &[(&str, &str)],
+    ) -> Result<OptionalNvueResponse<T>, HealthError> {
+        // A report-backed NVUE endpoint can return HTTP 200 with body `null`.
+        // Keep that distinct from a disabled path so downstream health reports
+        // still show that the probe ran but the switch did not provide data.
+        match self.do_get::<Option<T>>(url, extra_query).await? {
+            Some(value) => Ok(OptionalNvueResponse::Present(value)),
+            None => Ok(OptionalNvueResponse::Null),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +346,19 @@ pub struct SystemHealthResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct IssueInfo {
     pub issue: Option<String>,
+}
+
+/// `/nvue_v1/system/reboot/reason` response.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct RebootReasonResponse {
+    /// Reason reported by NVUE for the last or pending reboot action.
+    pub reason: Option<String>,
+
+    /// NVUE generation time for the reboot reason.
+    pub gentime: Option<String>,
+
+    /// User associated with the reboot reason when NVUE provides one.
+    pub user: Option<String>,
 }
 
 pub type ClusterAppsResponse = HashMap<String, ClusterApp>;
@@ -341,6 +432,20 @@ pub struct TempData {
     /// Critical threshold in Celsius as a string (e.g. "120.00").
     pub crit: Option<String>,
     /// Sensor state as string (e.g. "ok").
+    pub state: Option<String>,
+}
+
+/// `/nvue_v1/platform/environment/leakage` response keyed by leakage sensor
+/// name.
+///
+/// NVUE may encode an individual sensor as JSON `null`; the collector maps that
+/// sensor to `unknown` and reports it as a sensor failure.
+pub type LeakageEnvironmentResponse = HashMap<String, Option<LeakageSensorData>>;
+
+/// Leakage sensor entry inside `/nvue_v1/platform/environment/leakage`.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct LeakageSensorData {
+    /// Leakage sensor state, expected as "ok" or "leak".
     pub state: Option<String>,
 }
 
@@ -420,6 +525,17 @@ mod tests {
         assert_eq!(resp.status.as_deref(), Some("OK"));
         assert_eq!(resp.status_led.as_deref(), Some("green"));
         assert!(resp.issues.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_parse_reboot_reason() {
+        let json = r#"{"reason":"reboot command","gentime":"2026-07-05 12:34:56","user":"admin"}"#;
+
+        let resp: RebootReasonResponse = serde_json::from_str(json).unwrap();
+
+        assert_eq!(resp.reason.as_deref(), Some("reboot command"));
+        assert_eq!(resp.gentime.as_deref(), Some("2026-07-05 12:34:56"));
+        assert_eq!(resp.user.as_deref(), Some("admin"));
     }
 
     #[test]
@@ -659,6 +775,30 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_platform_environment_leakage() {
+        let json = r#"{"LEAK0":null,"LEAK1":{"state":"ok"},"LEAK2":{"state":"leak"}}"#;
+
+        let resp: LeakageEnvironmentResponse = serde_json::from_str(json).unwrap();
+
+        assert_eq!(resp.len(), 3);
+        assert!(resp["LEAK0"].is_none());
+
+        assert_eq!(
+            resp["LEAK1"]
+                .as_ref()
+                .and_then(|sensor| sensor.state.as_deref()),
+            Some("ok")
+        );
+
+        assert_eq!(
+            resp["LEAK2"]
+                .as_ref()
+                .and_then(|sensor| sensor.state.as_deref()),
+            Some("leak")
+        );
+    }
+
+    #[test]
     fn test_parse_platform_environment_fan_status() {
         // Parent summary carries the aggregate `FAN_STATUS` LED entry alongside
         // nested `fan`/`temperature` subtree objects of a different shape. The
@@ -699,6 +839,10 @@ mod tests {
 
         let empty_temps: TemperatureEnvironmentResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_temps.is_empty());
+
+        let empty_leakage: LeakageEnvironmentResponse = serde_json::from_str("{}").unwrap();
+
+        assert!(empty_leakage.is_empty());
 
         let empty_env: PlatformEnvironmentResponse = serde_json::from_str("{}").unwrap();
         assert!(empty_env.is_empty());

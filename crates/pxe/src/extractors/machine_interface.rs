@@ -46,15 +46,28 @@ where
     type Rejection = PxeRequestError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        // A missing or malformed build architecture is a boot outcome
+        // operators watch for, so both rejection shapes count as one --
+        // even though the client gets a real 4xx rather than a template.
+        // This extractor serves only the boot route.
+        let count_bad_architecture = || {
+            carbide_instrument::emit(crate::metrics::PxeBootOutcome {
+                endpoint: crate::metrics::BootEndpoint::Boot,
+                reason: crate::metrics::OutcomeReason::ArchitectureNotFound,
+            });
+        };
+
         let Ok(maybe) = Query::<MaybeMachineInterface>::from_request_parts(parts, state).await
         else {
             // Query parsing only fails on the required build_architecture
             // field; everything else is optional.
+            count_bad_architecture();
             return Err(PxeRequestError::InvalidBuildArch);
         };
         let maybe = maybe.0;
 
-        let build_architecture = MachineArchitecture::try_from(maybe.build_architecture.as_str())?;
+        let build_architecture = MachineArchitecture::try_from(maybe.build_architecture.as_str())
+            .inspect_err(|_| count_bad_architecture())?;
 
         // Note: This does *NOT* look at X-Forwarded-For, due to security issues with the header. We
         // don't currently have use cases for a proxy in front of carbide-pxe... if that changes

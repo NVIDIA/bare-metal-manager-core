@@ -30,6 +30,7 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 
 # [local-dependencies]
+carbide-instrument = { path = "../instrument" }
 carbide-rpc = { path = "../rpc" }
 carbide-tls = { path = "../tls" }
 metrics-endpoint = { path = "../metrics-endpoint" }
@@ -40,6 +41,7 @@ dhcproto = { workspace = true }
 serde_json = { workspace = true }
 test-cdylib = { workspace = true }
 tempfile = { workspace = true }
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-rpc = { path = "../rpc" }
 carbide-test-support = { path = "../test-support" }
 prometheus = { workspace = true }

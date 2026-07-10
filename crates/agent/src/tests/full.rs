@@ -922,6 +922,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
         instance: Some(instance),
         dpu_extension_services: vec![],
         astra_config: None,
+        use_admin_network_changed: None,
     };
     common::respond(netconf)
 }

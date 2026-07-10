@@ -145,6 +145,21 @@ pub async fn dgx_gb300_bmc() -> TestBmcHandle {
     .await
 }
 
+/// Host-mode mock for the NvidiaDgxVr hardware type ("vr-tray" in machine-a-tron
+/// configs). Unlike the other GB300-family types (Lenovo, Nvidia DGX GB300,
+/// Supermicro), this one previously only had a DPU-mode helper
+/// (`nvidia_dgx_vr_bluefield4_dpu_bmc`), so there was no way to test exploring
+/// it as a host tray at all. Added while investigating #3159.
+pub async fn nvidia_dgx_vr_host_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        &host_info(HostHardwareType::NvidiaDgxVr),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
 pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HostHardwareType::SupermicroGb300Nvl),
@@ -242,6 +257,16 @@ pub async fn nvidia_dgx_vr_bluefield4_dpu_bmc(settings: DpuSettings) -> TestBmcH
     .await
 }
 
+pub async fn hpe_proliant_dl380a_gen11_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        &host_info(HostHardwareType::HpeProliantDl380aGen11),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
 pub async fn generic_ami_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HostHardwareType::GenericAmi),
@@ -318,5 +343,25 @@ mod test {
             }
             other => panic!("expected invalid response error, got: {other}"),
         }
+    }
+
+    #[test]
+    fn lenovo_gb300_discovery_includes_dpu_host_interface() {
+        let machine = host_info(HostHardwareType::LenovoGB300Nvl);
+        let expected_mac = match &machine {
+            MachineInfo::Host(host) => host.primary_dpu().unwrap().host_mac_address.to_string(),
+            MachineInfo::Dpu(_) => unreachable!("Lenovo GB300 must be a host"),
+        };
+
+        let interfaces = machine.discovery_info().network_interfaces;
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(interfaces[0].mac_address, expected_mac);
+
+        let pci = interfaces[0]
+            .pci_properties
+            .as_ref()
+            .expect("DPU host interface must include PCI properties");
+        assert!(pci.vendor.to_ascii_lowercase().contains("mellanox"));
+        assert_eq!(pci.slot.as_deref(), Some("0000:03:00.0"));
     }
 }

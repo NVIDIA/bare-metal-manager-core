@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -44,10 +44,10 @@ var (
 
 	// MachineIssueCategoriesFromAPIToProtobuf is the map of instance issue categories to their corresponding values
 	MachineIssueCategoriesFromAPIToProtobuf = map[string]int32{
-		MachineIssueCategoryHardware:    int32(cwssaws.IssueCategory_HARDWARE),
-		MachineIssueCategoryNetwork:     int32(cwssaws.IssueCategory_NETWORK),
-		MachineIssueCategoryPerformance: int32(cwssaws.IssueCategory_PERFORMANCE),
-		MachineIssueCategoryOther:       int32(cwssaws.IssueCategory_OTHER),
+		MachineIssueCategoryHardware:    int32(corev1.IssueCategory_HARDWARE),
+		MachineIssueCategoryNetwork:     int32(corev1.IssueCategory_NETWORK),
+		MachineIssueCategoryPerformance: int32(corev1.IssueCategory_PERFORMANCE),
+		MachineIssueCategoryOther:       int32(corev1.IssueCategory_OTHER),
 	}
 )
 
@@ -1689,11 +1689,11 @@ func (idr *APIInstanceDeleteRequest) Validate() error {
 // cannot see. In particular, the `IsRepairTenant` capability gate
 // (TargetedInstanceCreation on the Tenant config) is an authorization
 // check that stays in the handler before this method runs.
-func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm.User) *cwssaws.InstanceReleaseRequest {
+func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm.User) *corev1.InstanceReleaseRequest {
 	req := instance.ToReleaseRequestProto()
 	if idr.MachineHealthIssue != nil {
-		req.Issue = &cwssaws.Issue{
-			Category: cwssaws.IssueCategory(MachineIssueCategoriesFromAPIToProtobuf[idr.MachineHealthIssue.Category]),
+		req.Issue = &corev1.Issue{
+			Category: corev1.IssueCategory(MachineIssueCategoriesFromAPIToProtobuf[idr.MachineHealthIssue.Category]),
 		}
 		if idr.MachineHealthIssue.Summary != nil {
 			req.Issue.Summary = *idr.MachineHealthIssue.Summary
@@ -1707,7 +1707,7 @@ func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm
 	}
 
 	// Build the delete attribution proto
-	initiatedBy := &cwssaws.DeleteInitiatedBy{
+	initiatedBy := &corev1.DeleteInitiatedBy{
 		Org:      instance.Tenant.Org,
 		UserId:   user.ID.String(),
 		TenantId: instance.Tenant.ID.String(),
@@ -1715,7 +1715,7 @@ func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm
 	if instance.Tenant.OrgDisplayName != nil {
 		initiatedBy.OrgDisplayName = *instance.Tenant.OrgDisplayName
 	}
-	req.DeleteAttribution = &cwssaws.DeleteAttribution{
+	req.DeleteAttribution = &corev1.DeleteAttribution{
 		InitiatedBy: initiatedBy,
 	}
 	return req

@@ -69,6 +69,7 @@ impl Run for Args {
                 expected_machine.bmc_ip_address,
                 expected_machine.bmc_retain_credentials,
                 expected_machine.dpu_mode,
+                expected_machine.bmc_ip_allocation,
                 expected_machine.host_lifecycle_profile.map(|hlp| {
                     ::rpc::forge::HostLifecycleProfile {
                         disable_lockdown: hlp.disable_lockdown,

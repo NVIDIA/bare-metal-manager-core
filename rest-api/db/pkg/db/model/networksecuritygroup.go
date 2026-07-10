@@ -18,7 +18,7 @@ import (
 	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 )
@@ -85,13 +85,13 @@ type NetworkSecurityGroup struct {
 	Rules          []*NetworkSecurityGroupRule `bun:"rules,type:jsonb"`
 }
 
-func (s *NetworkSecurityGroup) GetRulesAsProtoRefs() []*cwssaws.NetworkSecurityGroupRuleAttributes {
+func (s *NetworkSecurityGroup) GetRulesAsProtoRefs() []*corev1.NetworkSecurityGroupRuleAttributes {
 	if s.Rules == nil {
 		return nil
 	}
 
 	// Convert our list of wrappers to a list of proto messages
-	rules := make([]*cwssaws.NetworkSecurityGroupRuleAttributes, len(s.Rules))
+	rules := make([]*corev1.NetworkSecurityGroupRuleAttributes, len(s.Rules))
 	for i, rule := range s.Rules {
 		if rule == nil {
 			rules[i] = nil
@@ -109,8 +109,8 @@ func (s *NetworkSecurityGroup) GetRulesAsProtoRefs() []*cwssaws.NetworkSecurityG
 // match the previous inline handler behaviour. Labels conversion is
 // delegated to the typed `Labels.ToProto()` helper per the
 // "Named types own their proto behavior" convention.
-func (s *NetworkSecurityGroup) toMetadataProto() *cwssaws.Metadata {
-	md := &cwssaws.Metadata{
+func (s *NetworkSecurityGroup) toMetadataProto() *corev1.Metadata {
+	md := &corev1.Metadata{
 		Name:        s.Name,
 		Description: "",
 		Labels:      s.Labels.ToProto(),
@@ -129,13 +129,13 @@ func (s *NetworkSecurityGroup) toMetadataProto() *cwssaws.Metadata {
 //
 // The proto's Attributes carry the rule list rebuilt from the embedded
 // proto attributes on each persisted rule wrapper.
-func (s *NetworkSecurityGroup) ToProto() *cwssaws.NetworkSecurityGroup {
-	return &cwssaws.NetworkSecurityGroup{
+func (s *NetworkSecurityGroup) ToProto() *corev1.NetworkSecurityGroup {
+	return &corev1.NetworkSecurityGroup{
 		Id:                   s.ID,
 		TenantOrganizationId: s.TenantOrg,
 		Metadata:             s.toMetadataProto(),
 		Version:              s.Version,
-		Attributes: &cwssaws.NetworkSecurityGroupAttributes{
+		Attributes: &corev1.NetworkSecurityGroupAttributes{
 			StatefulEgress: s.StatefulEgress,
 			Rules:          s.GetRulesAsProtoRefs(),
 		},
@@ -146,7 +146,7 @@ func (s *NetworkSecurityGroup) ToProto() *cwssaws.NetworkSecurityGroup {
 // representation. A nil proto is a no-op. This is the inverse of
 // `ToProto` and exists for convention symmetry — currently no code
 // path on the cloud side reconstructs a full NSG entity from a
-// `cwssaws.NetworkSecurityGroup` (the site is the destination, not the
+// `corev1.NetworkSecurityGroup` (the site is the destination, not the
 // source), but the method is provided so future reconciliation flows
 // have a single canonical entry point.
 //
@@ -160,7 +160,7 @@ func (s *NetworkSecurityGroup) ToProto() *cwssaws.NetworkSecurityGroup {
 //     merge.
 //   - Rule attributes are rewrapped from `proto.Attributes.Rules`;
 //     a nil Attributes leaves the rule list nil.
-func (s *NetworkSecurityGroup) FromProto(proto *cwssaws.NetworkSecurityGroup) {
+func (s *NetworkSecurityGroup) FromProto(proto *corev1.NetworkSecurityGroup) {
 	if proto == nil {
 		return
 	}
@@ -212,8 +212,8 @@ func (s *NetworkSecurityGroup) FromProto(proto *cwssaws.NetworkSecurityGroup) {
 
 // ToDeletionRequestProto builds the workflow request that asks a Site
 // to delete this NetworkSecurityGroup.
-func (s *NetworkSecurityGroup) ToDeletionRequestProto() *cwssaws.DeleteNetworkSecurityGroupRequest {
-	return &cwssaws.DeleteNetworkSecurityGroupRequest{
+func (s *NetworkSecurityGroup) ToDeletionRequestProto() *corev1.DeleteNetworkSecurityGroupRequest {
+	return &corev1.DeleteNetworkSecurityGroupRequest{
 		Id:                   s.ID,
 		TenantOrganizationId: s.TenantOrg,
 	}
@@ -223,12 +223,12 @@ func (s *NetworkSecurityGroup) ToDeletionRequestProto() *cwssaws.DeleteNetworkSe
 // that we can implement our own marshal/unmarshal
 // that understands how to work with protobuf messages
 type NetworkSecurityGroupRule struct {
-	*cwssaws.NetworkSecurityGroupRuleAttributes
+	*corev1.NetworkSecurityGroupRuleAttributes
 }
 
 func (s *NetworkSecurityGroupRule) UnmarshalJSON(b []byte) error {
 	if s.NetworkSecurityGroupRuleAttributes == nil {
-		s.NetworkSecurityGroupRuleAttributes = &cwssaws.NetworkSecurityGroupRuleAttributes{}
+		s.NetworkSecurityGroupRuleAttributes = &corev1.NetworkSecurityGroupRuleAttributes{}
 	}
 
 	// protoJsonUnmarshalOptions is set to ignore unknown fields.
@@ -252,12 +252,12 @@ func (s *NetworkSecurityGroupRule) MarshalJSON() ([]byte, error) {
 // that understands how to work with protobuf messages
 type NetworkSecurityGroupPropagationDetails struct {
 	FriendlyStatus string `json:"friendlyStatus"`
-	*cwssaws.NetworkSecurityGroupPropagationObjectStatus
+	*corev1.NetworkSecurityGroupPropagationObjectStatus
 }
 
 func (s *NetworkSecurityGroupPropagationDetails) UnmarshalJSON(b []byte) error {
 	if s.NetworkSecurityGroupPropagationObjectStatus == nil {
-		s.NetworkSecurityGroupPropagationObjectStatus = &cwssaws.NetworkSecurityGroupPropagationObjectStatus{}
+		s.NetworkSecurityGroupPropagationObjectStatus = &corev1.NetworkSecurityGroupPropagationObjectStatus{}
 	}
 
 	return protoJsonUnmarshalOptions.Unmarshal(b, s)

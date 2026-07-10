@@ -28,7 +28,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // testTemporalSiteClientPool builds a site client pool for activity tests.
@@ -140,13 +140,13 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 	}
 
 	expectedRacksToUpdate := []*cdbm.ExpectedRack{}
-	pagedCtrlExpectedRacks := []*cwssaws.ExpectedRack{}
+	pagedCtrlExpectedRacks := []*corev1.ExpectedRack{}
 
 	for i := 0; i < 14; i++ {
-		ctrlExpectedRack := &cwssaws.ExpectedRack{
-			RackId:        &cwssaws.RackId{Id: pagedExpectedRacks[i].RackID},
-			RackProfileId: &cwssaws.RackProfileId{Id: pagedExpectedRacks[i].RackProfileID},
-			Metadata: &cwssaws.Metadata{
+		ctrlExpectedRack := &corev1.ExpectedRack{
+			RackId:        &corev1.RackId{Id: pagedExpectedRacks[i].RackID},
+			RackProfileId: &corev1.RackProfileId{Id: pagedExpectedRacks[i].RackProfileID},
+			Metadata: &corev1.Metadata{
 				Name:        pagedExpectedRacks[i].Name,
 				Description: pagedExpectedRacks[i].Description,
 			},
@@ -154,7 +154,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 
 		// Echo back labels for current racks
 		if i%5 == 0 {
-			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
+			ctrlExpectedRack.Metadata.Labels = []*corev1.Label{
 				{Key: "region", Value: cutil.GetPtr(fmt.Sprintf("region-%d", i/5))},
 				{Key: "row", Value: cutil.GetPtr(fmt.Sprintf("row-%d", i))},
 			}
@@ -163,7 +163,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 		// Have entries that need updates: change RackProfileID/Name/Description
 		if i%3 == 0 {
 			if i < 10 {
-				ctrlExpectedRack.RackProfileId = &cwssaws.RackProfileId{Id: fmt.Sprintf("profile-updated-%d", i)} // Changed RackProfileID
+				ctrlExpectedRack.RackProfileId = &corev1.RackProfileId{Id: fmt.Sprintf("profile-updated-%d", i)} // Changed RackProfileID
 				ctrlExpectedRack.Metadata.Name = fmt.Sprintf("Updated Rack %d", i)
 				ctrlExpectedRack.Metadata.Description = fmt.Sprintf("Updated Rack %d description", i)
 				expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
@@ -173,13 +173,13 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 		// Test label updates
 		if i == 1 {
 			// Add labels to a rack that didn't have them before
-			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
+			ctrlExpectedRack.Metadata.Labels = []*corev1.Label{
 				{Key: "new-label", Value: cutil.GetPtr("new-value")},
 			}
 			expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
 		} else if i == 5 {
 			// Modify existing labels
-			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{
+			ctrlExpectedRack.Metadata.Labels = []*corev1.Label{
 				{Key: "region", Value: cutil.GetPtr(fmt.Sprintf("region-updated-%d", i/5))},
 				{Key: "row", Value: cutil.GetPtr(fmt.Sprintf("row-%d", i))},
 				{Key: "status", Value: cutil.GetPtr("active")},
@@ -187,7 +187,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
 		} else if i == 10 {
 			// Remove labels (set to empty labels array)
-			ctrlExpectedRack.Metadata.Labels = []*cwssaws.Label{}
+			ctrlExpectedRack.Metadata.Labels = []*corev1.Label{}
 			expectedRacksToUpdate = append(expectedRacksToUpdate, pagedExpectedRacks[i])
 		}
 
@@ -211,7 +211,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 	type args struct {
 		ctx                   context.Context
 		siteID                uuid.UUID
-		expectedRackInventory *cwssaws.ExpectedRackInventory
+		expectedRackInventory *corev1.ExpectedRackInventory
 	}
 
 	tests := []struct {
@@ -246,8 +246,8 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				expectedRackInventory: &cwssaws.ExpectedRackInventory{
-					ExpectedRacks: []*cwssaws.ExpectedRack{},
+				expectedRackInventory: &corev1.ExpectedRackInventory{
+					ExpectedRacks: []*corev1.ExpectedRack{},
 				},
 			},
 			wantErr: true,
@@ -262,10 +262,10 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				expectedRackInventory: &cwssaws.ExpectedRackInventory{
-					ExpectedRacks:   []*cwssaws.ExpectedRack{},
+				expectedRackInventory: &corev1.ExpectedRackInventory{
+					ExpectedRacks:   []*corev1.ExpectedRack{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 				},
 			},
 			wantErr: false,
@@ -280,11 +280,11 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				expectedRackInventory: &cwssaws.ExpectedRackInventory{
-					ExpectedRacks:   []*cwssaws.ExpectedRack{},
+				expectedRackInventory: &corev1.ExpectedRackInventory{
+					ExpectedRacks:   []*corev1.ExpectedRack{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -304,11 +304,11 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				expectedRackInventory: &cwssaws.ExpectedRackInventory{
+				expectedRackInventory: &corev1.ExpectedRackInventory{
 					ExpectedRacks:   pagedCtrlExpectedRacks[0:8],
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  2,
 						PageSize:    8,
@@ -330,11 +330,11 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				expectedRackInventory: &cwssaws.ExpectedRackInventory{
+				expectedRackInventory: &corev1.ExpectedRackInventory{
 					ExpectedRacks:   pagedCtrlExpectedRacks[8:14],
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 2,
 						TotalPages:  2,
 						PageSize:    8,
@@ -356,16 +356,16 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				expectedRackInventory: &cwssaws.ExpectedRackInventory{
-					ExpectedRacks: []*cwssaws.ExpectedRack{
+				expectedRackInventory: &corev1.ExpectedRackInventory{
+					ExpectedRacks: []*corev1.ExpectedRack{
 						// Valid new rack with metadata + labels
 						{
-							RackId:        &cwssaws.RackId{Id: "rack-new-1"},
-							RackProfileId: &cwssaws.RackProfileId{Id: "profile-A"},
-							Metadata: &cwssaws.Metadata{
+							RackId:        &corev1.RackId{Id: "rack-new-1"},
+							RackProfileId: &corev1.RackProfileId{Id: "profile-A"},
+							Metadata: &corev1.Metadata{
 								Name:        "Rack New 1",
 								Description: "freshly reported",
-								Labels: []*cwssaws.Label{
+								Labels: []*corev1.Label{
 									{Key: "environment", Value: cutil.GetPtr("test")},
 									{Key: "datacenter", Value: cutil.GetPtr("dc1")},
 								},
@@ -373,8 +373,8 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 						},
 						// Valid new rack with nil Metadata: Name/Description/Labels default to empty
 						{
-							RackId:        &cwssaws.RackId{Id: "rack-new-nil-meta"},
-							RackProfileId: &cwssaws.RackProfileId{Id: "profile-B"},
+							RackId:        &corev1.RackId{Id: "rack-new-nil-meta"},
+							RackProfileId: &corev1.RackProfileId{Id: "profile-B"},
 							Metadata:      nil,
 						},
 						// Nil entry: should be ignored
@@ -382,16 +382,16 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 						// Entry with nil RackId: should be ignored
 						{
 							RackId:        nil,
-							RackProfileId: &cwssaws.RackProfileId{Id: "profile-skip"},
+							RackProfileId: &corev1.RackProfileId{Id: "profile-skip"},
 						},
 						// Entry with empty RackId.Id: should be ignored
 						{
-							RackId:        &cwssaws.RackId{Id: ""},
-							RackProfileId: &cwssaws.RackProfileId{Id: "profile-skip"},
+							RackId:        &corev1.RackId{Id: ""},
+							RackProfileId: &corev1.RackProfileId{Id: "profile-skip"},
 						},
 					},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				},
 			},
 			expectedRacksToUpdate: []*cdbm.ExpectedRack{},
@@ -429,7 +429,7 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB(t *testing.T) {
 				updated := racksByRackID[er.RackID]
 				assert.NotNil(t, updated, fmt.Sprintf("ExpectedRack %v should exist", er.RackID))
 				// Find the corresponding controller rack
-				var ctrlER *cwssaws.ExpectedRack
+				var ctrlER *corev1.ExpectedRack
 				for _, cer := range tt.args.expectedRackInventory.ExpectedRacks {
 					if cer == nil || cer.RackId == nil {
 						continue
@@ -546,22 +546,22 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB_NoChange(t *testing.T) {
 	}
 
 	// Build inventory that exactly mirrors the DB record
-	inventory := &cwssaws.ExpectedRackInventory{
-		ExpectedRacks: []*cwssaws.ExpectedRack{
+	inventory := &corev1.ExpectedRackInventory{
+		ExpectedRacks: []*corev1.ExpectedRack{
 			{
-				RackId:        &cwssaws.RackId{Id: er.RackID},
-				RackProfileId: &cwssaws.RackProfileId{Id: er.RackProfileID},
-				Metadata: &cwssaws.Metadata{
+				RackId:        &corev1.RackId{Id: er.RackID},
+				RackProfileId: &corev1.RackProfileId{Id: er.RackProfileID},
+				Metadata: &corev1.Metadata{
 					Name:        er.Name,
 					Description: er.Description,
-					Labels: []*cwssaws.Label{
+					Labels: []*corev1.Label{
 						{Key: "foo", Value: cutil.GetPtr("bar")},
 					},
 				},
 			},
 		},
 		Timestamp:       timestamppb.Now(),
-		InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 	}
 
 	err = mer.UpdateExpectedRacksInDB(ctx, st.ID, inventory)
@@ -610,10 +610,10 @@ func TestManageExpectedRack_UpdateExpectedRacksInDB_RaceCondition(t *testing.T) 
 	}
 
 	// Send inventory without this rack - it should NOT be deleted due to race condition
-	inventory := &cwssaws.ExpectedRackInventory{
-		ExpectedRacks:   []*cwssaws.ExpectedRack{},
+	inventory := &corev1.ExpectedRackInventory{
+		ExpectedRacks:   []*corev1.ExpectedRack{},
 		Timestamp:       timestamppb.Now(),
-		InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 	}
 
 	err = mer.UpdateExpectedRacksInDB(ctx, st.ID, inventory)

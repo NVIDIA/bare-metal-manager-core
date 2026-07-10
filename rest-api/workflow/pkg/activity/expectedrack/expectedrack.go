@@ -19,7 +19,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ManageExpectedRack is an activity wrapper for managing ExpectedRack lifecycle that allows
@@ -38,7 +38,7 @@ type ManageExpectedRack struct {
 // - rack_id existing in NICo but not in DB: create record in DB
 // - rack_id existing in both NICo and DB with differences: update record in DB
 // - rack_id existing in DB but not in NICo: delete record in DB
-func (mer ManageExpectedRack) UpdateExpectedRacksInDB(ctx context.Context, siteID uuid.UUID, expectedRackInventory *cwssaws.ExpectedRackInventory) error {
+func (mer ManageExpectedRack) UpdateExpectedRacksInDB(ctx context.Context, siteID uuid.UUID, expectedRackInventory *corev1.ExpectedRackInventory) error {
 	logger := log.With().Str("Activity", "UpdateExpectedRacksInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -48,7 +48,7 @@ func (mer ManageExpectedRack) UpdateExpectedRacksInDB(ctx context.Context, siteI
 		return errors.New("UpdateExpectedRacksInDB called with nil inventory")
 	}
 
-	if expectedRackInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if expectedRackInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}

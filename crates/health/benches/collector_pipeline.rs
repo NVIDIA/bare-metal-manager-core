@@ -39,9 +39,14 @@ impl DataSink for CountingSink {
         "counting_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn try_handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), carbide_health::HealthError> {
         black_box(context);
         black_box(event);
+        Ok(())
     }
 }
 

@@ -26,11 +26,11 @@ type MachineUpdateRequest struct {
 	InstanceTypeId NullableString `json:"instanceTypeId,omitempty"`
 	// Set to true to clear the existing Instance Type. Cannot be specified if Instance Type ID is specified. Can only be set by Provider.
 	ClearInstanceType NullableBool `json:"clearInstanceType,omitempty"`
-	// Set to `true` to enable maintenance mode and to `false` to disable maintenance mode. Can be set by Provider or Privileged Tenant.
+	// Set to `true` to enable maintenance mode and to `false` to disable maintenance mode. Can be set by Provider or privileged Tenant.
 	SetMaintenanceMode NullableBool `json:"setMaintenanceMode,omitempty"`
-	// Optional message describing the reason for moving Machine into maintenance mode. Can be updated by Provider or Privileged Tenant.
+	// Optional message describing the reason for moving Machine into maintenance mode. Can be updated by Provider or privileged Tenant.
 	MaintenanceMessage NullableString `json:"maintenanceMessage,omitempty"`
-	// Machine labels will be overwritten, include existing labels to preserve them. Can be updated by Provider or Privileged Tenant.
+	// Machine labels will be overwritten, include existing labels to preserve them. Can be updated by Provider or privileged Tenant.
 	Labels map[string]string `json:"labels,omitempty"`
 	// Request to enter/exit online repair
 	OnlineRepair *MachineOnlineRepair `json:"onlineRepair,omitempty"`

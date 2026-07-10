@@ -11,7 +11,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 
@@ -133,7 +133,7 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 
 	type args struct {
 		ctx              context.Context
-		osImageInventory *cwssaws.OsImageInventory
+		osImageInventory *corev1.OsImageInventory
 		readyoss         []uuid.UUID
 		deletedoss       []uuid.UUID
 		erroross         []uuid.UUID
@@ -154,29 +154,29 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				osImageInventory: &cwssaws.OsImageInventory{
-					OsImages: []*cwssaws.OsImage{
+				osImageInventory: &corev1.OsImageInventory{
+					OsImages: []*corev1.OsImage{
 						{
-							Attributes: &cwssaws.OsImageAttributes{
-								Id: &cwssaws.UUID{Value: ossa1.OperatingSystemID.String()},
+							Attributes: &corev1.OsImageAttributes{
+								Id: &corev1.UUID{Value: ossa1.OperatingSystemID.String()},
 							},
-							Status: cwssaws.OsImageStatus_ImageReady,
+							Status: corev1.OsImageStatus_ImageReady,
 						},
 						{
-							Attributes: &cwssaws.OsImageAttributes{
-								Id: &cwssaws.UUID{Value: ossa3.OperatingSystemID.String()},
+							Attributes: &corev1.OsImageAttributes{
+								Id: &corev1.UUID{Value: ossa3.OperatingSystemID.String()},
 							},
-							Status: cwssaws.OsImageStatus_ImageReady,
+							Status: corev1.OsImageStatus_ImageReady,
 						},
 						{
-							Attributes: &cwssaws.OsImageAttributes{
-								Id: &cwssaws.UUID{Value: ossa7.OperatingSystemID.String()},
+							Attributes: &corev1.OsImageAttributes{
+								Id: &corev1.UUID{Value: ossa7.OperatingSystemID.String()},
 							},
-							Status: cwssaws.OsImageStatus_ImageReady,
+							Status: corev1.OsImageStatus_ImageReady,
 						},
 					},
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  1,
 						PageSize:    1,
@@ -204,10 +204,10 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				osImageInventory: &cwssaws.OsImageInventory{
-					OsImages:  []*cwssaws.OsImage{},
+				osImageInventory: &corev1.OsImageInventory{
+					OsImages:  []*corev1.OsImage{},
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -231,19 +231,19 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				osImageInventory: &cwssaws.OsImageInventory{
-					OsImages: []*cwssaws.OsImage{
+				osImageInventory: &corev1.OsImageInventory{
+					OsImages: []*corev1.OsImage{
 						{
-							Attributes: &cwssaws.OsImageAttributes{
-								Id: &cwssaws.UUID{Value: ossa2.OperatingSystemID.String()},
+							Attributes: &corev1.OsImageAttributes{
+								Id: &corev1.UUID{Value: ossa2.OperatingSystemID.String()},
 							},
-							Status: cwssaws.OsImageStatus_ImageFailed,
+							Status: corev1.OsImageStatus_ImageFailed,
 						},
 						{
-							Attributes: &cwssaws.OsImageAttributes{
-								Id: &cwssaws.UUID{Value: ossa4.OperatingSystemID.String()},
+							Attributes: &corev1.OsImageAttributes{
+								Id: &corev1.UUID{Value: ossa4.OperatingSystemID.String()},
 							},
-							Status: cwssaws.OsImageStatus_ImageFailed,
+							Status: corev1.OsImageStatus_ImageFailed,
 						},
 					},
 				},

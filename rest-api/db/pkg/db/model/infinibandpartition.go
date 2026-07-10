@@ -20,7 +20,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // InfiniBandPartitionStatus is the domain enum for the lifecycle state
@@ -81,15 +81,15 @@ var (
 // state leaves the receiver as the empty string so the caller can
 // detect "no DB-side equivalent" (the pre-typed helper returned
 // `(nil, nil)` for the same case).
-func (s *InfiniBandPartitionStatus) FromProto(state cwssaws.TenantState) {
+func (s *InfiniBandPartitionStatus) FromProto(state corev1.TenantState) {
 	switch state {
-	case cwssaws.TenantState_PROVISIONING:
+	case corev1.TenantState_PROVISIONING:
 		*s = InfiniBandPartitionStatusProvisioning
-	case cwssaws.TenantState_CONFIGURING:
+	case corev1.TenantState_CONFIGURING:
 		*s = InfiniBandPartitionStatusConfiguring
-	case cwssaws.TenantState_READY:
+	case corev1.TenantState_READY:
 		*s = InfiniBandPartitionStatusReady
-	case cwssaws.TenantState_FAILED:
+	case corev1.TenantState_FAILED:
 		*s = InfiniBandPartitionStatusError
 	default:
 		log.Warn().Str("TenantState", state.String()).Msg("unsupported InfiniBandPartitionStatus requested")
@@ -183,8 +183,8 @@ func validateInfiniBandPartitionNameWhitespace(value interface{}) error {
 // defaults to the empty string when ibp.Description is nil. Labels
 // are produced via `(Labels).ToProto()` so the conversion stays on
 // the named type per the proto-conversion convention.
-func (ibp *InfiniBandPartition) toMetadataProto() *cwssaws.Metadata {
-	md := &cwssaws.Metadata{
+func (ibp *InfiniBandPartition) toMetadataProto() *corev1.Metadata {
+	md := &corev1.Metadata{
 		Name:        ibp.Name,
 		Description: "",
 		Labels:      ibp.Labels.ToProto(),
@@ -204,10 +204,10 @@ func (ibp *InfiniBandPartition) toMetadataProto() *cwssaws.Metadata {
 // `Config.TenantOrganizationId` is sourced from `ibp.Org`, which is
 // the persisted tenant org id (populated from the path param at
 // create time and carried with the entity thereafter).
-func (ibp *InfiniBandPartition) ToProto() *cwssaws.IBPartition {
-	return &cwssaws.IBPartition{
-		Id: &cwssaws.IBPartitionId{Value: ibp.ID.String()},
-		Config: &cwssaws.IBPartitionConfig{
+func (ibp *InfiniBandPartition) ToProto() *corev1.IBPartition {
+	return &corev1.IBPartition{
+		Id: &corev1.IBPartitionId{Value: ibp.ID.String()},
+		Config: &corev1.IBPartitionConfig{
 			Name:                 ibp.Name,
 			TenantOrganizationId: ibp.Org,
 		},
@@ -219,7 +219,7 @@ func (ibp *InfiniBandPartition) ToProto() *cwssaws.IBPartition {
 // representation. A nil proto is a no-op. This is the inverse of
 // `ToProto` and exists for convention symmetry — currently no code
 // path on the cloud side reconstructs a full InfiniBandPartition
-// entity from a `cwssaws.IBPartition` (the site is the destination,
+// entity from a `corev1.IBPartition` (the site is the destination,
 // not the source for the create/delete request shapes used today),
 // but the method is provided so future reconciliation flows have a
 // single canonical entry point.
@@ -233,7 +233,7 @@ func (ibp *InfiniBandPartition) ToProto() *cwssaws.IBPartition {
 //   - Optional pointer fields (Description, Labels) are cleared when
 //     the proto omits them so `FromProto` is a clean reset rather
 //     than a partial merge.
-func (ibp *InfiniBandPartition) FromProto(proto *cwssaws.IBPartition) {
+func (ibp *InfiniBandPartition) FromProto(proto *corev1.IBPartition) {
 	if proto == nil {
 		return
 	}
@@ -267,9 +267,9 @@ func (ibp *InfiniBandPartition) FromProto(proto *cwssaws.IBPartition) {
 
 // ToDeletionRequestProto builds the workflow request that asks a Site to
 // delete this InfiniBand Partition.
-func (ibp *InfiniBandPartition) ToDeletionRequestProto() *cwssaws.IBPartitionDeletionRequest {
-	return &cwssaws.IBPartitionDeletionRequest{
-		Id: &cwssaws.IBPartitionId{Value: ibp.ID.String()},
+func (ibp *InfiniBandPartition) ToDeletionRequestProto() *corev1.IBPartitionDeletionRequest {
+	return &corev1.IBPartitionDeletionRequest{
+		Id: &corev1.IBPartitionId{Value: ibp.ID.String()},
 	}
 }
 

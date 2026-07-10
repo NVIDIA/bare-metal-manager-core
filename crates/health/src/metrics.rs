@@ -118,6 +118,10 @@ pub struct MetricsManager {
     global_registry: Registry,
     telemetry_registry: Registry,
     component_metrics: Arc<ComponentMetrics>,
+    /// The instrumentation framework's registry, exposed through the same
+    /// /metrics response so its events are scrapeable without migrating this
+    /// server off its raw prometheus pipeline. Set once at startup.
+    framework_registry: std::sync::OnceLock<Registry>,
 }
 
 impl MetricsManager {
@@ -130,6 +134,7 @@ impl MetricsManager {
             global_registry,
             telemetry_registry,
             component_metrics,
+            framework_registry: std::sync::OnceLock::new(),
         })
     }
 
@@ -157,8 +162,18 @@ impl MetricsManager {
         CollectorRegistry::new(id, self.telemetry_registry.clone(), prefix)
     }
 
+    /// Makes the instrumentation framework's registry part of every
+    /// subsequent /metrics response. A second call is ignored.
+    pub fn expose_framework_registry(&self, registry: Registry) {
+        let _ = self.framework_registry.set(registry);
+    }
+
     pub fn export_metrics(&self) -> Result<String, HealthError> {
-        export_registry(&self.global_registry)
+        let mut exposition = export_registry(&self.global_registry)?;
+        if let Some(framework) = self.framework_registry.get() {
+            exposition.push_str(&export_registry(framework)?);
+        }
+        Ok(exposition)
     }
 
     pub fn export_telemetry(&self) -> Result<String, HealthError> {

@@ -943,10 +943,15 @@ Link_Down{Port_Number="1"} 5
                 "capturing_sink"
             }
 
-            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            fn try_handle_event(
+                &self,
+                _context: &EventContext,
+                event: &CollectorEvent,
+            ) -> Result<(), crate::HealthError> {
                 if let CollectorEvent::Metric(sample) = event {
                     self.samples.lock().unwrap().push((**sample).clone());
                 }
+                Ok(())
             }
         }
 
@@ -1052,10 +1057,15 @@ Link_Down{Port_Number="1"} 5
                 "capturing_sink"
             }
 
-            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            fn try_handle_event(
+                &self,
+                _context: &EventContext,
+                event: &CollectorEvent,
+            ) -> Result<(), crate::HealthError> {
                 if let CollectorEvent::Metric(sample) = event {
                     self.samples.lock().unwrap().push((**sample).clone());
                 }
+                Ok(())
             }
         }
 

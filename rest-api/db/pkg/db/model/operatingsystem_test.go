@@ -240,7 +240,6 @@ func TestOperatingSystemSQLDAO_Create(t *testing.T) {
 						RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
 						IpxeScript:                  cutil.GetPtr("ipxeScript"),
 						UserData:                    cutil.GetPtr("userData"),
-						IsCloudInit:                 true,
 						AllowOverride:               true,
 						EnableBlockStorage:          true,
 						PhoneHomeEnabled:            i.PhoneHomeEnabled,
@@ -286,7 +285,6 @@ func TestOperatingSystemSQLDAO_GetByID(t *testing.T) {
 			ImageURL:                    cutil.GetPtr("imageURL"),
 			IpxeScript:                  cutil.GetPtr("ipxeScript"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          false,
 			PhoneHomeEnabled:            true,
@@ -313,7 +311,6 @@ func TestOperatingSystemSQLDAO_GetByID(t *testing.T) {
 			RootFsId:                    cutil.GetPtr("rootFsId"),
 			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          false,
 			PhoneHomeEnabled:            true,
@@ -452,7 +449,6 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 					OsType:                      OperatingSystemTypeImage,
 					ImageURL:                    cutil.GetPtr("imageURL"),
 					UserData:                    cutil.GetPtr("userData"),
-					IsCloudInit:                 true,
 					AllowOverride:               true,
 					EnableBlockStorage:          true,
 					PhoneHomeEnabled:            true,
@@ -485,7 +481,6 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 					ImageURL:                    cutil.GetPtr("iPXE"),
 					IpxeScript:                  cutil.GetPtr("ipxeScript"),
 					UserData:                    cutil.GetPtr("userData"),
-					IsCloudInit:                 true,
 					AllowOverride:               true,
 					EnableBlockStorage:          true,
 					PhoneHomeEnabled:            false,
@@ -519,7 +514,6 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ImageURL:                    cutil.GetPtr("iPXE"),
 			IpxeScript:                  cutil.GetPtr("ipxeScript"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
 			PhoneHomeEnabled:            false,
@@ -542,7 +536,6 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 			ImageURL:                    cutil.GetPtr("iPXE"),
 			IpxeScript:                  cutil.GetPtr("ipxeScript"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
 			PhoneHomeEnabled:            false,
@@ -563,7 +556,6 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 		OsType:                      OperatingSystemTypeImage,
 		ImageURL:                    cutil.GetPtr("imageURL"),
 		UserData:                    cutil.GetPtr("userData"),
-		IsCloudInit:                 true,
 		AllowOverride:               true,
 		EnableBlockStorage:          true,
 		PhoneHomeEnabled:            true,
@@ -590,7 +582,6 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 		OsType:                      OperatingSystemTypeImage,
 		ImageURL:                    cutil.GetPtr("imageURL"),
 		UserData:                    cutil.GetPtr("userData"),
-		IsCloudInit:                 true,
 		AllowOverride:               true,
 		EnableBlockStorage:          true,
 		PhoneHomeEnabled:            true,
@@ -617,7 +608,6 @@ func TestOperatingSystemSQLDAO_GetAll(t *testing.T) {
 		OsType:                      OperatingSystemTypeImage,
 		ImageURL:                    cutil.GetPtr("imageURL"),
 		UserData:                    cutil.GetPtr("userData"),
-		IsCloudInit:                 true,
 		AllowOverride:               true,
 		EnableBlockStorage:          true,
 		PhoneHomeEnabled:            true,
@@ -1068,7 +1058,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			RootFsId:                    cutil.GetPtr("rootFsId"),
 			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
 			PhoneHomeEnabled:            true,
@@ -1089,7 +1078,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			OsType:                      "ipxe",
 			IpxeScript:                  cutil.GetPtr("ipxeScript"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          false,
 			PhoneHomeEnabled:            true,
@@ -1110,7 +1098,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			OsType:                      "ipxe",
 			IpxeScript:                  cutil.GetPtr("ipxeScript"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          false,
 			PhoneHomeEnabled:            true,
@@ -1119,7 +1106,7 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 		})
 	assert.Nil(t, err)
 	assert.NotNil(t, os1tenant2)
-	updatedIsCloudInit := false
+
 	updatedAllowOverride := true
 	updatedEnableBlockStorage := false
 	updatedPhoneHomeEnabled := false
@@ -1150,7 +1137,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 		paramRootFsLabel                 *string
 		paramIpxeScript                  *string
 		paramUserData                    *string
-		paramIsCloudInit                 *bool
 		paramAllowOverride               *bool
 		paramEnableBlockStorage          *bool
 		paramPhoneHomeEnabled            *bool
@@ -1175,7 +1161,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 		expectedRootFsLabel                 *string
 		expectedIpxeScript                  *string
 		expectedUserData                    *string
-		expectedIsCloudInit                 *bool
 		expectedAllowOverride               *bool
 		expectedEnableBlockStorage          *bool
 		expectPhoneHomeEnabled              *bool
@@ -1205,7 +1190,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			paramRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
 			paramIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
 			paramUserData:                    cutil.GetPtr("updatedUserData"),
-			paramIsCloudInit:                 nil,
 			paramAllowOverride:               nil,
 			paramEnableBlockStorage:          nil,
 			paramPhoneHomeEnabled:            nil,
@@ -1228,7 +1212,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
 			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
 			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &os1tenant1.IsCloudInit,
 			expectedAllowOverride:               &os1tenant1.AllowOverride,
 			expectedEnableBlockStorage:          &os1tenant1.EnableBlockStorage,
 			expectPhoneHomeEnabled:              &os1tenant1.PhoneHomeEnabled,
@@ -1256,7 +1239,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			paramRootFsLabel:                 nil,
 			paramIpxeScript:                  nil,
 			paramUserData:                    nil,
-			paramIsCloudInit:                 nil,
 			paramAllowOverride:               nil,
 			paramEnableBlockStorage:          nil,
 			paramPhoneHomeEnabled:            nil,
@@ -1279,14 +1261,13 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
 			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
 			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &os1tenant1.IsCloudInit,
 			expectedAllowOverride:               &os1tenant1.AllowOverride,
 			expectedEnableBlockStorage:          &os1tenant1.EnableBlockStorage,
 			expectPhoneHomeEnabled:              &os1tenant1.PhoneHomeEnabled,
 			expectedStatus:                      cutil.GetPtr(OperatingSystemStatusProvisioning),
 		},
 		{
-			desc: "can update bool fields: iscloudinit, allowcloudinit, isblockstorage",
+			desc: "can update bool fields: allowoverride, isblockstorage",
 			os:   os1tenant1,
 
 			paramName:                        nil,
@@ -1306,7 +1287,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			paramRootFsLabel:                 nil,
 			paramIpxeScript:                  nil,
 			paramUserData:                    nil,
-			paramIsCloudInit:                 &updatedIsCloudInit,
 			paramAllowOverride:               &updatedAllowOverride,
 			paramEnableBlockStorage:          &updatedEnableBlockStorage,
 			paramPhoneHomeEnabled:            &updatedPhoneHomeEnabled,
@@ -1329,7 +1309,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
 			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
 			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &updatedIsCloudInit,
 			expectedAllowOverride:               &updatedAllowOverride,
 			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
 			expectPhoneHomeEnabled:              &updatedEnableBlockStorage,
@@ -1356,7 +1335,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
 			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
 			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &updatedIsCloudInit,
 			expectedAllowOverride:               &updatedAllowOverride,
 			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
 			expectPhoneHomeEnabled:              &updatedPhoneHomeEnabled,
@@ -1385,7 +1363,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			expectedRootFsLabel:                 cutil.GetPtr("updatedRootFsLabel"),
 			expectedIpxeScript:                  cutil.GetPtr("updatedIpxeScript"),
 			expectedUserData:                    cutil.GetPtr("updatedUserData"),
-			expectedIsCloudInit:                 &updatedIsCloudInit,
 			expectedAllowOverride:               &updatedAllowOverride,
 			expectedEnableBlockStorage:          &updatedEnableBlockStorage,
 			expectPhoneHomeEnabled:              &updatedPhoneHomeEnabled,
@@ -1415,7 +1392,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 				RootFsLabel:                 tc.paramRootFsLabel,
 				IpxeScript:                  tc.paramIpxeScript,
 				UserData:                    tc.paramUserData,
-				IsCloudInit:                 tc.paramIsCloudInit,
 				AllowOverride:               tc.paramAllowOverride,
 				EnableBlockStorage:          tc.paramEnableBlockStorage,
 				PhoneHomeEnabled:            tc.paramPhoneHomeEnabled,
@@ -1486,7 +1462,6 @@ func TestOperatingSystemSQLDAO_Update(t *testing.T) {
 			if tc.expectedUserData != nil {
 				assert.Equal(t, *tc.expectedUserData, *got.UserData)
 			}
-			assert.Equal(t, *tc.expectedIsCloudInit, got.IsCloudInit)
 			assert.Equal(t, *tc.expectedAllowOverride, got.AllowOverride)
 			assert.Equal(t, *tc.expectedEnableBlockStorage, got.EnableBlockStorage)
 			assert.Equal(t, *tc.expectPhoneHomeEnabled, got.PhoneHomeEnabled)
@@ -1541,7 +1516,6 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 			RootFsId:                    cutil.GetPtr("rootFsId"),
 			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
 			PhoneHomeEnabled:            true,
@@ -1563,7 +1537,6 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 			ImageURL:                    cutil.GetPtr("imageURL"),
 			IpxeScript:                  cutil.GetPtr("ipxeScript"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
 			PhoneHomeEnabled:            true,
@@ -1590,7 +1563,6 @@ func TestOperatingSystemSQLDAO_Clear(t *testing.T) {
 			RootFsId:                    cutil.GetPtr("rootFsId"),
 			RootFsLabel:                 cutil.GetPtr("rootFsLabel"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
 			PhoneHomeEnabled:            true,
@@ -2112,7 +2084,6 @@ func TestOperatingSystemSQLDAO_Delete(t *testing.T) {
 			ImageURL:                    cutil.GetPtr("imageURL"),
 			IpxeScript:                  cutil.GetPtr("ipxeScript"),
 			UserData:                    cutil.GetPtr("userData"),
-			IsCloudInit:                 true,
 			AllowOverride:               true,
 			EnableBlockStorage:          true,
 			PhoneHomeEnabled:            true,

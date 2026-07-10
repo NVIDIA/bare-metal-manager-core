@@ -24,7 +24,7 @@ use nv_redfish::{Bmc, Resource, ServiceRoot};
 
 use crate::chassis::ExploredChassisCollection;
 use crate::computer_system::{self, ExploredComputerSystem};
-use crate::{Config, Error, build_chassis_explore_config, hw, hw_type};
+use crate::{Config, Error, build_chassis_explore_config, hw, hw_type, is_bluefield_system_id};
 
 /// Resolve the [`hw::HwType`] for an endpoint, running only the chassis +
 /// computer-system exploration that detection depends on.
@@ -67,12 +67,11 @@ pub async fn detect_hw_type<B: Bmc>(
     let other_system_with_bios = systems_iter.find(|system| system.raw().bios.is_some());
     let system = other_system_with_bios.unwrap_or(first_system);
 
-    let is_bluefield_system = system.id().into_inner() == "Bluefield";
+    let is_bluefield_system = is_bluefield_system_id(system.id());
     let system_explore_config = computer_system::Config {
         need_oem_nvidia_bluefield: is_bluefield_system,
         ignore_500_on_bios_fetch: is_bluefield_system,
         retry_404_on_eth_interfaces: is_bluefield_system,
-        need_boot_options: !explored_chassis.is_bluefield4(),
         explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;

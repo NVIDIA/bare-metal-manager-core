@@ -829,6 +829,7 @@ impl ApiClient {
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
         dpu_mode: Option<::rpc::forge::DpuMode>,
+        bmc_ip_allocation: Option<::rpc::forge::BmcIpAllocationType>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
@@ -912,6 +913,11 @@ impl ApiClient {
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
             dpu_mode: dpu_mode.map(|m| m as i32).or(expected_machine.dpu_mode),
+            // Use the flag value if given, else preserve the stored per-host
+            // value (patch semantics).
+            bmc_ip_allocation: bmc_ip_allocation
+                .map(|m| m as i32)
+                .or(expected_machine.bmc_ip_allocation),
             host_lifecycle_profile: host_lifecycle_profile
                 .or(expected_machine.host_lifecycle_profile),
         };
@@ -949,6 +955,7 @@ impl ApiClient {
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
                     dpu_mode: machine.dpu_mode.map(|m| m as i32),
+                    bmc_ip_allocation: machine.bmc_ip_allocation.map(|m| m as i32),
                     host_lifecycle_profile: machine.host_lifecycle_profile.map(|hlp| {
                         ::rpc::forge::HostLifecycleProfile {
                             disable_lockdown: hlp.disable_lockdown,

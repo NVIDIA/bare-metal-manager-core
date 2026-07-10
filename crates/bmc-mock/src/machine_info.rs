@@ -118,6 +118,7 @@ impl DpuMachineInfo {
             HostHardwareType::DellPowerEdgeR750
             | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::GenericAmi
+            | HostHardwareType::HpeProliantDl380aGen11
             | HostHardwareType::GenericSupermicro => hw::bluefield3::Mode::SuperNIC {
                 nic_mode: self.settings.nic_mode,
             },
@@ -155,6 +156,7 @@ impl DpuMachineInfo {
             HostHardwareType::DellPowerEdgeR750
             | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::GenericAmi
+            | HostHardwareType::HpeProliantDl380aGen11
             | HostHardwareType::GenericSupermicro
             | HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LenovoGB300Nvl
@@ -180,6 +182,7 @@ impl DpuMachineInfo {
             HostHardwareType::DellPowerEdgeR750
             | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::GenericAmi
+            | HostHardwareType::HpeProliantDl380aGen11
             | HostHardwareType::GenericSupermicro
             | HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LenovoGB300Nvl
@@ -308,13 +311,16 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LenovoGB300Nvl
             | HostHardwareType::NvidiaDgxGb300
-            | HostHardwareType::SupermicroGb300Nvl
             | HostHardwareType::NvidiaDgxVr
             | HostHardwareType::LiteOnPowerShelf
             | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::NvidiaSwitchNd5200Ld
             | HostHardwareType::GenericAmi
+            | HostHardwareType::HpeProliantDl380aGen11
             | HostHardwareType::GenericSupermicro => redfish::oem::State::Other,
+            HostHardwareType::SupermicroGb300Nvl => redfish::oem::State::Supermicro(
+                redfish::oem::supermicro::manager::SupermicroState::default(),
+            ),
         }
     }
 
@@ -338,6 +344,7 @@ impl HostMachineInfo {
             }
             HostHardwareType::NvidiaDgxH100 => redfish::oem::BmcVendor::Ami,
             HostHardwareType::GenericAmi => redfish::oem::BmcVendor::Ami,
+            HostHardwareType::HpeProliantDl380aGen11 => redfish::oem::BmcVendor::Hpe,
             HostHardwareType::GenericSupermicro => redfish::oem::BmcVendor::Supermicro,
         }
     }
@@ -357,6 +364,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
             HostHardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
             HostHardwareType::GenericAmi => Some("AMI Redfish Server"),
+            HostHardwareType::HpeProliantDl380aGen11 => Some("ProLiant DL380a Gen11"),
             HostHardwareType::GenericSupermicro => Some("Super Server"),
         }
     }
@@ -375,6 +383,7 @@ impl HostMachineInfo {
             HostHardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
             HostHardwareType::NvidiaDgxH100 => "1.11.0",
             HostHardwareType::GenericAmi => "1.17.0",
+            HostHardwareType::HpeProliantDl380aGen11 => "1.13.0",
             HostHardwareType::GenericSupermicro => "1.17.0",
         }
     }
@@ -395,6 +404,9 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().manager_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().manager_config(),
+            HostHardwareType::HpeProliantDl380aGen11 => {
+                self.hpe_proliant_dl380a_gen11().manager_config()
+            }
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
                 self.generic_server().manager_config()
             }
@@ -424,6 +436,9 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().system_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(callbacks),
+            HostHardwareType::HpeProliantDl380aGen11 => {
+                self.hpe_proliant_dl380a_gen11().system_config(callbacks)
+            }
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
                 self.generic_server().system_config(callbacks)
             }
@@ -446,6 +461,9 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().chassis_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().chassis_config(),
+            HostHardwareType::HpeProliantDl380aGen11 => {
+                self.hpe_proliant_dl380a_gen11().chassis_config()
+            }
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
                 self.generic_server().chassis_config()
             }
@@ -472,6 +490,9 @@ impl HostMachineInfo {
                 self.nvidia_switch_nd5200_ld().update_service_config()
             }
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().update_service_config(),
+            HostHardwareType::HpeProliantDl380aGen11 => {
+                self.hpe_proliant_dl380a_gen11().update_service_config()
+            }
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
                 self.generic_server().update_service_config()
             }
@@ -490,6 +511,9 @@ impl HostMachineInfo {
             HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().discovery_info(),
             HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
+            HostHardwareType::HpeProliantDl380aGen11 => {
+                self.hpe_proliant_dl380a_gen11().discovery_info()
+            }
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
                 self.generic_server().discovery_info()
             }
@@ -615,8 +639,8 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::dgx_gb300_nvl::DgxGB300Nvl {
-            system_0_serial_number: "1332425360072".into(),
-            chassis_0_serial_number: "1332425360072".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
+            chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
                 .expect("One DPU must present for DGX GB300 NVL")
@@ -658,8 +682,8 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::supermicro_gb300_nvl::SupermicroGB300Nvl {
-            system_0_serial_number: "A978250X6404492".into(),
-            chassis_0_serial_number: "HA261S056572".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
+            chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
                 .expect("One DPU must present for SMC GB300 NVL")
@@ -695,7 +719,7 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::lenovo_gb300_nvl::LenovoGB300Nvl {
-            system_0_serial_number: "012345678901234567890123".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
             chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
@@ -830,6 +854,29 @@ impl HostMachineInfo {
             bmc_mac_address_eth0: next_mac(),
             bmc_mac_address_usb0: next_mac(),
             hgx_bmc_mac_address_usb0: next_mac(),
+        }
+    }
+
+    fn hpe_proliant_dl380a_gen11(
+        &self,
+    ) -> hw::hpe_proliant_dl380a_gen11::HpeProliantDl380aGen11<'_> {
+        let nics = if self.dpus.is_empty() {
+            self.non_dpu_mac_address
+                .iter()
+                .enumerate()
+                .map(|(index, mac_address)| (index + 1, hw::nic::Nic::rooftop(*mac_address)))
+                .collect()
+        } else {
+            self.dpus
+                .iter()
+                .enumerate()
+                .map(|(index, dpu)| (index + 1, dpu.bluefield3().host_nic()))
+                .collect()
+        };
+        hw::hpe_proliant_dl380a_gen11::HpeProliantDl380aGen11 {
+            bmc_mac_address: self.bmc_mac_address,
+            product_serial_number: Cow::Borrowed(&self.serial),
+            nics,
         }
     }
 
@@ -1014,5 +1061,43 @@ fn gb300_boards<'a>(
                 serial_number: io1.into(),
             },
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mac_address_pool::{Config, PoolConfig};
+
+    fn gb300_host_info(hw_type: HostHardwareType, pool: &mut MacAddressPool) -> HostMachineInfo {
+        let hw_mac_addr_pool = PoolConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 16)
+            .expect("valid hardware MAC pool");
+        let dpu = DpuMachineInfo::new(hw_type, pool, DpuSettings::default());
+        HostMachineInfo::new(hw_type, vec![dpu], pool, hw_mac_addr_pool)
+    }
+
+    #[test]
+    fn gb300_primary_serials_match_machine_serial() {
+        let pool_config =
+            PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
+        let mut pool = MacAddressPool::new(Config {
+            ranges: None,
+            pool: Some(pool_config),
+        });
+
+        let dgx = gb300_host_info(HostHardwareType::NvidiaDgxGb300, &mut pool);
+        let supermicro = gb300_host_info(HostHardwareType::SupermicroGb300Nvl, &mut pool);
+
+        let dgx_redfish = dgx.dgx_gb300_nvl();
+        assert_eq!(dgx_redfish.system_0_serial_number, dgx.serial);
+        assert_eq!(dgx_redfish.chassis_0_serial_number, dgx.serial);
+
+        let supermicro_redfish = supermicro.supermicro_gb300_nvl();
+        assert_eq!(supermicro_redfish.system_0_serial_number, supermicro.serial);
+        assert_eq!(
+            supermicro_redfish.chassis_0_serial_number,
+            supermicro.serial
+        );
+        assert_ne!(dgx.serial, supermicro.serial);
     }
 }

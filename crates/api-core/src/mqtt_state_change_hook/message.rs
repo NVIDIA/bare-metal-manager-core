@@ -15,31 +15,39 @@
  * limitations under the License.
  */
 
-//! Message types for the MQTT state change hook.
+//! Message types shared by the MQTT state change hook and periodic republisher.
 
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use model::machine::ManagedHostState;
 use serde::Serialize;
 
-/// MQTT message for managed host state changes.
+/// MQTT message carrying managed host state.
 ///
 /// Serializes to JSON with the state flattened directly into the message,
 /// using `ManagedHostState`'s native serde serialization (lowercase state names).
 #[derive(Debug, Clone, Serialize)]
-pub struct ManagedHostStateChangeMessage<'a> {
+pub struct ManagedHostStateMessage<'a> {
     /// Unique identifier for the managed host machine.
     pub machine_id: &'a MachineId,
-    /// ISO 8601 timestamp of the state change.
+    /// ISO 8601 timestamp when the state was observed for publishing.
     pub timestamp: DateTime<Utc>,
     /// The managed host state.
     pub managed_host_state: &'a ManagedHostState,
 }
 
-impl<'a> ManagedHostStateChangeMessage<'a> {
+impl ManagedHostStateMessage<'_> {
     /// Serialize the message to JSON bytes for MQTT publishing.
     pub fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
         serde_json::to_vec(self)
+    }
+
+    /// MQTT topic this message publishes to: `{topic_prefix}/{machineId}/state`.
+    ///
+    /// Shared by the change-driven hook and the periodic republisher so the
+    /// topic layout is defined in exactly one place.
+    pub fn topic(&self, topic_prefix: &str) -> String {
+        format!("{topic_prefix}/{}/state", self.machine_id)
     }
 }
 
@@ -60,7 +68,7 @@ mod tests {
         let state = ManagedHostState::Ready;
         let timestamp = Utc::now();
 
-        let message = ManagedHostStateChangeMessage {
+        let message = ManagedHostStateMessage {
             machine_id: &machine_id,
             managed_host_state: &state,
             timestamp,
@@ -82,7 +90,7 @@ mod tests {
         };
         let timestamp = Utc::now();
 
-        let message = ManagedHostStateChangeMessage {
+        let message = ManagedHostStateMessage {
             machine_id: &machine_id,
             managed_host_state: &state,
             timestamp,
@@ -101,7 +109,7 @@ mod tests {
         let state = ManagedHostState::Ready;
         let timestamp = Utc::now();
 
-        let message = ManagedHostStateChangeMessage {
+        let message = ManagedHostStateMessage {
             machine_id: &machine_id,
             managed_host_state: &state,
             timestamp,

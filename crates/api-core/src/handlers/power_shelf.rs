@@ -200,8 +200,8 @@ pub async fn delete_power_shelf(
 }
 
 /// Force deletes a power shelf and optionally its associated interfaces from the database.
-/// Unlike `delete_power_shelf` (soft delete), this immediately hard-deletes the power shelf,
-/// its state history, and optionally its machine interfaces.
+/// Unlike `delete_power_shelf` (soft delete), this immediately hard-deletes the power shelf
+/// while retaining its state history.
 pub async fn admin_force_delete_power_shelf(
     api: &Api,
     request: Request<rpc::AdminForceDeletePowerShelfRequest>,
@@ -245,15 +245,6 @@ pub async fn admin_force_delete_power_shelf(
         }
         interfaces_deleted = interface_ids.len() as u32;
     }
-
-    // Delete state history.
-    db::state_history::delete_by_object_id(
-        &mut txn,
-        db::state_history::StateHistoryTableId::PowerShelf,
-        &power_shelf_id,
-    )
-    .await
-    .map_err(CarbideError::from)?;
 
     // Hard-delete the power shelf.
     db_power_shelf::final_delete(power_shelf_id, &mut txn)

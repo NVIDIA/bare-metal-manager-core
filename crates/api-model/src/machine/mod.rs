@@ -941,10 +941,10 @@ impl HostProfile {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        MachineSnapshotPgJson::deserialize(json)
-            .map_err(|err| sqlx::Error::Decode(err.into()))?
-            .try_into()
+        // Json<T> deserializes the row bytes straight into the snapshot
+        // struct, skipping the intermediate serde_json::Value DOM.
+        let json: sqlx::types::Json<MachineSnapshotPgJson> = row.try_get(0)?;
+        json.0.try_into()
     }
 }
 
@@ -1070,12 +1070,12 @@ impl Machine {
     }
 
     pub fn to_capabilities(&self) -> Option<MachineCapabilitiesSet> {
-        self.hardware_info.clone().map(|info| {
+        self.hardware_info.as_ref().map(|info| {
             MachineCapabilitiesSet::from_hardware_info(
                 info,
                 self.infiniband_status_observation.as_ref(),
                 self.associated_dpu_machine_ids(),
-                self.interfaces.clone(),
+                &self.interfaces,
             )
         })
     }
@@ -1303,6 +1303,11 @@ impl std::fmt::Display for ValidationState {
     }
 }
 
+/// The retry budget for a failed host firmware upgrade: once
+/// [`ManagedHostState::HostReprovision`] has consumed this many retries, the
+/// machine stays in its failure state until an operator intervenes.
+pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
+
 impl ManagedHostState {
     pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
         match self {
@@ -1328,6 +1333,17 @@ impl ManagedHostState {
             ManagedHostState::HostReprovision { retry_count, .. } => *retry_count,
             _ => 0,
         }
+    }
+
+    /// True when this machine is in host reprovisioning with no
+    /// firmware-upgrade retry budget left (see
+    /// [`MAX_FIRMWARE_UPGRADE_RETRIES`]).
+    pub fn host_repro_retries_exhausted(&self) -> bool {
+        matches!(
+            self,
+            ManagedHostState::HostReprovision { retry_count, .. }
+                if *retry_count >= MAX_FIRMWARE_UPGRADE_RETRIES
+        )
     }
 }
 
@@ -1896,6 +1912,10 @@ pub struct SetBootOrderInfo {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
+    /// A reverted HTTP-boot device was re-asserted (`machine_setup`) and the
+    /// host restarted to apply it; polls the device across that reboot, then
+    /// returns to `SetBootOrder` to set the boot order.
+    WaitForHttpBootDeviceApplied,
     WaitForSetBootOrderJobScheduled,
     RebootHost,
     WaitForSetBootOrderJobCompletion,

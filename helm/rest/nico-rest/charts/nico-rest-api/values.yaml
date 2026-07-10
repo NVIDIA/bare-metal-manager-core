@@ -33,7 +33,8 @@ secrets:
   keycloakClientSecret: keycloak-client-secret
   # -- Secret containing DB password at key "password". When set, db.password is ignored
   # and the password is read from /var/secrets/db/password (supports live rotation).
-  dbCreds: ""
+  # Created by nico-prereqs ESO (nico-rest-db-eso) when rest.enabled=true.
+  dbCreds: db-creds
 
 config:
   env:
@@ -48,12 +49,12 @@ config:
     sentry:
       dsn: ""
   db:
-    host: postgres.postgres
+    host: nico-pg-cluster.postgres.svc.cluster.local
     port: 5432
-    name: nico
-    user: nico
+    name: nico_rest
+    user: nico-rest.nico
     # -- Plain-text password. Ignored when secrets.dbCreds is set.
-    password: nico
+    password: ""
   temporal:
     host: temporal-frontend.temporal
     port: 7233

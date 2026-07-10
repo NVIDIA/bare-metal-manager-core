@@ -91,3 +91,16 @@ max_network_security_group_size = 200
 [machine_validation_config]
 enabled = true
 test_selection_mode = "EnableAll"
+
+# Per-site [component_manager] configures switch and power shelf backends.
+
+# Per-site [switch_state_controller] can configure switch_mtls_services, the
+# RMS SwitchService list passed by the switch state machine during certificate
+# configuration. When omitted, all supported services are used: nvue_api,
+# scale_up_fabric_telemetry, scale_up_fabric_manager,
+# scale_up_fabric_telemetry_interface.
+
+# Per-site [rack_state_controller] can configure nmx_cluster_switch_mtls_services,
+# the RMS SwitchService list passed during NMX cluster certificate configuration.
+# When omitted, scale_up_fabric_manager and scale_up_fabric_telemetry_interface
+# are used.

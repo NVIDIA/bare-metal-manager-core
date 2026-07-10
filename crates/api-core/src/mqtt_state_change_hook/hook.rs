@@ -30,7 +30,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::mqtt_state_change_hook::message::ManagedHostStateChangeMessage;
+use crate::mqtt_state_change_hook::message::ManagedHostStateMessage;
 
 /// MQTT hook that publishes `ManagedHostState` changes to the MQTT broker.
 ///
@@ -78,21 +78,17 @@ impl MqttStateChangeHook {
             metrics,
         }
     }
-
-    fn build_topic(&self, machine_id: &MachineId) -> String {
-        format!("{}/{}/state", self.topic_prefix, machine_id)
-    }
 }
 
 impl StateChangeHook<MachineId, ManagedHostState> for MqttStateChangeHook {
     fn on_state_changed(&self, event: &StateChangeEvent<'_, MachineId, ManagedHostState>) {
         // Serialize immediately to avoid cloning state
-        let message = ManagedHostStateChangeMessage {
+        let message = ManagedHostStateMessage {
             machine_id: event.object_id,
             managed_host_state: event.new_state,
             timestamp: event.timestamp,
         };
-        let topic = self.build_topic(event.object_id);
+        let topic = message.topic(&self.topic_prefix);
 
         match message.to_json_bytes() {
             Ok(payload) => {

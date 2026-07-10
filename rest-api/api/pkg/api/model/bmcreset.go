@@ -4,28 +4,20 @@
 package model
 
 import (
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
-	validation "github.com/go-ozzo/ozzo-validation/v4"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-// APIBmcResetRequest represents a request to reset the BMC of a machine
-type APIBmcResetRequest struct {
-	UseIpmiTool *bool `json:"useIpmiTool"`
+// APIMachineBMCResetRequest represents a request to reset the BMC of a Machine
+type APIMachineBMCResetRequest struct {
+	UseIpmiTool bool `json:"useIpmiTool"`
+	// AcknowledgeAttachedInstance indicates the caller is aware that an Instance is currently attached to the Machine.
+	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance"`
 }
 
-// Validate validates the APIBmcResetRequest
-func (r *APIBmcResetRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.UseIpmiTool,
-			validation.Required.Error("a value must be specified for useIpmiTool"),
-		),
-	)
-}
-
-// ToProto converts the APIBmcResetRequest to a Core gRPC AdminBmcResetRequest
-func (r *APIBmcResetRequest) ToProto(machineID string) *cwssaws.AdminBmcResetRequest {
-	return &cwssaws.AdminBmcResetRequest{
+// ToProto converts the APIMachineBMCResetRequest to a Core gRPC AdminBmcResetRequest
+func (ambrr *APIMachineBMCResetRequest) ToProto(machineID string) *corev1.AdminBmcResetRequest {
+	return &corev1.AdminBmcResetRequest{
 		MachineId:   &machineID,
-		UseIpmitool: *r.UseIpmiTool,
+		UseIpmitool: ambrr.UseIpmiTool,
 	}
 }

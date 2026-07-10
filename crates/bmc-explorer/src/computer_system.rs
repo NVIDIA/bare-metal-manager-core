@@ -56,8 +56,6 @@ pub struct Config<'a, B: Bmc> {
     // This is expected to be fixed in BMC firmware 24.10-39, which adds
     // internal retries.
     pub retry_404_on_eth_interfaces: bool,
-    // Collect boot options (if set to false then assume that they are empty).
-    pub need_boot_options: bool,
     pub explore: &'a ExploreConfig<'a, B>,
 }
 
@@ -75,11 +73,10 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         system: ComputerSystem<B>,
         config: &Config<'_, B>,
     ) -> Result<Self, Error<B>> {
-        let boot_options = if config.need_boot_options
-            && let Some(collection) = system
-                .boot_options()
-                .await
-                .map_err(Error::nv_redfish("boot options"))?
+        let boot_options = if let Some(collection) = system
+            .boot_options()
+            .await
+            .map_err(Error::nv_redfish("boot options"))?
         {
             collection
                 .members()
@@ -190,7 +187,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             // This part processes dpu case and do two things such as
             // 1. update system serial_number in case it is empty using chassis serial_number
             // 2. format serial_number data using the same rules as in fetch_chassis()
-            if serial_number.is_none() {
+            if serial_number.is_none() && !chassis.is_bluefield4() {
                 serial_number = chassis.dpu_card1_serial_number()?;
             }
 
@@ -204,6 +201,20 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                         .ok()
                 });
                 nic_mode = Self::dpu_mode(&self.system, self.bios.as_ref(), oem_bf);
+            }
+            let is_bf4_shape = chassis
+                .members
+                .iter()
+                .any(|c| c.chassis.id().into_inner() == "BlueField_0");
+            if base_mac.is_none() && is_bf4_shape {
+                // BF4 temporary patch: some BMC firmware misses ComputerSystem
+                // BaseMAC; patch from NDF0-derived base MAC (NDF0 - 0x10) if available.
+                base_mac = chassis.dpu_bf4_ndf0_permanent_mac();
+                if base_mac.is_none() {
+                    tracing::warn!(
+                        "BF4 NDF0 fallback did not provide PF0 base MAC (NIC inventory unavailable/uninitialized?)"
+                    );
+                }
             }
         }
 

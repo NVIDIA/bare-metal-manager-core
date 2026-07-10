@@ -17,10 +17,10 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cclient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ManageExpectedPowerShelfInventory is an activity wrapper for Expected Power Shelf inventory collection and publishing
@@ -33,8 +33,8 @@ type ManageExpectedPowerShelfInventory struct {
 }
 
 type linkedExpectedPowerShelfInfo struct {
-	expectedPowerShelf       *cwssaws.ExpectedPowerShelf
-	linkedExpectedPowerShelf *cwssaws.LinkedExpectedPowerShelf
+	expectedPowerShelf       *corev1.ExpectedPowerShelf
+	linkedExpectedPowerShelf *corev1.LinkedExpectedPowerShelf
 }
 
 // DiscoverExpectedPowerShelfInventory is an activity to collect Expected Power Shelf inventory and publish to Temporal queue
@@ -61,11 +61,11 @@ func (mepsi *ManageExpectedPowerShelfInventory) DiscoverExpectedPowerShelfInvent
 		logger.Warn().Err(err).Msg("Failed to retrieve ExpectedPowerShelves using Core gRPC API")
 
 		// Error encountered before we've published anything, report inventory collection error to Cloud
-		inventory := &cwssaws.ExpectedPowerShelfInventory{
+		inventory := &corev1.ExpectedPowerShelfInventory{
 			Timestamp: &timestamppb.Timestamp{
 				Seconds: time.Now().Unix(),
 			},
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 			StatusMsg:       err.Error(),
 		}
 
@@ -83,11 +83,11 @@ func (mepsi *ManageExpectedPowerShelfInventory) DiscoverExpectedPowerShelfInvent
 		logger.Warn().Err(lerr).Msg("Failed to retrieve linked Power Shelf IDs using Core gRPC API")
 
 		// Fatal error - report inventory collection error to Cloud
-		inventory := &cwssaws.ExpectedPowerShelfInventory{
+		inventory := &corev1.ExpectedPowerShelfInventory{
 			Timestamp: &timestamppb.Timestamp{
 				Seconds: time.Now().Unix(),
 			},
-			InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 			StatusMsg:       lerr.Error(),
 		}
 
@@ -100,7 +100,7 @@ func (mepsi *ManageExpectedPowerShelfInventory) DiscoverExpectedPowerShelfInvent
 	}
 
 	// LinkedExpectedPowerShelf data is missing ExpectedPowerShelf ID so we build an intermediate map using MAC address
-	linkedPowerShelvesByKey := make(map[string]*cwssaws.LinkedExpectedPowerShelf)
+	linkedPowerShelvesByKey := make(map[string]*corev1.LinkedExpectedPowerShelf)
 	for _, linked := range linkedList.ExpectedPowerShelves {
 		linkedPowerShelvesByKey[linked.BmcMacAddress] = linked
 	}
@@ -127,7 +127,7 @@ func (mepsi *ManageExpectedPowerShelfInventory) DiscoverExpectedPowerShelfInvent
 	logger.Info().Int("ExpectedPowerShelf Count", totalCount).Msg("Built ExpectedPowerShelf list")
 
 	if totalCount == 0 {
-		inventoryPage := getPagedExpectedPowerShelfInventory([]linkedExpectedPowerShelfInfo{}, allExpectedPowerShelfIDs, totalCount, 1, mepsi.cloudPageSize, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No ExpectedPowerShelves reported by Site Controller")
+		inventoryPage := getPagedExpectedPowerShelfInventory([]linkedExpectedPowerShelfInfo{}, allExpectedPowerShelfIDs, totalCount, 1, mepsi.cloudPageSize, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, "No ExpectedPowerShelves reported by Site Controller")
 
 		_, serr := mepsi.temporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, "UpdateExpectedPowerShelfInventory", mepsi.siteID, inventoryPage)
 		if serr != nil {
@@ -165,7 +165,7 @@ func (mepsi *ManageExpectedPowerShelfInventory) DiscoverExpectedPowerShelfInvent
 			totalCount,
 			cloudPage,
 			mepsi.cloudPageSize,
-			cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 			"Successfully retrieved ExpectedPowerShelves from Site Controller",
 		)
 
@@ -188,17 +188,17 @@ func getPagedExpectedPowerShelfInventory(
 	totalCount int,
 	page int,
 	pageSize int,
-	status cwssaws.InventoryStatus,
+	status corev1.InventoryStatus,
 	statusMessage string,
-) *cwssaws.ExpectedPowerShelfInventory {
+) *corev1.ExpectedPowerShelfInventory {
 	totalPages := totalCount / pageSize
 	if totalCount%pageSize > 0 {
 		totalPages++
 	}
 
 	// Build lists for this page from the sliced info list
-	pagedExpectedPowerShelves := make([]*cwssaws.ExpectedPowerShelf, 0, len(pagedInfo))
-	pagedLinkedPowerShelves := make([]*cwssaws.LinkedExpectedPowerShelf, 0, len(pagedInfo))
+	pagedExpectedPowerShelves := make([]*corev1.ExpectedPowerShelf, 0, len(pagedInfo))
+	pagedLinkedPowerShelves := make([]*corev1.LinkedExpectedPowerShelf, 0, len(pagedInfo))
 
 	for _, info := range pagedInfo {
 		pagedExpectedPowerShelves = append(pagedExpectedPowerShelves, info.expectedPowerShelf)
@@ -209,7 +209,7 @@ func getPagedExpectedPowerShelfInventory(
 	}
 
 	// Create an inventory page with the subset of ExpectedPowerShelves and matching LinkedPowerShelves
-	inventoryPage := &cwssaws.ExpectedPowerShelfInventory{
+	inventoryPage := &corev1.ExpectedPowerShelfInventory{
 		ExpectedPowerShelves: pagedExpectedPowerShelves,
 		LinkedPowerShelves:   pagedLinkedPowerShelves,
 		Timestamp: &timestamppb.Timestamp{
@@ -217,7 +217,7 @@ func getPagedExpectedPowerShelfInventory(
 		},
 		InventoryStatus: status,
 		StatusMsg:       statusMessage,
-		InventoryPage: &cwssaws.InventoryPage{
+		InventoryPage: &corev1.InventoryPage{
 			TotalPages:  int32(totalPages),
 			CurrentPage: int32(page),
 			PageSize:    int32(pageSize),
@@ -255,7 +255,7 @@ func NewManageExpectedPowerShelf(coreGrpcAtomicClient *cclient.CoreGrpcAtomicCli
 }
 
 // CreateExpectedPowerShelfOnSite creates Expected Power Shelf with NICo
-func (meps *ManageExpectedPowerShelf) CreateExpectedPowerShelfOnSite(ctx context.Context, request *cwssaws.ExpectedPowerShelf) error {
+func (meps *ManageExpectedPowerShelf) CreateExpectedPowerShelfOnSite(ctx context.Context, request *corev1.ExpectedPowerShelf) error {
 	logger := log.With().Str("Activity", "CreateExpectedPowerShelfOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -295,7 +295,7 @@ func (meps *ManageExpectedPowerShelf) CreateExpectedPowerShelfOnSite(ctx context
 }
 
 // UpdateExpectedPowerShelfOnSite updates Expected Power Shelf on NICo
-func (meps *ManageExpectedPowerShelf) UpdateExpectedPowerShelfOnSite(ctx context.Context, request *cwssaws.ExpectedPowerShelf) error {
+func (meps *ManageExpectedPowerShelf) UpdateExpectedPowerShelfOnSite(ctx context.Context, request *corev1.ExpectedPowerShelf) error {
 	logger := log.With().Str("Activity", "UpdateExpectedPowerShelfOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -334,7 +334,7 @@ func (meps *ManageExpectedPowerShelf) UpdateExpectedPowerShelfOnSite(ctx context
 }
 
 // CreateExpectedPowerShelfOnFlow creates an Expected Power Shelf as a component in Flow via AddComponent
-func (meps *ManageExpectedPowerShelf) CreateExpectedPowerShelfOnFlow(ctx context.Context, request *cwssaws.ExpectedPowerShelf) error {
+func (meps *ManageExpectedPowerShelf) CreateExpectedPowerShelfOnFlow(ctx context.Context, request *corev1.ExpectedPowerShelf) error {
 	logger := log.With().Str("Activity", "CreateExpectedPowerShelfOnFlow").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -369,7 +369,7 @@ func (meps *ManageExpectedPowerShelf) CreateExpectedPowerShelfOnFlow(ctx context
 }
 
 // expectedPowerShelfToFlowComponent converts a NICo ExpectedPowerShelf proto to an Flow Component proto
-func expectedPowerShelfToFlowComponent(eps *cwssaws.ExpectedPowerShelf) *flowv1.Component {
+func expectedPowerShelfToFlowComponent(eps *corev1.ExpectedPowerShelf) *flowv1.Component {
 	component := &flowv1.Component{
 		Type: flowv1.ComponentType_COMPONENT_TYPE_POWERSHELF,
 		Info: &flowv1.DeviceInfo{
@@ -427,7 +427,7 @@ func expectedPowerShelfToFlowComponent(eps *cwssaws.ExpectedPowerShelf) *flowv1.
 }
 
 // DeleteExpectedPowerShelfOnSite deletes Expected Power Shelf on NICo
-func (meps *ManageExpectedPowerShelf) DeleteExpectedPowerShelfOnSite(ctx context.Context, request *cwssaws.ExpectedPowerShelfRequest) error {
+func (meps *ManageExpectedPowerShelf) DeleteExpectedPowerShelfOnSite(ctx context.Context, request *corev1.ExpectedPowerShelfRequest) error {
 	logger := log.With().Str("Activity", "DeleteExpectedPowerShelfOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")

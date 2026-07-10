@@ -29,6 +29,7 @@ carbide-rack = { path = "../rack", default-features = false }
 carbide-secrets = { path = "../secrets", default-features = false }
 carbide-utils = { path = "../utils", default-features = false }
 carbide-uuid = { path = "../uuid", default-features = false }
+component-manager = { path = "../component-manager" }
 config-version = { path = "../config-version", default-features = false }
 state-controller = { path = "../state-controller", default-features = false }
 

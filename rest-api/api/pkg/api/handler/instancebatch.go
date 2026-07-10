@@ -31,7 +31,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
@@ -65,7 +65,7 @@ func NewBatchCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Cli
 // buildBatchInstanceCreateRequestOsConfig validates and retrieves OS configuration for batch instance creation.
 // This mirrors the behavior of CreateInstanceHandler.buildInstanceCreateRequestOsConfig.
 // Returns: osConfig, osID, and error (matching single API pattern)
-func (bcih BatchCreateInstanceHandler) buildBatchInstanceCreateRequestOsConfig(c echo.Context, logger *zerolog.Logger, apiRequest *model.APIBatchInstanceCreateRequest, site *cdbm.Site) (*cwssaws.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError) {
+func (bcih BatchCreateInstanceHandler) buildBatchInstanceCreateRequestOsConfig(c echo.Context, logger *zerolog.Logger, apiRequest *model.APIBatchInstanceCreateRequest, site *cdbm.Site) (*corev1.InstanceOperatingSystemConfig, *uuid.UUID, *cutil.APIError) {
 
 	ctx := c.Request().Context()
 
@@ -77,11 +77,11 @@ func (bcih BatchCreateInstanceHandler) buildBatchInstanceCreateRequestOsConfig(c
 			return nil, nil, cutil.NewAPIError(http.StatusBadRequest, "Failed to validate OperatingSystem data", err)
 		}
 
-		return &cwssaws.InstanceOperatingSystemConfig{
+		return &corev1.InstanceOperatingSystemConfig{
 			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe, // Set by the earlier call to ValidateAndSetOperatingSystemData
 			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,         // Set by the earlier call to ValidateAndSetOperatingSystemData
-			Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-				Ipxe: &cwssaws.InlineIpxe{
+			Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+				Ipxe: &corev1.InlineIpxe{
 					IpxeScript: *apiRequest.IpxeScript,
 				},
 			},
@@ -176,21 +176,21 @@ func (bcih BatchCreateInstanceHandler) buildBatchInstanceCreateRequestOsConfig(c
 	// earlier call to ValidateAndSetOperatingSystemData
 
 	if os.Type == cdbm.OperatingSystemTypeIPXE {
-		return &cwssaws.InstanceOperatingSystemConfig{
+		return &corev1.InstanceOperatingSystemConfig{
 			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe,
 			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,
-			Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-				Ipxe: &cwssaws.InlineIpxe{
+			Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+				Ipxe: &corev1.InlineIpxe{
 					IpxeScript: *apiRequest.IpxeScript,
 				},
 			},
 			UserData: apiRequest.UserData,
 		}, osID, nil
 	} else {
-		return &cwssaws.InstanceOperatingSystemConfig{
+		return &corev1.InstanceOperatingSystemConfig{
 			PhoneHomeEnabled: *apiRequest.PhoneHomeEnabled,
-			Variant: &cwssaws.InstanceOperatingSystemConfig_OsImageId{
-				OsImageId: &cwssaws.UUID{
+			Variant: &corev1.InstanceOperatingSystemConfig_OsImageId{
+				OsImageId: &corev1.UUID{
 					Value: os.ID.String(),
 				},
 			},
@@ -1155,10 +1155,10 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		desds    []cdbm.DpuExtensionServiceDeployment
 		ssd      *cdbm.StatusDetail
 		// Temporal workflow configs
-		interfaceConfigs    []*cwssaws.InstanceInterfaceConfig
-		ibInterfaceConfigs  []*cwssaws.InstanceIBInterfaceConfig
-		nvlInterfaceConfigs []*cwssaws.InstanceNVLinkGpuConfig
-		desdConfigs         []*cwssaws.InstanceDpuExtensionServiceConfig
+		interfaceConfigs    []*corev1.InstanceInterfaceConfig
+		ibInterfaceConfigs  []*corev1.InstanceIBInterfaceConfig
+		nvlInterfaceConfigs []*corev1.InstanceNVLinkGpuConfig
+		desdConfigs         []*corev1.InstanceDpuExtensionServiceConfig
 	}
 
 	// Values populated inside the transaction closure that are needed for
@@ -1481,10 +1481,10 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				ibifcs:              make([]cdbm.InfiniBandInterface, 0, len(dbibic)),
 				nvlifcs:             make([]cdbm.NVLinkInterface, 0, len(dbnvlic)),
 				desds:               make([]cdbm.DpuExtensionServiceDeployment, 0, len(dpuServiceIDs)),
-				interfaceConfigs:    make([]*cwssaws.InstanceInterfaceConfig, 0, len(dbInterfaces)),
-				ibInterfaceConfigs:  make([]*cwssaws.InstanceIBInterfaceConfig, 0, len(dbibic)),
-				nvlInterfaceConfigs: make([]*cwssaws.InstanceNVLinkGpuConfig, 0, len(dbnvlic)),
-				desdConfigs:         make([]*cwssaws.InstanceDpuExtensionServiceConfig, 0, len(dpuServiceIDs)),
+				interfaceConfigs:    make([]*corev1.InstanceInterfaceConfig, 0, len(dbInterfaces)),
+				ibInterfaceConfigs:  make([]*corev1.InstanceIBInterfaceConfig, 0, len(dbibic)),
+				nvlInterfaceConfigs: make([]*corev1.InstanceNVLinkGpuConfig, 0, len(dbnvlic)),
+				desdConfigs:         make([]*corev1.InstanceDpuExtensionServiceConfig, 0, len(dpuServiceIDs)),
 			}
 		}
 
@@ -1508,26 +1508,26 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			createdInstancesData[idx].ifcs = append(createdInstancesData[idx].ifcs, ifc)
 
 			// Build temporal workflow config
-			interfaceConfig := &cwssaws.InstanceInterfaceConfig{
-				FunctionType: cwssaws.InterfaceFunctionType_VIRTUAL_FUNCTION,
+			interfaceConfig := &corev1.InstanceInterfaceConfig{
+				FunctionType: corev1.InterfaceFunctionType_VIRTUAL_FUNCTION,
 			}
 			if ifc.SubnetID != nil {
-				interfaceConfig.NetworkSegmentId = &cwssaws.NetworkSegmentId{
+				interfaceConfig.NetworkSegmentId = &corev1.NetworkSegmentId{
 					Value: subnetIDMap[*ifc.SubnetID].ControllerNetworkSegmentID.String(),
 				}
-				interfaceConfig.NetworkDetails = &cwssaws.InstanceInterfaceConfig_SegmentId{
-					SegmentId: &cwssaws.NetworkSegmentId{
+				interfaceConfig.NetworkDetails = &corev1.InstanceInterfaceConfig_SegmentId{
+					SegmentId: &corev1.NetworkSegmentId{
 						Value: subnetIDMap[*ifc.SubnetID].ControllerNetworkSegmentID.String(),
 					},
 				}
 			}
 			if ifc.VpcPrefixID != nil {
-				interfaceConfig.NetworkDetails = &cwssaws.InstanceInterfaceConfig_VpcPrefixId{
-					VpcPrefixId: &cwssaws.VpcPrefixId{Value: ifc.VpcPrefixID.String()},
+				interfaceConfig.NetworkDetails = &corev1.InstanceInterfaceConfig_VpcPrefixId{
+					VpcPrefixId: &corev1.VpcPrefixId{Value: ifc.VpcPrefixID.String()},
 				}
 			}
 			if ifc.IsPhysical {
-				interfaceConfig.FunctionType = cwssaws.InterfaceFunctionType_PHYSICAL_FUNCTION
+				interfaceConfig.FunctionType = corev1.InterfaceFunctionType_PHYSICAL_FUNCTION
 			}
 			if ifc.Device != nil && ifc.DeviceInstance != nil {
 				interfaceConfig.Device = ifc.Device
@@ -1549,15 +1549,15 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			createdInstancesData[idx].ibifcs = append(createdInstancesData[idx].ibifcs, ibifc)
 
 			// Build temporal workflow config
-			ibInterfaceConfig := &cwssaws.InstanceIBInterfaceConfig{
+			ibInterfaceConfig := &corev1.InstanceIBInterfaceConfig{
 				Device:         ibifc.Device,
 				Vendor:         ibifc.Vendor,
 				DeviceInstance: uint32(ibifc.DeviceInstance),
-				FunctionType:   cwssaws.InterfaceFunctionType_PHYSICAL_FUNCTION,
-				IbPartitionId:  &cwssaws.IBPartitionId{Value: ibifc.InfiniBandPartitionID.String()},
+				FunctionType:   corev1.InterfaceFunctionType_PHYSICAL_FUNCTION,
+				IbPartitionId:  &corev1.IBPartitionId{Value: ibifc.InfiniBandPartitionID.String()},
 			}
 			if !ibifc.IsPhysical {
-				ibInterfaceConfig.FunctionType = cwssaws.InterfaceFunctionType_VIRTUAL_FUNCTION
+				ibInterfaceConfig.FunctionType = corev1.InterfaceFunctionType_VIRTUAL_FUNCTION
 				if ibifc.VirtualFunctionID != nil {
 					vfID := uint32(*ibifc.VirtualFunctionID)
 					ibInterfaceConfig.VirtualFunctionId = &vfID
@@ -1572,9 +1572,9 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			createdInstancesData[idx].nvlifcs = append(createdInstancesData[idx].nvlifcs, nvlifc)
 
 			// Build temporal workflow config
-			nvlInterfaceConfig := &cwssaws.InstanceNVLinkGpuConfig{
+			nvlInterfaceConfig := &corev1.InstanceNVLinkGpuConfig{
 				DeviceInstance:     uint32(nvlifc.DeviceInstance),
-				LogicalPartitionId: &cwssaws.NVLinkLogicalPartitionId{Value: nvlifc.NVLinkLogicalPartitionID.String()},
+				LogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: nvlifc.NVLinkLogicalPartitionID.String()},
 			}
 			createdInstancesData[idx].nvlInterfaceConfigs = append(createdInstancesData[idx].nvlInterfaceConfigs, nvlInterfaceConfig)
 		}
@@ -1585,7 +1585,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			createdInstancesData[idx].desds = append(createdInstancesData[idx].desds, desd)
 
 			// Build temporal workflow config
-			desdConfig := &cwssaws.InstanceDpuExtensionServiceConfig{
+			desdConfig := &corev1.InstanceDpuExtensionServiceConfig{
 				ServiceId: desd.DpuExtensionServiceID.String(),
 				Version:   desd.Version,
 			}
@@ -1614,8 +1614,8 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		// Build batch workflow request using pre-built configs (no DB queries)
-		batchRequest := &cwssaws.BatchInstanceAllocationRequest{
-			InstanceRequests: make([]*cwssaws.InstanceAllocationRequest, 0, len(createdInstancesData)),
+		batchRequest := &corev1.BatchInstanceAllocationRequest{
+			InstanceRequests: make([]*corev1.InstanceAllocationRequest, 0, len(createdInstancesData)),
 		}
 
 		for _, data := range createdInstancesData {
@@ -1629,29 +1629,29 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			// Build instance allocation request using pre-built configs
-			instanceRequest := &cwssaws.InstanceAllocationRequest{
-				InstanceId: &cwssaws.InstanceId{Value: instance.GetSiteID().String()},
-				MachineId:  &cwssaws.MachineId{Id: *instance.MachineID},
-				Metadata: &cwssaws.Metadata{
+			instanceRequest := &corev1.InstanceAllocationRequest{
+				InstanceId: &corev1.InstanceId{Value: instance.GetSiteID().String()},
+				MachineId:  &corev1.MachineId{Id: *instance.MachineID},
+				Metadata: &corev1.Metadata{
 					Name:        instance.Name,
 					Description: description,
 					Labels:      createLabels,
 				},
-				Config: &cwssaws.InstanceConfig{
+				Config: &corev1.InstanceConfig{
 					NetworkSecurityGroupId: instance.NetworkSecurityGroupID,
-					Tenant: &cwssaws.TenantConfig{
+					Tenant: &corev1.TenantConfig{
 						TenantOrganizationId: tenant.Org,
 						TenantKeysetIds:      instanceSshKeyGroupIds,
 					},
 					Os:      osConfig,
 					Network: buildInstanceNetworkConfig(instance.AutoNetwork, data.interfaceConfigs, vpc.ControllerVpcID),
-					Infiniband: &cwssaws.InstanceInfinibandConfig{
+					Infiniband: &corev1.InstanceInfinibandConfig{
 						IbInterfaces: data.ibInterfaceConfigs,
 					},
-					DpuExtensionServices: &cwssaws.InstanceDpuExtensionServicesConfig{
+					DpuExtensionServices: &corev1.InstanceDpuExtensionServicesConfig{
 						ServiceConfigs: data.desdConfigs,
 					},
-					Nvlink: &cwssaws.InstanceNVLinkConfig{
+					Nvlink: &corev1.InstanceNVLinkConfig{
 						GpuConfigs: data.nvlInterfaceConfigs,
 					},
 				},

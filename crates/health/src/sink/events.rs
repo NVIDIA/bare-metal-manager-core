@@ -33,7 +33,7 @@ use serde::Serialize;
 use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata, MachineData, SwitchEndpointRole};
 use crate::metrics::MetricLabel;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, carbide_instrument::LabelValue)]
 pub enum HealthReportTarget {
     Machine,
     PowerShelf,
@@ -374,6 +374,7 @@ pub enum ReportSource {
     BmcLeakDetectors,
     TrayLeakDetection,
     RackLeakDetection,
+    NvueLeakage,
 }
 
 impl ReportSource {
@@ -384,6 +385,7 @@ impl ReportSource {
             Self::BmcLeakDetectors => "bmc-leak-detectors",
             Self::TrayLeakDetection => "tray-leak-detection",
             Self::RackLeakDetection => "rack-leak-detection",
+            Self::NvueLeakage => "nvue-leakage",
         }
     }
 }
@@ -393,6 +395,7 @@ pub enum Probe {
     Sensor,
     IntrusionSensorTriggered,
     LeakDetection,
+    NvueLeakage,
 }
 
 impl Probe {
@@ -401,6 +404,7 @@ impl Probe {
             Self::Sensor => "BmcSensor",
             Self::IntrusionSensorTriggered => "IntrusionSensorTriggered",
             Self::LeakDetection => "BmcLeakDetection",
+            Self::NvueLeakage => "NvueLeakage",
         }
     }
 }
@@ -644,6 +648,7 @@ mod tests {
                 tray_index: Some(4),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
+                nmxc_enabled: true,
                 nmxt_enabled: true,
             })),
             ContextKind::PowerShelf => Some(EndpointMetadata::PowerShelf(PowerShelfData {
@@ -805,6 +810,10 @@ mod tests {
             "rack leak detection" {
                 ReportSource::RackLeakDetection => "rack-leak-detection",
             }
+
+            "NVUE leakage" {
+                ReportSource::NvueLeakage => "nvue-leakage",
+            }
         );
     }
 
@@ -836,6 +845,13 @@ mod tests {
                 Probe::LeakDetection => ProbeSummary {
                     as_str: "BmcLeakDetection",
                     health_report_id: "BmcLeakDetection".to_string(),
+                },
+            }
+
+            "NVUE leakage" {
+                Probe::NvueLeakage => ProbeSummary {
+                    as_str: "NvueLeakage",
+                    health_report_id: "NvueLeakage".to_string(),
                 },
             }
         );
@@ -907,6 +923,7 @@ mod tests {
                     health_report_classification: "LeakDetector".to_string(),
                 },
             }
+
         );
     }
 

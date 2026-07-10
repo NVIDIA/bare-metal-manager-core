@@ -55,6 +55,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                         .build(),
                 ]),
                 host_interfaces: None,
+                serial_interfaces: None,
                 firmware_version: Some("88.0002.1333"),
                 oem: None,
             }],
@@ -81,6 +82,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                 storage: Some(vec![]),
                 processors: None,
                 base_bios: None,
+                serial_console: None,
                 secure_boot_available: false,
             }],
         }

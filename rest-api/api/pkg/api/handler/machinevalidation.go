@@ -16,7 +16,7 @@ import (
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog"
@@ -150,7 +150,7 @@ func (handler CreateMachineValidationTestHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", createWorkflowID).Msg("executed synchronous create MachineValidationTest workflow")
 
 	// Execute create workflow synchronously
-	var createProtoResponse *cwssaws.MachineValidationTestAddUpdateResponse
+	var createProtoResponse *corev1.MachineValidationTestAddUpdateResponse
 	err = createWorkflowRun.Get(createCtx, &createProtoResponse)
 
 	if err != nil {
@@ -300,7 +300,7 @@ func (handler UpdateMachineValidationTestHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", updateWorkflowID).Msg("executed synchronous update MachineValidationTest workflow")
 
 	// Execute update workflow synchronously
-	var updateProtoResponse *cwssaws.MachineValidationTestAddUpdateResponse
+	var updateProtoResponse *corev1.MachineValidationTestAddUpdateResponse
 	err = updateWorkflowRun.Get(updateCtx, &updateProtoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -326,7 +326,7 @@ func (handler UpdateMachineValidationTestHandler) Handle(c echo.Context) error {
 	return c.JSON(http.StatusOK, apiObject)
 }
 
-func getMachineValidationTest(ctx context.Context, echoCtx echo.Context, logger zerolog.Logger, temporalClient tclient.Client, testID string, testVersion string) (*cwssaws.MachineValidationTest, error) {
+func getMachineValidationTest(ctx context.Context, echoCtx echo.Context, logger zerolog.Logger, temporalClient tclient.Client, testID string, testVersion string) (*corev1.MachineValidationTest, error) {
 	// get newly created test to be returned
 	getWorkflowOptions := tclient.StartWorkflowOptions{
 		ID:                       fmt.Sprintf("machine-validation-test-get-%s-%s", testID, testVersion),
@@ -335,7 +335,7 @@ func getMachineValidationTest(ctx context.Context, echoCtx echo.Context, logger 
 	}
 
 	// build protobuf request
-	getProtoRequest := &cwssaws.MachineValidationTestsGetRequest{
+	getProtoRequest := &corev1.MachineValidationTestsGetRequest{
 		TestId:  cutil.GetPtr(testID),
 		Version: cutil.GetPtr(testVersion),
 	}
@@ -357,7 +357,7 @@ func getMachineValidationTest(ctx context.Context, echoCtx echo.Context, logger 
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("executed synchronous get MachineValidationTest workflow")
 
 	// Execute get workflow synchronously
-	var getProtoResponse *cwssaws.MachineValidationTestsGetResponse
+	var getProtoResponse *corev1.MachineValidationTestsGetResponse
 	err = getWorkflowRun.Get(getCtx, &getProtoResponse)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to synchronously execute Temporal workflow to get MachineValidationTest")
@@ -487,7 +487,7 @@ func (handler GetAllMachineValidationTestHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("executed synchronous get MachineValidationTests workflow")
 
 	// Execute get workflow synchronously
-	var getProtoResponse *cwssaws.MachineValidationTestsGetResponse
+	var getProtoResponse *corev1.MachineValidationTestsGetResponse
 	err = getWorkflowRun.Get(updateCtx, &getProtoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -605,7 +605,7 @@ func (handler GetMachineValidationTestHandler) Handle(c echo.Context) error {
 		TaskQueue:                queue.SiteTaskQueue,
 	}
 	// build protobuf update request
-	getProtoRequest := &cwssaws.MachineValidationTestsGetRequest{
+	getProtoRequest := &corev1.MachineValidationTestsGetRequest{
 		TestId:  &testID,
 		Version: &testVersion,
 	}
@@ -625,7 +625,7 @@ func (handler GetMachineValidationTestHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("executed synchronous get MachineValidationTests workflow")
 
 	// Execute get workflow synchronously
-	var getProtoResponse *cwssaws.MachineValidationTestsGetResponse
+	var getProtoResponse *corev1.MachineValidationTestsGetResponse
 	err = getWorkflowRun.Get(updateCtx, &getProtoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -745,8 +745,8 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 		TaskQueue:                queue.SiteTaskQueue,
 	}
 	// build protobuf request
-	getProtoRequest := &cwssaws.MachineValidationGetRequest{
-		MachineId:      &cwssaws.MachineId{Id: machineID},
+	getProtoRequest := &corev1.MachineValidationGetRequest{
+		MachineId:      &corev1.MachineId{Id: machineID},
 		IncludeHistory: true,
 	}
 
@@ -765,7 +765,7 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("executed synchronous get MachineValidationResults workflow")
 
 	// Execute get workflow synchronously
-	var getProtoResponse *cwssaws.MachineValidationResultList
+	var getProtoResponse *corev1.MachineValidationResultList
 	err = getWorkflowRun.Get(updateCtx, &getProtoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -881,8 +881,8 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 		TaskQueue:                queue.SiteTaskQueue,
 	}
 	// build protobuf request
-	getProtoRequest := &cwssaws.MachineValidationRunListGetRequest{
-		MachineId:      &cwssaws.MachineId{Id: machineID},
+	getProtoRequest := &corev1.MachineValidationRunListGetRequest{
+		MachineId:      &corev1.MachineId{Id: machineID},
 		IncludeHistory: true,
 	}
 
@@ -901,7 +901,7 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("executed synchronous get MachineValidationRuns workflow")
 
 	// Execute get workflow synchronously
-	var getProtoResponse *cwssaws.MachineValidationRunList
+	var getProtoResponse *corev1.MachineValidationRunList
 	err = getWorkflowRun.Get(updateCtx, &getProtoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -1013,7 +1013,7 @@ func (handler GetAllMachineValidationExternalConfigHandler) Handle(c echo.Contex
 		TaskQueue:                queue.SiteTaskQueue,
 	}
 	// build protobuf request
-	getProtoRequest := &cwssaws.GetMachineValidationExternalConfigsRequest{}
+	getProtoRequest := &corev1.GetMachineValidationExternalConfigsRequest{}
 
 	logger.Info().Msg("triggering MachineValidationRun get workflow")
 
@@ -1030,7 +1030,7 @@ func (handler GetAllMachineValidationExternalConfigHandler) Handle(c echo.Contex
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("executed synchronous get MachineValidationExternalConfigs workflow")
 
 	// Execute get workflow synchronously
-	var getProtoResponse *cwssaws.GetMachineValidationExternalConfigsResponse
+	var getProtoResponse *corev1.GetMachineValidationExternalConfigsResponse
 	err = getWorkflowRun.Get(updateCtx, &getProtoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -1146,7 +1146,7 @@ func (handler GetMachineValidationExternalConfigHandler) Handle(c echo.Context) 
 		TaskQueue:                queue.SiteTaskQueue,
 	}
 	// build protobuf update request
-	getProtoRequest := &cwssaws.GetMachineValidationExternalConfigsRequest{
+	getProtoRequest := &corev1.GetMachineValidationExternalConfigsRequest{
 		Names: []string{cfgName},
 	}
 
@@ -1165,7 +1165,7 @@ func (handler GetMachineValidationExternalConfigHandler) Handle(c echo.Context) 
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("executed synchronous get MachineValidationExternalConfig workflow")
 
 	// Execute get workflow synchronously
-	var getProtoResponse *cwssaws.GetMachineValidationExternalConfigsResponse
+	var getProtoResponse *corev1.GetMachineValidationExternalConfigsResponse
 	err = getWorkflowRun.Get(updateCtx, &getProtoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -1449,7 +1449,7 @@ func (handler UpdateMachineValidationExternalConfigHandler) Handle(c echo.Contex
 		TaskQueue:                queue.SiteTaskQueue,
 	}
 	// build protobuf update request
-	updateProtoRequest := &cwssaws.AddUpdateMachineValidationExternalConfigRequest{
+	updateProtoRequest := &corev1.AddUpdateMachineValidationExternalConfigRequest{
 		Name:        extCfgName,
 		Description: currentExtCfgProto.Description,
 		Config:      currentExtCfgProto.Config,
@@ -1476,7 +1476,7 @@ func (handler UpdateMachineValidationExternalConfigHandler) Handle(c echo.Contex
 	logger.Info().Str("Workflow ID", updateWorkflowID).Msg("executed synchronous update MachineValidationExternalConfig workflow")
 
 	// Execute update workflow synchronously
-	var updateProtoResponse *cwssaws.MachineValidationTestAddUpdateResponse
+	var updateProtoResponse *corev1.MachineValidationTestAddUpdateResponse
 	err = updateWorkflowRun.Get(updateCtx, &updateProtoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -1502,7 +1502,7 @@ func (handler UpdateMachineValidationExternalConfigHandler) Handle(c echo.Contex
 	return c.JSON(http.StatusOK, apiObject)
 }
 
-func getMachineValidationExtCfg(ctx context.Context, echoCtx echo.Context, logger zerolog.Logger, temporalClient tclient.Client, cfgName string) (*cwssaws.MachineValidationExternalConfig, error) {
+func getMachineValidationExtCfg(ctx context.Context, echoCtx echo.Context, logger zerolog.Logger, temporalClient tclient.Client, cfgName string) (*corev1.MachineValidationExternalConfig, error) {
 	// get newly created test to be returned
 	getWorkflowOptions := tclient.StartWorkflowOptions{
 		ID:                       fmt.Sprintf("machine-validation-ext-cfg-get-%s", cfgName),
@@ -1511,7 +1511,7 @@ func getMachineValidationExtCfg(ctx context.Context, echoCtx echo.Context, logge
 	}
 
 	// build protobuf request
-	getProtoRequest := &cwssaws.GetMachineValidationExternalConfigsRequest{
+	getProtoRequest := &corev1.GetMachineValidationExternalConfigsRequest{
 		Names: []string{cfgName},
 	}
 
@@ -1532,7 +1532,7 @@ func getMachineValidationExtCfg(ctx context.Context, echoCtx echo.Context, logge
 	logger.Info().Str("Workflow ID", getWorkflowID).Msg("executed synchronous get MachineValidationExternalConfig workflow")
 
 	// Execute get workflow synchronously
-	var getProtoResponse *cwssaws.GetMachineValidationExternalConfigsResponse
+	var getProtoResponse *corev1.GetMachineValidationExternalConfigsResponse
 	err = getWorkflowRun.Get(getCtx, &getProtoResponse)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to synchronously execute Temporal workflow to get MachineValidationExternalConfig")

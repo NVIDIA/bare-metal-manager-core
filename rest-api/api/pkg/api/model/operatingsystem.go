@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -26,6 +26,11 @@ const (
 	errMsgOnlyOneRootFsField                         = "only one of 'rootFsId' and 'rootFsLabel' may be specified"
 	errMsgNotEmpty                                   = "cannot be empty"
 )
+
+// IsCloudInitFromUserData reports whether non-empty user data is present.
+func IsCloudInitFromUserData(userData *string) bool {
+	return userData != nil && *userData != ""
+}
 
 // APIOperatingSystemCreateRequest is the data structure to capture user request to create a new OperatingSystem
 type APIOperatingSystemCreateRequest struct {
@@ -59,7 +64,7 @@ type APIOperatingSystemCreateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
 	UserData *string `json:"userData"`
-	// IsCloudInit indicates if the Operating System needs cloud init
+	// IsCloudInit is deprecated and ignored; derived from value of userData.
 	IsCloudInit bool `json:"isCloudInit"`
 	// AllowOverride indicates if overrides are allowed
 	AllowOverride bool `json:"allowOverride"`
@@ -241,7 +246,7 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 // `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
 // For iPXE-typed records there is no Site-side image workflow, so
 // this method should not be called.
-func (oscr *APIOperatingSystemCreateRequest) ToProto(os *cdbm.OperatingSystem, tenantOrg string) *cwssaws.OsImageAttributes {
+func (oscr *APIOperatingSystemCreateRequest) ToProto(os *cdbm.OperatingSystem, tenantOrg string) *corev1.OsImageAttributes {
 	return os.ToImageAttributesProto(tenantOrg)
 }
 
@@ -271,7 +276,7 @@ type APIOperatingSystemUpdateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
 	UserData *string `json:"userData"`
-	// IsCloudInit indicates if the Operating System needs cloud init
+	// IsCloudInit is deprecated and ignored; derived from value of userData.
 	IsCloudInit *bool `json:"isCloudInit"`
 	// AllowOverride indicates if overrides are allowed
 	AllowOverride *bool `json:"allowOverride"`
@@ -525,7 +530,7 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 // been Validated (Validate + ValidateAndSetUserData) and that the
 // handler has confirmed the OS is image-typed before this is called;
 // `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
-func (osur *APIOperatingSystemUpdateRequest) ToProto(uos *cdbm.OperatingSystem, tenantOrg string) *cwssaws.OsImageAttributes {
+func (osur *APIOperatingSystemUpdateRequest) ToProto(uos *cdbm.OperatingSystem, tenantOrg string) *corev1.OsImageAttributes {
 	return uos.ToImageAttributesProto(tenantOrg)
 }
 
@@ -567,7 +572,8 @@ type APIOperatingSystem struct {
 	PhoneHomeEnabled bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
 	UserData *string `json:"userData"`
-	// IsCloudInit indicates if the Operating System needs cloud init
+	// IsCloudInit indicates if the Operating System is cloud-init based -- convenience field that is only returned in API response
+	// and is derived from value of userData
 	IsCloudInit bool `json:"isCloudInit"`
 	// AllowOverride indicates if overrides are allowed
 	AllowOverride bool `json:"allowOverride"`
@@ -589,7 +595,7 @@ type APIOperatingSystem struct {
 	Updated time.Time `json:"updated"`
 }
 
-// NewAPIOperatingSystem accepts a DB layer objects and returns an API layer object
+// NewAPIOperatingSystem accepts a DB layer object and returns an API layer object
 func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail, ossas []cdbm.OperatingSystemSiteAssociation, sttsmap map[uuid.UUID]*cdbm.TenantSite) *APIOperatingSystem {
 	apiOperatingSystem := APIOperatingSystem{
 		ID:                 dbOS.ID.String(),
@@ -606,7 +612,7 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		IpxeScript:         dbOS.IpxeScript,
 		PhoneHomeEnabled:   dbOS.PhoneHomeEnabled,
 		UserData:           dbOS.UserData,
-		IsCloudInit:        dbOS.IsCloudInit,
+		IsCloudInit:        IsCloudInitFromUserData(dbOS.UserData),
 		AllowOverride:      dbOS.AllowOverride,
 		EnableBlockStorage: dbOS.EnableBlockStorage,
 		IsActive:           dbOS.IsActive,
@@ -637,6 +643,7 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		curVal := ossa
 		apiOperatingSystem.SiteAssociations = append(apiOperatingSystem.SiteAssociations, *NewAPIOperatingSystemSiteAssociation(&curVal, ts))
 	}
+
 	return &apiOperatingSystem
 }
 

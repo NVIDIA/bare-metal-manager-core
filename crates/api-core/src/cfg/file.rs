@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -784,6 +784,9 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
 
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
+            restart_ovs_on_use_admin_network_change: self
+                .dpu_config
+                .restart_ovs_on_use_admin_network_change,
         }
     }
 }
@@ -1017,24 +1020,11 @@ pub enum ComputeAllocationEnforcement {
 
 /// DPF (DPU Platform Framework) configuration for
 /// deploying DPU fabric as a Kubernetes service.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Default, Deserialize)]
 pub struct DpfConfig {
     /// Enables DPF deployment.
     #[serde(default)]
     pub enabled: bool,
-    /// Kubernetes deployment name for the DPF service.
-    #[serde(default = "default_dpf_deployment_name")]
-    pub deployment_name: String,
-    /// Kubernetes DPUFlavor CR name.
-    #[serde(default = "default_dpf_flavor_name")]
-    pub flavor_name: String,
-    /// Label key applied to DPUNode CRs for deployment matching.
-    #[serde(default = "default_dpf_node_label_key")]
-    pub node_label_key: String,
-    /// URL to the BlueField firmware bundle (BFB) for
-    /// DPU provisioning.
-    #[serde(default = "default_dpf_bfb_url")]
-    pub bfb_url: String,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
     /// mandatory service except `dts` and `doca_hbn`. This also overrides if
@@ -1048,21 +1038,10 @@ pub struct DpfConfig {
     /// configured to route outbound HTTPS traffic through the specified proxy.
     #[serde(default)]
     pub proxy: Option<DpfProxyDetails>,
-}
-
-impl Default for DpfConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            deployment_name: default_dpf_deployment_name(),
-            flavor_name: default_dpf_flavor_name(),
-            node_label_key: default_dpf_node_label_key(),
-            bfb_url: String::new(),
-            docker_image_pull_secret: None,
-            services: Box::default(),
-            proxy: None,
-        }
-    }
+    /// Per-generation DPUDeployment configurations. BF3 is always present with sensible
+    /// defaults; BF4Generic is opt-in via `[dpf.deployments.bf4_generic]`.
+    #[serde(default)]
+    pub deployments: DpfDeploymentsConfig,
 }
 
 impl DpfConfig {
@@ -1156,6 +1135,109 @@ pub struct DpfServiceConfig {
     /// Secret to use to pull the docker images.
     #[serde(default = "default_dpf_image_pull_secret")]
     pub docker_image_pull_secret: String,
+}
+
+/// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
+/// Services are inherited from the top-level [`DpfConfig`].
+///
+/// No serde field defaults: when `[dpf.deployments.bf3]` or
+/// `[dpf.deployments.bf4_generic]` is written in the config file, all four
+/// fields are required. The `Default` impl (BF3 values) is only used when the
+/// entire `[dpf.deployments.bf3]` block is absent, via `#[serde(default)]` on
+/// the `bf3` field of [`DpfDeploymentsConfig`].
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DpfDeploymentConfig {
+    /// URL to the BlueField firmware bundle (BFB) for DPU provisioning.
+    #[serde(default = "default_dpf_bfb_url")]
+    pub bfb_url: String,
+    /// Kubernetes DPUFlavor CR name.
+    pub flavor_name: String,
+    /// Kubernetes DPUDeployment CR name.
+    pub deployment_name: String,
+    /// Label key applied to DPUNode CRs for this deployment's node selector.
+    pub node_label_key: String,
+    // TODO: add optional services handling here.
+}
+
+impl Default for DpfDeploymentConfig {
+    fn default() -> Self {
+        Self {
+            bfb_url: default_dpf_bfb_url(),
+            flavor_name: default_dpf_flavor_name(),
+            deployment_name: default_dpf_deployment_name(),
+            node_label_key: default_dpf_node_label_key(),
+        }
+    }
+}
+
+/// Named DPUDeployment configurations under `[dpf.deployments]`.
+/// Each entry creates its own BFB, DPUFlavor, and DPUDeployment CR at startup.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DpfDeploymentsConfig {
+    /// BF3 deployment. Present by default with sensible values; override individual
+    /// fields in `[dpf.deployments.bf3]` when the site uses non-default names or BFBs.
+    #[serde(default)]
+    pub bf3: DpfDeploymentConfig,
+    /// BF4 generic deployment (NICo + BF4 via DPF).
+    #[serde(default)]
+    pub bf4_generic: Option<DpfDeploymentConfig>,
+}
+
+impl DpfDeploymentsConfig {
+    /// Returns all active deployment configs as `(name, config)` pairs.
+    /// Add new deployments here when they are introduced.
+    fn all(&self) -> Vec<(&'static str, &DpfDeploymentConfig)> {
+        let mut v = vec![("bf3", &self.bf3)];
+        if let Some(bf4) = &self.bf4_generic {
+            v.push(("bf4_generic", bf4));
+        }
+        v
+    }
+
+    /// Validates that no two active deployments share a `deployment_name`,
+    /// `flavor_name`, or `node_label_key`. Returns an error listing every
+    /// conflict so the operator can fix them all in one pass.
+    pub fn validate_unique_identifiers(&self) -> eyre::Result<()> {
+        let deployments = self.all();
+        let mut errors: Vec<String> = Vec::new();
+
+        let name_vals: Vec<(&str, &str)> = deployments
+            .iter()
+            .map(|(n, c)| (*n, c.deployment_name.as_str()))
+            .collect();
+        let flavor_vals: Vec<(&str, &str)> = deployments
+            .iter()
+            .map(|(n, c)| (*n, c.flavor_name.as_str()))
+            .collect();
+        let label_vals: Vec<(&str, &str)> = deployments
+            .iter()
+            .map(|(n, c)| (*n, c.node_label_key.as_str()))
+            .collect();
+        let checks = [
+            ("deployment_name", &name_vals),
+            ("flavor_name", &flavor_vals),
+            ("node_label_key", &label_vals),
+        ];
+        for (field, values) in &checks {
+            let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+            for (name, value) in values.iter() {
+                if let Some(prev) = seen.insert(value, name) {
+                    errors.push(format!(
+                        "{field} {value:?} is shared by deployments {prev:?} and {name:?}"
+                    ));
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(eyre::eyre!(
+                "DPF deployment configuration has conflicting identifiers:\n  - {}",
+                errors.join("\n  - ")
+            ))
+        }
+    }
 }
 
 /// Machine identity (SPIFFE JWT-SVID) configuration.
@@ -1448,6 +1530,17 @@ fn validate_tool_url(name: &str, url: &str) -> eyre::Result<()> {
 }
 
 impl CarbideConfig {
+    /// Which configuration keys were explicitly provided by the merged
+    /// sources, mapped to source labels — see [`super::provenance`]. Empty
+    /// for configs that weren't produced by `parse_carbide_config` (test
+    /// fixtures, programmatic construction).
+    pub fn explicit_value_paths(&self) -> BTreeMap<String, String> {
+        self.config_ctx
+            .as_ref()
+            .map(super::provenance::explicit_value_paths)
+            .unwrap_or_default()
+    }
+
     /// Returns a version of CarbideConfig where secrets are erased
     pub fn redacted(&self) -> Self {
         let mut config = self.clone();
@@ -1755,6 +1848,34 @@ pub struct RackStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
+
+    /// Switch mTLS services configured on scoped switches before NMX cluster
+    /// setup proceeds. When omitted or empty, defaults to ScaleUpFabric manager
+    /// and telemetry interface services.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [rack_state_controller]
+    /// nmx_cluster_switch_mtls_services = [
+    ///   "scale_up_fabric_manager",
+    ///   "scale_up_fabric_telemetry_interface",
+    /// ]
+    /// ```
+    #[serde(default)]
+    pub nmx_cluster_switch_mtls_services: Vec<component_manager::config::SwitchMtlsService>,
+}
+
+impl RackStateControllerConfig {
+    /// Returns configured NMX cluster switch mTLS services, or the ScaleUpFabric
+    /// defaults when the field was omitted or left empty in config.
+    pub fn effective_nmx_cluster_switch_mtls_services_as_i32(&self) -> Vec<i32> {
+        component_manager::config::switch_mtls_services_as_i32(
+            &component_manager::config::effective_nmx_cluster_switch_mtls_services(
+                &self.nmx_cluster_switch_mtls_services,
+            ),
+        )
+    }
 }
 
 /// SwitchStateController related config
@@ -1763,6 +1884,34 @@ pub struct SwitchStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
+
+    /// Switch services that receive installed mTLS certificates during RMS
+    /// `configure_switch_certificate` calls initiated by the switch state
+    /// machine.
+    ///
+    /// When this field is omitted or empty, all supported services are used.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [switch_state_controller]
+    /// switch_mtls_services = [
+    ///   "nvue_api",
+    ///   "scale_up_fabric_telemetry",
+    /// ]
+    /// ```
+    #[serde(default)]
+    pub switch_mtls_services: Vec<component_manager::config::SwitchMtlsService>,
+}
+
+impl SwitchStateControllerConfig {
+    /// Returns the configured switch mTLS services, or all supported services
+    /// when the field was omitted or left empty in config.
+    pub fn effective_switch_mtls_services_as_i32(&self) -> Vec<i32> {
+        component_manager::config::switch_mtls_services_as_i32(
+            &component_manager::config::effective_switch_mtls_services(&self.switch_mtls_services),
+        )
+    }
 }
 
 /// SpdmStateController related config
@@ -1878,6 +2027,12 @@ pub struct DpuConfig {
     /// Defaults to 16 and must not exceed 126.
     #[serde(default)]
     pub num_of_vfs: u32,
+
+    /// Restart OVS on DPU agents whenever the host switches between
+    /// admin and tenant networking. Required in some environments to
+    /// ensure OVS picks up the changed network configuration.
+    #[serde(default)]
+    pub restart_ovs_on_use_admin_network_change: bool,
 }
 
 impl DpuConfig {
@@ -1917,6 +2072,8 @@ impl<'de> Deserialize<'de> for DpuConfig {
             dpu_enable_secure_boot: Option<bool>,
             #[serde(default)]
             num_of_vfs: Option<u32>,
+            #[serde(default)]
+            restart_ovs_on_use_admin_network_change: Option<bool>,
         }
 
         let partial = PartialDpuConfig::deserialize(deserializer)?;
@@ -1943,6 +2100,9 @@ impl<'de> Deserialize<'de> for DpuConfig {
                 .dpu_enable_secure_boot
                 .unwrap_or(default.dpu_enable_secure_boot),
             num_of_vfs,
+            restart_ovs_on_use_admin_network_change: partial
+                .restart_ovs_on_use_admin_network_change
+                .unwrap_or(default.restart_ovs_on_use_admin_network_change),
         })
     }
 }
@@ -2069,6 +2229,7 @@ impl Default for DpuConfig {
             ],
             dpu_enable_secure_boot: false,
             num_of_vfs: DEFAULT_DPU_NUM_OF_VFS,
+            restart_ovs_on_use_admin_network_change: false,
         }
     }
 }
@@ -2341,6 +2502,9 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             dpf_enabled: value.dpf.enabled,
             compile_time_helm_version: crate::dpf_services::COMPILE_TIME_HELM_VERSION.to_string(),
             compile_time_docker_version: crate::dpf_services::COMPILE_TIME_IMAGE_TAG.to_string(),
+            restart_ovs_on_use_admin_network_change: value
+                .dpu_config
+                .restart_ovs_on_use_admin_network_change,
         }
     }
 }
@@ -2399,6 +2563,12 @@ pub struct DsxExchangeEventBusConfig {
 
     #[serde(default)]
     pub auth: MqttAuthConfig,
+
+    /// Periodically re-publish current `ManagedHostState` in addition to
+    /// publishing on every state change. Lets integrators that cannot poll the
+    /// NICo API reconcile transitions they missed off the event bus.
+    #[serde(default)]
+    pub periodic_state_republish: PeriodicStateRepublishConfig,
 }
 
 impl DsxExchangeEventBusConfig {
@@ -2412,6 +2582,123 @@ impl DsxExchangeEventBusConfig {
 
     pub fn default_topic_prefix() -> String {
         "NICO/v1/machine".to_string()
+    }
+}
+
+/// Which managed hosts a periodic republish sweep publishes.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RepublishScope {
+    /// Republish every managed host on each sweep. Healthy hosts can still be
+    /// published less often than unhealthy ones via `healthy_republish_every`.
+    #[default]
+    All,
+    /// Republish only managed hosts that currently have a health alert. Use
+    /// this to keep the event bus quiet and only re-advertise hosts that need
+    /// attention.
+    UnhealthyOnly,
+}
+
+/// Maximum number of MQTT publishes per second during a single republish sweep.
+/// `0` means unbounded (publish as fast as the broker accepts).
+///
+/// Wraps the raw count so the pacing semantics live with the type rather than
+/// being re-derived at call sites. `#[serde(transparent)]` keeps the config
+/// surface a plain integer (e.g. `max_publishes_per_second = 200`).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct PublishRate(pub u32);
+
+impl PublishRate {
+    /// Delay to insert between publishes to honor this rate, or `None` when
+    /// unbounded.
+    pub fn pacing_delay(self) -> Option<std::time::Duration> {
+        (self.0 > 0).then(|| std::time::Duration::from_secs_f64(1.0 / f64::from(self.0)))
+    }
+}
+
+const PUBLISH_INTERVAL_MIN: std::time::Duration = std::time::Duration::from_secs(1);
+const PUBLISH_INTERVAL_MAX: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Periodic republishing of `ManagedHostState` on the DSX Exchange Event Bus.
+///
+/// NICo publishes state on every transition, but integrators that cannot poll
+/// the NICo API (e.g. network-restricted consumers) can miss a transition and
+/// never reconcile. Re-sending current state on a timer lets those consumers
+/// self-heal. Republished messages reuse the same topic and JSON payload as
+/// change-driven events, so consumers handle them identically.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct PeriodicStateRepublishConfig {
+    /// Enable periodic republishing. Enabled by default whenever the DSX
+    /// Exchange Event Bus itself is enabled. Change-driven publishing is
+    /// unaffected by this setting.
+    #[serde(default = "PeriodicStateRepublishConfig::default_enabled")]
+    pub enabled: bool,
+
+    /// How often a republish sweep runs. Defaults to 5 minutes and is clamped
+    /// to the supported range of 1 second through 1 hour.
+    #[serde(
+        default = "PeriodicStateRepublishConfig::default_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub interval: std::time::Duration,
+
+    /// Which managed hosts to publish on each sweep.
+    #[serde(default)]
+    pub scope: RepublishScope,
+
+    /// When `scope = all`, publish healthy hosts only every Nth sweep to reduce
+    /// broker noise; hosts with an active health alert are always published on
+    /// every sweep. `1` (default) publishes healthy hosts every sweep. `0` is
+    /// treated as `1`. Ignored when `scope = unhealthy_only`.
+    #[serde(default = "PeriodicStateRepublishConfig::default_healthy_republish_every")]
+    pub healthy_republish_every: u32,
+
+    /// Upper bound on publishes per second within a single sweep, to avoid
+    /// bursting the broker on large sites. `0` (default) disables pacing and
+    /// publishes as fast as the broker accepts.
+    #[serde(default)]
+    pub max_publishes_per_second: PublishRate,
+}
+
+impl Default for PeriodicStateRepublishConfig {
+    fn default() -> Self {
+        Self {
+            enabled: Self::default_enabled(),
+            interval: Self::default_interval(),
+            scope: RepublishScope::default(),
+            healthy_republish_every: Self::default_healthy_republish_every(),
+            max_publishes_per_second: PublishRate(0),
+        }
+    }
+}
+
+impl PeriodicStateRepublishConfig {
+    pub const fn default_enabled() -> bool {
+        true
+    }
+
+    pub fn validate(&self) -> eyre::Result<()> {
+        if self.interval.is_zero() {
+            return Err(eyre::eyre!(
+                "dsx_exchange_event_bus.periodic_state_republish.interval must be > 0s"
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn publish_interval(&self) -> std::time::Duration {
+        self.interval
+            .clamp(PUBLISH_INTERVAL_MIN, PUBLISH_INTERVAL_MAX)
+    }
+
+    pub const fn default_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(300)
+    }
+
+    pub const fn default_healthy_republish_every() -> u32 {
+        1
     }
 }
 
@@ -2753,6 +3040,56 @@ mod tests {
             url: BAD_URL.to_string(),
         }];
         assert!(config.validate_web_ui_sidebar_tools().is_err());
+    }
+
+    #[test]
+    fn periodic_state_republish_defaults_enabled() {
+        let config = PeriodicStateRepublishConfig::default();
+
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn periodic_state_republish_rejects_zero_interval() {
+        for enabled in [true, false] {
+            let config = PeriodicStateRepublishConfig {
+                enabled,
+                interval: std::time::Duration::ZERO,
+                ..Default::default()
+            };
+
+            let err = config.validate().expect_err("zero interval must error");
+            assert!(
+                err.to_string().contains(
+                    "dsx_exchange_event_bus.periodic_state_republish.interval must be > 0s"
+                ),
+                "unexpected error: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn periodic_state_republish_clamps_interval() {
+        for (configured, expected) in [
+            (std::time::Duration::from_millis(500), PUBLISH_INTERVAL_MIN),
+            (PUBLISH_INTERVAL_MIN, PUBLISH_INTERVAL_MIN),
+            (
+                PeriodicStateRepublishConfig::default_interval(),
+                PeriodicStateRepublishConfig::default_interval(),
+            ),
+            (PUBLISH_INTERVAL_MAX, PUBLISH_INTERVAL_MAX),
+            (
+                std::time::Duration::from_secs(2 * 60 * 60),
+                PUBLISH_INTERVAL_MAX,
+            ),
+        ] {
+            let config = PeriodicStateRepublishConfig {
+                interval: configured,
+                ..Default::default()
+            };
+
+            assert_eq!(config.publish_interval(), expected);
+        }
     }
 
     #[test]
@@ -3691,6 +4028,22 @@ mod tests {
                 "[site_explorer] dpu_mode = {toml_value:?} should parse to {expected:?}",
             );
         }
+    }
+
+    #[test]
+    fn dpu_config_restart_ovs_on_use_admin_network_change_parses_and_displays() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+            .merge(Toml::string(
+                "[dpu_config]\nrestart_ovs_on_use_admin_network_change = true\n",
+            ))
+            .extract()
+            .unwrap();
+
+        assert!(config.dpu_config.restart_ovs_on_use_admin_network_change);
+
+        let runtime_config: rpc::forge::RuntimeConfig = config.into();
+        assert!(runtime_config.restart_ovs_on_use_admin_network_change);
     }
 
     /// Real-world site TOMLs may still carry the now-removed

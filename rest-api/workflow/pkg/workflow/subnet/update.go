@@ -17,11 +17,11 @@ import (
 
 	subnetActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/subnet"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateSubnetInventory is a workflow called by Site Agent to update Subnet inventory for a Site
-func UpdateSubnetInventory(ctx workflow.Context, siteID string, subnetInventory *cwssaws.SubnetInventory) (err error) {
+func UpdateSubnetInventory(ctx workflow.Context, siteID string, subnetInventory *corev1.SubnetInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateSubnetInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

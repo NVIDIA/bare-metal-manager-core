@@ -199,7 +199,11 @@ impl DataSink for OtlpSink {
         "otlp_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn try_handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
         if let CollectorEvent::Metric(sample) = event {
             let key = metric_queue_key(context, sample);
 
@@ -210,17 +214,17 @@ impl DataSink for OtlpSink {
                 self.metrics_replaced_total.inc();
             }
 
-            return;
+            return Ok(());
         }
 
         if !is_otlp_log_relevant(event) {
-            return;
+            return Ok(());
         }
 
         let (key, event) = match event {
             CollectorEvent::Log(record) => {
                 self.enqueue_log_event(context, record);
-                return;
+                return Ok(());
             }
             CollectorEvent::HealthReport(report) => {
                 let key = format!(
@@ -235,12 +239,14 @@ impl DataSink for OtlpSink {
                 let key = format!("{}|firmware|{}", context.endpoint_key, info.component);
                 (key, event.clone())
             }
-            _ => return,
+            _ => return Ok(()),
         };
 
         if self.queue.save_latest(key, (context.clone(), event)) {
             self.replaced_total.inc();
         }
+
+        Ok(())
     }
 }
 

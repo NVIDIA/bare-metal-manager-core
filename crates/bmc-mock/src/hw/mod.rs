@@ -30,6 +30,9 @@ pub mod bluefield4;
 /// Generic AMI server.
 pub mod generic_ami;
 
+/// Support of HPE ProLiant DL380a Gen11 servers (iLO 6).
+pub mod hpe_proliant_dl380a_gen11;
+
 /// Support of Dell PowerEdge R750 servers.
 pub mod dell_poweredge_r750;
 

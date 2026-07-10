@@ -53,6 +53,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".forge.DpuMode",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
+        .type_attribute(
+            ".forge.BmcIpAllocationType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.BmcIpAllocationType",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .extern_path(".common.DomainId", "::carbide_uuid::domain::DomainId")
@@ -988,6 +996,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             "forge.DeviceCredentialRotationStatus",
             "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            ".forge.NetworkSegmentType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.VpcVirtualizationType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )
         .build_server(true)
         .build_client(true)

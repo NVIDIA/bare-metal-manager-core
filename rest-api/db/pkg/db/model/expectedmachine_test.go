@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 )
 
@@ -43,8 +43,8 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 
 	t.Run("invalid id leaves em.ID unchanged", func(t *testing.T) {
 		em := &ExpectedMachine{ID: id}
-		em.FromProto(&cwssaws.ExpectedMachine{
-			Id:            &cwssaws.UUID{Value: "not-a-uuid"},
+		em.FromProto(&corev1.ExpectedMachine{
+			Id:            &corev1.UUID{Value: "not-a-uuid"},
 			BmcMacAddress: "aa:bb",
 		}, nil)
 
@@ -54,14 +54,14 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 
 	t.Run("populates all proto fields", func(t *testing.T) {
 		em := &ExpectedMachine{}
-		em.FromProto(&cwssaws.ExpectedMachine{
-			Id:                       &cwssaws.UUID{Value: id.String()},
+		em.FromProto(&corev1.ExpectedMachine{
+			Id:                       &corev1.UUID{Value: id.String()},
 			BmcMacAddress:            "aa:bb:cc:dd:ee:ff",
 			ChassisSerialNumber:      "CSN-1",
 			SkuId:                    &skuID,
 			FallbackDpuSerialNumbers: []string{"dpu-1", "dpu-2"},
 			BmcIpAddress:             &bmcIP,
-			RackId:                   &cwssaws.RackId{Id: rackID},
+			RackId:                   &corev1.RackId{Id: rackID},
 			Name:                     &name,
 			Manufacturer:             &manufacturer,
 			Model:                    &model,
@@ -69,8 +69,8 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 			SlotId:                   &slot,
 			TrayIdx:                  &trayIdx,
 			HostId:                   &host,
-			Metadata: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
+			Metadata: &corev1.Metadata{
+				Labels: []*corev1.Label{
 					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
@@ -99,8 +99,8 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 	t.Run("populates dpfEnabled from is_dpf_enabled", func(t *testing.T) {
 		em := &ExpectedMachine{}
 		enabled := false
-		em.FromProto(&cwssaws.ExpectedMachine{
-			Id:            &cwssaws.UUID{Value: id.String()},
+		em.FromProto(&corev1.ExpectedMachine{
+			Id:            &corev1.UUID{Value: id.String()},
 			BmcMacAddress: "aa:bb",
 			IsDpfEnabled:  &enabled,
 		}, nil)
@@ -112,8 +112,8 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 
 	t.Run("nil linkedMachineID leaves MachineID nil", func(t *testing.T) {
 		em := &ExpectedMachine{}
-		em.FromProto(&cwssaws.ExpectedMachine{
-			Id:            &cwssaws.UUID{Value: id.String()},
+		em.FromProto(&corev1.ExpectedMachine{
+			Id:            &corev1.UUID{Value: id.String()},
 			BmcMacAddress: "aa:bb",
 		}, nil)
 
@@ -123,8 +123,8 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 	t.Run("nil RackId clears em.RackID", func(t *testing.T) {
 		stale := "stale-rack"
 		em := &ExpectedMachine{RackID: &stale}
-		em.FromProto(&cwssaws.ExpectedMachine{
-			Id:            &cwssaws.UUID{Value: id.String()},
+		em.FromProto(&corev1.ExpectedMachine{
+			Id:            &corev1.UUID{Value: id.String()},
 			BmcMacAddress: "aa:bb",
 		}, nil)
 
@@ -133,10 +133,10 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 
 	t.Run("populates host_lifecycle_profile", func(t *testing.T) {
 		em := &ExpectedMachine{}
-		em.FromProto(&cwssaws.ExpectedMachine{
-			Id:                   &cwssaws.UUID{Value: id.String()},
+		em.FromProto(&corev1.ExpectedMachine{
+			Id:                   &corev1.UUID{Value: id.String()},
 			BmcMacAddress:        "aa:bb",
-			HostLifecycleProfile: &cwssaws.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
+			HostLifecycleProfile: &corev1.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)},
 		}, nil)
 
 		if assert.NotNil(t, em.HostLifecycleProfile.DisableLockdown) {
@@ -146,8 +146,8 @@ func TestExpectedMachine_FromProto(t *testing.T) {
 
 	t.Run("missing host_lifecycle_profile clears the field", func(t *testing.T) {
 		em := &ExpectedMachine{HostLifecycleProfile: HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)}}
-		em.FromProto(&cwssaws.ExpectedMachine{
-			Id:            &cwssaws.UUID{Value: id.String()},
+		em.FromProto(&corev1.ExpectedMachine{
+			Id:            &corev1.UUID{Value: id.String()},
 			BmcMacAddress: "aa:bb",
 		}, nil)
 
@@ -185,7 +185,7 @@ func TestHostLifecycleProfile_FromProto(t *testing.T) {
 
 	t.Run("populates disableLockdown", func(t *testing.T) {
 		h := HostLifecycleProfile{}
-		h.FromProto(&cwssaws.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)})
+		h.FromProto(&corev1.HostLifecycleProfile{DisableLockdown: cutil.GetPtr(true)})
 		if assert.NotNil(t, h.DisableLockdown) {
 			assert.Equal(t, true, *h.DisableLockdown)
 		}

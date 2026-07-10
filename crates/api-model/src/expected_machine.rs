@@ -83,6 +83,52 @@ impl DpuMode {
     }
 }
 
+/// Controls how a BMC's IP address is assigned and whether it is retained.
+///
+/// - `Auto` (default): infer from `bmc_ip_address` -- a configured address is
+///   treated as `Fixed`, no address is treated as `Retained`.
+/// - `Dynamic`: a normal DHCP lease that may expire and change.
+/// - `Fixed`: the operator-specified `bmc_ip_address` (static).
+/// - `Retained`: an auto-allocated address pinned as Static (never expires).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
+#[sqlx(type_name = "bmc_ip_allocation_t", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum BmcIpAllocationType {
+    #[default]
+    Auto,
+    Dynamic,
+    Fixed,
+    Retained,
+}
+
+impl BmcIpAllocationType {
+    /// Validate the mode against whether a `bmc_ip_address` is configured.
+    pub fn validate(self, has_address: bool) -> Result<(), &'static str> {
+        match self {
+            BmcIpAllocationType::Fixed if !has_address => {
+                Err("bmc_ip_allocation=fixed requires bmc_ip_address")
+            }
+            BmcIpAllocationType::Dynamic if has_address => {
+                Err("bmc_ip_allocation=dynamic cannot be combined with bmc_ip_address")
+            }
+            BmcIpAllocationType::Retained if has_address => {
+                Err("bmc_ip_allocation=retained cannot be combined with bmc_ip_address; use fixed")
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether an auto-allocated BMC IP should be retained (pinned as Static)
+    /// instead of left as an expirable DHCP lease. Only meaningful with no address.
+    pub fn retains_dynamic_ip(self, has_address: bool) -> bool {
+        match self {
+            BmcIpAllocationType::Auto => !has_address,
+            BmcIpAllocationType::Retained => true,
+            BmcIpAllocationType::Dynamic | BmcIpAllocationType::Fixed => false,
+        }
+    }
+}
+
 /// A request to identify an ExpectedMachine by either ID or MAC address.
 #[derive(Debug, Clone)]
 pub struct ExpectedMachineRequest {
@@ -194,6 +240,12 @@ pub struct ExpectedMachineData {
     /// as a plain NIC, or to `NoDpu` when there's no DPU hardware at all.
     #[serde(default)]
     pub dpu_mode: DpuMode,
+    /// Per-host control over how this BMC's IP is assigned and retained.
+    /// Defaults to `BmcIpAllocationType::Auto`, which infers `Fixed` from a
+    /// configured `bmc_ip_address` and otherwise `Retained` (pins an
+    /// auto-allocated address as Static so it survives DHCP lease expiry).
+    #[serde(default)]
+    pub bmc_ip_allocation: BmcIpAllocationType,
     /// Per-host profile for settings that affect state-machine progression.
     /// Stored as a JSONB column on `expected_machines`; future state-machine
     /// knobs should be added here rather than as new flat columns.
@@ -271,6 +323,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 bmc_ip_address: row.try_get("bmc_ip_address")?,
                 bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
                 dpu_mode: row.try_get("dpu_mode")?,
+                bmc_ip_allocation: row.try_get("bmc_ip_allocation")?,
                 host_lifecycle_profile: row
                     .try_get::<sqlx::types::Json<HostLifecycleProfile>, _>("host_lifecycle_profile")
                     .map(|j| j.0)?,
@@ -476,6 +529,160 @@ mod tests {
             disable_lockdown: Some(false),
         };
         assert!(!hlp.is_empty());
+    }
+
+    /// `BmcIpAllocationType::validate` against whether a `bmc_ip_address` is
+    /// configured, exhaustively over the four variants x has_address. Only three
+    /// combinations are errors: `Fixed` without an address, and `Dynamic` /
+    /// `Retained` with an address. `Auto` is always valid.
+    #[test]
+    fn bmc_ip_allocation_validate_covers_all_combinations() {
+        struct Case {
+            name: &'static str,
+            mode: BmcIpAllocationType,
+            has_address: bool,
+            ok: bool,
+        }
+
+        let cases = [
+            Case {
+                name: "auto with address is valid",
+                mode: BmcIpAllocationType::Auto,
+                has_address: true,
+                ok: true,
+            },
+            Case {
+                name: "auto without address is valid",
+                mode: BmcIpAllocationType::Auto,
+                has_address: false,
+                ok: true,
+            },
+            Case {
+                name: "dynamic without address is valid",
+                mode: BmcIpAllocationType::Dynamic,
+                has_address: false,
+                ok: true,
+            },
+            Case {
+                name: "dynamic with address is rejected",
+                mode: BmcIpAllocationType::Dynamic,
+                has_address: true,
+                ok: false,
+            },
+            Case {
+                name: "fixed with address is valid",
+                mode: BmcIpAllocationType::Fixed,
+                has_address: true,
+                ok: true,
+            },
+            Case {
+                name: "fixed without address is rejected",
+                mode: BmcIpAllocationType::Fixed,
+                has_address: false,
+                ok: false,
+            },
+            Case {
+                name: "retained without address is valid",
+                mode: BmcIpAllocationType::Retained,
+                has_address: false,
+                ok: true,
+            },
+            Case {
+                name: "retained with address is rejected",
+                mode: BmcIpAllocationType::Retained,
+                has_address: true,
+                ok: false,
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(
+                case.mode.validate(case.has_address).is_ok(),
+                case.ok,
+                "{}",
+                case.name
+            );
+        }
+    }
+
+    /// `BmcIpAllocationType::retains_dynamic_ip` exhaustively over the four
+    /// variants x has_address. `Retained` always retains; `Auto` retains only
+    /// when there's no configured address; `Dynamic` and `Fixed` never retain.
+    #[test]
+    fn bmc_ip_allocation_retains_dynamic_ip_covers_all_combinations() {
+        struct Case {
+            name: &'static str,
+            mode: BmcIpAllocationType,
+            has_address: bool,
+            retains: bool,
+        }
+
+        let cases = [
+            Case {
+                name: "auto with address does not retain",
+                mode: BmcIpAllocationType::Auto,
+                has_address: true,
+                retains: false,
+            },
+            Case {
+                name: "auto without address retains",
+                mode: BmcIpAllocationType::Auto,
+                has_address: false,
+                retains: true,
+            },
+            Case {
+                name: "dynamic without address does not retain",
+                mode: BmcIpAllocationType::Dynamic,
+                has_address: false,
+                retains: false,
+            },
+            Case {
+                name: "dynamic with address does not retain",
+                mode: BmcIpAllocationType::Dynamic,
+                has_address: true,
+                retains: false,
+            },
+            Case {
+                name: "fixed without address does not retain",
+                mode: BmcIpAllocationType::Fixed,
+                has_address: false,
+                retains: false,
+            },
+            Case {
+                name: "fixed with address does not retain",
+                mode: BmcIpAllocationType::Fixed,
+                has_address: true,
+                retains: false,
+            },
+            Case {
+                name: "retained without address retains",
+                mode: BmcIpAllocationType::Retained,
+                has_address: false,
+                retains: true,
+            },
+            Case {
+                name: "retained with address retains",
+                mode: BmcIpAllocationType::Retained,
+                has_address: true,
+                retains: true,
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(
+                case.mode.retains_dynamic_ip(case.has_address),
+                case.retains,
+                "{}",
+                case.name
+            );
+        }
+    }
+
+    /// The `BmcIpAllocationType` default is `Auto`, which the Unspecified wire
+    /// mapping and the "infer from bmc_ip_address" behavior both rely on.
+    #[test]
+    fn bmc_ip_allocation_default_is_auto() {
+        assert_eq!(BmcIpAllocationType::default(), BmcIpAllocationType::Auto);
     }
 
     /// `declared_primary_mac` returns the MAC of the one NIC flagged

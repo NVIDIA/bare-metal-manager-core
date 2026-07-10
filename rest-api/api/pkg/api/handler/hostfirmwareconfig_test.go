@@ -31,8 +31,8 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestCreateOrUpdateHostFirmwareConfigHandler_returns201OnCreate(t *testing.T) {
@@ -47,7 +47,7 @@ func TestCreateOrUpdateHostFirmwareConfigHandler_returns201OnCreate(t *testing.T
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	assert.Equal(t, upsertHostFirmwareConfigMethod, proxiedReq.FullMethod)
-	var coreReq cwssaws.UpsertHostFirmwareConfigRequest
+	var coreReq corev1.UpsertHostFirmwareConfigRequest
 	require.NoError(t, protojson.Unmarshal(proxiedReq.RequestJSON, &coreReq))
 }
 
@@ -101,7 +101,7 @@ func TestDeleteHostFirmwareConfigHandler_success(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.String())
 
-	var coreReq cwssaws.DeleteHostFirmwareConfigRequest
+	var coreReq corev1.DeleteHostFirmwareConfigRequest
 	require.NoError(t, protojson.Unmarshal(proxiedReq.RequestJSON, &coreReq))
 }
 
@@ -134,7 +134,7 @@ type hostFirmwareConfigHandlerFixtureOptions struct {
 	roles         []string
 	user          *cdbm.User
 	getErr        error
-	responseProto *cwssaws.HostFirmwareConfigResponse
+	responseProto *corev1.HostFirmwareConfigResponse
 }
 
 type hostFirmwareConfigHandlerFixture struct {
@@ -268,7 +268,7 @@ func validHostFirmwareUpsertRequest(siteID string) model.APIHostFirmwareConfigCr
 	}
 }
 
-func hostFirmwareConfigProtoResponse(t *testing.T, created bool) *cwssaws.HostFirmwareConfigResponse {
+func hostFirmwareConfigProtoResponse(t *testing.T, created bool) *corev1.HostFirmwareConfigResponse {
 	t.Helper()
 
 	createdAt := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
@@ -277,19 +277,19 @@ func hostFirmwareConfigProtoResponse(t *testing.T, created bool) *cwssaws.HostFi
 		updatedAt = createdAt.Add(time.Hour)
 	}
 
-	return &cwssaws.HostFirmwareConfigResponse{
+	return &corev1.HostFirmwareConfigResponse{
 		Vendor:              "Nvidia",
 		Model:               "DGXH100",
 		ExplicitStartNeeded: true,
-		Ordering:            []cwssaws.HostFirmwareComponentType{cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7},
+		Ordering:            []corev1.HostFirmwareComponentType{corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7},
 		CreatedAt:           timestamppb.New(createdAt),
 		UpdatedAt:           timestamppb.New(updatedAt),
-		Components: []*cwssaws.HostFirmwareComponentConfigResponse{{
-			Type: cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7,
-			Firmware: []*cwssaws.HostFirmwareVersionConfig{{
+		Components: []*corev1.HostFirmwareComponentConfigResponse{{
+			Type: corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7,
+			Firmware: []*corev1.HostFirmwareVersionConfig{{
 				Version: "28.47.2682",
 				Default: true,
-				Artifacts: []*cwssaws.HostFirmwareArtifact{{
+				Artifacts: []*corev1.HostFirmwareArtifact{{
 					Url: "https://firmware.example.invalid/28.47.2682/fw.bin",
 				}},
 			}},

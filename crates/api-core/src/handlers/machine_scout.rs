@@ -30,7 +30,7 @@ use crate::CarbideError;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::api::{Api, log_request_data};
 use crate::compat::BuildAndFillLegacyFields;
-use crate::handlers::utils::convert_and_log_machine_id;
+use crate::handlers::utils::{StateHandlerWakeupFailed, WakeupTrigger, convert_and_log_machine_id};
 
 // Records Scout cleanup success/failure and wakes the host state controller.
 // The state controller decides whether cleanup returns to discovery or deprovision flow.
@@ -126,7 +126,11 @@ pub(crate) async fn cleanup_machine_completed(
             .enqueue_object(&machine_id)
             .await
     {
-        tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
+        carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::CleanupCompleted,
+            machine_id,
+            err: err.to_string(),
+        });
     }
 
     Ok(Response::new(rpc::MachineCleanupResult {}))
@@ -456,7 +460,11 @@ pub(crate) async fn reboot_completed(
             .enqueue_object(&machine_id)
             .await
     {
-        tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
+        carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::RebootCompleted,
+            machine_id,
+            err: err.to_string(),
+        });
     }
 
     Ok(Response::new(rpc::MachineRebootCompletedResponse {}))

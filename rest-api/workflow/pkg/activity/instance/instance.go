@@ -25,7 +25,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
-	cwsv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/internal/config"
 	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 
@@ -46,7 +46,7 @@ type ManageInstance struct {
 // Activity functions
 
 // UpdateInstancesInDB is a Temporal activity that takes a collection of Instance data pushed by Site Agent and updates the DB
-func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UUID, instanceInventory *cwsv1.InstanceInventory) ([]cwm.InventoryObjectLifecycleEvent, error) {
+func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UUID, instanceInventory *corev1.InstanceInventory) ([]cwm.InventoryObjectLifecycleEvent, error) {
 	logger := log.With().Str("Activity", "UpdateInstancesInDB").Str("Site", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -66,7 +66,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 		return nil, err
 	}
 
-	if instanceInventory.InventoryStatus == cwsv1.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if instanceInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil, nil
 	}
@@ -383,11 +383,11 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 				// Parse the VpcPrefix if it is specified
 				if interfaceConfig.NetworkDetails != nil {
 					switch interfaceConfig.NetworkDetails.(type) {
-					case *cwsv1.InstanceInterfaceConfig_VpcPrefixId:
+					case *corev1.InstanceInterfaceConfig_VpcPrefixId:
 						if interfaceConfig.Device != nil {
 							// Multi DPU interface
 							deviceInstanceId := fmt.Sprintf("%s-%d", *interfaceConfig.Device, interfaceConfig.DeviceInstance)
-							if interfaceConfig.FunctionType == cwsv1.InterfaceFunctionType_PHYSICAL_FUNCTION {
+							if interfaceConfig.FunctionType == corev1.InterfaceFunctionType_PHYSICAL_FUNCTION {
 								deviceInstanceId = fmt.Sprintf("%s-physical", deviceInstanceId)
 							} else {
 								deviceInstanceId = fmt.Sprintf("%s-virtual-%d", deviceInstanceId, *interfaceConfig.VirtualFunctionId)
@@ -395,10 +395,10 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 							ifc, ok = interfaceMap[deviceInstanceId]
 						} else {
 							// FNN interface
-							ifc, ok = interfaceMap[interfaceConfig.NetworkDetails.(*cwsv1.InstanceInterfaceConfig_VpcPrefixId).VpcPrefixId.Value]
+							ifc, ok = interfaceMap[interfaceConfig.NetworkDetails.(*corev1.InstanceInterfaceConfig_VpcPrefixId).VpcPrefixId.Value]
 						}
-					case *cwsv1.InstanceInterfaceConfig_SegmentId:
-						ifc, ok = interfaceMap[interfaceConfig.NetworkDetails.(*cwsv1.InstanceInterfaceConfig_SegmentId).SegmentId.Value]
+					case *corev1.InstanceInterfaceConfig_SegmentId:
+						ifc, ok = interfaceMap[interfaceConfig.NetworkDetails.(*corev1.InstanceInterfaceConfig_SegmentId).SegmentId.Value]
 					}
 				} else {
 					if interfaceConfig.NetworkSegmentId != nil {
@@ -454,7 +454,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					}
 
 					var status *string
-					if controllerInstance.Status.Network.ConfigsSynced == cwsv1.SyncState_SYNCED {
+					if controllerInstance.Status.Network.ConfigsSynced == corev1.SyncState_SYNCED {
 						status = cwutil.GetPtr(cdbm.InterfaceStatusReady)
 					}
 
@@ -550,7 +550,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					}
 
 					var status *string
-					if controllerInstance.Status.Infiniband.ConfigsSynced == cwsv1.SyncState_SYNCED {
+					if controllerInstance.Status.Infiniband.ConfigsSynced == corev1.SyncState_SYNCED {
 						// If the InfiniBand Config is synced
 						isInfiniBandConfigSynced = true
 						if ibifc.Status != cdbm.InfiniBandInterfaceStatusReady {
@@ -625,18 +625,18 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 
 				var status *string
 				switch desdStatus.DeploymentStatus {
-				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_PENDING:
+				case corev1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_PENDING:
 					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusPending)
-				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_RUNNING:
+				case corev1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_RUNNING:
 					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusRunning)
-				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_TERMINATING:
+				case corev1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_TERMINATING:
 					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusTerminating)
-				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_TERMINATED:
+				case corev1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_TERMINATED:
 					// This state is unlikely to be seen but in case we see it, Site is still in the process of removing the entry
 					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusTerminating)
-				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_ERROR:
+				case corev1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_ERROR:
 					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusError)
-				case cwsv1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_FAILED:
+				case corev1.DpuExtensionServiceDeploymentStatus_DPU_EXTENSION_SERVICE_FAILED:
 					status = cwutil.GetPtr(cdbm.DpuExtensionServiceDeploymentStatusFailed)
 				}
 
@@ -765,7 +765,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 				}
 
 				var status *string
-				if controllerInstance.Status.Nvlink.ConfigsSynced == cwsv1.SyncState_SYNCED {
+				if controllerInstance.Status.Nvlink.ConfigsSynced == corev1.SyncState_SYNCED {
 					isNVLinkConfigSynced = true
 
 					// If the NVLink Interface is not in Ready state, set the status to Ready
@@ -1176,29 +1176,29 @@ func (mi ManageInstance) updateInstanceStatusInDB(ctx context.Context, tx *cdb.T
 }
 
 // Utility function to get NICo Instance status from Controller Instance state
-func getNICoInstanceStatus(controllerInstanceTenantState cwsv1.TenantState) (string, string) {
+func getNICoInstanceStatus(controllerInstanceTenantState corev1.TenantState) (string, string) {
 	switch controllerInstanceTenantState {
-	case cwsv1.TenantState_PROVISIONING:
+	case corev1.TenantState_PROVISIONING:
 		return cdbm.InstanceStatusProvisioning, "Instance is being provisioned on Site"
-	case cwsv1.TenantState_READY:
+	case corev1.TenantState_READY:
 		return cdbm.InstanceStatusReady, "Instance is ready for use"
-	case cwsv1.TenantState_CONFIGURING:
+	case corev1.TenantState_CONFIGURING:
 		return cdbm.InstanceStatusConfiguring, "Instance is being configured on Site"
-	case cwsv1.TenantState_REPAIRING:
+	case corev1.TenantState_REPAIRING:
 		return cdbm.InstanceStatusRepairing, "Instance is undergoing online-repair"
-	case cwsv1.TenantState_TERMINATING:
+	case corev1.TenantState_TERMINATING:
 		return cdbm.InstanceStatusTerminating, "Instance is terminating on Site"
-	case cwsv1.TenantState_TERMINATED:
+	case corev1.TenantState_TERMINATED:
 		return cdbm.InstanceStatusTerminated, "Instance has been terminated on Site"
-	case cwsv1.TenantState_FAILED:
+	case corev1.TenantState_FAILED:
 		return cdbm.InstanceStatusError, "Instance is in error state"
 	// Deprecated in favor of TenantState_UPDATING
-	case cwsv1.TenantState_DPU_REPROVISIONING:
+	case corev1.TenantState_DPU_REPROVISIONING:
 		return cdbm.InstanceStatusUpdating, "Instance is receiving system firmware updates"
 	// Deprecated in favor of TenantState_UPDATING
-	case cwsv1.TenantState_HOST_REPROVISIONING:
+	case corev1.TenantState_HOST_REPROVISIONING:
 		return cdbm.InstanceStatusUpdating, "Instance is receiving system firmware updates"
-	case cwsv1.TenantState_UPDATING:
+	case corev1.TenantState_UPDATING:
 		return cdbm.InstanceStatusUpdating, "Instance is receiving system firmware updates"
 	default:
 		return cdbm.InstanceStatusError, "Instance status is unknown"
@@ -1207,7 +1207,7 @@ func getNICoInstanceStatus(controllerInstanceTenantState cwsv1.TenantState) (str
 
 // UpdateInstanceMetadata is a Temporal activity that will trigger an update of an instance's metadata
 // if they are found out of sync with the cloud.
-func (mi ManageInstance) UpdateInstanceMetadata(ctx context.Context, siteID uuid.UUID, tc client.Client, instanceID uuid.UUID, controllerInstance *cwsv1.Instance) error {
+func (mi ManageInstance) UpdateInstanceMetadata(ctx context.Context, siteID uuid.UUID, tc client.Client, instanceID uuid.UUID, controllerInstance *corev1.Instance) error {
 	logger := log.With().Str("Activity", "UpdateInstanceMetadata").Str("Site ID", siteID.String()).Str("Instance ID", instanceID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -1227,9 +1227,9 @@ func (mi ManageInstance) UpdateInstanceMetadata(ctx context.Context, siteID uuid
 	}
 
 	// Prepare the labels for the metadata of the nico call.
-	labels := []*cwsv1.Label{}
+	labels := []*corev1.Label{}
 	for k, v := range instance.Labels {
-		labels = append(labels, &cwsv1.Label{
+		labels = append(labels, &corev1.Label{
 			Key:   k,
 			Value: &v,
 		})
@@ -1242,15 +1242,15 @@ func (mi ManageInstance) UpdateInstanceMetadata(ctx context.Context, siteID uuid
 	}
 
 	// Prepare the config update request workflow object
-	updateInstanceRequest := &cwsv1.InstanceConfigUpdateRequest{
+	updateInstanceRequest := &corev1.InstanceConfigUpdateRequest{
 		InstanceId: controllerInstance.GetId(),
-		Metadata: &cwsv1.Metadata{
+		Metadata: &corev1.Metadata{
 			Name:        instance.Name,
 			Description: description,
 			Labels:      labels,
 		},
-		Config: &cwsv1.InstanceConfig{
-			Tenant: &cwsv1.TenantConfig{
+		Config: &corev1.InstanceConfig{
+			Tenant: &corev1.TenantConfig{
 				TenantOrganizationId: controllerInstance.Config.GetTenant().GetTenantOrganizationId(),
 				TenantKeysetIds:      controllerInstance.Config.GetTenant().GetTenantKeysetIds(),
 			},

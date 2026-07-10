@@ -16,6 +16,7 @@
  */
 
 mod connected_device;
+mod credential_rotation;
 mod dhcp_lease_expiration;
 mod dpu_machine_inventory;
 mod explored_managed_host_find;
@@ -27,9 +28,12 @@ mod machine_bmc_metadata;
 mod machine_boot_interfaces;
 mod network_device;
 mod nvlink_domain_health;
+mod operating_system;
+mod power_options;
 mod power_shelf_find;
 mod rack_find;
 mod route_servers;
+mod scout_firmware_upgrade_status;
 mod static_address_management;
 mod storage;
 mod switch_find;

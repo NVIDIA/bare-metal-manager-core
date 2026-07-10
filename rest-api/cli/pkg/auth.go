@@ -58,7 +58,10 @@ func LoginCommand() *cli.Command {
 			},
 		},
 		Action: func(c *cli.Context) error {
-			cfg, _ := LoadConfig()
+			cfg, err := LoadConfig()
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
 			ApplyEnvOverrides(cfg)
 
 			tokenCommand := c.String("token-command")

@@ -443,10 +443,10 @@ pub fn generate_base_sku_from_hardware(
     let created = Utc::now();
 
     let capabilities = MachineCapabilitiesSet::from_hardware_info(
-        hardware_info.clone(),
+        hardware_info,
         machine.infiniband_status_observation.as_ref(),
         machine.associated_dpu_machine_ids(),
-        machine.interfaces.clone(),
+        &machine.interfaces,
     );
 
     let chassis = SkuComponentChassis {

@@ -31,7 +31,7 @@ async fn resolve_segment_for_static_ip(
     txn: &mut sqlx::PgConnection,
     ip: std::net::IpAddr,
 ) -> Result<model::network_segment::NetworkSegment, CarbideError> {
-    match db::network_segment::for_relay(txn, ip).await? {
+    match db::network_segment::for_prefix_containing_address(txn, ip).await? {
         Some(seg) => Ok(seg),
         None => Ok(db::network_segment::static_assignments(txn).await?),
     }

@@ -12,11 +12,11 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // CreateVpcPrefix is a workflow to create an VpcPrefix using CreateVpcPrefixOnSite activity
-func CreateVpcPrefix(ctx workflow.Context, request *cwssaws.VpcPrefixCreationRequest) error {
+func CreateVpcPrefix(ctx workflow.Context, request *corev1.VpcPrefixCreationRequest) error {
 	logger := log.With().Str("Workflow", "CreateVpcPrefix").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -53,7 +53,7 @@ func CreateVpcPrefix(ctx workflow.Context, request *cwssaws.VpcPrefixCreationReq
 }
 
 // UpdateVpcPrefix is a workflow to update an VpcPrefix using UpdateVpcPrefixOnSite activity
-func UpdateVpcPrefix(ctx workflow.Context, request *cwssaws.VpcPrefixUpdateRequest) error {
+func UpdateVpcPrefix(ctx workflow.Context, request *corev1.VpcPrefixUpdateRequest) error {
 	logger := log.With().Str("Workflow", "UpdateVpcPrefix").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -89,7 +89,7 @@ func UpdateVpcPrefix(ctx workflow.Context, request *cwssaws.VpcPrefixUpdateReque
 }
 
 // DeleteVpcPrefix is a workflow to delete an VpcPrefix using DeleteVpcPrefixOnSite activity
-func DeleteVpcPrefix(ctx workflow.Context, request *cwssaws.VpcPrefixDeletionRequest) error {
+func DeleteVpcPrefix(ctx workflow.Context, request *corev1.VpcPrefixDeletionRequest) error {
 	logger := log.With().Str("Workflow", "DeleteVpcPrefix").Logger()
 
 	logger.Info().Msg("Starting workflow")

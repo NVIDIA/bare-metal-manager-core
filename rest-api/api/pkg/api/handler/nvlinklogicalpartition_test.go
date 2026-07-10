@@ -25,8 +25,8 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -165,10 +165,10 @@ func TestNVLinkLogicalPartitionHandler_Create(t *testing.T) {
 	// Mock Get to populate workflow result
 	wrun.Mock.On("Get", mock.Anything, mock.Anything).Return(
 		func(ctx context.Context, value interface{}) error {
-			response := value.(**cwssaws.NVLinkLogicalPartition)
-			*response = &cwssaws.NVLinkLogicalPartition{
-				Id:     &cwssaws.NVLinkLogicalPartitionId{Value: "test-nvllp-id"},
-				Status: &cwssaws.NVLinkLogicalPartitionStatus{State: cwssaws.TenantState_READY},
+			response := value.(**corev1.NVLinkLogicalPartition)
+			*response = &corev1.NVLinkLogicalPartition{
+				Id:     &corev1.NVLinkLogicalPartitionId{Value: "test-nvllp-id"},
+				Status: &corev1.NVLinkLogicalPartitionStatus{State: corev1.TenantState_READY},
 			}
 			return nil
 		},
@@ -378,7 +378,7 @@ func TestNVLinkLogicalPartitionHandler_Create(t *testing.T) {
 				assert.Equal(t, rsp.Status, cdbm.NVLinkLogicalPartitionStatusReady)
 
 				if len(tsc.Calls) > 0 {
-					req := tsc.Calls[0].Arguments[3].(*cwssaws.NVLinkLogicalPartitionCreationRequest)
+					req := tsc.Calls[0].Arguments[3].(*corev1.NVLinkLogicalPartitionCreationRequest)
 					assert.Equal(t, req.Config.Metadata.Name, tc.reqBodyModel.Name)
 					if tc.reqBodyModel.Description != nil {
 						assert.Equal(t, *tc.reqBodyModel.Description, req.Config.Metadata.Description)
@@ -759,12 +759,12 @@ func TestNVLinkLogicalPartitionHandler_Update(t *testing.T) {
 					assert.Equal(t, *tc.reqBodyModel.Description, *rsp.Description)
 				}
 
-				var updateReq *cwssaws.NVLinkLogicalPartitionUpdateRequest
+				var updateReq *corev1.NVLinkLogicalPartitionUpdateRequest
 				for i := len(tsc.Calls) - 1; i >= 0; i-- {
 					call := tsc.Calls[i]
 					if call.Method == "ExecuteWorkflow" && len(call.Arguments) > 3 {
 						if wfName, ok := call.Arguments[2].(string); ok && wfName == "UpdateNVLinkLogicalPartition" {
-							updateReq, _ = call.Arguments[3].(*cwssaws.NVLinkLogicalPartitionUpdateRequest)
+							updateReq, _ = call.Arguments[3].(*corev1.NVLinkLogicalPartitionUpdateRequest)
 							break
 						}
 					}

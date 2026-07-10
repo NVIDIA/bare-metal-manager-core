@@ -296,7 +296,7 @@ impl MachineValidation {
         for image_name in list.images {
             match Self::import_container(&image_name, MACHINE_VALIDATION_RUNNER_TAG).await {
                 Ok(data) => {
-                    trace!("Import successfull '{}'", data)
+                    trace!("Import successful '{}'", data)
                 }
                 Err(e) => error!("Failed to import '{}'", e.to_string()),
             };

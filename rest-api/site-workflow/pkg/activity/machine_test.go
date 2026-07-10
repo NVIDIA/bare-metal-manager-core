@@ -16,8 +16,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/util"
 )
@@ -33,7 +33,7 @@ func TestManageMachine_SetMachineMaintenanceOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.MaintenanceRequest
+		request *corev1.MaintenanceRequest
 	}
 	tests := []struct {
 		name    string
@@ -48,9 +48,9 @@ func TestManageMachine_SetMachineMaintenanceOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.MaintenanceRequest{
-					Operation: cwssaws.MaintenanceOperation_Enable,
-					HostId:    &cwssaws.MachineId{Id: "test-machine-id"},
+				request: &corev1.MaintenanceRequest{
+					Operation: corev1.MaintenanceOperation_Enable,
+					HostId:    &corev1.MachineId{Id: "test-machine-id"},
 					Reference: util.GetStrPtr("test-reference"),
 				},
 			},
@@ -81,7 +81,7 @@ func TestManageMachine_UpdateMachineMetadataOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.MachineMetadataUpdateRequest
+		request *corev1.MachineMetadataUpdateRequest
 	}
 
 	tests := []struct {
@@ -97,10 +97,10 @@ func TestManageMachine_UpdateMachineMetadataOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.MachineMetadataUpdateRequest{
-					MachineId: &cwssaws.MachineId{Id: "test-machine-id"},
-					Metadata: &cwssaws.Metadata{
-						Labels: []*cwssaws.Label{
+				request: &corev1.MachineMetadataUpdateRequest{
+					MachineId: &corev1.MachineId{Id: "test-machine-id"},
+					Metadata: &corev1.Metadata{
+						Labels: []*corev1.Label{
 							{
 								Key:   "test-key",
 								Value: util.GetStrPtr("test-value"),
@@ -132,16 +132,16 @@ func TestManageMachine_CreateMachineHealthReportOnSite(t *testing.T) {
 	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	mm := NewManageMachine(coreGrpcAtomicClient)
-	req := &cwssaws.InsertMachineHealthReportRequest{
-		MachineId: &cwssaws.MachineId{Id: "machine-1"},
-		HealthReportEntry: &cwssaws.HealthReportEntry{
-			Report: &cwssaws.HealthReport{
+	req := &corev1.InsertMachineHealthReportRequest{
+		MachineId: &corev1.MachineId{Id: "machine-1"},
+		HealthReportEntry: &corev1.HealthReportEntry{
+			Report: &corev1.HealthReport{
 				Source: "request-online-repair",
-				Alerts: []*cwssaws.HealthProbeAlert{
+				Alerts: []*corev1.HealthProbeAlert{
 					{Id: "OnLineRepair", Message: `{"details":"d","issue_category":"OTHER","summary":"s"}`},
 				},
 			},
-			Mode: cwssaws.HealthReportApplyMode_Merge,
+			Mode: corev1.HealthReportApplyMode_Merge,
 		},
 	}
 	assert.NoError(t, mm.CreateMachineHealthReportOnSite(context.Background(), req))
@@ -157,8 +157,8 @@ func TestManageMachine_DeleteMachineHealthReportOnSite(t *testing.T) {
 	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	mm := NewManageMachine(coreGrpcAtomicClient)
-	req := &cwssaws.RemoveMachineHealthReportRequest{
-		MachineId: &cwssaws.MachineId{Id: "machine-1"},
+	req := &corev1.RemoveMachineHealthReportRequest{
+		MachineId: &corev1.MachineId{Id: "machine-1"},
 		Source:    "request-online-repair",
 	}
 	assert.NoError(t, mm.DeleteMachineHealthReportOnSite(context.Background(), req))
@@ -171,11 +171,11 @@ func Test_getPagedInventory(t *testing.T) {
 	// Generate inventories
 	pageSize := 25
 
-	inventory1Machines := []*cwssaws.Machine{}
-	inventory1MachineIDs := []*cwssaws.MachineId{}
+	inventory1Machines := []*corev1.Machine{}
+	inventory1MachineIDs := []*corev1.MachineId{}
 	for i := 0; i < 95; i++ {
-		inventory1Machines = append(inventory1Machines, &cwssaws.Machine{
-			Id: &cwssaws.MachineId{
+		inventory1Machines = append(inventory1Machines, &corev1.Machine{
+			Id: &corev1.MachineId{
 				Id: uuid.NewString(),
 			},
 			State: "Ready",
@@ -183,11 +183,11 @@ func Test_getPagedInventory(t *testing.T) {
 		inventory1MachineIDs = append(inventory1MachineIDs, inventory1Machines[i].Id)
 	}
 
-	inventory2Machines := []*cwssaws.Machine{}
-	inventory2MachineIDs := []*cwssaws.MachineId{}
+	inventory2Machines := []*corev1.Machine{}
+	inventory2MachineIDs := []*corev1.MachineId{}
 	for i := 0; i < pageSize-5; i++ {
-		inventory2Machines = append(inventory2Machines, &cwssaws.Machine{
-			Id: &cwssaws.MachineId{
+		inventory2Machines = append(inventory2Machines, &corev1.Machine{
+			Id: &corev1.MachineId{
 				Id: uuid.NewString(),
 			},
 			State: "Ready",
@@ -196,12 +196,12 @@ func Test_getPagedInventory(t *testing.T) {
 	}
 
 	type args struct {
-		pagedMachines   []*cwssaws.Machine
-		pagedMachineIDs []*cwssaws.MachineId
+		pagedMachines   []*corev1.Machine
+		pagedMachineIDs []*corev1.MachineId
 		totalCount      int
 		page            int
 		pageSize        int
-		status          cwssaws.InventoryStatus
+		status          corev1.InventoryStatus
 		statusMessage   string
 	}
 	tests := []struct {
@@ -221,7 +221,7 @@ func Test_getPagedInventory(t *testing.T) {
 				totalCount:      0,
 				page:            1,
 				pageSize:        pageSize,
-				status:          cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+				status:          corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				statusMessage:   "No Machines reported by SIte Controller",
 			},
 			wantMachineCount: 0,
@@ -238,7 +238,7 @@ func Test_getPagedInventory(t *testing.T) {
 				totalCount:      95,
 				page:            1,
 				pageSize:        pageSize,
-				status:          cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+				status:          corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				statusMessage:   "Successfully retrieved Machines from Site Controller",
 			},
 			wantMachineCount: pageSize,
@@ -255,7 +255,7 @@ func Test_getPagedInventory(t *testing.T) {
 				totalCount:      pageSize - 5,
 				page:            1,
 				pageSize:        pageSize,
-				status:          cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+				status:          corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				statusMessage:   "Successfully retrieved Machines from Site Controller",
 			},
 			wantMachineCount: pageSize - 5,
@@ -282,7 +282,7 @@ func Test_getPagedInventory(t *testing.T) {
 
 func Test_getPagedMachineIDs(t *testing.T) {
 	type args struct {
-		machineIDs []*cwssaws.MachineId
+		machineIDs []*corev1.MachineId
 		page       int
 		pageSize   int
 	}
@@ -303,7 +303,7 @@ func Test_getPagedMachineIDs(t *testing.T) {
 		{
 			name: "test getting first page for normal machine IDs",
 			args: args{
-				machineIDs: []*cwssaws.MachineId{
+				machineIDs: []*corev1.MachineId{
 					{Id: "machine-1"},
 					{Id: "machine-2"},
 					{Id: "machine-3"},
@@ -323,7 +323,7 @@ func Test_getPagedMachineIDs(t *testing.T) {
 		{
 			name: "test getting last page for machine IDs",
 			args: args{
-				machineIDs: []*cwssaws.MachineId{
+				machineIDs: []*corev1.MachineId{
 					{Id: "machine-1"},
 					{Id: "machine-2"},
 					{Id: "machine-3"},
@@ -343,7 +343,7 @@ func Test_getPagedMachineIDs(t *testing.T) {
 		{
 			name: "test getting last page for machine IDs with less than page size",
 			args: args{
-				machineIDs: []*cwssaws.MachineId{
+				machineIDs: []*corev1.MachineId{
 					{Id: "machine-1"},
 					{Id: "machine-2"},
 					{Id: "machine-3"},
@@ -449,7 +449,7 @@ func TestManageMachineInventory_CollectAndPublishMachineInventory(t *testing.T) 
 				tc.AssertNumberOfCalls(t, "ExecuteWorkflow", totalPages)
 			}
 
-			inventory, ok := tc.Calls[0].Arguments[4].(*cwssaws.MachineInventory)
+			inventory, ok := tc.Calls[0].Arguments[4].(*corev1.MachineInventory)
 			assert.True(t, ok)
 
 			if tt.args.wantTotalItems == 0 {
@@ -458,7 +458,7 @@ func TestManageMachineInventory_CollectAndPublishMachineInventory(t *testing.T) 
 				assert.Equal(t, tt.fields.cloudPageSize, len(inventory.Machines))
 			}
 
-			assert.Equal(t, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
+			assert.Equal(t, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
 			assert.Equal(t, totalPages, int(inventory.InventoryPage.TotalPages))
 			assert.Equal(t, 1, int(inventory.InventoryPage.CurrentPage))
 			assert.Equal(t, tt.fields.cloudPageSize, int(inventory.InventoryPage.PageSize))
@@ -474,22 +474,22 @@ func TestManageMachine_GetDpuMachinesByIDs(t *testing.T) {
 		cClient.MockCoreGrpcServiceClient
 	}
 
-	mockFindMachinesByIds := func(ctx context.Context, in *cwssaws.MachinesByIdsRequest, opts ...grpc.CallOption) (*cwssaws.MachineList, error) {
-		out := &cwssaws.MachineList{}
+	mockFindMachinesByIds := func(ctx context.Context, in *corev1.MachinesByIdsRequest, opts ...grpc.CallOption) (*corev1.MachineList, error) {
+		out := &corev1.MachineList{}
 		if in != nil {
 			for _, id := range in.MachineIds {
-				out.Machines = append(out.Machines, &cwssaws.Machine{
+				out.Machines = append(out.Machines, &corev1.Machine{
 					Id:          id,
 					State:       "Ready",
-					MachineType: cwssaws.MachineType_DPU,
+					MachineType: corev1.MachineType_DPU,
 				})
 			}
 		}
 		return out, nil
 	}
 
-	mockGetNetworkConfig := func(ctx context.Context, in *cwssaws.ManagedHostNetworkConfigRequest, opts ...grpc.CallOption) (*cwssaws.ManagedHostNetworkConfigResponse, error) {
-		return &cwssaws.ManagedHostNetworkConfigResponse{}, nil
+	mockGetNetworkConfig := func(ctx context.Context, in *corev1.ManagedHostNetworkConfigRequest, opts ...grpc.CallOption) (*corev1.ManagedHostNetworkConfigResponse, error) {
+		return &corev1.ManagedHostNetworkConfigResponse{}, nil
 	}
 
 	type args struct {
@@ -590,7 +590,7 @@ func TestManageMachine_GetDpuMachinesByIDs(t *testing.T) {
 				for i, dpuMachine := range got {
 					assert.NotNil(t, dpuMachine, "DPU machine at index %d should not be nil", i)
 					assert.NotNil(t, dpuMachine.Machine, "DPU machine.Machine at index %d should not be nil", i)
-					assert.Equal(t, cwssaws.MachineType_DPU, dpuMachine.Machine.MachineType,
+					assert.Equal(t, corev1.MachineType_DPU, dpuMachine.Machine.MachineType,
 						"DPU machine at index %d should have type DPU", i)
 					assert.NotNil(t, dpuMachine.Machine.Id, "DPU machine ID at index %d should not be nil", i)
 					assert.NotEmpty(t, dpuMachine.Machine.Id.Id, "DPU machine ID string at index %d should not be empty", i)
@@ -630,12 +630,12 @@ func TestManageMachine_GetDpuMachinesByIDs(t *testing.T) {
 // testManageMachineWithMock wraps ManageMachine and overrides the gRPC calls for testing
 type testManageMachineWithMock struct {
 	ManageMachine
-	mockFindMachines func(context.Context, *cwssaws.MachinesByIdsRequest, ...grpc.CallOption) (*cwssaws.MachineList, error)
-	mockGetNetwork   func(context.Context, *cwssaws.ManagedHostNetworkConfigRequest, ...grpc.CallOption) (*cwssaws.ManagedHostNetworkConfigResponse, error)
+	mockFindMachines func(context.Context, *corev1.MachinesByIdsRequest, ...grpc.CallOption) (*corev1.MachineList, error)
+	mockGetNetwork   func(context.Context, *corev1.ManagedHostNetworkConfigRequest, ...grpc.CallOption) (*corev1.ManagedHostNetworkConfigResponse, error)
 }
 
 // GetDpuMachinesByIDsWithMock is a test version that uses our mocked responses
-func (mm *testManageMachineWithMock) GetDpuMachinesByIDsWithMock(ctx context.Context, dpuMachineIDs []string) ([]*cwssaws.DpuMachine, error) {
+func (mm *testManageMachineWithMock) GetDpuMachinesByIDsWithMock(ctx context.Context, dpuMachineIDs []string) ([]*corev1.DpuMachine, error) {
 	logger := log.With().Str("Activity", "GetDpuMachinesByIDs").Logger()
 	logger.Info().Msg("Starting activity")
 
@@ -648,12 +648,12 @@ func (mm *testManageMachineWithMock) GetDpuMachinesByIDsWithMock(ctx context.Con
 	}
 
 	// Convert string IDs to MachineId objects
-	machineIDs := make([]*cwssaws.MachineId, 0, len(dpuMachineIDs))
+	machineIDs := make([]*corev1.MachineId, 0, len(dpuMachineIDs))
 	for _, id := range dpuMachineIDs {
-		machineIDs = append(machineIDs, &cwssaws.MachineId{Id: id})
+		machineIDs = append(machineIDs, &corev1.MachineId{Id: id})
 	}
 
-	request := &cwssaws.MachinesByIdsRequest{
+	request := &corev1.MachinesByIdsRequest{
 		MachineIds: machineIDs,
 	}
 
@@ -665,10 +665,10 @@ func (mm *testManageMachineWithMock) GetDpuMachinesByIDsWithMock(ctx context.Con
 	}
 
 	// For each DPU machine, fetch the network configuration
-	dpuMachines := make([]*cwssaws.DpuMachine, 0, len(machineList.Machines))
+	dpuMachines := make([]*corev1.DpuMachine, 0, len(machineList.Machines))
 	for _, machine := range machineList.Machines {
-		if machine.MachineType == cwssaws.MachineType_DPU {
-			networkConfigReq := &cwssaws.ManagedHostNetworkConfigRequest{
+		if machine.MachineType == corev1.MachineType_DPU {
+			networkConfigReq := &corev1.ManagedHostNetworkConfigRequest{
 				DpuMachineId: machine.Id,
 			}
 			networkConfig, nerr := mm.mockGetNetwork(ctx, networkConfigReq)
@@ -677,7 +677,7 @@ func (mm *testManageMachineWithMock) GetDpuMachinesByIDsWithMock(ctx context.Con
 			} else {
 				logger.Debug().Str("DPU Machine ID", machine.Id.Id).Msg("Retrieved network config for DPU machine")
 			}
-			dpuMachines = append(dpuMachines, &cwssaws.DpuMachine{
+			dpuMachines = append(dpuMachines, &corev1.DpuMachine{
 				Machine:          machine,
 				DpuNetworkConfig: networkConfig,
 			})

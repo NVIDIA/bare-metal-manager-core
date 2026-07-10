@@ -13,7 +13,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestAPIDpuMachine_FromProto(t *testing.T) {
@@ -24,17 +24,17 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 		Status:                   "REGISTERED",
 	}
 
-	protoDpuMachine := &cwssaws.DpuMachine{
-		Machine: &cwssaws.Machine{
-			Id: &cwssaws.MachineId{
+	protoDpuMachine := &corev1.DpuMachine{
+		Machine: &corev1.Machine{
+			Id: &corev1.MachineId{
 				Id: "test-machine-id",
 			},
 			DpuAgentVersion: cutil.GetPtr("1.0.0"),
-			BmcInfo: &cwssaws.BmcInfo{
+			BmcInfo: &corev1.BmcInfo{
 				Ip: cutil.GetPtr("10.0.0.1"),
 			},
-			DiscoveryInfo: &cwssaws.DiscoveryInfo{
-				DmiData: &cwssaws.DmiData{
+			DiscoveryInfo: &corev1.DiscoveryInfo{
+				DmiData: &corev1.DmiData{
 					BoardName:     "test-board-name",
 					BoardSerial:   "test-board-serial",
 					BoardVersion:  "test-board-version",
@@ -46,15 +46,15 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 					SysVendor:     "test-sys-vendor",
 				},
 			},
-			Interfaces: []*cwssaws.MachineInterface{
+			Interfaces: []*corev1.MachineInterface{
 				{
-					Id: &cwssaws.MachineInterfaceId{
+					Id: &corev1.MachineInterfaceId{
 						Value: "test-interface-id",
 					},
 				},
 			},
-			Inventory: &cwssaws.MachineComponentInventory{
-				Components: []*cwssaws.MachineInventorySoftwareComponent{
+			Inventory: &corev1.MachineComponentInventory{
+				Components: []*corev1.MachineInventorySoftwareComponent{
 					{
 						Name:    "test-software-component",
 						Version: "test-software-component-version",
@@ -62,16 +62,16 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 					},
 				},
 			},
-			Health: &cwssaws.HealthReport{
+			Health: &corev1.HealthReport{
 				Source:     "test-health-source",
 				ObservedAt: timestamppb.New(time.Now()),
-				Successes: []*cwssaws.HealthProbeSuccess{
+				Successes: []*corev1.HealthProbeSuccess{
 					{
 						Id:     "test-success-id",
 						Target: cutil.GetPtr("test-success-target"),
 					},
 				},
-				Alerts: []*cwssaws.HealthProbeAlert{
+				Alerts: []*corev1.HealthProbeAlert{
 					{
 						Id:           "test-alert-id",
 						Target:       cutil.GetPtr("test-alert-target"),
@@ -84,8 +84,8 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 					},
 				},
 			},
-			Metadata: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
+			Metadata: &corev1.Metadata{
+				Labels: []*corev1.Label{
 					{
 						Key:   "env",
 						Value: cutil.GetPtr("test"),
@@ -128,12 +128,12 @@ func TestAPIDpuMachine_FromProto_NilMachine(t *testing.T) {
 
 	assert.NotPanics(t, func() {
 		apd := APIDpuMachine{}
-		apd.FromProto(&cwssaws.DpuMachine{Machine: nil}, apdCtx)
+		apd.FromProto(&corev1.DpuMachine{Machine: nil}, apdCtx)
 	})
 
 	assert.NotPanics(t, func() {
 		apdi := APIDpuMachineInterface{}
-		apdi.FromProto(&cwssaws.MachineInterface{})
+		apdi.FromProto(&corev1.MachineInterface{})
 	})
 }
 
@@ -143,17 +143,17 @@ func TestNewAPIDpuMachines(t *testing.T) {
 		SiteID:                   uuid.New(),
 		InfrastructureProviderID: uuid.New(),
 	}
-	protoDpuMachines := []*cwssaws.DpuMachine{
+	protoDpuMachines := []*corev1.DpuMachine{
 		nil,
 		{
-			Machine: &cwssaws.Machine{
-				Id:    &cwssaws.MachineId{Id: "test-dpu-machine-id-1"},
+			Machine: &corev1.Machine{
+				Id:    &corev1.MachineId{Id: "test-dpu-machine-id-1"},
 				State: "READY",
 			},
 		},
 		{
-			Machine: &cwssaws.Machine{
-				Id:    &cwssaws.MachineId{Id: "test-dpu-machine-id-2"},
+			Machine: &corev1.Machine{
+				Id:    &corev1.MachineId{Id: "test-dpu-machine-id-2"},
 				State: "READY",
 			},
 		},

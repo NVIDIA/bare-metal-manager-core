@@ -17,6 +17,7 @@
 
 pub mod dell;
 pub mod nvidia;
+pub mod supermicro;
 
 use crate::redfish::Resource;
 
@@ -28,6 +29,7 @@ pub enum BmcVendor {
     LiteOn,
     Ami,
     Supermicro,
+    Hpe,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -46,6 +48,7 @@ impl BmcVendor {
             BmcVendor::LiteOn => None,
             BmcVendor::Ami => Some("AMI"),
             BmcVendor::Supermicro => Some("Supermicro"),
+            BmcVendor::Hpe => Some("HPE"),
         }
     }
     // This function creates settings of the resource from the resource
@@ -65,6 +68,9 @@ impl BmcVendor {
             BmcVendor::Ami => {
                 format!("{}/SD", resource.odata_id)
             }
+            BmcVendor::Hpe => {
+                format!("{}/settings", resource.odata_id)
+            }
         }
     }
 }
@@ -73,5 +79,6 @@ impl BmcVendor {
 pub enum State {
     NvidiaBluefield(nvidia::bluefield::BluefieldState),
     DellIdrac(dell::idrac::IdracState),
+    Supermicro(supermicro::manager::SupermicroState),
     Other,
 }

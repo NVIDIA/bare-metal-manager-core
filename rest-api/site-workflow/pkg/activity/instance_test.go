@@ -8,13 +8,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	tmocks "go.temporal.io/sdk/mocks"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 func TestManageInstance_UpdateInstanceConfigOnSite(t *testing.T) {
@@ -34,7 +37,7 @@ func TestManageInstance_UpdateInstanceConfigOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.InstanceConfigUpdateRequest
+		request *corev1.InstanceConfigUpdateRequest
 	}
 	tests := []struct {
 		name    string
@@ -49,23 +52,23 @@ func TestManageInstance_UpdateInstanceConfigOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.InstanceConfigUpdateRequest{
-					InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
-					Metadata: &cwssaws.Metadata{
+				request: &corev1.InstanceConfigUpdateRequest{
+					InstanceId: &corev1.InstanceId{Value: uuid.NewString()},
+					Metadata: &corev1.Metadata{
 						Name:        "updated_name",
 						Description: "updated_description",
-						Labels: []*cwssaws.Label{
+						Labels: []*corev1.Label{
 							{
 								Key:   labelKey,
 								Value: &labelValue,
 							},
 						},
 					},
-					Config: &cwssaws.InstanceConfig{
-						Os: &cwssaws.InstanceOperatingSystemConfig{
+					Config: &corev1.InstanceConfig{
+						Os: &corev1.InstanceOperatingSystemConfig{
 							RunProvisioningInstructionsOnEveryBoot: true,
-							Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-								Ipxe: &cwssaws.InlineIpxe{
+							Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+								Ipxe: &corev1.InlineIpxe{
 									IpxeScript: ipxeScript,
 								},
 							},
@@ -107,7 +110,7 @@ func TestManageInstance_CreateInstanceOnSiteOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.InstanceAllocationRequest
+		request *corev1.InstanceAllocationRequest
 	}
 	tests := []struct {
 		name    string
@@ -122,23 +125,23 @@ func TestManageInstance_CreateInstanceOnSiteOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.InstanceAllocationRequest{
-					MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-					Metadata: &cwssaws.Metadata{
+				request: &corev1.InstanceAllocationRequest{
+					MachineId: &corev1.MachineId{Id: uuid.NewString()},
+					Metadata: &corev1.Metadata{
 						Name:        "new_name",
 						Description: "new_description",
-						Labels: []*cwssaws.Label{
+						Labels: []*corev1.Label{
 							{
 								Key:   labelKey,
 								Value: &labelValue,
 							},
 						},
 					},
-					Config: &cwssaws.InstanceConfig{
-						Os: &cwssaws.InstanceOperatingSystemConfig{
+					Config: &corev1.InstanceConfig{
+						Os: &corev1.InstanceOperatingSystemConfig{
 							RunProvisioningInstructionsOnEveryBoot: true,
-							Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-								Ipxe: &cwssaws.InlineIpxe{
+							Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+								Ipxe: &corev1.InlineIpxe{
 									IpxeScript: ipxeScript,
 								},
 							},
@@ -186,7 +189,7 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.BatchInstanceAllocationRequest
+		request *corev1.BatchInstanceAllocationRequest
 	}
 	tests := []struct {
 		name    string
@@ -201,25 +204,25 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.BatchInstanceAllocationRequest{
-					InstanceRequests: []*cwssaws.InstanceAllocationRequest{
+				request: &corev1.BatchInstanceAllocationRequest{
+					InstanceRequests: []*corev1.InstanceAllocationRequest{
 						{
-							MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-							Metadata: &cwssaws.Metadata{
+							MachineId: &corev1.MachineId{Id: uuid.NewString()},
+							Metadata: &corev1.Metadata{
 								Name:        "instance_1",
 								Description: "first instance",
-								Labels: []*cwssaws.Label{
+								Labels: []*corev1.Label{
 									{
 										Key:   labelKey,
 										Value: &labelValue,
 									},
 								},
 							},
-							Config: &cwssaws.InstanceConfig{
-								Os: &cwssaws.InstanceOperatingSystemConfig{
+							Config: &corev1.InstanceConfig{
+								Os: &corev1.InstanceOperatingSystemConfig{
 									RunProvisioningInstructionsOnEveryBoot: true,
-									Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-										Ipxe: &cwssaws.InlineIpxe{
+									Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+										Ipxe: &corev1.InlineIpxe{
 											IpxeScript: ipxeScript,
 										},
 									},
@@ -228,22 +231,22 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 							},
 						},
 						{
-							MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-							Metadata: &cwssaws.Metadata{
+							MachineId: &corev1.MachineId{Id: uuid.NewString()},
+							Metadata: &corev1.Metadata{
 								Name:        "instance_2",
 								Description: "second instance",
-								Labels: []*cwssaws.Label{
+								Labels: []*corev1.Label{
 									{
 										Key:   labelKey,
 										Value: &labelValue,
 									},
 								},
 							},
-							Config: &cwssaws.InstanceConfig{
-								Os: &cwssaws.InstanceOperatingSystemConfig{
+							Config: &corev1.InstanceConfig{
+								Os: &corev1.InstanceOperatingSystemConfig{
 									RunProvisioningInstructionsOnEveryBoot: true,
-									Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-										Ipxe: &cwssaws.InlineIpxe{
+									Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+										Ipxe: &corev1.InlineIpxe{
 											IpxeScript: ipxeScript,
 										},
 									},
@@ -274,8 +277,8 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.BatchInstanceAllocationRequest{
-					InstanceRequests: []*cwssaws.InstanceAllocationRequest{},
+				request: &corev1.BatchInstanceAllocationRequest{
+					InstanceRequests: []*corev1.InstanceAllocationRequest{},
 				},
 			},
 			wantErr: true,
@@ -287,11 +290,11 @@ func TestManageInstance_CreateInstancesOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.BatchInstanceAllocationRequest{
-					InstanceRequests: []*cwssaws.InstanceAllocationRequest{
+				request: &corev1.BatchInstanceAllocationRequest{
+					InstanceRequests: []*corev1.InstanceAllocationRequest{
 						{
 							MachineId: nil,
-							Metadata: &cwssaws.Metadata{
+							Metadata: &corev1.Metadata{
 								Name: "instance_1",
 							},
 						},
@@ -325,13 +328,14 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.InstancePowerRequest
+		request *corev1.InstancePowerRequest
 	}
 	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
+		name           string
+		fields         fields
+		args           args
+		wantErr        bool
+		wantErrMessage string
 	}{
 		{
 			name: "test reboot Instance success",
@@ -340,12 +344,35 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.InstancePowerRequest{
-					MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-					Operation: cwssaws.InstancePowerRequest_POWER_RESET,
+				request: &corev1.InstancePowerRequest{
+					InstanceId: &corev1.InstanceId{Value: uuid.NewString()},
+					Operation:  corev1.InstancePowerRequest_POWER_RESET,
 				},
 			},
 			wantErr: false,
+		},
+		{
+			name: "test reboot Instance missing request",
+			fields: fields{
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+			},
+			args: args{
+				ctx: context.Background(),
+			},
+			wantErr:        true,
+			wantErrMessage: "received empty reboot Instance request",
+		},
+		{
+			name: "test reboot Instance missing Instance ID",
+			fields: fields{
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
+			},
+			args: args{
+				ctx:     context.Background(),
+				request: &corev1.InstancePowerRequest{},
+			},
+			wantErr:        true,
+			wantErrMessage: "received reboot Instance request without Instance ID",
 		},
 	}
 	for _, tt := range tests {
@@ -353,7 +380,12 @@ func TestManageInstance_RebootInstanceOnSiteOnSite(t *testing.T) {
 			mm := NewManageInstance(tt.fields.coreGrpcAtomicClient)
 			err := mm.RebootInstanceOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
+				var appErr *temporal.ApplicationError
+				require.ErrorAs(t, err, &appErr)
+				assert.Equal(t, swe.ErrTypeInvalidRequest, appErr.Type())
+				assert.True(t, appErr.NonRetryable())
+				assert.Equal(t, tt.wantErrMessage, appErr.Message())
 			} else {
 				assert.NoError(t, err)
 			}
@@ -447,7 +479,7 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 				tc.AssertNumberOfCalls(t, "ExecuteWorkflow", totalPages)
 			}
 
-			inventory, ok := tc.Calls[0].Arguments[4].(*cwssaws.InstanceInventory)
+			inventory, ok := tc.Calls[0].Arguments[4].(*corev1.InstanceInventory)
 			assert.True(t, ok)
 
 			if tt.args.wantTotalItems == 0 {
@@ -456,7 +488,7 @@ func TestManageInstanceInventory_DiscoverInstanceInventory(t *testing.T) {
 				assert.Equal(t, tt.fields.cloudPageSize, len(inventory.Instances))
 			}
 
-			assert.Equal(t, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
+			assert.Equal(t, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
 			assert.Equal(t, totalPages, int(inventory.InventoryPage.TotalPages))
 			assert.Equal(t, 1, int(inventory.InventoryPage.CurrentPage))
 			assert.Equal(t, tt.fields.cloudPageSize, int(inventory.InventoryPage.PageSize))
@@ -477,7 +509,7 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.InstanceReleaseRequest
+		request *corev1.InstanceReleaseRequest
 	}
 	tests := []struct {
 		name    string
@@ -492,8 +524,8 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.InstanceReleaseRequest{
-					Id: &cwssaws.InstanceId{Value: uuid.NewString()},
+				request: &corev1.InstanceReleaseRequest{
+					Id: &corev1.InstanceId{Value: uuid.NewString()},
 				},
 			},
 			wantErr: false,
@@ -505,7 +537,7 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.InstanceReleaseRequest{
+				request: &corev1.InstanceReleaseRequest{
 					Id: nil,
 				},
 			},
@@ -518,8 +550,8 @@ func TestManageInstance_DeleteInstanceOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.InstanceReleaseRequest{
-					Id: &cwssaws.InstanceId{Value: ""},
+				request: &corev1.InstanceReleaseRequest{
+					Id: &corev1.InstanceId{Value: ""},
 				},
 			},
 			wantErr: true,

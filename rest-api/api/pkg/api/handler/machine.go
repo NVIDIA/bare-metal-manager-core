@@ -32,7 +32,7 @@ import (
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
@@ -1002,7 +1002,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 			// Earlier checks block a request to clear if there is no instance type assigned.
 			if apiRequest.ClearInstanceType != nil && *apiRequest.ClearInstanceType {
 				// Prepare the create request workflow object
-				removeInstanceTypeRequest := &cwssaws.RemoveMachineInstanceTypeAssociationRequest{
+				removeInstanceTypeRequest := &corev1.RemoveMachineInstanceTypeAssociationRequest{
 					MachineId: machine.ID,
 				}
 
@@ -1065,7 +1065,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				// been rejected before getting here.
 
 				// If the request updated to a different instancetype, send that to the site.
-				associateMachinesRequest := &cwssaws.AssociateMachinesWithInstanceTypeRequest{
+				associateMachinesRequest := &corev1.AssociateMachinesWithInstanceTypeRequest{
 					InstanceTypeId: newit.ID.String(),
 					MachineIds:     []string{machine.ID},
 				}
@@ -1204,11 +1204,11 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusBadRequest, "Machine is currently not in maintenance mode, cannot remove maintenance mode", nil)
 			}
 
-			var wfReq *cwssaws.MaintenanceRequest
+			var wfReq *corev1.MaintenanceRequest
 			if *apiRequest.SetMaintenanceMode {
-				wfReq = machine.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Enable, apiRequest.MaintenanceMessage)
+				wfReq = machine.ToMaintenanceRequestProto(corev1.MaintenanceOperation_Enable, apiRequest.MaintenanceMessage)
 			} else {
-				wfReq = machine.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Disable, nil)
+				wfReq = machine.ToMaintenanceRequestProto(corev1.MaintenanceOperation_Disable, nil)
 			}
 
 			// Add context deadlines
@@ -2123,7 +2123,7 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous GetDpuMachines workflow")
 
 	// Block until the workflow has completed and returned success/error.
-	var controllerDpuMachines []*cwssaws.DpuMachine
+	var controllerDpuMachines []*corev1.DpuMachine
 	wferr := we.Get(wfCtx, &controllerDpuMachines)
 	if wferr != nil {
 		var timeoutErr *tp.TimeoutError

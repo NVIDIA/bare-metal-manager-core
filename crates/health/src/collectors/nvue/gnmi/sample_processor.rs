@@ -990,11 +990,16 @@ mod tests {
             "capturing_sink"
         }
 
-        fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+        fn try_handle_event(
+            &self,
+            context: &EventContext,
+            event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
             self.events
                 .lock()
                 .expect("lock poisoned")
                 .push((context.clone(), event.clone()));
+            Ok(())
         }
     }
 
@@ -1167,6 +1172,7 @@ mod tests {
                     tray_index: Some(3),
                     endpoint_role: SwitchEndpointRole::Host,
                     is_primary: false,
+                    nmxc_enabled: false,
                     nmxt_enabled: false,
                 })),
                 rack_id: Some(RackId::new("RACK_2")),

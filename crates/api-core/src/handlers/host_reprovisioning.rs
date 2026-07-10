@@ -24,7 +24,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data, truncate};
-use crate::handlers::utils::convert_and_log_machine_id;
+use crate::handlers::utils::{StateHandlerWakeupFailed, WakeupTrigger, convert_and_log_machine_id};
 
 pub(crate) async fn reset_host_reprovisioning(
     api: &Api,
@@ -226,7 +226,11 @@ pub async fn report_scout_firmware_upgrade_status(
         .enqueue_object(&machine_id)
         .await
     {
-        tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
+        carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::ScoutFirmwareUpgradeStatus,
+            machine_id,
+            err: err.to_string(),
+        });
     }
 
     Ok(Response::new(()))

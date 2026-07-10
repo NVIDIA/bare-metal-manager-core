@@ -29,8 +29,8 @@ use crate::config::{
     Config, Configurable, DiscoveryConfig, FirmwareCollectorConfig as FirmwareCollectorOptions,
     LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
     LogsCollectorConfig as LogsCollectorOptions, MetricsCollectorConfig as MetricsCollectorOptions,
-    NmxtCollectorConfig as NmxtCollectorOptions, NvueCollectorConfig as NvueCollectorOptions,
-    SensorCollectorConfig as SensorCollectorOptions,
+    NmxcCollectorConfig as NmxcCollectorOptions, NmxtCollectorConfig as NmxtCollectorOptions,
+    NvueCollectorConfig as NvueCollectorOptions, SensorCollectorConfig as SensorCollectorOptions,
 };
 use crate::limiter::RateLimiter;
 use crate::metrics::{MetricsManager, operation_duration_buckets_seconds};
@@ -44,12 +44,13 @@ pub(super) enum CollectorKind {
     Firmware,
     LeakDetector,
     Nmxt,
+    Nmxc,
     NvueRest,
     NvueGnmi,
 }
 
 impl CollectorKind {
-    pub(super) const ALL: [CollectorKind; 9] = [
+    pub(super) const ALL: [CollectorKind; 10] = [
         CollectorKind::Discovery,
         CollectorKind::Sensor,
         CollectorKind::Metrics,
@@ -57,6 +58,7 @@ impl CollectorKind {
         CollectorKind::Firmware,
         CollectorKind::LeakDetector,
         CollectorKind::Nmxt,
+        CollectorKind::Nmxc,
         CollectorKind::NvueRest,
         CollectorKind::NvueGnmi,
     ];
@@ -74,6 +76,7 @@ impl CollectorKind {
                 "Stopping leak detector collector for removed BMC endpoint"
             }
             CollectorKind::Nmxt => "Stopping NMX-T collector for removed BMC endpoint",
+            CollectorKind::Nmxc => "Stopping NMX-C streaming collector for removed switch endpoint",
             CollectorKind::NvueRest => "Stopping NVUE REST collector for removed BMC endpoint",
             CollectorKind::NvueGnmi => {
                 "Stopping NVUE gNMI streaming collector for removed switch endpoint"
@@ -90,6 +93,7 @@ pub(super) struct CollectorState {
     leak_detector: HashMap<Cow<'static, str>, Collector>,
     logs: HashMap<Cow<'static, str>, Collector>,
     nmxt: HashMap<Cow<'static, str>, Collector>,
+    nmxc: HashMap<Cow<'static, str>, Collector>,
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
     nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
     inventories: HashMap<Cow<'static, str>, SharedInventory<BmcClient>>,
@@ -105,6 +109,7 @@ impl CollectorState {
             leak_detector: HashMap::new(),
             logs: HashMap::new(),
             nmxt: HashMap::new(),
+            nmxc: HashMap::new(),
             nvue_rest: HashMap::new(),
             nvue_gnmi: HashMap::new(),
             inventories: HashMap::new(),
@@ -120,6 +125,7 @@ impl CollectorState {
             CollectorKind::Firmware => &self.firmware,
             CollectorKind::LeakDetector => &self.leak_detector,
             CollectorKind::Nmxt => &self.nmxt,
+            CollectorKind::Nmxc => &self.nmxc,
             CollectorKind::NvueRest => &self.nvue_rest,
             CollectorKind::NvueGnmi => &self.nvue_gnmi,
         }
@@ -137,6 +143,7 @@ impl CollectorState {
             CollectorKind::Firmware => &mut self.firmware,
             CollectorKind::LeakDetector => &mut self.leak_detector,
             CollectorKind::Nmxt => &mut self.nmxt,
+            CollectorKind::Nmxc => &mut self.nmxc,
             CollectorKind::NvueRest => &mut self.nvue_rest,
             CollectorKind::NvueGnmi => &mut self.nvue_gnmi,
         }
@@ -186,6 +193,7 @@ impl CollectorState {
             .chain(self.firmware.keys())
             .chain(self.leak_detector.keys())
             .chain(self.nmxt.keys())
+            .chain(self.nmxc.keys())
             .chain(self.nvue_rest.keys())
             .chain(self.nvue_gnmi.keys())
             .filter(|key| !active_keys.contains(*key))
@@ -221,8 +229,13 @@ pub struct DiscoveryLoopContext {
     pub(crate) firmware_config: Configurable<FirmwareCollectorOptions>,
     pub(crate) leak_detector_config: Configurable<LeakDetectorCollectorOptions>,
     pub(crate) nmxt_config: Configurable<NmxtCollectorOptions>,
+    pub(crate) nmxc_config: Configurable<NmxcCollectorOptions>,
     pub(crate) nvue_config: Configurable<NvueCollectorOptions>,
+
+    /// Whether any enabled sink consumes `CollectorEvent::Log` payloads.
+    pub(crate) log_event_sink_enabled: bool,
     pub(crate) log_downgrade_registry: Arc<LogDowngradeRegistry>,
+
     /// Whether log collectors should attach diagnostic payload carriers.
     pub(crate) logs_include_diagnostics: bool,
 }
@@ -268,7 +281,9 @@ impl DiscoveryLoopContext {
             firmware_config: config.collectors.firmware.clone(),
             leak_detector_config: config.collectors.leak_detector.clone(),
             nmxt_config: config.collectors.nmxt.clone(),
+            nmxc_config: config.collectors.nmxc.clone(),
             nvue_config: config.collectors.nvue.clone(),
+            log_event_sink_enabled: config.sinks.includes_log_events(),
             log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
             logs_include_diagnostics: config.sinks.includes_log_diagnostics(),
         })

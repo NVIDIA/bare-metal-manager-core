@@ -458,7 +458,7 @@ fn convert_endpoints_to_nice_table(endpoints: &[ExploredEndpoint]) -> Box<Table>
         "BMC Mac Address",
         "Vendor",
         "MachineId",
-        "Preingt State",
+        "Pre-ingestion State",
         "Serial Number",
         "Last Exploration Error",
     ];

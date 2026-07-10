@@ -33,7 +33,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2
 	github.com/hashicorp/vault/api v1.22.0
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
-	github.com/jackc/pgx/v5 v5.9.0
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/connect-compress/v2 v2.0.0

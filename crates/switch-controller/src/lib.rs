@@ -18,11 +18,14 @@
 //! State Controller implementation for Switches.
 
 pub mod bom_validating;
+pub mod certificate;
 pub mod configuring;
 pub mod context;
 pub mod created;
 pub mod deleting;
+pub mod endpoint;
 pub mod error_state;
+pub mod fetch_info;
 pub mod handler;
 pub mod initializing;
 pub mod io;

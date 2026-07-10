@@ -1,6 +1,9 @@
 # HELP agent_start_time_seconds Timestamp of the agent process's last start
 # TYPE agent_start_time_seconds gauge
 agent_start_time_seconds 1740171801
+# HELP client_cert_expiry_time_seconds Timestamp when the agent's TLS client certificate expires
+# TYPE client_cert_expiry_time_seconds gauge
+client_cert_expiry_time_seconds 1742763762
 # HELP forge_dpu_agent_network_communication_error_total Network monitor errors related to ping dpu
 # TYPE forge_dpu_agent_network_communication_error_total counter
 forge_dpu_agent_network_communication_error_total{dest_dpu_id="fm100dsm61jm8b3ltfj0vh1vnhqff6jak7dhmp429qen6jtr0njjt5iqeq0",error_type="PingError",source_dpu_id="fm100ds10jimoops3mvpb4udrtnp9031m8sif0846eqbu4i5o49n74ijnf0"} 1

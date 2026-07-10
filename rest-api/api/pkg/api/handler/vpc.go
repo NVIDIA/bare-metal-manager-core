@@ -34,7 +34,7 @@ import (
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
@@ -307,7 +307,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 
 	var vpc *cdbm.Vpc
 	var ssd *cdbm.StatusDetail
-	controllerVpc := &cwssaws.Vpc{}
+	controllerVpc := &corev1.Vpc{}
 
 	// timeoutResp lets the closure signal a post-rollback handler — the
 	// TerminateWorkflow call has to run after the closure returns so that
@@ -754,13 +754,9 @@ func (uvh UpdateVPCHandler) Handle(c echo.Context) error {
 
 		clearInput := cdbm.VpcClearInput{VpcID: vpc.ID}
 		shouldClear := false
-		// If this request is attempting to clear the OS for the instance, set it.
-		if apiRequest.NetworkSecurityGroupID != nil && *apiRequest.NetworkSecurityGroupID == "" {
-			clearInput.NetworkSecurityGroupID = true
-			shouldClear = true
-		}
 
-		// If this request is attempting to clear NSG for the VPC, set it.
+		// NSG updates clear propagation details so users do not see stale status.
+		// An empty ID also clears the VPC association itself.
 		if apiRequest.NetworkSecurityGroupID != nil {
 			if *apiRequest.NetworkSecurityGroupID == "" {
 				clearInput.NetworkSecurityGroupID = true
@@ -1069,9 +1065,9 @@ func (uvvh UpdateVPCVirtualizationHandler) Handle(c echo.Context) error {
 		}
 
 		// VPC virtualization type can only be updated to FNN, the request validator guarantees that
-		siteVirtualizationType := cwssaws.VpcVirtualizationType_FNN
-		siteRequest := &cwssaws.VpcUpdateVirtualizationRequest{
-			Id:                        &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
+		siteVirtualizationType := corev1.VpcVirtualizationType_FNN
+		siteRequest := &corev1.VpcUpdateVirtualizationRequest{
+			Id:                        &corev1.VpcId{Value: vpc.GetSiteID().String()},
 			NetworkVirtualizationType: &siteVirtualizationType,
 		}
 
@@ -1742,8 +1738,8 @@ func (dvh DeleteVPCHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteVpcRequest := &cwssaws.VpcDeletionRequest{
-			Id: &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
+		deleteVpcRequest := &corev1.VpcDeletionRequest{
+			Id: &corev1.VpcId{Value: vpc.GetSiteID().String()},
 		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{

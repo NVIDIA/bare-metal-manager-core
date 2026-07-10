@@ -48,7 +48,7 @@ use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::handlers::astra::{get_astra_config, process_astra_config_status};
 use crate::handlers::extension_service;
-use crate::handlers::utils::convert_and_log_machine_id;
+use crate::handlers::utils::{StateHandlerWakeupFailed, WakeupTrigger, convert_and_log_machine_id};
 use crate::{CarbideError, cfg, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
@@ -170,6 +170,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
     // network. But if no interfaces are configured for this DPU, override
     // and keep it on admin. This prevents the host from using the DPU at all.
     let use_admin_network = snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
+
+    let use_admin_network_changed = dpu_snapshot.network_config.use_admin_network_changed;
 
     let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
 
@@ -751,6 +753,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             None => None,
         },
         astra_config,
+        use_admin_network_changed,
     };
 
     // If this all worked, we shouldn't emit a log line
@@ -858,6 +861,22 @@ pub(crate) async fn record_dpu_network_status(
 
     // Instance network observation is the part of network observation now.
     db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs).await?;
+    if dpu_machine.network_config.value.use_admin_network_changed == Some(true)
+        && machine_obs.network_config_version.as_ref() == Some(&dpu_machine.network_config.version)
+    {
+        tracing::info!(
+            dpu_id = %dpu_machine_id,
+            network_config_version = %dpu_machine.network_config.version,
+            agent_version = ?machine_obs.agent_version,
+            "Clearing use_admin_network_changed after matching-version ACK; OVS restart may have been skipped by agents that do not support the flag"
+        );
+        db::machine::clear_use_admin_network_changed_if_version_matches(
+            &mut txn,
+            &dpu_machine_id,
+            &dpu_machine.network_config.version,
+        )
+        .await?;
+    }
     tracing::trace!(
         machine_id = %dpu_machine_id,
         machine_network_config = ?request.network_config_version,
@@ -980,7 +999,13 @@ pub(crate) async fn record_dpu_network_status(
     if any_observed_version_changed
         && let Err(err) = wakeup_host_state_handler_by_dpu_id(api, &dpu_machine_id).await
     {
-        tracing::warn!(%err, %dpu_machine_id, "Failed to wakeup state handler for host machine");
+        // The host machine could not even be looked up, so the identity in
+        // hand is the reporting DPU rather than the host that stays asleep.
+        carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::DpuNetworkStatus,
+            machine_id: dpu_machine_id,
+            err: err.to_string(),
+        });
     }
 
     Ok(Response::new(()))
@@ -990,15 +1015,21 @@ async fn wakeup_host_state_handler_by_dpu_id(
     api: &Api,
     dpu_machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
-    let mut txn = api.txn_begin().await?;
     let host_machine =
-        db::machine::lookup_host_machine_ids_by_dpu_ids(&mut txn, &[*dpu_machine_id]).await?;
-    txn.rollback().await?;
-
-    if let Some(host_machine_id) = host_machine.first() {
-        api.machine_state_handler_enqueuer
-            .enqueue_object(host_machine_id)
+        db::machine::lookup_host_machine_ids_by_dpu_ids(&mut api.db_reader(), &[*dpu_machine_id])
             .await?;
+
+    if let Some(host_machine_id) = host_machine.first()
+        && let Err(err) = api
+            .machine_state_handler_enqueuer
+            .enqueue_object(host_machine_id)
+            .await
+    {
+        carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::DpuNetworkStatus,
+            machine_id: *host_machine_id,
+            err: err.to_string(),
+        });
     }
 
     Ok(())
@@ -1385,6 +1416,7 @@ mod consolidated_network_config_tests {
             // top-level response field, not in this consolidated struct.
             use_admin_network: Some(false),
             quarantine_state: None,
+            use_admin_network_changed: None,
         };
         let consolidated = build_consolidated_network_config(&host, dpu_ip());
         assert_eq!(

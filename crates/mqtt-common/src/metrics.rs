@@ -57,15 +57,27 @@ impl MqttHookMetrics {
             })
             .build();
 
-        let publish_count = meter
-            .u64_counter("carbide_dsx_event_bus_publish_count")
-            .with_description("Total number of MQTT publish attempts")
-            .build();
-
         Self {
-            publish_count,
+            publish_count: Self::build_publish_count(meter),
             component,
         }
+    }
+
+    /// Create metrics for a publisher that does not buffer messages in a
+    /// bounded queue, so no queue-depth gauge is registered. Used by the
+    /// periodic state republisher, which publishes directly from its sweep.
+    pub fn without_queue_depth(meter: &Meter, component: &'static str) -> Self {
+        Self {
+            publish_count: Self::build_publish_count(meter),
+            component,
+        }
+    }
+
+    fn build_publish_count(meter: &Meter) -> Counter<u64> {
+        meter
+            .u64_counter("carbide_dsx_event_bus_publish_count")
+            .with_description("Total number of MQTT publish attempts")
+            .build()
     }
 
     fn attrs(&self, status: &'static str) -> [KeyValue; 2] {

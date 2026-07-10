@@ -16,7 +16,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ManageSku is an activity wrapper for managing SKU inventory that allows injecting DB access
@@ -27,7 +27,7 @@ type ManageSku struct {
 
 // UpdateSkusInDB is a Temporal activity that takes a collection of SKU data pushed by Site Agent and updates the DB
 // NOTE: Initial implementation validates inputs and site existence; DB synchronization will be added iteratively.
-func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInventory *cwssaws.SkuInventory) error {
+func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInventory *corev1.SkuInventory) error {
 	logger := log.With().Str("Activity", "UpdateSkusInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -37,7 +37,7 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 		return errors.New("UpdateSkusInDB called with nil inventory")
 	}
 
-	if skuInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if skuInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}
@@ -131,7 +131,7 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 			// but the DAO skips nil fields, so substitute a non-nil empty wrapper.
 			components := reported.Components
 			if cur.Components != nil && components == nil {
-				components = &cdbm.SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}
+				components = &cdbm.SkuComponents{SkuComponents: &corev1.SkuComponents{}}
 			}
 			sku := cdbm.SkuUpdateInput{
 				SkuID:                reported.ID,

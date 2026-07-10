@@ -139,54 +139,26 @@ pub async fn find(
     filter: ObjectColumnFilter<'_, IdColumn>,
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(
-        "SELECT row_to_json(i.*), row_to_json(o.*) FROM instances i \
+        "SELECT row_to_json(i.*) AS instance, row_to_json(o.*) AS operating_system \
+         FROM instances i \
          LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL",
     )
     .filter_relation(&filter, Some("i"));
-    let rows: Vec<(serde_json::Value, Option<serde_json::Value>)> = query
+    let rows: Vec<InstanceAndOsRow> = query
         .build_query_as()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))?;
-    let mut snapshots = Vec::with_capacity(rows.len());
-    for (instance_json, os_json) in rows {
-        let pg_json: InstanceSnapshotPgJson =
-            serde_json::from_value(instance_json).map_err(|e| DatabaseError::Internal {
-                message: format!("instance snapshot json decode: {e}"),
-            })?;
-        let snapshot = match os_json {
-            Some(oj) => {
-                let os_row: OsRow =
-                    serde_json::from_value(oj).map_err(|e| DatabaseError::Internal {
-                        message: format!("operating_system row json decode: {e}"),
-                    })?;
-                let os = build_operating_system_for_snapshot(&os_row, &pg_json);
-                snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| DatabaseError::Internal {
-                    message: format!("instance snapshot from_pg_json_and_os: {e}"),
-                })?
-            }
-            None => InstanceSnapshot::try_from(pg_json).map_err(|e| DatabaseError::Internal {
-                message: format!("instance snapshot try_from: {e}"),
-            })?,
-        };
-        snapshots.push(snapshot);
-    }
-    Ok(snapshots)
+    rows.into_iter().map(InstanceSnapshot::try_from).collect()
 }
 
-/// Converts raw JSON rows to InstanceSnapshots, batch-loading OS definitions as needed.
+/// Converts decoded snapshot rows to InstanceSnapshots, batch-loading OS
+/// definitions as needed.
 async fn resolve_snapshots_from_json_rows(
     txn: &mut PgConnection,
-    rows: Vec<(serde_json::Value,)>,
+    rows: Vec<(Json<InstanceSnapshotPgJson>,)>,
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
-    let mut pg_jsons: Vec<InstanceSnapshotPgJson> = Vec::with_capacity(rows.len());
-    for (json,) in rows {
-        let pg_json: InstanceSnapshotPgJson =
-            serde_json::from_value(json).map_err(|e| DatabaseError::Internal {
-                message: format!("instance snapshot json decode: {e}"),
-            })?;
-        pg_jsons.push(pg_json);
-    }
+    let pg_jsons: Vec<InstanceSnapshotPgJson> = rows.into_iter().map(|(json,)| json.0).collect();
     if pg_jsons.is_empty() {
         return Ok(Vec::new());
     }
@@ -372,7 +344,7 @@ pub async fn find_by_machine_ids(
         return Ok(Vec::new());
     }
     let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = ANY($1)";
-    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(query)
+    let rows: Vec<(Json<InstanceSnapshotPgJson>,)> = sqlx::query_as(query)
         .bind(machine_ids)
         .fetch_all(&mut *txn)
         .await
@@ -401,7 +373,7 @@ pub async fn find_by_extension_service(
     }
     builder.push(")");
 
-    let rows: Vec<(serde_json::Value,)> = builder
+    let rows: Vec<(Json<InstanceSnapshotPgJson>,)> = builder
         .build_query_as()
         .fetch_all(&mut *txn)
         .await
@@ -938,7 +910,7 @@ pub async fn batch_persist<'a>(
 
     // Fetch the inserted instances, resolving OS definitions as needed.
     let query = "SELECT row_to_json(i.*) FROM instances i WHERE i.id = ANY($1)";
-    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(query)
+    let rows: Vec<(Json<InstanceSnapshotPgJson>,)> = sqlx::query_as(query)
         .bind(&instance_ids)
         .fetch_all(&mut *txn)
         .await
@@ -1217,4 +1189,110 @@ pub async fn mark_as_deleted(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::machine::{MachineIdSource, MachineType};
+
+    use super::*;
+
+    const INSTANCE_IPXE_SCRIPT: &str = "#!ipxe boot-from-instance-columns";
+
+    /// Seeds a machine plus an instance on it with the given OS reference and
+    /// an inline iPXE script in the instance columns, returning the instance id.
+    async fn seed_instance(
+        conn: &mut PgConnection,
+        machine_seed: u8,
+        operating_system_id: Option<uuid::Uuid>,
+    ) -> InstanceId {
+        let machine_id = MachineId::new(
+            MachineIdSource::ProductBoardChassisSerial,
+            [machine_seed; 32],
+            MachineType::Host,
+        );
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind(machine_id)
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query_scalar(
+            "INSERT INTO instances \
+             (machine_id, operating_system_id, os_ipxe_script, network_config, nvlink_config) \
+             VALUES ($1, $2, $3, '{\"interfaces\": []}'::jsonb, '{\"gpu_configs\": []}'::jsonb) \
+             RETURNING id",
+        )
+        .bind(machine_id)
+        .bind(operating_system_id)
+        .bind(INSTANCE_IPXE_SCRIPT)
+        .fetch_one(conn)
+        .await
+        .unwrap()
+    }
+
+    /// Pins the SQL NULL semantics the `Option<Json<OsRow>>` decode relies on:
+    /// when the LEFT JOIN finds no live operating_systems row, Postgres
+    /// projects `row_to_json(o.*)` as SQL NULL (decoded as `None`), not as a
+    /// JSON object whose fields are all null (which would fail to decode into
+    /// `OsRow`'s non-optional fields). Covers both unmatched-join paths: an
+    /// instance with no OS reference at all, and an instance whose referenced
+    /// OS is soft-deleted and filtered out by the join's `o.deleted IS NULL`.
+    #[crate::sqlx_test]
+    async fn unmatched_os_join_decodes_as_none(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+
+        let no_os_ref = seed_instance(&mut txn, 0x42, None).await;
+
+        let os = operating_system::create(
+            &mut txn,
+            &operating_system::CreateOperatingSystem {
+                id: None,
+                name: "soft-deleted-os".to_string(),
+                description: None,
+                org: "test-org".to_string(),
+                type_: model::operating_system_definition::OS_TYPE_IPXE.to_string(),
+                status: operating_system::OS_STATUS_READY.to_string(),
+                is_active: true,
+                allow_override: true,
+                phone_home_enabled: false,
+                user_data: None,
+                ipxe_script: Some("#!ipxe boot-from-os-row".to_string()),
+                ipxe_template_id: None,
+                ipxe_parameters: None,
+                ipxe_artifacts: None,
+                ipxe_definition_hash: None,
+            },
+        )
+        .await
+        .unwrap();
+        operating_system::delete(&mut txn, os.id).await.unwrap();
+        let deleted_os_ref = seed_instance(&mut txn, 0x43, Some(os.id)).await;
+
+        // find_by_id loads both instances without a live OS row: the
+        // reference-free instance derives its OS from the inline script
+        // column, and the soft-deleted reference keeps the id-only variant
+        // rather than decoding (or erroring on) the deleted row's contents.
+        let snapshot = find_by_id(&mut *txn, no_os_ref).await.unwrap().unwrap();
+        assert_eq!(
+            snapshot.config.os.variant,
+            OperatingSystemVariant::Ipxe(InlineIpxe {
+                ipxe_script: INSTANCE_IPXE_SCRIPT.to_string()
+            })
+        );
+        let snapshot = find_by_id(&mut *txn, deleted_os_ref)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            snapshot.config.os.variant,
+            OperatingSystemVariant::OperatingSystemId(os.id)
+        );
+
+        // find() projects the OS column the same way; both instances decode.
+        let ids = [no_os_ref, deleted_os_ref];
+        let snapshots = find(&mut *txn, ObjectColumnFilter::List(IdColumn, &ids))
+            .await
+            .unwrap();
+        assert_eq!(snapshots.len(), 2);
+    }
 }

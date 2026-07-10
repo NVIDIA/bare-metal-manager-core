@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
 )
@@ -48,7 +48,7 @@ func TestInstanceType_ToProto(t *testing.T) {
 		assert.Equal(t, "prod", *proto.Metadata.Labels[0].Value)
 		require.NotNil(t, proto.Attributes)
 		require.Len(t, proto.Attributes.DesiredCapabilities, 1)
-		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_CPU, proto.Attributes.DesiredCapabilities[0].CapabilityType)
+		assert.Equal(t, corev1.MachineCapabilityType_CAP_TYPE_CPU, proto.Attributes.DesiredCapabilities[0].CapabilityType)
 		require.NotNil(t, proto.Attributes.DesiredCapabilities[0].Name)
 		assert.Equal(t, "cpu-0", *proto.Attributes.DesiredCapabilities[0].Name)
 	})
@@ -76,7 +76,7 @@ func TestInstanceType_ToProto(t *testing.T) {
 		proto := it.ToProto()
 		require.NotNil(t, proto.Attributes)
 		require.Len(t, proto.Attributes.DesiredCapabilities, 1)
-		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY, proto.Attributes.DesiredCapabilities[0].CapabilityType)
+		assert.Equal(t, corev1.MachineCapabilityType_CAP_TYPE_MEMORY, proto.Attributes.DesiredCapabilities[0].CapabilityType)
 	})
 }
 
@@ -101,12 +101,12 @@ func TestInstanceType_FromProto(t *testing.T) {
 
 	t.Run("populates from proto metadata", func(t *testing.T) {
 		v := "v1"
-		proto := &cwssaws.InstanceType{
+		proto := &corev1.InstanceType{
 			Id: id.String(),
-			Metadata: &cwssaws.Metadata{
+			Metadata: &corev1.Metadata{
 				Name:        "small",
 				Description: "primary",
-				Labels:      []*cwssaws.Label{{Key: "env", Value: &v}},
+				Labels:      []*corev1.Label{{Key: "env", Value: &v}},
 			},
 		}
 		it := &InstanceType{}
@@ -125,9 +125,9 @@ func TestInstanceType_FromProto(t *testing.T) {
 			Description: &desc,
 			Labels:      map[string]string{"a": "1"},
 		}
-		proto := &cwssaws.InstanceType{
+		proto := &corev1.InstanceType{
 			Id:       id.String(),
-			Metadata: &cwssaws.Metadata{Name: "small"},
+			Metadata: &corev1.Metadata{Name: "small"},
 		}
 		it.FromProto(proto)
 		assert.Equal(t, "small", it.Name)
@@ -137,7 +137,7 @@ func TestInstanceType_FromProto(t *testing.T) {
 
 	t.Run("preserves existing ID when proto Id is unparseable", func(t *testing.T) {
 		it := &InstanceType{ID: id}
-		proto := &cwssaws.InstanceType{Id: "not-a-uuid"}
+		proto := &corev1.InstanceType{Id: "not-a-uuid"}
 		it.FromProto(proto)
 		assert.Equal(t, id, it.ID)
 	})
@@ -150,7 +150,7 @@ func TestInstanceType_FromProto(t *testing.T) {
 			Description: &desc,
 			Labels:      map[string]string{"old": "val"},
 		}
-		proto := &cwssaws.InstanceType{Id: id.String()}
+		proto := &corev1.InstanceType{Id: id.String()}
 		it.FromProto(proto)
 		assert.Equal(t, "", it.Name)
 		assert.Nil(t, it.Description)

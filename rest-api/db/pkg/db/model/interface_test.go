@@ -11,7 +11,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,8 +103,8 @@ func TestInterfaceInlineRoutingProfile_ToProtoFromProto(t *testing.T) {
 	assert.Nil(t, roundTrip.AllowedAnycastPrefixes)
 
 	var fromProto InterfaceInlineRoutingProfile
-	fromProto.FromProto(&cwssaws.InstanceInterfaceRoutingProfile{
-		AllowedAnycastPrefixes: []*cwssaws.PrefixFilterPolicyEntry{
+	fromProto.FromProto(&corev1.InstanceInterfaceRoutingProfile{
+		AllowedAnycastPrefixes: []*corev1.PrefixFilterPolicyEntry{
 			{Prefix: "198.51.100.0/24"},
 			{Prefix: "2001:db8:1::/64"},
 		},

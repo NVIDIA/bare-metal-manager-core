@@ -9,6 +9,7 @@ package operationrun
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,15 +27,42 @@ const (
 	OperationRunStatusRunning   OperationRunStatus = "running"
 	OperationRunStatusPaused    OperationRunStatus = "paused"
 	OperationRunStatusCompleted OperationRunStatus = "completed"
-	OperationRunStatusCancelled OperationRunStatus = "cancelled"
-	OperationRunStatusFailed    OperationRunStatus = "failed"
+	// OperationRunStatusCompletedWithFailures reports a terminal run that
+	// reached the end of its target set but had one or more failed or
+	// terminated targets.
+	OperationRunStatusCompletedWithFailures OperationRunStatus = "completed_with_failures"
+	OperationRunStatusCancelled             OperationRunStatus = "cancelled"
+	OperationRunStatusFailed                OperationRunStatus = "failed"
 )
 
 // IsTerminal reports whether no further dispatcher work should be attempted.
 func (s OperationRunStatus) IsTerminal() bool {
 	return s == OperationRunStatusCompleted ||
+		s == OperationRunStatusCompletedWithFailures ||
 		s == OperationRunStatusCancelled ||
 		s == OperationRunStatusFailed
+}
+
+// Message returns the default status message for run transitions.
+func (s OperationRunStatus) Message() string {
+	switch s {
+	case OperationRunStatusPending:
+		return "operation run pending"
+	case OperationRunStatusRunning:
+		return "operation run running"
+	case OperationRunStatusPaused:
+		return "operation run paused"
+	case OperationRunStatusCompleted:
+		return "operation run completed"
+	case OperationRunStatusCompletedWithFailures:
+		return "operation run completed with failed targets"
+	case OperationRunStatusCancelled:
+		return "operation run cancelled"
+	case OperationRunStatusFailed:
+		return "operation run failed"
+	default:
+		return ""
+	}
 }
 
 // OperationRunStatusReason records why a run is in its current non-terminal
@@ -57,6 +85,7 @@ type OperationRunTargetStatus string
 
 const (
 	OperationRunTargetStatusPending    OperationRunTargetStatus = "pending"
+	OperationRunTargetStatusClaimed    OperationRunTargetStatus = "claimed"
 	OperationRunTargetStatusBlocked    OperationRunTargetStatus = "blocked"
 	OperationRunTargetStatusSubmitted  OperationRunTargetStatus = "submitted"
 	OperationRunTargetStatusCompleted  OperationRunTargetStatus = "completed"
@@ -65,18 +94,49 @@ const (
 	OperationRunTargetStatusSkipped    OperationRunTargetStatus = "skipped"
 )
 
+// TerminalTargetStatuses returns all target statuses that have no remaining
+// work.
+func TerminalTargetStatuses() []OperationRunTargetStatus {
+	return []OperationRunTargetStatus{
+		OperationRunTargetStatusCompleted,
+		OperationRunTargetStatusFailed,
+		OperationRunTargetStatusTerminated,
+		OperationRunTargetStatusSkipped,
+	}
+}
+
 // IsTerminal reports whether this target has no remaining work.
 func (s OperationRunTargetStatus) IsTerminal() bool {
-	return s == OperationRunTargetStatusCompleted ||
-		s == OperationRunTargetStatusFailed ||
-		s == OperationRunTargetStatusTerminated ||
-		s == OperationRunTargetStatusSkipped
+	return slices.Contains(TerminalTargetStatuses(), s)
+}
+
+// IsFailedOrTerminated reports whether this target failed or terminated.
+func (s OperationRunTargetStatus) IsFailedOrTerminated() bool {
+	return s == OperationRunTargetStatusFailed ||
+		s == OperationRunTargetStatusTerminated
 }
 
 // IsActive reports whether this target currently has a child task consuming
 // rollout concurrency.
 func (s OperationRunTargetStatus) IsActive() bool {
 	return s == OperationRunTargetStatusSubmitted
+}
+
+// OperationRunTargetStatusFromTaskStatus maps a child task status to its
+// operation-run target status.
+func OperationRunTargetStatusFromTaskStatus(
+	status taskcommon.TaskStatus,
+) OperationRunTargetStatus {
+	switch status {
+	case taskcommon.TaskStatusCompleted:
+		return OperationRunTargetStatusCompleted
+	case taskcommon.TaskStatusFailed:
+		return OperationRunTargetStatusFailed
+	case taskcommon.TaskStatusTerminated:
+		return OperationRunTargetStatusTerminated
+	default:
+		return OperationRunTargetStatusSubmitted
+	}
 }
 
 // OperationRun is the internal service representation of an operation run.
@@ -98,6 +158,97 @@ type OperationRun struct {
 	UpdatedAt         time.Time
 	StartedAt         *time.Time
 	FinishedAt        *time.Time
+}
+
+// CanPause reports whether a pause request can leave the run paused. It is
+// true for already-paused non-terminal runs because PauseOperationRun is
+// idempotent and preserves the existing pause reason.
+func (r *OperationRun) CanPause() bool {
+	if r == nil {
+		return false
+	}
+
+	return !r.Status.IsTerminal()
+}
+
+// CanResume reports whether a paused run can continue without crossing a
+// manual phase gate.
+func (r *OperationRun) CanResume() bool {
+	if r == nil {
+		return false
+	}
+
+	return r.Status == OperationRunStatusPaused &&
+		r.StatusReason != OperationRunStatusReasonPhaseGate
+}
+
+// CanAdvancePhase reports whether a paused run is waiting at a manual phase
+// gate and can be advanced to the next phase.
+func (r *OperationRun) CanAdvancePhase() bool {
+	if r == nil {
+		return false
+	}
+
+	return r.Status == OperationRunStatusPaused &&
+		r.StatusReason == OperationRunStatusReasonPhaseGate
+}
+
+// Start marks the run as running. StartedAt records the first transition from
+// pending to running and is not refreshed by later dispatcher passes. A
+// non-empty message replaces the current status message.
+func (r *OperationRun) Start(now time.Time, message string) {
+	if r.Status == OperationRunStatusPending && r.StartedAt == nil {
+		r.StartedAt = timePtr(now)
+	}
+
+	r.Status = OperationRunStatusRunning
+	r.StatusReason = OperationRunStatusReasonNone
+	if message != "" {
+		r.StatusMessage = message
+	}
+}
+
+// Pause marks the run as paused for a non-terminal reason.
+func (r *OperationRun) Pause(
+	reason OperationRunStatusReason,
+	message string,
+) {
+	r.Status = OperationRunStatusPaused
+	r.StatusReason = reason
+	r.StatusMessage = message
+}
+
+// Fail marks the run as failed and records its terminal timestamp.
+func (r *OperationRun) Fail(now time.Time, message string) {
+	r.Status = OperationRunStatusFailed
+	r.StatusReason = OperationRunStatusReasonNone
+	r.StatusMessage = message
+	r.FinishedAt = timePtr(now)
+}
+
+// Complete marks the run as completed and records its terminal timestamp.
+func (r *OperationRun) Complete(now time.Time, message string) {
+	r.Status = OperationRunStatusCompleted
+	r.StatusReason = OperationRunStatusReasonNone
+	r.StatusMessage = message
+	r.FinishedAt = timePtr(now)
+}
+
+// CompleteWithFailures marks the run as terminal after completing its target
+// set with at least one failed or terminated target.
+func (r *OperationRun) CompleteWithFailures(now time.Time, message string) {
+	r.Status = OperationRunStatusCompletedWithFailures
+	r.StatusReason = OperationRunStatusReasonNone
+	r.StatusMessage = message
+	r.FinishedAt = timePtr(now)
+}
+
+// Cancel marks the run as cancelled and records its terminal timestamp.
+func (r *OperationRun) Cancel(now time.Time, message string) {
+	r.Status = OperationRunStatusCancelled
+	r.StatusReason = OperationRunStatusReasonNone
+	r.StatusMessage = message
+	r.FinishedAt = timePtr(now)
 }
 
 // DecodedSelector decodes and validates the stored selector configuration.
@@ -157,6 +308,73 @@ type OperationRunTarget struct {
 	UpdatedAt        time.Time
 }
 
+// clearRetry clears retry metadata once a target leaves a retryable state.
+func (t *OperationRunTarget) clearRetry() {
+	t.RetryAfter = nil
+	t.RetryState = nil
+}
+
+// SetMessage records an informational target lifecycle message without
+// changing status.
+func (t *OperationRunTarget) SetMessage(message string) {
+	t.Message = message
+}
+
+// Claim marks the target claimed for child-task submission until the claim
+// lease expires.
+func (t *OperationRunTarget) Claim(
+	leaseExpiresAt time.Time,
+	message string,
+) {
+	t.TaskID = nil
+	t.Status = OperationRunTargetStatusClaimed
+	t.Message = message
+	t.RetryAfter = timePtr(leaseExpiresAt)
+	t.RetryState = nil
+}
+
+// Block marks the target blocked by a retryable conflict.
+func (t *OperationRunTarget) Block(
+	message string,
+	retryAfter time.Time,
+	retryState json.RawMessage,
+) {
+	t.TaskID = nil
+	t.Status = OperationRunTargetStatusBlocked
+	t.Message = message
+	t.RetryAfter = timePtr(retryAfter)
+	t.RetryState = retryState
+}
+
+// Submit marks the target submitted with its child task ID.
+func (t *OperationRunTarget) Submit(taskID uuid.UUID, message string) {
+	t.TaskID = &taskID
+	t.Status = OperationRunTargetStatusSubmitted
+	t.Message = message
+	t.clearRetry()
+}
+
+// Fail marks the target failed and clears retry metadata.
+func (t *OperationRunTarget) Fail(message string) {
+	t.Status = OperationRunTargetStatusFailed
+	t.Message = message
+	t.clearRetry()
+}
+
+// Skip marks the target skipped and clears retry metadata.
+func (t *OperationRunTarget) Skip(message string) {
+	t.Status = OperationRunTargetStatusSkipped
+	t.Message = message
+	t.clearRetry()
+}
+
+// Terminate marks the target terminated and clears retry metadata.
+func (t *OperationRunTarget) Terminate(message string) {
+	t.Status = OperationRunTargetStatusTerminated
+	t.Message = message
+	t.clearRetry()
+}
+
 // StateFilter matches operation runs by status, reason, or both. When both are
 // set they are AND-ed together; multiple StateFilters compose with OR.
 type StateFilter struct {
@@ -193,13 +411,16 @@ type ListOptions struct {
 type TargetPhaseScope int
 
 const (
-	// TargetPhaseScopeCurrentPhase returns the latest materialized phase.
+	// TargetPhaseScopeCurrentPhase returns the first materialized phase with
+	// non-terminal targets.
 	TargetPhaseScopeCurrentPhase TargetPhaseScope = iota
 	// TargetPhaseScopeCompletedPhases returns materialized phases before the
-	// current phase.
+	// current phase. If no current phase exists, every materialized phase is
+	// completed.
 	TargetPhaseScopeCompletedPhases
 	// TargetPhaseScopeCurrentAndCompletedPhases returns every materialized
-	// phase through the current phase.
+	// phase through the current phase. If no current phase exists, it returns
+	// every materialized phase.
 	TargetPhaseScopeCurrentAndCompletedPhases
 	// TargetPhaseScopeAllMaterializedTargets returns every materialized target
 	// row for internal planning use cases such as prior-run exclusions.
@@ -214,4 +435,8 @@ type TargetListOptions struct {
 	PhaseScope TargetPhaseScope
 	// Pagination, when non-nil, applies offset/limit to the result set.
 	Pagination *dbquery.Pagination
+}
+
+func timePtr(t time.Time) *time.Time {
+	return &t
 }

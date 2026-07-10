@@ -310,7 +310,10 @@ impl InstanceNetworkConfig {
     /// underlying interfaces), so it must not reject the combination
     /// `auto: true` + non-empty interfaces here. The "auto must arrive with
     /// empty interfaces" rule is enforced in RPC <-> model conversion, which
-    /// only runs on user input.
+    /// only runs on user input. A resolved `auto` interface is identified by
+    /// its HostInband segment (one bare `Physical {}` per segment), so those
+    /// configs are validated against that rule rather than the per-device
+    /// function-id bucketing.
     pub fn validate(&self, allow_instance_vf: bool) -> Result<(), ConfigValidationError> {
         if !allow_instance_vf
             && self
@@ -323,12 +326,33 @@ impl InstanceNetworkConfig {
             ));
         }
 
-        validate_interface_function_ids(
-            &self.interfaces,
-            |iface| &iface.function_id,
-            |iface| iface.device_locator.as_ref(),
-        )
-        .map_err(ConfigValidationError::InvalidValue)?;
+        if self.auto_config.is_some() {
+            // Resolved `auto` interfaces are system-injected by
+            // `add_inband_interfaces_to_config`: one bare `Physical {}` per
+            // HostInband segment on the host, with no `device_locator` (a
+            // zero-DPU host has no DPU to locate). Their identity is the
+            // network segment itself -- enforced by the uniqueness check
+            // below -- so the per-device function-id bucketing doesn't apply
+            // here; it would read every injected PF beyond the first as a
+            // duplicate of one device.
+            if let Some(iface) = self.interfaces.iter().find(|iface| {
+                !matches!(iface.function_id, InterfaceFunctionId::Physical {})
+                    || iface.device_locator.is_some()
+            }) {
+                return Err(ConfigValidationError::InvalidValue(format!(
+                    "auto network configs hold only system-resolved physical host-inband \
+                     interfaces; found function {:?} with device locator {:?}",
+                    iface.function_id, iface.device_locator,
+                )));
+            }
+        } else {
+            validate_interface_function_ids(
+                &self.interfaces,
+                |iface| &iface.function_id,
+                |iface| iface.device_locator.as_ref(),
+            )
+            .map_err(ConfigValidationError::InvalidValue)?;
+        }
 
         // Note: We can't fully validate the network segment IDs here
         // We validate that the ID is not duplicated, but not whether it actually exists
@@ -967,6 +991,81 @@ mod tests {
 
             "duplicate network segment" {
                 (duplicate_network_segment, true) => Fails,
+            }
+        );
+    }
+
+    /// A resolved `auto` config as `add_inband_interfaces_to_config` produces
+    /// it: one bare `Physical {}` interface per HostInband segment, no
+    /// `device_locator`. Interface identity is the segment.
+    fn create_resolved_auto_network_config(segment_count: u8) -> InstanceNetworkConfig {
+        InstanceNetworkConfig {
+            interfaces: (0..segment_count)
+                .map(|idx| InstanceInterfaceConfig {
+                    function_id: InterfaceFunctionId::Physical {},
+                    network_segment_id: Some(offset_segment_id(idx)),
+                    network_details: None,
+                    ip_addrs: HashMap::default(),
+                    requested_ip_addr: None,
+                    ipv6_interface_config: None,
+                    routing_profile: None,
+                    interface_prefixes: HashMap::default(),
+                    network_segment_gateways: HashMap::default(),
+                    host_inband_mac_address: None,
+                    device_locator: None,
+                    internal_uuid: uuid::Uuid::new_v4(),
+                    vpc_id: None,
+                })
+                .collect(),
+            auto_config: Some(InstanceNetworkAutoConfig {
+                vpc_id: VpcId::new(),
+            }),
+        }
+    }
+
+    // InstanceNetworkConfig::validate over resolved `auto` configs (the
+    // output of `add_inband_interfaces_to_config`). A multi-NIC zero-DPU
+    // host resolves to several bare `Physical {}` interfaces -- one per
+    // HostInband segment -- and must validate; the per-device function-id
+    // bucketing would read those as duplicates of one device.
+    #[test]
+    fn validate_resolved_auto_network_config() {
+        let single_segment = create_resolved_auto_network_config(1);
+        let multi_segment = create_resolved_auto_network_config(3);
+
+        let mut duplicate_segment = create_resolved_auto_network_config(2);
+        duplicate_segment.interfaces[1].network_segment_id =
+            duplicate_segment.interfaces[0].network_segment_id;
+
+        let mut virtual_function = create_resolved_auto_network_config(2);
+        virtual_function.interfaces[1].function_id = InterfaceFunctionId::Virtual { id: 0 };
+
+        let mut located_interface = create_resolved_auto_network_config(2);
+        located_interface.interfaces[1].device_locator = Some(DeviceLocator {
+            device: "DPU".to_string(),
+            device_instance: 0,
+        });
+
+        scenarios!(
+            run = |(config, allow_instance_vf)| config.validate(allow_instance_vf).map_err(drop);
+            "single resolved host-inband interface" {
+                (single_segment, false) => Yields(()),
+            }
+
+            "one interface per HostInband segment on a multi-NIC host" {
+                (multi_segment, false) => Yields(()),
+            }
+
+            "duplicate segments are still rejected for auto configs" {
+                (duplicate_segment, false) => Fails,
+            }
+
+            "virtual functions cannot appear in an auto config" {
+                (virtual_function, true) => Fails,
+            }
+
+            "device-located interfaces cannot appear in an auto config" {
+                (located_interface, false) => Fails,
             }
         );
     }

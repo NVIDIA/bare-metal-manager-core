@@ -35,7 +35,9 @@ use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::expected_machine::ExpectedMachineData;
-use model::hardware_info::{MachineInventory, MachineNvLinkInfo};
+use model::hardware_info::{
+    MachineInventory, MachineNvLinkInfo, mnnvl_gpu_name_sql_like_conditions,
+};
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::{
@@ -158,21 +160,46 @@ pub async fn find_existing_machine(
     macaddr: MacAddress,
     relay: IpAddr,
 ) -> Result<Option<MachineId>, DatabaseError> {
+    // Exact DHCPv6 link-address matches are authoritative. Prefix containment
+    // is only valid when no segment claims the relay by exact link-address.
     let query = "
+    -- Start from machines already associated with the observed MAC.
     SELECT m.id FROM
     machines m
     INNER JOIN machine_interfaces mi
         ON m.id = mi.machine_id
     INNER JOIN network_segments ns
         ON mi.segment_id = ns.id
-    INNER JOIN network_prefixes np
-        ON np.segment_id = ns.id
     WHERE
         mi.mac_address = $1::macaddr
         AND
+        -- BMC interfaces are not host identity for DHCP discovery.
         mi.interface_type != 'Bmc'
         AND
-        $2::inet <<= np.prefix";
+        -- Keep segments that own the relay address.
+        EXISTS (
+            SELECT 1
+            FROM network_prefixes np
+            WHERE np.segment_id = ns.id
+            AND (
+                -- Accept this candidate segment when one of its own prefixes
+                -- has the exact DHCPv6 relay link-address.
+                np.dhcpv6_link_address = $2::inet
+                OR (
+                    -- This check is intentionally global, not redundant:
+                    -- prefix fallback is allowed only when no segment anywhere
+                    -- has an exact DHCPv6 link-address claim for this relay.
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM network_prefixes exact_np
+                        WHERE exact_np.dhcpv6_link_address = $2::inet
+                    )
+                    -- With no exact claim, IPv4/v6 prefix containment can match
+                    -- the segment that owns the relay address.
+                    AND $2::inet <<= np.prefix
+                )
+            )
+        )";
 
     let id: Option<MachineId> = sqlx::query_as(query)
         .bind(macaddr)
@@ -1334,6 +1361,57 @@ pub async fn try_update_network_config(
     }
 }
 
+/// Sets or clears the `use_admin_network_changed` flag on a single machine
+/// row without bumping `network_config_version` or fanning out to the group.
+pub async fn set_use_admin_network_changed(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    value: bool,
+) -> Result<(), DatabaseError> {
+    let query = r#"
+        UPDATE machines
+        SET network_config = jsonb_set(COALESCE(network_config, '{}'::jsonb), '{use_admin_network_changed}', $1::jsonb)
+        WHERE id = $2
+    "#;
+    let result = sqlx::query(query)
+        .bind(sqlx::types::Json(value))
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    if result.rows_affected() == 0 {
+        return Err(DatabaseError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Clears the `use_admin_network_changed` flag only if the machine is still at
+/// the expected network config version.
+pub async fn clear_use_admin_network_changed_if_version_matches(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    expected_version: &ConfigVersion,
+) -> Result<bool, DatabaseError> {
+    let query = r#"
+        UPDATE machines
+        SET network_config = jsonb_set(COALESCE(network_config, '{}'::jsonb), '{use_admin_network_changed}', 'false'::jsonb)
+        WHERE id = $1
+          AND network_config_version = $2
+          AND network_config -> 'use_admin_network_changed' = 'true'::jsonb
+    "#;
+    let result = sqlx::query(query)
+        .bind(machine_id)
+        .bind(expected_version)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 /// Replaces predicted host id with stable host id.
 /// Once forge receives DiscoveryData from Host, forge can create StableMachineId.
 /// This StableMachineId must replace existing PredictedHostId in db.
@@ -1955,9 +2033,20 @@ pub async fn find_machine_ids(
         qb.push("->'alerts') > 0");
     }
     if search_config.mnnvl_only {
-        qb.push(
-            " AND mt.topology->'discovery_data'->'Info'->'dmi_data'->>'product_name' LIKE '%GB200%'",
-        );
+        qb.push(format!(
+            " AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(
+                    COALESCE(mt.topology->'discovery_data'->'Info'->'gpus', '[]'::jsonb)
+                ) AS gpu
+                WHERE gpu->'platform_info' IS NOT NULL
+                  AND gpu->'platform_info' <> 'null'::jsonb
+                  AND (
+                      {}
+                  )
+            )",
+            mnnvl_gpu_name_sql_like_conditions()
+        ));
     }
 
     if let Some(id) = search_config.instance_type_id {

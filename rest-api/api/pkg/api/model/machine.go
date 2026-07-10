@@ -22,7 +22,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -246,7 +246,7 @@ func (mur APIMachineUpdateRequest) Validate() error {
 	return err
 }
 
-func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID string) (*cwssaws.InsertMachineHealthReportRequest, error) {
+func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID string) (*corev1.InsertMachineHealthReportRequest, error) {
 	mhi := mur.HealthIssue
 
 	m, err := json.Marshal(struct {
@@ -263,7 +263,7 @@ func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID st
 	}
 	msg := string(m)
 
-	alert := &cwssaws.HealthProbeAlert{
+	alert := &corev1.HealthProbeAlert{
 		Id:            MachineHealthAlertIDOnlineRepair,
 		Target:        cutil.GetPtr(MachineTenantReportedIssueAlertID),
 		Message:       msg,
@@ -274,22 +274,22 @@ func (mur APIMachineUpdateRequest) ToInsertHealthReportRequestProto(machineID st
 			MachineAlertClassificationSuppressExternalAlerting,
 		},
 	}
-	hr := &cwssaws.HealthReport{
+	hr := &corev1.HealthReport{
 		Source: MachineHealthOverrideSourceOnlineRepair,
-		Alerts: []*cwssaws.HealthProbeAlert{alert},
+		Alerts: []*corev1.HealthProbeAlert{alert},
 	}
-	return &cwssaws.InsertMachineHealthReportRequest{
-		MachineId: &cwssaws.MachineId{Id: machineID},
-		HealthReportEntry: &cwssaws.HealthReportEntry{
+	return &corev1.InsertMachineHealthReportRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
+		HealthReportEntry: &corev1.HealthReportEntry{
 			Report: hr,
-			Mode:   cwssaws.HealthReportApplyMode_Merge,
+			Mode:   corev1.HealthReportApplyMode_Merge,
 		},
 	}, nil
 }
 
-func (mur APIMachineUpdateRequest) ToRemoveHealthReportRequestProto(machineID string) (*cwssaws.RemoveMachineHealthReportRequest, error) {
-	return &cwssaws.RemoveMachineHealthReportRequest{
-		MachineId: &cwssaws.MachineId{Id: machineID},
+func (mur APIMachineUpdateRequest) ToRemoveHealthReportRequestProto(machineID string) (*corev1.RemoveMachineHealthReportRequest, error) {
+	return &corev1.RemoveMachineHealthReportRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
 		Source:    MachineHealthOverrideSourceOnlineRepair,
 	}, nil
 }
@@ -393,7 +393,7 @@ type APIDMIData struct {
 }
 
 // FromProto populates an APIDMIData from its protobuf form.
-func (admi *APIDMIData) FromProto(protoDMIData *cwssaws.DmiData) {
+func (admi *APIDMIData) FromProto(protoDMIData *corev1.DmiData) {
 	if protoDMIData == nil {
 		return
 	}
@@ -421,7 +421,7 @@ type APIBMCInfo struct {
 }
 
 // FromProto populates an APIBMCInfo from its protobuf form.
-func (abmc *APIBMCInfo) FromProto(protoBmcInfo *cwssaws.BmcInfo) {
+func (abmc *APIBMCInfo) FromProto(protoBmcInfo *corev1.BmcInfo) {
 	if protoBmcInfo == nil {
 		return
 	}
@@ -452,7 +452,7 @@ type APIMachineGPUInfo struct {
 }
 
 // FromProto populates an APIMachineGPUInfo from its protobuf form.
-func (gpu *APIMachineGPUInfo) FromProto(protoGpu *cwssaws.Gpu) {
+func (gpu *APIMachineGPUInfo) FromProto(protoGpu *corev1.Gpu) {
 	if protoGpu == nil {
 		return
 	}
@@ -485,7 +485,7 @@ type APIMachineNetworkInterface struct {
 }
 
 // FromProto populates an APIMachineNetworkInterface from its protobuf form.
-func (ni *APIMachineNetworkInterface) FromProto(protoNI *cwssaws.NetworkInterface) {
+func (ni *APIMachineNetworkInterface) FromProto(protoNI *corev1.NetworkInterface) {
 	if protoNI == nil {
 		return
 	}
@@ -519,7 +519,7 @@ type APIMachineInfiniBandInterface struct {
 }
 
 // FromProto populates an APIMachineInfiniBandInterface from its protobuf form.
-func (ib *APIMachineInfiniBandInterface) FromProto(protoIB *cwssaws.InfinibandInterface) {
+func (ib *APIMachineInfiniBandInterface) FromProto(protoIB *corev1.InfinibandInterface) {
 	if protoIB == nil {
 		return
 	}
@@ -546,137 +546,6 @@ type APIMachineMetadata struct {
 	NetworkInterfaces []APIMachineNetworkInterface `json:"networkInterfaces,omitempty"`
 	// InfiniBandInterfaces is the list of InfiniBand interfaces of the machine
 	InfiniBandInterfaces []APIMachineInfiniBandInterface `json:"infinibandInterfaces,omitempty"`
-}
-
-// APIMachineHealth is the data structure to capture API representation of a Machine's health Info
-type APIMachineHealth struct {
-	Source               string                         `json:"source"`
-	ObservedAt           *string                        `json:"observedAt"`
-	ObservedAtDeprecated *string                        `json:"observed_at"`
-	Successes            []APIMachineHealthProbeSuccess `json:"successes"`
-	Alerts               []APIMachineHealthProbeAlert   `json:"alerts"`
-}
-
-// FromProto populates an APIMachineHealth from its protobuf form.
-func (mh *APIMachineHealth) FromProto(protoHealth *cwssaws.HealthReport) {
-	if protoHealth == nil {
-		return
-	}
-
-	mh.Source = protoHealth.Source
-	if protoHealth.ObservedAt != nil {
-		observed := protoHealth.ObservedAt.AsTime().Format(time.RFC3339)
-		mh.ObservedAt = cutil.GetPtr(observed)
-		mh.ObservedAtDeprecated = cutil.GetPtr(observed)
-	}
-
-	if len(protoHealth.Alerts) > 0 {
-		mh.Alerts = []APIMachineHealthProbeAlert{}
-		for _, alert := range protoHealth.Alerts {
-			if alert == nil {
-				continue
-			}
-			ahpa := APIMachineHealthProbeAlert{}
-			ahpa.FromProto(alert)
-			mh.Alerts = append(mh.Alerts, ahpa)
-		}
-	}
-
-	if len(protoHealth.Successes) > 0 {
-		mh.Successes = []APIMachineHealthProbeSuccess{}
-		for _, success := range protoHealth.Successes {
-			if success == nil {
-				continue
-			}
-			ahps := APIMachineHealthProbeSuccess{}
-			ahps.FromProto(success)
-			mh.Successes = append(mh.Successes, ahps)
-		}
-	}
-}
-
-// FromDBModel populates an APIMachineHealth from its DB model form.
-func (mh *APIMachineHealth) FromDBModel(machineHealth *cdbm.MachineHealth) {
-	if machineHealth == nil {
-		return
-	}
-
-	mh.Source = machineHealth.Source
-	mh.ObservedAt = machineHealth.ObservedAt
-	mh.ObservedAtDeprecated = machineHealth.ObservedAt
-
-	if len(machineHealth.Alerts) > 0 {
-		mh.Alerts = []APIMachineHealthProbeAlert{}
-		for _, alert := range machineHealth.Alerts {
-			ahpa := APIMachineHealthProbeAlert{}
-			ahpa.FromDBModel(alert)
-			mh.Alerts = append(mh.Alerts, ahpa)
-		}
-	}
-
-	if len(machineHealth.Successes) > 0 {
-		mh.Successes = []APIMachineHealthProbeSuccess{}
-		for _, success := range machineHealth.Successes {
-			ahps := APIMachineHealthProbeSuccess{}
-			ahps.FromDBModel(success)
-			mh.Successes = append(mh.Successes, ahps)
-		}
-	}
-}
-
-type APIMachineHealthProbeSuccess struct {
-	ID     string  `json:"id"`
-	Target *string `json:"target"`
-}
-
-// FromProto populates an APIMachineHealthProbeSuccess from its protobuf form.
-func (ahps *APIMachineHealthProbeSuccess) FromProto(protoSuccess *cwssaws.HealthProbeSuccess) {
-	if protoSuccess == nil {
-		return
-	}
-	ahps.ID = protoSuccess.Id
-	ahps.Target = protoSuccess.Target
-}
-
-// FromDBModel populates an APIMachineHealthProbeSuccess from its DB model form.
-func (ahps *APIMachineHealthProbeSuccess) FromDBModel(success cdbm.HealthProbeSuccess) {
-	ahps.ID = success.Id
-	ahps.Target = success.Target
-}
-
-type APIMachineHealthProbeAlert struct {
-	ID              string   `json:"id"`
-	Target          *string  `json:"target"`
-	InAlertSince    *string  `json:"inAlertSince"`
-	Message         string   `json:"message"`
-	TenantMessage   *string  `json:"tenantMessage"`
-	Classifications []string `json:"classifications"`
-}
-
-// FromProto populates an APIMachineHealthProbeAlert from its protobuf form.
-func (ahpa *APIMachineHealthProbeAlert) FromProto(protoAlert *cwssaws.HealthProbeAlert) {
-	if protoAlert == nil {
-		return
-	}
-	ahpa.ID = protoAlert.Id
-	ahpa.Target = protoAlert.Target
-	ahpa.Message = protoAlert.Message
-	if protoAlert.InAlertSince != nil {
-		inAlertSince := protoAlert.InAlertSince.AsTime().Format(time.RFC3339)
-		ahpa.InAlertSince = cutil.GetPtr(inAlertSince)
-	}
-	ahpa.TenantMessage = protoAlert.TenantMessage
-	ahpa.Classifications = protoAlert.Classifications
-}
-
-// FromDBModel populates an APIMachineHealthProbeAlert from its DB model form.
-func (ahpa *APIMachineHealthProbeAlert) FromDBModel(alert cdbm.HealthProbeAlert) {
-	ahpa.ID = alert.Id
-	ahpa.Target = alert.Target
-	ahpa.Message = alert.Message
-	ahpa.InAlertSince = alert.InAlertSince
-	ahpa.TenantMessage = alert.TenantMessage
-	ahpa.Classifications = alert.Classifications
 }
 
 // NewAPIMachine accepts a DB layer Machine object and returns an API object

@@ -28,7 +28,7 @@ use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
-use carbide_api_core::cfg::file::{CarbideConfig, ToolLink};
+use carbide_api_core::cfg::file::ToolLink;
 use carbide_api_core::{Api, AuthContext, CarbideError, DefaultCredential};
 use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
@@ -60,6 +60,12 @@ pub trait Base {
     /// when `carbide_api_core::init_tools` has not been called (e.g. unit tests).
     fn tools() -> &'static [ToolLink] {
         carbide_api_core::configured_tools()
+    }
+
+    /// Site name rendered in the sidebar header as "NICo • <site>". Falls
+    /// back to "local" when the config doesn't set `sitename`.
+    fn site_name() -> &'static str {
+        carbide_api_core::configured_site_name().unwrap_or("local")
     }
 }
 
@@ -227,6 +233,7 @@ mod action_status;
 mod attestation;
 mod auth;
 mod compute_allocation;
+mod configuration;
 mod domain;
 mod dpa;
 mod dpu_versions;
@@ -938,12 +945,7 @@ pub async fn auth_oauth2(
 #[template(path = "index.html")]
 struct Index {
     version: &'static str,
-    agent_upgrade_policy: &'static str,
-    log_filter: String,
-    site_explorer_enabled: String,
-    create_machines: String,
-    carbide_config: CarbideConfig,
-    bmc_proxy: String,
+    config: configuration::ConfigPageView,
     missing_default_credentials: Vec<DefaultCredential>,
 }
 
@@ -984,17 +986,42 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         .load()
         .as_ref()
         .clone()
-        .map(|p| p.to_string())
-        .unwrap_or("<None>".to_string());
+        .map(|p| p.to_string());
+    let tracing_enabled = state
+        .dynamic_settings
+        .tracing_enabled
+        .load(Ordering::Relaxed)
+        .to_string();
 
-    let index = Index {
-        version: carbide_version::v!(build_version),
+    let live_settings = configuration::LiveSettings {
         log_filter: state.log_filter_string(),
-        agent_upgrade_policy,
         site_explorer_enabled,
         create_machines,
-        carbide_config: state.runtime_config.redacted(),
         bmc_proxy,
+        tracing_enabled,
+        dpu_agent_upgrade_policy: agent_upgrade_policy.to_string(),
+    };
+
+    let effective = match serde_json::to_value(state.runtime_config.redacted()) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::error!(%err, "serializing runtime config");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
+        }
+    };
+    let config = configuration::build_config_page(
+        carbide_api_core::cfg::CONFIG_REFERENCE_MD,
+        &effective,
+        &state.runtime_config.explicit_value_paths(),
+        live_settings,
+    );
+
+    let index = Index {
+        version: match carbide_version::v!(build_version) {
+            "" => "dev",
+            version => version,
+        },
+        config,
         missing_default_credentials: state.missing_default_credentials().await,
     };
 
@@ -1034,4 +1061,55 @@ pub(crate) fn not_found_response(resource: String) -> Response {
 
 pub(crate) fn invalid_machine_id() -> String {
     "INVALID_MACHINE".to_string()
+}
+
+#[cfg(test)]
+mod index_template_tests {
+    use super::*;
+
+    /// Renders the Configuration page template against the real reference doc
+    /// to catch template/view-model mismatches without a running server.
+    #[test]
+    fn index_renders_config_page() {
+        let effective = serde_json::json!({
+            "listen": "[::]:1079",
+            "asn": 65001,
+            "attestation_enabled": false,
+        });
+        let mut explicit = std::collections::BTreeMap::new();
+        explicit.insert("asn".to_string(), "site-config.toml".to_string());
+        let live_settings = configuration::LiveSettings {
+            log_filter: "info".to_string(),
+            site_explorer_enabled: "true".to_string(),
+            create_machines: "false".to_string(),
+            bmc_proxy: None,
+            tracing_enabled: "false".to_string(),
+            dpu_agent_upgrade_policy: "Off".to_string(),
+        };
+        let config = configuration::build_config_page(
+            carbide_api_core::cfg::CONFIG_REFERENCE_MD,
+            &effective,
+            &explicit,
+            live_settings,
+        );
+
+        let index = Index {
+            version: "test-version",
+            config,
+            missing_default_credentials: Vec::new(),
+        };
+        let html = index.render().expect("index template renders");
+
+        // Tab navigation with the first group tab active.
+        assert!(html.contains(r#"id="tab-networking""#));
+        // The overridden option shows its value and source tag.
+        assert!(html.contains("65001"));
+        assert!(html.contains("site-config.toml"));
+        // Runtime settings are folded in and tagged.
+        assert!(html.contains(r#"class="config-runtime""#));
+        assert!(html.contains("log_filter"));
+        // Catalog rendering is present.
+        assert!(html.contains("attestation_enabled"));
+        assert!(html.contains("site_explorer"));
+    }
 }

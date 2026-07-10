@@ -6,60 +6,63 @@ package model
 import (
 	"fmt"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
+// MachineDpuReprovisionMode represents the mode of a Machine DPU reprovisioning request.
+type MachineDpuReprovisionMode string
+
 const (
-	DpuReprovisionModeSet     = "Set"
-	DpuReprovisionModeClear   = "Clear"
-	DpuReprovisionModeRestart = "Restart"
+	MachineDpuReprovisionModeSet     MachineDpuReprovisionMode = "Set"
+	MachineDpuReprovisionModeClear   MachineDpuReprovisionMode = "Clear"
+	MachineDpuReprovisionModeRestart MachineDpuReprovisionMode = "Restart"
 )
 
-var validDpuReprovisionModes = []string{
-	DpuReprovisionModeSet,
-	DpuReprovisionModeClear,
-	DpuReprovisionModeRestart,
-}
-
-var validDpuReprovisionModesAny = func() []interface{} {
-	result := make([]interface{}, len(validDpuReprovisionModes))
-	for i, mode := range validDpuReprovisionModes {
-		result[i] = mode
+// ToProto converts the MachineDpuReprovisionMode to a Core gRPC DpuReprovisioningRequest_Mode
+func (m MachineDpuReprovisionMode) ToProto() corev1.DpuReprovisioningRequest_Mode {
+	switch m {
+	case MachineDpuReprovisionModeSet:
+		return corev1.DpuReprovisioningRequest_Set
+	case MachineDpuReprovisionModeClear:
+		return corev1.DpuReprovisioningRequest_Clear
+	case MachineDpuReprovisionModeRestart:
+		return corev1.DpuReprovisioningRequest_Restart
 	}
-	return result
-}()
-
-type APIDpuReprovisionRequest struct {
-	Mode           string `json:"mode"`
-	UpdateFirmware bool   `json:"updateFirmware"`
+	return corev1.DpuReprovisioningRequest_Set
 }
 
-func (r *APIDpuReprovisionRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.Mode,
+// MachineDpuReprovisionModeValues is a list of all valid MachineDpuReprovisionMode values.
+var MachineDpuReprovisionModeValues = []MachineDpuReprovisionMode{
+	MachineDpuReprovisionModeSet,
+	MachineDpuReprovisionModeClear,
+	MachineDpuReprovisionModeRestart,
+}
+
+// APIMachineDpuReprovisionRequest represents a request to reprovision a Machine DPU.
+type APIMachineDpuReprovisionRequest struct {
+	Mode           MachineDpuReprovisionMode `json:"mode"`
+	UpdateFirmware bool                      `json:"updateFirmware"`
+	// AcknowledgeAttachedInstance indicates the caller is aware that an Instance is currently attached to the Machine.
+	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance"`
+}
+
+// Validate validates the APIMachineDpuReprovisionRequest
+func (amdrr *APIMachineDpuReprovisionRequest) Validate() error {
+	return validation.ValidateStruct(amdrr,
+		validation.Field(&amdrr.Mode,
 			validation.Required.Error(validationErrorValueRequired),
-			validation.In(validDpuReprovisionModesAny...).Error(fmt.Sprintf("must be one of %v", validDpuReprovisionModes))),
+			validation.In(MachineDpuReprovisionModeSet, MachineDpuReprovisionModeClear, MachineDpuReprovisionModeRestart).Error(fmt.Sprintf("must be one of %v", MachineDpuReprovisionModeValues))),
 	)
 }
 
-func (r *APIDpuReprovisionRequest) ToProto(machineID string) *cwssaws.DpuReprovisioningRequest {
-	return &cwssaws.DpuReprovisioningRequest{
-		MachineId: &cwssaws.MachineId{Id: machineID},
-		Mode:      dpuReprovisionModeToProto(r.Mode),
-		// TODO: Add end user initiator
-		Initiator:      cwssaws.UpdateInitiator_AdminCli,
-		UpdateFirmware: r.UpdateFirmware,
-	}
-}
-
-func dpuReprovisionModeToProto(mode string) cwssaws.DpuReprovisioningRequest_Mode {
-	switch mode {
-	case DpuReprovisionModeClear:
-		return cwssaws.DpuReprovisioningRequest_Clear
-	case DpuReprovisionModeRestart:
-		return cwssaws.DpuReprovisioningRequest_Restart
-	default:
-		return cwssaws.DpuReprovisioningRequest_Set
+// ToProto converts the APIMachineDpuReprovisionRequest to a Core gRPC DpuReprovisioningRequest
+func (amdrr *APIMachineDpuReprovisionRequest) ToProto(machineID string) *corev1.DpuReprovisioningRequest {
+	return &corev1.DpuReprovisioningRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
+		Mode:      MachineDpuReprovisionMode(amdrr.Mode).ToProto(),
+		// TODO: Add end user initiator in Core gRPC API
+		Initiator:      corev1.UpdateInitiator_AdminCli,
+		UpdateFirmware: amdrr.UpdateFirmware,
 	}
 }

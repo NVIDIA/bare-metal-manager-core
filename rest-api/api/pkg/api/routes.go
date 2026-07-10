@@ -11,7 +11,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	apiHandler "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 )
@@ -570,27 +570,27 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		{
 			Path:    apiPathPrefix + "/machine/:id/dpu/reprovision",
 			Method:  http.MethodPatch,
-			Handler: apiHandler.NewDpuReprovisionHandler(dbSession, scp, cfg),
+			Handler: apiHandler.NewReprovisionMachineDpuHandler(dbSession, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/machine/:id/bmc-reset",
-			Method:  http.MethodPost,
-			Handler: apiHandler.NewBmcResetHandler(dbSession, scp, cfg),
+			Path:    apiPathPrefix + "/machine/:id/bmc/reset",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewResetMachineBMCHandler(dbSession, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/machine/:id/health-report",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewListMachineHealthReportHandler(dbSession, scp, cfg),
+			Handler: apiHandler.NewGetAllMachineHealthReportHandler(dbSession, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/machine/:id/health-report",
 			Method:  http.MethodPut,
-			Handler: apiHandler.NewInsertMachineHealthReportHandler(dbSession, scp, cfg),
+			Handler: apiHandler.NewCreateOrUpdateMachineHealthReportHandler(dbSession, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/machine/:id/health-report/:source",
 			Method:  http.MethodDelete,
-			Handler: apiHandler.NewRemoveMachineHealthReportHandler(dbSession, scp, cfg),
+			Handler: apiHandler.NewDeleteMachineHealthReportHandler(dbSession, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/machine/:id/power",
@@ -1128,7 +1128,7 @@ func NewWellKnownRoutes(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.
 		{
 			Path:    apiPathPrefix + "/site/:siteID/.well-known/jwks.json",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetJWKSHandler(dbSession, scp, cwssaws.JwksKind_Oidc),
+			Handler: apiHandler.NewGetJWKSHandler(dbSession, scp, corev1.JwksKind_Oidc),
 		},
 		{
 			Path:    apiPathPrefix + "/site/:siteID/.well-known/openid-configuration",
@@ -1138,7 +1138,7 @@ func NewWellKnownRoutes(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.
 		{
 			Path:    apiPathPrefix + "/site/:siteID/.well-known/spiffe/jwks.json",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetJWKSHandler(dbSession, scp, cwssaws.JwksKind_Spiffe),
+			Handler: apiHandler.NewGetJWKSHandler(dbSession, scp, corev1.JwksKind_Spiffe),
 		},
 	}
 }

@@ -8,9 +8,9 @@ import (
 	"errors"
 	"time"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/rs/zerolog/log"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -25,7 +25,7 @@ type ManageSSHKeyGroupInventory struct {
 func (mmi *ManageSSHKeyGroupInventory) DiscoverSSHKeyGroupInventory(ctx context.Context) error {
 	logger := log.With().Str("Activity", "DiscoverSSHKeyGroupInventory").Logger()
 	logger.Info().Msg("Starting activity")
-	inventoryImpl := manageInventoryImpl[*cwssaws.TenantKeysetIdentifier, *cwssaws.TenantKeyset, *cwssaws.SSHKeyGroupInventory]{
+	inventoryImpl := manageInventoryImpl[*corev1.TenantKeysetIdentifier, *corev1.TenantKeyset, *corev1.SSHKeyGroupInventory]{
 		itemType:               "SSHKeyGroup",
 		config:                 mmi.config,
 		internalFindIDs:        sshKeyGroupFindIDs,
@@ -42,18 +42,18 @@ func NewManageSSHKeyGroupInventory(config ManageInventoryConfig) ManageSSHKeyGro
 	}
 }
 
-func sshKeyGroupFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.TenantKeysetIdentifier, error) {
+func sshKeyGroupFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*corev1.TenantKeysetIdentifier, error) {
 	grpcServiceClient := grpcClient.GrpcServiceClient()
-	idList, err := grpcServiceClient.FindTenantKeysetIds(ctx, &cwssaws.TenantKeysetSearchFilter{})
+	idList, err := grpcServiceClient.FindTenantKeysetIds(ctx, &corev1.TenantKeysetSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
 	return idList.GetKeysetIds(), nil
 }
 
-func sshKeyGroupFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.TenantKeysetIdentifier) ([]*cwssaws.TenantKeyset, error) {
+func sshKeyGroupFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*corev1.TenantKeysetIdentifier) ([]*corev1.TenantKeyset, error) {
 	grpcServiceClient := grpcClient.GrpcServiceClient()
-	list, err := grpcServiceClient.FindTenantKeysetsByIds(ctx, &cwssaws.TenantKeysetsByIdsRequest{
+	list, err := grpcServiceClient.FindTenantKeysetsByIds(ctx, &corev1.TenantKeysetsByIdsRequest{
 		KeysetIds: ids,
 	})
 	if err != nil {
@@ -62,14 +62,14 @@ func sshKeyGroupFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClien
 	return list.GetKeyset(), nil
 }
 
-func sshKeyGroupPagedInventory(allItemIDs []*cwssaws.TenantKeysetIdentifier, pagedItems []*cwssaws.TenantKeyset, input *pagedInventoryInput) *cwssaws.SSHKeyGroupInventory {
+func sshKeyGroupPagedInventory(allItemIDs []*corev1.TenantKeysetIdentifier, pagedItems []*corev1.TenantKeyset, input *pagedInventoryInput) *corev1.SSHKeyGroupInventory {
 	itemIDs := []string{}
 	for _, id := range allItemIDs {
 		itemIDs = append(itemIDs, id.GetKeysetId())
 	}
 
 	// Create an inventory page
-	inventory := &cwssaws.SSHKeyGroupInventory{
+	inventory := &corev1.SSHKeyGroupInventory{
 		TenantKeysets: pagedItems,
 		Timestamp: &timestamppb.Timestamp{
 			Seconds: time.Now().Unix(),
@@ -97,7 +97,7 @@ func NewManageSSHKeyGroup(coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient) Ma
 }
 
 // Function to create SSH Key Group with NICo
-func (mmi *ManageSSHKeyGroup) CreateSSHKeyGroupOnSite(ctx context.Context, request *cwssaws.CreateTenantKeysetRequest) error {
+func (mmi *ManageSSHKeyGroup) CreateSSHKeyGroupOnSite(ctx context.Context, request *corev1.CreateTenantKeysetRequest) error {
 	logger := log.With().Str("Activity", "CreateSSHKeyGroupOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -138,7 +138,7 @@ func (mmi *ManageSSHKeyGroup) CreateSSHKeyGroupOnSite(ctx context.Context, reque
 }
 
 // Function to Update SSH Key Group with NICo
-func (mmi *ManageSSHKeyGroup) UpdateSSHKeyGroupOnSite(ctx context.Context, request *cwssaws.UpdateTenantKeysetRequest) error {
+func (mmi *ManageSSHKeyGroup) UpdateSSHKeyGroupOnSite(ctx context.Context, request *corev1.UpdateTenantKeysetRequest) error {
 	logger := log.With().Str("Activity", "UpdateSSHKeyGroupOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -179,7 +179,7 @@ func (mmi *ManageSSHKeyGroup) UpdateSSHKeyGroupOnSite(ctx context.Context, reque
 }
 
 // Function to Delete SSH Key Group with NICo
-func (mmi *ManageSSHKeyGroup) DeleteSSHKeyGroupOnSite(ctx context.Context, request *cwssaws.DeleteTenantKeysetRequest) error {
+func (mmi *ManageSSHKeyGroup) DeleteSSHKeyGroupOnSite(ctx context.Context, request *corev1.DeleteTenantKeysetRequest) error {
 	logger := log.With().Str("Activity", "DeleteSSHKeyGroupOnSite").Logger()
 
 	logger.Info().Msg("Starting activity")
