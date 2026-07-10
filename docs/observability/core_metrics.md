@@ -68,6 +68,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_machine_validation_failed</td><td>gauge</td><td>Count of machine validation that have failed</td></tr>
 <tr><td>carbide_machine_validation_in_progress</td><td>gauge</td><td>Count of machine validation that are in progress</td></tr>
 <tr><td>carbide_machine_validation_oldest_active_age_seconds</td><td>gauge</td><td>Age in seconds of the oldest active machine validation run</td></tr>
+<tr><td>carbide_machine_validation_outcomes_total</td><td>counter</td><td>Number of machine validation runs that completed as passed or failed, by outcome and failure cause; runs skipped by a disabled validation config are not counted</td></tr>
 <tr><td>carbide_machine_validation_stale_runs_count</td><td>gauge</td><td>Count of active machine validation runs considered stale</td></tr>
 <tr><td>carbide_machine_validation_tests</td><td>gauge</td><td>The details of machine validation tests</td></tr>
 <tr><td>carbide_machines_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_machines in the system</td></tr>
@@ -87,10 +88,12 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_machines_total</td><td>gauge</td><td>The total number of carbide_machines in the system</td></tr>
 <tr><td>carbide_machines_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_machines in the system with a given state that failed state handling</td></tr>
 <tr><td>carbide_measured_boot_bundles_total</td><td>gauge</td><td>The total number of measured boot bundles.</td></tr>
+<tr><td>carbide_measured_boot_collector_iteration_latency_milliseconds</td><td>histogram</td><td>Number of milliseconds a full measured boot metrics collector iteration took, by outcome</td></tr>
 <tr><td>carbide_measured_boot_machines_per_bundle_state_total</td><td>gauge</td><td>The total number of machines per a given measured boot bundle state.</td></tr>
 <tr><td>carbide_measured_boot_machines_per_machine_state_total</td><td>gauge</td><td>The total number of machines per a given measured boot machine state.</td></tr>
 <tr><td>carbide_measured_boot_machines_total</td><td>gauge</td><td>The total number of machines reporting measurements.</td></tr>
 <tr><td>carbide_measured_boot_profiles_total</td><td>gauge</td><td>The total number of measured boot profiles.</td></tr>
+<tr><td>carbide_measured_boot_verification_failures_total</td><td>counter</td><td>Number of measured boot verification failures, across quote verification and attestation handling, by cause</td></tr>
 <tr><td>carbide_network_segments_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_network_segments in the system</td></tr>
 <tr><td>carbide_network_segments_handler_latency_in_state_milliseconds</td><td>histogram</td><td>The amount of time it took to invoke the state handler for objects of type carbide_network_segments in a certain state</td></tr>
 <tr><td>carbide_network_segments_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_network_segments</td></tr>
