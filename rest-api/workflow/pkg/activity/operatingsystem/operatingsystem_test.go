@@ -694,6 +694,58 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		assert.Nil(t, unchanged.InfrastructureProviderID, "ownership must not be reassigned to the provider")
 	})
 
+	t.Run("skips timestamp-based update when reported Updated is invalid", func(t *testing.T) {
+		// A missing/invalid Updated from the Site must not drive a definition update:
+		// coreUpdated.After(...) stays false and, with no other reconciliation reason,
+		// the existing definition is preserved (a warning is logged for visibility).
+		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-badts", "provider-badts-org", ipu)
+		st := util.TestBuildSite(t, dbSession, ip, "site-badts", cdbm.SiteStatusRegistered, nil, ipu)
+
+		osID := uuid.New()
+		_, err := osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
+			ID:                       osID,
+			Name:                     "existing-badts-os",
+			Org:                      st.Org,
+			InfrastructureProviderID: &ip.ID,
+			OsType:                   cdbm.OperatingSystemTypeIPXE,
+			IpxeScript:               cutil.GetPtr("#!ipxe\n"),
+			IpxeOsScope:              cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
+			Status:                   cdbm.OperatingSystemStatusReady,
+			CreatedBy:                ipu.ID,
+		})
+		require.NoError(t, err)
+		_, err = ossaDAO.Create(ctx, nil, cdbm.OperatingSystemSiteAssociationCreateInput{
+			OperatingSystemID: osID, SiteID: st.ID, Status: cdbm.OperatingSystemSiteAssociationStatusSynced, CreatedBy: ipu.ID,
+		})
+		require.NoError(t, err)
+
+		// Report the OS with a new name but an invalid Updated timestamp. The provider,
+		// org and is_active already match, so no other reconciliation reason applies and
+		// the rename must be ignored.
+		inventory := &corev1.OperatingSystemInventory{
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{
+				{
+					Id:       &corev1.OperatingSystemId{Value: osID.String()},
+					Name:     "renamed-should-not-apply",
+					Type:     corev1.OperatingSystemType_OS_TYPE_IPXE,
+					Status:   corev1.TenantState_READY,
+					IsActive: true,
+					Updated:  "not-a-timestamp",
+				},
+			},
+			Timestamp: timestamppb.Now(),
+		}
+
+		err = newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, inventory)
+		require.NoError(t, err)
+
+		unchanged, err := osDAO.GetByID(ctx, nil, osID, nil)
+		require.NoError(t, err)
+		require.NotNil(t, unchanged)
+		assert.Equal(t, "existing-badts-os", unchanged.Name, "invalid Updated must not drive a definition update")
+	})
+
 	t.Run("soft-deletes Local iPXE OS absent from Site inventory", func(t *testing.T) {
 		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-delete", "provider-delete-org", ipu)
 		st := util.TestBuildSite(t, dbSession, ip, "site-delete", cdbm.SiteStatusRegistered, nil, ipu)

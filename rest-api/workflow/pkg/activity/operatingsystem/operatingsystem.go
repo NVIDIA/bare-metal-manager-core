@@ -496,7 +496,15 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 
 		slogger := logger.With().Str("ControllerOperatingSystemID", reportedOSID.String()).Logger()
 
-		coreUpdated, _ := time.Parse(time.RFC3339, reportedOS.Updated)
+		// A missing or malformed Updated yields the zero time, so the
+		// coreUpdated.After(existingOS.Updated) check below stays false and no
+		// timestamp-driven definition update is performed for this OS this cycle
+		// (other reconciliation reasons still apply). Log it so bad input from the
+		// Site is visible rather than silently suppressing updates.
+		coreUpdated, tsErr := time.Parse(time.RFC3339, reportedOS.Updated)
+		if tsErr != nil {
+			slogger.Warn().Err(tsErr).Str("Updated", reportedOS.Updated).Msg("Operating System has missing/invalid Updated timestamp from Site; skipping timestamp-based definition update")
+		}
 
 		ipxeTemplateParams := []cdbm.OperatingSystemIpxeParameter{}
 		for _, param := range reportedOS.IpxeTemplateParameters {
