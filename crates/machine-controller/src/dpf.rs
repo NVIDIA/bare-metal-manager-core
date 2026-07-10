@@ -87,9 +87,22 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     async fn reboot_complete(&self, node_name: &str) -> Result<(), DpfError>;
 
     /// Resolve the deployment type of a DPU based on its hardware (BF3 vs BF4).
-    /// Returns `Err` when the part number is absent or does not match any known generation,
-    /// so unrecognized hardware never silently routes to a wrong deployment.
-    fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError>;
+    ///
+    /// BF4-class DPUs route to a per-PSID DPUDeployment, and the PSID is only
+    /// available out-of-band once the DPF operator has populated the DPUDevice's
+    /// `status.psid`. Returns `Ok(None)` for a BF4 DPU whose PSID is not yet
+    /// available (caller should wait and retry), `Ok(Some(_))` once resolved.
+    /// Returns `Err` when the part number is absent or matches no known
+    /// generation, so unrecognized hardware never silently routes wrong.
+    async fn deployment_type_for_dpu(
+        &self,
+        dpu: &Machine,
+    ) -> Result<Option<DpuDeploymentType>, DpfError>;
+
+    /// Read the PSID reported in a DPUDevice's `status.psid`, or `None` if the
+    /// device does not exist yet or the DPF operator has not populated it.
+    /// `dpu_device_name` is the raw device id (without the `device-` prefix).
+    async fn dpu_device_psid(&self, dpu_device_name: &str) -> Result<Option<String>, DpfError>;
 
     /// Check that a DPUNode's labels match the current expected labels.
     /// Returns `false` when the node exists but has stale labels.
@@ -532,7 +545,10 @@ impl DpfOperations for DpfSdkOps {
         self.sdk.reboot_complete(node_name).await
     }
 
-    fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError> {
+    async fn deployment_type_for_dpu(
+        &self,
+        dpu: &Machine,
+    ) -> Result<Option<DpuDeploymentType>, DpfError> {
         let part_number = dpu
             .hardware_info
             .as_ref()
@@ -547,15 +563,28 @@ impl DpfOperations for DpfSdkOps {
             )));
         }
         if is_bf3_dpu_part_number(part_number) {
-            Ok(DpuDeploymentType::Bf3)
+            Ok(Some(DpuDeploymentType::Bf3))
         } else if is_bf4_dpu_part_number(part_number) {
-            Ok(DpuDeploymentType::Bf4Generic)
+            // BF4 routes per-PSID; the PSID is discovered out-of-band by the DPF
+            // operator and written to the DPUDevice `status.psid`. Read it from
+            // there — `None` means it is not populated yet, so the caller waits.
+            let device_id = dpu.dpf_id().ok_or_else(|| {
+                DpfError::InvalidState(format!("BMC MAC is not set for machine {}", dpu.id))
+            })?;
+            match self.sdk.dpu_device_psid(&device_id).await? {
+                Some(psid) => Ok(Some(DpuDeploymentType::Bf4Generic { psid })),
+                None => Ok(None),
+            }
         } else {
             Err(DpfError::InvalidState(format!(
                 "cannot determine DPU deployment type for machine {}: unrecognized part number {part_number:?}",
                 dpu.id,
             )))
         }
+    }
+
+    async fn dpu_device_psid(&self, dpu_device_name: &str) -> Result<Option<String>, DpfError> {
+        self.sdk.dpu_device_psid(dpu_device_name).await
     }
 
     async fn verify_node_labels(

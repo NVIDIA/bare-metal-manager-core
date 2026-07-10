@@ -26,6 +26,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::crds::bfbs_generated::{BFB, BfbSpec};
+use crate::crds::bluefieldsoftwares_generated::{BlueFieldSoftware, BlueFieldSoftwareSpec};
 use crate::crds::dpudeployments_generated::{
     DPUDeployment, DpuDeploymentDpus, DpuDeploymentDpusDpuSetStrategy,
     DpuDeploymentDpusDpuSetStrategyType, DpuDeploymentDpusDpuSets,
@@ -69,16 +70,17 @@ use crate::crds::dpuservicetemplates_generated::{
 };
 use crate::error::DpfError;
 use crate::repository::{
-    BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuDeviceRepository,
-    DpuFlavorRepository, DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository,
+    BfbRepository, BlueFieldSoftwareRepository, DpfOperatorConfigRepository,
+    DpuDeploymentRepository, DpuDeviceRepository, DpuFlavorRepository,
+    DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository,
     DpuServiceConfigurationRepository, DpuServiceNADRepository, DpuServiceTemplateRepository,
     K8sConfigRepository,
 };
 use crate::types::{
-    BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpfProxyDetails, DpuDeploymentType, DpuDeviceInfo,
-    DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary, DpuPhase,
-    DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuSummary,
+    BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME,
+    DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpfProxyDetails,
+    DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary,
+    DpuPhase, DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuSummary,
     FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME,
     ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
@@ -86,6 +88,7 @@ use crate::watcher::DpuWatcherBuilder;
 
 const SECRET_NAME: &str = "bmc-shared-password";
 const BFB_NAME_PREFIX: &str = "bf-bundle";
+const BLUEFIELD_SOFTWARE_NAME_PREFIX: &str = "bf-software";
 /// Label set by the DPF operator on each DPU CR pointing back to its owning
 /// DPUDeployment. Value format: `<namespace>_<deployment_name>`.
 const DPU_OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
@@ -269,6 +272,7 @@ where
 impl<R, P, L> DpfSdkBuilder<'_, R, P, L>
 where
     R: BfbRepository
+        + BlueFieldSoftwareRepository
         + DpuFlavorRepository
         + DpuDeploymentRepository
         + DpuServiceTemplateRepository
@@ -458,6 +462,63 @@ async fn create_bfb<R: BfbRepository>(
     }
 }
 
+/// Reference to the resource a DPUDeployment provisions DPUs from. Exactly one
+/// variant is populated per deployment, matching the DPUDeployment CRD rule that
+/// exactly one of `spec.dpus.bfb` / `spec.dpus.blueFieldSoftware` be set.
+pub enum DpuProvisioningSource {
+    /// Name of a `BFB` CR (BF3-class DPUs).
+    Bfb(String),
+    /// Name of a `BlueFieldSoftware` CR (BF4-class DPUs).
+    BlueFieldSoftware(String),
+}
+
+/// Creates a `BlueFieldSoftware` CR with a hash-derived name
+/// (`{prefix}-{sha256(os_iso[+pldm_fw_bundle])}`). Like [`create_bfb`], any
+/// change to the spec produces a new name so DPUs are detected as outdated.
+/// Idempotent: an already-existing CR with the same name is reused.
+async fn create_bluefield_software<R: BlueFieldSoftwareRepository>(
+    repo: &R,
+    namespace: &str,
+    params: &BlueFieldSoftwareParams,
+) -> Result<String, DpfError> {
+    let mut hasher = Sha256::new();
+    hasher.update(params.os_iso.as_bytes());
+    if let Some(pldm) = params.pldm_fw_bundle.as_deref() {
+        hasher.update(b"\0");
+        hasher.update(pldm.as_bytes());
+    }
+    let name = format!(
+        "{}-{}",
+        BLUEFIELD_SOFTWARE_NAME_PREFIX,
+        hex::encode(hasher.finalize())
+    );
+
+    let bfs = BlueFieldSoftware {
+        metadata: ObjectMeta {
+            name: Some(name.clone()),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        spec: BlueFieldSoftwareSpec {
+            os_iso: params.os_iso.clone(),
+            pldm_fw_bundle: params.pldm_fw_bundle.clone(),
+            nic_fw: None,
+            platform_pldm_fw_bundle: None,
+        },
+        status: None,
+    };
+    match BlueFieldSoftwareRepository::create(repo, &bfs).await {
+        Ok(_) => Ok(name),
+        Err(DpfError::KubeError(kube::Error::Api(ref err)))
+            if err.is_already_exists() || err.is_conflict() =>
+        {
+            tracing::debug!(bluefield_software = %name, "BlueFieldSoftware already exists, reusing");
+            Ok(name)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Creates a DPUFlavor with a hash-derived name (`{default_flavor_name}-{spec_hash}`).
 /// Any change in the spec produces a different hash and therefore a new flavor name, which
 /// causes MachineUpdateManager to detect the DPUs as outdated and trigger reprovisioning.
@@ -466,7 +527,7 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
     namespace: &str,
     default_flavor_name: &str,
     proxy: &Option<DpfProxyDetails>,
-    deployment_type: DpuDeploymentType,
+    deployment_type: &DpuDeploymentType,
 ) -> Result<String, DpfError> {
     let mut flavor = crate::flavor::default_flavor_for(namespace, proxy, deployment_type)?;
     let name = flavor.unique_name(default_flavor_name)?;
@@ -662,7 +723,7 @@ pub fn build_service_nad(svc: &ServiceDefinition, namespace: &str) -> Option<DPU
 pub fn build_deployment(
     services: &[ServiceDefinition],
     deployment_name: &str,
-    bfb_name: &str,
+    source: &DpuProvisioningSource,
     flavor_name: &str,
     namespace: &str,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
@@ -770,7 +831,10 @@ pub fn build_deployment(
         },
         spec: DpuDeploymentSpec {
             dpus: DpuDeploymentDpus {
-                bfb: Some(bfb_name.to_string()),
+                bfb: match source {
+                    DpuProvisioningSource::Bfb(name) => Some(name.clone()),
+                    DpuProvisioningSource::BlueFieldSoftware(_) => None,
+                },
                 dpu_sets: Some(vec![DpuDeploymentDpusDpuSets {
                     dpu_annotations: None,
                     dpu_selector: None,
@@ -799,7 +863,10 @@ pub fn build_deployment(
                 },
                 secure_boot: None,
                 astra_enabled: None,
-                blue_field_software: None,
+                blue_field_software: match source {
+                    DpuProvisioningSource::Bfb(_) => None,
+                    DpuProvisioningSource::BlueFieldSoftware(name) => Some(name.clone()),
+                },
                 flavor_template: None,
             },
             revision_history_limit: None,
@@ -1084,10 +1151,10 @@ async fn create_flavor_services_and_deployment<
     labeler: &L,
     services: &[ServiceDefinition],
     deployment_name: &str,
-    bfb_name: &str,
+    source: &DpuProvisioningSource,
     default_flavor_name: &str,
     proxy: &Option<DpfProxyDetails>,
-    deployment_type: DpuDeploymentType,
+    deployment_type: &DpuDeploymentType,
 ) -> Result<(), DpfError> {
     let flavor_name =
         create_dpu_flavor(repo, namespace, default_flavor_name, proxy, deployment_type).await?;
@@ -1108,11 +1175,12 @@ async fn create_flavor_services_and_deployment<
         }
     }
 
-    let deployment_node_labels = labeler.node_labels_for_deployment_type(deployment_type)?;
+    let deployment_node_labels =
+        labeler.node_labels_for_deployment_type(deployment_type.clone())?;
     let deployment = build_deployment(
         services,
         deployment_name,
-        bfb_name,
+        source,
         &flavor_name,
         namespace,
         &interfaces,
@@ -1124,6 +1192,7 @@ async fn create_flavor_services_and_deployment<
 
 impl<
     R: BfbRepository
+        + BlueFieldSoftwareRepository
         + DpuFlavorRepository
         + DpuDeploymentRepository
         + DpuServiceTemplateRepository
@@ -1137,16 +1206,24 @@ impl<
 {
     /// Create all initialization CRDs for the "Provision a DPU" flow.
     ///
-    /// Order: BFB (BFB controller downloads), DPUFlavor, DPUDeployment with
-    /// `dpu_sets` referencing BFB and DPUFlavor. The operator then creates
-    /// DPU objects and drives provisioning.
+    /// Order: provisioning source (BFB for BF3, or BlueFieldSoftware for BF4 —
+    /// the controller downloads either), DPUFlavor, DPUDeployment with
+    /// `dpu_sets` referencing the source and DPUFlavor. The operator then
+    /// creates DPU objects and drives provisioning.
     ///
     /// See: https://docs.nvidia.com/networking/display/dpf2507/component+description#ProvisionaDPU
     pub async fn create_initialization_objects(
         &self,
         config: &InitDpfResourcesConfig,
     ) -> Result<(), DpfError> {
-        let bfb_name = create_bfb(&*self.repo, &self.namespace, &config.bfb_url).await?;
+        let source = match &config.bluefield_software {
+            Some(params) => DpuProvisioningSource::BlueFieldSoftware(
+                create_bluefield_software(&*self.repo, &self.namespace, params).await?,
+            ),
+            None => DpuProvisioningSource::Bfb(
+                create_bfb(&*self.repo, &self.namespace, &config.bfb_url).await?,
+            ),
+        };
         let services = if config.services.is_empty() {
             crate::services::default_services(&crate::services::ServiceRegistryConfig::default())
         } else {
@@ -1158,10 +1235,10 @@ impl<
             &self.labeler,
             &services,
             &config.deployment_name,
-            &bfb_name,
+            &source,
             &config.flavor_name,
             &config.proxy,
-            config.deployment_type,
+            &config.deployment_type,
         )
         .await?;
 
@@ -1260,6 +1337,22 @@ impl<R: DpuDeviceRepository, L: ResourceLabeler> DpfSdk<R, L> {
         let cr_name = dpu_device_cr_name(dpu_device_name);
         DpuDeviceRepository::delete(&*self.repo, &cr_name, &self.namespace).await
     }
+
+    /// Read the PSID reported in a DPUDevice's `status`. `dpu_device_name` is the
+    /// raw device ID (without the `device-` CR prefix).
+    ///
+    /// The DPF operator discovers the PSID out-of-band (via the BMC) and writes
+    /// it to `status.psid` after the DPUDevice CR is created, so this returns
+    /// `Ok(None)` until the device exists and has been reconciled. BF4-class DPUs
+    /// use this PSID to select their per-PSID DPUDeployment.
+    pub async fn dpu_device_psid(&self, dpu_device_name: &str) -> Result<Option<String>, DpfError> {
+        let cr_name = dpu_device_cr_name(dpu_device_name);
+        let device = DpuDeviceRepository::get(&*self.repo, &cr_name, &self.namespace).await?;
+        Ok(device
+            .and_then(|d| d.status)
+            .and_then(|s| s.psid)
+            .filter(|psid| !psid.is_empty()))
+    }
 }
 
 impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
@@ -1278,7 +1371,7 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
                 labels: {
                     let mut labels = self
                         .labeler
-                        .node_labels_for_deployment_type(info.deployment_type)?;
+                        .node_labels_for_deployment_type(info.deployment_type.clone())?;
                     labels.extend(self.labeler.node_context_labels(&info));
                     if labels.is_empty() {
                         None
@@ -1521,9 +1614,27 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
                     return None;
                 };
 
-                // TODO: Compare either bfb or bluefield_software
-                let expected_bfb_cr_name = deployment.spec.dpus.bfb.clone().unwrap_or_default();
                 let expected_flavor = deployment.spec.dpus.flavor.clone().unwrap_or_default();
+                let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
+
+                // BF4-class deployments provision from a BlueFieldSoftware CR
+                // (`spec.dpus.bfb` is unset) rather than a BFB. We have no
+                // BFB filename to compare against in that case, so only the
+                // flavor is checked to avoid falsely flagging every BF4 DPU as
+                // outdated.
+                // TODO: compare the installed BlueFieldSoftware version once the
+                // DPU status exposes it, so BF4 software changes trigger reprovisioning.
+                let Some(expected_bfb_cr_name) = deployment.spec.dpus.bfb.clone() else {
+                    if flavor_matches {
+                        return None;
+                    }
+                    return Some(DpuMismatch {
+                        dpu_cr_name: cr_name,
+                        dpu_labels: dpu.metadata.labels.clone().unwrap_or_default(),
+                        target_bfb: String::new(),
+                    });
+                };
+
                 let expected_filename = format!("{}-{}.bfb", self.namespace, expected_bfb_cr_name);
 
                 let current_basename = dpu
@@ -1532,7 +1643,6 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
                     .and_then(|s| s.bfb_file.as_deref())
                     .map(bfb_file_basename);
                 let bfb_matches = current_basename == Some(expected_filename.as_str());
-                let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
                 if bfb_matches && flavor_matches {
                     return None;
                 }
@@ -1890,7 +2000,7 @@ mod tests {
         let deployment = build_deployment(
             &services,
             "dep",
-            "bfb",
+            &DpuProvisioningSource::Bfb("bfb".to_string()),
             "flavor",
             TEST_NAMESPACE,
             &[],
@@ -2181,7 +2291,6 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2233,7 +2342,6 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2327,7 +2435,6 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2364,7 +2471,6 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk.register_dpu_device(info).await.unwrap();
@@ -2484,7 +2590,6 @@ mod tests {
             serial_number: "SN123".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_device(device_info).await.unwrap();
 
@@ -2588,7 +2693,6 @@ mod tests {
             serial_number: "SN111".to_string(),
             dpu_machine_id: "dpu-111".to_string(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
 
         let info2 = DpuDeviceInfo {
@@ -2598,7 +2702,6 @@ mod tests {
             serial_number: "SN222".to_string(),
             dpu_machine_id: "dpu-222".to_string(),
             is_primary: false,
-            deployment_type: DpuDeploymentType::Bf3,
         };
 
         sdk1.register_dpu_device(info1).await.unwrap();
@@ -2762,7 +2865,6 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
         let err = sdk.register_dpu_device(info).await.unwrap_err();
         assert!(
@@ -2812,7 +2914,6 @@ mod tests {
             serial_number: "SN123456".to_string(),
             dpu_machine_id: "dpu-bbb".to_string(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_device(info).await.unwrap();
     }
@@ -2902,7 +3003,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
-            DpuDeploymentType::Bf3,
+            &DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();
@@ -2939,7 +3040,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &proxy,
-            DpuDeploymentType::Bf3,
+            &DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();
@@ -2991,7 +3092,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
-            DpuDeploymentType::Bf3,
+            &DpuDeploymentType::Bf3,
         )
         .await
         .unwrap_err();
@@ -3023,7 +3124,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
-            DpuDeploymentType::Bf3,
+            &DpuDeploymentType::Bf3,
         )
         .await
         .unwrap_err();
@@ -3053,7 +3154,7 @@ mod tests {
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
             &None,
-            DpuDeploymentType::Bf3,
+            &DpuDeploymentType::Bf3,
         )
         .await
         .unwrap();

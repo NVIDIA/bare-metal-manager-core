@@ -24,6 +24,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::crds::bfbs_generated::BFB;
+use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
 use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
@@ -46,6 +47,20 @@ pub trait BfbRepository: Send + Sync {
     async fn get(&self, name: &str, namespace: &str) -> Result<Option<BFB>, DpfError>;
     async fn list(&self, namespace: &str) -> Result<Vec<BFB>, DpfError>;
     async fn create(&self, bfb: &BFB) -> Result<BFB, DpfError>;
+    async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError>;
+}
+
+/// Repository for BlueFieldSoftware resources.
+///
+/// BF4-class DPUs are provisioned from a `BlueFieldSoftware` CR (OS ISO +
+/// firmware bundle) rather than a BFB, so this repository mirrors
+/// [`BfbRepository`] for that resource.
+#[async_trait]
+pub trait BlueFieldSoftwareRepository: Send + Sync {
+    async fn get(&self, name: &str, namespace: &str)
+    -> Result<Option<BlueFieldSoftware>, DpfError>;
+    async fn list(&self, namespace: &str) -> Result<Vec<BlueFieldSoftware>, DpfError>;
+    async fn create(&self, bfs: &BlueFieldSoftware) -> Result<BlueFieldSoftware, DpfError>;
     async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError>;
 }
 
@@ -266,6 +281,7 @@ pub trait DpfOperatorConfigRepository: Send + Sync {
 /// enabling the SDK to work with any backend (real K8s, mock, etc.).
 pub trait DpfRepository:
     BfbRepository
+    + BlueFieldSoftwareRepository
     + DpuRepository
     + DpuDeviceRepository
     + DpuNodeRepository

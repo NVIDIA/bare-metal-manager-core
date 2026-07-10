@@ -729,7 +729,6 @@ async fn run_provisioning_flow(
             serial_number: dpu.serial_number.clone(),
             dpu_machine_id: String::new(),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_device(info).await?;
         tracing::info!(device_name = %dpu.device_name, serial = %dpu.serial_number, "Registered device");
