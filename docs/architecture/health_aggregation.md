@@ -302,7 +302,7 @@ In certain conditions the scraping process will place a health alert on the host
 
 ## Health report overrides
 
-Site administrators can inspect and update the health state of a NICo managed host
+Site administrators can inspect and update the health state of a NICo-managed host
 through these REST operations:
 
 - `GET /v2/org/{org}/nico/machine/{machineId}/health-report` lists all reports.
@@ -312,9 +312,9 @@ through these REST operations:
 The override API offers 2 different modes of operation:
 
 1. `Merge` - In this mode, any health probe alerts indicated in the override
-  will get merged with health probe alerts reported by builtin NICo tools in order
+  will get merged with health probe alerts reported by built-in NICo tools in order
   to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
-2. `Replace` - In this mode, the health probe alerts reported by builtin NICo
+2. `Replace` - In this mode, the health probe alerts reported by built-in NICo
   monitoring tools will be ignored. Only alerts that are passed as part of the
   override will be taken into account. If the override list is empty, the system
   will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**

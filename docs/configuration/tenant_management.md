@@ -102,7 +102,7 @@ $ nicocli tenant current
 
 Check tenant health with the stats endpoint:
 
-```
+```text
 nicocli tenant stats
 ```
 
