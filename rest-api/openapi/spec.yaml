@@ -13899,7 +13899,7 @@ components:
       properties:
         mode:
           type: string
-          description: Use Set to start reprovisioning, Clear to remove a pending request, or Restart to restart DPUs that already have a request. Restart accepts a host Machine ID only.
+          description: Use `Set` to start reprovisioning, `Clear` to remove a pending request, or `Restart` to restart DPUs that already have a request. Restart accepts a host Machine ID only.
           enum:
             - Set
             - Clear

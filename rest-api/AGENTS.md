@@ -215,6 +215,8 @@ verification expectations.
   implementation details.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
   values, for example `SiteWideRoot` and `BMCRoot`.
+- When prose names exact API enum values, format the literals as code, for
+  example `Set`, `Clear`, and `Restart`, so they are distinct from verbs.
 - For disruptive machine operations, decide and encode the attached-Instance
   behavior explicitly. If an operation can power-cycle or otherwise disrupt a
   tenant workload, check `Machine.IsAssigned` (or the equivalent association)
