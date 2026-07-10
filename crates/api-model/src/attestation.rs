@@ -19,11 +19,19 @@ use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 
-/// Returned by a [`DpuDeviceIdentityResolver`] when the configured attestation
-/// mode is `required` but no verified hardware identity is available.
+/// Returned by a [`DpuDeviceIdentityResolver`] when resolution cannot proceed.
 #[derive(Debug, thiserror::Error)]
-#[error("DPU device identity required but unavailable: {0}")]
-pub struct DpuDeviceIdentityRequired(pub String);
+pub enum DpuDeviceIdentityError {
+    /// The configured attestation mode is `required` but no verified hardware
+    /// identity is available for a previously-unseen DPU.
+    #[error("DPU device identity required but unavailable: {0}")]
+    Required(String),
+    /// Resolution itself failed (e.g. a database error). Callers must treat
+    /// this as "try again later" — never as "the DPU is unknown", which would
+    /// re-key an already-enrolled DPU.
+    #[error("DPU device identity resolution failed: {0}")]
+    Internal(String),
+}
 
 /// Resolves a DPU's `machine_id` from its BlueField IRoT device-identity
 /// certificate chain.
@@ -36,15 +44,33 @@ pub struct DpuDeviceIdentityRequired(pub String);
 /// crate cycle.
 #[async_trait]
 pub trait DpuDeviceIdentityResolver: Send + Sync {
-    /// `irot_chain_pem` is the IRoT cert chain fetched from the DPU BMC, or
-    /// `None` if it could not be fetched. Returns the device-rooted id when the
-    /// chain verifies under the configured mode, otherwise `legacy_id`; or an
-    /// error in `required` mode when no verified identity is available.
+    /// Returns the id this DPU is already enrolled under, if any: either
+    /// `legacy_id` itself, or a device-rooted id previously adopted for the
+    /// same DPU (recorded in the device-identity binding). An enrolled DPU
+    /// keeps its id in every mode, so callers can skip the (expensive) IRoT
+    /// fetch entirely when this returns `Some`.
+    async fn enrolled_machine_id(
+        &self,
+        legacy_id: MachineId,
+    ) -> Result<Option<MachineId>, DpuDeviceIdentityError>;
+
+    /// Whether resolution can make use of a fetched IRoT chain (`false` when
+    /// the configured mode is `disabled`) — lets callers skip the expensive
+    /// BMC fetch for a DPU that turned out not to be enrolled.
+    fn wants_irot_chain(&self) -> bool;
+
+    /// Resolves the id for a DPU that [`Self::enrolled_machine_id`] did not
+    /// recognize. `irot_chain_pem` is the IRoT cert chain fetched from the DPU
+    /// BMC, or `None` if it could not be fetched; `legacy_id` is the
+    /// serial-derived id, or `None` when one could not be derived. Returns the
+    /// device-rooted id when the chain verifies under the configured mode,
+    /// otherwise `legacy_id`; or [`DpuDeviceIdentityError::Required`] in
+    /// `required` mode when no verified identity is available.
     async fn resolve_dpu_machine_id(
         &self,
         irot_chain_pem: Option<&str>,
-        legacy_id: MachineId,
-    ) -> Result<MachineId, DpuDeviceIdentityRequired>;
+        legacy_id: Option<MachineId>,
+    ) -> Result<Option<MachineId>, DpuDeviceIdentityError>;
 }
 
 #[derive(FromRow, Debug)]
@@ -90,6 +116,10 @@ pub struct DpuDeviceCaCert {
 #[derive(FromRow, Debug)]
 pub struct DpuDeviceCertStatus {
     pub machine_id: MachineId,
+    /// The legacy (serial-derived) id of the same DPU, when one could be
+    /// derived. Lets later resolutions recognize an already device-rooted
+    /// DPU even when the IRoT fetch transiently fails.
+    pub legacy_machine_id: Option<MachineId>,
     pub device_cert_sha256: Vec<u8>,
     pub device_serial: String,
     pub verified_at: DateTime<Utc>,
@@ -224,6 +254,20 @@ pub mod spdm {
         Unknown,
     }
 
+    /// SPDM `ComponentIntegrity` id of the BlueField DPU Initial Root of Trust —
+    /// the Arm/NIC device-identity target. (`Bluefield_ERoT` is the BMC's own
+    /// root of trust and is intentionally distinct.) Single source of truth for
+    /// every component that matches this id; always compare case-insensitively
+    /// (via [`is_bluefield_dpu_irot`]) because the vendor's casing is
+    /// inconsistent (brand "BlueField" vs Redfish id "Bluefield").
+    pub const BLUEFIELD_DPU_IROT_ID: &str = "Bluefield_DPU_IRoT";
+
+    /// Whether a Redfish `ComponentIntegrity` member id names the BlueField DPU
+    /// IRoT, matched case-insensitively.
+    pub fn is_bluefield_dpu_irot(component_id: &str) -> bool {
+        component_id.eq_ignore_ascii_case(BLUEFIELD_DPU_IROT_ID)
+    }
+
     impl FromStr for DeviceType {
         type Err = SpdmHandlerError;
         fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -233,7 +277,10 @@ pub mod spdm {
                 DeviceType::Gpu
             } else if s.contains("CX7") {
                 DeviceType::Cx7
-            } else if s.to_ascii_lowercase().contains("bluefield_dpu_irot") {
+            } else if s
+                .to_ascii_lowercase()
+                .contains(&BLUEFIELD_DPU_IROT_ID.to_ascii_lowercase())
+            {
                 DeviceType::BlueFieldIRoT
             } else {
                 DeviceType::Unknown

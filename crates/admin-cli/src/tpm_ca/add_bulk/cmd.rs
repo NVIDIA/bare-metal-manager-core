@@ -19,6 +19,7 @@ use std::fs;
 use std::path::Path;
 
 use super::super::add::cmd::add_individual;
+use crate::ca_cert_file::is_ca_cert_file;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
@@ -33,15 +34,8 @@ pub async fn add_bulk(dirname: &str, api_client: &ApiClient) -> CarbideCliResult
         .flatten();
 
     for dir_entry in dir_entry_iter {
-        if (dir_entry.path().with_extension("cer").is_file()
-            || dir_entry.path().with_extension("der").is_file())
-            && let Err(e) = add_individual(dir_entry.path().as_path(), false, api_client).await
-        {
-            // we log the error but continue the iteration
-            eprintln!("Could not add ca cert {dir_entry:?}: {e}");
-        }
-        if dir_entry.path().with_extension("pem").is_file()
-            && let Err(e) = add_individual(dir_entry.path().as_path(), true, api_client).await
+        if is_ca_cert_file(&dir_entry.path())
+            && let Err(e) = add_individual(dir_entry.path().as_path(), api_client).await
         {
             // we log the error but continue the iteration
             eprintln!("Could not add ca cert {dir_entry:?}: {e}");

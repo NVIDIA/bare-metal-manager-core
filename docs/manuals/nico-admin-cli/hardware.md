@@ -15,6 +15,7 @@ For global flags and setup, see [the overview](./README.md) and [`setup.md`](./s
 | [`dpa`](./commands/dpa/dpa.md) | DPA related handling. |
 | [`dpf`](./commands/dpf/dpf.md) | DPF-related commands. |
 | [`dpu`](./commands/dpu/dpu.md) | DPU specific handling. |
+| [`dpu-device-ca`](./commands/dpu-device-ca/dpu-device-ca.md) | Manage DPU device-identity (BlueField IRoT) CA certificates. |
 | [`dpu-remediation`](./commands/dpu-remediation/dpu-remediation.md) | Dpu Remediation handling. |
 | [`firmware`](./commands/firmware/firmware.md) | Firmware related actions. |
 | [`host`](./commands/host/host.md) | Host specific handling. |

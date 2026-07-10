@@ -20,6 +20,11 @@ CREATE TABLE dpu_device_ca_certs(
 CREATE TABLE dpu_device_cert_status(
     -- machine id assigned to the DPU
     machine_id text NOT NULL,
+    -- the legacy (serial-derived) id of the same DPU, when one could be
+    -- derived. Lets later resolutions recognize an already device-rooted DPU
+    -- even when the IRoT fetch transiently fails, so its identity never flaps
+    -- back to the legacy id.
+    legacy_machine_id text,
     -- sha256 of the verified leaf device certificate (DER)
     device_cert_sha256 BYTEA NOT NULL,
     -- device serial (leaf subject common name), for operator display
@@ -31,3 +36,8 @@ CREATE TABLE dpu_device_cert_status(
     PRIMARY KEY(machine_id),
     FOREIGN KEY(ca_id) REFERENCES dpu_device_ca_certs(id)
 );
+
+-- One binding per DPU: the legacy id maps to at most one device-rooted
+-- machine. (Postgres unique indexes permit multiple NULLs.)
+CREATE UNIQUE INDEX dpu_device_cert_status_legacy_machine_id
+    ON dpu_device_cert_status(legacy_machine_id);

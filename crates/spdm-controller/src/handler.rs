@@ -56,6 +56,51 @@ impl SpdmAttestationStateHandler {
     }
 }
 
+/// Verifies a fetched BlueField IRoT device certificate chain against the
+/// seeded NVIDIA device root CAs (`dpu_device_ca_certs`).
+///
+/// - Chain verifies → `Passed`.
+/// - Chain fails to parse or verify → `Failed`: a `Passed` status must mean the
+///   device identity actually chains to a trusted root.
+/// - Trust store empty → `Passed` with a warning: the site never seeded device
+///   roots (`nico-admin-cli dpu-device-ca add`), and failing every BlueField
+///   here would block machine lifecycles at sites that never opted into DPU
+///   device attestation.
+async fn verify_bluefield_irot_chain(
+    chain_pem: &str,
+    conn: &mut sqlx::PgConnection,
+) -> Result<SpdmAttestationState, StateHandlerError> {
+    let roots = db::attestation::dpu_device_ca_certs::get_all(&mut *conn).await?;
+    if roots.is_empty() {
+        tracing::warn!(
+            "no trusted DPU device root CAs seeded; accepting BlueField IRoT certificate chain without verification"
+        );
+        return Ok(SpdmAttestationState::Passed);
+    }
+
+    let roots_der: Vec<Vec<u8>> = roots.into_iter().map(|r| r.ca_cert_der).collect();
+    let outcome = model::dpu_device_attestation::pem_chain_to_der(chain_pem).and_then(|chain| {
+        model::dpu_device_attestation::verify_device_cert_chain(
+            &chain,
+            &roots_der,
+            chrono::Utc::now(),
+        )
+    });
+
+    Ok(match outcome {
+        Ok(verified) => {
+            tracing::info!(
+                "BlueField IRoT device certificate chain verified (device serial {})",
+                verified.device_serial
+            );
+            SpdmAttestationState::Passed
+        }
+        Err(e) => SpdmAttestationState::Failed(format!(
+            "BlueField IRoT device certificate chain failed verification: {e}"
+        )),
+    })
+}
+
 async fn redfish_client(
     bmc_info: &BmcInfo,
     ctx: &mut StateHandlerContext<'_, SpdmStateHandlerContextObjects>,
@@ -154,6 +199,20 @@ impl StateHandler for SpdmAttestationStateHandler {
                     .map_err(|error| redfish_error("fetch certificate", error))?;
 
                 let mut txn = ctx.services.db_pool.begin().await?;
+
+                // A BlueField DPU IRoT certificate chain is the device identity
+                // itself, not an NRAS measurement target: verify it against the
+                // seeded NVIDIA device roots here instead of the
+                // evidence-collection path, so `Passed` means the chain
+                // actually verified.
+                let next_state = match device_id.parse::<DeviceType>()? {
+                    DeviceType::BlueFieldIRoT => {
+                        verify_bluefield_irot_chain(&ca_certificate.certificate_string, &mut txn)
+                            .await?
+                    }
+                    _ => SpdmAttestationState::TriggerEvidenceCollection { retry_count: 0 },
+                };
+
                 db::attestation::spdm::update_certificate(
                     &mut txn,
                     &object_id.0,
@@ -162,15 +221,6 @@ impl StateHandler for SpdmAttestationStateHandler {
                 )
                 .await?;
 
-                // BlueField DPU identity is verified in api-core (the IRoT
-                // certificate chain is checked against the NVIDIA device roots,
-                // co-located with host TPM EK verification) rather than through
-                // the NRAS measurement path. Once the chain is fetched and
-                // stored, the SPDM FSM's job is done, so hand off as Passed.
-                let next_state = match device_id.parse::<DeviceType>()? {
-                    DeviceType::BlueFieldIRoT => SpdmAttestationState::Passed,
-                    _ => SpdmAttestationState::TriggerEvidenceCollection { retry_count: 0 },
-                };
                 Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
             }
             SpdmAttestationState::TriggerEvidenceCollection { retry_count } => {

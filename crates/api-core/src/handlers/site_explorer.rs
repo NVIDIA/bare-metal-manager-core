@@ -19,7 +19,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
-use carbide_site_explorer::enrich_endpoint_exploration_report;
+use carbide_site_explorer::{enrich_endpoint_exploration_report, resolve_dpu_report_machine_id};
 use config_version::ConfigVersion;
 use model::expected_entity::ExpectedEntity;
 use tokio::net::lookup_host;
@@ -410,6 +410,29 @@ pub(crate) async fn refresh_endpoint_report(
                     .get_firmware_config()
                     .create_snapshot_with_overrides(host_firmware_configs);
                 enrich_endpoint_exploration_report(&mut report, &fw_config_snapshot);
+
+                // Same DPU device-identity hook as the periodic exploration
+                // loop: enrichment regenerates the legacy serial-derived
+                // machine_id, and persisting it un-resolved would silently
+                // revert a device-rooted DPU to its legacy id.
+                let resolver =
+                    crate::attestation::dpu_id_resolver::ApiDpuDeviceIdentityResolver::new(
+                        database_connection.clone(),
+                        runtime_config.dpu_device_attestation.mode,
+                    );
+                resolve_dpu_report_machine_id(
+                    &resolver,
+                    endpoint_explorer.as_ref(),
+                    &mut report,
+                    bmc_addr,
+                    &bmc_interface,
+                )
+                .await
+                .map_err(|details| {
+                    tonic::Status::from(CarbideError::FailedPrecondition(format!(
+                        "DPU device-identity resolution failed for {bmc_addr}: {details}"
+                    )))
+                })?;
                 report
             }
             Err(e) => {

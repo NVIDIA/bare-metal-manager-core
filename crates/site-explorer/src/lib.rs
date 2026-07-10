@@ -164,6 +164,62 @@ pub fn enrich_endpoint_exploration_report(
     }
 }
 
+/// For a DPU report, finalizes `report.machine_id` under the DPU
+/// device-identity policy: an enrolled DPU (legacy or previously device-rooted)
+/// keeps its id — without touching the BMC — and only a previously-unseen DPU
+/// triggers the IRoT chain fetch + verification via the resolver. Must run on
+/// **every** path that persists an exploration report (the periodic loop and
+/// the ad-hoc refresh RPC): downstream host linking, network config, and
+/// machine creation are keyed by `machine_id`, and skipping this hook would
+/// silently revert a device-rooted DPU to its legacy serial-derived id.
+///
+/// Returns `Err(details)` when the id could not be resolved (e.g. `required`
+/// mode with no verified identity, or a database error) — the caller must fail
+/// the exploration result rather than persist an unresolved identity.
+pub async fn resolve_dpu_report_machine_id(
+    resolver: &dyn DpuDeviceIdentityResolver,
+    explorer: &dyn EndpointExplorer,
+    report: &mut EndpointExplorationReport,
+    address: SocketAddr,
+    interface: &MachineInterfaceSnapshot,
+) -> Result<(), String> {
+    if !report.is_dpu() {
+        return Ok(());
+    }
+
+    let legacy_id = report.machine_id;
+    let enrolled = match legacy_id {
+        Some(id) => resolver
+            .enrolled_machine_id(id)
+            .await
+            .map_err(|e| e.to_string())?,
+        None => None,
+    };
+    if let Some(id) = enrolled {
+        report.machine_id = Some(id);
+        return Ok(());
+    }
+
+    let irot_pem = if resolver.wants_irot_chain() {
+        explorer.fetch_dpu_irot_chain_pem(address, interface).await
+    } else {
+        None
+    };
+    match resolver
+        .resolve_dpu_machine_id(irot_pem.as_deref(), legacy_id)
+        .await
+    {
+        Ok(Some(machine_id)) => {
+            report.machine_id = Some(machine_id);
+            Ok(())
+        }
+        // No id derivable (no verified chain and no legacy id in best-effort
+        // mode): leave the identity unassigned, exactly as before this feature.
+        Ok(None) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Ensures a rack row exists for the given `rack_id`.
 ///
 /// If the rack already exists, returns it. Otherwise creates a new rack only
@@ -2322,31 +2378,29 @@ impl SiteExplorer {
                         steps.report_enrich = Some(report_enrich_start.elapsed());
                     }
 
-                    // For a DPU, upgrade the legacy serial-derived machine_id to
-                    // a hardware-rooted one derived from its BlueField IRoT when
-                    // device attestation is enabled (a resolver is present). The
-                    // id must be finalized here: downstream host linking and
-                    // network config are keyed by machine_id.
+                    // For a DPU, finalize the machine_id under the DPU
+                    // device-identity policy when attestation is enabled (a
+                    // resolver is present). The id must be finalized here:
+                    // downstream host linking and network config are keyed by
+                    // machine_id.
                     let mut dpu_identity_error: Option<String> = None;
                     if let (Ok(report), Some(resolver)) = (&mut result, &dpu_id_resolver)
-                        && report.is_dpu()
-                        && let Some(legacy_id) = report.machine_id
+                        && let Err(details) = resolve_dpu_report_machine_id(
+                            resolver.as_ref(),
+                            endpoint_explorer.as_ref(),
+                            report,
+                            bmc_target_addr,
+                            endpoint.iface,
+                        )
+                        .await
                     {
-                        let irot_pem = endpoint_explorer
-                            .fetch_dpu_irot_chain_pem(bmc_target_addr, endpoint.iface)
-                            .await;
-                        match resolver
-                            .resolve_dpu_machine_id(irot_pem.as_deref(), legacy_id)
-                            .await
-                        {
-                            Ok(machine_id) => report.machine_id = Some(machine_id),
-                            Err(e) => dpu_identity_error = Some(e.to_string()),
-                        }
+                        dpu_identity_error = Some(details);
                     }
                     if let Some(details) = dpu_identity_error {
-                        // `required` mode with no verified identity: fail this
-                        // endpoint's exploration rather than enrolling a DPU
-                        // without a hardware-rooted id.
+                        // `required` mode with no verified identity (or a
+                        // resolution failure): fail this endpoint's exploration
+                        // rather than enrolling a DPU without a hardware-rooted
+                        // id or silently reverting to a legacy id.
                         result = Err(EndpointExplorationError::Other { details });
                     }
 

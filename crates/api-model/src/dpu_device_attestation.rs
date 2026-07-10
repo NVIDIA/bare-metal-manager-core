@@ -20,17 +20,21 @@
 //! BlueField DPUs carry a factory-provisioned device-identity certificate (a
 //! DICE-style IDevID) chaining to an NVIDIA device CA. carbide uses it as a
 //! hardware root of trust for DPU identity — the DPU analog of the host TPM
-//! EK-certificate path in [`crate::attestation::tpm_ca_cert`]. Otherwise DPUs
+//! EK-certificate path in api-core's `attestation::tpm_ca_cert`. Otherwise DPUs
 //! skip attestation: `DiscoverMachine` derives a DPU's identity from
 //! self-asserted DMI serials over an anonymous channel.
 //!
 //! The IRoT device-certificate chain is fetched **out-of-band** from the DPU
-//! BMC over Redfish SPDM `ComponentIntegrity` (see
-//! [`crate::handlers::dpu_device_identity`]) and verified here against the
+//! BMC over Redfish SPDM `ComponentIntegrity` and verified here against the
 //! configured NVIDIA device roots via [`verify_device_cert_chain`]. A verified
 //! chain yields a hardware-rooted [`MachineId`] (source
 //! [`MachineIdSource::DpuDeviceCert`]); [`select_dpu_machine_id`] then applies
-//! the backward-compatibility and [`DpuDeviceAttestationMode`] policy.
+//! the [`DpuDeviceAttestationMode`] policy for a previously-unseen DPU
+//! (backward compatibility for already-enrolled DPUs is handled by the
+//! resolver's enrollment lookup *before* this policy runs).
+//!
+//! This module lives in api-model (rather than api-core) so both api-core and
+//! the SPDM controller can run the same verification.
 
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use chrono::{DateTime, Utc};
@@ -45,6 +49,9 @@ pub struct VerifiedDpuDevice {
     /// Human-readable device serial taken from the leaf certificate subject CN
     /// (for logs / operator display only — not the identity key).
     pub device_serial: String,
+    /// sha256 of the verified leaf device certificate (DER), for the
+    /// device-identity binding audit record.
+    pub leaf_cert_sha256: Vec<u8>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -92,16 +99,19 @@ pub enum DpuAttestError {
 /// This is the entry point for the out-of-band (BMC / SPDM) path: carbide
 /// fetches the `BlueField_DPU_IRoT` certificate chain from the DPU BMC over
 /// Redfish and verifies it server-side — the DPU analog of host TPM EK-cert
-/// verification, and co-located with it here in api-core.
+/// verification.
 ///
-/// `trusted_roots` are DER-encoded NVIDIA device root CA certificates. `now` is
-/// the verification time (injected for determinism; callers pass [`Utc::now`]).
+/// `trusted_roots` are DER-encoded NVIDIA device root CA certificates. A root
+/// that fails to parse is skipped (with a warning) rather than failing the
+/// whole verification: roots are operator-seeded, and one malformed row must
+/// not poison verification for every DPU in the fleet. `now` is the
+/// verification time (injected for determinism; callers pass [`Utc::now`]).
 ///
 /// Deliberately simple path build: validity windows, each issuer→subject link,
 /// and that the top of the presented chain is signed by a trusted root. It does
 /// **not** yet enforce name constraints, EKU, or revocation (TODOs for a
 /// production implementation). Proof of possession is layered on separately by
-/// [`verify_dpu_device_attestation`] for the in-band path.
+/// the in-band path.
 pub fn verify_device_cert_chain(
     device_cert_chain: &[Vec<u8>],
     trusted_roots: &[Vec<u8>],
@@ -111,19 +121,27 @@ pub fn verify_device_cert_chain(
         return Err(DpuAttestError::EmptyChain);
     }
 
-    // Parse the presented chain (leaf first) and the trust anchors, requiring
-    // each parse to consume its entire input (see `parse_full_cert`).
+    // Parse the presented chain (leaf first), requiring each parse to consume
+    // its entire input (see `parse_full_cert`).
     let chain: Vec<X509Certificate<'_>> = device_cert_chain
         .iter()
         .enumerate()
         .map(|(index, der)| parse_full_cert(der, index))
         .collect::<Result<_, _>>()?;
 
+    // Trust anchors parse leniently: skip (don't propagate) a malformed row so
+    // the remaining valid roots still work.
     let roots: Vec<X509Certificate<'_>> = trusted_roots
         .iter()
         .enumerate()
-        .map(|(index, der)| parse_full_cert(der, index))
-        .collect::<Result<_, _>>()?;
+        .filter_map(|(index, der)| match parse_full_cert(der, index) {
+            Ok(cert) => Some(cert),
+            Err(e) => {
+                tracing::warn!("skipping malformed trusted DPU device root CA (row {index}): {e}");
+                None
+            }
+        })
+        .collect();
 
     let now_ts = now.timestamp();
 
@@ -181,9 +199,14 @@ pub fn verify_device_cert_chain(
         .map(str::to_owned)
         .ok_or(DpuAttestError::MissingSerial)?;
 
+    let mut hasher = Sha256::new();
+    hasher.update(&device_cert_chain[0]);
+    let leaf_cert_sha256 = hasher.finalize().to_vec();
+
     Ok(VerifiedDpuDevice {
         machine_id: machine_id_from_device_cert(&device_cert_chain[0]),
         device_serial,
+        leaf_cert_sha256,
     })
 }
 
@@ -217,38 +240,6 @@ pub fn machine_id_from_device_cert(device_cert_der: &[u8]) -> MachineId {
     )
 }
 
-/// Outcome of choosing a DPU's [`MachineId`] during discovery under the
-/// backward-compatibility policy (issue NVIDIA/infra-controller#355 epic):
-/// an already-known DPU keeps the identity it was first enrolled with, and only
-/// a brand-new DPU adopts the hardware-rooted device-cert identity.
-///
-/// The three variants are distinguished (rather than collapsed to a bare
-/// `MachineId`) so the discovery handler can log *why* an id was chosen, which
-/// matters while the fleet is mid-migration.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DpuIdentity {
-    /// The DPU is already known under its legacy (serial-derived) id; keep it so
-    /// existing machine records, certs, and JWTs stay valid across the upgrade.
-    ExistingLegacy(MachineId),
-    /// A previously-unseen DPU that presented a verified device attestation:
-    /// adopt the hardware-rooted device-cert identity.
-    NewDeviceRooted(MachineId),
-    /// A previously-unseen DPU with no (or unverified) device attestation: fall
-    /// back to the legacy serial-derived id, exactly as before this feature.
-    NewLegacy(MachineId),
-}
-
-impl DpuIdentity {
-    /// The [`MachineId`] to actually use for this DPU.
-    pub fn machine_id(&self) -> MachineId {
-        match self {
-            DpuIdentity::ExistingLegacy(id)
-            | DpuIdentity::NewDeviceRooted(id)
-            | DpuIdentity::NewLegacy(id) => *id,
-        }
-    }
-}
-
 /// Policy for how a DPU's device-identity certificate participates in
 /// `machine_id` assignment. Configured via `[dpu_device_attestation] mode`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -265,19 +256,32 @@ pub enum DpuDeviceAttestationMode {
     Required,
 }
 
-/// Chooses a DPU's [`MachineId`] under the backward-compatibility policy and the
-/// configured [`DpuDeviceAttestationMode`].
+/// Outcome of [`select_dpu_machine_id`] for a previously-unseen DPU.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DpuIdentitySelection {
+    /// The DPU presented a verified device attestation: adopt the
+    /// hardware-rooted device-cert identity (callers record the binding).
+    DeviceRooted(MachineId),
+    /// Fall back to the legacy serial-derived id, exactly as before this
+    /// feature. `None` when no legacy id could be derived either (missing
+    /// serials) — the caller leaves the identity unassigned, as before.
+    Legacy(Option<MachineId>),
+}
+
+/// Chooses a **previously-unseen** DPU's [`MachineId`] under the configured
+/// [`DpuDeviceAttestationMode`].
+///
+/// Already-enrolled DPUs never reach this policy: the resolver first looks up
+/// enrollment under both the legacy id and any previously adopted device-rooted
+/// id (via the `dpu_device_cert_status` binding), and keeps the enrolled id in
+/// every mode — so an upgrade re-keys nothing and a transient fetch failure
+/// cannot flap an enrolled DPU's identity.
 ///
 /// - `legacy_id` is the serial-derived id computed exactly as today
-///   (`machine_id::from_hardware_info`).
+///   (`machine_id::from_hardware_info`), when one could be derived.
 /// - `verified_device` is `Some` only when a device certificate was available
-///   and passed verification (chain-to-root, and proof-of-possession on the
-///   in-band path).
-/// - `legacy_machine_known` is whether a machine already exists under
-///   `legacy_id` (the caller looks this up in the DB).
+///   and passed verification.
 ///
-/// Existing DPUs (`legacy_machine_known == true`) always keep `legacy_id` in
-/// every mode, so an upgrade re-keys nothing. For a previously-unseen DPU:
 /// `Disabled` always uses the legacy id; `BestEffort` uses the device-rooted id
 /// when a verified cert is available and otherwise falls back to the legacy id;
 /// `Required` uses the device-rooted id or fails with
@@ -285,20 +289,14 @@ pub enum DpuDeviceAttestationMode {
 /// deterministic, so a new DPU's subsequent discoveries resolve the same id.
 pub fn select_dpu_machine_id(
     mode: DpuDeviceAttestationMode,
-    legacy_id: MachineId,
+    legacy_id: Option<MachineId>,
     verified_device: Option<&VerifiedDpuDevice>,
-    legacy_machine_known: bool,
-) -> Result<DpuIdentity, DpuAttestError> {
-    if legacy_machine_known {
-        // Backward compatible: a DPU we have already enrolled keeps its original
-        // key regardless of mode or of any device attestation it now presents.
-        return Ok(DpuIdentity::ExistingLegacy(legacy_id));
-    }
+) -> Result<DpuIdentitySelection, DpuAttestError> {
     match (mode, verified_device) {
-        (DpuDeviceAttestationMode::Disabled, _) => Ok(DpuIdentity::NewLegacy(legacy_id)),
-        (_, Some(device)) => Ok(DpuIdentity::NewDeviceRooted(device.machine_id)),
+        (DpuDeviceAttestationMode::Disabled, _) => Ok(DpuIdentitySelection::Legacy(legacy_id)),
+        (_, Some(device)) => Ok(DpuIdentitySelection::DeviceRooted(device.machine_id)),
         // New DPU with no verified device identity:
-        (DpuDeviceAttestationMode::BestEffort, None) => Ok(DpuIdentity::NewLegacy(legacy_id)),
+        (DpuDeviceAttestationMode::BestEffort, None) => Ok(DpuIdentitySelection::Legacy(legacy_id)),
         (DpuDeviceAttestationMode::Required, None) => Err(DpuAttestError::DeviceIdentityRequired),
     }
 }
@@ -444,6 +442,26 @@ mod tests {
     }
 
     #[test]
+    fn one_malformed_root_does_not_poison_verification() {
+        // A trusted-root row with trailing bytes (e.g. an operator-seeded DER
+        // file with a stray newline) is skipped, and a chain that verifies
+        // against another (valid) root still verifies.
+        let ca = make_ca("NVIDIA BlueField Device CA");
+        let device = make_device(&ca, "MT-irot-poison", (2030, 1, 1));
+
+        let mut malformed_root = ca.cert_der.clone();
+        malformed_root.push(b'\n');
+
+        let verified = verify_device_cert_chain(
+            std::slice::from_ref(&device.cert_der),
+            &[malformed_root, ca.cert_der],
+            now(),
+        )
+        .unwrap();
+        assert_eq!(verified.device_serial, "MT-irot-poison");
+    }
+
+    #[test]
     fn pem_path_verifies_chain_fetched_as_pem() {
         // Mirrors the SPDM/Redfish path: the chain and roots arrive as PEM.
         let ca = make_ca("NVIDIA BlueField Device CA");
@@ -521,7 +539,7 @@ mod tests {
         );
     }
 
-    // --- backward-compatibility identity-selection policy ---
+    // --- identity-selection policy (previously-unseen DPUs only) ---
 
     fn legacy_id() -> MachineId {
         MachineId::new(
@@ -534,47 +552,38 @@ mod tests {
     fn verified(serial: &str) -> VerifiedDpuDevice {
         let ca = make_ca("NVIDIA BlueField Device CA");
         let device = make_device(&ca, serial, (2030, 1, 1));
+        let mut hasher = Sha256::new();
+        hasher.update(&device.cert_der);
         VerifiedDpuDevice {
             machine_id: machine_id_from_device_cert(&device.cert_der),
             device_serial: serial.to_string(),
+            leaf_cert_sha256: hasher.finalize().to_vec(),
         }
     }
 
     use DpuDeviceAttestationMode::{BestEffort, Disabled, Required};
 
     #[test]
-    fn existing_dpu_keeps_legacy_id_in_every_mode() {
-        let device = verified("MT-existing");
-        // legacy_machine_known = true: this DPU is already enrolled. It keeps its
-        // legacy id even in Required mode and even when it presents a cert.
-        for mode in [Disabled, BestEffort, Required] {
-            let decision = select_dpu_machine_id(mode, legacy_id(), Some(&device), true).unwrap();
-            assert_eq!(decision, DpuIdentity::ExistingLegacy(legacy_id()));
-        }
-    }
-
-    #[test]
     fn new_dpu_with_attestation_gets_device_rooted_id() {
         let device = verified("MT-brand-new");
         for mode in [BestEffort, Required] {
-            let decision = select_dpu_machine_id(mode, legacy_id(), Some(&device), false).unwrap();
-            assert_eq!(decision, DpuIdentity::NewDeviceRooted(device.machine_id));
+            let decision = select_dpu_machine_id(mode, Some(legacy_id()), Some(&device)).unwrap();
             assert_eq!(
-                decision.machine_id().source(),
-                MachineIdSource::DpuDeviceCert
+                decision,
+                DpuIdentitySelection::DeviceRooted(device.machine_id)
             );
         }
     }
 
     #[test]
     fn best_effort_falls_back_to_legacy_when_no_cert() {
-        let decision = select_dpu_machine_id(BestEffort, legacy_id(), None, false).unwrap();
-        assert_eq!(decision, DpuIdentity::NewLegacy(legacy_id()));
+        let decision = select_dpu_machine_id(BestEffort, Some(legacy_id()), None).unwrap();
+        assert_eq!(decision, DpuIdentitySelection::Legacy(Some(legacy_id())));
     }
 
     #[test]
     fn required_fails_when_no_cert_for_new_dpu() {
-        let err = select_dpu_machine_id(Required, legacy_id(), None, false).unwrap_err();
+        let err = select_dpu_machine_id(Required, Some(legacy_id()), None).unwrap_err();
         assert!(
             matches!(err, DpuAttestError::DeviceIdentityRequired),
             "got {err:?}"
@@ -582,21 +591,41 @@ mod tests {
     }
 
     #[test]
+    fn required_fails_when_no_cert_and_no_legacy_id() {
+        // A DPU whose report has no serial-derived id at all must still fail
+        // closed in required mode (it must not silently skip the policy).
+        let err = select_dpu_machine_id(Required, None, None).unwrap_err();
+        assert!(
+            matches!(err, DpuAttestError::DeviceIdentityRequired),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verified_cert_without_legacy_id_still_yields_device_rooted_id() {
+        let device = verified("MT-no-serial");
+        let decision = select_dpu_machine_id(BestEffort, None, Some(&device)).unwrap();
+        assert_eq!(
+            decision,
+            DpuIdentitySelection::DeviceRooted(device.machine_id)
+        );
+    }
+
+    #[test]
     fn disabled_always_uses_legacy_even_with_cert() {
         let device = verified("MT-disabled");
-        let decision = select_dpu_machine_id(Disabled, legacy_id(), Some(&device), false).unwrap();
-        assert_eq!(decision, DpuIdentity::NewLegacy(legacy_id()));
+        let decision = select_dpu_machine_id(Disabled, Some(legacy_id()), Some(&device)).unwrap();
+        assert_eq!(decision, DpuIdentitySelection::Legacy(Some(legacy_id())));
     }
 
     #[test]
     fn rediscovery_of_new_dpu_is_stable() {
-        // A new DPU enrolled under its device-rooted id is never stored under its
-        // legacy id, so on re-discovery legacy_machine_known stays false and it
-        // resolves to the same device-rooted id again.
+        // A new DPU enrolled under its device-rooted id resolves to the same
+        // deterministic id on every re-verification.
         let device = verified("MT-stable");
-        let first = select_dpu_machine_id(BestEffort, legacy_id(), Some(&device), false).unwrap();
-        let second = select_dpu_machine_id(BestEffort, legacy_id(), Some(&device), false).unwrap();
+        let first = select_dpu_machine_id(BestEffort, Some(legacy_id()), Some(&device)).unwrap();
+        let second = select_dpu_machine_id(BestEffort, Some(legacy_id()), Some(&device)).unwrap();
         assert_eq!(first, second);
-        assert_eq!(first.machine_id(), device.machine_id);
+        assert_eq!(first, DpuIdentitySelection::DeviceRooted(device.machine_id));
     }
 }

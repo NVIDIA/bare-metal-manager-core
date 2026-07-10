@@ -23,6 +23,7 @@
 use ::rpc::forge as rpc;
 use db::attestation as db_attest;
 use tonic::{Request, Response};
+use x509_parser::certificate::X509Certificate;
 use x509_parser::prelude::FromDer;
 use x509_parser::x509::X509Name;
 
@@ -37,6 +38,22 @@ pub(crate) async fn dpu_add_device_ca_cert(
 
     let payload = request.into_inner();
     let ca_cert_bytes = payload.ca_cert.as_slice();
+
+    // The stored bytes are parsed strictly at verification time
+    // (`verify_device_cert_chain` rejects trailing bytes), so reject them at
+    // ingestion — a root seeded with trailing data could never match and would
+    // only produce confusing verification warnings later.
+    let (rest, _) = X509Certificate::from_der(ca_cert_bytes)
+        .map_err(|e| CarbideError::InvalidArgument(format!("invalid CA certificate: {e}")))?;
+    if !rest.is_empty() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "CA certificate has {} trailing byte(s) after the DER data; \
+             re-export the certificate without extra data",
+            rest.len()
+        ))
+        .into());
+    }
+
     // Parse the CA cert: extract validity window + subject (in DER).
     let (not_valid_before, not_valid_after, subject) = attest::extract_ca_fields(ca_cert_bytes)?;
 
@@ -50,7 +67,7 @@ pub(crate) async fn dpu_add_device_ca_cert(
     )
     .await?
     .ok_or_else(|| {
-        CarbideError::internal("CA Cert not returned on successful insertion".to_string())
+        tonic::Status::already_exists("this DPU device CA certificate is already trusted")
     })?;
     txn.commit().await?;
 

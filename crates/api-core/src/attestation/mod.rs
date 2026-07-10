@@ -22,7 +22,6 @@
 pub mod measured_boot;
 
 pub mod digest_crate_shim;
-pub mod dpu_device;
 pub mod dpu_id_resolver;
 pub mod tpm_ca_cert;
 
@@ -30,6 +29,10 @@ use carbide_uuid::machine::MachineId;
 use db::{ObjectFilter, Transaction};
 #[cfg(any(feature = "linux-build", test))]
 pub use measured_boot::*;
+// DPU device-identity verification lives in api-model so the SPDM controller
+// can run the same chain verification; re-exported here to keep api-core paths
+// (`crate::attestation::dpu_device::…`) stable.
+pub use model::dpu_device_attestation as dpu_device;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::machine_search_config::MachineSearchConfig;
 use sqlx::{PgConnection, Pool, Postgres};

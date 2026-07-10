@@ -80,6 +80,7 @@ url = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 version-compare = { workspace = true }
 tokio = { workspace = true }
+x509-parser = { workspace = true, features = ["verify"] }
 #these are alphabetized
 
 [features]
@@ -97,6 +98,7 @@ criterion = { workspace = true }
 lazy_static = { workspace = true }
 p256 = { workspace = true }
 prost = { workspace = true }
+rcgen = { workspace = true }
 toml = { workspace = true }
 
 [[bench]]

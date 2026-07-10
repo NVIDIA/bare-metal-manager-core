@@ -15,79 +15,22 @@
  * limitations under the License.
  */
 
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 
-use x509_parser::certificate::X509Certificate;
-use x509_parser::pem::parse_x509_pem;
-use x509_parser::prelude::FromDer;
-use x509_parser::validate::*;
-
-use crate::errors::{CarbideCliError, CarbideCliResult};
+use crate::ca_cert_file::load_ca_cert_der;
+use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 pub async fn add_filename(filename: &str, api_client: &ApiClient) -> CarbideCliResult<()> {
     let filepath = Path::new(filename);
-    let is_pem = filepath.with_extension("pem").is_file();
-    let is_der =
-        filepath.with_extension("cer").is_file() || filepath.with_extension("der").is_file();
-
-    if !is_der && !is_pem {
-        return Err(CarbideCliError::GenericError(
-            "The certificate must exist and be with PEM or CER or DER extension".to_string(),
-        ));
-    }
-
-    add_individual(filepath, is_pem, api_client).await
-}
-
-pub(crate) async fn add_individual(
-    filepath: &Path,
-    is_pem: bool,
-    api_client: &ApiClient,
-) -> CarbideCliResult<()> {
     println!(
         "Adding DPU device CA Certificate {0}",
         filepath.to_string_lossy()
     );
-    let mut ca_file = File::open(filepath).map_err(CarbideCliError::IOError)?;
 
-    let mut ca_file_bytes: Vec<u8> = Vec::new();
-    ca_file
-        .read_to_end(&mut ca_file_bytes)
-        .map_err(CarbideCliError::IOError)?;
+    let ca_cert_der = load_ca_cert_der(filepath)?;
 
-    let ca_file_bytes_der;
-    if is_pem {
-        // convert pem to der to normalize
-        let res = parse_x509_pem(&ca_file_bytes);
-        match res {
-            Ok((rem, pem)) => {
-                if !rem.is_empty() && (pem.label != *"CERTIFICATE") {
-                    return Err(CarbideCliError::GenericError(
-                        "PEM certificate validation failed".to_string(),
-                    ));
-                }
-
-                ca_file_bytes_der = pem.contents;
-            }
-            _ => {
-                return Err(CarbideCliError::GenericError(
-                    "Could not parse PEM certificate".to_string(),
-                ));
-            }
-        }
-    } else {
-        ca_file_bytes_der = ca_file_bytes;
-    }
-
-    validate_ca_cert(&ca_file_bytes_der)?;
-
-    let ca_cert_id_response = api_client
-        .0
-        .dpu_add_device_ca_cert(ca_file_bytes_der)
-        .await?;
+    let ca_cert_id_response = api_client.0.dpu_add_device_ca_cert(ca_cert_der).await?;
 
     println!(
         "Successfully added DPU device CA Certificate {0} with id {1}",
@@ -97,22 +40,6 @@ pub(crate) async fn add_individual(
             .map(|v| v.ca_cert_id.to_string())
             .unwrap_or("*CA ID has not been returned*".to_string()),
     );
-
-    Ok(())
-}
-
-fn validate_ca_cert(ca_cert_bytes: &[u8]) -> CarbideCliResult<()> {
-    let ca_cert = X509Certificate::from_der(ca_cert_bytes)
-        .map_err(|e| CarbideCliError::GenericError(e.to_string()))?
-        .1;
-
-    let mut logger = VecLogger::default();
-
-    if !X509StructureValidator.validate(&ca_cert, &mut logger) {
-        return Err(CarbideCliError::GenericError(
-            "Validation Error".to_string(),
-        ));
-    }
 
     Ok(())
 }

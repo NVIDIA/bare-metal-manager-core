@@ -31,6 +31,7 @@ nras = { path = "../nras" }
 state-controller = { path = "../state-controller" }
 
 async-trait = { workspace = true }
+chrono = { workspace = true }
 itertools = { workspace = true }
 libredfish = { workspace = true }
 opentelemetry = { workspace = true }

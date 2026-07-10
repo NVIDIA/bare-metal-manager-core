@@ -90,10 +90,6 @@ impl RedfishClient {
         username: String,
         password: String,
     ) -> Option<String> {
-        // SPDM `ComponentIntegrity` id of the BlueField DPU Initial Root of
-        // Trust. Matched case-insensitively (vendor casing is inconsistent).
-        const BLUEFIELD_DPU_IROT: &str = "Bluefield_DPU_IRoT";
-
         let client = self
             .create_redfish_client(
                 bmc_ip_address,
@@ -117,7 +113,7 @@ impl RedfishClient {
         let cert_link = integrities
             .members
             .into_iter()
-            .find(|m| m.id.eq_ignore_ascii_case(BLUEFIELD_DPU_IROT))
+            .find(|m| model::attestation::spdm::is_bluefield_dpu_irot(&m.id))
             .and_then(|m| m.spdm)
             .map(|s| {
                 s.identity_authentication

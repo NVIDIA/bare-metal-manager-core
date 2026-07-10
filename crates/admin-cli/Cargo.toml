@@ -80,6 +80,7 @@ zip = { workspace = true, default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }
+rcgen = { workspace = true }
 
 [build-dependencies]
 clap = { workspace = true }

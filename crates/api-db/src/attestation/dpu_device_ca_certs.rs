@@ -25,6 +25,9 @@ use sqlx::PgConnection;
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
+/// Inserts a trusted root. Returns `None` when the identical certificate is
+/// already present (`UNIQUE(ca_cert_der)`), so re-running a seeding script is
+/// a no-op rather than an error.
 pub async fn insert(
     txn: &mut PgConnection,
     not_valid_before: &DateTime<Utc>,
@@ -32,18 +35,16 @@ pub async fn insert(
     ca_cert: &[u8],
     cert_subject: &[u8],
 ) -> DatabaseResult<Option<DpuDeviceCaCert>> {
-    let query = "INSERT INTO dpu_device_ca_certs (not_valid_before, not_valid_after, ca_cert_der, cert_subject) VALUES ($1, $2, $3, $4) RETURNING *";
+    let query = "INSERT INTO dpu_device_ca_certs (not_valid_before, not_valid_after, ca_cert_der, cert_subject) VALUES ($1, $2, $3, $4) ON CONFLICT (ca_cert_der) DO NOTHING RETURNING *";
 
-    let res = sqlx::query_as(query)
+    sqlx::query_as(query)
         .bind(not_valid_before)
         .bind(not_valid_after)
         .bind(ca_cert)
         .bind(cert_subject)
-        .fetch_one(txn)
+        .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
-
-    Ok(Some(res))
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// Returns every trusted root, including its DER bytes (needed for chain
@@ -53,19 +54,6 @@ pub async fn get_all(db: impl DbReader<'_>) -> DatabaseResult<Vec<DpuDeviceCaCer
 
     sqlx::query_as(query)
         .fetch_all(db)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))
-}
-
-pub async fn get_by_subject(
-    txn: &mut PgConnection,
-    cert_subject: &[u8],
-) -> DatabaseResult<Option<DpuDeviceCaCert>> {
-    let query = "SELECT * FROM dpu_device_ca_certs WHERE cert_subject = ($1)";
-
-    sqlx::query_as(query)
-        .bind(cert_subject)
-        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }

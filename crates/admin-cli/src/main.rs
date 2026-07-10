@@ -49,6 +49,7 @@ mod bmc_role;
 mod boot_interface;
 mod boot_override;
 mod browse;
+mod ca_cert_file;
 mod cfg;
 mod component_manager;
 mod compute_allocation;

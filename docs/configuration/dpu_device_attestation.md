@@ -24,7 +24,15 @@ chains to a trusted NVIDIA device CA and is fetched out-of-band from the DPU BMC
    verified binding is recorded.
 
 Verification reuses the same SPDM/Redfish machinery as GPU attestation and is performed in
-the API, alongside the host TPM EK-certificate path.
+the API, alongside the host TPM EK-certificate path. The same happens at **exploration
+time**: site-explorer resolves a DPU's id before the exploration report is persisted, so a
+new DPU receives its hardware-rooted id at machine creation.
+
+The SPDM controller's per-device attestation status for `Bluefield_DPU_IRoT` reflects the
+same verification: the fetched chain is checked against the seeded device roots, and the
+status is `Passed` only when the chain verifies (`Failed` otherwise). If **no** device
+roots are seeded, the SPDM status passes through with a warning instead of failing the
+fleet — seeding the roots is what opts a site into enforcement.
 
 ---
 
@@ -81,6 +89,13 @@ this feature never re-keys the existing fleet. Only a **previously unseen** DPU 
 device-rooted id; its id is deterministic in the device certificate, so re-discovery is
 stable.
 
+Identity stability also covers DPUs that already **adopted a device-rooted id**: the
+adoption is recorded (with the DPU's legacy serial-derived id) in `dpu_device_cert_status`,
+and every later resolution recognizes the DPU from that binding — so a transient BMC/Redfish
+failure, or even rolling `mode` back to `disabled`, never flips an adopted DPU back to its
+legacy id. `disabled` means "assign no *new* device-rooted ids", not "forget existing
+ones".
+
 ---
 
 ## Trust anchors
@@ -90,13 +105,18 @@ in the `dpu_device_ca_certs` table — the DPU analog of `tpm_ca_certs`. Seed th
 admin CLI as a Day-0 / site-setup step, the same way TPM CA certs are loaded:
 
 ```bash
-# Add a device root CA (DER/CER/PEM accepted)
+# Add a device root CA (DER/CER/PEM accepted; format chosen by file extension)
 nico-admin-cli dpu-device-ca add --filename /path/to/bluefield-device-root.pem
 # List configured roots (with id, validity, subject)
 nico-admin-cli dpu-device-ca show
 # Remove one by id
 nico-admin-cli dpu-device-ca delete --ca-id 42
 ```
+
+`add` is idempotent (re-adding an identical certificate reports it as already trusted) and
+strict: it accepts exactly **one certificate per file** and rejects trailing bytes after the
+DER data or extra PEM blocks — the stored bytes are compared verbatim at verification time,
+so a sloppily exported root could never match.
 
 Until at least one matching root is present, every chain fails verification
 (`NoTrustedRoot`) — in `best_effort` mode DPUs keep their legacy id, in `required` mode
