@@ -550,19 +550,6 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			// ProviderAdmin can update them and all Tenants of the Provider can retrieve them
 			// Scope is Local: the definition lives at a single site with bidirectional sync
 
-			status := cdbm.OperatingSystemStatusFromProtoMap[reportedOS.Status]
-			if status == "" {
-				slogger.Warn().Str("Status", reportedOS.Status.String()).Msg("Received unknown status from Site, using `Syncing` as default")
-				status = cdbm.OperatingSystemStatusSyncing
-			}
-
-			// Only persist a template reference when non-empty (validated above for
-			// Templated iPXE). Other OS types carry no template.
-			var ipxeTemplateIDPtr *string
-			if v := reportedOS.IpxeTemplateId.GetValue(); v != "" {
-				ipxeTemplateIDPtr = cutil.GetPtr(v)
-			}
-
 			// Create site association linking the OS to the reporting site.
 			ossaStatus := cdbm.OperatingSystemSiteAssociationStatusFromProtoMap[reportedOS.Status]
 			if ossaStatus == "" {
@@ -570,29 +557,20 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				ossaStatus = cdbm.OperatingSystemSiteAssociationStatusSyncing
 			}
 
+			// Build the create input: definition fields come from the reported proto
+			// (FromProto); ID, ownership and scope come from the Site sync context.
+			osInput := cdbm.OperatingSystemCreateInput{}
+			osInput.FromProto(reportedOS)
+			osInput.ID = reportedOSID
+			osInput.Org = site.Org
+			osInput.InfrastructureProviderID = &site.InfrastructureProviderID
+			osInput.IpxeOsScope = cutil.GetPtr(cdbm.OperatingSystemScopeLocal)
+
 			// The OS definition, the (optional) inactive correction, and the per-site
 			// association are dependent writes: commit them together so a later
 			// failure cannot leave a partially-created OS.
 			txErr := cdb.WithTx(ctx, mos.dbSession, func(tx *cdb.Tx) error {
-				if _, serr := osDAO.Create(ctx, tx, cdbm.OperatingSystemCreateInput{
-					ID:                       reportedOSID,
-					Name:                     reportedOS.Name,
-					Org:                      site.Org,
-					TenantID:                 nil,
-					InfrastructureProviderID: &site.InfrastructureProviderID,
-					OsType:                   osType,
-					Description:              reportedOS.Description,
-					UserData:                 reportedOS.UserData,
-					IpxeScript:               reportedOS.IpxeScript,
-					AllowOverride:            reportedOS.AllowOverride,
-					PhoneHomeEnabled:         reportedOS.PhoneHomeEnabled,
-					IpxeTemplateId:           ipxeTemplateIDPtr,
-					IpxeTemplateParameters:   ipxeTemplateParams,
-					IpxeTemplateArtifacts:    ipxeTemplateArtifacts,
-					IpxeOSHash:               reportedOS.IpxeTemplateDefinitionHash,
-					IpxeOsScope:              cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
-					Status:                   status,
-				}); serr != nil {
+				if _, serr := osDAO.Create(ctx, tx, osInput); serr != nil {
 					slogger.Error().Err(serr).Msg("Failed to create Operating System, DB error")
 					return serr
 				}
