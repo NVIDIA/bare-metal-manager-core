@@ -39,8 +39,8 @@ pub async fn mlx_devices(
         .get_all_explored_mlx_devices(page_size, opts.host)
         .await?
         .into_iter()
-        // Only NIC-mode DPUs, when asked.
-        .filter(|d| !nic_mode_only || d.device_kind == MlxDeviceKind::Bf3NicMode as i32)
+        // Only devices operating as NICs, when asked.
+        .filter(|d| !nic_mode_only || operating_as_nic(d))
         // Only devices whose NIC firmware is below the desired version, when given
         // one. A device with no firmware, or a version we can't parse, is surfaced
         // rather than hidden.
@@ -100,11 +100,31 @@ impl From<ExploredMlxDevice> for MlxDeviceRow {
     }
 }
 
+/// Whether a device is operating as a plain NIC -- its Arm OS is down, so scout
+/// can't report its firmware and this inventory is the only one that sees it.
+///
+/// The authoritative signal is `nic_mode`, the mode the DPU's own BMC reports;
+/// a `900-9D3B6` DPU flipped into NIC mode passes on that signal even though
+/// its SKU says DPU. When the mode is unknown (`nic_mode` unset -- no DPU BMC
+/// matched, or its firmware predates mode reporting), fall back to the SKU:
+/// the SuperNIC families ship running as NICs, and like the firmware filter
+/// below we err toward surfacing a device rather than hiding it.
+fn operating_as_nic(device: &ExploredMlxDevice) -> bool {
+    match device.nic_mode {
+        Some(mode) => mode == NicMode::Nic as i32,
+        None => {
+            device.device_kind == MlxDeviceKind::Bf3NicMode as i32
+                || device.device_kind == MlxDeviceKind::Bf3SuperNic as i32
+        }
+    }
+}
+
 fn kind_label(device_kind: i32) -> String {
     match MlxDeviceKind::try_from(device_kind) {
-        Ok(MlxDeviceKind::Bf3NicMode) => "BlueField-3 (NIC mode)",
-        Ok(MlxDeviceKind::Bf3DpuMode) => "BlueField-3 (DPU mode)",
-        Ok(MlxDeviceKind::Bf3SuperNic) => "BlueField-3 SuperNIC",
+        // Both SuperNIC SKU families render under NVIDIA's product name; the
+        // part-number column alongside is the discriminator.
+        Ok(MlxDeviceKind::Bf3NicMode) | Ok(MlxDeviceKind::Bf3SuperNic) => "BlueField-3 SuperNIC",
+        Ok(MlxDeviceKind::Bf3DpuMode) => "BlueField-3 DPU",
         Ok(MlxDeviceKind::Bf2Dpu) => "BlueField-2 DPU",
         Ok(MlxDeviceKind::Unknown) | Err(_) => "Unknown",
     }
@@ -171,6 +191,68 @@ fn parse_version(version: &str) -> Option<Vec<u64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn operating_as_nic_prefers_reported_mode_over_sku() {
+        struct Case {
+            name: &'static str,
+            device_kind: MlxDeviceKind,
+            nic_mode: Option<NicMode>,
+            expect: bool,
+        }
+        let cases = [
+            Case {
+                name: "dpu sku flipped into nic mode",
+                device_kind: MlxDeviceKind::Bf3DpuMode,
+                nic_mode: Some(NicMode::Nic),
+                expect: true,
+            },
+            Case {
+                name: "dpu sku running as a dpu",
+                device_kind: MlxDeviceKind::Bf3DpuMode,
+                nic_mode: Some(NicMode::Dpu),
+                expect: false,
+            },
+            Case {
+                name: "supernic sku flipped into dpu mode",
+                device_kind: MlxDeviceKind::Bf3NicMode,
+                nic_mode: Some(NicMode::Dpu),
+                expect: false,
+            },
+            Case {
+                name: "unmatched 9d3b4 supernic falls back to sku",
+                device_kind: MlxDeviceKind::Bf3NicMode,
+                nic_mode: None,
+                expect: true,
+            },
+            Case {
+                name: "unmatched 9d3d4 supernic falls back to sku",
+                device_kind: MlxDeviceKind::Bf3SuperNic,
+                nic_mode: None,
+                expect: true,
+            },
+            Case {
+                name: "unmatched dpu sku stays a dpu",
+                device_kind: MlxDeviceKind::Bf3DpuMode,
+                nic_mode: None,
+                expect: false,
+            },
+            Case {
+                name: "unmatched bf2 stays a dpu",
+                device_kind: MlxDeviceKind::Bf2Dpu,
+                nic_mode: None,
+                expect: false,
+            },
+        ];
+        for case in cases {
+            let device = ExploredMlxDevice {
+                device_kind: case.device_kind as i32,
+                nic_mode: case.nic_mode.map(|mode| mode as i32),
+                ..Default::default()
+            };
+            assert_eq!(operating_as_nic(&device), case.expect, "{}", case.name);
+        }
+    }
 
     #[test]
     fn firmware_below_compares_dotted_versions() {

@@ -198,13 +198,18 @@ message ExploredMlxDevice {
   // DPU we have explored -- the address to target for a firmware push.
   optional string dpu_bmc_ip = 9;
   // The DPU's authoritative operating mode, read from its own Redfish endpoint
-  // when matched.
+  // when matched. This is the mode the card is running in right now; it
+  // legitimately differs from the SKU-derived device_kind for a DPU
+  // reconfigured to run as a NIC.
   optional NicMode nic_mode = 10;
 }
 
-// The kind of BlueField/Mellanox device, classified from its part number. A
-// BlueField-3's part number records the mode it is operating in: 900-9D3B4
-// (NIC), 900-9D3B6 (DPU), 900-9D3D4 (SuperNIC).
+// The kind of BlueField/Mellanox device, classified from its part number. The
+// part number identifies the factory SKU, not the operating mode: 900-9D3B6 is
+// a BlueField-3 DPU product, 900-9D3B4 and 900-9D3D4 are BlueField-3 SuperNIC
+// products. A DPU/NIC mode flip does not change it -- nic_mode carries the
+// operating mode. The *_MODE value names are frozen from when this was
+// believed to track the operating mode.
 enum MlxDeviceKind {
   MLX_DEVICE_KIND_UNKNOWN = 0;
   MLX_DEVICE_KIND_BF3_NIC_MODE = 1;
