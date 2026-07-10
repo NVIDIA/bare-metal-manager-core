@@ -41,6 +41,8 @@ func (api *API) RegisterPublisher() error {
 		CoreGrpcAtomicClient:  ManagerAccess.Data.EB.Managers.CoreGrpc.Client,
 		TemporalPublishClient: ManagerAccess.Data.EB.Managers.Workflow.Temporal.Publisher,
 		TemporalPublishQueue:  ManagerAccess.Conf.EB.Temporal.TemporalPublishQueue,
+		SitePageSize:          InventoryCarbidePageSize,
+		CloudPageSize:         InventoryCloudPageSize,
 	})
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(operatingSystemInventoryManager.DiscoverOperatingSystemInventory)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered DiscoverOperatingSystemInventory activity")
@@ -55,6 +57,8 @@ func (api *API) RegisterPublisher() error {
 		CoreGrpcAtomicClient:  ManagerAccess.Data.EB.Managers.CoreGrpc.Client,
 		TemporalPublishClient: ManagerAccess.Data.EB.Managers.Workflow.Temporal.Publisher,
 		TemporalPublishQueue:  ManagerAccess.Conf.EB.Temporal.TemporalPublishQueue,
+		SitePageSize:          InventoryCarbidePageSize,
+		CloudPageSize:         InventoryCloudPageSize,
 	})
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ipxeTemplateInventoryManager.DiscoverIpxeTemplateInventory)
 	ManagerAccess.Data.EB.Log.Info().Msg("OperatingSystem: Successfully registered DiscoverIpxeTemplateInventory activity")
