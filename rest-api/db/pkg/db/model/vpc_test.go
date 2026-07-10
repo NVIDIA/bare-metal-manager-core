@@ -1753,14 +1753,14 @@ func TestVpc_FromProto_ConfigFallback(t *testing.T) {
 	v.FromProto(&corev1.Vpc{
 		Id: &corev1.VpcId{Value: id.String()},
 		Config: &corev1.VpcConfig{
-			TenantOrganizationId:   "org-config",
-			NetworkSecurityGroupId: &nsg,
-			NetworkVirtualizationType: &fnnEnum,
-			Vni:                    &requestedVni,
-			RoutingProfileType:     &routingProfile,
+			TenantOrganizationId:            "org-config",
+			NetworkSecurityGroupId:          &nsg,
+			NetworkVirtualizationType:       &fnnEnum,
+			Vni:                             &requestedVni,
+			RoutingProfileType:              &routingProfile,
 			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: nvllpID.String()},
 		},
-		Status: &corev1.VpcStatus{Vni: &activeVni},
+		Status:   &corev1.VpcStatus{Vni: &activeVni},
 		Metadata: &corev1.Metadata{Name: "vpc-config"},
 	})
 
