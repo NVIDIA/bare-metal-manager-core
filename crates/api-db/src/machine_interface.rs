@@ -1860,12 +1860,44 @@ async fn lock_network_segment_exclusive(
     txn: &mut PgTransaction<'_>,
     segment: &NetworkSegment,
 ) -> DatabaseResult<()> {
-    let query = "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))";
-    sqlx::query_scalar(query)
-        .bind(format!("network_segment.{}", segment.id))
-        .fetch_one(txn.as_mut())
-        .await
-        .map_err(|e| DatabaseError::query(query, e))
+    lock_network_segments_exclusive(txn.as_mut(), std::slice::from_ref(&segment.id)).await
+}
+
+/// Advisory-lock every segment in `segment_ids`, in ascending id order --
+/// the allocator convention: segment advisory lock first, then machine
+/// interface/address row locks. This is the one home for the lock key and
+/// ordering; every segment-lock helper funnels through it. Must run inside a
+/// transaction: the locks are `pg_advisory_xact_lock`-scoped and release on
+/// commit or rollback.
+pub async fn lock_network_segments_exclusive(
+    txn: &mut PgConnection,
+    segment_ids: &[NetworkSegmentId],
+) -> DatabaseResult<()> {
+    let mut ids = segment_ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    for id in ids {
+        let query = "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))";
+        sqlx::query_scalar::<_, ()>(query)
+            .bind(format!("network_segment.{id}"))
+            .fetch_one(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?;
+    }
+    Ok(())
+}
+
+/// Advisory-lock every admin segment, in ascending id order. Transactions
+/// that touch machine-interface rows before their segment locks -- the flows
+/// that end in `reconcile_admin_addresses_for_host`, and machine teardown,
+/// which deletes interface rows wholesale -- call this right after opening
+/// the transaction so the whole transaction follows the allocator order.
+/// Later acquisitions of the same locks in the same transaction (reconcile's
+/// own pass) are no-ops.
+pub async fn lock_all_admin_segments(txn: &mut PgConnection) -> DatabaseResult<()> {
+    let segment_ids =
+        db_network_segment::list_segment_ids(&mut *txn, Some(NetworkSegmentType::Admin)).await?;
+    lock_network_segments_exclusive(txn, &segment_ids).await
 }
 
 pub async fn allocate_svi_ip(
@@ -2656,9 +2688,7 @@ async fn load_and_lock_all_admin_segments(
         )));
     }
 
-    for segment in &segments {
-        lock_network_segment_exclusive(txn.as_mut(), segment).await?;
-    }
+    lock_network_segments_exclusive(txn.as_pgconn(), &segment_ids).await?;
 
     Ok(segments)
 }

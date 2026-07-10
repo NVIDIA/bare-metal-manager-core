@@ -44,6 +44,7 @@ use model::hardware_info::TpmEkCertificate;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{InstanceState, ManagedHostState};
+use model::site_explorer::ExploredManagedHost;
 use sqlx::{PgConnection, Row};
 use tonic::Request;
 
@@ -274,6 +275,105 @@ async fn test_admin_force_delete_dpu_and_partially_discovered_host(pool: sqlx::P
     assert_eq!(ifaces.interfaces.len(), 1);
     let iface = ifaces.interfaces.remove(0);
     assert_eq!(iface.attached_dpu_machine_id, None);
+}
+
+/// Force-deletion and a concurrent exploration pass touch the same tables;
+/// this pins the lock ordering that keeps the pair deadlock-free. The
+/// exploration-order transaction holds every `explored_managed_hosts` row
+/// (`explored_managed_host::update` opens with a full-table delete) while
+/// force-delete runs, then touches one of the host's `machine_interfaces`
+/// rows -- the two-table cycle captured from CI. Force-delete takes the
+/// explored tables before any interface rows, so it blocks cleanly on the
+/// exploration transaction instead of deadlocking against it.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_orders_locks_against_exploration(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host = create_managed_host(&env).await;
+
+    // The host's BMC ip and one interface id, plus an `explored_managed_hosts`
+    // row for the BMC ip so the delete has a row to contend on.
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = db::machine::find_one(txn.as_mut(), &host.id, MachineSearchConfig::default())
+        .await
+        .unwrap()
+        .unwrap();
+    let bmc_ip = machine
+        .bmc_info
+        .ip
+        .expect("managed host fixture has a BMC ip");
+    let interface_id = machine.interfaces[0].id;
+    let explored_host = ExploredManagedHost {
+        host_bmc_ip: bmc_ip,
+        dpus: Vec::new(),
+    };
+    db::explored_managed_host::update(txn.as_mut(), &[&explored_host])
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Exploration-order transaction: hold the explored_managed_hosts rows
+    // first, exactly like site-explorer's persistence pass.
+    let mut exploration_txn = env.pool.begin().await.unwrap();
+    db::explored_managed_host::update(exploration_txn.as_mut(), &[&explored_host])
+        .await
+        .unwrap();
+
+    // Launch the force-delete and wait until it blocks on those rows.
+    let api = host.api.clone();
+    let host_id = host.id;
+    let force_delete_task = tokio::spawn(async move {
+        api.admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_id.to_string(),
+            delete_interfaces: true,
+            delete_bmc_interfaces: true,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+    });
+    wait_until_blocked_on(&env.pool, "explored_managed_hosts").await;
+
+    // Now take the machine_interfaces row exploration touches second (the
+    // identity UPDATE only exists for its row lock). If force-delete already
+    // held interface rows here, this pair would deadlock with a 40P01.
+    sqlx::query("UPDATE machine_interfaces SET id = id WHERE id = $1")
+        .bind(interface_id)
+        .execute(exploration_txn.as_mut())
+        .await
+        .expect("exploration-order interface update must not deadlock against force-delete");
+    exploration_txn.commit().await.unwrap();
+
+    let response = force_delete_task
+        .await
+        .unwrap()
+        .expect("force delete completes once exploration commits")
+        .into_inner();
+    assert!(response.all_done);
+    validate_machine_deletion(&env, &host.dpu_ids[0], None).await;
+}
+
+/// Polls `pg_stat_activity` until some backend in this test's database sits
+/// in a lock wait on a query that names `relation`. The `datname` filter
+/// keeps parallel per-test databases on the shared server out of the match,
+/// and the monitor query receives the relation as a bind parameter, so it
+/// never matches its own text. The generous cap covers the force-delete
+/// RPC's pre-transaction work (Redfish attempts against the fixture BMC)
+/// on slow CI runners.
+async fn wait_until_blocked_on(pool: &sqlx::PgPool, relation: &str) {
+    for _ in 0..600 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%' || $1 || '%'",
+        )
+        .bind(relation)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if waiting > 0 {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("force delete never blocked on {relation}");
 }
 
 async fn force_delete(
