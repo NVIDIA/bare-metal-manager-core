@@ -299,6 +299,51 @@ matching `expected_machines` row exists (by BMC MAC) — otherwise it logs
 auto-registers these when `machineATron.registerExpectedMachines: true` (the
 default in the values file). DHCP discovery alone is **not** sufficient.
 
+## 5b. Multi-pod simulation with per-BMC ClusterIP services (`bmcServices`)
+
+The chart can shard the simulated fleet across several machine-a-tron pods,
+each with a dedicated ClusterIP range where every simulated BMC gets its own
+Service (`pods.<name>.cidr` + `bmcServices.enabled: true`). NICo then dials
+each BMC IP directly — no `bmc_proxy`. A validated two-pod example lives at
+`helm-prereqs/values/machine-a-tron-multipod.yaml` (2 pods × 5
+`wiwynn_gb200_nvl` hosts × 2 DPUs → 30 machines, 15 per pod).
+
+Everything single-pod mode needs still applies (namespaces, CA copy, Vault
+seeds, SPIFFE URI). Multi-pod adds five requirements, all hit in practice:
+
+1. **Kubernetes 1.29+** for the `ServiceCIDR` object. On older clusters set
+   `bmcServices.serviceCIDR.create: false` and pick pod CIDRs **inside** the
+   apiserver's `--service-cluster-ip-range` — a static `clusterIP` outside
+   that range is rejected ("the provided IP is not in the valid range").
+   Check the chosen sub-ranges are free of existing ClusterIPs first.
+2. **Image with the `Host`-header routing fallback (PR #3190).** Without a
+   `bmc_proxy` the Redfish client sends no `Forwarded` header; older bmc-mock
+   builds then 404 every request with `no router configured`. Leave
+   `site_explorer.bmc_proxy` unset in this mode.
+3. **Disjoint MAC pools per pod.** All machine-a-tron instances derive MACs
+   from the same default pools, so the pod that leases second is rejected on
+   every DHCP with `Network segment mismatch for existing MAC address` and
+   simulates nothing. Until the chart grows a per-pod MAC knob, supply full
+   per-pod TOML overrides via `configFiles.matConfigs.<pod>` setting distinct
+   `mac_address_pool` / `hw_mac_address_ranges` bases (see the example
+   values file).
+4. **One NICo network segment per pod CIDR.** `network_prefixes` allows one
+   IPv4 prefix per segment, so each pod CIDR needs its own cloned underlay
+   segment (same technique as the scale-mode segment fallback), gateway `.1`,
+   `num_reserved 1` — BMC Service IPs start at `.2`, matching the DHCP
+   allocator.
+5. **Hardware-type specifics.** Vendors libredfish does not recognize (e.g.
+   `wiwynn_gb200_nvl` reports `WIWYNN`) resolve to `unknown`, so seed the
+   host factory credential at
+   `machines/all_hosts/factory_default/bmc-metadata-items/unknown`. GB-class
+   hosts (`NvidiaGBx00` flow) additionally require `expected_machines` rows
+   with a working BMC credential before exploration completes
+   (`NICO-SITEEXPLORER-141 Missing credential expected_machine`); on nico-api
+   builds without the Machineatron `AddExpectedMachine` RBAC grant the
+   auto-registration is 403'd and the rows must be inserted directly with the
+   **pinned** password (`hostBmcPassword`), not the factory default. DPU BMCs
+   explore without expected rows.
+
 ## 6. Verifying Startup
 
 Check that machine-a-tron passes the initial API calls:
