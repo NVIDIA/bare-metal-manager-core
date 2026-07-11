@@ -89,6 +89,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_machines_time_in_state_seconds</td><td>histogram</td><td>The amount of time objects of type carbide_machines have spent in a certain state</td></tr>
 <tr><td>carbide_machines_total</td><td>gauge</td><td>The total number of carbide_machines in the system</td></tr>
 <tr><td>carbide_machines_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_machines in the system with a given state that failed state handling</td></tr>
+<tr><td>carbide_managed_loop_iterations_total</td><td>counter</td><td>Number of managed loop iterations, by manager and outcome; the measured boot metrics collector&#39;s iterations are counted by its latency histogram instead</td></tr>
 <tr><td>carbide_measured_boot_bundles_total</td><td>gauge</td><td>The total number of measured boot bundles.</td></tr>
 <tr><td>carbide_measured_boot_collector_iteration_latency_milliseconds</td><td>histogram</td><td>Number of milliseconds a full measured boot metrics collector iteration took, by outcome</td></tr>
 <tr><td>carbide_measured_boot_machines_per_bundle_state_total</td><td>gauge</td><td>The total number of machines per a given measured boot bundle state.</td></tr>

@@ -3212,6 +3212,7 @@ name = "carbide-utils"
 version = "0.0.0"
 dependencies = [
  "byte-unit",
+ "carbide-instrument",
  "carbide-network",
  "carbide-test-support",
  "chrono",
@@ -3227,6 +3228,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

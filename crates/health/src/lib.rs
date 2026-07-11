@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use nv_redfish::bmc_http::reqwest::{
     BmcError, Client as ReqwestClient, ClientParams as ReqwestClientParams,
 };
@@ -41,6 +42,7 @@ pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
 
 use crate::api_client::{ApiClientWrapper, ApiEndpointSource};
+use crate::collectors::BackoffConfig;
 use crate::config::Configurable;
 use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
@@ -273,6 +275,43 @@ fn build_data_sink(
     ))))
 }
 
+/// The per-pass work of the endpoint discovery loop: one discovery iteration
+/// plus the gauge updates its stats feed.
+struct ServiceDiscoveryIteration {
+    endpoint_source: Arc<dyn EndpointSource>,
+    shard_manager: ShardManager,
+    ctx: DiscoveryLoopContext,
+    data_sink: Option<Arc<dyn DataSink>>,
+    config: Arc<Config>,
+    discovery_endpoints_gauge: GaugeVec,
+    active_endpoints_gauge: Gauge,
+}
+
+#[async_trait]
+impl discovery::DiscoveryIteration for ServiceDiscoveryIteration {
+    async fn run_once(&mut self) -> Result<(), HealthError> {
+        let stats = discovery::run_discovery_iteration(
+            self.endpoint_source.clone(),
+            &self.shard_manager,
+            &mut self.ctx,
+            self.data_sink.clone(),
+            &self.config.metrics.prefix,
+        )
+        .await?;
+
+        self.discovery_endpoints_gauge
+            .get_metric_with_label_values(&["discovered"])?
+            .set(stats.discovered_endpoints as f64);
+        self.discovery_endpoints_gauge
+            .get_metric_with_label_values(&["sharded"])?
+            .set(stats.sharded_endpoints as f64);
+        self.active_endpoints_gauge
+            .set(stats.active_monitors as f64);
+
+        Ok(())
+    }
+}
+
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
     if let Some(tls_config) = &config.tls.switch {
         tls::preflight(tls_config).await?;
@@ -282,6 +321,19 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let metrics_endpoint = config.metrics_addr()?;
     let metrics_manager = Arc::new(MetricsManager::new(&config.metrics.prefix)?);
+
+    // Back the global OpenTelemetry meter with a prometheus registry and
+    // merge that registry into this binary's /metrics exposition, so events
+    // emitted through the instrumentation framework -- and the log-event
+    // counts accumulating since startup -- are scrapeable alongside the raw
+    // prometheus pipeline. The setup must outlive the servers: dropping it
+    // would drop the meter provider and stop the exported values.
+    let framework_metrics =
+        metrics_endpoint::new_metrics_setup("carbide-hw-health", "carbide", true).map_err(|e| {
+            HealthError::GenericError(format!("framework metrics setup failed: {e}"))
+        })?;
+    carbide_instrument::log_events::register(&framework_metrics.meter);
+    metrics_manager.expose_framework_registry(framework_metrics.registry.clone());
 
     let join_listener = tokio::spawn(run_metrics_server(
         metrics_endpoint,
@@ -318,7 +370,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let config_arc = Arc::new(config);
 
-    let join_discovery: tokio::task::JoinHandle<Result<(), HealthError>> = tokio::spawn({
+    let join_discovery: tokio::task::JoinHandle<()> = tokio::spawn({
         let config = config_arc.clone();
         let shard_manager = ShardManager {
             shard: config.shard,
@@ -334,41 +386,26 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
             } else {
                 Arc::new(NoopLimiter)
             };
-        let metrics_manager = metrics_manager.clone();
-        let active_endpoints_gauge = active_endpoints_gauge.clone();
-        let discovery_endpoints_gauge = discovery_endpoints_gauge.clone();
-        let endpoint_source = endpoint_source.clone();
-        let data_sink = data_sink.clone();
 
-        let mut ctx = DiscoveryLoopContext::new_with_tls_config(
+        let ctx = DiscoveryLoopContext::new_with_tls_config(
             limiter,
-            metrics_manager,
+            metrics_manager.clone(),
             config.clone(),
             tls_config,
         )?;
 
-        async move {
-            loop {
-                let stats = discovery::run_discovery_iteration(
-                    endpoint_source.clone(),
-                    &shard_manager,
-                    &mut ctx,
-                    data_sink.clone(),
-                    &config.metrics.prefix,
-                )
-                .await?;
+        let interval = config.endpoint_discovery_interval;
+        let iteration = ServiceDiscoveryIteration {
+            endpoint_source: endpoint_source.clone(),
+            shard_manager,
+            ctx,
+            data_sink: data_sink.clone(),
+            config,
+            discovery_endpoints_gauge: discovery_endpoints_gauge.clone(),
+            active_endpoints_gauge: active_endpoints_gauge.clone(),
+        };
 
-                discovery_endpoints_gauge
-                    .get_metric_with_label_values(&["discovered"])?
-                    .set(stats.discovered_endpoints as f64);
-                discovery_endpoints_gauge
-                    .get_metric_with_label_values(&["sharded"])?
-                    .set(stats.sharded_endpoints as f64);
-                active_endpoints_gauge.set(stats.active_monitors as f64);
-
-                tokio::time::sleep(config.endpoint_discovery_interval).await;
-            }
-        }
+        discovery::run_discovery_loop(interval, BackoffConfig::default(), iteration)
     });
 
     tokio::select! {
@@ -387,11 +424,8 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         }
         res = join_discovery => {
             match res {
-                Ok(Ok(_)) => {
-                    tracing::error!("Discovery loop shutdown");
-                }
-                Ok(Err(e)) => {
-                    tracing::error!(error=?e, "Discovery loop ended unexpectedly");
+                Ok(()) => {
+                    tracing::error!("Discovery loop ended unexpectedly");
                 }
                 Err(e) => {
                     tracing::error!(error=?e, "Discovery loop join error");

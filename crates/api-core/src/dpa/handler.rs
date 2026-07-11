@@ -329,11 +329,11 @@ pub async fn start_dpa_handler(
             if queue_stats.total_processed != last_processed
                 || publish_stats.total_published != last_sent
             {
-                println!(
-                    "Stats: {} received, {} sent, {} pending",
-                    queue_stats.total_processed,
-                    publish_stats.total_published,
-                    queue_stats.pending_messages
+                tracing::debug!(
+                    received = queue_stats.total_processed,
+                    sent = publish_stats.total_published,
+                    pending = queue_stats.pending_messages,
+                    "DPA MQTT client stats"
                 );
                 last_processed = queue_stats.total_processed;
                 last_sent = publish_stats.total_published;
