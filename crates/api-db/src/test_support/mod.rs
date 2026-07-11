@@ -20,3 +20,4 @@ pub(crate) mod expected_host;
 #[cfg(test)]
 pub(crate) mod network_segment;
 pub mod power_shelf;
+pub mod switch;

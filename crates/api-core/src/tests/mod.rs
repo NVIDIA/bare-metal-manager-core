@@ -93,7 +93,6 @@ mod site_explorer;
 mod sku;
 mod spdm;
 mod switch;
-mod switch_find;
 mod switch_health;
 mod switch_state_controller;
 mod tenants;
