@@ -17,7 +17,7 @@ import (
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
@@ -36,7 +36,7 @@ type ManageVpcPeering struct {
 func (mvp ManageVpcPeering) UpdateVpcPeeringsInDB(
 	ctx context.Context,
 	siteID uuid.UUID,
-	vpcPeeringInventory *cwssaws.VPCPeeringInventory,
+	vpcPeeringInventory *corev1.VPCPeeringInventory,
 ) error {
 	logger := log.With().Str("Activity", "UpdateVpcPeeringsInDB").Str("Site ID", siteID.String()).Logger()
 
@@ -60,7 +60,7 @@ func (mvp ManageVpcPeering) UpdateVpcPeeringsInDB(
 	}
 
 	// Check if inventory status is correct
-	if vpcPeeringInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if vpcPeeringInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}

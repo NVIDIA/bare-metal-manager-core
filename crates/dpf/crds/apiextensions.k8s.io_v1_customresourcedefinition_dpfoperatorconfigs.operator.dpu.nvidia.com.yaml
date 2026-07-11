@@ -125,6 +125,14 @@ spec:
                         type: object
                     type: object
                 type: object
+              deploymentMode:
+                description: |-
+                  DeploymentMode selects zero-trust vs host-trusted deployment alignment.
+                  Required: operators must set this explicitly; provisioning controllers propagate this to DPU.status.deploymentMode.
+                enum:
+                - zero-trust
+                - host-trusted
+                type: string
               dpuDetector:
                 description: DPUDetector is the configuration for the DPUDetector.
                 properties:
@@ -283,10 +291,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                   replicas:
-                    default: 1
+                    default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -487,7 +495,7 @@ spec:
                     default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -838,10 +846,22 @@ spec:
                     default: 1500
                     description: |-
                       ControlPlaneMTU is the MTU value to be set on the management network.
+                      In zero-trust mode this value is applied to the DPU OOB interface (oob_net0), which does not
+                      support jumbo frames; it must not exceed 1500 when deploymentMode is zero-trust.
                       The default is 1500.
                     maximum: 9216
                     minimum: 1280
                     type: integer
+                  dpuNodeOOBBridgeName:
+                    default: br-dpu
+                    description: |-
+                      DPUNodeOOBBridgeName is the name of the Linux bridge on the host used for
+                      out-of-band DPU management traffic. If not specified, defaults to "br-dpu".
+                      This setting applies only to host-trusted deployments.
+                    maxLength: 15
+                    minLength: 1
+                    pattern: ^[a-z][a-z0-9-]*$
+                    type: string
                   highSpeedMTU:
                     default: 1500
                     description: |-
@@ -943,10 +963,10 @@ spec:
                       set to true.
                     type: boolean
                   replicas:
-                    default: 1
+                    default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -1090,6 +1110,15 @@ spec:
                             type: object
                         type: object
                     type: object
+                  replicas:
+                    default: 2
+                    description: |-
+                      Replicas is the number of replicas for the controller deployment.
+                      Used for High Availability via leader election.
+                    format: int32
+                    maximum: 3
+                    minimum: 1
+                    type: integer
                 type: object
                 x-kubernetes-validations:
                 - message: only either 'image' (deprecated) or 'controller.image'
@@ -1120,6 +1149,15 @@ spec:
                       This is /etc/cni/net.d by default.
                       This setting does not change where kubelet is configured to read the CNI config from.
                     type: string
+                  dpuLinkerCachePath:
+                    description: |-
+                      DPULinkerCachePath is the path on the DPU at which the prebuilt dynamic-linker cache
+                      file can be found. When set, this file is mounted read-only into the SFC Controller
+                      container so that host OVS binaries can resolve shared libraries using the DPU's
+                      linker configuration. If not set, no linker cache mount is added.
+                      This setting does not change where components are installed. Installation location fixed in the BFB.
+                    minLength: 1
+                    type: string
                   dpuOpenvSwitchBinPath:
                     description: |-
                       DPUOpenvSwitchBinPath is the path at which the openvSwitch bin directory can be found on the DPU node.
@@ -1144,6 +1182,15 @@ spec:
                       DPUOpenvSwitchSystemSharedLibPath is the path at which the system lib used by OVS components can be found on the DPU.
                       This is /lib by default.
                       This setting does not change where components are installed. Installation location fixed in the BFB.
+                    type: string
+                  dpuOptLibraryPath:
+                    description: |-
+                      DPUOptLibraryPath is the path on the DPU at which an additional library directory
+                      can be found. When set, this directory is mounted read-only into the SFC Controller
+                      container. Useful on distributions that install vendor libraries outside the standard
+                      paths (e.g. /usr/opt on RHCOS BFB). If not set, no additional library directory is mounted.
+                      This setting does not change where components are installed. Installation location fixed in the BFB.
+                    minLength: 1
                     type: string
                   flannelSkipCNIConfigInstallation:
                     description: |-
@@ -1171,7 +1218,10 @@ spec:
                     type: boolean
                 type: object
               ovsCNI:
-                description: OVSCNI is the configuration for OVSCNI
+                description: |-
+                  OVSCNI is the configuration for OVSCNI
+
+                  Deprecated: OVS CNI is installed by CNIInstaller. Remove after 26.7 is released.
                 properties:
                   cni:
                     description: |-
@@ -1350,6 +1400,14 @@ spec:
                       When enabled, the provisioning controller discovers ConfigMaps by matching labels for BFB
                       name/namespace and DPUCluster name/namespace. Mutually exclusive with bfCFGTemplateConfigMap.
                     type: boolean
+                  firmwareUpdateTimeout:
+                    description: |-
+                      FirmwareUpdateTimeout is the maximum time allowed for BF4 firmware update in zero-trust mode.
+                      If the update exceeds this timeout, the DPU will transition to an error state.
+                      When unset, the provisioning controller defaults to 45m.
+                    format: duration
+                    pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
+                    type: string
                   hostAgentDNSPolicy:
                     description: |-
                       HostAgentDNSPolicy sets the DNS policy for the hostagent pod.
@@ -1447,19 +1505,18 @@ spec:
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
                   nodeEffectRemovalTimeout:
-                    default: 0s
                     description: |-
                       NodeEffectRemovalTimeout is the maximum time allowed for the Node Effect Removal phase.
                       If the DPUNodeMaintenance CR still has requestors after this timeout, the DPU will transition to an error state.
-                      When set to "0s" (the default), the timeout is disabled and no time limit is enforced.
+                      When unset, the provisioning controller defaults to 0s (timeout disabled).
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
                   osInstallTimeout:
-                    default: 45m
                     description: |-
                       OSInstallTimeout is the maximum time allowed for OS installation in zero-trust mode.
                       If the installation exceeds this timeout, the DPU will transition to an error state.
+                      When unset, the provisioning controller defaults to 60m.
                     format: duration
                     pattern: ^([0-9]+(h|m|s|ms|us|µs|ns))+$
                     type: string
@@ -1494,7 +1551,7 @@ spec:
                     default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -1508,6 +1565,156 @@ spec:
                     are mutually exclusive
                   rule: '!(has(self.bfCFGTemplateConfigMap) && has(self.enableDynamicBFCFGTemplates)
                     && self.enableDynamicBFCFGTemplates)'
+              security:
+                description: Security groups configuration for security-related components
+                  managed by the DPF Operator.
+                properties:
+                  kata:
+                    description: |-
+                      Kata is the configuration for Kata Containers.
+                      Kata Containers provides VM-based isolation for untrusted workloads on DPU nodes.
+                      This component is disabled by default; set disable to false to enable.
+                    properties:
+                      containerdConfigFileName:
+                        description: |-
+                          ContainerdConfigFileName overrides the containerd config file name
+                          on the target nodes. Defaults to "config-mlnx.toml".
+                        type: string
+                      daemon:
+                        description: |-
+                          Daemon contains the configuration for the kata-deploy component.
+                          It contains the image for the kata-deploy container.
+                        properties:
+                          image:
+                            description: Image is a reference to a container image.
+                            pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
+                            type: string
+                        type: object
+                      disable:
+                        description: Disable ensures the component is not deployed
+                          when set to true.
+                        type: boolean
+                      helmChart:
+                        description: |-
+                          HelmChart overrides the helm chart used by the ServiceSet controller.
+                          The URL must begin with either 'oci://' or 'https://', ensuring it points to a valid
+                          OCI registry or a web-based repository.
+                        pattern: ^(oci://|https://).+$
+                        type: string
+                      nodeSelector:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          NodeSelector restricts which nodes kata-deploy runs on.
+                          This is passed as the Helm chart's nodeSelector value.
+                        type: object
+                      shims:
+                        description: |-
+                          Shims selects which Kata hypervisor shims to enable.
+                          Defaults to ["qemu"] if empty.
+                        items:
+                          allOf:
+                          - enum:
+                            - qemu
+                          - enum:
+                            - qemu
+                          description: |-
+                            KataShim identifies a Kata hypervisor shim variant.
+                            Values must match the shim keys in the kata-deploy Helm chart's
+                            `shims.<name>.enabled` values.
+                            Only arm64-compatible shims are supported.
+                          type: string
+                        type: array
+                    type: object
+                  privilegedPodEnforcement:
+                    default: true
+                    description: |-
+                      PrivilegedPodEnforcement controls whether privileged pods are rejected
+                      unless explicitly allowed by the workload API. The DPUService controller
+                      currently implements this by applying the PrivilegedPodEnforcement
+                      ValidatingAdmissionPolicy to DPUService workloads.
+
+                      Setting it to false does not fully opt out of enforcement: the policy and its
+                      binding are kept, but the binding is switched from Deny to Audit, so privileged
+                      pods are no longer denied and are only recorded in the audit log. The allowlist
+                      is kept populated so the audit log only flags pods that would otherwise be
+                      denied.
+
+                      The objects are intentionally not deleted to avoid a Kubernetes paramRef
+                      informer bug (https://github.com/kubernetes/kubernetes/issues/133827).
+
+                      Defaults to true.
+                    type: boolean
+                  spiffe:
+                    description: |-
+                      spiffe configures the SPIFFE-based DPU Agent identity flow. Edits are accepted post-bootstrap
+                      but do NOT retro-apply to already-provisioned DPUs.
+                    properties:
+                      kubeAPIAudience:
+                        description: |-
+                          KubeAPIAudience is the audience claim the DPU Agent's JWT-SVID must carry; it must match an
+                          entry in the kube-apiserver AuthenticationConfiguration.audiences[] (owned out-of-band).
+                        maxLength: 512
+                        minLength: 1
+                        type: string
+                      spireOIDCURL:
+                        description: |-
+                          SPIREOIDCURL is the OIDC discovery (issuer) URL of the pre-installed SPIRE Server.
+                          The matching kube-apiserver AuthenticationConfiguration.jwt[].issuer value is applied out-of-band.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      spireServerAddress:
+                        description: |-
+                          SPIREServerAddress is the address of the pre-installed SPIRE Server in host:port form
+                          (e.g. "spire-server.spire-system.svc:8081").
+                        maxLength: 263
+                        minLength: 1
+                        type: string
+                      spireTrustDomain:
+                        description: |-
+                          SPIRETrustDomain is the SPIRE-internal trust domain (e.g. "cs.internal") embedded in the
+                          DPU Agent SVID URI.
+                        maxLength: 253
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                        type: string
+                      trustBundle:
+                        description: |-
+                          trustBundle references a ConfigMap whose data["bundle.pem"] key holds the SPIRE trust
+                          bundle in PEM form.
+                        properties:
+                          name:
+                            description: Name is the name of the ConfigMap holding
+                              the SPIRE trust bundle.
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          namespace:
+                            description: Namespace is the namespace of the ConfigMap
+                              holding the SPIRE trust bundle.
+                            maxLength: 63
+                            minLength: 1
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                    required:
+                    - kubeAPIAudience
+                    - spireOIDCURL
+                    - spireServerAddress
+                    - spireTrustDomain
+                    - trustBundle
+                    type: object
+                    x-kubernetes-validations:
+                    - message: spireServerAddress must be host:port with a valid DNS-1123
+                        host (e.g. spire-server.spire-system.svc:8081)
+                      rule: self.spireServerAddress.matches('^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?([.][A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*:[1-9][0-9]{0,4}$')
+                    - message: spireServerAddress port must be in 1-65535
+                      rule: '!self.spireServerAddress.contains('':'') || (int(self.spireServerAddress.split('':'')[1])
+                        >= 1 && int(self.spireServerAddress.split('':'')[1]) <= 65535)'
+                type: object
               serviceSetController:
                 description: ServiceSetController is the configuration for the ServiceSetController
                 properties:
@@ -1589,10 +1796,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                   replicas:
-                    default: 1
+                    default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -1852,10 +2059,10 @@ spec:
                     pattern: ^((?:(?:(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])(?:\.(?:[a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]))*|\[(?:[a-fA-F0-9:]+)\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*)*)(?::([\w][\w.-]{0,127}))?(?:@([A-Za-z][A-Za-z0-9]*(?:[-_+.][A-Za-z][A-Za-z0-9]*)*[:][[:xdigit:]]{32,}))?$
                     type: string
                   replicas:
-                    default: 1
+                    default: 2
                     description: |-
                       Replicas is the number of replicas for the controller deployment.
-                      This is used for High Availability. Leader election is enabled by default.
+                      Used for High Availability via leader election.
                     format: int32
                     maximum: 3
                     minimum: 1
@@ -1866,8 +2073,33 @@ spec:
                     can be set, but not both
                   rule: '!has(self.image) || !has(self.controller) || !has(self.controller.image)'
             required:
+            - deploymentMode
             - provisioningController
             type: object
+            x-kubernetes-validations:
+            - message: deploymentMode zero-trust requires provisioningController.installInterface.installViaRedfish
+              rule: self.deploymentMode != 'zero-trust' || (has(self.provisioningController.installInterface)
+                && has(self.provisioningController.installInterface.installViaRedfish))
+            - message: deploymentMode host-trusted does not support provisioningController.installInterface.installViaRedfish
+              rule: self.deploymentMode != 'host-trusted' || !has(self.provisioningController.installInterface)
+                || !has(self.provisioningController.installInterface.installViaRedfish)
+            - message: dpuNodeOOBBridgeName is only configurable in host-trusted mode
+              rule: self.deploymentMode == 'host-trusted' || !has(self.networking.dpuNodeOOBBridgeName)
+                || self.networking.dpuNodeOOBBridgeName == 'br-dpu'
+            - message: controlPlaneMTU must not exceed 1500 in zero-trust mode because
+                DPU OOB interfaces do not support jumbo frames
+              rule: self.deploymentMode != 'zero-trust' || !has(self.networking) ||
+                !has(self.networking.controlPlaneMTU) || self.networking.controlPlaneMTU
+                <= 1500
+            - message: spiffe configuration requires deploymentMode=zero-trust
+              rule: '!has(self.security) || !has(self.security.spiffe) || self.deploymentMode
+                == ''zero-trust'''
+            - message: spec.security.spiffe cannot be removed once set; SPIFFE-mode
+                DPUs depend on this configuration. Disable SPIFFE for the cluster
+                by deleting and recreating DPFOperatorConfig (DR escape hatch); existing
+                SPIFFE-mode DPUs require re-provisioning.
+              rule: '!has(oldSelf.security) || !has(oldSelf.security.spiffe) || (has(self.security)
+                && has(self.security.spiffe))'
           status:
             description: DPFOperatorConfigStatus defines the observed state of DPFOperatorConfig
             properties:

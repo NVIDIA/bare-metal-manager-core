@@ -13,7 +13,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -50,8 +50,8 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 		requestedVersion                   *string
 		IsSSHKeyGroupDeleting              *bool
 		IsSSHKeyGroupFailedOnInitialCreate *bool
-		createRequest                      *cwssaws.CreateTenantKeysetRequest
-		updateRequest                      *cwssaws.UpdateTenantKeysetRequest
+		createRequest                      *corev1.CreateTenantKeysetRequest
+		updateRequest                      *corev1.UpdateTenantKeysetRequest
 	}
 
 	dbSession := util.TestInitDB(t)
@@ -225,13 +225,13 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				skgID:            skg1.ID,
 				skgsaID:          skgsa1.ID,
 				requestedVersion: skgsa1.Version,
-				createRequest: &cwssaws.CreateTenantKeysetRequest{
-					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+				createRequest: &corev1.CreateTenantKeysetRequest{
+					KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 						KeysetId:       skg1.ID.String(),
 						OrganizationId: skg1.Org,
 					},
-					KeysetContent: &cwssaws.TenantKeysetContent{
-						PublicKeys: []*cwssaws.TenantPublicKey{
+					KeysetContent: &corev1.TenantKeysetContent{
+						PublicKeys: []*corev1.TenantPublicKey{
 							{
 								PublicKey: sshKey1.PublicKey,
 								Comment:   sshKey1.Fingerprint,
@@ -260,13 +260,13 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				skgID:            skg2.ID,
 				skgsaID:          skgsa2.ID,
 				requestedVersion: skgsa2.Version,
-				updateRequest: &cwssaws.UpdateTenantKeysetRequest{
-					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+				updateRequest: &corev1.UpdateTenantKeysetRequest{
+					KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 						KeysetId:       skg2.ID.String(),
 						OrganizationId: skg2.Org,
 					},
-					KeysetContent: &cwssaws.TenantKeysetContent{
-						PublicKeys: []*cwssaws.TenantPublicKey{
+					KeysetContent: &corev1.TenantKeysetContent{
+						PublicKeys: []*corev1.TenantPublicKey{
 							{
 								PublicKey: sshKey3.PublicKey,
 								Comment:   sshKey3.Fingerprint,
@@ -301,13 +301,13 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				requestedVersion:      skgsa3.Version,
 				IsSSHKeyGroupDeleting: cutil.GetPtr(true),
 
-				updateRequest: &cwssaws.UpdateTenantKeysetRequest{
-					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+				updateRequest: &corev1.UpdateTenantKeysetRequest{
+					KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 						KeysetId:       skg3.ID.String(),
 						OrganizationId: skg3.Org,
 					},
-					KeysetContent: &cwssaws.TenantKeysetContent{
-						PublicKeys: []*cwssaws.TenantPublicKey{
+					KeysetContent: &corev1.TenantKeysetContent{
+						PublicKeys: []*corev1.TenantPublicKey{
 							{
 								PublicKey: sshKey3.PublicKey,
 								Comment:   sshKey3.Fingerprint,
@@ -340,13 +340,13 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				skgID:            skg4.ID,
 				skgsaID:          skgsa4.ID,
 				requestedVersion: skgsa4.Version,
-				createRequest: &cwssaws.CreateTenantKeysetRequest{
-					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+				createRequest: &corev1.CreateTenantKeysetRequest{
+					KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 						KeysetId:       skg4.ID.String(),
 						OrganizationId: skg4.Org,
 					},
-					KeysetContent: &cwssaws.TenantKeysetContent{
-						PublicKeys: []*cwssaws.TenantPublicKey{
+					KeysetContent: &corev1.TenantKeysetContent{
+						PublicKeys: []*corev1.TenantPublicKey{
 							{
 								PublicKey: sshKey3.PublicKey,
 								Comment:   sshKey3.Fingerprint,
@@ -395,13 +395,13 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				skgID:            skg5.ID,
 				skgsaID:          skgsa5.ID,
 				requestedVersion: skgsa5.Version,
-				updateRequest: &cwssaws.UpdateTenantKeysetRequest{
-					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+				updateRequest: &corev1.UpdateTenantKeysetRequest{
+					KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 						KeysetId:       skg5.ID.String(),
 						OrganizationId: skg5.Org,
 					},
-					KeysetContent: &cwssaws.TenantKeysetContent{
-						PublicKeys: []*cwssaws.TenantPublicKey{
+					KeysetContent: &corev1.TenantKeysetContent{
+						PublicKeys: []*corev1.TenantPublicKey{
 							{
 								PublicKey: sshKey3.PublicKey,
 								Comment:   sshKey3.Fingerprint,
@@ -437,13 +437,13 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				// This test simulates the retry scenario after duplicate key error
 				// The skgsa has an Error status detail with duplicate key message,
 				// so IsSSHKeyGroupCreatedOnSite returns true, triggering update path
-				updateRequest: &cwssaws.UpdateTenantKeysetRequest{
-					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+				updateRequest: &corev1.UpdateTenantKeysetRequest{
+					KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 						KeysetId:       skg6.ID.String(),
 						OrganizationId: skg6.Org,
 					},
-					KeysetContent: &cwssaws.TenantKeysetContent{
-						PublicKeys: []*cwssaws.TenantPublicKey{
+					KeysetContent: &corev1.TenantKeysetContent{
+						PublicKeys: []*corev1.TenantPublicKey{
 							{
 								PublicKey: sshKey1.PublicKey,
 								Comment:   sshKey1.Fingerprint,
@@ -474,13 +474,13 @@ func TestManageSSHKeyGroup_SyncSSHKeyGroupViaSiteAgent(t *testing.T) {
 				requestedVersion:                   skgsa7.Version,
 				IsSSHKeyGroupFailedOnInitialCreate: cutil.GetPtr(true),
 				// This test simulates the initial create attempt that fails with duplicate key
-				createRequest: &cwssaws.CreateTenantKeysetRequest{
-					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+				createRequest: &corev1.CreateTenantKeysetRequest{
+					KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 						KeysetId:       skg7.ID.String(),
 						OrganizationId: skg7.Org,
 					},
-					KeysetContent: &cwssaws.TenantKeysetContent{
-						PublicKeys: []*cwssaws.TenantPublicKey{
+					KeysetContent: &corev1.TenantKeysetContent{
+						PublicKeys: []*corev1.TenantPublicKey{
 							{
 								PublicKey: sshKey1.PublicKey,
 								Comment:   sshKey1.Fingerprint,
@@ -953,10 +953,10 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 		assert.NoError(t, err)
 	}
 
-	pagedCtrlSSHKeyGroups := []*cwssaws.TenantKeyset{}
+	pagedCtrlSSHKeyGroups := []*corev1.TenantKeyset{}
 	for i := 0; i < 34; i++ {
-		ctrlIns := &cwssaws.TenantKeyset{
-			KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+		ctrlIns := &corev1.TenantKeyset{
+			KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 				OrganizationId: pagedSSHKeyGroups[i].Org,
 				KeysetId:       pagedSSHKeyGroups[i].ID.String(),
 			},
@@ -981,7 +981,7 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 	type args struct {
 		ctx                  context.Context
 		siteID               uuid.UUID
-		sshKeyGroupInventory *cwssaws.SSHKeyGroupInventory
+		sshKeyGroupInventory *corev1.SSHKeyGroupInventory
 	}
 
 	tests := []struct {
@@ -1008,16 +1008,16 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				sshKeyGroupInventory: &cwssaws.SSHKeyGroupInventory{
-					TenantKeysets: []*cwssaws.TenantKeyset{
+				sshKeyGroupInventory: &corev1.SSHKeyGroupInventory{
+					TenantKeysets: []*corev1.TenantKeyset{
 						{
-							KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+							KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 								KeysetId: "1234",
 							},
 							Version: "1234",
 						},
 						{
-							KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+							KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 								KeysetId: "1235",
 							},
 							Version: "1235",
@@ -1037,34 +1037,34 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				sshKeyGroupInventory: &cwssaws.SSHKeyGroupInventory{
-					TenantKeysets: []*cwssaws.TenantKeyset{
+				sshKeyGroupInventory: &corev1.SSHKeyGroupInventory{
+					TenantKeysets: []*corev1.TenantKeyset{
 						{
-							KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+							KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 								KeysetId: skgsa1.SSHKeyGroupID.String(),
 							},
 							Version: "1234",
 						},
 						{
-							KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+							KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 								KeysetId: skgsa2.SSHKeyGroupID.String(),
 							},
 							Version: "1234",
 						},
 						{
-							KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+							KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 								KeysetId: skgsa3.SSHKeyGroupID.String(),
 							},
 							Version: "1135",
 						},
 						{
-							KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+							KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 								KeysetId: skgsa5.SSHKeyGroupID.String(),
 							},
 							Version: "1136",
 						},
 						{
-							KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+							KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 								KeysetId: skgsa7.SSHKeyGroupID.String(),
 							},
 							Version: "1138",
@@ -1092,10 +1092,10 @@ func TestManageSSHKeyGroup_UpdateSSHKeyGroupsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				sshKeyGroupInventory: &cwssaws.SSHKeyGroupInventory{
+				sshKeyGroupInventory: &corev1.SSHKeyGroupInventory{
 					TenantKeysets: pagedCtrlSSHKeyGroups[0:10],
 					Timestamp:     timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -1199,7 +1199,7 @@ func TestManageSSHKeyGroup_DeleteSSHKeyGroupViaSiteAgent(t *testing.T) {
 		ctx                        context.Context
 		siteID                     uuid.UUID
 		sshKeyGroupSiteAssociation *cdbm.SSHKeyGroupSiteAssociation
-		deleteRequest              *cwssaws.DeleteTenantKeysetRequest
+		deleteRequest              *corev1.DeleteTenantKeysetRequest
 	}
 
 	dbSession := util.TestInitDB(t)
@@ -1263,8 +1263,8 @@ func TestManageSSHKeyGroup_DeleteSSHKeyGroupViaSiteAgent(t *testing.T) {
 				ctx:                        context.Background(),
 				siteID:                     st1.ID,
 				sshKeyGroupSiteAssociation: skgsa1,
-				deleteRequest: &cwssaws.DeleteTenantKeysetRequest{
-					KeysetIdentifier: &cwssaws.TenantKeysetIdentifier{
+				deleteRequest: &corev1.DeleteTenantKeysetRequest{
+					KeysetIdentifier: &corev1.TenantKeysetIdentifier{
 						KeysetId:       skgsa1.SSHKeyGroupID.String(),
 						OrganizationId: skg1.Org,
 					},
@@ -1389,12 +1389,12 @@ func TestSSHKeyAssociationNoPaginator(t *testing.T) {
 
 	// Build number of ssh keys paginator + 1.
 	expectedKeysNumber := cdbp.DefaultLimit + 1
-	expectedPublicKeys := []*cwssaws.TenantPublicKey{}
+	expectedPublicKeys := []*corev1.TenantPublicKey{}
 	for i := 0; i < expectedKeysNumber; i++ {
 		name := fmt.Sprintf("test%v", i)
 		sshKey := util.TestBuildSSHKey(t, dbSession, name, tn, name, tnu)
 		assert.NotNil(t, sshKey)
-		expectedPublicKeys = append(expectedPublicKeys, &cwssaws.TenantPublicKey{
+		expectedPublicKeys = append(expectedPublicKeys, &corev1.TenantPublicKey{
 			PublicKey: name,
 			Comment:   &name,
 		})
@@ -1428,7 +1428,7 @@ func TestSSHKeyAssociationNoPaginator(t *testing.T) {
 	mtc.On("ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
 			switch req := args.Get(3).(type) {
-			case *cwssaws.CreateTenantKeysetRequest:
+			case *corev1.CreateTenantKeysetRequest:
 				assert.Len(t, req.KeysetContent.PublicKeys, expectedKeysNumber)
 			default:
 				t.Fatalf("unexpected workflow request type %T", req)

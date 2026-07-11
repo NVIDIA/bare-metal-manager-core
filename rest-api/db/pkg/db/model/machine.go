@@ -14,7 +14,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -75,12 +75,12 @@ var (
 // that we can implement our own marshal/unmarshal
 // that understands how to work with protobuf messages
 type SiteControllerMachine struct {
-	*cwssaws.Machine
+	*corev1.Machine
 }
 
 func (s *SiteControllerMachine) UnmarshalJSON(b []byte) error {
 	if s.Machine == nil {
-		s.Machine = &cwssaws.Machine{}
+		s.Machine = &corev1.Machine{}
 	}
 
 	// We intentionally ignore the error here.
@@ -166,12 +166,12 @@ func (m *Machine) GetControllerState() string {
 // reference is an optional human-readable note recorded with the
 // maintenance event (typically only set when enabling). Returns nil for
 // a nil receiver.
-func (m *Machine) ToMaintenanceRequestProto(operation cwssaws.MaintenanceOperation, reference *string) *cwssaws.MaintenanceRequest {
+func (m *Machine) ToMaintenanceRequestProto(operation corev1.MaintenanceOperation, reference *string) *corev1.MaintenanceRequest {
 	if m == nil {
 		return nil
 	}
-	return &cwssaws.MaintenanceRequest{
-		HostId:    &cwssaws.MachineId{Id: m.ID},
+	return &corev1.MaintenanceRequest{
+		HostId:    &corev1.MachineId{Id: m.ID},
 		Operation: operation,
 		Reference: reference,
 	}
@@ -183,7 +183,7 @@ func (m *Machine) ToMaintenanceRequestProto(operation cwssaws.MaintenanceOperati
 // requires a non-empty Name on every update; this method reads it from
 // the machine's stored metadata when present and non-empty, falling
 // back to the Machine ID itself. Returns nil for a nil receiver.
-func (m *Machine) ToMetadataUpdateRequestProto(labels []*cwssaws.Label) *cwssaws.MachineMetadataUpdateRequest {
+func (m *Machine) ToMetadataUpdateRequestProto(labels []*corev1.Label) *corev1.MachineMetadataUpdateRequest {
 	if m == nil {
 		return nil
 	}
@@ -191,9 +191,9 @@ func (m *Machine) ToMetadataUpdateRequestProto(labels []*cwssaws.Label) *cwssaws
 	if m.Metadata != nil && m.Metadata.Metadata != nil && m.Metadata.Metadata.Name != "" {
 		machineName = m.Metadata.Metadata.Name
 	}
-	return &cwssaws.MachineMetadataUpdateRequest{
-		MachineId: &cwssaws.MachineId{Id: m.ID},
-		Metadata: &cwssaws.Metadata{
+	return &corev1.MachineMetadataUpdateRequest{
+		MachineId: &corev1.MachineId{Id: m.ID},
+		Metadata: &corev1.Metadata{
 			Name:   machineName,
 			Labels: labels,
 		},

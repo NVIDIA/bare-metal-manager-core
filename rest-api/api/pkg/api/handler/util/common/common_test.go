@@ -1175,6 +1175,76 @@ func TestGetSiteMachineCountStats(t *testing.T) {
 	}
 }
 
+func TestGetSiteGPUStats(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testCommonInitDB(t)
+	defer dbSession.Close()
+
+	testCommonSetupSchema(t, dbSession)
+
+	ipOrg := "test-gpu-ip-org"
+	orgRoles := []string{"NICO_SERVICE_PROVIDER_ADMIN"}
+	ipuser := testCommonBuildUser(t, dbSession, uuid.New().String(), []string{ipOrg}, orgRoles)
+
+	ip := testCommonBuildInfrastructureProvider(t, dbSession, "test-gpu-ip", ipOrg, ipuser)
+	assert.NotNil(t, ip)
+
+	site1 := testCommonBuildSite(t, dbSession, ip, "gpu-site-1", ipuser)
+	site2 := testCommonBuildSite(t, dbSession, ip, "gpu-site-2", ipuser)
+
+	mA := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, nil, uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
+	mB := testCommonBuildMachine(t, dbSession, ip.ID, site1.ID, nil, uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
+	mC := testCommonBuildMachine(t, dbSession, ip.ID, site2.ID, nil, uuid.New(), nil, nil, nil, cdbm.MachineStatusReady)
+
+	const h100 = "NVIDIA H100"
+	const a100 = "NVIDIA A100"
+
+	// site1: H100 on mA(8) and mB(8) -> 16 GPUs / 2 machines; A100 on mA(2) -> 2 GPUs / 1 machine
+	TestBuildMachineCapability(t, dbSession, &mA.ID, nil, cdbm.MachineCapabilityTypeGPU, h100, nil, nil, nil, cutil.GetPtr(8), nil, nil)
+	TestBuildMachineCapability(t, dbSession, &mA.ID, nil, cdbm.MachineCapabilityTypeGPU, a100, nil, nil, nil, cutil.GetPtr(2), nil, nil)
+	TestBuildMachineCapability(t, dbSession, &mB.ID, nil, cdbm.MachineCapabilityTypeGPU, h100, nil, nil, nil, cutil.GetPtr(8), nil, nil)
+	// site2: H100 on mC(4)
+	TestBuildMachineCapability(t, dbSession, &mC.ID, nil, cdbm.MachineCapabilityTypeGPU, h100, nil, nil, nil, cutil.GetPtr(4), nil, nil)
+	// non-GPU capability must be excluded from GPU stats
+	TestBuildMachineCapability(t, dbSession, &mA.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon", nil, nil, nil, cutil.GetPtr(2), nil, nil)
+
+	logger := zerolog.Nop()
+
+	t.Run("provider-wide returns per-site stats sorted by name", func(t *testing.T) {
+		stats, err := GetSiteGPUStats(ctx, nil, dbSession, logger, &ip.ID, nil)
+		require.Nil(t, err)
+
+		require.Len(t, stats[site1.ID], 2)
+		assert.Equal(t, a100, stats[site1.ID][0].Name)
+		assert.Equal(t, 2, stats[site1.ID][0].GPUs)
+		assert.Equal(t, 1, stats[site1.ID][0].Machines)
+		assert.Equal(t, h100, stats[site1.ID][1].Name)
+		assert.Equal(t, 16, stats[site1.ID][1].GPUs)
+		assert.Equal(t, 2, stats[site1.ID][1].Machines)
+
+		require.Len(t, stats[site2.ID], 1)
+		assert.Equal(t, h100, stats[site2.ID][0].Name)
+		assert.Equal(t, 4, stats[site2.ID][0].GPUs)
+		assert.Equal(t, 1, stats[site2.ID][0].Machines)
+	})
+
+	t.Run("site-scoped returns only the requested site", func(t *testing.T) {
+		stats, err := GetSiteGPUStats(ctx, nil, dbSession, logger, &ip.ID, &site2.ID)
+		require.Nil(t, err)
+
+		assert.Len(t, stats, 1)
+		require.Len(t, stats[site2.ID], 1)
+		assert.Equal(t, 4, stats[site2.ID][0].GPUs)
+	})
+
+	t.Run("site with no GPUs yields no entry", func(t *testing.T) {
+		emptySite := testCommonBuildSite(t, dbSession, ip, "gpu-site-empty", ipuser)
+		stats, err := GetSiteGPUStats(ctx, nil, dbSession, logger, &ip.ID, &emptySite.ID)
+		require.Nil(t, err)
+		assert.Empty(t, stats[emptySite.ID])
+	})
+}
+
 func TestGetAllocationIDsForTenantAtSite(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testCommonInitDB(t)

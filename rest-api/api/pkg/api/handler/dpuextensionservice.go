@@ -28,7 +28,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -176,7 +176,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 	// needed for the post-commit best-effort update and the response.
 	var dpuExtensionService *cdbm.DpuExtensionService
 	var statusDetails []cdbm.StatusDetail
-	var controllerDpuExtensionService *cwssaws.DpuExtensionService
+	var controllerDpuExtensionService *corev1.DpuExtensionService
 
 	// timeoutResp lets the closure signal a post-rollback handler — the
 	// TerminateWorkflow call has to run after the closure returns so that
@@ -778,7 +778,7 @@ func (udesh UpdateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 	// Outer-scope values populated inside the transaction closure that are
 	// needed for the post-commit best-effort update and the response.
 	var updatedDpuExtensionService *cdbm.DpuExtensionService
-	var controllerDpuExtensionService *cwssaws.DpuExtensionService
+	var controllerDpuExtensionService *corev1.DpuExtensionService
 
 	// timeoutResp lets the closure signal a post-rollback handler — the
 	// TerminateWorkflow call has to run after the closure returns so that
@@ -1224,7 +1224,7 @@ func (gdesvh GetDpuExtensionServiceVersionHandler) Handle(c echo.Context) error 
 	}
 
 	// Get version info from Site DPU Extension Service
-	getDpuVersionInfoRequest := &cwssaws.GetDpuExtensionServiceVersionsInfoRequest{
+	getDpuVersionInfoRequest := &corev1.GetDpuExtensionServiceVersionsInfoRequest{
 		ServiceId: dpuExtensionService.ID.String(),
 		Versions:  []string{versionID},
 	}
@@ -1261,7 +1261,7 @@ func (gdesvh GetDpuExtensionServiceVersionHandler) Handle(c echo.Context) error 
 	logger.Info().Msg("executing sync Temporal workflow on Site")
 
 	// Execute sync workflow on Site
-	var versionInfos *cwssaws.DpuExtensionServiceVersionInfoList
+	var versionInfos *corev1.DpuExtensionServiceVersionInfoList
 	err = workflowRun.Get(ctxWithTimeout, &versionInfos)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -1591,7 +1591,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 			ctxWithTimeout, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 			defer cancel()
 
-			getDpuVersionInfoRequest := &cwssaws.GetDpuExtensionServiceVersionsInfoRequest{
+			getDpuVersionInfoRequest := &corev1.GetDpuExtensionServiceVersionsInfoRequest{
 				ServiceId: dpuExtensionService.ID.String(),
 				Versions:  []string{remainingVersions[0]},
 			}
@@ -1607,7 +1607,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 
 			logger.Info().Msg("executing sync Temporal workflow on Site")
 
-			var controllerVersionInfos *cwssaws.DpuExtensionServiceVersionInfoList
+			var controllerVersionInfos *corev1.DpuExtensionServiceVersionInfoList
 			wferr = workflowRun.Get(ctxWithTimeout, &controllerVersionInfos)
 			if wferr != nil {
 				var timeoutErr *tp.TimeoutError

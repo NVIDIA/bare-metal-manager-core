@@ -35,7 +35,7 @@ use model::network_prefix::NetworkPrefix;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
 };
-use sqlx::{FromRow, PgConnection, PgTransaction, query_as};
+use sqlx::{FromRow, PgConnection, PgTransaction, query_as, query_scalar};
 
 use super::{ObjectColumnFilter, network_segment, vpc};
 use crate::db_read::DbReader;
@@ -198,6 +198,9 @@ fn validate(
 }
 
 /// Counts the amount of addresses that have been allocated for a given segment.
+///
+/// Keep this predicate in sync with [`segment_has_allocations`] (used by the
+/// segment-drain reconcile).
 pub async fn count_by_segment_id(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
@@ -215,6 +218,31 @@ pub async fn count_by_segment_id(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(address_count.max(0) as usize)
+}
+
+/// Returns whether a segment still holds any IP allocation — a machine
+/// interface or an instance address bound to it.
+///
+/// The drain check only needs to know whether *any* allocation remains, so this
+/// answers it in a single round-trip: one query with two `EXISTS` subqueries,
+/// which Postgres can answer without necessarily probing both tables.
+/// Callers previously ran [`count_by_segment_id`] and
+/// [`crate::machine_interface::count_by_segment_id`] and summed the totals —
+/// two round-trips to compute a boolean. Both per-table count functions remain
+/// in production use for the can't-delete-yet error messages
+/// (`network_segment::mark_as_deleted`); keep this predicate in sync with them.
+pub async fn segment_has_allocations(
+    txn: &mut PgConnection,
+    segment_id: &NetworkSegmentId,
+) -> Result<bool, DatabaseError> {
+    let query = "SELECT \
+                 EXISTS(SELECT 1 FROM machine_interfaces WHERE segment_id = $1) \
+                 OR EXISTS(SELECT 1 FROM instance_addresses WHERE segment_id = $1::uuid)";
+    query_scalar(query)
+        .bind(segment_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// Tries to allocate IP addresses for a tenant network configuration
@@ -809,5 +837,158 @@ mod tests {
         let config = create_valid_network_config();
         data[9].status.controller_state.value = NetworkSegmentControllerState::Provisioning;
         assert!(super::validate(&data, &config, &[], false).is_err());
+    }
+}
+
+#[cfg(test)]
+mod segment_has_allocations_tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use model::network_prefix::NewNetworkPrefix;
+    use model::network_segment::{
+        AllocationStrategy, NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
+    };
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::prelude::*;
+
+    use super::*;
+
+    /// Counts `sqlx::query*` tracing events so a measured block's round-trips can
+    /// be asserted. sqlx consults the *current* dispatcher when logging a
+    /// statement, so the scoped `Dispatch` installed by `with_subscriber` sees
+    /// these events regardless of the harness's global `sqlx=warn` filter.
+    #[derive(Clone, Default)]
+    struct QueryCounter(Arc<AtomicUsize>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
+        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
+            if e.metadata().target().starts_with("sqlx::query") {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Seeds a Ready segment plus one machine interface bound to it, so both the
+    /// old count path and the new EXISTS path see an allocation.
+    async fn seed_segment_with_interface(pool: &sqlx::PgPool) -> NetworkSegmentId {
+        let mut txn = pool.begin().await.unwrap();
+        let segment_id: NetworkSegmentId = uuid::Uuid::new_v4().into();
+        network_segment::persist(
+            NewNetworkSegment {
+                id: segment_id,
+                name: format!("seg-{segment_id}"),
+                subdomain_id: None,
+                vpc_id: None,
+                mtu: 1500,
+                prefixes: vec![NewNetworkPrefix {
+                    prefix: "10.9.0.0/24".parse().unwrap(),
+                    gateway: None,
+                    dhcpv6_link_address: None,
+                    num_reserved: 1,
+                }],
+                vlan_id: None,
+                vni: None,
+                segment_type: NetworkSegmentType::Underlay,
+                can_stretch: Some(false),
+                allocation_strategy: AllocationStrategy::Reserved,
+            },
+            txn.deref_mut(),
+            NetworkSegmentControllerState::Ready,
+        )
+        .await
+        .expect("seed segment");
+
+        // A machine interface bound to the segment is one form of allocation.
+        sqlx::query(
+            "INSERT INTO machine_interfaces (segment_id, mac_address, primary_interface, hostname) \
+             VALUES ($1, '02:00:00:00:00:01'::macaddr, true, 'drain-test-host')",
+        )
+        .bind(segment_id)
+        .execute(txn.deref_mut())
+        .await
+        .expect("seed machine interface");
+
+        txn.commit().await.unwrap();
+        segment_id
+    }
+
+    /// Bite-check the round-trip win: the old drain check issued two `count(*)`
+    /// queries (one per table) to compute a boolean, whereas
+    /// `segment_has_allocations` answers it in a single query. Measures 2 vs 1.
+    #[crate::sqlx_test]
+    async fn segment_has_allocations_is_one_round_trip(pool: sqlx::PgPool) {
+        let segment_id = seed_segment_with_interface(&pool).await;
+
+        // Old path: machine_interface::count_by_segment_id + instance_address::count_by_segment_id.
+        let old_counter = QueryCounter::default();
+        let seg = segment_id;
+        let pool_ref = &pool;
+        async {
+            let mut txn = pool_ref.begin().await.unwrap();
+            let mi = crate::machine_interface::count_by_segment_id(&mut txn, &seg)
+                .await
+                .unwrap();
+            let ia = count_by_segment_id(&mut txn, &seg).await.unwrap();
+            // The allocation we seeded is visible to the old summed check.
+            assert!(mi + ia > 0, "seeded interface should register");
+        }
+        .with_subscriber(tracing::Dispatch::new(
+            tracing_subscriber::registry().with(old_counter.clone()),
+        ))
+        .await;
+        let old_queries = old_counter.0.load(Ordering::Relaxed);
+
+        // New path: a single EXISTS-OR-EXISTS query.
+        let new_counter = QueryCounter::default();
+        let has = async {
+            let mut txn = pool_ref.begin().await.unwrap();
+            segment_has_allocations(&mut txn, &seg).await.unwrap()
+        }
+        .with_subscriber(tracing::Dispatch::new(
+            tracing_subscriber::registry().with(new_counter.clone()),
+        ))
+        .await;
+        let new_queries = new_counter.0.load(Ordering::Relaxed);
+
+        assert!(has, "segment_has_allocations must see the seeded interface");
+        assert_eq!(old_queries, 2, "old drain check issued two count queries");
+        assert_eq!(new_queries, 1, "segment_has_allocations issues one query");
+    }
+
+    /// A segment with no interfaces and no instance addresses reports no
+    /// allocations.
+    #[crate::sqlx_test]
+    async fn segment_has_allocations_false_when_empty(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let segment_id: NetworkSegmentId = uuid::Uuid::new_v4().into();
+        network_segment::persist(
+            NewNetworkSegment {
+                id: segment_id,
+                name: format!("empty-{segment_id}"),
+                subdomain_id: None,
+                vpc_id: None,
+                mtu: 1500,
+                prefixes: vec![NewNetworkPrefix {
+                    prefix: "10.9.1.0/24".parse().unwrap(),
+                    gateway: None,
+                    dhcpv6_link_address: None,
+                    num_reserved: 1,
+                }],
+                vlan_id: None,
+                vni: None,
+                segment_type: NetworkSegmentType::Underlay,
+                can_stretch: Some(false),
+                allocation_strategy: AllocationStrategy::Reserved,
+            },
+            txn.deref_mut(),
+            NetworkSegmentControllerState::Ready,
+        )
+        .await
+        .expect("seed empty segment");
+
+        let has = segment_has_allocations(&mut txn, &segment_id)
+            .await
+            .unwrap();
+        assert!(!has, "empty segment has no allocations");
     }
 }

@@ -14,9 +14,9 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/common/utils"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // nvosIPDescriptionKey is the component.description key under which the
@@ -90,7 +90,7 @@ func syncNVSwitchesNICo(
 	}
 
 	// Direct-write external_id for matched components
-	var switchIDs []*pb.SwitchId
+	var switchIDs []*corev1.SwitchId
 	componentsBySwitchID := make(map[string]*model.Component)
 
 	for bmcMac, sw := range expectedByBmcMac {
@@ -109,7 +109,7 @@ func syncNVSwitchesNICo(
 			log.Info().Msgf("NVSwitch %s (BMC %s): set external_id to Core SwitchId %s", sw.ID, bmcMac, switchID)
 		}
 
-		switchIDs = append(switchIDs, &pb.SwitchId{Id: les.SwitchID})
+		switchIDs = append(switchIDs, &corev1.SwitchId{Id: les.SwitchID})
 		componentsBySwitchID[les.SwitchID] = sw
 	}
 
@@ -120,9 +120,9 @@ func syncNVSwitchesNICo(
 	now := time.Now()
 	inventoryOK := true
 	if len(switchIDs) > 0 {
-		invResp, err := nicoClient.GetComponentInventory(ctx, &pb.GetComponentInventoryRequest{
-			Target: &pb.GetComponentInventoryRequest_SwitchIds{
-				SwitchIds: &pb.SwitchIdList{Ids: switchIDs},
+		invResp, err := nicoClient.GetComponentInventory(ctx, &corev1.GetComponentInventoryRequest{
+			Target: &corev1.GetComponentInventoryRequest_SwitchIds{
+				SwitchIds: &corev1.SwitchIdList{Ids: switchIDs},
 			},
 		})
 		if err != nil {

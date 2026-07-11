@@ -39,9 +39,10 @@ namespaceOverride: ""
 ## share the same pods. Disable when running an all-modern fleet.
 ##
 ## Each entry creates:
-##   - the alias namespace (if `createNamespace: true`, with
-##     `helm.sh/resource-policy: keep` so a helm uninstall does not delete
-##     it).
+##   - the alias namespace, only if `createNamespace: true`. Opt in only
+##     when nothing else owns the target namespace: a second renderer makes
+##     GitOps controllers fight over ownership, and disabling it later can
+##     prune the whole namespace.
 ##   - an ExternalName Service `<name>.<namespace>` that CNAMEs to
 ##     `nico-api.<this-namespace>.svc.cluster.local`.
 ##
@@ -59,7 +60,8 @@ legacyAlias:
   aliases:
     - name: carbide-api
       namespace: forge-system
-      createNamespace: true
+      # Off by default: helm-prereqs already owns this namespace (see note above).
+      createNamespace: false
 
 replicas: 1
 automountServiceAccountToken: true

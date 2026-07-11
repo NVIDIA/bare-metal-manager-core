@@ -25,7 +25,8 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
 use super::client::{
-    GnmiClient, nvue_subscribe_paths, system_events_prefix, system_events_subscribe_path,
+    GnmiClient, GnmiClientConfig, nvue_subscribe_paths, system_events_prefix,
+    system_events_subscribe_path,
 };
 use super::on_change_processor::{
     GnmiOnChangeProcessor, ON_CHANGE_STREAM_ID_SYSTEM_EVENTS, OnChangeStreamMetrics,
@@ -36,7 +37,7 @@ use crate::HealthError;
 use crate::bmc::{CREDENTIAL_REFRESH_TIMEOUT, CredentialProvider};
 use crate::collectors::Collector;
 use crate::collectors::runtime::{BackoffConfig, ExponentialBackoff, StreamingConnectionGuard};
-use crate::config::NvueGnmiConfig;
+use crate::config::{MtlsProfileConfig, NvueGnmiConfig};
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint};
 use crate::metrics::CollectorRegistry;
 use crate::sink::{CollectorEvent, DataSink, EventContext};
@@ -184,10 +185,14 @@ struct GnmiStreamConfig {
 #[derive(Clone)]
 struct GnmiClientProvider {
     switch_id: String,
-    switch_ip: String,
+    switch_connect_host: String,
     port: u16,
     request_timeout: Duration,
     dangerously_skip_tls_verification: bool,
+
+    // Streaming subscriptions build a fresh gNMI client on reconnect, so
+    // rotated mTLS profile files are adopted after the stream reconnects.
+    tls_config: Option<MtlsProfileConfig>,
     credentials: Arc<GnmiCredentialCache>,
 }
 
@@ -209,15 +214,16 @@ impl GnmiClientProvider {
     async fn new_client(&self) -> Result<(GnmiClient, u64), HealthError> {
         let (credentials, generation) = self.credentials.ensure().await?;
         Ok((
-            GnmiClient::new(
-                self.switch_id.clone(),
-                &self.switch_ip,
-                self.port,
-                credentials.username,
-                credentials.password,
-                self.request_timeout,
-                self.dangerously_skip_tls_verification,
-            ),
+            GnmiClient::new(GnmiClientConfig {
+                switch_id: self.switch_id.clone(),
+                host: self.switch_connect_host.clone(),
+                port: self.port,
+                username: credentials.username,
+                password: credentials.password,
+                request_timeout: self.request_timeout,
+                dangerously_skip_tls_verification: self.dangerously_skip_tls_verification,
+                tls_config: self.tls_config.clone(),
+            }),
             generation,
         ))
     }
@@ -441,27 +447,31 @@ async fn fetch_gnmi_username_password(
         )),
     }
 }
-pub fn spawn_gnmi_collector(
+
+pub(crate) fn spawn_gnmi_collector(
     endpoint: &BmcEndpoint,
     gnmi_config: &NvueGnmiConfig,
     credential_provider: Arc<dyn CredentialProvider>,
     collector_registry: Arc<CollectorRegistry>,
     data_sink: Option<Arc<dyn DataSink>>,
+    tls_config: Option<MtlsProfileConfig>,
 ) -> Result<Collector, HealthError> {
     let switch_id = endpoint
         .metadata
         .as_ref()
         .and_then(|m| m.serial_number().map(str::to_string))
         .unwrap_or_else(|| endpoint.addr.mac.to_string());
-    let switch_ip = endpoint.addr.ip.to_string();
+
+    let switch_connect_host = endpoint.switch_connect_host_for_uri().into_owned();
     let sample_event_context = EventContext::from_endpoint(endpoint, NVUE_GNMI_SAMPLE_STREAM_ID);
 
     let client_provider = GnmiClientProvider {
         switch_id: switch_id.clone(),
-        switch_ip,
+        switch_connect_host,
         port: gnmi_config.gnmi_port,
         request_timeout: gnmi_config.request_timeout,
         dangerously_skip_tls_verification: gnmi_config.dangerously_skip_tls_verification,
+        tls_config,
         credentials: Arc::new(GnmiCredentialCache::new(
             credential_provider,
             endpoint.addr.clone(),
@@ -846,10 +856,11 @@ mod tests {
         let addr = test_addr();
         GnmiClientProvider {
             switch_id: "switch-1".to_string(),
-            switch_ip: addr.ip.to_string(),
+            switch_connect_host: addr.ip.to_string(),
             port: 9339,
             request_timeout: Duration::from_secs(1),
             dangerously_skip_tls_verification: false,
+            tls_config: None,
             credentials: Arc::new(GnmiCredentialCache::new(provider, addr)),
         }
     }

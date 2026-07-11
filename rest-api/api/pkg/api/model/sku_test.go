@@ -10,7 +10,7 @@ import (
 	"time"
 
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -100,7 +100,7 @@ func TestNewAPISkuComponents(t *testing.T) {
 
 	// Test with empty input
 	t.Run("test new API SKU Components with empty input", func(t *testing.T) {
-		result := NewAPISkuComponents(&cwssaws.SkuComponents{})
+		result := NewAPISkuComponents(&corev1.SkuComponents{})
 		assert.NotNil(t, result)
 		assert.Nil(t, result.Cpus)
 		assert.Nil(t, result.Gpus)
@@ -122,8 +122,8 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 			DeviceType:           &deviceType,
 			AssociatedMachineIds: []string{"machine-001", "machine-002", "machine-003"},
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{
 							Vendor:      "Intel",
 							Model:       "Xeon Platinum 8480+",
@@ -131,7 +131,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       2,
 						},
 					},
-					Gpus: []*cwssaws.SkuComponentGpu{
+					Gpus: []*corev1.SkuComponentGpu{
 						{
 							Vendor:      "NVIDIA",
 							Model:       "H100 SXM5",
@@ -139,14 +139,14 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       8,
 						},
 					},
-					Memory: []*cwssaws.SkuComponentMemory{
+					Memory: []*corev1.SkuComponentMemory{
 						{
 							CapacityMb: 65536,
 							MemoryType: "DDR5",
 							Count:      16,
 						},
 					},
-					Storage: []*cwssaws.SkuComponentStorage{
+					Storage: []*corev1.SkuComponentStorage{
 						{
 							Vendor:     "Samsung",
 							Model:      "PM9A3",
@@ -154,11 +154,11 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:      4,
 						},
 					},
-					Chassis: &cwssaws.SkuComponentChassis{
+					Chassis: &corev1.SkuComponentChassis{
 						Vendor: "Supermicro",
 						Model:  "SYS-420GP-TNR",
 					},
-					Tpm: &cwssaws.SkuComponentTpm{
+					Tpm: &corev1.SkuComponentTpm{
 						Vendor:  "Infineon",
 						Version: "2.0",
 					},
@@ -222,8 +222,8 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 			DeviceType:           &deviceType,
 			AssociatedMachineIds: []string{"machine-010"},
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{
 							Vendor:      "AMD",
 							Model:       "EPYC 9654",
@@ -231,7 +231,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       2,
 						},
 					},
-					Gpus: []*cwssaws.SkuComponentGpu{
+					Gpus: []*corev1.SkuComponentGpu{
 						{
 							Vendor:      "NVIDIA",
 							Model:       "A100 80GB",
@@ -245,14 +245,14 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       4,
 						},
 					},
-					Memory: []*cwssaws.SkuComponentMemory{
+					Memory: []*corev1.SkuComponentMemory{
 						{
 							CapacityMb: 32768,
 							MemoryType: "DDR5",
 							Count:      32,
 						},
 					},
-					Chassis: &cwssaws.SkuComponentChassis{
+					Chassis: &corev1.SkuComponentChassis{
 						Vendor: "Dell",
 						Model:  "PowerEdge XE9680",
 					},
@@ -282,8 +282,8 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 			SiteID:     siteID,
 			DeviceType: &deviceType,
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{
 							Vendor:      "Intel",
 							Model:       "Xeon Gold 6438N",
@@ -291,14 +291,14 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       2,
 						},
 					},
-					Memory: []*cwssaws.SkuComponentMemory{
+					Memory: []*corev1.SkuComponentMemory{
 						{
 							CapacityMb: 65536,
 							MemoryType: "DDR5 ECC",
 							Count:      8,
 						},
 					},
-					Storage: []*cwssaws.SkuComponentStorage{
+					Storage: []*corev1.SkuComponentStorage{
 						{
 							Vendor:     "Samsung",
 							Model:      "PM1733",
@@ -312,7 +312,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:      4,
 						},
 					},
-					Chassis: &cwssaws.SkuComponentChassis{
+					Chassis: &corev1.SkuComponentChassis{
 						Vendor: "HPE",
 						Model:  "ProLiant DL380 Gen11",
 					},
@@ -351,8 +351,8 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 			SiteID:     siteID,
 			DeviceType: &deviceType,
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{
 							Vendor:      "AMD",
 							Model:       "EPYC 9754",
@@ -360,7 +360,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       2,
 						},
 					},
-					Memory: []*cwssaws.SkuComponentMemory{
+					Memory: []*corev1.SkuComponentMemory{
 						{
 							CapacityMb: 131072,
 							MemoryType: "DDR5-4800",
@@ -372,7 +372,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:      12,
 						},
 					},
-					Storage: []*cwssaws.SkuComponentStorage{
+					Storage: []*corev1.SkuComponentStorage{
 						{
 							Vendor:     "Micron",
 							Model:      "9400 PRO",
@@ -380,11 +380,11 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:      2,
 						},
 					},
-					Chassis: &cwssaws.SkuComponentChassis{
+					Chassis: &corev1.SkuComponentChassis{
 						Vendor: "Lenovo",
 						Model:  "ThinkSystem SR665 V3",
 					},
-					Tpm: &cwssaws.SkuComponentTpm{
+					Tpm: &corev1.SkuComponentTpm{
 						Vendor:  "Infineon",
 						Version: "2.0",
 					},
@@ -419,8 +419,8 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 			SiteID:     siteID,
 			DeviceType: &deviceType,
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{
 							Vendor:      "Intel",
 							Model:       "Xeon D-2796NT",
@@ -428,7 +428,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       1,
 						},
 					},
-					Gpus: []*cwssaws.SkuComponentGpu{
+					Gpus: []*corev1.SkuComponentGpu{
 						{
 							Vendor:      "NVIDIA",
 							Model:       "T4",
@@ -436,14 +436,14 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       2,
 						},
 					},
-					Memory: []*cwssaws.SkuComponentMemory{
+					Memory: []*corev1.SkuComponentMemory{
 						{
 							CapacityMb: 32768,
 							MemoryType: "DDR4-3200",
 							Count:      4,
 						},
 					},
-					Storage: []*cwssaws.SkuComponentStorage{
+					Storage: []*corev1.SkuComponentStorage{
 						{
 							Vendor:     "Kingston",
 							Model:      "DC1000B",
@@ -451,11 +451,11 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:      2,
 						},
 					},
-					Chassis: &cwssaws.SkuComponentChassis{
+					Chassis: &corev1.SkuComponentChassis{
 						Vendor: "Cisco",
 						Model:  "UCS C220 M6",
 					},
-					Tpm: &cwssaws.SkuComponentTpm{
+					Tpm: &corev1.SkuComponentTpm{
 						Vendor:  "Infineon",
 						Version: "2.0",
 					},
@@ -632,8 +632,8 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 			SiteID:     siteID,
 			DeviceType: &deviceType,
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{
 							Vendor:      "Intel",
 							Model:       "Test CPU",
@@ -641,7 +641,7 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 							Count:       0,
 						},
 					},
-					Gpus: []*cwssaws.SkuComponentGpu{
+					Gpus: []*corev1.SkuComponentGpu{
 						{
 							Vendor:      "NVIDIA",
 							Model:       "Test GPU",
@@ -671,15 +671,15 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 			SiteID:     siteID,
 			DeviceType: &deviceType,
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Memory: []*cwssaws.SkuComponentMemory{
+				SkuComponents: &corev1.SkuComponents{
+					Memory: []*corev1.SkuComponentMemory{
 						{
 							CapacityMb: 4294967295, // max uint32
 							MemoryType: "DDR5",
 							Count:      4294967295,
 						},
 					},
-					Storage: []*cwssaws.SkuComponentStorage{
+					Storage: []*corev1.SkuComponentStorage{
 						{
 							Vendor:     "Test",
 							Model:      "Large Storage",
@@ -707,8 +707,8 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 			SiteID:     siteID,
 			DeviceType: &deviceType,
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{
 							Vendor:      "Intel®",
 							Model:       "Xeon® Platinum 8480+ (Sapphire Rapids)",
@@ -716,7 +716,7 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 							Count:       2,
 						},
 					},
-					Chassis: &cwssaws.SkuComponentChassis{
+					Chassis: &corev1.SkuComponentChassis{
 						Vendor: "HPE™",
 						Model:  "ProLiant DL380 Gen11 (2U)",
 					},
@@ -740,8 +740,8 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 			SiteID:     siteID,
 			DeviceType: &deviceType,
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{
 							Vendor:      "",
 							Model:       "",
@@ -749,7 +749,7 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 							Count:       1,
 						},
 					},
-					Memory: []*cwssaws.SkuComponentMemory{
+					Memory: []*corev1.SkuComponentMemory{
 						{
 							CapacityMb: 32768,
 							MemoryType: "",
@@ -776,28 +776,28 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 			SiteID:     siteID,
 			DeviceType: &deviceType,
 			Components: &cdbm.SkuComponents{
-				SkuComponents: &cwssaws.SkuComponents{
-					Cpus: []*cwssaws.SkuComponentCpu{
+				SkuComponents: &corev1.SkuComponents{
+					Cpus: []*corev1.SkuComponentCpu{
 						{Vendor: "Intel", Model: "CPU1", ThreadCount: 64, Count: 1},
 						{Vendor: "Intel", Model: "CPU2", ThreadCount: 128, Count: 1},
 						{Vendor: "AMD", Model: "CPU3", ThreadCount: 192, Count: 2},
 					},
-					Gpus: []*cwssaws.SkuComponentGpu{
+					Gpus: []*corev1.SkuComponentGpu{
 						{Vendor: "NVIDIA", Model: "GPU1", TotalMemory: "40GB", Count: 2},
 						{Vendor: "NVIDIA", Model: "GPU2", TotalMemory: "80GB", Count: 4},
 						{Vendor: "AMD", Model: "GPU3", TotalMemory: "64GB", Count: 2},
 					},
-					Memory: []*cwssaws.SkuComponentMemory{
+					Memory: []*corev1.SkuComponentMemory{
 						{CapacityMb: 32768, MemoryType: "DDR4", Count: 8},
 						{CapacityMb: 65536, MemoryType: "DDR5", Count: 8},
 						{CapacityMb: 131072, MemoryType: "DDR5", Count: 4},
 					},
-					Storage: []*cwssaws.SkuComponentStorage{
+					Storage: []*corev1.SkuComponentStorage{
 						{Vendor: "Samsung", Model: "SSD1", CapacityMb: 960000, Count: 4},
 						{Vendor: "Intel", Model: "SSD2", CapacityMb: 3840000, Count: 2},
 						{Vendor: "Micron", Model: "SSD3", CapacityMb: 7680000, Count: 2},
 					},
-					Tpm: &cwssaws.SkuComponentTpm{
+					Tpm: &corev1.SkuComponentTpm{
 						Vendor:  "Infineon",
 						Version: "2.0",
 					},

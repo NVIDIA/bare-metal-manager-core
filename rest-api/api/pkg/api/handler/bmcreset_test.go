@@ -16,19 +16,19 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestResetMachineBMCHandlerProxiesRequest(t *testing.T) {
-	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, &cwssaws.AdminBmcResetResponse{})
+	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, &corev1.AdminBmcResetResponse{})
 	handler := NewResetMachineBMCHandler(fixture.DBSession, fixture.SiteClientPool, fixture.Config)
 
 	rec := fixture.Request(t, handler.Handle, http.MethodPatch, "/", model.APIMachineBMCResetRequest{UseIpmiTool: true}, "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, cwssaws.Forge_AdminBmcReset_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_AdminBmcReset_FullMethodName, fixture.ProxiedReq.FullMethod)
 	assert.Empty(t, fixture.ProxiedReq.EncryptedSecrets)
 
-	var coreReq cwssaws.AdminBmcResetRequest
+	var coreReq corev1.AdminBmcResetRequest
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetMachineId())
 	assert.True(t, coreReq.GetUseIpmitool())
@@ -44,9 +44,9 @@ func TestResetMachineBMCHandlerDefaultsUseIpmiTool(t *testing.T) {
 
 	rec := fixture.Request(t, handler.Handle, http.MethodPatch, "/", nil, "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, cwssaws.Forge_AdminBmcReset_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_AdminBmcReset_FullMethodName, fixture.ProxiedReq.FullMethod)
 
-	var coreReq cwssaws.AdminBmcResetRequest
+	var coreReq corev1.AdminBmcResetRequest
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.False(t, coreReq.GetUseIpmitool())
 }
@@ -82,5 +82,5 @@ func TestResetMachineBMCHandlerAllowsMachineWithInstanceAcknowledgement(t *testi
 		AcknowledgeAttachedInstance: &acknowledgeAttachedInstance,
 	}, "")
 	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Equal(t, cwssaws.Forge_AdminBmcReset_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_AdminBmcReset_FullMethodName, fixture.ProxiedReq.FullMethod)
 }

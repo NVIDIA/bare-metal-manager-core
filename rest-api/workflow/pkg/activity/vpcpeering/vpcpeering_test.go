@@ -25,7 +25,7 @@ import (
 	"os"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func testTemporalSiteClientPool(t *testing.T) *sc.ClientPool {
@@ -260,7 +260,7 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 
 	pagedVpcPeerings := []*cdbm.VpcPeering{}
 	pagedInvIds := []string{}
-	pagedCtrlVpcPeerings := []*cwssaws.VpcPeering{}
+	pagedCtrlVpcPeerings := []*corev1.VpcPeering{}
 
 	paged_vpc1 := testVpcPeeringBuildVPC(t, dbSession, fmt.Sprintf("test-vpc-paged-%d", 0), ip, tenant, site3, nil, nil, nil, user, "READY")
 	curr_vpc := paged_vpc1
@@ -280,10 +280,10 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 		assert.NoError(t, err)
 
 		if i < 34 {
-			ctrlVpcPeering := &cwssaws.VpcPeering{
-				Id:        &cwssaws.VpcPeeringId{Value: vpcPeering.ID.String()},
-				VpcId:     &cwssaws.VpcId{Value: prev_vpc.ID.String()},
-				PeerVpcId: &cwssaws.VpcId{Value: curr_vpc.ID.String()},
+			ctrlVpcPeering := &corev1.VpcPeering{
+				Id:        &corev1.VpcPeeringId{Value: vpcPeering.ID.String()},
+				VpcId:     &corev1.VpcId{Value: prev_vpc.ID.String()},
+				PeerVpcId: &corev1.VpcId{Value: curr_vpc.ID.String()},
 			}
 			pagedCtrlVpcPeerings = append(pagedCtrlVpcPeerings, ctrlVpcPeering)
 		}
@@ -300,7 +300,7 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 	type args struct {
 		ctx                 context.Context
 		siteID              uuid.UUID
-		vpcPeeringInventory *cwssaws.VPCPeeringInventory
+		vpcPeeringInventory *corev1.VPCPeeringInventory
 	}
 
 	tests := []struct {
@@ -321,8 +321,8 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				vpcPeeringInventory: &cwssaws.VPCPeeringInventory{
-					VpcPeerings: []*cwssaws.VpcPeering{},
+				vpcPeeringInventory: &corev1.VPCPeeringInventory{
+					VpcPeerings: []*corev1.VpcPeering{},
 				},
 			},
 			wantErr: true,
@@ -337,12 +337,12 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: site.ID,
-				vpcPeeringInventory: &cwssaws.VPCPeeringInventory{
-					VpcPeerings: []*cwssaws.VpcPeering{
-						{Id: &cwssaws.VpcPeeringId{Value: vp1.ID.String()}},
-						{Id: &cwssaws.VpcPeeringId{Value: vp2.ID.String()}},
-						{Id: &cwssaws.VpcPeeringId{Value: vp3.ID.String()}},
-						{Id: &cwssaws.VpcPeeringId{Value: vp4.ID.String()}},
+				vpcPeeringInventory: &corev1.VPCPeeringInventory{
+					VpcPeerings: []*corev1.VpcPeering{
+						{Id: &corev1.VpcPeeringId{Value: vp1.ID.String()}},
+						{Id: &corev1.VpcPeeringId{Value: vp2.ID.String()}},
+						{Id: &corev1.VpcPeeringId{Value: vp3.ID.String()}},
+						{Id: &corev1.VpcPeeringId{Value: vp4.ID.String()}},
 					},
 				},
 			},
@@ -359,9 +359,9 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: site.ID,
-				vpcPeeringInventory: &cwssaws.VPCPeeringInventory{
-					VpcPeerings: []*cwssaws.VpcPeering{
-						{Id: &cwssaws.VpcPeeringId{Value: vp1.ID.String()}},
+				vpcPeeringInventory: &corev1.VPCPeeringInventory{
+					VpcPeerings: []*corev1.VpcPeering{
+						{Id: &corev1.VpcPeeringId{Value: vp1.ID.String()}},
 					},
 				},
 			},
@@ -379,10 +379,10 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: site2.ID,
-				vpcPeeringInventory: &cwssaws.VPCPeeringInventory{
-					VpcPeerings: []*cwssaws.VpcPeering{},
+				vpcPeeringInventory: &corev1.VPCPeeringInventory{
+					VpcPeerings: []*corev1.VpcPeering{},
 					Timestamp:   timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -405,10 +405,10 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: site3.ID,
-				vpcPeeringInventory: &cwssaws.VPCPeeringInventory{
+				vpcPeeringInventory: &corev1.VPCPeeringInventory{
 					VpcPeerings: pagedCtrlVpcPeerings[0:10],
 					Timestamp:   timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -430,10 +430,10 @@ func TestManageVpcPeering_UpdateVpcPeeringsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: site3.ID,
-				vpcPeeringInventory: &cwssaws.VPCPeeringInventory{
+				vpcPeeringInventory: &corev1.VPCPeeringInventory{
 					VpcPeerings: pagedCtrlVpcPeerings[30:34],
 					Timestamp:   timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 4,
 						TotalPages:  4,
 						PageSize:    10,

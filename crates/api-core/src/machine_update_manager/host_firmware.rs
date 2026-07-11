@@ -32,6 +32,7 @@ use sqlx::PgConnection;
 use tokio::sync::Mutex;
 
 use super::machine_update_module::MachineUpdateModule;
+use super::metrics::{FirmwareUpdatePhase, FirmwareUpdateProgress, FirmwareUpdateTarget};
 use crate::CarbideResult;
 use crate::cfg::file::CarbideConfig;
 
@@ -90,8 +91,6 @@ impl MachineUpdateModule for HostFirmwareUpdate {
                 continue;
             }
 
-            tracing::info!("Moving {} to host reprovision", machine_update);
-
             db::host_machine_update::trigger_host_reprovisioning_request(
                 &mut txn,
                 "Automated",
@@ -99,6 +98,15 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             )
             .await?;
 
+            // Counted after the trigger succeeds; the commit below spans the
+            // whole batch, so a later DB error can re-count machines on the
+            // next pass -- the same repeat-on-retry the old log line had.
+            carbide_instrument::emit(FirmwareUpdateProgress {
+                target: FirmwareUpdateTarget::Host,
+                phase: FirmwareUpdatePhase::Started,
+                machine_id: *machine_update,
+                detail: String::new(),
+            });
             updates_started.insert(*machine_update);
         }
 
@@ -109,18 +117,21 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         let completed = db::host_machine_update::find_completed_updates(txn).await?;
 
-        if !completed.is_empty() {
-            tracing::info!("Completed host firmware updates: {completed:?}");
-            for machine in completed {
-                db::machine::remove_health_report(
-                    txn,
-                    &machine,
-                    health_report::HealthReportApplyMode::Merge,
-                    HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
-                )
-                .await?;
-                db::machine::update_update_complete(&machine, true, txn).await?;
-            }
+        for machine in completed {
+            db::machine::remove_health_report(
+                txn,
+                &machine,
+                health_report::HealthReportApplyMode::Merge,
+                HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
+            )
+            .await?;
+            db::machine::update_update_complete(&machine, true, txn).await?;
+            carbide_instrument::emit(FirmwareUpdateProgress {
+                target: FirmwareUpdateTarget::Host,
+                phase: FirmwareUpdatePhase::Completed,
+                machine_id: machine,
+                detail: String::new(),
+            });
         }
         Ok(())
     }
@@ -128,8 +139,16 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     async fn update_metrics(
         &self,
         pool: &sqlx::Pool<sqlx::Postgres>,
-        _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+        snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<()> {
+        let exhausted_retries = snapshots
+            .values()
+            .filter(|snapshot| snapshot.managed_state.host_repro_retries_exhausted())
+            .count();
+        self.metrics
+            .exhausted_reprovision_retries
+            .store(exhausted_retries as u64, Ordering::Relaxed);
+
         let mut txn = db::Transaction::begin(pool).await?;
         match db::host_machine_update::find_upgrade_needed(
             &mut txn,
@@ -243,6 +262,7 @@ impl fmt::Display for HostFirmwareUpdate {
 pub struct HostFirmwareUpdateMetrics {
     pub pending_firmware_updates: Arc<AtomicU64>,
     pub active_firmware_updates: Arc<AtomicU64>,
+    pub exhausted_reprovision_retries: Arc<AtomicU64>,
 }
 
 impl HostFirmwareUpdateMetrics {
@@ -250,12 +270,14 @@ impl HostFirmwareUpdateMetrics {
         HostFirmwareUpdateMetrics {
             pending_firmware_updates: Arc::new(AtomicU64::new(0)),
             active_firmware_updates: Arc::new(AtomicU64::new(0)),
+            exhausted_reprovision_retries: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub fn register_callbacks(&self, meter: &Meter) {
         let pending_firmware_updates = self.pending_firmware_updates.clone();
         let active_firmware_updates = self.active_firmware_updates.clone();
+        let exhausted_reprovision_retries = self.exhausted_reprovision_retries.clone();
         meter
             .u64_observable_gauge("carbide_pending_host_firmware_update_count")
             .with_description(
@@ -272,6 +294,14 @@ impl HostFirmwareUpdateMetrics {
             )
             .with_callback(move |observer|
                 observer.observe(active_firmware_updates.load(Ordering::Relaxed), &[]))
+            .build();
+        meter
+            .u64_observable_gauge("carbide_exhausted_reprovision_retry_count")
+            .with_description(
+                "Number of host machines in the system whose host firmware upgrade retry budget is exhausted.",
+            )
+            .with_callback(move |observer|
+                observer.observe(exhausted_reprovision_retries.load(Ordering::Relaxed), &[]))
             .build();
     }
 }

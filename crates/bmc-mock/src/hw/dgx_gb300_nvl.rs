@@ -81,6 +81,7 @@ impl DgxGB300Nvl<'_> {
                         .build(),
                     ]),
                     // NVIDIA "GB BMC" host BMC firmware, per the DGX GB300 scrape.
+                    serial_interfaces: None,
                     firmware_version: Some("HR-2511-02.0"),
                     oem: None,
                 },
@@ -96,6 +97,7 @@ impl DgxGB300Nvl<'_> {
                     ]),
                     host_interfaces: None,
                     // Family-wide NVL HMC firmware label (same on GB200/GB300).
+                    serial_interfaces: None,
                     firmware_version: Some("GB200Nvl-25.08-B"),
                     oem: None,
                 },
@@ -107,7 +109,7 @@ impl DgxGB300Nvl<'_> {
         let system_id = "System_0";
         let boot_options = std::iter::once(
             redfish::boot_option::builder(
-                &redfish::boot_option::resource(system_id, "0002"),
+                &redfish::boot_option::resource(system_id, "Boot0002"),
                 BootOptionKind::Disk,
             )
             .boot_option_reference("Boot0002")
@@ -119,16 +121,16 @@ impl DgxGB300Nvl<'_> {
                 .into_iter()
                 .enumerate()
                 .map(|(n, nic)| {
-                    let id = format!("{:04X}", n + 3); // Starting with 0003
+                    let id = format!("Boot{:04X}", n + 3); // Starting with 0003
                     let pci_path = "PciRoot(0x0)/Pci(0x10,0x0)/Pci(0x0,0x0)";
                     redfish::boot_option::builder(
                         &redfish::boot_option::resource(system_id, &id),
                         BootOptionKind::Network,
                     )
-                    .boot_option_reference(&format!("Boot{id}"))
+                    .boot_option_reference(&id)
                     .display_name(&format!(
-                        "[SlotFFFF]: PXE IPv4 Some Network Adapter - {}",
-                        nic.mac_address
+                        "UEFI HTTPv4 (MAC:{})",
+                        nic.mac_address.to_string().replace(":", ""),
                     ))
                     .uefi_device_path(&format!(
                         "{pci_path}/MAC({},0x1)\
@@ -169,6 +171,7 @@ impl DgxGB300Nvl<'_> {
                     model: Some("GB300 1CPU:2GPU Board PC".into()),
                     oem: redfish::computer_system::Oem::Generic,
                     callbacks: None,
+                    serial_console: None,
                     secure_boot_available: false,
                     serial_number: Some(self.hgx_serial_number.to_string().into()),
                     storage: None,
@@ -178,7 +181,7 @@ impl DgxGB300Nvl<'_> {
                     base_bios: Some(base_bios(system_id)),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     boot_options: Some(boot_options),
-                    boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
+                    boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                     chassis: vec!["Chassis_0".into()],
                     eth_interfaces: Some(eth_interfaces),
                     id: system_id.into(),
@@ -188,6 +191,7 @@ impl DgxGB300Nvl<'_> {
                     model: Some("GB300 Titania-Bianca Compute Tray".into()),
                     oem: redfish::computer_system::Oem::Generic,
                     callbacks: Some(callbacks),
+                    serial_console: None,
                     secure_boot_available: true,
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,
@@ -270,7 +274,10 @@ impl DgxGB300Nvl<'_> {
     }
 
     pub fn discovery_info(&self) -> DiscoveryInfo {
-        DiscoveryInfo::default()
+        DiscoveryInfo {
+            network_interfaces: vec![self.dpu.host_nic().discovery_info(0x0603)],
+            ..Default::default()
+        }
     }
 }
 

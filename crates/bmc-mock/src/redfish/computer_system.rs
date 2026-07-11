@@ -96,7 +96,7 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
             &redfish::boot_option::resource(SYSTEM_ID, BOOT_OPTION_ID).odata_id,
             get(get_boot_option),
         )
-        .route(&bios.odata_id, get(get_bios))
+        .route(&bios.odata_id, get(get_bios).patch(patch_bios_settings))
         .route(
             &redfish::log_service::system_collection(SYSTEM_ID).odata_id,
             get(get_log_services_collection),
@@ -151,6 +151,7 @@ pub struct SingleSystemConfig {
     pub storage: Option<Vec<redfish::storage::Storage>>,
     pub processors: Option<Vec<redfish::processor::Processor>>,
     pub secure_boot_available: bool,
+    pub serial_console: Option<redfish::serial_console::SerialConsole>,
     pub oem: Oem,
 }
 
@@ -179,8 +180,8 @@ pub struct SingleSystemState {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BootOrderMode {
-    DellOem,
     Generic,
+    OrderedCollection,
     ViaSettings, // Set boot order using /Settings resource
 }
 
@@ -361,6 +362,10 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
         }
     };
 
+    if let Some(serial_console) = &config.serial_console {
+        b = b.serial_console(serial_console);
+    }
+
     let pcie_devices = config
         .chassis
         .iter()
@@ -527,9 +532,13 @@ async fn patch_system(
         })
     {
         match system_state.config.boot_order_mode {
-            BootOrderMode::DellOem => {
+            BootOrderMode::OrderedCollection => {
                 system_state.set_boot_order_override(new_boot_order);
-                redfish::oem::dell::idrac::create_job_with_location(state)
+                if matches!(&state.oem_state, redfish::oem::State::DellIdrac(_)) {
+                    redfish::oem::dell::idrac::create_job_with_location(state)
+                } else {
+                    json!({}).into_ok_response()
+                }
             }
             BootOrderMode::ViaSettings => json!("Boot order setup must use Settings resource")
                 .into_response(StatusCode::BAD_REQUEST),
@@ -618,9 +627,9 @@ async fn get_boot_options_collection(
         return http::not_found();
     };
     let boot_options_order = match system_state.config.boot_order_mode {
-        BootOrderMode::DellOem => {
-            // Carbide relies that Dell sorts boot options in according to boot
-            // order. Code below simulates the same.
+        BootOrderMode::OrderedCollection => {
+            // Some BMC clients infer the active first option from collection
+            // order, so reflect a successfully applied BootOrder override.
             if let Some(boot_order) = system_state.boot_order_override() {
                 let mut indices = (0..boot_options.len()).collect::<Vec<_>>();
                 indices.sort_by_key(|&i| {
@@ -881,6 +890,10 @@ impl Builder for SystemBuilder {
 }
 
 impl SystemBuilder {
+    pub fn serial_console(self, value: &redfish::serial_console::SerialConsole) -> Self {
+        self.apply_patch(json!({ "SerialConsole": value.to_json() }))
+    }
+
     pub fn serial_number(self, v: &str) -> Self {
         self.add_str_field("SerialNumber", v)
     }

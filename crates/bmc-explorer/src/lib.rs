@@ -89,9 +89,13 @@ fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Confi
                 || need_bf4_network_device_fns,
         },
         need_assembly_sn: |id| {
-            // For GB200s, use the Chassis_0 assembly serial number to match Nautobot.
-            (*id.inner() == "Chassis_0")
-                .then_some(|model| model == Some(AssemblyModel::new("GB200 NVL")))
+            // For GB200 and Vera Rubin hosts, use the Chassis_0 assembly serial
+            // number to match Nautobot / expected-machine inventory serials.
+            (*id.inner() == "Chassis_0").then_some(|model| {
+                model.is_some_and(|model| {
+                    hw::vera_rubin::chassis_assembly_serial_model(model.into_inner())
+                }) || model == Some(AssemblyModel::new("GB200 NVL"))
+            })
         },
         // BlueField-3 DPU (Tested on BF-25.10-9 firmware) has issue
         // with ERoT chassis. It stucks sometimes until next request

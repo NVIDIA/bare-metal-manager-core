@@ -81,9 +81,25 @@ impl SupermicroGB300Nvl<'_> {
                         .interface_enabled(true)
                         .build(),
                     ]),
+                    serial_interfaces: Some(vec![
+                        redfish::serial_interface::builder(
+                            &redfish::serial_interface::manager_resource(bmc_manager_id, "1"),
+                        )
+                        .description("Serial over LAN")
+                        .interface_enabled(true)
+                        .signal_type("Rs232")
+                        .bit_rate("115200")
+                        .parity("None")
+                        .data_bits("8")
+                        .stop_bits("1")
+                        .flow_control("None")
+                        .connector_type("RJ45")
+                        .pin_out("Cyclades")
+                        .build(),
+                    ]),
                     // Supermicro OpenBMC host BMC firmware, per the SMC GB300 scrape.
                     firmware_version: Some("70.01.00.14"),
-                    oem: None,
+                    oem: Some(redfish::manager::Oem::Supermicro),
                 },
                 redfish::manager::SingleConfig {
                     id: "HGX_BMC_0",
@@ -96,6 +112,7 @@ impl SupermicroGB300Nvl<'_> {
                         .build(),
                     ]),
                     host_interfaces: None,
+                    serial_interfaces: None,
                     // Family-wide NVL HMC firmware label (same on GB200/GB300).
                     firmware_version: Some("GB200Nvl-25.08-B"),
                     oem: None,
@@ -128,8 +145,9 @@ impl SupermicroGB300Nvl<'_> {
                     )
                     .boot_option_reference(&format!("Boot{id}"))
                     .display_name(&format!(
-                        "[SlotFFFF]: PXE IPv4 Some Network Adapter - {}",
-                        nic.mac_address
+                        "UEFI HTTP IPv4 Nvidia Network Adapter - {} - {}",
+                        nic.mac_address,
+                        nic.mac_address.to_string().replace(":", "")
                     ))
                     .uefi_device_path(&format!(
                         "{pci_path}/MAC({},0x1)\
@@ -171,6 +189,7 @@ impl SupermicroGB300Nvl<'_> {
                     oem: redfish::computer_system::Oem::Generic,
                     callbacks: None,
                     secure_boot_available: false,
+                    serial_console: None,
                     serial_number: Some(self.hgx_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
@@ -179,7 +198,7 @@ impl SupermicroGB300Nvl<'_> {
                     base_bios: Some(base_bios(system_id)),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     boot_options: Some(boot_options),
-                    boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
+                    boot_order_mode: redfish::computer_system::BootOrderMode::OrderedCollection,
                     chassis: vec!["Chassis_0".into()],
                     eth_interfaces: Some(eth_interfaces),
                     id: system_id.into(),
@@ -190,6 +209,29 @@ impl SupermicroGB300Nvl<'_> {
                     oem: redfish::computer_system::Oem::Generic,
                     callbacks: Some(callbacks),
                     secure_boot_available: true,
+                    serial_console: Some(
+                        redfish::serial_console::builder()
+                            .max_concurrent_sessions(1)
+                            .ssh(
+                                &redfish::serial_console::protocol_builder()
+                                    .service_enabled(true)
+                                    .port(22)
+                                    .shared_with_manager_cli(true)
+                                    .console_entry_command("cd system1/sol1; start")
+                                    .hot_key_sequence_display(
+                                        "press <Enter>, <Esc>, and then <T> to terminate session",
+                                    )
+                                    .build(),
+                            )
+                            .ipmi(
+                                &redfish::serial_console::protocol_builder()
+                                    .service_enabled(true)
+                                    .port(623)
+                                    .hot_key_sequence_display("Press ~.  - terminate connection")
+                                    .build(),
+                            )
+                            .build(),
+                    ),
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,
                     processors: None,
@@ -276,9 +318,12 @@ impl SupermicroGB300Nvl<'_> {
 }
 
 fn base_bios(system_id: &str) -> serde_json::Value {
-    // TODO(smc): the SMC GB300 tray BIOS has not been characterized yet, so no
-    // platform-specific attributes are asserted here.
+    // libredfish uses this attribute to detect whether this BMC spells the
+    // enabled TPM state as "Enable" or "Enabled" before building its setup
+    // request. The suffixed key and value mirror a real Supermicro fixture.
     redfish::bios::builder(&redfish::bios::resource(system_id))
-        .attributes(json!({}))
+        .attributes(json!({
+            "SecurityDeviceSupport_005A": "Enable",
+        }))
         .build()
 }

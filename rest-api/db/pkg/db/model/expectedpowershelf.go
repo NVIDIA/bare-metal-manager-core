@@ -11,7 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -76,9 +76,9 @@ type ExpectedPowerShelfCredentials struct {
 // ToProto builds the workflow proto for this ExpectedPowerShelf. BMC
 // credentials are passed in because they aren't persisted on the record;
 // labels are read from eps.Labels.
-func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cwssaws.ExpectedPowerShelf {
-	proto := &cwssaws.ExpectedPowerShelf{
-		ExpectedPowerShelfId: &cwssaws.UUID{Value: eps.ID.String()},
+func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *corev1.ExpectedPowerShelf {
+	proto := &corev1.ExpectedPowerShelf{
+		ExpectedPowerShelfId: &corev1.UUID{Value: eps.ID.String()},
 		BmcMacAddress:        eps.BmcMacAddress,
 		ShelfSerialNumber:    eps.ShelfSerialNumber,
 	}
@@ -87,7 +87,7 @@ func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cws
 		proto.BmcIpAddress = *eps.BmcIpAddress
 	}
 	if eps.RackID != nil {
-		proto.RackId = &cwssaws.RackId{Id: *eps.RackID}
+		proto.RackId = &corev1.RackId{Id: *eps.RackID}
 	}
 	if eps.Name != nil {
 		proto.Name = eps.Name
@@ -118,7 +118,7 @@ func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cws
 		proto.BmcPassword = *creds.Password
 	}
 
-	metadata := &cwssaws.Metadata{
+	metadata := &corev1.Metadata{
 		Labels: expectedComponentLabelsInput{
 			Manufacturer: eps.Manufacturer,
 			Model:        eps.Model,
@@ -143,7 +143,7 @@ func (eps *ExpectedPowerShelf) ToProto(creds ExpectedPowerShelfCredentials) *cws
 // reported by a Site. A nil proto is a no-op. An invalid or missing
 // proto.ExpectedPowerShelfId leaves eps.ID unchanged so the caller can
 // validate the proto's UUID before calling.
-func (eps *ExpectedPowerShelf) FromProto(proto *cwssaws.ExpectedPowerShelf) {
+func (eps *ExpectedPowerShelf) FromProto(proto *corev1.ExpectedPowerShelf) {
 	if proto == nil {
 		return
 	}

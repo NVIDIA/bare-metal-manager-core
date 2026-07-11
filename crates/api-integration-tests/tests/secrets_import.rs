@@ -216,7 +216,7 @@ async fn vault_to_postgres_import() -> eyre::Result<()> {
     // temporary databases.
     let result = async {
         let test_pool = PgPool::connect_with(test_opts).await?;
-        db::migrations::MIGRATOR.run(&test_pool).await?;
+        db::migrations::migrate(&test_pool).await?;
         let outcome = exercise_import(&test_pool).await;
         test_pool.close().await;
         outcome

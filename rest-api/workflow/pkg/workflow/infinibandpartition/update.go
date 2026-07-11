@@ -17,11 +17,11 @@ import (
 
 	ibpActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/infinibandpartition"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateInfiniBandPartitionInventory is a workflow called by Site Agent to update InfiniBandPartition inventory for a Site
-func UpdateInfiniBandPartitionInventory(ctx workflow.Context, siteID string, ibpInventory *cwssaws.InfiniBandPartitionInventory) (err error) {
+func UpdateInfiniBandPartitionInventory(ctx workflow.Context, siteID string, ibpInventory *corev1.InfiniBandPartitionInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateInfiniBandPartitionInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

@@ -15,7 +15,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1585,7 +1585,7 @@ func TestMachineCapability_ToProto(t *testing.T) {
 		}
 		proto := mc.ToProto()
 		require.NotNil(t, proto)
-		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_CPU, proto.CapabilityType)
+		assert.Equal(t, corev1.MachineCapabilityType_CAP_TYPE_CPU, proto.CapabilityType)
 		require.NotNil(t, proto.Name)
 		assert.Equal(t, "cpu-0", *proto.Name)
 		require.NotNil(t, proto.Frequency)
@@ -1611,9 +1611,9 @@ func TestMachineCapability_ToProto(t *testing.T) {
 			DeviceType: &dpu,
 		}
 		proto := mc.ToProto()
-		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK, proto.CapabilityType)
+		assert.Equal(t, corev1.MachineCapabilityType_CAP_TYPE_NETWORK, proto.CapabilityType)
 		require.NotNil(t, proto.DeviceType)
-		assert.Equal(t, cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU, *proto.DeviceType)
+		assert.Equal(t, corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU, *proto.DeviceType)
 	})
 
 	t.Run("maps InfiniBand InactiveDevices into a Uint32List", func(t *testing.T) {
@@ -1631,7 +1631,7 @@ func TestMachineCapability_ToProto(t *testing.T) {
 		unknown := MachineCapabilityDeviceType("Unknown")
 		mc := &MachineCapability{Type: "Mystery", Name: "x", DeviceType: &unknown}
 		proto := mc.ToProto()
-		assert.Equal(t, cwssaws.MachineCapabilityType(0), proto.CapabilityType)
+		assert.Equal(t, corev1.MachineCapabilityType(0), proto.CapabilityType)
 		assert.Nil(t, proto.DeviceType)
 	})
 }
@@ -1643,7 +1643,7 @@ func TestMachineCapability_FromProto(t *testing.T) {
 	vendor := "ACME"
 	hwRev := "v1"
 	var count, cores, threads uint32 = 8, 16, 32
-	deviceType := cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
+	deviceType := corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
 
 	t.Run("nil attrs is no-op", func(t *testing.T) {
 		mc := &MachineCapability{Type: MachineCapabilityTypeGPU}
@@ -1654,8 +1654,8 @@ func TestMachineCapability_FromProto(t *testing.T) {
 
 	t.Run("happy path with all fields", func(t *testing.T) {
 		mc := &MachineCapability{}
-		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType:   cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
+		mc.FromProto(&corev1.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType:   corev1.MachineCapabilityType_CAP_TYPE_CPU,
 			Name:             &name,
 			Frequency:        &freq,
 			Capacity:         &capacity,
@@ -1665,7 +1665,7 @@ func TestMachineCapability_FromProto(t *testing.T) {
 			Cores:            &cores,
 			Threads:          &threads,
 			DeviceType:       &deviceType,
-			InactiveDevices:  &cwssaws.Uint32List{Items: []uint32{0, 1}},
+			InactiveDevices:  &corev1.Uint32List{Items: []uint32{0, 1}},
 		}, 7)
 
 		assert.Equal(t, MachineCapabilityTypeCPU, mc.Type)
@@ -1688,8 +1688,8 @@ func TestMachineCapability_FromProto(t *testing.T) {
 
 	t.Run("unknown CapabilityType leaves Type empty (caller must Validate)", func(t *testing.T) {
 		mc := &MachineCapability{}
-		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType: cwssaws.MachineCapabilityType(9999),
+		mc.FromProto(&corev1.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: corev1.MachineCapabilityType(9999),
 			Name:           &name,
 		}, 0)
 		assert.Equal(t, MachineCapabilityType(""), mc.Type)
@@ -1698,18 +1698,18 @@ func TestMachineCapability_FromProto(t *testing.T) {
 
 	t.Run("nil Name leaves Name empty (caller must Validate)", func(t *testing.T) {
 		mc := &MachineCapability{}
-		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
+		mc.FromProto(&corev1.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: corev1.MachineCapabilityType_CAP_TYPE_CPU,
 		}, 0)
 		assert.Equal(t, MachineCapabilityTypeCPU, mc.Type)
 		assert.Equal(t, "", mc.Name)
 	})
 
 	t.Run("unknown DeviceType is preserved (caller must Validate)", func(t *testing.T) {
-		unknown := cwssaws.MachineCapabilityDeviceType(9999)
+		unknown := corev1.MachineCapabilityDeviceType(9999)
 		mc := &MachineCapability{}
-		mc.FromProto(&cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType: cwssaws.MachineCapabilityType_CAP_TYPE_GPU,
+		mc.FromProto(&corev1.InstanceTypeMachineCapabilityFilterAttributes{
+			CapabilityType: corev1.MachineCapabilityType_CAP_TYPE_GPU,
 			Name:           &name,
 			DeviceType:     &unknown,
 		}, 0)
@@ -1779,5 +1779,105 @@ func TestMachineCapability_Validate(t *testing.T) {
 	t.Run("CPU with InactiveDevices errors", func(t *testing.T) {
 		mc := &MachineCapability{Type: MachineCapabilityTypeCPU, Name: "cpu-0", InactiveDevices: []int{0, 1}}
 		assert.Error(t, mc.Validate())
+	})
+}
+
+func TestMachineCapabilitySQLDAO_GetGPUStatsBySite(t *testing.T) {
+	ctx := context.Background()
+
+	dbSession := util.TestInitDB(t)
+	defer dbSession.Close()
+
+	TestSetupSchema(t, dbSession)
+
+	ip := testInstanceTypeBuildInfrastructureProvider(t, dbSession, "gpu-stats-ip")
+	site1 := testInstanceTypeBuildSite(t, dbSession, ip, "gpu-stats-site-1")
+	site2 := testInstanceTypeBuildSite(t, dbSession, ip, "gpu-stats-site-2")
+
+	// A second provider/site to confirm provider scoping excludes other providers.
+	otherIP := testInstanceTypeBuildInfrastructureProvider(t, dbSession, "gpu-stats-other-ip")
+	otherSite := testInstanceTypeBuildSite(t, dbSession, otherIP, "gpu-stats-other-site")
+
+	mA := testMachineBuildMachine(t, dbSession, ip.ID, site1.ID, nil, nil)
+	mB := testMachineBuildMachine(t, dbSession, ip.ID, site1.ID, nil, nil)
+	mC := testMachineBuildMachine(t, dbSession, ip.ID, site1.ID, nil, nil)
+	mD := testMachineBuildMachine(t, dbSession, ip.ID, site2.ID, nil, nil)
+	mE := testMachineBuildMachine(t, dbSession, otherIP.ID, otherSite.ID, nil, nil)
+
+	mcDAO := NewMachineCapabilityDAO(dbSession)
+
+	buildGPU := func(machineID, name string, count *int) *MachineCapability {
+		mc, err := mcDAO.Create(ctx, nil, MachineCapabilityCreateInput{
+			MachineID: &machineID,
+			Type:      MachineCapabilityTypeGPU,
+			Name:      name,
+			Count:     count,
+		})
+		require.Nil(t, err)
+		return mc
+	}
+
+	const h100 = "NVIDIA H100"
+	const a100 = "NVIDIA A100"
+
+	// site1: H100 on mA(8), mB(8), mC(nil -> 1 via COALESCE); A100 on mB(4)
+	buildGPU(mA.ID, h100, cutil.GetPtr(8))
+	buildGPU(mB.ID, h100, cutil.GetPtr(8))
+	buildGPU(mB.ID, a100, cutil.GetPtr(4))
+	buildGPU(mC.ID, h100, nil)
+
+	// non-GPU capability must be excluded by the type filter
+	_, err := mcDAO.Create(ctx, nil, MachineCapabilityCreateInput{
+		MachineID: &mC.ID,
+		Type:      MachineCapabilityTypeCPU,
+		Name:      "Intel Xeon",
+		Count:     cutil.GetPtr(2),
+	})
+	require.Nil(t, err)
+
+	// site2: H100 on mD(8); a soft-deleted GPU capability must be excluded
+	buildGPU(mD.ID, h100, cutil.GetPtr(8))
+	deletedCap := buildGPU(mD.ID, h100, cutil.GetPtr(100))
+	require.Nil(t, mcDAO.DeleteByID(ctx, nil, deletedCap.ID, false))
+
+	// other provider
+	buildGPU(mE.ID, h100, cutil.GetPtr(16))
+
+	toMap := func(rows []GPUSiteStat) map[uuid.UUID]map[string]GPUSiteStat {
+		m := map[uuid.UUID]map[string]GPUSiteStat{}
+		for _, r := range rows {
+			if m[r.SiteID] == nil {
+				m[r.SiteID] = map[string]GPUSiteStat{}
+			}
+			m[r.SiteID][r.Name] = r
+		}
+		return m
+	}
+
+	t.Run("provider-wide aggregation", func(t *testing.T) {
+		rows, err := mcDAO.GetGPUStatsBySite(ctx, nil, &ip.ID, nil)
+		require.Nil(t, err)
+		m := toMap(rows)
+
+		// Only the two sites belonging to this provider are present.
+		assert.Len(t, m, 2)
+
+		assert.Equal(t, 17, m[site1.ID][h100].GPUs)
+		assert.Equal(t, 3, m[site1.ID][h100].Machines)
+		assert.Equal(t, 4, m[site1.ID][a100].GPUs)
+		assert.Equal(t, 1, m[site1.ID][a100].Machines)
+
+		assert.Equal(t, 8, m[site2.ID][h100].GPUs)
+		assert.Equal(t, 1, m[site2.ID][h100].Machines)
+	})
+
+	t.Run("site-scoped aggregation", func(t *testing.T) {
+		rows, err := mcDAO.GetGPUStatsBySite(ctx, nil, &ip.ID, &site1.ID)
+		require.Nil(t, err)
+		m := toMap(rows)
+
+		assert.Len(t, m, 1)
+		assert.Equal(t, 17, m[site1.ID][h100].GPUs)
+		assert.Equal(t, 4, m[site1.ID][a100].GPUs)
 	})
 }

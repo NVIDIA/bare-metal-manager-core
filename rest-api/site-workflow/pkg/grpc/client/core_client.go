@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 
-	wflows "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // Errors
@@ -201,13 +201,13 @@ func NewCoreGrpcClient(config *CoreGrpcClientConfig) (client *CoreGrpcClient, er
 	log.Info().Msg("CoreGrpcClient: gRPC client initialized")
 
 	// Create Core gRPC service client
-	client.grpcServiceClient = wflows.NewForgeClient(client.conn)
+	client.grpcServiceClient = corev1.NewForgeClient(client.conn)
 	log.Info().Msg("CoreGrpcClient: Client created")
 
 	// Check the version of the server
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Duration(defaultCoreGrpcDialTimeoutSeconds)*time.Second))
 	defer cancel()
-	_, err = client.grpcServiceClient.Version(ctx, &wflows.VersionRequest{})
+	_, err = client.grpcServiceClient.Version(ctx, &corev1.VersionRequest{})
 	if err != nil {
 		log.Error().Err(err).Msg("CoreGrpcClient: Failed to get version from server")
 		return nil, fmt.Errorf("CoreGrpcClient: Failed to get version from server: %w", err)
@@ -225,7 +225,7 @@ type CoreGrpcClient struct {
 	// gRPC dial options
 	dialOpts []grpc.DialOption
 	// gRPC service client interface
-	grpcServiceClient wflows.ForgeClient
+	grpcServiceClient corev1.ForgeClient
 }
 
 // Close gracefully shuts down the client's gRPC connection.
@@ -238,7 +238,7 @@ func (cc *CoreGrpcClient) Close() error {
 }
 
 // GrpcServiceClient client getter
-func (client *CoreGrpcClient) GrpcServiceClient() wflows.ForgeClient {
+func (client *CoreGrpcClient) GrpcServiceClient() corev1.ForgeClient {
 	return client.grpcServiceClient
 }
 

@@ -161,6 +161,33 @@ async fn test_integration() -> eyre::Result<()> {
             Ipv4Addr::new(172, 20, 0, 2),
         )
         .boxed(),
+        test_machine_a_tron_multidpu(
+            HostHardwareType::LenovoGB300Nvl,
+            &test_env,
+            &bmc_address_registry,
+            &managed_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_multidpu(
+            HostHardwareType::NvidiaDgxGb300,
+            &test_env,
+            &bmc_address_registry,
+            &managed_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_multidpu(
+            HostHardwareType::SupermicroGb300Nvl,
+            &test_env,
+            &bmc_address_registry,
+            &managed_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
         test_machine_a_tron_zerodpu(
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
@@ -1304,6 +1331,7 @@ where
         carbide_api_url: format!("https://{}:{}", api_addr.ip(), api_addr.port()),
         log_file: None,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
+        bmc_mock_certs_dir: None,
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
         use_single_bmc_mock: false, // unused, we're constructing machines ourselves

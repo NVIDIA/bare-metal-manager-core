@@ -14,8 +14,8 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // driftFieldSerialNumber is the canonical drift field name used by both the
@@ -133,7 +133,7 @@ func persistComponentOperationStatuses(
 func applyInventoryToComponents(
 	ctx context.Context,
 	pool *cdb.Session,
-	resp *pb.GetComponentInventoryResponse,
+	resp *corev1.GetComponentInventoryResponse,
 	componentsByID map[string]*model.Component,
 ) []model.ComponentDrift {
 	now := time.Now()
@@ -148,7 +148,7 @@ func applyInventoryToComponents(
 		if !ok {
 			continue
 		}
-		if result.GetStatus() != pb.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
+		if result.GetStatus() != corev1.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
 			log.Warn().Msgf("Component %s: inventory status %s: %s", result.GetComponentId(), result.GetStatus(), result.GetError())
 			continue
 		}
@@ -211,12 +211,12 @@ func applyInventoryToComponents(
 }
 
 func computerSystemPowerStateToNICo(
-	ps pb.ComputerSystemPowerState,
+	ps corev1.ComputerSystemPowerState,
 ) nicoapi.PowerState {
 	switch ps {
-	case pb.ComputerSystemPowerState_On, pb.ComputerSystemPowerState_PoweringOn:
+	case corev1.ComputerSystemPowerState_On, corev1.ComputerSystemPowerState_PoweringOn:
 		return nicoapi.PowerStateOn
-	case pb.ComputerSystemPowerState_Off, pb.ComputerSystemPowerState_PoweringOff:
+	case corev1.ComputerSystemPowerState_Off, corev1.ComputerSystemPowerState_PoweringOff:
 		return nicoapi.PowerStateOff
 	default:
 		return nicoapi.PowerStateUnknown

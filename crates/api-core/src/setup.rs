@@ -205,6 +205,9 @@ pub fn parse_carbide_config(
     // parsed config, before the web layer exists.
     crate::init_tools(config.web_ui_sidebar_tools.clone());
 
+    // Publish the site name the same way, for the admin-UI sidebar header.
+    crate::init_site_name(config.sitename.clone());
+
     // Publish the deployment-wide host naming policy so the DB layer can read it
     // wherever an interface is [re]named (same way we do it w/ `init_tools` above).
     db::host_naming::configure(config.host_naming_strategy);
@@ -664,7 +667,11 @@ async fn initialize_dpf_sdk(
         .validate_unique_identifiers()
         .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
 
-    let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
+    carbide_config
+        .dpf
+        .deployments
+        .validate_provisioning_sources()
+        .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
 
     // This is just temporary code until we make v2 only option. (just 2 weeks)
     // Soon v2 flag will be removed and will become only mode for dpf handling.
@@ -681,29 +688,51 @@ async fn initialize_dpf_sdk(
         .await
         .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
 
-    let make_init_config = |deployment: &crate::cfg::file::DpfDeploymentConfig,
-                            deployment_type: DpuDeploymentType| {
-        carbide_dpf::InitDpfResourcesConfig {
-            bfb_url: deployment.bfb_url.clone(),
-            flavor_name: deployment.flavor_name.clone(),
-            deployment_name: deployment.deployment_name.clone(),
-            services: crate::dpf_services::mandatory_services(&mandatory_services),
-            proxy: carbide_config.dpf.proxy.clone(),
-            deployment_type,
-        }
-    };
+    // Builds the SDK init config for one DPUDeployment. BF4 uses a single
+    // `BlueFieldSoftware` source (the CR itself carries the PSID→PLDM mapping);
+    // config validation guarantees exactly one PSID entry.
+    let make_init_config =
+        |deployment: &crate::cfg::file::DpfDeploymentConfig,
+         deployment_type: DpuDeploymentType,
+         bluefield_software: Option<carbide_dpf::BlueFieldSoftwareParams>| {
+            let services = carbide_config.dpf.resolved_services_for(deployment);
+            carbide_dpf::InitDpfResourcesConfig {
+                bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
+                bluefield_software,
+                flavor_name: deployment.flavor_name.clone(),
+                deployment_name: deployment.deployment_name.clone(),
+                services: crate::dpf_services::mandatory_services(&services),
+                proxy: carbide_config.dpf.proxy.clone(),
+                deployment_type,
+            }
+        };
 
-    sdk.create_initialization_objects(&make_init_config(
-        &carbide_config.dpf.deployments.bf3,
-        DpuDeploymentType::Bf3,
-    ))
-    .await
-    .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
+    let bf3 = &carbide_config.dpf.deployments.bf3;
+    sdk.create_initialization_objects(&make_init_config(bf3, DpuDeploymentType::Bf3, None))
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
 
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
-        sdk.create_initialization_objects(&make_init_config(bf4, DpuDeploymentType::Bf4Generic))
-            .await
-            .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
+        // Validation guarantees `bluefield_software` is set with exactly one PSID
+        // entry for a BF4 deployment.
+        let bfs = bf4.bluefield_software.as_ref().ok_or_else(|| {
+            eyre::eyre!("bf4_generic DPF deployment is missing bluefield_software")
+        })?;
+        let pldm_url =
+            bfs.pldm_fw_bundle.values().next().ok_or_else(|| {
+                eyre::eyre!("bf4_generic DPF deployment has an empty pldm_fw_bundle")
+            })?;
+        let params = carbide_dpf::BlueFieldSoftwareParams {
+            os_iso: bfs.os_iso.clone(),
+            pldm_fw_bundle: Some(pldm_url.clone()),
+        };
+        sdk.create_initialization_objects(&make_init_config(
+            bf4,
+            DpuDeploymentType::Bf4Generic,
+            Some(params),
+        ))
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
     }
 
     Ok(Some(Arc::new(DpfSdkOps::new(
@@ -1137,6 +1166,7 @@ async fn initialize_and_start_controllers<'a>(
             client.connect().await.map_err(|e| {
                 eyre::eyre!("Failed to connect DSX Exchange Event Bus MQTT client: {e}")
             })?;
+            client.register_metrics(&meter, "dsx_event_bus");
 
             tracing::info!(
                 "DSX Exchange Event Bus enabled, publishing to {}:{}",
@@ -1501,8 +1531,10 @@ async fn initialize_and_start_controllers<'a>(
     .start(join_set, cancel_token.clone())?;
 
     if carbide_config.is_dpa_enabled() {
-        let mqtt_client =
-            Some(start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?);
+        let dpa_mqtt_client =
+            start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
+        dpa_mqtt_client.register_metrics(&meter, "dpa");
+        let mqtt_client = Some(dpa_mqtt_client);
 
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 

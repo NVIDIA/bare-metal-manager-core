@@ -27,8 +27,8 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -573,7 +573,7 @@ func TestVpcPrefixHandler_Create(t *testing.T) {
 			require.Equal(t, 4, len(tsc.Calls[len(tsc.Calls)-1].Arguments))
 
 			// Check Temporal workflow call arguments
-			temporalReq, ok := tsc.Calls[len(tsc.Calls)-1].Arguments[3].(*cwssaws.VpcPrefixCreationRequest)
+			temporalReq, ok := tsc.Calls[len(tsc.Calls)-1].Arguments[3].(*corev1.VpcPrefixCreationRequest)
 			require.True(t, ok)
 			assert.Equal(t, resp.Name, temporalReq.Metadata.Name)
 			assert.Equal(t, *resp.Prefix, temporalReq.Config.Prefix)
@@ -1644,7 +1644,7 @@ func TestVpcPrefixHandler_Update(t *testing.T) {
 			require.Equal(t, 4, len(tsc.Calls[len(tsc.Calls)-1].Arguments))
 
 			// Check Temporal workflow call arguments
-			temporalReq, ok := tsc.Calls[len(tsc.Calls)-1].Arguments[3].(*cwssaws.VpcPrefixUpdateRequest)
+			temporalReq, ok := tsc.Calls[len(tsc.Calls)-1].Arguments[3].(*corev1.VpcPrefixUpdateRequest)
 			require.True(t, ok)
 			assert.Equal(t, resp.Name, temporalReq.Metadata.Name)
 

@@ -23,7 +23,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -40,7 +40,7 @@ type ManageDpuExtensionService struct {
 
 // Activity functions
 // UpdateDpuExtensionServicesInDB is a Temporal activity that takes a collection of Dpu Extension Service data pushed by Site Agent and updates the DB
-func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.Context, siteID uuid.UUID, inventory *cwssaws.DpuExtensionServiceInventory) error {
+func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.Context, siteID uuid.UUID, inventory *corev1.DpuExtensionServiceInventory) error {
 	logger := log.With().Str("Activity", "UpdateDpuExtensionServicesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("Starting activity")
@@ -58,7 +58,7 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 		return err
 	}
 
-	if inventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if inventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 
 		if inventory.StatusMsg != "" {
@@ -137,7 +137,7 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 			data := controllerDpuExtensionService.LatestVersionInfo.Data
 			hasCredentials := controllerDpuExtensionService.LatestVersionInfo.HasCredential
 			controllerObservability := controllerDpuExtensionService.GetLatestVersionInfo().Observability
-			var dbObservability *cwssaws.DpuExtensionServiceObservability
+			var dbObservability *corev1.DpuExtensionServiceObservability
 			if dpuExtensionService.VersionInfo != nil && dpuExtensionService.VersionInfo.Observability != nil {
 				dbObservability = dpuExtensionService.VersionInfo.Observability.DpuExtensionServiceObservability
 			}

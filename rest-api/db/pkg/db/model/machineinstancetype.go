@@ -16,7 +16,7 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -74,8 +74,8 @@ func (mi *MachineInstanceType) GetIndentedJSON() ([]byte, error) {
 // ToRemoveAssociationRequestProto builds the workflow request used to
 // dissociate this Machine from its current InstanceType. The proto only
 // carries the Machine ID; site-side reconciliation handles the rest.
-func (mit *MachineInstanceType) ToRemoveAssociationRequestProto() *cwssaws.RemoveMachineInstanceTypeAssociationRequest {
-	return &cwssaws.RemoveMachineInstanceTypeAssociationRequest{
+func (mit *MachineInstanceType) ToRemoveAssociationRequestProto() *corev1.RemoveMachineInstanceTypeAssociationRequest {
+	return &corev1.RemoveMachineInstanceTypeAssociationRequest{
 		MachineId: mit.MachineID,
 	}
 }

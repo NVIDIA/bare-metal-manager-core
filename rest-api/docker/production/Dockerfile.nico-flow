@@ -30,6 +30,7 @@ RUN go mod download
 
 COPY common/ ./common/
 COPY db/ ./db/
+COPY proto/ ./proto/
 COPY flow/ ./flow/
 
 WORKDIR /workspace/flow

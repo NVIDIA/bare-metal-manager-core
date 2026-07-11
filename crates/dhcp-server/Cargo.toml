@@ -31,11 +31,13 @@ path = "src/main.rs"
 [dependencies]
 
 # [local-dependencies]
+carbide-instrument = { path = "../instrument" }
 carbide-tls = { path = "../tls" }
 logfmt = { path = "../logfmt" }
 carbide-rpc = { path = "../rpc" }
 carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-uuid = { path = "../uuid" }
+metrics-endpoint = { path = "../metrics-endpoint" }
 
 serde_yaml = { workspace = true }
 serde = { features = ["derive"], workspace = true }
@@ -60,6 +62,7 @@ futures = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 
 [build-dependencies]

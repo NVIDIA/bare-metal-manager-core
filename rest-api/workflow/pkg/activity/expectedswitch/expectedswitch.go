@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/google/uuid"
@@ -19,7 +20,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ManageExpectedSwitch is an activity wrapper for managing ExpectedSwitch lifecycle that allows
@@ -38,7 +39,7 @@ type ManageExpectedSwitch struct {
 // - UUID existing in NICo but not in DB: create record in DB
 // - UUID existing in both NICo and DB with differences: update record in DB
 // - UUID existing in DB but not in NICo: delete record in DB
-func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, siteID uuid.UUID, expectedSwitchInventory *cwssaws.ExpectedSwitchInventory) error {
+func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, siteID uuid.UUID, expectedSwitchInventory *corev1.ExpectedSwitchInventory) error {
 	logger := log.With().Str("Activity", "UpdateExpectedSwitchesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -48,7 +49,7 @@ func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, 
 		return errors.New("UpdateExpectedSwitchesInDB called with nil inventory")
 	}
 
-	if expectedSwitchInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if expectedSwitchInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}
@@ -132,6 +133,7 @@ func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, 
 				SiteID:             siteID,
 				BmcMacAddress:      reported.BmcMacAddress,
 				SwitchSerialNumber: reported.SwitchSerialNumber,
+				NvosMacAddresses:   reported.NvosMacAddresses,
 				Labels:             reported.Labels,
 				CreatedBy:          siteID, /* This would normally be a user ID, but that isn't something NICo provides */
 			})
@@ -144,6 +146,7 @@ func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, 
 		// update if any field differs
 		if cur.BmcMacAddress != reported.BmcMacAddress ||
 			cur.SwitchSerialNumber != reported.SwitchSerialNumber ||
+			!slices.Equal(cur.NvosMacAddresses, reported.NvosMacAddresses) ||
 			!reflect.DeepEqual(cur.Labels, reported.Labels) {
 			// nil labels in nico can mean we need to clear out existing labels in DB
 			// but a nil value will not trigger an update in the DAO layer. We could use `Clear` but an empty map
@@ -152,10 +155,17 @@ func (mei ManageExpectedSwitch) UpdateExpectedSwitchesInDB(ctx context.Context, 
 			if cur.Labels != nil && labels == nil {
 				labels = map[string]string{}
 			}
+			// nil NVOS MACs from nico follow the same rule as labels: swap in an
+			// empty slice so the DAO clears a previously-set list.
+			nvosMacAddresses := reported.NvosMacAddresses
+			if cur.NvosMacAddresses != nil && nvosMacAddresses == nil {
+				nvosMacAddresses = []string{}
+			}
 			_, uerr := esDAO.Update(ctx, nil, cdbm.ExpectedSwitchUpdateInput{
 				ExpectedSwitchID:   cur.ID,
 				BmcMacAddress:      &reported.BmcMacAddress,
 				SwitchSerialNumber: &reported.SwitchSerialNumber,
+				NvosMacAddresses:   nvosMacAddresses,
 				Labels:             labels,
 			})
 			if uerr != nil {

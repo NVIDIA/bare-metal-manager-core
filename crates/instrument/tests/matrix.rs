@@ -233,7 +233,7 @@ fn per_instance_log_at_override() {
     #[event(
         name = "carbide_test_matrix_calls_total",
         component = "matrix-test",
-        log = warn,
+        log = dynamic,
         metric = counter,
         message = "call finished"
     )]
@@ -242,45 +242,23 @@ fn per_instance_log_at_override() {
         outcome: Outcome,
     }
 
-    // The derive keeps the trait's default log_at(); a wrapper type shows the
-    // per-instance form until the derive grows dynamic support (the RED
-    // helper issue).
-    struct OnlyFailuresLog(CallFinished);
-    impl Event for OnlyFailuresLog {
-        const NAME: &'static str = <CallFinished as Event>::NAME;
-        const COMPONENT: &'static str = <CallFinished as Event>::COMPONENT;
-        const LOG: LogAt = <CallFinished as Event>::LOG;
-        const METRIC: MetricKind = <CallFinished as Event>::METRIC;
-        type Labels = <CallFinished as Event>::Labels;
-
-        fn message(&self) -> &'static str {
-            self.0.message()
-        }
-        fn labels(&self) -> Self::Labels {
-            self.0.labels()
-        }
+    impl carbide_instrument::DynamicLog for CallFinished {
         fn log_at(&self) -> LogAt {
-            match self.0.outcome {
+            match self.outcome {
                 Outcome::Error => LogAt::Level(tracing::Level::WARN),
                 Outcome::Ok => LogAt::Off,
             }
-        }
-        fn __log(&self, level: tracing::Level) {
-            self.0.__log(level);
-        }
-        fn __instrument(&self) -> &'static carbide_instrument::__private::CachedInstrument {
-            self.0.__instrument()
         }
     }
 
     let metrics = MetricsCapture::start();
     let logs = capture_logs(|| {
-        emit(OnlyFailuresLog(CallFinished {
+        emit(CallFinished {
             outcome: Outcome::Ok,
-        }));
-        emit(OnlyFailuresLog(CallFinished {
+        });
+        emit(CallFinished {
             outcome: Outcome::Error,
-        }));
+        });
     });
 
     assert_eq!(logs.len(), 1, "only the failure logs");
@@ -354,6 +332,55 @@ fn histogram_units_round_trip() {
         assert!(
             (sum - expected_sum).abs() < 1e-9,
             "{name}: expected sum {expected_sum}, got {sum}"
+        );
+    }
+}
+
+/// The outbound-call helper: every completion records the RED histogram,
+/// only failures write the WARN.
+#[test]
+fn red_helper_counts_everything_and_logs_only_failures() {
+    use futures_util::FutureExt as _;
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        let ok: Result<u32, String> = carbide_instrument::red::instrumented(
+            "matrix_backend",
+            "matrix_op",
+            std::future::ready(Ok(7)),
+        )
+        .now_or_never()
+        .expect("ready future");
+        assert_eq!(ok, Ok(7));
+
+        let failed: Result<u32, String> = carbide_instrument::red::instrumented(
+            "matrix_backend",
+            "matrix_op",
+            std::future::ready(Err("boom".to_string())),
+        )
+        .now_or_never()
+        .expect("ready future");
+        assert_eq!(failed, Err("boom".to_string()));
+    });
+
+    assert_eq!(logs.len(), 1, "successes are counted silently");
+    assert_eq!(logs[0].level, tracing::Level::WARN);
+    assert_eq!(field(&logs[0], "backend"), Some("matrix_backend"));
+    assert_eq!(field(&logs[0], "operation"), Some("matrix_op"));
+    assert_eq!(field(&logs[0], "error"), Some("boom"));
+
+    for outcome in ["ok", "error"] {
+        assert_eq!(
+            metrics.histogram_count_delta(
+                "carbide_external_call_duration_milliseconds",
+                &[
+                    ("backend", "matrix_backend"),
+                    ("operation", "matrix_op"),
+                    ("outcome", outcome),
+                ],
+            ),
+            1,
+            "{outcome}"
         );
     }
 }

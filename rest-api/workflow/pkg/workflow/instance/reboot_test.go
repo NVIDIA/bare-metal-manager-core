@@ -14,8 +14,8 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	instanceActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 type RebootInstanceTestSuite struct {
@@ -37,8 +37,8 @@ func (s *RebootInstanceTestSuite) Test_RebootInstanceByIDWorkflow_Success() {
 	var instanceManager instanceActivity.ManageInstance
 
 	instanceID := uuid.New()
-	request := &cwssaws.InstancePowerRequest{
-		InstanceId: &cwssaws.InstanceId{
+	request := &corev1.InstancePowerRequest{
+		InstanceId: &corev1.InstanceId{
 			Value: instanceID.String(),
 		},
 		BootWithCustomIpxe:   true,
@@ -59,8 +59,8 @@ func (s *RebootInstanceTestSuite) Test_RebootInstanceByIDWorkflow_ActivityFailsE
 	var instanceManager instanceActivity.ManageInstance
 
 	instanceID := uuid.New()
-	request := &cwssaws.InstancePowerRequest{
-		InstanceId: &cwssaws.InstanceId{
+	request := &corev1.InstancePowerRequest{
+		InstanceId: &corev1.InstanceId{
 			Value: instanceID.String(),
 		},
 		BootWithCustomIpxe:   true,

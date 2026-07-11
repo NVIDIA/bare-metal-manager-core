@@ -19,7 +19,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
@@ -742,7 +742,7 @@ func (derh DeleteExpectedRackHandler) Handle(c echo.Context) error {
 		}
 
 		// Build the delete request for workflow
-		deleteExpectedRackRequest := &cwssaws.ExpectedRackRequest{
+		deleteExpectedRackRequest := &corev1.ExpectedRackRequest{
 			RackId: expectedRack.RackID,
 		}
 
@@ -902,11 +902,11 @@ func (raerh ReplaceAllExpectedRacksHandler) Handle(c echo.Context) error {
 		}
 
 		// Build the workflow request: a list of all ExpectedRacks that should now exist for the Site
-		protoRacks := make([]*cwssaws.ExpectedRack, 0, len(racks))
+		protoRacks := make([]*corev1.ExpectedRack, 0, len(racks))
 		for i := range racks {
 			protoRacks = append(protoRacks, racks[i].ToProto())
 		}
-		replaceRequest := &cwssaws.ExpectedRackList{
+		replaceRequest := &corev1.ExpectedRackList{
 			ExpectedRacks: protoRacks,
 		}
 

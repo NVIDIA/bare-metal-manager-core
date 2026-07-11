@@ -16,7 +16,7 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -95,34 +95,34 @@ var (
 	}
 
 	// OperatingSystemIpxeArtifactCacheStrategyFromProtoMap maps proto cache strategies to their model string values.
-	OperatingSystemIpxeArtifactCacheStrategyFromProtoMap = map[cwssaws.IpxeTemplateArtifactCacheStrategy]string{
-		cwssaws.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED: OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded,
-		cwssaws.IpxeTemplateArtifactCacheStrategy_LOCAL_ONLY:      OperatingSystemIpxeArtifactCacheStrategyLocalOnly,
-		cwssaws.IpxeTemplateArtifactCacheStrategy_CACHED_ONLY:     OperatingSystemIpxeArtifactCacheStrategyCachedOnly,
-		cwssaws.IpxeTemplateArtifactCacheStrategy_REMOTE_ONLY:     OperatingSystemIpxeArtifactCacheStrategyRemoteOnly,
+	OperatingSystemIpxeArtifactCacheStrategyFromProtoMap = map[corev1.IpxeTemplateArtifactCacheStrategy]string{
+		corev1.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED: OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded,
+		corev1.IpxeTemplateArtifactCacheStrategy_LOCAL_ONLY:      OperatingSystemIpxeArtifactCacheStrategyLocalOnly,
+		corev1.IpxeTemplateArtifactCacheStrategy_CACHED_ONLY:     OperatingSystemIpxeArtifactCacheStrategyCachedOnly,
+		corev1.IpxeTemplateArtifactCacheStrategy_REMOTE_ONLY:     OperatingSystemIpxeArtifactCacheStrategyRemoteOnly,
 	}
 
 	// OperatingSystemIpxeArtifactCacheStrategyToProtoMap maps model cache strategy strings to their proto values.
-	OperatingSystemIpxeArtifactCacheStrategyToProtoMap = map[string]cwssaws.IpxeTemplateArtifactCacheStrategy{
-		OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded: cwssaws.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED,
-		OperatingSystemIpxeArtifactCacheStrategyLocalOnly:     cwssaws.IpxeTemplateArtifactCacheStrategy_LOCAL_ONLY,
-		OperatingSystemIpxeArtifactCacheStrategyCachedOnly:    cwssaws.IpxeTemplateArtifactCacheStrategy_CACHED_ONLY,
-		OperatingSystemIpxeArtifactCacheStrategyRemoteOnly:    cwssaws.IpxeTemplateArtifactCacheStrategy_REMOTE_ONLY,
+	OperatingSystemIpxeArtifactCacheStrategyToProtoMap = map[string]corev1.IpxeTemplateArtifactCacheStrategy{
+		OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded: corev1.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED,
+		OperatingSystemIpxeArtifactCacheStrategyLocalOnly:     corev1.IpxeTemplateArtifactCacheStrategy_LOCAL_ONLY,
+		OperatingSystemIpxeArtifactCacheStrategyCachedOnly:    corev1.IpxeTemplateArtifactCacheStrategy_CACHED_ONLY,
+		OperatingSystemIpxeArtifactCacheStrategyRemoteOnly:    corev1.IpxeTemplateArtifactCacheStrategy_REMOTE_ONLY,
 	}
 
 	// OperatingSystemTypeFromProtoMap maps nico-core OS types to their model string values.
-	OperatingSystemTypeFromProtoMap = map[cwssaws.OperatingSystemType]string{
-		cwssaws.OperatingSystemType_OS_TYPE_IPXE:           OperatingSystemTypeIPXE,
-		cwssaws.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE: OperatingSystemTypeTemplatedIPXE,
+	OperatingSystemTypeFromProtoMap = map[corev1.OperatingSystemType]string{
+		corev1.OperatingSystemType_OS_TYPE_IPXE:           OperatingSystemTypeIPXE,
+		corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE: OperatingSystemTypeTemplatedIPXE,
 	}
 
 	// OperatingSystemStatusFromProtoMap maps nico-core tenant states to OperatingSystem status values.
-	OperatingSystemStatusFromProtoMap = map[cwssaws.TenantState]string{
-		cwssaws.TenantState_PROVISIONING: OperatingSystemStatusProvisioning,
-		cwssaws.TenantState_READY:        OperatingSystemStatusReady,
-		cwssaws.TenantState_CONFIGURING:  OperatingSystemStatusSyncing,
-		cwssaws.TenantState_TERMINATING:  OperatingSystemStatusDeleting,
-		cwssaws.TenantState_FAILED:       OperatingSystemStatusError,
+	OperatingSystemStatusFromProtoMap = map[corev1.TenantState]string{
+		corev1.TenantState_PROVISIONING: OperatingSystemStatusProvisioning,
+		corev1.TenantState_READY:        OperatingSystemStatusReady,
+		corev1.TenantState_CONFIGURING:  OperatingSystemStatusSyncing,
+		corev1.TenantState_TERMINATING:  OperatingSystemStatusDeleting,
+		corev1.TenantState_FAILED:       OperatingSystemStatusError,
 	}
 )
 
@@ -139,7 +139,7 @@ type OperatingSystemIpxeParameter struct {
 }
 
 // FromProto fills the receiver from a proto IpxeTemplateParameter. A nil proto resets the receiver.
-func (osip *OperatingSystemIpxeParameter) FromProto(protoParam *cwssaws.IpxeTemplateParameter) {
+func (osip *OperatingSystemIpxeParameter) FromProto(protoParam *corev1.IpxeTemplateParameter) {
 	if protoParam == nil {
 		*osip = OperatingSystemIpxeParameter{}
 		return
@@ -149,8 +149,8 @@ func (osip *OperatingSystemIpxeParameter) FromProto(protoParam *cwssaws.IpxeTemp
 }
 
 // ToProto converts the receiver to a proto IpxeTemplateParameter.
-func (osip *OperatingSystemIpxeParameter) ToProto() *cwssaws.IpxeTemplateParameter {
-	return &cwssaws.IpxeTemplateParameter{
+func (osip *OperatingSystemIpxeParameter) ToProto() *corev1.IpxeTemplateParameter {
+	return &corev1.IpxeTemplateParameter{
 		Name:  osip.Name,
 		Value: osip.Value,
 	}
@@ -175,7 +175,7 @@ type OperatingSystemIpxeArtifact struct {
 
 // FromProto fills the receiver from a proto IpxeTemplateArtifact. A nil proto resets the receiver.
 // The proto's cached_url field is intentionally ignored; see the type doc.
-func (osia *OperatingSystemIpxeArtifact) FromProto(protoArtifact *cwssaws.IpxeTemplateArtifact) {
+func (osia *OperatingSystemIpxeArtifact) FromProto(protoArtifact *corev1.IpxeTemplateArtifact) {
 	if protoArtifact == nil {
 		*osia = OperatingSystemIpxeArtifact{}
 		return
@@ -195,8 +195,8 @@ func (osia *OperatingSystemIpxeArtifact) FromProto(protoArtifact *cwssaws.IpxeTe
 
 // ToProto converts the receiver to a proto IpxeTemplateArtifact. cached_url is always left
 // nil so the rest side never overwrites the per-site value managed by nico-core.
-func (osia *OperatingSystemIpxeArtifact) ToProto() *cwssaws.IpxeTemplateArtifact {
-	return &cwssaws.IpxeTemplateArtifact{
+func (osia *OperatingSystemIpxeArtifact) ToProto() *corev1.IpxeTemplateArtifact {
+	return &corev1.IpxeTemplateArtifact{
 		Name:          osia.Name,
 		Url:           osia.URL,
 		Sha:           osia.SHA,
@@ -279,9 +279,9 @@ func (os *OperatingSystem) GetSiteID() *uuid.UUID {
 // performed the cross-context check that the OS is image-typed (the
 // dereferences below assume ImageURL and ImageSHA are non-nil, which
 // holds for image-typed records after validation).
-func (os *OperatingSystem) ToImageAttributesProto(tenantOrg string) *cwssaws.OsImageAttributes {
-	return &cwssaws.OsImageAttributes{
-		Id:                   &cwssaws.UUID{Value: os.GetSiteID().String()},
+func (os *OperatingSystem) ToImageAttributesProto(tenantOrg string) *corev1.OsImageAttributes {
+	return &corev1.OsImageAttributes{
+		Id:                   &corev1.UUID{Value: os.GetSiteID().String()},
 		Name:                 &os.Name,
 		TenantOrganizationId: tenantOrg,
 		Description:          os.Description,
@@ -297,9 +297,9 @@ func (os *OperatingSystem) ToImageAttributesProto(tenantOrg string) *cwssaws.OsI
 
 // ToDeletionRequestProto builds the workflow request that asks a Site
 // to delete this OS image.
-func (os *OperatingSystem) ToDeletionRequestProto(tenantOrg string) *cwssaws.DeleteOsImageRequest {
-	return &cwssaws.DeleteOsImageRequest{
-		Id:                   &cwssaws.UUID{Value: os.GetSiteID().String()},
+func (os *OperatingSystem) ToDeletionRequestProto(tenantOrg string) *corev1.DeleteOsImageRequest {
+	return &corev1.DeleteOsImageRequest{
+		Id:                   &corev1.UUID{Value: os.GetSiteID().String()},
 		TenantOrganizationId: tenantOrg,
 	}
 }

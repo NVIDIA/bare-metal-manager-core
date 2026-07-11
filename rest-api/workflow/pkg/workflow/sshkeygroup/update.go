@@ -17,11 +17,11 @@ import (
 
 	sshKeyGroupActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/sshkeygroup"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateSSHKeyGroupInventory is a workflow called by Site Agent to update SSHKeyGroupinventory for a Site
-func UpdateSSHKeyGroupInventory(ctx workflow.Context, siteID string, sshKeyGroupInventory *cwssaws.SSHKeyGroupInventory) (err error) {
+func UpdateSSHKeyGroupInventory(ctx workflow.Context, siteID string, sshKeyGroupInventory *corev1.SSHKeyGroupInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateSSHKeyGroupInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

@@ -18,7 +18,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestDpuExtensionServiceVersionInfo_FromProto(t *testing.T) {
@@ -27,22 +27,22 @@ func TestDpuExtensionServiceVersionInfo_FromProto(t *testing.T) {
 
 	tests := []struct {
 		desc                string
-		protoVersionInfo    *cwssaws.DpuExtensionServiceVersionInfo
+		protoVersionInfo    *corev1.DpuExtensionServiceVersionInfo
 		expectedCreatedTime time.Time
 	}{
 		{
 			desc: "parses created timestamp and observability from proto",
-			protoVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
+			protoVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
 				Version:       "V1-T1761856992374052",
 				Data:          "apiVersion: v1\nkind: Pod",
 				HasCredential: true,
 				Created:       "2026-03-31 12:34:56.123456 UTC",
-				Observability: &cwssaws.DpuExtensionServiceObservability{
-					Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+				Observability: &corev1.DpuExtensionServiceObservability{
+					Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 						{
 							Name: &obsName,
-							Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Prometheus{
-								Prometheus: &cwssaws.DpuExtensionServiceObservabilityConfigPrometheus{
+							Config: &corev1.DpuExtensionServiceObservabilityConfig_Prometheus{
+								Prometheus: &corev1.DpuExtensionServiceObservabilityConfigPrometheus{
 									ScrapeIntervalSeconds: 30,
 									Endpoint:              "service:9090",
 								},
@@ -55,7 +55,7 @@ func TestDpuExtensionServiceVersionInfo_FromProto(t *testing.T) {
 		},
 		{
 			desc: "falls back to provided time when created timestamp is invalid",
-			protoVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
+			protoVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
 				Version:       "V2-T1761856992374053",
 				Data:          "apiVersion: v1\nkind: Pod",
 				HasCredential: false,
@@ -137,12 +137,12 @@ func TestDpuExtensionServiceSQLDAO_Create(t *testing.T) {
 		HasCredentials: true,
 		Created:        db.GetCurTime(),
 		Observability: &DpuExtensionServiceObservability{
-			DpuExtensionServiceObservability: &cwssaws.DpuExtensionServiceObservability{
-				Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+			DpuExtensionServiceObservability: &corev1.DpuExtensionServiceObservability{
+				Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 					{
 						Name: &obsName,
-						Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Prometheus{
-							Prometheus: &cwssaws.DpuExtensionServiceObservabilityConfigPrometheus{
+						Config: &corev1.DpuExtensionServiceObservabilityConfig_Prometheus{
+							Prometheus: &corev1.DpuExtensionServiceObservabilityConfigPrometheus{
 								ScrapeIntervalSeconds: 30,
 								Endpoint:              "http://service:9090/metrics",
 							},
@@ -649,12 +649,12 @@ func TestDpuExtensionServiceSQLDAO_Update(t *testing.T) {
 		HasCredentials: true,
 		Created:        db.GetCurTime(),
 		Observability: &DpuExtensionServiceObservability{
-			DpuExtensionServiceObservability: &cwssaws.DpuExtensionServiceObservability{
-				Configs: []*cwssaws.DpuExtensionServiceObservabilityConfig{
+			DpuExtensionServiceObservability: &corev1.DpuExtensionServiceObservability{
+				Configs: []*corev1.DpuExtensionServiceObservabilityConfig{
 					{
 						Name: &newObsName,
-						Config: &cwssaws.DpuExtensionServiceObservabilityConfig_Logging{
-							Logging: &cwssaws.DpuExtensionServiceObservabilityConfigLogging{
+						Config: &corev1.DpuExtensionServiceObservabilityConfig_Logging{
+							Logging: &corev1.DpuExtensionServiceObservabilityConfigLogging{
 								Path: "/var/log/service.log",
 							},
 						},

@@ -14,7 +14,7 @@ import (
 
 	"go.temporal.io/sdk/testsuite"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	iActivity "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
@@ -42,23 +42,23 @@ func (s *UpdateInstanceTestSuite) Test_UpdateInstance_Success() {
 	labelKey := "key1"
 	labelValue := "value1"
 
-	request := &cwssaws.InstanceConfigUpdateRequest{
-		InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
-		Metadata: &cwssaws.Metadata{
+	request := &corev1.InstanceConfigUpdateRequest{
+		InstanceId: &corev1.InstanceId{Value: uuid.NewString()},
+		Metadata: &corev1.Metadata{
 			Name:        "updated_name",
 			Description: "updated_description",
-			Labels: []*cwssaws.Label{
+			Labels: []*corev1.Label{
 				{
 					Key:   labelKey,
 					Value: &labelValue,
 				},
 			},
 		},
-		Config: &cwssaws.InstanceConfig{
-			Os: &cwssaws.InstanceOperatingSystemConfig{
+		Config: &corev1.InstanceConfig{
+			Os: &corev1.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: true,
-				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-					Ipxe: &cwssaws.InlineIpxe{
+				Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+					Ipxe: &corev1.InlineIpxe{
 						IpxeScript: ipxeScript,
 					},
 				},
@@ -85,23 +85,23 @@ func (s *UpdateInstanceTestSuite) Test_UpdateInstance_Failure() {
 	labelKey := "key1"
 	labelValue := "value1"
 
-	request := &cwssaws.InstanceConfigUpdateRequest{
-		InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
-		Metadata: &cwssaws.Metadata{
+	request := &corev1.InstanceConfigUpdateRequest{
+		InstanceId: &corev1.InstanceId{Value: uuid.NewString()},
+		Metadata: &corev1.Metadata{
 			Name:        "updated_name",
 			Description: "updated_description",
-			Labels: []*cwssaws.Label{
+			Labels: []*corev1.Label{
 				{
 					Key:   labelKey,
 					Value: &labelValue,
 				},
 			},
 		},
-		Config: &cwssaws.InstanceConfig{
-			Os: &cwssaws.InstanceOperatingSystemConfig{
+		Config: &corev1.InstanceConfig{
+			Os: &corev1.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: true,
-				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-					Ipxe: &cwssaws.InlineIpxe{
+				Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+					Ipxe: &corev1.InlineIpxe{
 						IpxeScript: ipxeScript,
 					},
 				},
@@ -149,23 +149,23 @@ func (s *CreateInstanceV2TestSuite) Test_CreateInstanceV2_Success() {
 	labelKey := "key1"
 	labelValue := "value1"
 
-	request := &cwssaws.InstanceAllocationRequest{
-		MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-		Metadata: &cwssaws.Metadata{
+	request := &corev1.InstanceAllocationRequest{
+		MachineId: &corev1.MachineId{Id: uuid.NewString()},
+		Metadata: &corev1.Metadata{
 			Name:        "updated_name",
 			Description: "updated_description",
-			Labels: []*cwssaws.Label{
+			Labels: []*corev1.Label{
 				{
 					Key:   labelKey,
 					Value: &labelValue,
 				},
 			},
 		},
-		Config: &cwssaws.InstanceConfig{
-			Os: &cwssaws.InstanceOperatingSystemConfig{
+		Config: &corev1.InstanceConfig{
+			Os: &corev1.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: true,
-				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-					Ipxe: &cwssaws.InlineIpxe{
+				Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+					Ipxe: &corev1.InlineIpxe{
 						IpxeScript: ipxeScript,
 					},
 				},
@@ -192,23 +192,23 @@ func (s *CreateInstanceV2TestSuite) Test_CreateInstanceV2_Failure() {
 	labelKey := "key1"
 	labelValue := "value1"
 
-	request := &cwssaws.InstanceAllocationRequest{
-		MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-		Metadata: &cwssaws.Metadata{
+	request := &corev1.InstanceAllocationRequest{
+		MachineId: &corev1.MachineId{Id: uuid.NewString()},
+		Metadata: &corev1.Metadata{
 			Name:        "updated_name",
 			Description: "updated_description",
-			Labels: []*cwssaws.Label{
+			Labels: []*corev1.Label{
 				{
 					Key:   labelKey,
 					Value: &labelValue,
 				},
 			},
 		},
-		Config: &cwssaws.InstanceConfig{
-			Os: &cwssaws.InstanceOperatingSystemConfig{
+		Config: &corev1.InstanceConfig{
+			Os: &corev1.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: true,
-				Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-					Ipxe: &cwssaws.InlineIpxe{
+				Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+					Ipxe: &corev1.InlineIpxe{
 						IpxeScript: ipxeScript,
 					},
 				},
@@ -260,25 +260,25 @@ func (s *CreateInstancesTestSuite) Test_CreateInstances_Success() {
 	labelKey := "key1"
 	labelValue := "value1"
 
-	request := &cwssaws.BatchInstanceAllocationRequest{
-		InstanceRequests: []*cwssaws.InstanceAllocationRequest{
+	request := &corev1.BatchInstanceAllocationRequest{
+		InstanceRequests: []*corev1.InstanceAllocationRequest{
 			{
-				MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-				Metadata: &cwssaws.Metadata{
+				MachineId: &corev1.MachineId{Id: uuid.NewString()},
+				Metadata: &corev1.Metadata{
 					Name:        "instance_1",
 					Description: "first instance",
-					Labels: []*cwssaws.Label{
+					Labels: []*corev1.Label{
 						{
 							Key:   labelKey,
 							Value: &labelValue,
 						},
 					},
 				},
-				Config: &cwssaws.InstanceConfig{
-					Os: &cwssaws.InstanceOperatingSystemConfig{
+				Config: &corev1.InstanceConfig{
+					Os: &corev1.InstanceOperatingSystemConfig{
 						RunProvisioningInstructionsOnEveryBoot: true,
-						Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-							Ipxe: &cwssaws.InlineIpxe{
+						Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+							Ipxe: &corev1.InlineIpxe{
 								IpxeScript: ipxeScript,
 							},
 						},
@@ -287,22 +287,22 @@ func (s *CreateInstancesTestSuite) Test_CreateInstances_Success() {
 				},
 			},
 			{
-				MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-				Metadata: &cwssaws.Metadata{
+				MachineId: &corev1.MachineId{Id: uuid.NewString()},
+				Metadata: &corev1.Metadata{
 					Name:        "instance_2",
 					Description: "second instance",
-					Labels: []*cwssaws.Label{
+					Labels: []*corev1.Label{
 						{
 							Key:   labelKey,
 							Value: &labelValue,
 						},
 					},
 				},
-				Config: &cwssaws.InstanceConfig{
-					Os: &cwssaws.InstanceOperatingSystemConfig{
+				Config: &corev1.InstanceConfig{
+					Os: &corev1.InstanceOperatingSystemConfig{
 						RunProvisioningInstructionsOnEveryBoot: true,
-						Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-							Ipxe: &cwssaws.InlineIpxe{
+						Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+							Ipxe: &corev1.InlineIpxe{
 								IpxeScript: ipxeScript,
 							},
 						},
@@ -333,25 +333,25 @@ func (s *CreateInstancesTestSuite) Test_CreateInstances_Failure() {
 	labelKey := "key1"
 	labelValue := "value1"
 
-	request := &cwssaws.BatchInstanceAllocationRequest{
-		InstanceRequests: []*cwssaws.InstanceAllocationRequest{
+	request := &corev1.BatchInstanceAllocationRequest{
+		InstanceRequests: []*corev1.InstanceAllocationRequest{
 			{
-				MachineId: &cwssaws.MachineId{Id: uuid.NewString()},
-				Metadata: &cwssaws.Metadata{
+				MachineId: &corev1.MachineId{Id: uuid.NewString()},
+				Metadata: &corev1.Metadata{
 					Name:        "instance_1",
 					Description: "first instance",
-					Labels: []*cwssaws.Label{
+					Labels: []*corev1.Label{
 						{
 							Key:   labelKey,
 							Value: &labelValue,
 						},
 					},
 				},
-				Config: &cwssaws.InstanceConfig{
-					Os: &cwssaws.InstanceOperatingSystemConfig{
+				Config: &corev1.InstanceConfig{
+					Os: &corev1.InstanceOperatingSystemConfig{
 						RunProvisioningInstructionsOnEveryBoot: true,
-						Variant: &cwssaws.InstanceOperatingSystemConfig_Ipxe{
-							Ipxe: &cwssaws.InlineIpxe{
+						Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
+							Ipxe: &corev1.InlineIpxe{
 								IpxeScript: ipxeScript,
 							},
 						},
@@ -396,8 +396,8 @@ func (s *DeleteInstanceV2TestSuite) AfterTest(suiteName, testName string) {
 func (s *DeleteInstanceV2TestSuite) Test_DeleteInstanceV2_Success() {
 	var instanceManager iActivity.ManageInstance
 
-	request := &cwssaws.InstanceReleaseRequest{
-		Id: &cwssaws.InstanceId{Value: uuid.NewString()},
+	request := &corev1.InstanceReleaseRequest{
+		Id: &corev1.InstanceId{Value: uuid.NewString()},
 	}
 
 	// Mock DeleteInstanceOnSiteActivity activity
@@ -413,8 +413,8 @@ func (s *DeleteInstanceV2TestSuite) Test_DeleteInstanceV2_Success() {
 func (s *DeleteInstanceV2TestSuite) Test_DeleteInstanceV2_Failure() {
 	var machineManager iActivity.ManageInstance
 
-	request := &cwssaws.InstanceReleaseRequest{
-		Id: &cwssaws.InstanceId{Value: uuid.NewString()},
+	request := &corev1.InstanceReleaseRequest{
+		Id: &corev1.InstanceId{Value: uuid.NewString()},
 	}
 
 	errMsg := "Site Controller communication error"
@@ -451,9 +451,9 @@ func (s *RebootInstanceTestSuite) AfterTest(suiteName, testName string) {
 func (s *RebootInstanceTestSuite) Test_RebootInstance_Success() {
 	var machineManager iActivity.ManageInstance
 
-	request := &cwssaws.InstancePowerRequest{
-		InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
-		Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
+	request := &corev1.InstancePowerRequest{
+		InstanceId: &corev1.InstanceId{Value: uuid.NewString()},
+		Operation:  corev1.InstancePowerRequest_POWER_RESET,
 	}
 
 	// Mock RebootInstanceOnSiteActivity activity
@@ -469,9 +469,9 @@ func (s *RebootInstanceTestSuite) Test_RebootInstance_Success() {
 func (s *RebootInstanceTestSuite) Test_RebootInstance_Failure() {
 	var machineManager iActivity.ManageInstance
 
-	request := &cwssaws.InstancePowerRequest{
-		InstanceId: &cwssaws.InstanceId{Value: uuid.NewString()},
-		Operation:  cwssaws.InstancePowerRequest_POWER_RESET,
+	request := &corev1.InstancePowerRequest{
+		InstanceId: &corev1.InstanceId{Value: uuid.NewString()},
+		Operation:  corev1.InstancePowerRequest_POWER_RESET,
 	}
 
 	errMsg := "Site Controller communication error"

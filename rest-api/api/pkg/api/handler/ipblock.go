@@ -265,8 +265,8 @@ func NewGetAllIPBlockHandler(dbSession *cdb.Session, tc temporalClient.Client, c
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
-// @Param infrastructureProviderId query string true "ID of InfrastructureProvider"
-// @Param tenantId query string true "ID of Tenant"
+// @Param infrastructureProviderId query string false "Deprecated: Infrastructure Provider is now inferred from the org's membership"
+// @Param tenantId query string false "Deprecated: Tenant is now inferred from the org's membership"
 // @Param siteId query string true "ID of Site"
 // @Param status query string false "Filter by status" e.g. 'Pending', 'Error'"
 // @Param query query string false "Query input for full text search"
@@ -746,8 +746,8 @@ func NewGetIPBlockHandler(dbSession *cdb.Session, tc temporalClient.Client, cfg 
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "ID of IPBlock"
-// @Param infrastructureProviderId query string true "ID of InfrastructureProvider"
-// @Param tenantId query string true "ID of Tenant"
+// @Param infrastructureProviderId query string false "Deprecated: Infrastructure Provider is now inferred from the org's membership"
+// @Param tenantId query string false "Deprecated: Tenant is now inferred from the org's membership"
 // @Param includeRelation query string false "Related entities to include in response e.g. 'InfrastructureProvider', 'Tenant', 'Site'"
 // @Param includeUsageStats query boolean false "IPBlock usage stats to include in response
 // @Success 200 {object} model.APIIPBlock

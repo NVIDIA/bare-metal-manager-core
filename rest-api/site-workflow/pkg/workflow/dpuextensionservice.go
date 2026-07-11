@@ -11,7 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // DiscoverDpuExtensionServiceInventory is a workflow to discover DPU Extension Services on Site and publish to Cloud
@@ -52,7 +52,7 @@ func DiscoverDpuExtensionServiceInventory(ctx workflow.Context) error {
 }
 
 // CreateDpuExtensionService is a workflow to create a new DPU Extension Service
-func CreateDpuExtensionService(ctx workflow.Context, request *cwssaws.CreateDpuExtensionServiceRequest) (*cwssaws.DpuExtensionService, error) {
+func CreateDpuExtensionService(ctx workflow.Context, request *corev1.CreateDpuExtensionServiceRequest) (*corev1.DpuExtensionService, error) {
 	serviceID := ""
 	if request.ServiceId != nil {
 		serviceID = *request.ServiceId
@@ -81,7 +81,7 @@ func CreateDpuExtensionService(ctx workflow.Context, request *cwssaws.CreateDpuE
 	// Invoke activity
 	var dpuExtensionServiceManager activity.ManageDpuExtensionService
 
-	var result cwssaws.DpuExtensionService
+	var result corev1.DpuExtensionService
 
 	err := workflow.ExecuteActivity(ctx, dpuExtensionServiceManager.CreateDpuExtensionServiceOnSite, request).Get(ctx, &result)
 	if err != nil {
@@ -95,7 +95,7 @@ func CreateDpuExtensionService(ctx workflow.Context, request *cwssaws.CreateDpuE
 }
 
 // UpdateDpuExtensionService is a workflow to update a DPU Extension Service
-func UpdateDpuExtensionService(ctx workflow.Context, request *cwssaws.UpdateDpuExtensionServiceRequest) (*cwssaws.DpuExtensionService, error) {
+func UpdateDpuExtensionService(ctx workflow.Context, request *corev1.UpdateDpuExtensionServiceRequest) (*corev1.DpuExtensionService, error) {
 	logger := log.With().Str("Workflow", "UpdateDpuExtensionService").Str("ID", request.ServiceId).Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -119,7 +119,7 @@ func UpdateDpuExtensionService(ctx workflow.Context, request *cwssaws.UpdateDpuE
 	// Invoke activity
 	var dpuExtensionServiceManager activity.ManageDpuExtensionService
 
-	var result cwssaws.DpuExtensionService
+	var result corev1.DpuExtensionService
 	err := workflow.ExecuteActivity(ctx, dpuExtensionServiceManager.UpdateDpuExtensionServiceOnSite, request).Get(ctx, &result)
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "UpdateDpuExtensionServiceOnSite").Msg("Failed to execute activity from workflow")
@@ -131,7 +131,7 @@ func UpdateDpuExtensionService(ctx workflow.Context, request *cwssaws.UpdateDpuE
 }
 
 // DeleteDpuExtensionService is a workflow to delete a DPU Extension Service
-func DeleteDpuExtensionService(ctx workflow.Context, request *cwssaws.DeleteDpuExtensionServiceRequest) error {
+func DeleteDpuExtensionService(ctx workflow.Context, request *corev1.DeleteDpuExtensionServiceRequest) error {
 	logger := log.With().Str("Workflow", "DeleteDpuExtensionService").Str("ID", request.ServiceId).Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -167,7 +167,7 @@ func DeleteDpuExtensionService(ctx workflow.Context, request *cwssaws.DeleteDpuE
 }
 
 // GetDpuExtensionServiceVersionsInfo is a workflow to get detailed information for various versions of a DPU Extension Service
-func GetDpuExtensionServiceVersionsInfo(ctx workflow.Context, request *cwssaws.GetDpuExtensionServiceVersionsInfoRequest) (*cwssaws.DpuExtensionServiceVersionInfoList, error) {
+func GetDpuExtensionServiceVersionsInfo(ctx workflow.Context, request *corev1.GetDpuExtensionServiceVersionsInfoRequest) (*corev1.DpuExtensionServiceVersionInfoList, error) {
 	logger := log.With().Str("Workflow", "GetDpuExtensionServiceVersionsInfo").Str("ServiceID", request.ServiceId).Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -191,7 +191,7 @@ func GetDpuExtensionServiceVersionsInfo(ctx workflow.Context, request *cwssaws.G
 	// Invoke activity
 	var dpuExtensionServiceManager activity.ManageDpuExtensionService
 
-	var result cwssaws.DpuExtensionServiceVersionInfoList
+	var result corev1.DpuExtensionServiceVersionInfoList
 
 	err := workflow.ExecuteActivity(ctx, dpuExtensionServiceManager.GetDpuExtensionServiceVersionsInfoOnSite, request).Get(ctx, &result)
 	if err != nil {

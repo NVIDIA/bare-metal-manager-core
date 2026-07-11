@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -127,20 +127,20 @@ func TestAPIHostFirmwareConfigDeleteRequest_Validate(t *testing.T) {
 func TestAPIHostFirmwareConfig_FromProto_newFields(t *testing.T) {
 	preingest := "28.48.1000"
 	exclusive := true
-	proto := &cwssaws.HostFirmwareConfigResponse{
+	proto := &corev1.HostFirmwareConfigResponse{
 		Vendor:              "Nvidia",
 		Model:               "DGXH100",
 		ExplicitStartNeeded: true,
-		Ordering:            []cwssaws.HostFirmwareComponentType{cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7},
-		Components: []*cwssaws.HostFirmwareComponentConfigResponse{{
-			Type:                      cwssaws.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7,
+		Ordering:            []corev1.HostFirmwareComponentType{corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7},
+		Components: []*corev1.HostFirmwareComponentConfigResponse{{
+			Type:                      corev1.HostFirmwareComponentType_HOST_FIRMWARE_COMPONENT_TYPE_CX7,
 			PreingestUpgradeWhenBelow: &preingest,
 			CurrentVersionReportedAs:  cutil.GetPtr("^CX7_[0-9]+$"),
-			Firmware: []*cwssaws.HostFirmwareVersionConfig{{
+			Firmware: []*corev1.HostFirmwareVersionConfig{{
 				Version:                     "28.47.2682",
 				Default:                     true,
 				PreingestionExclusiveConfig: &exclusive,
-				Artifacts: []*cwssaws.HostFirmwareArtifact{{
+				Artifacts: []*corev1.HostFirmwareArtifact{{
 					Url: "https://firmware.example.invalid/28.47.2682/fw.bin",
 				}},
 			}},

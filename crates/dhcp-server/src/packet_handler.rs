@@ -18,6 +18,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_instrument::emit;
 use carbide_rpc_utils::dhcp::{HostConfig, InterfaceInfo};
 use dhcproto::v4::relay::{RelayAgentInformation, RelayCode, RelayInfo};
 use dhcproto::v4::{Decodable, Decoder, DhcpOption, Message, MessageType, OptionCode};
@@ -30,6 +31,7 @@ use tokio::sync::Mutex;
 
 use crate::cache::CacheEntry;
 use crate::errors::DhcpError;
+use crate::metrics::{DhcpRequestReceived, MessageTypeLabel};
 use crate::vendor_class::VendorClass;
 use crate::{Config, DhcpMode, util};
 
@@ -206,6 +208,9 @@ pub struct Packet {
     encoded_packet: Vec<u8>,
     pub dst_address: Ipv4Addr,
     pub dst_port: u16,
+    /// The reply's DHCP message type (an Offer, an Ack, a Nak), as the
+    /// bounded label the send path counts lease grants under.
+    pub message_type: MessageTypeLabel,
 }
 
 impl Packet {
@@ -224,7 +229,7 @@ impl Packet {
         dst_address: SocketAddrV4,
         socket: Arc<UdpSocket>,
     ) -> Result<(), String> {
-        tracing::info!("Sending packet to {:?}", dst_address);
+        tracing::debug!("Sending packet to {:?}", dst_address);
         socket
             .send_to(&self.encoded_packet, dst_address)
             .await
@@ -247,15 +252,29 @@ pub async fn process_packet(
     }
 
     let packet = Message::decode(&mut Decoder::new(buf))?;
-    tracing::info!(packet.received=%packet, "Received Packet");
+    tracing::debug!(packet.received=%packet, "Received Packet");
     let decoded_packet = DecodedPacket { packet };
+
+    // Every decoded packet counts as a received request, labelled by its
+    // message type (`other` when the option is missing or unrecognised). The
+    // Result is consumed after the relay and ownership checks so that error
+    // precedence stays unchanged.
+    let msg_type: Result<MessageType, DhcpError> =
+        decoded_packet.get_option_val(OptionCode::MessageType, None);
+    emit(DhcpRequestReceived {
+        message_type: msg_type
+            .as_ref()
+            .map_or(MessageTypeLabel::Other, |msg_type| {
+                MessageTypeLabel::from(*msg_type)
+            }),
+    });
 
     if handler.should_be_relayed() {
         decoded_packet.is_relayed()?;
     }
     decoded_packet.is_this_for_us(config)?;
 
-    let msg_type = decoded_packet.get_option_val(OptionCode::MessageType, None)?;
+    let msg_type = msg_type?;
     let dhcp_response = handler
         .discover_dhcp(
             decoded_packet.get_discovery_request(handler, circuit_id),
@@ -268,7 +287,14 @@ pub async fn process_packet(
 
     let packet =
         create_dhcp_reply_packet(&decoded_packet, circuit_id, dhcp_response, config, msg_type)?;
-    tracing::info!(packet.send=%packet, "Sending Packet");
+    tracing::debug!(packet.send=%packet, "Sending Packet");
+
+    // Read the type off the reply itself: create_dhcp_reply_packet answers a
+    // Request with either an Ack or a Nak.
+    let reply_message_type = packet
+        .opts()
+        .msg_type()
+        .map_or(MessageTypeLabel::Other, MessageTypeLabel::from);
 
     let mut encoded_packet = Vec::new();
     let mut e = Encoder::new(&mut encoded_packet);
@@ -278,6 +304,7 @@ pub async fn process_packet(
         encoded_packet,
         dst_address,
         dst_port,
+        message_type: reply_message_type,
     })
 }
 

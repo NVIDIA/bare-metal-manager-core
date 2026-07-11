@@ -16,7 +16,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // A helper only for tests.  Ignores potential conversion errors.
@@ -32,9 +32,9 @@ func getIntPtrToUint32Ptr(i *int) *uint32 {
 
 func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 
-	directionEnumLimit := len(cwssaws.NetworkSecurityGroupRuleDirection_value)
-	protocolEnumLimit := len(cwssaws.NetworkSecurityGroupRuleProtocol_value)
-	actionEnumLimit := len(cwssaws.NetworkSecurityGroupRuleAction_value)
+	directionEnumLimit := len(corev1.NetworkSecurityGroupRuleDirection_value)
+	protocolEnumLimit := len(corev1.NetworkSecurityGroupRuleProtocol_value)
+	actionEnumLimit := len(corev1.NetworkSecurityGroupRuleAction_value)
 
 	srcPortStarts := []*uint32{
 		nil,
@@ -69,12 +69,12 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 						for _, dps := range dstPortStarts {
 							for _, dpe := range dstPortEnds {
 
-								d := cwssaws.NetworkSecurityGroupRuleDirection(uint32(dI))
-								p := cwssaws.NetworkSecurityGroupRuleProtocol(uint32(pI))
-								a := cwssaws.NetworkSecurityGroupRuleAction(uint32(aI))
+								d := corev1.NetworkSecurityGroupRuleDirection(uint32(dI))
+								p := corev1.NetworkSecurityGroupRuleProtocol(uint32(pI))
+								a := corev1.NetworkSecurityGroupRuleAction(uint32(aI))
 
 								newRule := &cdbm.NetworkSecurityGroupRule{
-									NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
+									NetworkSecurityGroupRuleAttributes: &corev1.NetworkSecurityGroupRuleAttributes{
 										Id:             cutil.GetPtr(uuid.NewString()),
 										Direction:      d,
 										Protocol:       p,
@@ -85,25 +85,25 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 										SrcPortEnd:     spe,
 										DstPortStart:   dps,
 										DstPortEnd:     dpe,
-										SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
-										DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
+										SourceNet:      &corev1.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
+										DestinationNet: &corev1.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
 									},
 								}
 
 								allRules = append(allRules, newRule)
 
-								if d != cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INVALID &&
-									p != cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_INVALID &&
-									a != cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_INVALID &&
+								if d != corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INVALID &&
+									p != corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_INVALID &&
+									a != corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_INVALID &&
 									// src/dst start and end pairs are mutually required.
 									// Either start and end or both nil or neither is allowed to be nil.
 									((sps == nil) == (spe == nil)) &&
 									((dps == nil) == (dpe == nil)) &&
 									// Exclude rules that have invalid port + protocol combinations.
 									!((sps != nil || dps != nil) &&
-										(p == cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ANY ||
-											p == cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP ||
-											p == cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP6)) {
+										(p == corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ANY ||
+											p == corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP ||
+											p == corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP6)) {
 
 									validRules = append(validRules, newRule)
 									continue
@@ -319,14 +319,14 @@ func TestAPINetworkSecurityGroupUpdateRequest_Validate(t *testing.T) {
 func TestAPINetworkSecurityGroupNew(t *testing.T) {
 	rules := []*cdbm.NetworkSecurityGroupRule{
 		{
-			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
-				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
+			NetworkSecurityGroupRuleAttributes: &corev1.NetworkSecurityGroupRuleAttributes{
+				Action:         corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
+				Direction:      corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
 				SrcPortStart:   getIntPtrToUint32Ptr(cutil.GetPtr(0)),
 				SrcPortEnd:     getIntPtrToUint32Ptr(cutil.GetPtr(100)),
-				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
-				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
-				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "0.0.0.0/0"},
+				Protocol:       corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
+				SourceNet:      &corev1.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
+				DestinationNet: &corev1.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "0.0.0.0/0"},
 			},
 		},
 	}
@@ -375,14 +375,14 @@ func TestAPINetworkSecurityGroupNew(t *testing.T) {
 func TestAPINetworkSecurityGroupNewSummary(t *testing.T) {
 	rules := []*cdbm.NetworkSecurityGroupRule{
 		{
-			NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-				Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
-				Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
+			NetworkSecurityGroupRuleAttributes: &corev1.NetworkSecurityGroupRuleAttributes{
+				Action:         corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
+				Direction:      corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
 				SrcPortStart:   getIntPtrToUint32Ptr(cutil.GetPtr(0)),
 				SrcPortEnd:     getIntPtrToUint32Ptr(cutil.GetPtr(100)),
-				Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
-				SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
-				DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "0.0.0.0/0"},
+				Protocol:       corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
+				SourceNet:      &corev1.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
+				DestinationNet: &corev1.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "0.0.0.0/0"},
 			},
 		},
 	}
@@ -431,8 +431,8 @@ func TestNewAPINetworkSecurityGroupRule(t *testing.T) {
 		// leaves the corresponding API field empty rather than
 		// erroring. Any stricter handling belongs in a DB-integrity
 		// check, not in the conversion layer.
-		attrs := &cwssaws.NetworkSecurityGroupRuleAttributes{
-			Direction: cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INVALID,
+		attrs := &corev1.NetworkSecurityGroupRuleAttributes{
+			Direction: corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INVALID,
 		}
 		rule := NewAPINetworkSecurityGroupRule(attrs)
 		assert.NotNil(t, rule)
@@ -441,14 +441,14 @@ func TestNewAPINetworkSecurityGroupRule(t *testing.T) {
 
 	t.Run("valid attrs produce a populated rule", func(t *testing.T) {
 		ruleID := cutil.GetPtr("rule-id")
-		attrs := &cwssaws.NetworkSecurityGroupRuleAttributes{
+		attrs := &corev1.NetworkSecurityGroupRuleAttributes{
 			Id:             ruleID,
-			Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
-			Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
-			Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
+			Direction:      corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
+			Action:         corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
+			Protocol:       corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 			Priority:       55,
-			SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
-			DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
+			SourceNet:      &corev1.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
+			DestinationNet: &corev1.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
 		}
 		rule := NewAPINetworkSecurityGroupRule(attrs)
 		assert.NotNil(t, rule)
@@ -541,10 +541,10 @@ func TestAPINetworkSecurityGroupUpdateRequest_ToProto(t *testing.T) {
 		StatefulEgress: true,
 		Rules: []*cdbm.NetworkSecurityGroupRule{
 			{
-				NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-					Direction: cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
-					Action:    cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
-					Protocol:  cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
+				NetworkSecurityGroupRuleAttributes: &corev1.NetworkSecurityGroupRuleAttributes{
+					Direction: corev1.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
+					Action:    corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
+					Protocol:  corev1.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
 				},
 			},
 		},

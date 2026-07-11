@@ -13,7 +13,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -94,11 +94,11 @@ type ExpectedRackFilterInput struct {
 // ToProto builds the workflow proto for this ExpectedRack from the persisted
 // DB record. ExpectedRacks have no BMC credentials, so no extra arguments are
 // needed.
-func (er *ExpectedRack) ToProto() *cwssaws.ExpectedRack {
-	proto := &cwssaws.ExpectedRack{
-		RackId:        &cwssaws.RackId{Id: er.RackID},
-		RackProfileId: &cwssaws.RackProfileId{Id: er.RackProfileID},
-		Metadata: &cwssaws.Metadata{
+func (er *ExpectedRack) ToProto() *corev1.ExpectedRack {
+	proto := &corev1.ExpectedRack{
+		RackId:        &corev1.RackId{Id: er.RackID},
+		RackProfileId: &corev1.RackProfileId{Id: er.RackProfileID},
+		Metadata: &corev1.Metadata{
 			Name:        er.Name,
 			Description: er.Description,
 		},
@@ -118,7 +118,7 @@ func (er *ExpectedRack) ToProto() *cwssaws.ExpectedRack {
 // proto is a no-op. A nil or empty proto.RackId leaves er.RackID
 // unchanged so the caller can validate the proto identifier before
 // calling.
-func (er *ExpectedRack) FromProto(proto *cwssaws.ExpectedRack) {
+func (er *ExpectedRack) FromProto(proto *corev1.ExpectedRack) {
 	if proto == nil {
 		return
 	}

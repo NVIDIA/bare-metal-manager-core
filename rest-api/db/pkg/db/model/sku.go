@@ -12,7 +12,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -41,7 +41,7 @@ var (
 // that we can implement our own marshal/unmarshal
 // that understands how to work with protobuf messages
 type SkuComponents struct {
-	*cwssaws.SkuComponents
+	*corev1.SkuComponents
 }
 
 // Equal reports whether two `*SkuComponents` wrappers carry the same
@@ -51,7 +51,7 @@ type SkuComponents struct {
 // `cmp.Equal`, etc.) so callers can write `s.Equal(other)` instead of
 // reaching for a free helper.
 func (s *SkuComponents) Equal(other *SkuComponents) bool {
-	var sp, op *cwssaws.SkuComponents
+	var sp, op *corev1.SkuComponents
 	if s != nil {
 		sp = s.SkuComponents
 	}
@@ -63,7 +63,7 @@ func (s *SkuComponents) Equal(other *SkuComponents) bool {
 
 func (s *SkuComponents) UnmarshalJSON(b []byte) error {
 	if s.SkuComponents == nil {
-		s.SkuComponents = &cwssaws.SkuComponents{}
+		s.SkuComponents = &corev1.SkuComponents{}
 	}
 
 	return protoJsonUnmarshalOptions.Unmarshal(b, s)
@@ -99,8 +99,8 @@ type SKU struct {
 // them, and no current caller depends on them. `SiteID` is on the
 // model but not on the proto, so it is also dropped on the wire (the
 // receiving side reconstructs it from context, mirroring `FromProto`).
-func (sk *SKU) ToProto() *cwssaws.Sku {
-	proto := &cwssaws.Sku{
+func (sk *SKU) ToProto() *corev1.Sku {
+	proto := &corev1.Sku{
 		Id:         sk.ID,
 		DeviceType: sk.DeviceType,
 	}
@@ -108,9 +108,9 @@ func (sk *SKU) ToProto() *cwssaws.Sku {
 		proto.Components = sk.Components.SkuComponents
 	}
 	if sk.AssociatedMachineIds != nil {
-		machineIDs := make([]*cwssaws.MachineId, 0, len(sk.AssociatedMachineIds))
+		machineIDs := make([]*corev1.MachineId, 0, len(sk.AssociatedMachineIds))
 		for _, id := range sk.AssociatedMachineIds {
-			machineIDs = append(machineIDs, &cwssaws.MachineId{Id: id})
+			machineIDs = append(machineIDs, &corev1.MachineId{Id: id})
 		}
 		proto.AssociatedMachineIds = machineIDs
 	}
@@ -131,7 +131,7 @@ func (sk *SKU) ToProto() *cwssaws.Sku {
 //     skipping entries with empty IDs. Stays nil when the proto's list
 //     is nil so the activity layer can distinguish "not provided" from
 //     "explicitly empty".
-func (sk *SKU) FromProto(proto *cwssaws.Sku, siteID uuid.UUID) {
+func (sk *SKU) FromProto(proto *corev1.Sku, siteID uuid.UUID) {
 	if proto == nil {
 		return
 	}

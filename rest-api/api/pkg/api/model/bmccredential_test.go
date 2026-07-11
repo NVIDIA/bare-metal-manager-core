@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func bmcStrPtr(s string) *string { return &s }
@@ -53,13 +53,13 @@ func TestAPIBMCCredentialRequestToProto(t *testing.T) {
 		MacAddress: bmcStrPtr("aa:bb:cc:dd:ee:ff"),
 	}
 	p := req.ToProto()
-	assert.Equal(t, cwssaws.CredentialType_RootBmcByMacAddress, p.GetCredentialType())
+	assert.Equal(t, corev1.CredentialType_RootBmcByMacAddress, p.GetCredentialType())
 	assert.Equal(t, "pw", p.GetPassword())
 	assert.Equal(t, "root", p.GetUsername())
 	assert.Equal(t, "aa:bb:cc:dd:ee:ff", p.GetMacAddress())
 
 	site := APIBMCCredentialRequest{Kind: BMCCredentialKindSiteWideRoot, Password: "pw"}
-	assert.Equal(t, cwssaws.CredentialType_SiteWideBmcRoot, site.ToProto().GetCredentialType())
+	assert.Equal(t, corev1.CredentialType_SiteWideBmcRoot, site.ToProto().GetCredentialType())
 }
 
 func TestAPIBMCCredentialRequestToResponseOmitsPassword(t *testing.T) {

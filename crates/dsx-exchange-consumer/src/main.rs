@@ -30,7 +30,9 @@ async fn main() -> Result<(), DsxConsumerError> {
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
 
+    let log_events = carbide_instrument::LogEventsMetric::new("nico-dsx-exchange-consumer");
     tracing_subscriber::registry()
+        .with(log_events.layer().with_filter(env_filter.clone()))
         .with(
             logfmt::layer()
                 .with_event_fields([logfmt::EventField::with_default(

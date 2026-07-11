@@ -209,17 +209,49 @@ state_refresh_interval = "30m"
 logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 
 # ==============================================================================
+# TLS: Shared certificate configuration for switch collectors
+# ==============================================================================
+
+# Optional mTLS profile for direct switch collector connections.
+# This section is shared by switch collectors, but it is not itself a collector.
+# This is intentionally separate from Carbide API / SPIFFE certificate paths.
+# When configured, NVUE REST, NVUE gNMI, NMX-T, and NMX-C use this CA bundle,
+# client certificate, and client key for switch host connections.
+#
+# Switch server certificates must be valid for the TLS server name used by
+# health. Collectors always open TCP connections to discovered switch IPs. If
+# switch certificates contain DNS SANs instead of IP SANs, set tls_server_name
+# here. The value is used only for TLS SNI and certificate verification, not
+# for DNS resolution or endpoint discovery.
+# For HTTP collectors, the request URL and HTTP Host header stay on the
+# discovered switch IP. Only the TLS server name changes.
+#
+# Rotation behavior:
+# - NMX-T and NVUE REST share one cached HTTP client for this mTLS profile.
+#   The cache is checked on the shortest enabled HTTP collector poll interval,
+#   so cert file changes are adopted by the next reload window without building
+#   a client per switch target.
+# - NMX-C and NVUE gNMI read refreshed material when a long-lived stream
+#   reconnects.
+# - Existing HTTP clients and long-lived streams are not proactively closed on
+#   file changes.
+#
+# [tls.switch]
+# ca_cert_path = "/var/run/secrets/switch-mtls/ca.crt"
+# client_cert_path = "/var/run/secrets/switch-mtls/tls.crt"
+# client_key_path = "/var/run/secrets/switch-mtls/tls.key"
+# tls_server_name = "switches.example.forge"
+
+# ==============================================================================
 # Switch Host Collectors: What data to collect from NVLink Switch Hosts
 # ==============================================================================
 
 # NMX-C collection connects directly to the primary switch-host gRPC endpoint
 # when switch discovery metadata says NMX-C is enabled for that switch.
-# FabricManager (NMX-C) must be running there. Current switch endpoints use
-# plaintext gRPC over HTTP/2 on 9370.
+# FabricManager (NMX-C) must be running there. Without [tls.switch],
+# current switch endpoints use plaintext gRPC over HTTP/2 on 9370.
 # NMX-C notifications currently emit log events only; metrics and health reports
 # are separate scope.
-#
-# TODO: TLS, certificate loading, and mTLS are future scope.
 [collectors.nmxc]
 # Enable the NMX-C streaming collector for eligible primary switch-host endpoints.
 enabled = false

@@ -267,6 +267,14 @@ async fn ensure_dhcp_address_for_family(
     match existing_allocation_type {
         None => {}
         Some(AllocationType::Slaac) if address_family == IpAddressFamily::Ipv6 => {
+            // Take the segment lock before dropping the SLAAC row so the
+            // delete-then-allocate pair holds locks in the allocator order
+            // (segment advisory lock first, then address rows).
+            db::machine_interface::lock_network_segments_exclusive(
+                &mut *txn,
+                std::slice::from_ref(&segment.id),
+            )
+            .await?;
             db::machine_interface_address::delete_by_interface_family(
                 &mut *txn,
                 machine_interface.id,

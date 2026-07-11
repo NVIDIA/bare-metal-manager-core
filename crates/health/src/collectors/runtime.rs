@@ -622,10 +622,15 @@ mod tests {
             "counting_sink"
         }
 
-        fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
             if matches!(event, CollectorEvent::Log(_)) {
                 self.0.fetch_add(1, Ordering::SeqCst);
             }
+            Ok(())
         }
     }
 

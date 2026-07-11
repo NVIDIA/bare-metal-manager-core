@@ -19,7 +19,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // NVLinkLogicalPartitionStatus is the domain enum for the lifecycle
@@ -80,15 +80,15 @@ var (
 // state leaves the receiver as the empty string so the caller can
 // detect "no DB-side equivalent" (the pre-typed helper returned
 // `(nil, nil)` for the same case).
-func (s *NVLinkLogicalPartitionStatus) FromProto(state cwssaws.TenantState) {
+func (s *NVLinkLogicalPartitionStatus) FromProto(state corev1.TenantState) {
 	switch state {
-	case cwssaws.TenantState_PROVISIONING:
+	case corev1.TenantState_PROVISIONING:
 		*s = NVLinkLogicalPartitionStatusProvisioning
-	case cwssaws.TenantState_CONFIGURING:
+	case corev1.TenantState_CONFIGURING:
 		*s = NVLinkLogicalPartitionStatusConfiguring
-	case cwssaws.TenantState_READY:
+	case corev1.TenantState_READY:
 		*s = NVLinkLogicalPartitionStatusReady
-	case cwssaws.TenantState_FAILED:
+	case corev1.TenantState_FAILED:
 		*s = NVLinkLogicalPartitionStatusError
 	default:
 		log.Warn().Str("TenantState", state.String()).Msg("unsupported NVLinkLogicalPartitionStatus requested")
@@ -172,8 +172,8 @@ func validateNVLinkLogicalPartitionNameWhitespace(value interface{}) error {
 
 // toMetadataProto builds a workflow Metadata proto from the partition's
 // Name and (optional) Description.
-func (nvllp *NVLinkLogicalPartition) toMetadataProto() *cwssaws.Metadata {
-	md := &cwssaws.Metadata{Name: nvllp.Name}
+func (nvllp *NVLinkLogicalPartition) toMetadataProto() *corev1.Metadata {
+	md := &corev1.Metadata{Name: nvllp.Name}
 	if nvllp.Description != nil {
 		md.Description = *nvllp.Description
 	}
@@ -185,10 +185,10 @@ func (nvllp *NVLinkLogicalPartition) toMetadataProto() *cwssaws.Metadata {
 // the owning tenant's organization id sourced from `nvllp.Org`. The
 // request-shape protos (creation/update) layer on top of this canonical
 // form via the API request types' `ToProto` methods.
-func (nvllp *NVLinkLogicalPartition) ToProto() *cwssaws.NVLinkLogicalPartition {
-	return &cwssaws.NVLinkLogicalPartition{
-		Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp.ID.String()},
-		Config: &cwssaws.NVLinkLogicalPartitionConfig{
+func (nvllp *NVLinkLogicalPartition) ToProto() *corev1.NVLinkLogicalPartition {
+	return &corev1.NVLinkLogicalPartition{
+		Id: &corev1.NVLinkLogicalPartitionId{Value: nvllp.ID.String()},
+		Config: &corev1.NVLinkLogicalPartitionConfig{
 			Metadata:             nvllp.toMetadataProto(),
 			TenantOrganizationId: nvllp.Org,
 		},
@@ -210,7 +210,7 @@ func (nvllp *NVLinkLogicalPartition) ToProto() *cwssaws.NVLinkLogicalPartition {
 //   - `Description` is cleared when the proto omits it or carries an
 //     empty string, so `FromProto` is a clean reset rather than a
 //     partial merge.
-func (nvllp *NVLinkLogicalPartition) FromProto(proto *cwssaws.NVLinkLogicalPartition) {
+func (nvllp *NVLinkLogicalPartition) FromProto(proto *corev1.NVLinkLogicalPartition) {
 	if proto == nil {
 		return
 	}
@@ -243,9 +243,9 @@ func (nvllp *NVLinkLogicalPartition) FromProto(proto *cwssaws.NVLinkLogicalParti
 // ToDeletionRequestProto builds the workflow request that asks a Site to
 // delete this NVLink Logical Partition. Stays on the entity because
 // there is no API request body for delete (path-param only).
-func (nvllp *NVLinkLogicalPartition) ToDeletionRequestProto() *cwssaws.NVLinkLogicalPartitionDeletionRequest {
-	return &cwssaws.NVLinkLogicalPartitionDeletionRequest{
-		Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp.ID.String()},
+func (nvllp *NVLinkLogicalPartition) ToDeletionRequestProto() *corev1.NVLinkLogicalPartitionDeletionRequest {
+	return &corev1.NVLinkLogicalPartitionDeletionRequest{
+		Id: &corev1.NVLinkLogicalPartitionId{Value: nvllp.ID.String()},
 	}
 }
 

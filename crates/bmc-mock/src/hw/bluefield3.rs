@@ -185,6 +185,7 @@ impl Bluefield3<'_> {
                 })),
                 storage: None,
                 processors: None,
+                serial_console: None,
                 secure_boot_available: true,
             }],
         }
@@ -203,6 +204,7 @@ impl Bluefield3<'_> {
                     .build(),
                 ]),
                 host_interfaces: None,
+                serial_interfaces: None,
                 firmware_version: Some("BF-23.10-4"),
                 oem: None,
             }],

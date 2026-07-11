@@ -10,7 +10,7 @@ import (
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 var (
@@ -51,8 +51,8 @@ func (mitcr *APIMachineInstanceTypeCreateRequest) Validate() error {
 // that the handler has performed any cross-context checks Validate
 // cannot see (RBAC, ownership, capability match against the
 // InstanceType, etc.).
-func (mitcr *APIMachineInstanceTypeCreateRequest) ToProto(it *cdbm.InstanceType) *cwssaws.AssociateMachinesWithInstanceTypeRequest {
-	return &cwssaws.AssociateMachinesWithInstanceTypeRequest{
+func (mitcr *APIMachineInstanceTypeCreateRequest) ToProto(it *cdbm.InstanceType) *corev1.AssociateMachinesWithInstanceTypeRequest {
+	return &corev1.AssociateMachinesWithInstanceTypeRequest{
 		InstanceTypeId: it.ID.String(),
 		MachineIds:     mitcr.MachineIDs,
 	}

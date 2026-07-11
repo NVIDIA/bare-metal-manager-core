@@ -16,18 +16,22 @@
  */
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
+use base64::Engine as _;
+use http::HeaderValue;
+use http::header::{ACCEPT, AUTHORIZATION};
 use reqwest::Client;
-use reqwest::header::ACCEPT;
 use serde::Deserialize;
 use serde::de::Error as _;
 use url::Url;
 
 use crate::HealthError;
 use crate::config::NvueRestPaths;
+use crate::tls::{MtlsHttpClient, MtlsHttpClientProvider};
 
 const NVUE_SYSTEM_HEALTH: &str = "/nvue_v1/system/health";
 const NVUE_SYSTEM_REBOOT_REASON: &str = "/nvue_v1/system/reboot/reason";
@@ -76,38 +80,82 @@ pub struct RestClient {
     base_url: Url,
     credentials: ArcSwapOption<UsernamePassword>,
     paths: NvueRestPaths,
-    client: Client,
+    http_client: RestHttpClient,
+}
+
+enum RestHttpClient {
+    Legacy(Client),
+
+    // Share the mTLS HTTP client provider across switch targets. Hyper-rustls
+    // applies `[tls.switch].tls_server_name` only to SNI and certificate
+    // verification, so the request URL and HTTP Host header remain the
+    // discovered switch IP.
+    Tls {
+        provider: MtlsHttpClientProvider,
+
+        // Per-iteration client clone prepared by `ensure_http_client`. It is
+        // cleared before refresh so an expired reload window cannot fall back
+        // to stale TLS material in the same collector iteration.
+        current_client: ArcSwapOption<MtlsHttpClient>,
+
+        request_timeout: Duration,
+    },
 }
 
 impl RestClient {
     pub fn new(
         switch_id: String,
-        host: &str,
+        connect_ip: IpAddr,
+        port: Option<u16>,
         request_timeout: Duration,
         self_signed_tls: bool,
+        tls_http_client_provider: Option<MtlsHttpClientProvider>,
         paths: NvueRestPaths,
     ) -> Result<Self, HealthError> {
-        let raw_url = format!("https://{host}");
+        let port = port.unwrap_or(443);
+
+        let host = match connect_ip {
+            IpAddr::V4(ip) => ip.to_string(),
+            IpAddr::V6(ip) => format!("[{ip}]"),
+        };
+
+        let raw_url = if port == 443 {
+            format!("https://{host}")
+        } else {
+            format!("https://{host}:{port}")
+        };
+
         let base_url = Url::parse(&raw_url)
             .map_err(|e| HealthError::HttpError(format!("{raw_url}: invalid base URL: {e}")))?;
 
-        let mut builder = Client::builder().timeout(request_timeout);
+        let http_client = match tls_http_client_provider {
+            Some(provider) => RestHttpClient::Tls {
+                provider,
+                current_client: ArcSwapOption::empty(),
+                request_timeout,
+            },
+            None => {
+                let mut builder = Client::builder().timeout(request_timeout);
 
-        if self_signed_tls {
-            // ! dangerously accept the self-signed certificate.
-            builder = builder.danger_accept_invalid_certs(true);
-        }
+                if self_signed_tls {
+                    // ! dangerously accept the self-signed certificate.
+                    builder = builder.danger_accept_invalid_certs(true);
+                }
 
-        let client = builder.build().map_err(|e| {
-            HealthError::HttpError(format!("{base_url}: failed to create HTTP client: {e}"))
-        })?;
+                let client = builder.build().map_err(|e| {
+                    HealthError::HttpError(format!("{base_url}: failed to create HTTP client: {e}"))
+                })?;
+
+                RestHttpClient::Legacy(client)
+            }
+        };
 
         Ok(Self {
             switch_id,
             base_url,
             credentials: ArcSwapOption::empty(),
             paths,
-            client,
+            http_client,
         })
     }
 
@@ -130,8 +178,33 @@ impl RestClient {
             base_url,
             credentials: ArcSwapOption::empty(),
             paths,
-            client,
+            http_client: RestHttpClient::Legacy(client),
         })
+    }
+
+    /// Checks the shared mTLS HTTP client cache before NVUE REST requests.
+    ///
+    /// When an mTLS profile is configured, this asks the shared provider to
+    /// refresh at most once per reload window before the collector starts
+    /// issuing target-specific requests.
+    pub async fn ensure_http_client(&mut self) -> Result<(), HealthError> {
+        if let RestHttpClient::Tls {
+            provider,
+            current_client,
+            ..
+        } = &mut self.http_client
+        {
+            // Clear the old clone before refresh so a failed reload cannot be
+            // followed by accidental use of stale cert material in this
+            // collector iteration.
+            current_client.store(None);
+
+            let client = provider.client().await?;
+
+            current_client.store(Some(Arc::new(client)));
+        }
+
+        Ok(())
     }
 
     pub fn set_credentials(&self, creds: UsernamePassword) {
@@ -273,39 +346,99 @@ impl RestClient {
         url: Url,
         extra_query: &[(&str, &str)],
     ) -> Result<T, HealthError> {
-        let mut request = self.client.get(url.as_str());
+        let mut url = url;
 
-        // GET /interface (returning a collection) defaults to rev=applied, not operational.
-        // There is inconsistency across the NVUE Endpoints, so we need to check each.
-        // We want the actual system state (rev=operational), rather than defaults or what's configured (rev=applied).
-        request = request.query(&[("rev", "operational")]);
+        // GET /interface (returning a collection) defaults to rev=applied, not
+        // operational. There is inconsistency across the NVUE endpoints, so we
+        // need to check each. We want the actual system state (rev=operational),
+        // rather than defaults or what's configured (rev=applied).
+        url.query_pairs_mut().append_pair("rev", "operational");
+
         if !extra_query.is_empty() {
-            request = request.query(extra_query);
+            url.query_pairs_mut()
+                .extend_pairs(extra_query.iter().copied());
         }
 
-        if let Some(creds) = self.credentials.load_full() {
-            request = request.basic_auth(&creds.username, creds.password.as_ref());
-        }
+        let (status, body) = match &self.http_client {
+            RestHttpClient::Legacy(client) => {
+                let mut request = client
+                    .get(url.as_str())
+                    .header("accept", "application/json");
 
-        request = request.header(ACCEPT, "application/json");
+                if let Some(creds) = self.credentials.load_full() {
+                    request = request.basic_auth(&creds.username, creds.password.as_ref());
+                }
 
-        let response = request.send().await.map_err(|e| {
-            HealthError::HttpError(format!(
-                "{url}: request failed for switch {}: {e}",
-                self.switch_id
-            ))
-        })?;
+                let response = request.send().await.map_err(|e| {
+                    HealthError::HttpError(format!(
+                        "{url}: request failed for switch {}: {e}",
+                        self.switch_id
+                    ))
+                })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
+                let status = response.status();
+
+                let body = response.bytes().await.map_err(|e| {
+                    HealthError::HttpError(format!(
+                        "{url}: failed to read response for switch {}: {e}",
+                        self.switch_id
+                    ))
+                })?;
+
+                (status, body)
+            }
+            RestHttpClient::Tls {
+                provider,
+                current_client,
+                request_timeout,
+            } => {
+                let client = match current_client.load_full() {
+                    Some(client) => client,
+                    None => Arc::new(provider.client().await?),
+                };
+
+                let mut headers = vec![(ACCEPT, HeaderValue::from_static("application/json"))];
+
+                if let Some(creds) = self.credentials.load_full() {
+                    let password = creds.password.as_deref().unwrap_or_default();
+                    let encoded = base64::engine::general_purpose::STANDARD
+                        .encode(format!("{}:{password}", creds.username));
+
+                    let value =
+                        HeaderValue::from_str(&format!("Basic {encoded}")).map_err(|e| {
+                            HealthError::HttpError(format!(
+                                "{url}: failed to build authorization header for switch {}: {e}",
+                                self.switch_id
+                            ))
+                        })?;
+
+                    headers.push((AUTHORIZATION, value));
+                }
+
+                let response = client
+                    .get(&url, headers, *request_timeout)
+                    .await
+                    .map_err(|e| {
+                        HealthError::HttpError(format!(
+                            "{url}: request failed for switch {}: {e}",
+                            self.switch_id
+                        ))
+                    })?;
+
+                (response.status, response.body)
+            }
+        };
+
+        if !status.is_success() {
+            let body = String::from_utf8_lossy(&body);
+
             return Err(HealthError::HttpError(format!(
                 "{url}: HTTP {status} for switch {}: {body}",
                 self.switch_id
             )));
         }
 
-        response.json().await.map_err(|e| {
+        serde_json::from_slice(&body).map_err(|e| {
             HealthError::HttpError(format!(
                 "{url}: failed to parse response for switch {}: {e}",
                 self.switch_id

@@ -16,7 +16,6 @@
  */
 
 use std::borrow::Cow;
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -35,7 +34,7 @@ use tonic::transport::{Channel, Endpoint};
 
 use crate::HealthError;
 use crate::collectors::runtime::{StreamingCollector, StreamingConnectResult};
-use crate::config::NmxcCollectorConfig as NmxcCollectorOptions;
+use crate::config::{MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions};
 use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, LogRecord};
 
@@ -49,6 +48,9 @@ type NmxcNotificationStream = Streaming<ServerNotification>;
 pub struct NmxcCollectorConfig {
     /// User-facing collector settings from the health service configuration.
     pub nmxc_config: NmxcCollectorOptions,
+
+    /// mTLS profile used for the gRPC channel when configured.
+    pub(crate) tls_config: Option<MtlsProfileConfig>,
 }
 
 /// Streaming collector for NMX-C server notifications.
@@ -59,6 +61,10 @@ pub struct NmxcCollector {
     heartbeat_rate: u32,
     connect_timeout: Duration,
     rpc_timeout: Duration,
+
+    // NMX-C subscriptions are long-lived. Rotated mTLS profile files are picked
+    // up when the stream reconnects and builds a new channel.
+    tls_config: Option<MtlsProfileConfig>,
 }
 
 #[async_trait]
@@ -74,8 +80,13 @@ impl<B: Bmc + 'static> StreamingCollector<B> for NmxcCollector {
         let nmxc_config = config.nmxc_config;
         let connect_timeout = nmxc_config.connect_timeout();
         let rpc_timeout = nmxc_config.rpc_timeout();
+        let switch_connect_host = endpoint.switch_connect_host_for_uri();
 
-        let endpoint_url = nmxc_endpoint_url(&endpoint.addr.ip, nmxc_config.grpc_port);
+        let endpoint_url = nmxc_endpoint_url(
+            switch_connect_host.as_ref(),
+            nmxc_config.grpc_port,
+            config.tls_config.is_some(),
+        );
 
         Ok(Self {
             endpoint_url,
@@ -84,12 +95,19 @@ impl<B: Bmc + 'static> StreamingCollector<B> for NmxcCollector {
             heartbeat_rate: nmxc_config.heartbeat_rate,
             connect_timeout,
             rpc_timeout,
+            tls_config: config.tls_config,
         })
     }
 
     /// Connects to NMX-C, completes Hello and Subscribe, and maps notifications into collector events.
     async fn connect(&mut self) -> Result<StreamingConnectResult<'_>, HealthError> {
-        let mut client = nmxc_client(&self.endpoint_url, self.connect_timeout).await?;
+        let mut client = nmxc_client(
+            &self.endpoint_url,
+            self.connect_timeout,
+            self.tls_config.as_ref(),
+        )
+        .await?;
+
         send_hello(&mut client, &self.gateway_id, self.rpc_timeout).await?;
 
         let subscribe_request = SubscribeRequest {
@@ -217,22 +235,21 @@ fn hello_request(gateway_id: &str) -> ClientHello {
 }
 
 /// Builds the switch-host gRPC endpoint URL, including IPv6 bracket formatting.
-fn nmxc_endpoint_url(ip: &IpAddr, port: u16) -> String {
-    let host = match ip {
-        IpAddr::V4(v4) => v4.to_string(),
-        IpAddr::V6(v6) => format!("[{v6}]"),
-    };
-
-    // TODO: Replace hard-coded HTTP when NMX-C HTTPS/mTLS support is designed.
-    format!("http://{host}:{port}")
+fn nmxc_endpoint_url(host: &str, port: u16, tls_enabled: bool) -> String {
+    let scheme = if tls_enabled { "https" } else { "http" };
+    format!("{scheme}://{host}:{port}")
 }
 
 /// Creates a tonic NMX-C client with transport settings scoped to the collector.
+///
+/// When an mTLS profile is configured, certificate files are read while
+/// building the channel, so reconnects pick up rotated material.
 async fn nmxc_client(
     endpoint_url: &str,
     connect_timeout: Duration,
+    tls_config: Option<&MtlsProfileConfig>,
 ) -> Result<NmxcClient, HealthError> {
-    let endpoint = Endpoint::from_shared(endpoint_url.to_string())
+    let mut endpoint = Endpoint::from_shared(endpoint_url.to_string())
         .map_err(|error| nmxc_transport_error(endpoint_url, "parse endpoint", error))?
         .connect_timeout(connect_timeout)
         // Long-lived Subscribe streams need keepalive so dead peers eventually
@@ -241,6 +258,13 @@ async fn nmxc_client(
         .http2_keep_alive_interval(NMX_C_HTTP2_KEEPALIVE_INTERVAL)
         .keep_alive_timeout(NMX_C_HTTP2_KEEPALIVE_TIMEOUT)
         .keep_alive_while_idle(true);
+
+    if let Some(config) = tls_config {
+        let tls_config = crate::tls::tonic_tls_config(config).await?;
+        endpoint = endpoint
+            .tls_config(tls_config)
+            .map_err(|error| nmxc_transport_error(endpoint_url, "configure TLS", error))?;
+    }
 
     let channel = endpoint
         .connect()
@@ -606,8 +630,6 @@ fn log_record(
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
     use carbide_test_support::value_scenarios;
     use rpc::protos::nmx_c::{
         ConfigKeyVal, ConfigKeyVals, FmEventPartitionChange, HealthStateChanged, ServerHeader,
@@ -720,16 +742,20 @@ mod tests {
             .map(|(_, value)| value.as_str())
     }
 
-    #[test]
     /// Verifies NMX-C endpoint URL formatting for IPv4 and IPv6 targets.
-    fn endpoint_url_brackets_ipv6() {
+    #[test]
+    fn endpoint_url_formats_ip_hosts() {
         value_scenarios!(
-            run = |ip| nmxc_endpoint_url(&ip, 9370);
+            run = |(host, tls_enabled)| nmxc_endpoint_url(host, 9370, tls_enabled);
 
             "endpoint URL" {
-                IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)) => "http://10.0.0.1:9370".to_string(),
+                ("10.0.0.1", false) => "http://10.0.0.1:9370".to_string(),
 
-                IpAddr::V6(Ipv6Addr::LOCALHOST) => "http://[::1]:9370".to_string(),
+                ("[::1]", false) => "http://[::1]:9370".to_string(),
+
+                ("10.0.0.1", true) => "https://10.0.0.1:9370".to_string(),
+
+                ("[::1]", true) => "https://[::1]:9370".to_string(),
             }
         );
     }

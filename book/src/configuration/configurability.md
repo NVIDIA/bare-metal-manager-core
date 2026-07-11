@@ -547,7 +547,7 @@ values files.
 | `REGISTRY_PULL_SECRET` | Raw registry API key | **Raw key string** (e.g. `nvapi-...`). Not a file path. Not a JSON dockerconfig. |
 | `REGISTRY_PULL_USERNAME` | Registry username | Defaults to `$oauthtoken` (correct for `nvcr.io`) |
 | `KUBECONFIG` | Cluster kubeconfig | Filesystem path |
-| `NICO_SITE_UUID` | Stable UUID for this site | UUIDv4. If unset, `setup.sh` generates a random UUID each run. |
+| `NICO_SITE_UUID` | Stable UUID for this site | UUIDv4. If unset, `setup.sh` tries to reuse the UUID from a prior install (site-agent ConfigMap). If that fails, it adopts an existing REST site with the same name, or mints a UUID and seeds the site record itself. |
 | `PREFLIGHT_CHECK_IMAGE` | Image for per-node preflight checks | Defaults to `busybox:1.36`. Override for air-gapped clusters. |
 
 Inside the cluster, `nico-api` discovers Vault, Postgres, and SPIFFE settings

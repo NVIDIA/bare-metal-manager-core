@@ -121,3 +121,21 @@ pub fn init_tools(tools: Vec<ToolLink>) {
 pub fn configured_tools() -> &'static [ToolLink] {
     TOOLS.get().map(Vec::as_slice).unwrap_or(&[])
 }
+
+/// Process-global site name shown in the admin web UI's sidebar header
+/// ("NICo • <site>"). Same write-once rationale as [`TOOLS`].
+static SITE_NAME: OnceLock<Option<String>> = OnceLock::new();
+
+/// Initialize the global site name from the config's `sitename` field. Call
+/// once during startup before serving any web requests. Subsequent calls are
+/// ignored.
+pub fn init_site_name(site_name: Option<String>) {
+    let _ = SITE_NAME.set(site_name);
+}
+
+/// The configured site name, for the admin UI's sidebar header. `None` when
+/// the config doesn't set `sitename` or when [`init_site_name`] has not been
+/// called (e.g. unit tests).
+pub fn configured_site_name() -> Option<&'static str> {
+    SITE_NAME.get().and_then(|name| name.as_deref())
+}

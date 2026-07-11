@@ -11,7 +11,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -167,8 +167,8 @@ func (vpc *Vpc) GetSiteID() *uuid.UUID {
 // Description, and Labels. Description defaults to the empty string when
 // the receiver's pointer is nil; this matches the existing handler
 // behaviour.
-func (vpc *Vpc) toMetadataProto() *cwssaws.Metadata {
-	md := &cwssaws.Metadata{
+func (vpc *Vpc) toMetadataProto() *corev1.Metadata {
+	md := &corev1.Metadata{
 		Name:        vpc.Name,
 		Description: "",
 	}
@@ -191,24 +191,24 @@ func (vpc *Vpc) toMetadataProto() *cwssaws.Metadata {
 // when the string is set but unrecognized, matching the pre-refactor
 // handler behaviour). It is omitted from the proto when the DB
 // column is nil.
-func (vpc *Vpc) ToProto() *cwssaws.Vpc {
-	proto := &cwssaws.Vpc{
-		Id:                     &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
+func (vpc *Vpc) ToProto() *corev1.Vpc {
+	proto := &corev1.Vpc{
+		Id:                     &corev1.VpcId{Value: vpc.GetSiteID().String()},
 		Name:                   vpc.Name,
 		TenantOrganizationId:   vpc.Org,
 		NetworkSecurityGroupId: vpc.NetworkSecurityGroupID,
 		Metadata:               vpc.toMetadataProto(),
 	}
 	if vpc.NVLinkLogicalPartitionID != nil {
-		proto.DefaultNvlinkLogicalPartitionId = &cwssaws.NVLinkLogicalPartitionId{Value: vpc.NVLinkLogicalPartitionID.String()}
+		proto.DefaultNvlinkLogicalPartitionId = &corev1.NVLinkLogicalPartitionId{Value: vpc.NVLinkLogicalPartitionID.String()}
 	}
 	if vpc.NetworkVirtualizationType != nil {
-		nwvt := cwssaws.VpcVirtualizationType_ETHERNET_VIRTUALIZER
+		nwvt := corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER
 		switch *vpc.NetworkVirtualizationType {
-		case cwssaws.VpcVirtualizationType_FNN.String():
-			nwvt = cwssaws.VpcVirtualizationType_FNN
-		case cwssaws.VpcVirtualizationType_FLAT.String():
-			nwvt = cwssaws.VpcVirtualizationType_FLAT
+		case corev1.VpcVirtualizationType_FNN.String():
+			nwvt = corev1.VpcVirtualizationType_FNN
+		case corev1.VpcVirtualizationType_FLAT.String():
+			nwvt = corev1.VpcVirtualizationType_FLAT
 		}
 		proto.NetworkVirtualizationType = &nwvt
 	}
@@ -218,7 +218,7 @@ func (vpc *Vpc) ToProto() *cwssaws.Vpc {
 // FromProto populates this VPC from its workflow proto representation.
 // A nil proto is a no-op. This is the inverse of `ToProto` and exists
 // for convention symmetry — currently no code path on the cloud side
-// reconstructs a full VPC entity from a `cwssaws.Vpc` (the site is the
+// reconstructs a full VPC entity from a `corev1.Vpc` (the site is the
 // destination, not the source), but the method is provided so future
 // reconciliation flows have a single canonical entry point.
 //
@@ -233,7 +233,7 @@ func (vpc *Vpc) ToProto() *cwssaws.Vpc {
 //     OR when the proto value is invalid (e.g. an unparseable UUID).
 //     This makes `FromProto` a clean reset rather than a partial
 //     merge, matching the Expected* pattern.
-func (vpc *Vpc) FromProto(proto *cwssaws.Vpc) {
+func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	if proto == nil {
 		return
 	}

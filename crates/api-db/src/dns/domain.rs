@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use carbide_uuid::domain::DomainId;
@@ -192,6 +193,23 @@ pub async fn find_by_uuid(
         .map(|f| f.first().cloned())
 }
 
+/// Batched counterpart to [`find_by_uuid`]: fetch every domain in `ids` with a single
+/// `WHERE id = ANY($1)` query (deleted entries included, matching `find_by_uuid`), keyed by id.
+///
+/// Ids that have no matching row are simply absent from the returned map, so callers can
+/// reproduce `find_by_uuid`'s "not found" handling with a `.get(&id)` lookup.
+pub async fn find_by_uuids(
+    txn: impl DbReader<'_>,
+    ids: &[DomainId],
+) -> Result<HashMap<DomainId, Domain>, DatabaseError> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    find_all_by(txn, ObjectColumnFilter::List(IdColumn, ids), true)
+        .await
+        .map(|domains| domains.into_iter().map(|d| (d.id, d)).collect())
+}
+
 pub async fn delete(value: Domain, txn: &mut PgConnection) -> Result<Domain, DatabaseError> {
     let query = "UPDATE domains SET updated=NOW(), deleted=NOW() WHERE id=$1 RETURNING *";
     sqlx::query_as::<_, DbDomain>(query)
@@ -227,4 +245,123 @@ fn test_generate_domain_serial_format() {
     let serial = dns_record::SoaRecord::generate_new_serial();
 
     assert_eq!(serial, expected_serial);
+}
+
+#[cfg(test)]
+mod test_find_by_uuids {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use model::dns::NewDomain;
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::prelude::*;
+
+    use crate as db;
+
+    /// Counts `sqlx::query*` tracing events so a batched query can be shown to collapse an N+1
+    /// loop down to a single database round trip.
+    #[derive(Clone, Default)]
+    struct QueryCounter(Arc<AtomicUsize>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
+        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
+            if e.metadata().target().starts_with("sqlx::query") {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+    impl QueryCounter {
+        fn count(&self) -> usize {
+            self.0.load(Ordering::Relaxed)
+        }
+    }
+
+    #[crate::sqlx_test]
+    async fn find_by_uuids_collapses_n_plus_one(pool: sqlx::PgPool) {
+        const N: usize = 8;
+
+        // Seed N distinct domains.
+        let mut txn = pool.begin().await.expect("begin");
+        let mut ids = Vec::with_capacity(N);
+        for i in 0..N {
+            let domain =
+                db::dns::domain::persist(NewDomain::new(format!("n{i}.metal.net")), &mut txn)
+                    .await
+                    .expect("persist domain");
+            ids.push(domain.id);
+        }
+        txn.commit().await.expect("commit");
+
+        // BEFORE: one find_by_uuid per id. The reads run straight off the pool
+        // -- no transaction -- so the count reflects only the find_by_uuid
+        // calls, not begin/commit statements.
+        let before = QueryCounter::default();
+        let looped = {
+            let counter = before.clone();
+            let pool = &pool;
+            let ids = &ids;
+            async move {
+                let mut names = std::collections::HashMap::new();
+                for id in ids {
+                    let domain = db::dns::domain::find_by_uuid(pool, *id)
+                        .await
+                        .expect("find_by_uuid")
+                        .expect("domain present");
+                    names.insert(domain.id, domain.name);
+                }
+                names
+            }
+            .with_subscriber(tracing::Dispatch::new(
+                tracing_subscriber::registry().with(counter),
+            ))
+            .await
+        };
+        let before_count = before.count();
+
+        // AFTER: a single batched find_by_uuids.
+        let after = QueryCounter::default();
+        let batched = {
+            let counter = after.clone();
+            let pool = &pool;
+            let ids = &ids;
+            async move {
+                db::dns::domain::find_by_uuids(pool, ids)
+                    .await
+                    .expect("find_by_uuids")
+            }
+            .with_subscriber(tracing::Dispatch::new(
+                tracing_subscriber::registry().with(counter),
+            ))
+            .await
+        };
+        let after_count = after.count();
+
+        // Data equality: same set of (id -> name) pairs.
+        assert_eq!(batched.len(), N, "batched returned all N domains");
+        let batched_names = batched
+            .into_iter()
+            .map(|(id, domain)| (id, domain.name))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            looped, batched_names,
+            "batched call returns the same id->name mapping as the loop"
+        );
+
+        // Bite-check: the loop MUST be more than one query, or the measurement is vacuous.
+        assert!(
+            before_count > 1,
+            "bite-check failed: looped find_by_uuid issued {before_count} queries (expected > 1)"
+        );
+        assert_eq!(
+            before_count, N,
+            "looped find_by_uuid issues one query per id"
+        );
+        assert_eq!(
+            after_count, 1,
+            "batched find_by_uuids issues a single query"
+        );
+
+        println!(
+            "dns::domain N+1: before(loop find_by_uuid)={before_count} after(find_by_uuids)={after_count} (N={N})"
+        );
+    }
 }

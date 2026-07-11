@@ -17,7 +17,9 @@
 
 //! Reusable model test fixtures.
 
+pub mod alloc_counter;
 pub mod dpu;
+pub mod machine_snapshot;
 pub mod managed_host;
 
 pub use dpu::DpuConfig;

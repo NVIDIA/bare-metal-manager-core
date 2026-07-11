@@ -25,7 +25,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -348,36 +348,36 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 	// Build MachineInfo which is sent by Site Agent
 	// This machine exists in DB
-	newMachineInterface1 := &cwssaws.MachineInterface{
-		Id:                   &cwssaws.MachineInterfaceId{Value: uuid.New().String()},
-		MachineId:            &cwssaws.MachineId{Id: m.ControllerMachineID},
-		SegmentId:            &cwssaws.NetworkSegmentId{Value: uuid.New().String()},
-		AttachedDpuMachineId: &cwssaws.MachineId{Id: uuid.New().String()},
+	newMachineInterface1 := &corev1.MachineInterface{
+		Id:                   &corev1.MachineInterfaceId{Value: uuid.New().String()},
+		MachineId:            &corev1.MachineId{Id: m.ControllerMachineID},
+		SegmentId:            &corev1.NetworkSegmentId{Value: uuid.New().String()},
+		AttachedDpuMachineId: &corev1.MachineId{Id: uuid.New().String()},
 		Address:              []string{"192.168.0.1, 172.168.0.1"},
 		Hostname:             "test1.com",
 		MacAddress:           "00:00:00:00:00:00",
 		PrimaryInterface:     true,
 	}
 
-	newMachineInterface3 := &cwssaws.MachineInterface{
-		Id:                   &cwssaws.MachineInterfaceId{Value: uuid.New().String()},
-		MachineId:            &cwssaws.MachineId{Id: m.ControllerMachineID},
-		SegmentId:            &cwssaws.NetworkSegmentId{Value: uuid.New().String()},
-		AttachedDpuMachineId: &cwssaws.MachineId{Id: uuid.New().String()},
+	newMachineInterface3 := &corev1.MachineInterface{
+		Id:                   &corev1.MachineInterfaceId{Value: uuid.New().String()},
+		MachineId:            &corev1.MachineId{Id: m.ControllerMachineID},
+		SegmentId:            &corev1.NetworkSegmentId{Value: uuid.New().String()},
+		AttachedDpuMachineId: &corev1.MachineId{Id: uuid.New().String()},
 		Address:              []string{"196.168.0.1, 177.168.0.1"},
 		Hostname:             "test2.com",
 		MacAddress:           "01:02:00:00:00:00",
 		PrimaryInterface:     false,
 	}
 
-	machineInfo1 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:              &cwssaws.MachineId{Id: m.ControllerMachineID},
+	machineInfo1 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:              &corev1.MachineId{Id: m.ControllerMachineID},
 			State:           controllerMachineStatePrefixReady,
-			Interfaces:      []*cwssaws.MachineInterface{newMachineInterface1},
+			Interfaces:      []*corev1.MachineInterface{newMachineInterface1},
 			HwSkuDeviceType: cutil.GetPtr("CPU_HwSkuDeviceType"),
-			DiscoveryInfo: &cwssaws.DiscoveryInfo{
-				DmiData: &cwssaws.DmiData{
+			DiscoveryInfo: &corev1.DiscoveryInfo{
+				DmiData: &corev1.DmiData{
 					BoardName:     "7Z23CTOLWW",
 					BoardVersion:  "06",
 					BiosVersion:   "U8E122J-1.51",
@@ -389,8 +389,8 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					SysVendor:     "Lenovo",
 				},
 			},
-			Metadata: &cwssaws.Metadata{
-				Labels: []*cwssaws.Label{
+			Metadata: &corev1.Metadata{
+				Labels: []*corev1.Label{
 					{
 						Key:   "test-label",
 						Value: cutil.GetPtr("test-value"),
@@ -405,15 +405,15 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 					},
 				},
 			},
-			Capabilities: &cwssaws.MachineCapabilitiesSet{
-				Cpu: []*cwssaws.MachineCapabilityAttributesCpu{{
+			Capabilities: &corev1.MachineCapabilitiesSet{
+				Cpu: []*corev1.MachineCapabilityAttributesCpu{{
 					Name:    "Intel(R) Xeon(R) Gold 6354 CPU @ 3.00GHz",
 					Count:   2,
 					Vendor:  cutil.GetPtr("GenuineIntel"),
 					Cores:   util.GetUint32Ptr(3),
 					Threads: util.GetUint32Ptr(6),
 				}},
-				Network: []*cwssaws.MachineCapabilityAttributesNetwork{
+				Network: []*corev1.MachineCapabilityAttributesNetwork{
 					{
 						Name:   "NetXtreme BCM5720 2-port Gigabit Ethernet PCIe (PowerEdge Rx5xx LOM Board)",
 						Count:  2,
@@ -428,10 +428,10 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						Name:       "MT42822 BlueField-2 integrated ConnectX-6 Dx network controller",
 						Count:      2,
 						Vendor:     cutil.GetPtr("0x15b3"),
-						DeviceType: cwssaws.MachineCapabilityDeviceType(cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU).Enum(),
+						DeviceType: corev1.MachineCapabilityDeviceType(corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU).Enum(),
 					},
 				},
-				Storage: []*cwssaws.MachineCapabilityAttributesStorage{
+				Storage: []*corev1.MachineCapabilityAttributesStorage{
 					{
 						Name:  "SSDPF2KE016T9L",
 						Count: 1,
@@ -445,7 +445,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Gpu: []*cwssaws.MachineCapabilityAttributesGpu{
+				Gpu: []*corev1.MachineCapabilityAttributesGpu{
 					{
 						Name:      "NVIDIA H100 PCIe",
 						Frequency: cutil.GetPtr("1755 MHz"),
@@ -457,10 +457,10 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						Frequency:  cutil.GetPtr("1755 MHz"),
 						Capacity:   cutil.GetPtr("81559 MiB"),
 						Count:      4,
-						DeviceType: cwssaws.MachineCapabilityDeviceType(cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK).Enum(),
+						DeviceType: corev1.MachineCapabilityDeviceType(corev1.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK).Enum(),
 					},
 				},
-				Memory: []*cwssaws.MachineCapabilityAttributesMemory{
+				Memory: []*corev1.MachineCapabilityAttributesMemory{
 					{
 						Name:     "DDR4",
 						Capacity: cutil.GetPtr(fmt.Sprintf("%d", memSize)),
@@ -472,7 +472,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						Count:    7,
 					},
 				},
-				Infiniband: []*cwssaws.MachineCapabilityAttributesInfiniband{
+				Infiniband: []*corev1.MachineCapabilityAttributesInfiniband{
 					{
 						Name:            "MT28908 Family [ConnectX-6]",
 						Vendor:          cutil.GetPtr(""),
@@ -480,64 +480,64 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						InactiveDevices: []uint32{2, 4},
 					},
 				},
-				Dpu: []*cwssaws.MachineCapabilityAttributesDpu{
+				Dpu: []*corev1.MachineCapabilityAttributesDpu{
 					{
 						Name:  "BF3",
 						Count: 2,
 					},
 				},
 			},
-			AssociatedDpuMachineIds: []*cwssaws.MachineId{newMachineInterface1.AttachedDpuMachineId, newMachineInterface3.AttachedDpuMachineId},
+			AssociatedDpuMachineIds: []*corev1.MachineId{newMachineInterface1.AttachedDpuMachineId, newMachineInterface3.AttachedDpuMachineId},
 		},
 	}
 
 	// Build machineinfo which is sent from site agent
 	// This machine does not exist in DB
 	newControllerMachineID := uuid.NewString()
-	newMachineInterface2 := &cwssaws.MachineInterface{
-		Id:               &cwssaws.MachineInterfaceId{Value: uuid.New().String()},
-		MachineId:        &cwssaws.MachineId{Id: newControllerMachineID},
-		SegmentId:        &cwssaws.NetworkSegmentId{Value: uuid.New().String()},
+	newMachineInterface2 := &corev1.MachineInterface{
+		Id:               &corev1.MachineInterfaceId{Value: uuid.New().String()},
+		MachineId:        &corev1.MachineId{Id: newControllerMachineID},
+		SegmentId:        &corev1.NetworkSegmentId{Value: uuid.New().String()},
 		Address:          []string{"192.168.0.1, 172.168.0.1"},
 		Hostname:         "test2.com",
 		MacAddress:       "00:00:00:00:00:00",
 		PrimaryInterface: true,
 	}
-	machineInfo2 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: newControllerMachineID},
+	machineInfo2 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: newControllerMachineID},
 			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*cwssaws.MachineInterface{newMachineInterface2},
+			Interfaces:    []*corev1.MachineInterface{newMachineInterface2},
 			DiscoveryInfo: nil,
 		},
 	}
 
 	// This machine was previously missing from Site inventory
-	machineInfo3 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m4.ControllerMachineID},
+	machineInfo3 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m4.ControllerMachineID},
 			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
 	// Machine cleared out of maintenance and network degraded state
-	machineInfo4 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m5.ControllerMachineID},
+	machineInfo4 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m5.ControllerMachineID},
 			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
 	// Machine with maintenance and network issue
-	machineInfo5 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m6.ControllerMachineID},
+	machineInfo5 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m6.ControllerMachineID},
 			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 			MaintenanceStartTime: &timestamppb.Timestamp{
 				Seconds: refTime.Unix(),
@@ -547,55 +547,55 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	}
 
 	// Machine failed measured boot attestation
-	machineInfo6 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m7.ControllerMachineID},
+	machineInfo6 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m7.ControllerMachineID},
 			State:         controllerMachineStatePrefixMeasuring + "/" + controllerMachineFailedMeasurementsFailedSignatureCheck,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
 	// Machine has failed state
-	machineInfo7 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m8.ControllerMachineID},
+	machineInfo7 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m8.ControllerMachineID},
 			State:         controllerMachineStatePrefixFailed,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
 	// Machine DPU is reconfiguring
-	machineInfo8 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m9.ControllerMachineID},
+	machineInfo8 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m9.ControllerMachineID},
 			State:         controllerMachineStatePrefixDPUInitializing,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
 	// Machine is pending measurement
-	machineInfo9 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m10.ControllerMachineID},
+	machineInfo9 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m10.ControllerMachineID},
 			State:         controllerMachineStatePrefixMeasuring + "/" + controllerMachineMeasuringSubstatePendingBundle,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
 	// Machine with health issue
-	machineInfo10 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m11.ControllerMachineID},
+	machineInfo10 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m11.ControllerMachineID},
 			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
-			Health: &cwssaws.HealthReport{
+			Health: &corev1.HealthReport{
 				Source: "aggregate-host-health",
-				Successes: []*cwssaws.HealthProbeSuccess{
+				Successes: []*corev1.HealthProbeSuccess{
 					{
 						Id:     "BgpDaemonEnabled",
 						Target: nil,
@@ -677,7 +677,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						Target: nil,
 					},
 				},
-				Alerts: []*cwssaws.HealthProbeAlert{
+				Alerts: []*corev1.HealthProbeAlert{
 					{
 						Id:            "HeartbeatTimeout",
 						Target:        cutil.GetPtr("hardware-health"),
@@ -695,31 +695,31 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	}
 
 	// Machine in BOM validating state
-	machineInfo11 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m12.ControllerMachineID},
+	machineInfo11 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m12.ControllerMachineID},
 			State:         controllerMachineStatePrefixBomValidating + "/" + controllerMachineBomValidatingSubstateVerifyingSku,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 	// Machine in BOM validating failure state
-	machineInfo12 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m13.ControllerMachineID},
+	machineInfo12 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m13.ControllerMachineID},
 			State:         controllerMachineStatePrefixBomValidating + "/" + controllerMachineBomValidatingSubstateSkuVerificationFailed,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
-	machineInfo13 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m14.ControllerMachineID},
+	machineInfo13 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m14.ControllerMachineID},
 			State:         controllerMachineStatePrefixReady,
-			DiscoveryInfo: &cwssaws.DiscoveryInfo{},
-			Capabilities: &cwssaws.MachineCapabilitiesSet{
-				Infiniband: []*cwssaws.MachineCapabilityAttributesInfiniband{
+			DiscoveryInfo: &corev1.DiscoveryInfo{},
+			Capabilities: &corev1.MachineCapabilitiesSet{
+				Infiniband: []*corev1.MachineCapabilityAttributesInfiniband{
 					{
 						Name:            "MT2910 Family [ConnectX-7]",
 						Vendor:          cutil.GetPtr(""),
@@ -731,65 +731,65 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 		},
 	}
 
-	machineInfo14 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m15.ControllerMachineID},
+	machineInfo14 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m15.ControllerMachineID},
 			State:         "MachineValidation { machine_validation: MachineValidating { context: \"Discovery\", id: 9fff1002-2a49-48ae-8d77-8c2e795b59cb, completed: 1, total: 1, is_enabled: true } }",
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
-	machineInfo15 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:             &cwssaws.MachineId{Id: m16.ControllerMachineID},
+	machineInfo15 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:             &corev1.MachineId{Id: m16.ControllerMachineID},
 			State:          controllerMachineStatePrefixReady,
-			Interfaces:     []*cwssaws.MachineInterface{},
+			Interfaces:     []*corev1.MachineInterface{},
 			DiscoveryInfo:  nil,
 			InstanceTypeId: cutil.GetPtr(instanceTypeUpdated.ID.String()),
 		},
 	}
 
-	machineInfo16 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: m17.ControllerMachineID},
+	machineInfo16 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:            &corev1.MachineId{Id: m17.ControllerMachineID},
 			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		},
 	}
 
-	machineInfo17 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:             &cwssaws.MachineId{Id: m18.ControllerMachineID},
+	machineInfo17 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:             &corev1.MachineId{Id: m18.ControllerMachineID},
 			State:          controllerMachineStatePrefixReady,
-			Interfaces:     []*cwssaws.MachineInterface{},
+			Interfaces:     []*corev1.MachineInterface{},
 			DiscoveryInfo:  nil,
 			InstanceTypeId: cutil.GetPtr(instanceTypeUnchanged.ID.String()),
 		},
 	}
 
 	newWithInstanceTypeMachineID := uuid.NewString()
-	machineInfo18 := &cwssaws.MachineInfo{
-		Machine: &cwssaws.Machine{
-			Id:             &cwssaws.MachineId{Id: newWithInstanceTypeMachineID},
+	machineInfo18 := &corev1.MachineInfo{
+		Machine: &corev1.Machine{
+			Id:             &corev1.MachineId{Id: newWithInstanceTypeMachineID},
 			State:          controllerMachineStatePrefixReady,
-			Interfaces:     []*cwssaws.MachineInterface{},
+			Interfaces:     []*corev1.MachineInterface{},
 			DiscoveryInfo:  nil,
 			InstanceTypeId: cutil.GetPtr(instanceTypeOriginal.ID.String()),
 		},
 	}
 
 	// Build machineInventory which is populated from site agent
-	machineInventory := &cwssaws.MachineInventory{
-		Machines:  []*cwssaws.MachineInfo{machineInfo1, machineInfo2, machineInfo3, machineInfo4, machineInfo5, machineInfo6, machineInfo7, machineInfo8, machineInfo9, machineInfo11, machineInfo12, machineInfo13, machineInfo14, machineInfo15, machineInfo16, machineInfo17, machineInfo18},
+	machineInventory := &corev1.MachineInventory{
+		Machines:  []*corev1.MachineInfo{machineInfo1, machineInfo2, machineInfo3, machineInfo4, machineInfo5, machineInfo6, machineInfo7, machineInfo8, machineInfo9, machineInfo11, machineInfo12, machineInfo13, machineInfo14, machineInfo15, machineInfo16, machineInfo17, machineInfo18},
 		Timestamp: timestamppb.Now(),
 	}
 	assert.NotNil(t, machineInventory)
 
 	// Build machineHealthInventory which is populated from site agent
-	machineHealthInventory := &cwssaws.MachineInventory{
-		Machines:  []*cwssaws.MachineInfo{machineInfo10},
+	machineHealthInventory := &corev1.MachineInventory{
+		Machines:  []*corev1.MachineInfo{machineInfo10},
 		Timestamp: timestamppb.Now(),
 	}
 	assert.NotNil(t, machineHealthInventory)
@@ -802,15 +802,15 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 		pagedInvIds = append(pagedInvIds, m.ControllerMachineID)
 	}
 
-	pagedInvMInfos := []*cwssaws.MachineInfo{}
+	pagedInvMInfos := []*corev1.MachineInfo{}
 	for i := 0; i < 34; i++ {
-		mi := &cwssaws.Machine{
-			Id:            &cwssaws.MachineId{Id: pagedInvIds[i]},
+		mi := &corev1.Machine{
+			Id:            &corev1.MachineId{Id: pagedInvIds[i]},
 			State:         controllerMachineStatePrefixReady,
-			Interfaces:    []*cwssaws.MachineInterface{},
+			Interfaces:    []*corev1.MachineInterface{},
 			DiscoveryInfo: nil,
 		}
-		pagedInvMInfos = append(pagedInvMInfos, &cwssaws.MachineInfo{Machine: mi})
+		pagedInvMInfos = append(pagedInvMInfos, &corev1.MachineInfo{Machine: mi})
 	}
 
 	// Set updated for all machines earlier than the inventory receipt interval
@@ -824,7 +824,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	type args struct {
 		ctx                                        context.Context
 		siteID                                     uuid.UUID
-		machineInventory                           *cwssaws.MachineInventory
+		machineInventory                           *corev1.MachineInventory
 		reportedMachine                            *cdbm.Machine
 		missingMachine                             *cdbm.Machine
 		newControllerMachineID                     *string
@@ -906,8 +906,8 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			args: args{
 				ctx:    context.Background(),
 				siteID: site2.ID,
-				machineInventory: &cwssaws.MachineInventory{
-					Machines:  []*cwssaws.MachineInfo{machineInfo2},
+				machineInventory: &corev1.MachineInventory{
+					Machines:  []*corev1.MachineInfo{machineInfo2},
 					Timestamp: timestamppb.Now(),
 				},
 			},
@@ -920,11 +920,11 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			args: args{
 				ctx:    context.Background(),
 				siteID: site4.ID,
-				machineInventory: &cwssaws.MachineInventory{
-					Machines:        []*cwssaws.MachineInfo{},
+				machineInventory: &corev1.MachineInventory{
+					Machines:        []*corev1.MachineInfo{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -942,10 +942,10 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			args: args{
 				ctx:    context.Background(),
 				siteID: site3.ID,
-				machineInventory: &cwssaws.MachineInventory{
+				machineInventory: &corev1.MachineInventory{
 					Machines:  pagedInvMInfos[0:10],
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -963,10 +963,10 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 			args: args{
 				ctx:    context.Background(),
 				siteID: site3.ID,
-				machineInventory: &cwssaws.MachineInventory{
+				machineInventory: &corev1.MachineInventory{
 					Machines:  pagedInvMInfos[30:34],
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 4,
 						TotalPages:  4,
 						PageSize:    10,
@@ -1403,7 +1403,7 @@ func TestNewManageMachine(t *testing.T) {
 
 func TestGetNICoMachineStatus(t *testing.T) {
 	type args struct {
-		controllerMachine *cwssaws.Machine
+		controllerMachine *corev1.Machine
 	}
 
 	tests := []struct {
@@ -1416,10 +1416,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test get NICo machine status - with prefix",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
-					Id:            &cwssaws.MachineId{Id: uuid.NewString()},
+				controllerMachine: &corev1.Machine{
+					Id:            &corev1.MachineId{Id: uuid.NewString()},
 					State:         fmt.Sprintf("%v/Test", controllerMachineStatePrefixAssigned),
-					Interfaces:    []*cwssaws.MachineInterface{},
+					Interfaces:    []*corev1.MachineInterface{},
 					DiscoveryInfo: nil,
 				},
 			},
@@ -1429,10 +1429,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test get NICo machine status - without prefix",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
-					Id:            &cwssaws.MachineId{Id: uuid.NewString()},
+				controllerMachine: &corev1.Machine{
+					Id:            &corev1.MachineId{Id: uuid.NewString()},
 					State:         controllerMachineStatePrefixReady,
-					Interfaces:    []*cwssaws.MachineInterface{},
+					Interfaces:    []*corev1.MachineInterface{},
 					DiscoveryInfo: nil,
 				},
 			},
@@ -1442,10 +1442,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test get NICo machine status - maintenance mode",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
-					Id:         &cwssaws.MachineId{Id: uuid.NewString()},
+				controllerMachine: &corev1.Machine{
+					Id:         &corev1.MachineId{Id: uuid.NewString()},
 					State:      controllerMachineStatePrefixReady,
-					Interfaces: []*cwssaws.MachineInterface{},
+					Interfaces: []*corev1.MachineInterface{},
 					MaintenanceStartTime: &timestamppb.Timestamp{
 						Seconds: time.Now().Add(-time.Hour * 2).Unix(),
 					},
@@ -1458,7 +1458,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test get NICo machine status - missing",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStateMissing,
 				},
 			},
@@ -1468,10 +1468,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test get NICo machine status - with health probe alerts prevent classification",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Classifications: []string{
 									MachinePreventAllocations,
@@ -1487,10 +1487,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test get NICo machine status - with automatic DPU firmware update alert",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
 								Target:  cutil.GetPtr(MachineDPUFirmwareUpdateAlertTarget),
@@ -1510,10 +1510,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test get NICo machine status - with non-automatic DPU firmware update alert",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixAssigned,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
 								Target:  cutil.GetPtr(MachineDPUFirmwareUpdateAlertTarget),
@@ -1533,10 +1533,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test get NICo machine status - non-DPU firmware prevent alert remains error",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:      MachineDPUFirmwareUpdateAlertID,
 								Target:  cutil.GetPtr("HostFirmware"),
@@ -1556,9 +1556,9 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant usable - Initializing, no alerts",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State:      controllerMachineStatePrefixHostInitializing,
-					Interfaces: []*cwssaws.MachineInterface{},
+					Interfaces: []*corev1.MachineInterface{},
 				},
 			},
 			wantStatus:             cdbm.MachineStatusInitializing,
@@ -1567,10 +1567,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant not usable - Ready with Prevent alerts",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id: "TestAlert",
 								Classifications: []string{
@@ -1587,10 +1587,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant usable - assigned in degraded maintenance",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixAssigned,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:     "Maintenance",
 								Target: cutil.GetPtr("Degraded"),
@@ -1605,10 +1605,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant usable - assigned overrides Prevent during maintenance",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixAssigned,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id: "PreventAlert",
 								Classifications: []string{
@@ -1629,10 +1629,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant usable - Ready with Maintenance Degraded, no assignment",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Id:     "Maintenance",
 								Target: cutil.GetPtr("Degraded"),
@@ -1647,7 +1647,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant not usable - maintenance without assignment",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixReady,
 					MaintenanceStartTime: &timestamppb.Timestamp{
 						Seconds: time.Now().Add(-time.Hour).Unix(),
@@ -1660,7 +1660,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant not usable - Failed state",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixFailed,
 				},
 			},
@@ -1670,7 +1670,7 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant not usable - Decommissioned",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixForceDeletion,
 				},
 			},
@@ -1680,10 +1680,10 @@ func TestGetNICoMachineStatus(t *testing.T) {
 		{
 			name: "test tenant not usable - assigned with Prevent alerts",
 			args: args{
-				controllerMachine: &cwssaws.Machine{
+				controllerMachine: &corev1.Machine{
 					State: controllerMachineStatePrefixAssigned,
-					Health: &cwssaws.HealthReport{
-						Alerts: []*cwssaws.HealthProbeAlert{
+					Health: &corev1.HealthReport{
+						Alerts: []*corev1.HealthProbeAlert{
 							{
 								Classifications: []string{
 									MachinePreventAllocations,

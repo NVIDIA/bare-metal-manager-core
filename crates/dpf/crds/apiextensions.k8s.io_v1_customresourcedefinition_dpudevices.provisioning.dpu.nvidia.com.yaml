@@ -46,11 +46,16 @@ spec:
           spec:
             description: DPUDeviceSpec defines the content of DPUDevice
             properties:
+              bmcCredentialSecretName:
+                description: |-
+                  BMCCredentialSecretName is the name of a Secret in the same namespace containing
+                  per-device BMC credentials. The secret must contain a "password" key with the BMC credential value.
+                  If specified, this password takes precedence over the shared bmc-shared-password secret.
+                type: string
               bmcIp:
                 description: |-
                   BMCIP is the IP address of the BMC (Base Management Controller) on the device.
                   This is used for remote management and monitoring of the device.
-                  This value is immutable and should not be changed once set.
                   Example: "10.1.2.3"
                 format: ipv4
                 type: string
@@ -66,6 +71,32 @@ spec:
                 type: integer
                 x-kubernetes-validations:
                 - message: BMCPort is immutable
+                  rule: self == oldSelf
+              cluster:
+                description: Specifies details on the K8S cluster to join
+                properties:
+                  nodeAnnotations:
+                    additionalProperties:
+                      type: string
+                    description: NodeAnnotations specifies annotations to be added
+                      to the DPU cluster node for this device.
+                    type: object
+                  nodeLabels:
+                    additionalProperties:
+                      type: string
+                    description: NodeLabels specifies labels to be added to the DPU
+                      cluster node for this device.
+                    type: object
+                type: object
+              nicDeviceCount:
+                description: |-
+                  NICDeviceCount is the expected number of NIC devices used by dpu-agent provisioning.
+                  Valid range is 1 to 8. When unspecified, it defaults to 8.
+                maximum: 8
+                minimum: 1
+                type: integer
+                x-kubernetes-validations:
+                - message: NICDeviceCount is immutable
                   rule: self == oldSelf
               numberOfPFs:
                 default: 1
@@ -86,7 +117,6 @@ spec:
                   Example: "900-9D3B4-00SV-EA0"
 
                   Deprecated: This field is deprecated and will be removed in a future version. Use status.opn instead.
-                pattern: ^\d{3}-[A-Z0-9]{5}-[A-Z0-9]{4}-[A-Z0-9]{3}$
                 type: string
                 x-kubernetes-validations:
                 - message: OPN is immutable
@@ -110,7 +140,6 @@ spec:
                   Example: "MT_0001234567", "MT25066004C7"
 
                   Deprecated: This field is deprecated and will be removed in a future version. Use status.psid instead.
-                pattern: ^MT_?[A-Z0-9]+$
                 type: string
                 x-kubernetes-validations:
                 - message: PSID is immutable
@@ -126,11 +155,21 @@ spec:
                 x-kubernetes-validations:
                 - message: Serial Number is immutable
                   rule: self == oldSelf
+              values:
+                description: |-
+                  Values contains free-form per-device values used to render a DPUFlavorTemplate
+                  into a concrete generated DPUFlavor for this device.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
             required:
             - serialNumber
             type: object
           status:
             properties:
+              bmcCredentialSecretName:
+                description: BMCCredentialSecretName is the name of the Secret last
+                  used successfully for BMC authentication.
+                type: string
               bmcIp:
                 description: |-
                   BMCIP is the IP address of the BMC (Base Management Controller) on the device.
@@ -255,7 +294,6 @@ spec:
                   It's used to track the device's lifecycle and for inventory management.
                   This value is discovered and should not be changed once set.
                   Example: "MT_0001234567", "MT25066004C7"
-                pattern: ^MT_?[A-Z0-9]+$
                 type: string
               secureBoot:
                 description: SecureBoot indicates the current UEFI Secure Boot state.

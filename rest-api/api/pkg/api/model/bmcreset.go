@@ -4,7 +4,7 @@
 package model
 
 import (
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // APIMachineBMCResetRequest represents a request to reset the BMC of a Machine
@@ -15,8 +15,8 @@ type APIMachineBMCResetRequest struct {
 }
 
 // ToProto converts the APIMachineBMCResetRequest to a Core gRPC AdminBmcResetRequest
-func (ambrr *APIMachineBMCResetRequest) ToProto(machineID string) *cwssaws.AdminBmcResetRequest {
-	return &cwssaws.AdminBmcResetRequest{
+func (ambrr *APIMachineBMCResetRequest) ToProto(machineID string) *corev1.AdminBmcResetRequest {
+	return &corev1.AdminBmcResetRequest{
 		MachineId:   &machineID,
 		UseIpmitool: ambrr.UseIpmiTool,
 	}

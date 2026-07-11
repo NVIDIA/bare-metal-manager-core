@@ -18,7 +18,7 @@ import (
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
@@ -33,7 +33,7 @@ type ManageInstanceType struct {
 // Activity functions
 
 // UpdateInstanceTypesInDB is a Temporal activity that takes a collection of InstanceType data pushed by Site Agent and updates the DB
-func (mv ManageInstanceType) UpdateInstanceTypesInDB(ctx context.Context, siteID uuid.UUID, instanceTypeInventory *cwssaws.InstanceTypeInventory) error {
+func (mv ManageInstanceType) UpdateInstanceTypesInDB(ctx context.Context, siteID uuid.UUID, instanceTypeInventory *corev1.InstanceTypeInventory) error {
 	logger := log.With().Str("Activity", "UpdateInstanceTypesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -55,7 +55,7 @@ func (mv ManageInstanceType) UpdateInstanceTypesInDB(ctx context.Context, siteID
 		return err
 	}
 
-	if instanceTypeInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if instanceTypeInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}
@@ -148,7 +148,7 @@ func (mv ManageInstanceType) UpdateInstanceTypesInDB(ctx context.Context, siteID
 // The *cdbm.InstanceType sent in will be modified in place if necessary.
 // New capabilities will be added and capabilities no longer reported by
 // site will be removed.
-func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site *cdbm.Site, instanceTypeDAO cdbm.InstanceTypeDAO, macCapDAO cdbm.MachineCapabilityDAO, instanceType *cdbm.InstanceType, controllerInstanceType *cwssaws.InstanceType) error {
+func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site *cdbm.Site, instanceTypeDAO cdbm.InstanceTypeDAO, macCapDAO cdbm.MachineCapabilityDAO, instanceType *cdbm.InstanceType, controllerInstanceType *corev1.InstanceType) error {
 
 	// If we're here, it means the instance type exists in cloud and site, so we need to check
 	// that the properties (metadata and capabilities) match and update cloud if not.
@@ -285,7 +285,7 @@ func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site
 
 // Handles the creation of a new InstanceType and associated capabilities based on
 // InstanceType data returned from site.
-func (mv ManageInstanceType) AddInstanceTypeToCloud(ctx context.Context, site *cdbm.Site, instanceTypeDAO cdbm.InstanceTypeDAO, macCapDAO cdbm.MachineCapabilityDAO, controllerInstanceType *cwssaws.InstanceType) (*cdbm.InstanceType, error) {
+func (mv ManageInstanceType) AddInstanceTypeToCloud(ctx context.Context, site *cdbm.Site, instanceTypeDAO cdbm.InstanceTypeDAO, macCapDAO cdbm.MachineCapabilityDAO, controllerInstanceType *corev1.InstanceType) (*cdbm.InstanceType, error) {
 	id, err := uuid.Parse(controllerInstanceType.Id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ID for incoming InstanceType: %w", err)

@@ -38,14 +38,53 @@ use model::resource_pool::{self};
 use regex::Regex;
 
 use crate::cfg::file::{
-    CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig, DpuConfig as InitialDpuConfig,
-    IbPartitionStateControllerConfig, ListenMode, MachineUpdater,
+    AuthConfig, CarbideConfig, DpaConfig, DpaInterfaceStateControllerConfig,
+    DpuConfig as InitialDpuConfig, DsxExchangeEventBusConfig, FnnConfig,
+    IbPartitionStateControllerConfig, KmsConfig, ListenMode, MachineUpdater,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
-    RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, SwitchStateControllerConfig,
-    TracingConfig, VmaasConfig, VpcPeeringPolicy, VpcPrefixStateControllerConfig,
-    default_bmc_session_lockout_threshold, default_max_find_by_ids, default_pxe_public_base_url,
+    RackStateControllerConfig, SecretsConfig, SpdmConfig, SpdmStateControllerConfig,
+    SwitchStateControllerConfig, TracingConfig, VmaasConfig, VpcPeeringPolicy,
+    VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold, default_max_find_by_ids,
+    default_pxe_public_base_url,
 };
+
+/// [`get`] with every `Option` config section populated. Used by tests that
+/// walk the *serialized* config shape — e.g. the admin-UI documentation
+/// guards, which can only verify sections that actually serialize. When a
+/// new `Option` section is added to [`CarbideConfig`] (the compiler forces
+/// it into [`get`]), populate it here too so those guards can see inside it.
+pub fn fully_populated() -> CarbideConfig {
+    CarbideConfig {
+        auth: Some(AuthConfig {
+            permissive_mode: true,
+            casbin_policy_file: None,
+            cli_certs: None,
+            trust: None,
+        }),
+        ib_config: Some(carbide_ib_fabric::config::IBFabricConfig::default()),
+        fnn: Some(FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::new(),
+            use_vpc_vrf_loopback: false,
+        }),
+        dsx_exchange_event_bus: Some(DsxExchangeEventBusConfig::default()),
+        secrets: Some(SecretsConfig {
+            kms: KmsConfig {
+                active: "local".to_string(),
+                providers: HashMap::new(),
+            },
+            routing: HashMap::from([("/".to_string(), "kek".to_string())]),
+            backends: vec![],
+            writer: Default::default(),
+            import_from: None,
+            import_approach: Default::default(),
+        }),
+        ..get()
+    }
+}
 
 pub fn get() -> CarbideConfig {
     CarbideConfig {
@@ -158,6 +197,7 @@ pub fn get() -> CarbideConfig {
             dpu_nic_firmware_update_versions: vec!["24.42.1000".to_string()],
             dpu_enable_secure_boot: true,
             num_of_vfs: crate::cfg::file::DEFAULT_DPU_NUM_OF_VFS,
+            restart_ovs_on_use_admin_network_change: false,
         },
         host_models: host_firmware_example(),
         firmware_global: FirmwareGlobal::test_default(),

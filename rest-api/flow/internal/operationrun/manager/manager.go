@@ -29,9 +29,28 @@ type Manager interface {
 		id uuid.UUID,
 		opts operationrun.TargetListOptions,
 	) ([]*operationrun.OperationRunTarget, int32, error)
+	Pause(ctx context.Context, id uuid.UUID) (*operationrun.OperationRun, error)
+	Resume(ctx context.Context, id uuid.UUID) (*operationrun.OperationRun, error)
+	AdvancePhase(
+		ctx context.Context,
+		id uuid.UUID,
+		expectedPhaseIndex *int32,
+	) (*operationrun.OperationRun, error)
+	Cancel(
+		ctx context.Context,
+		id uuid.UUID,
+		reason string,
+		canceller TaskCanceller,
+	) (*operationrun.OperationRun, error)
 }
 
 var _ Manager = (*ManagerImpl)(nil)
+
+// TaskCanceller is the child-task cancellation surface used by
+// CancelOperationRun.
+type TaskCanceller interface {
+	CancelTask(ctx context.Context, taskID uuid.UUID) error
+}
 
 // ManagerImpl implements Manager.
 type ManagerImpl struct {

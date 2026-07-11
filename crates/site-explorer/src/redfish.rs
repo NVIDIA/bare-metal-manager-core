@@ -1046,7 +1046,8 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
             net_adapters.push(net_adapter);
         }
 
-        // For GB200s, use the Chassis_0 assembly serial number to match Nautobot.
+        // For GB200 and Vera Rubin hosts, use the Chassis_0 assembly serial number to
+        // match Nautobot / expected-machine inventory serials.
         let serial_number = if chassis_id == "Chassis_0" {
             client
                 .get_chassis_assembly("Chassis_0")
@@ -1056,7 +1057,12 @@ async fn fetch_chassis(client: &dyn Redfish) -> Result<Vec<Chassis>, RedfishErro
                     assembly
                         .assemblies
                         .iter()
-                        .find(|asm| asm.model.as_deref() == Some("GB200 NVL"))
+                        .find(|asm| {
+                            let model = asm.model.as_deref();
+                            model.is_some_and(
+                                bmc_explorer::hw::vera_rubin::chassis_assembly_serial_model,
+                            ) || model == Some("GB200 NVL")
+                        })
                         .and_then(|asm| asm.serial_number.clone())
                 })
                 .or(desc.serial_number)

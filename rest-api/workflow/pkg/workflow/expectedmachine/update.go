@@ -15,12 +15,12 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	expectedMachineActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedmachine"
 )
 
 // UpdateExpectedMachineInventory is a workflow called by Site Agent to update ExpectedMachine inventory for a Site
-func UpdateExpectedMachineInventory(ctx workflow.Context, siteID string, expectedMachineInventory *cwssaws.ExpectedMachineInventory) (err error) {
+func UpdateExpectedMachineInventory(ctx workflow.Context, siteID string, expectedMachineInventory *corev1.ExpectedMachineInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateExpectedMachineInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

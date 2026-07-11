@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	wflows "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestCoreGrpcAtomicClient_GetInitialCertMD5(t *testing.T) {
@@ -191,53 +191,53 @@ func TestCoreGrpcAtomicClient_CheckCertificates(t *testing.T) {
 func TestUuidSliceToChunks(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    []*wflows.UUID
-		expected [][]*wflows.UUID
+		input    []*corev1.UUID
+		expected [][]*corev1.UUID
 	}{
 		{
 			name:     "empty",
-			input:    []*wflows.UUID{},
-			expected: [][]*wflows.UUID{},
+			input:    []*corev1.UUID{},
+			expected: [][]*corev1.UUID{},
 		},
 		{
 			name: "no remainder",
-			input: []*wflows.UUID{
+			input: []*corev1.UUID{
 				{Value: "uuid1"},
 				{Value: "uuid2"},
 				{Value: "uuid3"},
 				{Value: "uuid4"},
 			},
-			expected: [][]*wflows.UUID{
+			expected: [][]*corev1.UUID{
 				{
-					&wflows.UUID{Value: "uuid1"},
-					&wflows.UUID{Value: "uuid2"},
+					&corev1.UUID{Value: "uuid1"},
+					&corev1.UUID{Value: "uuid2"},
 				},
 				{
-					&wflows.UUID{Value: "uuid3"},
-					&wflows.UUID{Value: "uuid4"},
+					&corev1.UUID{Value: "uuid3"},
+					&corev1.UUID{Value: "uuid4"},
 				},
 			},
 		},
 		{
 			name: "with remainder",
-			input: []*wflows.UUID{
+			input: []*corev1.UUID{
 				{Value: "uuid1"},
 				{Value: "uuid2"},
 				{Value: "uuid3"},
 				{Value: "uuid4"},
 				{Value: "uuid5"},
 			},
-			expected: [][]*wflows.UUID{
+			expected: [][]*corev1.UUID{
 				{
-					&wflows.UUID{Value: "uuid1"},
-					&wflows.UUID{Value: "uuid2"},
+					&corev1.UUID{Value: "uuid1"},
+					&corev1.UUID{Value: "uuid2"},
 				},
 				{
-					&wflows.UUID{Value: "uuid3"},
-					&wflows.UUID{Value: "uuid4"},
+					&corev1.UUID{Value: "uuid3"},
+					&corev1.UUID{Value: "uuid4"},
 				},
 				{
-					&wflows.UUID{Value: "uuid5"},
+					&corev1.UUID{Value: "uuid5"},
 				},
 			},
 		},

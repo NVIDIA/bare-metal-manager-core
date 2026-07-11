@@ -33,7 +33,7 @@ use serde::Serialize;
 use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata, MachineData, SwitchEndpointRole};
 use crate::metrics::MetricLabel;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, carbide_instrument::LabelValue)]
 pub enum HealthReportTarget {
     Machine,
     PowerShelf,
