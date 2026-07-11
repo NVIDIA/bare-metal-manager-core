@@ -1192,6 +1192,16 @@ pub enum ManagedHostState {
     Validation {
         validation_state: ValidationState,
     },
+    /// Ensures the host's boot config is what it should be, then resumes the
+    /// interrupted state. Entered whenever a reboot-wait notices the config
+    /// drifted (changed externally, a BIOS quirk, or the boot NIC dropping
+    /// off the BMC's inventory during a reboot's POST): unlock the BMC if it
+    /// is locked, drive the boot-order flow to put the config back, re-lock
+    /// per the expected-machine policy, and resume where the host left off.
+    EnsureBootConfig {
+        resume_to: Box<ManagedHostState>,
+        step: EnsureBootConfigStep,
+    },
     /// Host is Ready for instance creation.
     Ready,
     /// Host is assigned to an Instance.
@@ -2129,6 +2139,37 @@ pub enum UnlockHostState {
     WaitForUefiBoot,
 }
 
+/// Progression of [`ManagedHostState::EnsureBootConfig`]: check whether the
+/// BMC is locked, unlock it if so, drive the boot-order flow to put the boot
+/// config back, then re-lock and resume.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "step", rename_all = "lowercase")]
+pub enum EnsureBootConfigStep {
+    CheckLockdown,
+    Unlock {
+        unlock_host_state: UnlockHostState,
+    },
+    Apply {
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    Relock,
+}
+
+impl Display for EnsureBootConfigStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnsureBootConfigStep::CheckLockdown => write!(f, "CheckLockdown"),
+            EnsureBootConfigStep::Unlock { unlock_host_state } => {
+                write!(f, "Unlock/{unlock_host_state:?}")
+            }
+            EnsureBootConfigStep::Apply {
+                set_boot_order_info,
+            } => write!(f, "Apply/{:?}", set_boot_order_info.set_boot_order_state),
+            EnsureBootConfigStep::Relock => write!(f, "Relock"),
+        }
+    }
+}
+
 /// Struct to store information if Reprovision is requested.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReprovisionRequest {
@@ -2290,6 +2331,9 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
+            ManagedHostState::EnsureBootConfig { step, .. } => {
+                write!(f, "EnsureBootConfig/{step}")
+            }
             ManagedHostState::Assigned { instance_state, .. } => match instance_state {
                 InstanceState::DPUReprovision { dpu_states } => {
                     let dpu_lowest_state = dpu_states
@@ -2363,6 +2407,17 @@ impl Display for ManagedHostState {
 }
 
 impl ManagedHostState {
+    /// The state this host is operating for. `EnsureBootConfig` is a
+    /// transparent maintenance step ensuring the boot config on behalf of its
+    /// `resume_to` state -- callers reasoning about the host's lifecycle
+    /// (restart requests, tenant status, assignment) should look through it.
+    pub fn effective_state(&self) -> &ManagedHostState {
+        match self {
+            ManagedHostState::EnsureBootConfig { resume_to, .. } => resume_to.effective_state(),
+            other => other,
+        }
+    }
+
     pub fn dpu_state_string(&self, dpu_id: &MachineId) -> String {
         match self {
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
@@ -2399,6 +2454,9 @@ impl ManagedHostState {
                 format!("WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => "ForceDeletion".to_string(),
+            ManagedHostState::EnsureBootConfig { step, .. } => {
+                format!("EnsureBootConfig/{step}")
+            }
             ManagedHostState::Failed { details, .. } => {
                 format!("Failed/{}", details.cause)
             }
@@ -2673,6 +2731,9 @@ pub fn state_sla(
             BomValidating::WaitingForSkuAssignment(_bom_validating_context) => StateSla::no_sla(),
             _ => StateSla::with_sla(slas::BOM_VALIDATION, time_in_state),
         },
+        ManagedHostState::EnsureBootConfig { .. } => {
+            StateSla::with_sla(slas::VALIDATION, time_in_state)
+        }
         ManagedHostState::Validation { validation_state } => match validation_state {
             ValidationState::MachineValidation { machine_validation } => match machine_validation {
                 MachineValidatingState::MachineValidating { .. } => {

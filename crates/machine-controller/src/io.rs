@@ -26,9 +26,9 @@ use model::dpa_interface::DpaSearchConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::slas::MachineSlaConfig;
 use model::machine::{
-    self, AttestationMode, DpuDiscoveringState, DpuInitState, HostHealthConfig,
-    MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-    SpdmMeasuringState, ValidationState,
+    self, AttestationMode, DpuDiscoveringState, DpuInitState, EnsureBootConfigStep,
+    HostHealthConfig, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
+    MeasuringState, SpdmMeasuringState, ValidationState,
 };
 use sqlx::PgConnection;
 use state_controller::io::StateControllerIO;
@@ -270,7 +270,18 @@ impl StateControllerIO for MachineStateControllerIO {
                 MachineValidatingState::LockAfterBootRepair { .. } => "lockafterbootrepair",
             }
         }
+        fn ensure_boot_config_step_name(step: &EnsureBootConfigStep) -> &'static str {
+            match step {
+                EnsureBootConfigStep::CheckLockdown => "checklockdown",
+                EnsureBootConfigStep::Unlock { .. } => "unlock",
+                EnsureBootConfigStep::Apply { .. } => "apply",
+                EnsureBootConfigStep::Relock => "relock",
+            }
+        }
         match state {
+            ManagedHostState::EnsureBootConfig { step, .. } => {
+                ("ensurebootconfig", ensure_boot_config_step_name(step))
+            }
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.

@@ -444,6 +444,7 @@ impl TestEnv {
             ManagedHostState::StartAssignmentCycle => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
+            ManagedHostState::EnsureBootConfig { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => {
                     match machine_validation {

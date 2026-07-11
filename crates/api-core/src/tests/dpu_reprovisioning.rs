@@ -27,9 +27,10 @@ use common::api_fixtures::{
 use libredfish::{EnabledDisabled, SystemPowerControl};
 use model::instance::status::tenant::TenantState;
 use model::machine::{
-    DpuInitState, FailureCause, FailureDetails, FailureSource, InstallDpuOsState, InstanceState,
-    Machine, MachineLastRebootRequestedMode, MachineState, ManagedHostState, ReprovisionState,
-    SetBootOrderInfo, SetBootOrderState, StateMachineArea, UnlockHostState,
+    DpuInitState, EnsureBootConfigStep, FailureCause, FailureDetails, FailureSource,
+    InstallDpuOsState, InstanceState, Machine, MachineLastRebootRequestedMode, MachineState,
+    ManagedHostState, ReprovisionState, SetBootOrderInfo, SetBootOrderState, StateMachineArea,
+    UnlockHostState,
 };
 use model::test_support::HardwareInfoTemplate;
 use rpc::forge::MachineArchitecture;
@@ -56,15 +57,22 @@ const DGX_H100_INFO_JSON: &[u8] = br#"{
     }
 }"#;
 
-fn reprovision_set_host_boot_order_state(
-    set_boot_order_state: SetBootOrderState,
-) -> ReprovisionState {
-    ReprovisionState::SetHostBootOrder {
+fn ensure_apply_step(set_boot_order_state: SetBootOrderState) -> EnsureBootConfigStep {
+    EnsureBootConfigStep::Apply {
         set_boot_order_info: SetBootOrderInfo {
             set_boot_order_jid: None,
             set_boot_order_state,
             retry_count: 0,
         },
+    }
+}
+
+/// The shared EnsureBootConfig state as DPU-reprovision host boot repair uses
+/// it: resuming at the BMC reboot once the boot config is ensured.
+fn ensure_boot_config_for(mh: &TestManagedHost, step: EnsureBootConfigStep) -> ManagedHostState {
+    ManagedHostState::EnsureBootConfig {
+        resume_to: Box::new(mh.new_dpu_reprovision_state(ReprovisionState::RebootHostBmc)),
+        step,
     }
 }
 
@@ -80,26 +88,8 @@ fn reprovision_host_boot_repair_states(
     mh: &TestManagedHost,
     shape: ReprovisionHostBootRepairShape,
 ) -> Vec<ManagedHostState> {
-    let states = [
-        ReprovisionState::PrepareHostBootRepair,
-        ReprovisionState::UnlockHostForBootRepair {
-            unlock_host_state: UnlockHostState::DisableLockdown,
-        },
-        ReprovisionState::CheckHostBootConfig,
-        ReprovisionState::ConfigureHostBoot { retry_count: 0 },
-        ReprovisionState::PollingHostBiosSetup { retry_count: 0 },
-        reprovision_set_host_boot_order_state(SetBootOrderState::SetBootOrder),
-        reprovision_set_host_boot_order_state(SetBootOrderState::WaitForSetBootOrderJobScheduled),
-        reprovision_set_host_boot_order_state(SetBootOrderState::RebootHost),
-        reprovision_set_host_boot_order_state(SetBootOrderState::WaitForSetBootOrderJobCompletion),
-        reprovision_set_host_boot_order_state(SetBootOrderState::CheckBootOrder),
-        ReprovisionState::LockHostAfterBootRepair,
-        ReprovisionState::RebootHostBmc,
-    ];
-
-    states
-        .into_iter()
-        .map(|state| match shape {
+    let wrap = |state: ReprovisionState| -> ManagedHostState {
+        match shape {
             ReprovisionHostBootRepairShape::SingleDpu => mh.new_dpu_reprovision_state(state),
             ReprovisionHostBootRepairShape::AssignedSingleDpu => {
                 mh.new_dpu_assigned_reprovision_state(state)
@@ -113,8 +103,35 @@ fn reprovision_host_boot_repair_states(
             ReprovisionHostBootRepairShape::AllDpus => {
                 mh.new_dpus_reprovision_state(&vec![&state; mh.dpu_ids.len()])
             }
-        })
-        .collect()
+        }
+    };
+    let ensure = |step: EnsureBootConfigStep| -> ManagedHostState {
+        ManagedHostState::EnsureBootConfig {
+            resume_to: Box::new(wrap(ReprovisionState::RebootHostBmc)),
+            step,
+        }
+    };
+
+    vec![
+        wrap(ReprovisionState::PrepareHostBootRepair),
+        wrap(ReprovisionState::UnlockHostForBootRepair {
+            unlock_host_state: UnlockHostState::DisableLockdown,
+        }),
+        wrap(ReprovisionState::CheckHostBootConfig),
+        wrap(ReprovisionState::ConfigureHostBoot { retry_count: 0 }),
+        wrap(ReprovisionState::PollingHostBiosSetup { retry_count: 0 }),
+        ensure(ensure_apply_step(SetBootOrderState::SetBootOrder)),
+        ensure(ensure_apply_step(
+            SetBootOrderState::WaitForSetBootOrderJobScheduled,
+        )),
+        ensure(ensure_apply_step(SetBootOrderState::RebootHost)),
+        ensure(ensure_apply_step(
+            SetBootOrderState::WaitForSetBootOrderJobCompletion,
+        )),
+        ensure(ensure_apply_step(SetBootOrderState::CheckBootOrder)),
+        ensure(EnsureBootConfigStep::Relock),
+        wrap(ReprovisionState::RebootHostBmc),
+    ]
 }
 
 /// Return true when any DPU in a reprovisioning managed-host state matches.
@@ -505,7 +522,7 @@ async fn test_dpu_reprovision_viking_repairs_bios_before_boot_order_skip(pool: s
     let dpu = dpu_machine.next_iteration_machine(&env).await;
     assert_eq!(
         dpu.current_state(),
-        &mh.new_dpu_reprovision_state(ReprovisionState::LockHostAfterBootRepair)
+        &ensure_boot_config_for(&mh, EnsureBootConfigStep::Relock)
     );
 
     let actions = env

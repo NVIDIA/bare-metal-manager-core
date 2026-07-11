@@ -53,6 +53,9 @@ pub fn instance_status_tenant_state(
         }
     };
 
+    // A host mid-EnsureBootConfig is still operating for its resumed state
+    // (an assigned host ensuring its boot config is Updating, not Invalid).
+    let machine_state = machine_state.effective_state().clone();
     let tenant_state = match machine_state {
         ManagedHostState::Ready => {
             if operator_managed_networking {
@@ -322,6 +325,51 @@ mod tests {
                             model::machine::NetworkConfigUpdateState::WaitingForNetworkSegmentToBeReady,
                     },
                 } => Yields(TenantState::Ready),
+            }
+        );
+    }
+
+    /// A host mid-EnsureBootConfig is still operating for its resumed state:
+    /// an assigned host ensuring its boot config during a DPU reprovision
+    /// reports Updating, not Invalid.
+    #[test]
+    fn ensure_boot_config_projects_the_resumed_state() {
+        let machine_id =
+            MachineId::from_str("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
+                .unwrap();
+        let assigned_reprovision = ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision {
+                dpu_states: model::machine::DpuReprovisionStates {
+                    states: std::collections::HashMap::from([(
+                        machine_id,
+                        model::machine::ReprovisionState::RebootHostBmc,
+                    )]),
+                },
+            },
+        };
+
+        scenarios!(
+            run = |machine_state| {
+                instance_status_tenant_state(
+                    machine_state,
+                    SyncState::Synced,
+                    true,
+                    None,
+                    true,
+                    false,
+                    false,
+                )
+                .map_err(drop)
+            };
+            "assigned reprovision itself" {
+                assigned_reprovision.clone() => Yields(TenantState::Updating),
+            }
+
+            "ensuring the boot config for it" {
+                ManagedHostState::EnsureBootConfig {
+                    resume_to: Box::new(assigned_reprovision),
+                    step: model::machine::EnsureBootConfigStep::Relock,
+                } => Yields(TenantState::Updating),
             }
         );
     }

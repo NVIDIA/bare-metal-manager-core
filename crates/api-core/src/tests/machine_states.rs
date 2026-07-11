@@ -58,10 +58,11 @@ use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
-    DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
-    HostPlatformConfigurationState, InstallDpuOsState, InstanceState, LockdownMode, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, PowerState, SetBootOrderInfo,
-    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, ValidationState,
+    DpuInitState, DpuReprovisionStates, EnsureBootConfigStep, FailureCause, FailureDetails,
+    FailureSource, HostPlatformConfigurationState, InstallDpuOsState, InstanceState, LockdownMode,
+    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, PowerState,
+    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
+    UnlockHostState, ValidationState,
 };
 use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
@@ -3158,7 +3159,7 @@ async fn test_set_boot_order_reassert_window_expiry_bounds_reapplies(pool: sqlx:
 /// reorder, verify), re-locks, and resumes validation from its reboot step --
 /// instead of pacing reboots that can never succeed.
 #[crate::sqlx_test]
-async fn test_machine_validation_repairs_reverted_boot_config(pool: sqlx::PgPool) {
+async fn test_machine_validation_ensures_drifted_boot_config(pool: sqlx::PgPool) {
     let env = create_zero_dpu_test_env(pool).await;
 
     let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
@@ -3260,6 +3261,183 @@ async fn test_machine_validation_repairs_reverted_boot_config(pool: sqlx::PgPool
     // Across the repair, the re-assert targeting the boot NIC preceded the reorder.
     let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
     assert_machine_setup_precedes_reorder_for(&actions, boot_nic_mac);
+}
+
+/// Boot-order-only drift (the HTTP-boot device is in place, the order
+/// changed on its own) is also detected while waiting for a validation
+/// reboot: the flow corrects the order -- without re-asserting the device --
+/// re-locks, and resumes validation.
+#[crate::sqlx_test]
+async fn test_machine_validation_ensures_drifted_boot_order(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+    let boot_nic_mac = host_inband_nic_mac(&env, host_id).await;
+
+    // Device intact, order drifted.
+    env.redfish_sim.set_is_boot_order_setup(false);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Enabled);
+
+    set_host_controller_state_stuck_in(
+        &env,
+        host_id,
+        &ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Discovery".to_string(),
+                    id: MachineValidationId::new(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
+            },
+        },
+        0,
+    )
+    .await;
+
+    let checkpoint = env.redfish_sim.timepoint();
+
+    let mut resumed = false;
+    for _ in 0..20 {
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        if matches!(
+            host.current_state(),
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::RebootHost { .. },
+                },
+            }
+        ) {
+            resumed = true;
+            break;
+        }
+    }
+    assert!(
+        resumed,
+        "order-only drift should be corrected and validation resumed"
+    );
+
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            RedfishSimAction::SetBootOrderDpuFirst { boot_interface_mac }
+                if *boot_interface_mac == boot_nic_mac.to_string()
+        )),
+        "the drifted boot order should be set for the boot NIC, got: {actions:?}"
+    );
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "the device is in place; correcting the order must not re-assert it, got: {actions:?}"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .iter()
+            .all(|l| *l == libredfish::EnabledDisabled::Enabled),
+        "the BMC should be re-locked once the boot order is corrected"
+    );
+}
+
+/// Records still parked in the pre-consolidation validation ensure states
+/// transition into `EnsureBootConfig` at the equivalent step, resuming
+/// validation from its reboot step with the same validation id.
+#[crate::sqlx_test]
+async fn test_pre_consolidation_validation_states_continue_via_ensure_boot_config(
+    pool: sqlx::PgPool,
+) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+    env.redfish_sim.set_is_bios_setup(false);
+    env.redfish_sim.set_is_boot_order_setup(false);
+
+    let validation_id = MachineValidationId::new();
+    let boot_order_info = SetBootOrderInfo {
+        set_boot_order_jid: None,
+        set_boot_order_state: SetBootOrderState::SetBootOrder,
+        retry_count: 0,
+    };
+
+    struct ParkedLegacyStateCase {
+        name: &'static str,
+        parked: MachineValidatingState,
+        expected_step: EnsureBootConfigStep,
+    }
+
+    let cases = [
+        ParkedLegacyStateCase {
+            name: "prepare",
+            parked: MachineValidatingState::PrepareBootRepair { validation_id },
+            expected_step: EnsureBootConfigStep::CheckLockdown,
+        },
+        ParkedLegacyStateCase {
+            name: "unlock",
+            parked: MachineValidatingState::UnlockForBootRepair {
+                validation_id,
+                unlock_host_state: UnlockHostState::DisableLockdown,
+            },
+            expected_step: EnsureBootConfigStep::Unlock {
+                unlock_host_state: UnlockHostState::DisableLockdown,
+            },
+        },
+        ParkedLegacyStateCase {
+            name: "apply",
+            parked: MachineValidatingState::RepairBootConfig {
+                validation_id,
+                set_boot_order_info: boot_order_info.clone(),
+            },
+            expected_step: EnsureBootConfigStep::Apply {
+                set_boot_order_info: boot_order_info.clone(),
+            },
+        },
+        ParkedLegacyStateCase {
+            name: "relock",
+            parked: MachineValidatingState::LockAfterBootRepair { validation_id },
+            expected_step: EnsureBootConfigStep::Relock,
+        },
+    ];
+
+    for case in cases {
+        set_host_controller_state_stuck_in(
+            &env,
+            host_id,
+            &ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: case.parked,
+                },
+            },
+            0,
+        )
+        .await;
+
+        env.run_machine_state_controller_iteration().await;
+
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        let expected = ManagedHostState::EnsureBootConfig {
+            resume_to: Box::new(ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::RebootHost { validation_id },
+                },
+            }),
+            step: case.expected_step,
+        };
+        assert_eq!(
+            host.current_state(),
+            &expected,
+            "case {}: a record parked in the old validation ensure state should continue via EnsureBootConfig",
+            case.name
+        );
+    }
 }
 
 /// When HostInit/PollingBiosSetup retry budget is exhausted, enter Failed and recover via is_bios_setup.

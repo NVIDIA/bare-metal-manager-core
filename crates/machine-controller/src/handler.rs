@@ -73,16 +73,17 @@ use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
     CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
-    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
-    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
-    MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
-    MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
-    PowerDrainState, PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext,
-    SecureEraseBossState, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
-    SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState, UnlockHostState,
-    ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
+    DpuInitState, EnsureBootConfigStep, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
+    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState,
+    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
+    UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
+    dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::predicted_machine_interface::PredictedMachineInterface;
@@ -1700,6 +1701,16 @@ impl MachineStateHandler {
                     .await
                 }
             },
+            ManagedHostState::EnsureBootConfig { resume_to, step } => {
+                ensure_boot_config(
+                    ctx,
+                    &self.host_handler.host_handler_params,
+                    mh_snapshot,
+                    resume_to,
+                    step,
+                )
+                .await
+            }
         }
     }
 
@@ -1818,7 +1829,9 @@ impl MachineStateHandler {
             .filter(|x| x.reprovision_requested.is_some())
             .collect_vec();
 
-        match managed_state {
+        // A host mid-EnsureBootConfig is still operating for its resumed
+        // state -- honor restart requests against that state, not the wrapper.
+        match managed_state.effective_state() {
             ManagedHostState::Assigned {
                 instance_state: InstanceState::DPUReprovision { .. } | InstanceState::Failed { .. },
             } => {
@@ -3301,20 +3314,15 @@ async fn handle_dpu_reprovision(
             .await?
             {
                 PollingBiosSetupOutcome::Verified => {
-                    let next_state = if should_skip_boot_order_remediation(state) {
-                        ReprovisionState::LockHostAfterBootRepair
+                    // The boot-order set and the re-lock run through the
+                    // shared EnsureBootConfig flow, resuming at the BMC reboot.
+                    let step = if should_skip_boot_order_remediation(state) {
+                        EnsureBootConfigStep::Relock
                     } else {
-                        ReprovisionState::SetHostBootOrder {
-                            set_boot_order_info: SetBootOrderInfo {
-                                set_boot_order_jid: None,
-                                set_boot_order_state: SetBootOrderState::SetBootOrder,
-                                retry_count: 0,
-                            },
-                        }
+                        ensure_boot_config_apply_start()
                     };
-
                     Ok(StateHandlerOutcome::transition(
-                        update_reprovision_targets_to_reprovision_state(state, next_state)?,
+                        ensure_for_reprovision_tail(state, step)?,
                     ))
                 }
                 PollingBiosSetupOutcome::EnterRecovery(bios_config_info) => {
@@ -3338,74 +3346,27 @@ async fn handle_dpu_reprovision(
         ReprovisionState::SetHostBootOrder {
             set_boot_order_info,
         } => {
-            // Promote the selected DPU boot option after machine_setup has enabled it.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
-            match set_host_boot_order(
-                ctx,
-                reachability_params,
-                redfish_client.as_ref(),
-                state,
-                set_boot_order_info.clone(),
-            )
-            .await?
-            {
-                SetBootOrderOutcome::Continue(boot_order_info) => {
-                    Ok(StateHandlerOutcome::transition(
-                        update_reprovision_targets_to_reprovision_state(
-                            state,
-                            ReprovisionState::SetHostBootOrder {
-                                set_boot_order_info: boot_order_info,
-                            },
-                        )?,
-                    ))
+            // Compat-only: records parked here pre-consolidation continue
+            // through the shared EnsureBootConfig flow. Boot order is not
+            // NICo-managed on DGX H100/Viking hardware, so a record parked
+            // mid-chain there restarts the flow from the top: the BIOS side
+            // still gets ensured, and the flow itself skips the boot order.
+            let step = if should_skip_boot_order_remediation(state) {
+                ensure_boot_config_apply_start()
+            } else {
+                EnsureBootConfigStep::Apply {
+                    set_boot_order_info: set_boot_order_info.clone(),
                 }
-                SetBootOrderOutcome::Done => Ok(StateHandlerOutcome::transition(
-                    update_reprovision_targets_to_reprovision_state(
-                        state,
-                        ReprovisionState::LockHostAfterBootRepair,
-                    )?,
-                )),
-                SetBootOrderOutcome::WaitingForReboot(reason) => {
-                    Ok(StateHandlerOutcome::wait(reason))
-                }
-                SetBootOrderOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
-            }
+            };
+            Ok(StateHandlerOutcome::transition(
+                ensure_for_reprovision_tail(state, step)?,
+            ))
         }
         ReprovisionState::LockHostAfterBootRepair => {
-            // Preserve expected-machine lockdown policy after temporarily
-            // opening the BMC for host boot repair.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
-            if state.host_snapshot.host_profile.disable_lockdown {
-                tracing::info!(
-                    machine_id = %state.host_snapshot.id,
-                    "Skipping lockdown re-enable in DPU reprovision per expected-machine config"
-                );
-            } else {
-                match redfish_client.lockdown_bmc(EnabledDisabled::Enabled).await {
-                    Ok(()) => {}
-                    Err(RedfishError::NotSupported(_)) => {
-                        tracing::info!(
-                            machine_id = %state.host_snapshot.id,
-                            "BMC vendor does not support re-enabling lockdown after DPU reprovision host boot repair"
-                        );
-                    }
-                    Err(e) => return Err(redfish_error("lockdown_bmc", e)),
-                }
-            }
-
+            // Compat-only: records parked here pre-consolidation re-lock
+            // through the shared EnsureBootConfig flow.
             Ok(StateHandlerOutcome::transition(
-                update_reprovision_targets_to_reprovision_state(
-                    state,
-                    ReprovisionState::RebootHostBmc,
-                )?,
+                ensure_for_reprovision_tail(state, EnsureBootConfigStep::Relock)?,
             ))
         }
         ReprovisionState::RebootHostBmc => {
@@ -11405,6 +11366,317 @@ async fn handle_instance_host_platform_config(
     Ok(StateHandlerOutcome::transition(next_state))
 }
 
+/// Rebuild the [`ManagedHostState::EnsureBootConfig`] wrapper at a new step.
+fn ensure_boot_config_at(
+    resume_to: &ManagedHostState,
+    step: EnsureBootConfigStep,
+) -> ManagedHostState {
+    ManagedHostState::EnsureBootConfig {
+        resume_to: Box::new(resume_to.clone()),
+        step,
+    }
+}
+
+/// `EnsureBootConfig` resuming DPU-reprovision host boot repair at its
+/// BMC-reboot tail.
+fn ensure_for_reprovision_tail(
+    state: &ManagedHostStateSnapshot,
+    step: EnsureBootConfigStep,
+) -> Result<ManagedHostState, StateHandlerError> {
+    Ok(ManagedHostState::EnsureBootConfig {
+        resume_to: Box::new(update_reprovision_targets_to_reprovision_state(
+            state,
+            ReprovisionState::RebootHostBmc,
+        )?),
+        step,
+    })
+}
+
+/// The starting point for the boot-order flow when EnsureBootConfig drives
+/// it: the flow itself checks what is already in place and only re-applies
+/// what drifted.
+fn ensure_boot_config_apply_start() -> EnsureBootConfigStep {
+    EnsureBootConfigStep::Apply {
+        set_boot_order_info: SetBootOrderInfo {
+            set_boot_order_jid: None,
+            set_boot_order_state: SetBootOrderState::SetBootOrder,
+            retry_count: 0,
+        },
+    }
+}
+
+/// Pace reboots for a host that has not come back, while ensuring its boot
+/// config is still what it should be. A host whose config drifted (changed
+/// externally, a BIOS quirk, or the boot NIC dropping off the BMC's inventory
+/// during the reboot's POST) can never boot back on its own -- further
+/// reboots don't restore a setting that is gone -- so this transitions to
+/// [`ManagedHostState::EnsureBootConfig`] (resuming `resume_to`) instead of
+/// rebooting again. Reboot-wait sites call this in place of
+/// [`trigger_reboot_if_needed`] to get drift handling without bespoke code.
+async fn pace_reboot_or_ensure_boot_config(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
+    resume_to: ManagedHostState,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    if let RequiredBootInterface::Ready(boot_interface) = require_boot_interface(
+        mh_snapshot,
+        &predictions,
+        "verifying the boot config while waiting for a reboot",
+        |message| message,
+    )? {
+        let redfish_client = ctx
+            .services
+            .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+            .await?;
+        match boot_interface
+            .run(|bi| redfish_client.is_bios_setup(Some(bi)))
+            .await
+        {
+            Ok(false) => {
+                tracing::warn!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Boot config reads drifted while waiting for a reboot; ensuring it",
+                );
+                return Ok(StateHandlerOutcome::transition(
+                    ManagedHostState::EnsureBootConfig {
+                        resume_to: Box::new(resume_to),
+                        step: EnsureBootConfigStep::CheckLockdown,
+                    },
+                ));
+            }
+            Ok(true) => {
+                // The HTTP-boot device is in place -- the boot order can
+                // still have drifted on its own (except on hardware where
+                // it is not NICo-managed), leaving the host booting the
+                // wrong device. Ensure that too rather than pacing forever.
+                if !should_skip_boot_order_remediation(mh_snapshot) {
+                    match boot_interface
+                        .run(|bi| redfish_client.is_boot_order_setup(bi))
+                        .await
+                    {
+                        Ok(false) => {
+                            tracing::warn!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                "Boot order reads drifted while waiting for a reboot; ensuring it",
+                            );
+                            return Ok(StateHandlerOutcome::transition(
+                                ManagedHostState::EnsureBootConfig {
+                                    resume_to: Box::new(resume_to),
+                                    step: EnsureBootConfigStep::CheckLockdown,
+                                },
+                            ));
+                        }
+                        Ok(true) => {}
+                        Err(e) => {
+                            tracing::warn!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                error = %e,
+                                "Could not verify the boot order while waiting for a reboot; will retry",
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    error = %e,
+                    "Could not verify the boot config while waiting for a reboot; will retry",
+                );
+            }
+        }
+    }
+    let status = trigger_reboot_if_needed(
+        &mh_snapshot.host_snapshot,
+        mh_snapshot,
+        None,
+        reachability_params,
+        ctx,
+    )
+    .await?;
+    Ok(StateHandlerOutcome::wait(status.status))
+}
+
+/// Drives [`ManagedHostState::EnsureBootConfig`]: make the host's boot config
+/// what it should be, then resume the interrupted state. Checks whether the
+/// BMC is locked and unlocks it if so (BIOS writes bounce off a locked BMC),
+/// drives the boot-order flow to put the config back (it verifies first and
+/// only re-applies what drifted), re-locks per the expected-machine policy,
+/// and transitions back to `resume_to`.
+async fn ensure_boot_config(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    host_handler_params: &HostHandlerParams,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    resume_to: &ManagedHostState,
+    step: &EnsureBootConfigStep,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+        .await?;
+
+    match step {
+        EnsureBootConfigStep::CheckLockdown => {
+            let next = match redfish_client.lockdown_status().await {
+                Err(RedfishError::NotSupported(_)) => {
+                    tracing::info!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "BMC vendor does not support checking lockdown status; ensuring the boot config directly",
+                    );
+                    ensure_boot_config_apply_start()
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        error = %e,
+                        "Failed to fetch lockdown status while ensuring the boot config",
+                    );
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "Failed to fetch lockdown status: {e}"
+                    )));
+                }
+                Ok(lockdown_status) if !lockdown_status.is_fully_disabled() => {
+                    tracing::info!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "Lockdown is enabled; unlocking before ensuring the boot config",
+                    );
+                    EnsureBootConfigStep::Unlock {
+                        unlock_host_state: UnlockHostState::DisableLockdown,
+                    }
+                }
+                Ok(_) => ensure_boot_config_apply_start(),
+            };
+            Ok(StateHandlerOutcome::transition(ensure_boot_config_at(
+                resume_to, next,
+            )))
+        }
+        EnsureBootConfigStep::Unlock { unlock_host_state } => {
+            let next = match unlock_host_state {
+                UnlockHostState::DisableLockdown => {
+                    // Tolerate a vendor that reports lockdown status but does
+                    // not support setting it, symmetric with the re-lock step.
+                    match redfish_client.lockdown_bmc(EnabledDisabled::Disabled).await {
+                        Ok(()) => {}
+                        Err(RedfishError::NotSupported(_)) => {
+                            tracing::info!(
+                                machine_id = %mh_snapshot.host_snapshot.id,
+                                "BMC vendor does not support disabling lockdown while ensuring the boot config",
+                            );
+                        }
+                        Err(e) => return Err(redfish_error("lockdown_bmc", e)),
+                    }
+
+                    let vendor = mh_snapshot.host_snapshot.bmc_vendor();
+                    if vendor.is_supermicro() {
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            %vendor,
+                            "BMC lockdown disabled; rebooting host so Redfish reflects actual boot state",
+                        );
+                        EnsureBootConfigStep::Unlock {
+                            unlock_host_state: UnlockHostState::RebootHost,
+                        }
+                    } else {
+                        ensure_boot_config_apply_start()
+                    }
+                }
+                UnlockHostState::RebootHost => {
+                    host_power_control(
+                        redfish_client.as_ref(),
+                        &mh_snapshot.host_snapshot,
+                        SystemPowerControl::ForceRestart,
+                        ctx,
+                    )
+                    .await
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre::eyre!(
+                            "failed to ForceRestart host after disabling BMC lockdown: {}",
+                            e
+                        ))
+                    })?;
+
+                    EnsureBootConfigStep::Unlock {
+                        unlock_host_state: UnlockHostState::WaitForUefiBoot,
+                    }
+                }
+                UnlockHostState::WaitForUefiBoot => {
+                    let entered_at = mh_snapshot.host_snapshot.state.version.timestamp();
+                    if wait(
+                        &entered_at,
+                        host_handler_params.reachability_params.uefi_boot_wait,
+                    ) {
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "Waiting for UEFI boot to complete on {} after post-unlock reboot",
+                            mh_snapshot.host_snapshot.id
+                        )));
+                    }
+                    ensure_boot_config_apply_start()
+                }
+            };
+            Ok(StateHandlerOutcome::transition(ensure_boot_config_at(
+                resume_to, next,
+            )))
+        }
+        EnsureBootConfigStep::Apply {
+            set_boot_order_info,
+        } => {
+            match set_host_boot_order(
+                ctx,
+                &host_handler_params.reachability_params,
+                redfish_client.as_ref(),
+                mh_snapshot,
+                set_boot_order_info.clone(),
+            )
+            .await?
+            {
+                SetBootOrderOutcome::Continue(info) => {
+                    Ok(StateHandlerOutcome::transition(ensure_boot_config_at(
+                        resume_to,
+                        EnsureBootConfigStep::Apply {
+                            set_boot_order_info: info,
+                        },
+                    )))
+                }
+                SetBootOrderOutcome::Done => Ok(StateHandlerOutcome::transition(
+                    ensure_boot_config_at(resume_to, EnsureBootConfigStep::Relock),
+                )),
+                SetBootOrderOutcome::WaitingForReboot(reason)
+                | SetBootOrderOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
+            }
+        }
+        EnsureBootConfigStep::Relock => {
+            // Restore the lockdown this flow temporarily opened, then resume
+            // the interrupted state.
+            if mh_snapshot.host_snapshot.host_profile.disable_lockdown {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Skipping lockdown re-enable after ensuring the boot config per expected-machine config",
+                );
+            } else {
+                match redfish_client.lockdown_bmc(EnabledDisabled::Enabled).await {
+                    Ok(()) => {}
+                    Err(RedfishError::NotSupported(_)) => {
+                        tracing::info!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            "BMC vendor does not support re-enabling lockdown after ensuring the boot config",
+                        );
+                    }
+                    Err(e) => return Err(redfish_error("lockdown_bmc", e)),
+                }
+            }
+
+            tracing::info!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                resume_to = %resume_to,
+                "Boot config ensured; resuming",
+            );
+            Ok(StateHandlerOutcome::transition(resume_to.clone()))
+        }
+    }
+}
+
 async fn set_host_boot_order(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     reachability_params: &ReachabilityParams,
@@ -11487,6 +11759,18 @@ async fn set_host_boot_order(
                     set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
                     retry_count: set_boot_order_info.retry_count,
                 }));
+            }
+
+            // Boot order is not NICo-managed on DGX H100/Viking hardware --
+            // ensuring the boot config there means ensuring the BIOS side only.
+            // With the HTTP-boot device verified above, there is nothing more
+            // to apply.
+            if should_skip_boot_order_remediation(mh_snapshot) {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Boot config verified; boot order is not managed on this hardware",
+                );
+                return Ok(SetBootOrderOutcome::Done);
             }
 
             // HTTP-boot device is already set, so `machine_setup` was not re-run
