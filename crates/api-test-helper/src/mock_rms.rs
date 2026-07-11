@@ -183,6 +183,14 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError>>>,
     update_switch_system_password_calls: Mutex<Vec<rms::UpdateSwitchSystemPasswordRequest>>,
 
+    batch_reset_switch_sdn_factory_default_responses:
+        Mutex<VecDeque<Result<rms::BatchResetSwitchSdnFactoryDefaultResponse, RackManagerError>>>,
+    batch_reset_switch_sdn_factory_default_calls:
+        Mutex<Vec<rms::BatchResetSwitchSdnFactoryDefaultRequest>>,
+
+    get_job_status_responses: Mutex<VecDeque<Result<rms::GetJobStatusResponse, RackManagerError>>>,
+    get_job_status_calls: Mutex<Vec<rms::GetJobStatusRequest>>,
+
     get_firmware_job_status_responses:
         Mutex<VecDeque<Result<rms::GetFirmwareJobStatusResponse, RackManagerError>>>,
     get_firmware_job_status_calls: Mutex<Vec<rms::GetFirmwareJobStatusRequest>>,
@@ -333,6 +341,10 @@ impl MockRmsApi {
             update_switch_system_image_calls: Default::default(),
             update_switch_system_password_responses: Default::default(),
             update_switch_system_password_calls: Default::default(),
+            batch_reset_switch_sdn_factory_default_responses: Default::default(),
+            batch_reset_switch_sdn_factory_default_calls: Default::default(),
+            get_job_status_responses: Default::default(),
+            get_job_status_calls: Default::default(),
             get_firmware_job_status_responses: Default::default(),
             get_firmware_job_status_calls: Default::default(),
             list_switch_firmware_responses: Default::default(),
@@ -636,6 +648,25 @@ impl MockRmsApi {
         rms::UpdateSwitchSystemPasswordRequest,
         rms::UpdateSwitchSystemPasswordResponse
     );
+
+    impl_enqueue_inspect!(
+        enqueue_batch_reset_switch_sdn_factory_default,
+        batch_reset_switch_sdn_factory_default_calls,
+        batch_reset_switch_sdn_factory_default_responses,
+        batch_reset_switch_sdn_factory_default_calls,
+        rms::BatchResetSwitchSdnFactoryDefaultRequest,
+        rms::BatchResetSwitchSdnFactoryDefaultResponse
+    );
+
+    impl_enqueue_inspect!(
+        enqueue_get_job_status,
+        get_job_status_calls,
+        get_job_status_responses,
+        get_job_status_calls,
+        rms::GetJobStatusRequest,
+        rms::GetJobStatusResponse
+    );
+
     impl_enqueue_inspect!(
         enqueue_get_firmware_job_status,
         get_firmware_job_status_calls,
@@ -1109,6 +1140,32 @@ impl RmsApi for MockRmsApi {
             .push(cmd);
         pop_or_err(&mut self.update_switch_system_password_responses.lock().await)
     }
+
+    async fn batch_reset_switch_sdn_factory_default(
+        &self,
+        cmd: rms::BatchResetSwitchSdnFactoryDefaultRequest,
+    ) -> Result<rms::BatchResetSwitchSdnFactoryDefaultResponse, RackManagerError> {
+        self.batch_reset_switch_sdn_factory_default_calls
+            .lock()
+            .await
+            .push(cmd);
+
+        pop_or_err(
+            &mut self
+                .batch_reset_switch_sdn_factory_default_responses
+                .lock()
+                .await,
+        )
+    }
+
+    async fn get_job_status(
+        &self,
+        cmd: rms::GetJobStatusRequest,
+    ) -> Result<rms::GetJobStatusResponse, RackManagerError> {
+        self.get_job_status_calls.lock().await.push(cmd);
+        pop_or_err(&mut self.get_job_status_responses.lock().await)
+    }
+
     async fn get_power_state(
         &self,
         cmd: rms::GetPowerStateRequest,
