@@ -575,7 +575,41 @@ async fn create_dpu_flavor<R: DpuFlavorRepository>(
     }
 }
 
-pub fn build_service_template(svc: &ServiceDefinition, namespace: &str) -> DPUServiceTemplate {
+/// Short, per-deployment suffix appended to service CR names so that each
+/// DPUDeployment gets its own DPUServiceTemplate/Configuration/NAD CRs. Without
+/// this, two deployments in the same namespace (e.g. BF3 and BF4) would create
+/// identically-named CRs and the second `apply` would overwrite the first's
+/// Helm values/version.
+///
+/// BF3 intentionally uses an empty suffix so its CR names are unchanged — this
+/// keeps existing BF3 clusters untouched (no CR rename / orphaning on upgrade).
+/// Only additional deployments (BF4) are suffixed to avoid colliding with BF3.
+pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str {
+    match deployment_type {
+        DpuDeploymentType::Bf3 => "",
+        DpuDeploymentType::Bf4Generic => "bf4generic",
+    }
+}
+
+/// Per-deployment CR name for a service or NAD: its logical name with the
+/// deployment suffix appended (or the logical name unchanged when the suffix is
+/// empty, as for BF3). The logical name (used as the DPUDeployment `services`
+/// map key, `deploymentServiceName`, `dependsOn`, and service-chain references)
+/// is left unchanged; only the CR `metadata.name` and the references pointing at
+/// it are suffixed.
+fn service_cr_name(logical_name: &str, suffix: &str) -> String {
+    if suffix.is_empty() {
+        logical_name.to_string()
+    } else {
+        format!("{logical_name}-{suffix}")
+    }
+}
+
+pub fn build_service_template(
+    svc: &ServiceDefinition,
+    namespace: &str,
+    suffix: &str,
+) -> DPUServiceTemplate {
     let helm_values: Option<BTreeMap<String, serde_json::Value>> =
         svc.helm_values.as_ref().and_then(|v| {
             v.as_object()
@@ -584,7 +618,7 @@ pub fn build_service_template(svc: &ServiceDefinition, namespace: &str) -> DPUSe
 
     DPUServiceTemplate {
         metadata: ObjectMeta {
-            name: Some(svc.name.clone()),
+            name: Some(service_cr_name(&svc.name, suffix)),
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },
@@ -610,13 +644,21 @@ pub fn build_service_template(svc: &ServiceDefinition, namespace: &str) -> DPUSe
 pub fn build_service_configuration(
     svc: &ServiceDefinition,
     namespace: &str,
+    suffix: &str,
+    nad_rename: &BTreeMap<String, String>,
 ) -> DPUServiceConfiguration {
     let interfaces: Vec<DpuServiceConfigurationInterfaces> = svc
         .interfaces
         .iter()
         .map(|i| DpuServiceConfigurationInterfaces {
             name: i.name.clone(),
-            network: i.network.clone(),
+            // A `network` that names a NAD created for this deployment is
+            // suffixed to match the (now per-deployment) NAD CR name. Networks
+            // that are not deployment-local NADs are left untouched.
+            network: nad_rename
+                .get(&i.network)
+                .cloned()
+                .unwrap_or_else(|| i.network.clone()),
             virtual_network: None,
         })
         .collect();
@@ -690,7 +732,7 @@ pub fn build_service_configuration(
 
     DPUServiceConfiguration {
         metadata: ObjectMeta {
-            name: Some(svc.name.clone()),
+            name: Some(service_cr_name(&svc.name, suffix)),
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },
@@ -709,10 +751,14 @@ pub fn build_service_configuration(
     }
 }
 
-pub fn build_service_nad(svc: &ServiceDefinition, namespace: &str) -> Option<DPUServiceNAD> {
+pub fn build_service_nad(
+    svc: &ServiceDefinition,
+    namespace: &str,
+    suffix: &str,
+) -> Option<DPUServiceNAD> {
     svc.service_nad.as_ref().map(|service_nad| DPUServiceNAD {
         metadata: ObjectMeta {
-            name: Some(service_nad.name.clone()),
+            name: Some(service_cr_name(&service_nad.name, suffix)),
             namespace: Some(namespace.to_string()),
             ..Default::default()
         },
@@ -732,6 +778,7 @@ pub fn build_service_nad(svc: &ServiceDefinition, namespace: &str) -> Option<DPU
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_deployment(
     services: &[ServiceDefinition],
     deployment_name: &str,
@@ -740,6 +787,7 @@ pub fn build_deployment(
     namespace: &str,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     deployment_node_labels: BTreeMap<String, String>,
+    suffix: &str,
 ) -> DPUDeployment {
     let services_map: BTreeMap<String, DpuDeploymentServices> = services
         .iter()
@@ -776,8 +824,11 @@ pub fn build_deployment(
 
                         _ => None,
                     },
-                    service_configuration: Some(svc.name.clone()),
-                    service_template: Some(svc.name.clone()),
+                    // The map key stays the logical service name (so dependsOn
+                    // and service chains resolve), but the template/config
+                    // references point at the per-deployment CR names.
+                    service_configuration: Some(service_cr_name(&svc.name, suffix)),
+                    service_template: Some(service_cr_name(&svc.name, suffix)),
                 },
             )
         })
@@ -1175,14 +1226,26 @@ async fn create_flavor_services_and_deployment<
 
     apply_service_interface_templates(repo, namespace, &interfaces).await?;
 
+    // Each deployment gets its own service/NAD CRs (suffixed by deployment type)
+    // so BF3 and BF4 do not overwrite each other's Helm values/versions in the
+    // shared namespace. `nad_rename` maps each deployment-local NAD name to its
+    // suffixed CR name so service configurations reference the right NAD.
+    let suffix = deployment_cr_suffix(deployment_type);
+    let nad_rename: BTreeMap<String, String> = services
+        .iter()
+        .filter_map(|svc| svc.service_nad.as_ref())
+        .map(|nad| (nad.name.clone(), service_cr_name(&nad.name, suffix)))
+        .collect();
+
     for svc in services {
-        DpuServiceTemplateRepository::apply(repo, &build_service_template(svc, namespace)).await?;
+        DpuServiceTemplateRepository::apply(repo, &build_service_template(svc, namespace, suffix))
+            .await?;
         DpuServiceConfigurationRepository::apply(
             repo,
-            &build_service_configuration(svc, namespace),
+            &build_service_configuration(svc, namespace, suffix, &nad_rename),
         )
         .await?;
-        if let Some(nad) = build_service_nad(svc, namespace).as_ref() {
+        if let Some(nad) = build_service_nad(svc, namespace, suffix).as_ref() {
             DpuServiceNADRepository::apply(repo, nad).await?;
         }
     }
@@ -1196,6 +1259,7 @@ async fn create_flavor_services_and_deployment<
         namespace,
         &interfaces,
         deployment_node_labels,
+        suffix,
     );
     DpuDeploymentRepository::apply(repo, &deployment).await?;
     Ok(())
@@ -2000,6 +2064,7 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
+            "bf3",
         );
 
         let otel = deployment
@@ -2022,6 +2087,59 @@ mod tests {
         // The previously-working dependencies must remain.
         assert!(deps.contains(&DPU_AGENT_SERVICE_NAME.to_string()));
         assert!(deps.contains(&FMDS_SERVICE_NAME.to_string()));
+    }
+
+    /// Service/NAD CR names are suffixed per deployment so BF3 and BF4 don't
+    /// overwrite each other, but BF3 keeps its original (unsuffixed) names so
+    /// existing clusters are untouched. The logical `deploymentServiceName` and
+    /// the DPUDeployment `services` map keys are never suffixed.
+    #[test]
+    fn service_cr_names_suffix_only_non_bf3() {
+        let svc = ServiceDefinition::new(DOCA_HBN_SERVICE_NAME, "repo", "chart", "1.0.5");
+
+        let bf3_suffix = deployment_cr_suffix(DpuDeploymentType::Bf3);
+        let bf4_suffix = deployment_cr_suffix(DpuDeploymentType::Bf4Generic);
+
+        // BF3: CR name unchanged.
+        let bf3 = build_service_template(&svc, TEST_NAMESPACE, bf3_suffix);
+        assert_eq!(bf3.metadata.name.as_deref(), Some(DOCA_HBN_SERVICE_NAME));
+        assert_eq!(bf3.spec.deployment_service_name, DOCA_HBN_SERVICE_NAME);
+
+        // BF4: CR name suffixed, logical name unchanged.
+        let bf4 = build_service_template(&svc, TEST_NAMESPACE, bf4_suffix);
+        assert_eq!(
+            bf4.metadata.name.as_deref(),
+            Some("doca-hbn-bf4generic"),
+            "BF4 service CRs must be suffixed to avoid overwriting BF3"
+        );
+        assert_eq!(bf4.spec.deployment_service_name, DOCA_HBN_SERVICE_NAME);
+
+        // The DPUDeployment map key stays the logical name; the template/config
+        // references point at the per-deployment CR name.
+        let services = vec![svc];
+        let bf4_deployment = build_deployment(
+            &services,
+            "dep",
+            &DpuProvisioningSource::Bfb("bfb".to_string()),
+            "flavor",
+            TEST_NAMESPACE,
+            &[],
+            BTreeMap::new(),
+            bf4_suffix,
+        );
+        let entry = bf4_deployment
+            .spec
+            .services
+            .get(DOCA_HBN_SERVICE_NAME)
+            .expect("map key is the logical service name");
+        assert_eq!(
+            entry.service_template.as_deref(),
+            Some("doca-hbn-bf4generic")
+        );
+        assert_eq!(
+            entry.service_configuration.as_deref(),
+            Some("doca-hbn-bf4generic")
+        );
     }
 
     #[derive(Clone, Default)]
