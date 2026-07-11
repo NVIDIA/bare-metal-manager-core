@@ -15,31 +15,25 @@
  * limitations under the License.
  */
 
-mod compute_allocation;
-mod connected_device;
-mod credential_rotation;
-mod dhcp_lease_expiration;
-mod dpu_machine_inventory;
-mod explored_managed_host_find;
-mod explored_mlx_devices;
-mod find_by_ids_guards;
-mod forge_agent_control;
-mod ib_fabric_find;
-mod machine_bmc_metadata;
-mod machine_boot_interfaces;
-mod network_device;
-mod nvlink_domain_health;
-mod operating_system;
-mod power_options;
-mod power_shelf;
-mod power_shelf_delete;
-mod power_shelf_find;
-mod power_shelf_maintenance;
-mod rack_find;
-mod route_servers;
-mod scout_firmware_upgrade_status;
-mod static_address_management;
-mod storage;
-mod switch_find;
-mod tenant_keyset_find;
-mod vpc_find;
+use carbide_test_harness::TestHarness;
+use carbide_uuid::power_shelf::PowerShelfId;
+
+/// Creates a power shelf through api-db test support for API integration tests.
+pub(crate) async fn create_custom_power_shelf(
+    env: &TestHarness,
+    name: &str,
+    capacity: Option<u32>,
+    voltage: Option<u32>,
+) -> Result<PowerShelfId, Box<dyn std::error::Error>> {
+    let mut txn = env.db_txn().await;
+    let power_shelf = db::test_support::power_shelf::create_random_with_config(
+        &mut txn,
+        name,
+        capacity.or(Some(100)),
+        voltage.or(Some(240)),
+    )
+    .await?;
+    txn.commit().await?;
+
+    Ok(power_shelf.id)
+}
