@@ -3082,8 +3082,8 @@ mod tests {
                 password: "pass".to_string(),
             },
             nvos_credentials: Credentials::UsernamePassword {
-                username: "admin".to_string(),
-                password: "pass".to_string(),
+                username: "nvos-admin".to_string(),
+                password: "nvos-pass".to_string(),
             },
             nvos_host_name: None,
         }
@@ -3277,7 +3277,7 @@ mod tests {
                         Some((credentials.username.as_str(), credentials.password.as_str(),)),
                     _ => None,
                 }),
-            Some(("admin", "pass"))
+            Some(("nvos-admin", "nvos-pass"))
         );
     }
 
@@ -3926,7 +3926,7 @@ mod tests {
         let calls = mock.update_switch_system_password_calls().await;
 
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].username, "admin");
+        assert_eq!(calls[0].username, "nvos-admin");
         assert_eq!(calls[0].password, "next-password");
 
         let node = &calls[0]
@@ -3948,7 +3948,7 @@ mod tests {
                     }
                     _ => None,
                 }),
-            Some("pass"),
+            Some("nvos-pass"),
             "endpoint must retain the current password until RMS accepts the job"
         );
     }
