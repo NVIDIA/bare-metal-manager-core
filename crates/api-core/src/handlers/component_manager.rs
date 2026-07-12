@@ -73,6 +73,8 @@ fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
         ComponentManagerError::Unavailable(msg) => Status::unavailable(msg),
         ComponentManagerError::NotFound(msg) => Status::not_found(msg),
         ComponentManagerError::InvalidArgument(msg) => Status::invalid_argument(msg),
+        ComponentManagerError::Unsupported(msg) => Status::unimplemented(msg),
+        ComponentManagerError::OperationOutcomeUnknown(msg) => Status::failed_precondition(msg),
         ComponentManagerError::Internal(msg) => Status::internal(msg),
         ComponentManagerError::Transport(e) => Status::unavailable(format!("transport error: {e}")),
         ComponentManagerError::Status(s) => s,
@@ -2577,6 +2579,18 @@ mod tests {
                 error: ComponentManagerError::InvalidArgument("bad".into()),
                 expected_code: Code::InvalidArgument,
                 message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "unsupported operation",
+                error: ComponentManagerError::Unsupported("not implemented".into()),
+                expected_code: Code::Unimplemented,
+                message_contains: Some("not implemented"),
+            },
+            ErrorToStatusCase {
+                scenario: "operation outcome unknown",
+                error: ComponentManagerError::OperationOutcomeUnknown("lost job id".into()),
+                expected_code: Code::FailedPrecondition,
+                message_contains: Some("lost job id"),
             },
             ErrorToStatusCase {
                 scenario: "internal",
