@@ -20,11 +20,13 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_instrument::red;
 use carbide_secrets::credentials::{CredentialReader, Credentials};
 use carbide_utils::HostPortPair;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Endpoint, Redfish};
 
+use crate::libredfish::instrumented::{InstrumentedRedfish, REDFISH_BACKEND};
 use crate::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
 pub struct RedfishClientPoolImpl {
@@ -116,31 +118,44 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             Vec::default()
         };
 
-        match vendor {
+        // The initializing paths below make HTTP calls of their own, so they
+        // are metered like any other Redfish operation.
+        let client = match vendor {
             // Auto-detect vendor from the service root.
-            None => self
-                .pool
-                .create_client_with_custom_headers(endpoint, custom_headers)
-                .await
-                .map_err(RedfishClientCreationError::RedfishError),
+            None => red::instrumented(
+                REDFISH_BACKEND,
+                "create_client",
+                self.pool
+                    .create_client_with_custom_headers(endpoint, custom_headers),
+            )
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)?,
             // Unknown means "no vendor" — return a standard client without
             // making any HTTP calls (used by the anonymous probe client).
             // This restores the behavior of the old `initialize: false` path
             // which called create_standard_client. The full initialization
             // path (create_client_with_vendor) makes HTTP calls to /Systems,
             // /Managers, etc. that fail with 401 on BMCs requiring auth.
+            // With no I/O here, there is no external call to meter either.
             Some(RedfishVendor::Unknown) => self
                 .pool
                 .create_standard_client_with_custom_headers(endpoint, custom_headers)
                 .map_err(RedfishClientCreationError::RedfishError)
-                .map(|c| c as Box<dyn Redfish>),
+                .map(|c| c as Box<dyn Redfish>)?,
             // Use the provided vendor directly.
-            Some(vendor) => self
-                .pool
-                .create_client_with_vendor(endpoint, vendor, custom_headers)
-                .await
-                .map_err(RedfishClientCreationError::RedfishError),
-        }
+            Some(vendor) => red::instrumented(
+                REDFISH_BACKEND,
+                "create_client",
+                self.pool
+                    .create_client_with_vendor(endpoint, vendor, custom_headers),
+            )
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)?,
+        };
+
+        // Every client the pool creates goes out decorated, so each Redfish
+        // call records the per-operation RED triad no matter the call site.
+        Ok(Box::new(InstrumentedRedfish::new(client)))
     }
 
     fn credential_reader(&self) -> &dyn CredentialReader {

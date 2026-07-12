@@ -2208,6 +2208,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "carbide-instrument",
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",
@@ -2747,6 +2748,7 @@ dependencies = [
  "async-trait",
  "bmc-vendor",
  "carbide-api-model",
+ "carbide-instrument",
  "carbide-secrets",
  "carbide-utils",
  "chrono",
