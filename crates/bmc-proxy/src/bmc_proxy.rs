@@ -32,6 +32,7 @@ use carbide_authn::SpiffeContext;
 use carbide_authn::middleware::{
     AuthContext, Authorization, CertDescriptionMiddleware, ConnectionAttributes, Principal,
 };
+use carbide_instrument::emit;
 use carbide_utils::HostPortPair;
 use forge_tls::client_config::ClientCert;
 use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
@@ -55,6 +56,7 @@ use tokio_util::sync::CancellationToken;
 use tower_http::add_extension::AddExtensionLayer;
 
 use crate::config::{AuthConfig, TlsConfig};
+use crate::metrics::{MethodLabel, UpstreamRequestCompleted, UpstreamStatus};
 
 const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const MAX_BODY_SIZE: usize = 8 * 1024 * 1024; // 8MiB body size limit (matches nginx ingress controller defaults)
@@ -565,9 +567,14 @@ async fn proxy_request(
         upstream_request = upstream_request.body(body);
     }
 
-    let upstream_response = upstream_request
-        .send()
-        .await
+    let started = Instant::now();
+    let upstream_result = upstream_request.send().await;
+    emit(UpstreamRequestCompleted {
+        method: MethodLabel::from(&parts.method),
+        status: UpstreamStatus::from_result(&upstream_result),
+        took: started.elapsed(),
+    });
+    let upstream_response = upstream_result
         .map_err(|e| error_response((StatusCode::BAD_GATEWAY, e.to_string()).into()))?;
 
     let status = upstream_response.status();
