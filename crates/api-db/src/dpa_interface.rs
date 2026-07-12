@@ -568,6 +568,7 @@ mod test {
     use std::str::FromStr;
 
     use carbide_libmlx_model::device::info::MlxDeviceInfo;
+    use carbide_test_support::query_counter::count_queries;
     use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
     use mac_address::MacAddress;
     use model::dpa_interface::{
@@ -590,29 +591,6 @@ mod test {
     async fn find_by_machine_ids_issues_one_query(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        use tracing::instrument::WithSubscriber;
-        use tracing_subscriber::prelude::*;
-
-        /// A tracing layer that counts sqlx query-execution events. sqlx emits
-        /// one event on target `sqlx::query` per executed statement, so the
-        /// count of these events is the number of round trips to Postgres.
-        #[derive(Clone, Default)]
-        struct QueryCounter(Arc<AtomicUsize>);
-        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
-            fn on_event(
-                &self,
-                e: &tracing::Event<'_>,
-                _c: tracing_subscriber::layer::Context<'_, S>,
-            ) {
-                if e.metadata().target().starts_with("sqlx::query") {
-                    self.0.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-        }
-
         // Seed helper: create `n` distinct machines, each with exactly one
         // dpa_interface, and return their ids. Each MachineId is minted from a
         // per-index hardware hash (the same shape as the `test_machine_id`
@@ -662,14 +640,11 @@ mod test {
         const N: usize = 5;
         let ids = seed(&pool, 0, N).await?;
 
-        let counter = QueryCounter::default();
-        let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(counter.clone()));
-
         // BEFORE: the per-machine loop (the N+1 pattern).
-        let per_machine: std::collections::HashMap<MachineId, Vec<_>> = {
+        let (per_machine, before): (std::collections::HashMap<MachineId, Vec<_>>, usize) = {
             let pool = &pool;
             let ids = &ids;
-            async move {
+            count_queries(async move {
                 let mut out = std::collections::HashMap::new();
                 for id in ids {
                     let v = crate::dpa_interface::find_by_machine_id(
@@ -682,11 +657,9 @@ mod test {
                     out.insert(*id, v);
                 }
                 out
-            }
-            .with_subscriber(dispatch.clone())
+            })
             .await
         };
-        let before = counter.0.load(Ordering::Relaxed);
         println!("BEFORE (per-machine loop, N={N}): {before} queries");
 
         // BITE-CHECK: the per-machine loop MUST issue one query per machine.
@@ -698,20 +671,17 @@ mod test {
              a count of 0 means the query counter isn't seeing sqlx::query events"
         );
 
-        // AFTER: the batched loader. Reset the counter first.
-        counter.0.store(0, Ordering::Relaxed);
-        let batched = {
+        // AFTER: the batched loader.
+        let (batched, after) = {
             let pool = &pool;
             let ids = &ids;
-            async move {
+            count_queries(async move {
                 crate::dpa_interface::find_by_machine_ids(pool, ids, DpaSearchConfig::default())
                     .await
                     .unwrap()
-            }
-            .with_subscriber(dispatch.clone())
+            })
             .await
         };
-        let after = counter.0.load(Ordering::Relaxed);
         println!("AFTER (batched find_by_machine_ids, N={N}): {after} queries");
         assert_eq!(after, 1, "batched loader must issue exactly one query");
 
@@ -737,42 +707,34 @@ mod test {
 
         // Re-confirm the per-machine loop scales linearly at N2 as well, so the
         // "constant vs linear" contrast is anchored on both sides.
-        let counter2 = QueryCounter::default();
-        let dispatch2 =
-            tracing::Dispatch::new(tracing_subscriber::registry().with(counter2.clone()));
-        {
+        let ((), before2) = {
             let pool = &pool;
             let ids2 = &ids2;
-            async move {
+            count_queries(async move {
                 for id in ids2 {
                     crate::dpa_interface::find_by_machine_id(pool, *id, DpaSearchConfig::default())
                         .await
                         .unwrap();
                 }
-            }
-            .with_subscriber(dispatch2.clone())
+            })
             .await
         };
-        let before2 = counter2.0.load(Ordering::Relaxed);
         println!("BEFORE (per-machine loop, N={N2}): {before2} queries");
         assert_eq!(
             before2, N2,
             "per-machine loop should issue exactly N={N2} queries"
         );
 
-        counter2.0.store(0, Ordering::Relaxed);
-        let batched2 = {
+        let (batched2, after2) = {
             let pool = &pool;
             let ids2 = &ids2;
-            async move {
+            count_queries(async move {
                 crate::dpa_interface::find_by_machine_ids(pool, ids2, DpaSearchConfig::default())
                     .await
                     .unwrap()
-            }
-            .with_subscriber(dispatch2.clone())
+            })
             .await
         };
-        let after2 = counter2.0.load(Ordering::Relaxed);
         println!("AFTER (batched find_by_machine_ids, N={N2}): {after2} queries");
         assert_eq!(
             after2, 1,
@@ -787,18 +749,15 @@ mod test {
         // ---- Scenario 3: N = 0, no query at all ----
         // An empty id slice short-circuits before building the query, matching
         // the sibling batch helpers.
-        counter2.0.store(0, Ordering::Relaxed);
-        let batched_empty = {
+        let (batched_empty, empty_count) = {
             let pool = &pool;
-            async move {
+            count_queries(async move {
                 crate::dpa_interface::find_by_machine_ids(pool, &[], DpaSearchConfig::default())
                     .await
                     .unwrap()
-            }
-            .with_subscriber(dispatch2.clone())
+            })
             .await
         };
-        let empty_count = counter2.0.load(Ordering::Relaxed);
         println!("EMPTY (batched find_by_machine_ids, N=0): {empty_count} queries");
         assert_eq!(
             empty_count, 0,

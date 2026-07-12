@@ -743,6 +743,7 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
+    use carbide_test_support::query_counter::count_queries;
     use carbide_uuid::vpc::VpcId;
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
@@ -897,36 +898,6 @@ mod tests {
     // measures the lock-window reduction directly: one INSERT regardless of
     // how many addresses an instance's interfaces carry.
 
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use tracing::instrument::WithSubscriber;
-    use tracing_subscriber::prelude::*;
-
-    /// A `tracing` layer that counts every `sqlx::query*` event. sqlx emits one
-    /// such event per statement it executes, so the count is the statement
-    /// count for whatever ran under this subscriber.
-    ///
-    /// The test harness installs a global `sqlx=warn` `EnvFilter`. A per-target
-    /// filter registers `Interest::sometimes()`, so this scoped subscriber
-    /// still receives the events even though the global filter would drop them.
-    #[derive(Clone, Default)]
-    struct QueryCounter(Arc<AtomicUsize>);
-
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
-        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
-            if e.metadata().target().starts_with("sqlx::query") {
-                self.0.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    impl QueryCounter {
-        fn count(&self) -> usize {
-            self.0.load(Ordering::Relaxed)
-        }
-    }
-
     /// Inserts the minimal FK ancestry `instance_addresses` requires (one vpc,
     /// one machine, one instance, one segment) and returns their ids.
     ///
@@ -1038,15 +1009,11 @@ mod tests {
 
         // --- BEFORE: unbatched loop ---
         let (before_count, before_persisted) = {
-            let counter = QueryCounter::default();
-            let mut txn = async {
+            let (mut txn, before_count) = count_queries(async {
                 let mut txn = pool.begin().await.unwrap();
                 insert_one_at_a_time(txn.as_mut(), &rows).await.unwrap();
                 txn
-            }
-            .with_subscriber(tracing::Dispatch::new(
-                tracing_subscriber::registry().with(counter.clone()),
-            ))
+            })
             .await;
 
             let persisted: i64 = sqlx::query_scalar(
@@ -1058,22 +1025,18 @@ mod tests {
             .unwrap();
             // Roll the addresses back so AFTER starts clean.
             txn.rollback().await.unwrap();
-            (counter.count(), persisted)
+            (before_count, persisted)
         };
 
         // --- AFTER: batched helper ---
         let (after_count, after_persisted) = {
-            let counter = QueryCounter::default();
-            let mut txn = async {
+            let (mut txn, after_count) = count_queries(async {
                 let mut txn = pool.begin().await.unwrap();
                 insert_instance_addresses(txn.as_mut(), &rows)
                     .await
                     .unwrap();
                 txn
-            }
-            .with_subscriber(tracing::Dispatch::new(
-                tracing_subscriber::registry().with(counter.clone()),
-            ))
+            })
             .await;
 
             let persisted: i64 = sqlx::query_scalar(
@@ -1084,7 +1047,7 @@ mod tests {
             .await
             .unwrap();
             txn.rollback().await.unwrap();
-            (counter.count(), persisted)
+            (after_count, persisted)
         };
 
         println!(
@@ -1165,50 +1128,24 @@ mod tests {
     /// drop-rollback executes a statement, so the count stays at zero.
     #[crate::sqlx_test]
     async fn insert_instance_addresses_empty_is_noop(pool: sqlx::PgPool) {
-        let counter = QueryCounter::default();
-        async {
+        let ((), count) = count_queries(async {
             let mut txn = pool.begin().await.unwrap();
             insert_instance_addresses(txn.as_mut(), &[]).await.unwrap();
-        }
-        .with_subscriber(tracing::Dispatch::new(
-            tracing_subscriber::registry().with(counter.clone()),
-        ))
+        })
         .await;
-        assert_eq!(
-            counter.count(),
-            0,
-            "empty insert should issue no statements"
-        );
+        assert_eq!(count, 0, "empty insert should issue no statements");
     }
 }
 
 #[cfg(test)]
 mod segment_has_allocations_tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
+    use carbide_test_support::query_counter::count_queries;
     use model::network_prefix::NewNetworkPrefix;
     use model::network_segment::{
         AllocationStrategy, NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
     };
-    use tracing::instrument::WithSubscriber;
-    use tracing_subscriber::prelude::*;
 
     use super::*;
-
-    /// Counts `sqlx::query*` tracing events so a measured block's round-trips can
-    /// be asserted. sqlx consults the *current* dispatcher when logging a
-    /// statement, so the scoped `Dispatch` installed by `with_subscriber` sees
-    /// these events regardless of the harness's global `sqlx=warn` filter.
-    #[derive(Clone, Default)]
-    struct QueryCounter(Arc<AtomicUsize>);
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
-        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
-            if e.metadata().target().starts_with("sqlx::query") {
-                self.0.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
 
     /// Seeds a Ready segment plus one machine interface bound to it, so both the
     /// old count path and the new EXISTS path see an allocation.
@@ -1262,10 +1199,9 @@ mod segment_has_allocations_tests {
         let segment_id = seed_segment_with_interface(&pool).await;
 
         // Old path: machine_interface::count_by_segment_id + instance_address::count_by_segment_id.
-        let old_counter = QueryCounter::default();
         let seg = segment_id;
         let pool_ref = &pool;
-        async {
+        let ((), old_queries) = count_queries(async {
             let mut txn = pool_ref.begin().await.unwrap();
             let mi = crate::machine_interface::count_by_segment_id(&mut txn, &seg)
                 .await
@@ -1273,24 +1209,15 @@ mod segment_has_allocations_tests {
             let ia = count_by_segment_id(&mut txn, &seg).await.unwrap();
             // The allocation we seeded is visible to the old summed check.
             assert!(mi + ia > 0, "seeded interface should register");
-        }
-        .with_subscriber(tracing::Dispatch::new(
-            tracing_subscriber::registry().with(old_counter.clone()),
-        ))
+        })
         .await;
-        let old_queries = old_counter.0.load(Ordering::Relaxed);
 
         // New path: a single EXISTS-OR-EXISTS query.
-        let new_counter = QueryCounter::default();
-        let has = async {
+        let (has, new_queries) = count_queries(async {
             let mut txn = pool_ref.begin().await.unwrap();
             segment_has_allocations(&mut txn, &seg).await.unwrap()
-        }
-        .with_subscriber(tracing::Dispatch::new(
-            tracing_subscriber::registry().with(new_counter.clone()),
-        ))
+        })
         .await;
-        let new_queries = new_counter.0.load(Ordering::Relaxed);
 
         assert!(has, "segment_has_allocations must see the seeded interface");
         assert_eq!(old_queries, 2, "old drain check issued two count queries");

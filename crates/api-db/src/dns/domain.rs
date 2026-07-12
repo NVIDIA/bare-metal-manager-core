@@ -249,31 +249,10 @@ fn test_generate_domain_serial_format() {
 
 #[cfg(test)]
 mod test_find_by_uuids {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
+    use carbide_test_support::query_counter::count_queries;
     use model::dns::NewDomain;
-    use tracing::instrument::WithSubscriber;
-    use tracing_subscriber::prelude::*;
 
     use crate as db;
-
-    /// Counts `sqlx::query*` tracing events so a batched query can be shown to collapse an N+1
-    /// loop down to a single database round trip.
-    #[derive(Clone, Default)]
-    struct QueryCounter(Arc<AtomicUsize>);
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
-        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
-            if e.metadata().target().starts_with("sqlx::query") {
-                self.0.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-    impl QueryCounter {
-        fn count(&self) -> usize {
-            self.0.load(Ordering::Relaxed)
-        }
-    }
 
     #[crate::sqlx_test]
     async fn find_by_uuids_collapses_n_plus_one(pool: sqlx::PgPool) {
@@ -294,12 +273,10 @@ mod test_find_by_uuids {
         // BEFORE: one find_by_uuid per id. The reads run straight off the pool
         // -- no transaction -- so the count reflects only the find_by_uuid
         // calls, not begin/commit statements.
-        let before = QueryCounter::default();
-        let looped = {
-            let counter = before.clone();
+        let (looped, before_count) = {
             let pool = &pool;
             let ids = &ids;
-            async move {
+            count_queries(async move {
                 let mut names = std::collections::HashMap::new();
                 for id in ids {
                     let domain = db::dns::domain::find_by_uuid(pool, *id)
@@ -309,31 +286,21 @@ mod test_find_by_uuids {
                     names.insert(domain.id, domain.name);
                 }
                 names
-            }
-            .with_subscriber(tracing::Dispatch::new(
-                tracing_subscriber::registry().with(counter),
-            ))
+            })
             .await
         };
-        let before_count = before.count();
 
         // AFTER: a single batched find_by_uuids.
-        let after = QueryCounter::default();
-        let batched = {
-            let counter = after.clone();
+        let (batched, after_count) = {
             let pool = &pool;
             let ids = &ids;
-            async move {
+            count_queries(async move {
                 db::dns::domain::find_by_uuids(pool, ids)
                     .await
                     .expect("find_by_uuids")
-            }
-            .with_subscriber(tracing::Dispatch::new(
-                tracing_subscriber::registry().with(counter),
-            ))
+            })
             .await
         };
-        let after_count = after.count();
 
         // Data equality: same set of (id -> name) pairs.
         assert_eq!(batched.len(), N, "batched returned all N domains");

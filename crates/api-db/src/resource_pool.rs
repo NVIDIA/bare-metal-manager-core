@@ -1057,47 +1057,11 @@ pub async fn create_common_pools(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
     use carbide_test_support::Outcome::*;
+    use carbide_test_support::query_counter::count_queries;
     use carbide_test_support::{Case, check_cases};
-    use tracing::instrument::WithSubscriber;
-    use tracing_subscriber::prelude::*;
 
     use super::*;
-
-    /// A tracing `Layer` that tallies every `sqlx::query` event. sqlx emits one
-    /// such event per statement it executes, so the tally is a direct count of
-    /// database round-trips inside the scope it is attached to.
-    ///
-    /// sqlx consults the *current* dispatcher when logging a statement, so the
-    /// scoped `Dispatch` installed by `with_subscriber` sees these events
-    /// regardless of the harness's global `sqlx=warn` filter (see
-    /// `setup_test_logging`).
-    #[derive(Clone, Default)]
-    struct QueryCounter(Arc<AtomicUsize>);
-
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
-        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
-            if e.metadata().target().starts_with("sqlx::query") {
-                self.0.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    /// Count the `sqlx::query` events emitted while `fut` runs, by driving it
-    /// under a scoped subscriber holding a fresh [`QueryCounter`].
-    async fn count_queries<F, T>(fut: F) -> (T, usize)
-    where
-        F: std::future::Future<Output = T>,
-    {
-        let counter = QueryCounter::default();
-        let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(counter.clone()));
-        let out = fut.with_subscriber(dispatch).await;
-        let count = counter.0.load(Ordering::Relaxed);
-        (out, count)
-    }
 
     /// A single successful auto-assign `allocate` must cost exactly one database
     /// round-trip. It previously cost two: a full-pool `stats()` pre-scan ran

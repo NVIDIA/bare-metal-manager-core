@@ -751,36 +751,15 @@ pub async fn set_updated_timestamp(
 
 #[cfg(test)]
 mod test_batched_lookups {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
+    use carbide_test_support::query_counter::count_queries;
     use config_version::ConfigVersion;
     use model::extension_service::ExtensionServiceType;
     use model::metadata::Metadata;
     use model::tenant::TenantOrganizationId;
-    use tracing::instrument::WithSubscriber;
-    use tracing_subscriber::prelude::*;
 
     use super::*;
 
     const TENANT_ORG: &str = "test-org";
-
-    /// Counts `sqlx::query*` tracing events so a batched query can be shown to collapse an N+1
-    /// loop down to a single database round trip.
-    #[derive(Clone, Default)]
-    struct QueryCounter(Arc<AtomicUsize>);
-    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for QueryCounter {
-        fn on_event(&self, e: &tracing::Event<'_>, _c: tracing_subscriber::layer::Context<'_, S>) {
-            if e.metadata().target().starts_with("sqlx::query") {
-                self.0.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-    }
-    impl QueryCounter {
-        fn count(&self) -> usize {
-            self.0.load(Ordering::Relaxed)
-        }
-    }
 
     /// Seed N extension services (each with an initial version), returning their ids and the
     /// exact `ConfigVersion` stored for each so tests can look versions up by exact match.
@@ -840,12 +819,10 @@ mod test_batched_lookups {
         // acquires its connection inside the instrumented future.
 
         // BEFORE: find_by_ids called with a 1-element slice per service (the pattern in dpu.rs).
-        let before = QueryCounter::default();
-        let looped = {
-            let counter = before.clone();
+        let (looped, before_count) = {
             let pool = &pool;
             let ids = &ids;
-            async move {
+            count_queries(async move {
                 let mut conn = pool.acquire().await.expect("acquire");
                 let mut names = std::collections::HashMap::new();
                 for id in ids {
@@ -858,32 +835,22 @@ mod test_batched_lookups {
                     names.insert(service.id, service.name);
                 }
                 names
-            }
-            .with_subscriber(tracing::Dispatch::new(
-                tracing_subscriber::registry().with(counter),
-            ))
+            })
             .await
         };
-        let before_count = before.count();
 
         // AFTER: a single find_by_ids over the whole set.
-        let after = QueryCounter::default();
-        let batched = {
-            let counter = after.clone();
+        let (batched, after_count) = {
             let pool = &pool;
             let ids = &ids;
-            async move {
+            count_queries(async move {
                 let mut conn = pool.acquire().await.expect("acquire");
                 find_by_ids(&mut conn, ids, false)
                     .await
                     .expect("find_by_ids")
-            }
-            .with_subscriber(tracing::Dispatch::new(
-                tracing_subscriber::registry().with(counter),
-            ))
+            })
             .await
         };
-        let after_count = after.count();
 
         // Data equality: same set of (id -> name) pairs.
         assert_eq!(batched.len(), N, "batched returned all N services");
@@ -925,40 +892,28 @@ mod test_batched_lookups {
         // acquires its connection inside the instrumented future.
 
         // find_version_info: existence probe + version lookup.
-        let probed = QueryCounter::default();
-        let probed_info = {
-            let counter = probed.clone();
+        let (probed_info, probed_count) = {
             let pool = &pool;
-            async move {
+            count_queries(async move {
                 let mut conn = pool.acquire().await.expect("acquire");
                 find_version_info(&mut conn, service_id, Some(version))
                     .await
                     .expect("find_version_info")
-            }
-            .with_subscriber(tracing::Dispatch::new(
-                tracing_subscriber::registry().with(counter),
-            ))
+            })
             .await
         };
-        let probed_count = probed.count();
 
         // find_version_info_of_known_service: the version lookup alone.
-        let unprobed = QueryCounter::default();
-        let unprobed_info = {
-            let counter = unprobed.clone();
+        let (unprobed_info, unprobed_count) = {
             let pool = &pool;
-            async move {
+            count_queries(async move {
                 let mut conn = pool.acquire().await.expect("acquire");
                 find_version_info_of_known_service(&mut conn, service_id, Some(version))
                     .await
                     .expect("find_version_info_of_known_service")
-            }
-            .with_subscriber(tracing::Dispatch::new(
-                tracing_subscriber::registry().with(counter),
-            ))
+            })
             .await
         };
-        let unprobed_count = unprobed.count();
 
         // Data equality: both lookups return the same version row.
         assert_eq!(
