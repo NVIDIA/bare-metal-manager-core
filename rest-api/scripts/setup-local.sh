@@ -295,6 +295,8 @@ configure_site_agent() {
 }
 
 setup_site_agent() {
+    local site_resp
+
     echo "Setting up site-agent..."
     wait_for_services
 
@@ -309,10 +311,12 @@ setup_site_agent() {
     echo "Site ID: $SITE_ID"
 
     if [ -z "${SITE_REG_TOKEN:-}" ] || [ "$SITE_REG_TOKEN" = "null" ]; then
-        SITE_REG_TOKEN=$(curl -sf "$API_URL/v2/org/$ORG/nico/site/$SITE_ID?infrastructureProviderId=$(
-            curl -sf "$API_URL/v2/org/$ORG/nico/infrastructure-provider/current" \
-                -H "Authorization: Bearer $TOKEN" | jq -r '.id'
-        )" -H "Authorization: Bearer $TOKEN" | jq -r '.registrationToken // empty' 2>/dev/null)
+        if ! site_resp=$(curl -sf "$API_URL/v2/org/$ORG/nico/site/$SITE_ID?infrastructureProviderId=$PROVIDER_ID" \
+            -H "Authorization: Bearer $TOKEN"); then
+            echo "ERROR: Failed to fetch site registration token" >&2
+            return 1
+        fi
+        SITE_REG_TOKEN=$(echo "$site_resp" | jq -r '.registrationToken // empty')
     fi
     if [ -z "$SITE_REG_TOKEN" ] || [ "$SITE_REG_TOKEN" = "null" ]; then
         echo "Registration token is no longer exposed by the API"
