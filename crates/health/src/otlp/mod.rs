@@ -101,6 +101,10 @@ pub(crate) struct OtlpExportFailed {
     /// statuses, earlier for non-retryable ones).
     #[context]
     pub attempt: usize,
+
+    /// Configured endpoint that rejected or failed to accept the batch.
+    #[context]
+    pub endpoint: String,
 }
 
 #[allow(clippy::all)]
@@ -167,6 +171,7 @@ mod tests {
                 error: "connection refused".to_string(),
                 record_count: 17,
                 attempt: 5,
+                endpoint: "http://localhost:4317".to_string(),
             });
         });
 
@@ -193,6 +198,7 @@ mod tests {
             error: "deadline exceeded".to_string(),
             record_count: 3,
             attempt: 0,
+            endpoint: "http://localhost:4317".to_string(),
         });
 
         assert_eq!(

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -292,7 +293,7 @@ impl SinksConfig {
             || self
                 .otlp
                 .as_option()
-                .is_some_and(|config| config.include_diagnostics)
+                .is_some_and(OtlpSinkConfig::includes_diagnostics)
     }
 }
 
@@ -344,38 +345,80 @@ impl Default for LogFileSinkConfig {
     }
 }
 
-/// OTLP gRPC sink configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configures OTLP/gRPC fan-out to independent targets.
+///
+/// Each supported log and metric is sent to every target. Targets own separate
+/// queues and drain tasks, so a slow or unavailable destination does not block
+/// delivery to another destination.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OtlpSinkConfig {
-    /// OTLP gRPC target.
+    /// Destinations that receive OTLP logs and metrics.
+    ///
+    /// At least one target is required when the sink is enabled.
+    pub targets: Vec<OtlpTargetConfig>,
+}
+
+impl OtlpSinkConfig {
+    fn includes_diagnostics(&self) -> bool {
+        self.targets.iter().any(|target| target.include_diagnostics)
+    }
+}
+
+/// Delivery and batching policy for one OTLP/gRPC destination.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtlpTargetConfig {
+    /// Endpoint URI that receives both logs and metrics over OTLP/gRPC.
     pub endpoint: String,
 
-    /// Maximum number of events or samples exported per request.
+    /// Maximum number of events or samples exported per request. Defaults to
+    /// 512.
+    #[serde(default = "OtlpTargetConfig::default_batch_size")]
     pub batch_size: usize,
 
-    /// Maximum time to wait before flushing a non-empty batch.
-    #[serde(with = "humantime_serde")]
+    /// Maximum time to wait before flushing a non-empty batch for either
+    /// signal. Defaults to two seconds.
+    #[serde(
+        default = "OtlpTargetConfig::default_flush_interval",
+        with = "humantime_serde"
+    )]
     pub flush_interval: std::time::Duration,
 
-    /// Export Redfish diagnostic payload fields.
+    /// Export Redfish diagnostic payload fields to this target.
     ///
     /// Disabled by default because payload bodies are opaque and may be large or
     /// sensitive. If no diagnostic-capable sink enables diagnostics, collectors
     /// do not attach diagnostic fields. OTLP exports parent logs normally and
     /// keeps diagnostics as latest-wins per endpoint while the drain is backed
     /// up.
+    #[serde(default)]
     pub include_diagnostics: bool,
 }
 
-impl Default for OtlpSinkConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: "http://localhost:4317".to_string(),
-            include_diagnostics: false,
-            batch_size: 512,
-            flush_interval: std::time::Duration::from_secs(2),
+impl OtlpTargetConfig {
+    fn default_batch_size() -> usize {
+        512
+    }
+
+    fn default_flush_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(2)
+    }
+
+    fn validate(&self, index: usize) -> Result<(), String> {
+        let path = format!("sinks.otlp.targets[{index}]");
+
+        if self.batch_size == 0 {
+            return Err(format!("{path}.batch_size must be greater than 0"));
         }
+
+        if self.flush_interval.is_zero() {
+            return Err(format!("{path}.flush_interval must be greater than 0"));
+        }
+
+        tonic::transport::Channel::from_shared(self.endpoint.clone())
+            .map_err(|_| format!("invalid {path}.endpoint: {}", self.endpoint))?;
+
+        Ok(())
     }
 }
 
@@ -1440,8 +1483,22 @@ impl Config {
         }
 
         if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
-            tonic::transport::Channel::from_shared(otlp.endpoint.clone())
-                .map_err(|_| format!("invalid sinks.otlp.endpoint: {}", otlp.endpoint))?;
+            if otlp.targets.is_empty() {
+                return Err("sinks.otlp.targets must not be empty".to_string());
+            }
+
+            let mut endpoints = HashSet::new();
+
+            for (index, target) in otlp.targets.iter().enumerate() {
+                target.validate(index)?;
+
+                if !endpoints.insert(target.endpoint.as_str()) {
+                    return Err(format!(
+                        "sinks.otlp.targets[{index}].endpoint must be unique: {}",
+                        target.endpoint
+                    ));
+                }
+            }
         }
 
         self.metrics_addr()?;
@@ -1881,12 +1938,29 @@ username = "root"
         assert!(config.validate().is_ok());
 
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
-            endpoint: "not a valid uri\n".to_string(),
-            ..OtlpSinkConfig::default()
+            targets: vec![OtlpTargetConfig {
+                endpoint: "not a valid uri\n".to_string(),
+                batch_size: 512,
+                flush_interval: Duration::from_secs(2),
+                include_diagnostics: false,
+            }],
         });
+
         assert!(config.validate().is_err());
 
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig::default());
+
+        assert!(config.validate().is_err());
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+            targets: vec![OtlpTargetConfig {
+                endpoint: "http://localhost:4317".to_string(),
+                batch_size: 512,
+                flush_interval: Duration::from_secs(2),
+                include_diagnostics: false,
+            }],
+        });
+
         assert!(config.validate().is_ok());
     }
 
@@ -1902,16 +1976,109 @@ username = "root"
             .extract()
             .expect("log file config should parse");
         let otlp: OtlpSinkConfig = Figment::new()
-            .merge(Toml::string("include_diagnostics = true"))
+            .merge(Toml::string(
+                r#"
+[[targets]]
+endpoint = "http://localhost:4317"
+include_diagnostics = true
+"#,
+            ))
             .extract()
             .expect("otlp config should parse");
 
         assert!(tracing.include_diagnostics);
         assert!(log_file.include_diagnostics);
-        assert!(otlp.include_diagnostics);
+        assert!(otlp.includes_diagnostics());
         assert!(!TracingSinkConfig::default().include_diagnostics);
         assert!(!LogFileSinkConfig::default().include_diagnostics);
-        assert!(!OtlpSinkConfig::default().include_diagnostics);
+        assert!(!OtlpSinkConfig::default().includes_diagnostics());
+    }
+
+    #[test]
+    fn otlp_target_list_parses_independent_settings() {
+        let otlp: OtlpSinkConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+
+[[targets]]
+endpoint = "https://central.example:4317"
+batch_size = 1024
+flush_interval = "5s"
+include_diagnostics = true
+"#,
+            ))
+            .extract()
+            .expect("multi-target OTLP config should parse");
+
+        let targets = &otlp.targets;
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].batch_size, 512);
+        assert_eq!(targets[0].flush_interval, Duration::from_secs(2));
+        assert_eq!(targets[1].batch_size, 1024);
+        assert_eq!(targets[1].flush_interval, Duration::from_secs(5));
+        assert!(targets[1].include_diagnostics);
+
+        let mut config = Config::default();
+
+        config.sinks.otlp = Configurable::Enabled(otlp);
+
+        config
+            .validate()
+            .expect("multi-target OTLP config should validate");
+    }
+
+    #[test]
+    fn otlp_target_list_rejects_invalid_target_contracts() {
+        struct TestCase {
+            name: &'static str,
+            toml: &'static str,
+            expected: &'static str,
+        }
+
+        let cases = [
+            TestCase {
+                name: "empty list",
+                toml: "targets = []",
+                expected: "sinks.otlp.targets must not be empty",
+            },
+            TestCase {
+                name: "zero batch size",
+                toml: r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+batch_size = 0
+"#,
+                expected: "sinks.otlp.targets[0].batch_size must be greater than 0",
+            },
+            TestCase {
+                name: "duplicate endpoint",
+                toml: r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+
+[[targets]]
+endpoint = "http://site.example:4317"
+"#,
+                expected: "sinks.otlp.targets[1].endpoint must be unique: http://site.example:4317",
+            },
+        ];
+
+        for case in cases {
+            let otlp: OtlpSinkConfig = Figment::new()
+                .merge(Toml::string(case.toml))
+                .extract()
+                .expect(case.name);
+
+            let mut config = Config::default();
+            config.sinks.otlp = Configurable::Enabled(otlp);
+
+            let error = config.validate().expect_err(case.name);
+
+            assert_eq!(error, case.expected, "{}", case.name);
+        }
     }
 
     /// Verifies collectors attach diagnostics only when a capable sink opts in.
@@ -1924,7 +2091,14 @@ username = "root"
                 SinksConfig {
                     tracing: Configurable::Enabled(TracingSinkConfig::default()),
                     log_file: Configurable::Enabled(LogFileSinkConfig::default()),
-                    otlp: Configurable::Enabled(OtlpSinkConfig::default()),
+                    otlp: Configurable::Enabled(OtlpSinkConfig {
+                        targets: vec![OtlpTargetConfig {
+                            endpoint: "http://localhost:4317".to_string(),
+                            batch_size: 512,
+                            flush_interval: Duration::from_secs(2),
+                            include_diagnostics: false,
+                        }],
+                    }),
                     ..SinksConfig::default()
                 },
                 false,
@@ -1954,8 +2128,35 @@ username = "root"
                 "otlp-diagnostics",
                 SinksConfig {
                     otlp: Configurable::Enabled(OtlpSinkConfig {
-                        include_diagnostics: true,
-                        ..OtlpSinkConfig::default()
+                        targets: vec![OtlpTargetConfig {
+                            endpoint: "http://localhost:4317".to_string(),
+                            batch_size: 512,
+                            flush_interval: Duration::from_secs(2),
+                            include_diagnostics: true,
+                        }],
+                    }),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+            (
+                "one-of-multiple-otlp-targets-enables-diagnostics",
+                SinksConfig {
+                    otlp: Configurable::Enabled(OtlpSinkConfig {
+                        targets: vec![
+                            OtlpTargetConfig {
+                                endpoint: "http://site.example:4317".to_string(),
+                                batch_size: 512,
+                                flush_interval: Duration::from_secs(2),
+                                include_diagnostics: false,
+                            },
+                            OtlpTargetConfig {
+                                endpoint: "http://central.example:4317".to_string(),
+                                batch_size: 512,
+                                flush_interval: Duration::from_secs(2),
+                                include_diagnostics: true,
+                            },
+                        ],
                     }),
                     ..SinksConfig::default()
                 },
@@ -1992,7 +2193,14 @@ username = "root"
             (
                 "otlp",
                 SinksConfig {
-                    otlp: Configurable::Enabled(OtlpSinkConfig::default()),
+                    otlp: Configurable::Enabled(OtlpSinkConfig {
+                        targets: vec![OtlpTargetConfig {
+                            endpoint: "http://localhost:4317".to_string(),
+                            batch_size: 512,
+                            flush_interval: Duration::from_secs(2),
+                            include_diagnostics: false,
+                        }],
+                    }),
                     ..SinksConfig::default()
                 },
                 true,

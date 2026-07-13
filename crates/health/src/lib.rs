@@ -242,12 +242,17 @@ fn build_data_sink(
 
     if let Configurable::Enabled(ref otlp_cfg) = config.sinks.otlp {
         let mapper: Arc<dyn RedfishEventMapper> = Arc::new(OpenBmcEventMapper);
-        sinks.push(Arc::new(OtlpSink::new(
-            otlp_cfg,
+
+        let otlp_sinks = OtlpSink::new_many(
+            &otlp_cfg.targets,
             mapper,
             &metrics_manager,
             &config.metrics.prefix,
-        )?));
+        )?;
+
+        for sink in otlp_sinks {
+            sinks.push(Arc::new(sink));
+        }
     }
 
     if sinks.is_empty() {
