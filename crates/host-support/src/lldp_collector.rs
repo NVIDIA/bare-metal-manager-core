@@ -152,8 +152,8 @@ fn is_self_loopback(neighbor: &rpc_discovery::LldpSwitchData, own: &LldpId) -> b
 ///
 /// Best-effort: `None` when lldpd is unavailable or the output is malformed.
 fn get_local_chassis_id() -> Option<LldpId> {
-    let out = Cmd::new("bash")
-        .args(vec!["-c", "lldpcli -f json0 show chassis"])
+    let out = Cmd::new("lldpcli")
+        .args(vec!["-f", "json0", "show", "chassis"])
         .output()
         .map_err(|e| warn!("Could not read local LLDP chassis: {e}"))
         .ok()?;
@@ -229,9 +229,8 @@ fn lldp_for_device(device: &Device) -> Vec<rpc_discovery::LldpSwitchData> {
 
 /// Get raw `lldpcli -f json0` output for a port.
 pub fn get_lldp_port_info(port: &str) -> LldpCollectorResult<String> {
-    let lldp_cmd = format!("lldpcli -f json0 show neighbors ports {port}");
-    Cmd::new("bash")
-        .args(vec!["-c", lldp_cmd.as_str()])
+    Cmd::new("lldpcli")
+        .args(vec!["-f", "json0", "show", "neighbors", "ports", port])
         .output()
         .map_err(|e| {
             warn!("Could not discover LLDP peer for {port}, {e}");
