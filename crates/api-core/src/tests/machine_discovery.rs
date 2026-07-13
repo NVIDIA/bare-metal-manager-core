@@ -18,7 +18,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use common::api_fixtures::dpu::create_dpu_machine;
-use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine_with_reporter};
+use common::api_fixtures::host::{
+    host_discover_dhcp, host_discover_machine_from_remote_ip, host_discover_machine_with_reporter,
+};
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_test_env};
 use itertools::Itertools;
 use mac_address::MacAddress;
@@ -261,6 +263,54 @@ async fn test_discover_dpu_not_create_machine(
     let response = env.api.discover_machine(req).await;
 
     assert!(response.is_err());
+
+    Ok(())
+}
+
+/// Regression for #2822: when a host's connecting (IP-resolved) interface is not
+/// yet associated with a machine, discovery must fall back to the kernel-cmdline
+/// `machine_interface_id` (the DPU-connected interface carrying the
+/// predicted-host record) instead of failing with `machine_id not found`.
+#[crate::sqlx_test]
+async fn test_host_discovery_falls_back_to_cmdline_interface_when_ip_unassociated(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
+    // The DPU-connected interface that carries the predicted-host record.
+    let cmdline_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
+
+    // A separate interface the host actually connects on: it has an IP but is not
+    // yet associated with any machine.
+    let mut txn = env.pool.begin().await?;
+    let stray = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        MacAddress::from_str("aa:bb:cc:dd:ee:01").unwrap(),
+        std::slice::from_ref(&FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap()),
+        None,
+        None,
+    )
+    .await?;
+    txn.commit().await?;
+    assert!(
+        stray.machine_id.is_none(),
+        "stray connecting interface must be unassociated"
+    );
+    assert_ne!(stray.id, cmdline_interface_id);
+    let stray_ip = *stray
+        .addresses
+        .first()
+        .expect("stray interface must have an IP");
+
+    // Connect via the stray IP but pass the DPU-connected interface as the
+    // kernel-cmdline machine_interface_id. Without the fallback this fails with
+    // `machine_id not found`.
+    let machine_id =
+        host_discover_machine_from_remote_ip(&env, &host_config, cmdline_interface_id, stray_ip)
+            .await
+            .expect("host registration should succeed via cmdline-interface fallback");
+    assert!(machine_id.machine_type().is_host());
 
     Ok(())
 }

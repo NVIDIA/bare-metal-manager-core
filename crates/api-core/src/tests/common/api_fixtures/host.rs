@@ -152,6 +152,38 @@ pub async fn host_discover_machine_with_reporter(
     response.machine_id.expect("machine_id must be set")
 }
 
+/// Like [`host_discover_machine`], but the request arrives from `remote_ip` (via
+/// `X-Forwarded-For`) while still passing `machine_interface_id` as the
+/// kernel-cmdline interface. Exercises the case where the IP-resolved interface
+/// differs from the cmdline interface. Returns the gRPC result so callers can
+/// assert success or failure.
+pub async fn host_discover_machine_from_remote_ip(
+    env: &TestEnv,
+    host_config: &ManagedHostConfig,
+    machine_interface_id: MachineInterfaceId,
+    remote_ip: std::net::IpAddr,
+) -> Result<MachineId, tonic::Status> {
+    let mut discovery_info = DiscoveryInfo::try_from(HardwareInfo::from(host_config)).unwrap();
+    discovery_info.attest_key_info = Some(AttestKeyInfo {
+        ek_pub: EK_PUB_SERIALIZED.to_vec(),
+        ak_pub: AK_PUB_SERIALIZED.to_vec(),
+        ak_name: AK_NAME_SERIALIZED.to_vec(),
+    });
+
+    let mut request = Request::new(MachineDiscoveryInfo {
+        machine_interface_id: Some(machine_interface_id),
+        discovery_data: Some(DiscoveryData::Info(discovery_info)),
+        create_machine: true,
+        ..Default::default()
+    });
+    request
+        .metadata_mut()
+        .insert("x-forwarded-for", remote_ip.to_string().parse().unwrap());
+
+    let response = env.api.discover_machine(request).await?.into_inner();
+    Ok(response.machine_id.expect("machine_id must be set"))
+}
+
 pub async fn host_uefi_setup(env: &TestEnv, host_machine_id: &MachineId) {
     let machine = TestMachine::new(*host_machine_id, env.api.clone());
 

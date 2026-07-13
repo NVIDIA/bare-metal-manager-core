@@ -159,8 +159,31 @@ pub(crate) async fn discover_machine(
         .await?;
     }
 
-    let interface =
+    let mut interface =
         db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+
+    // Host-only: a host can get its lease/IP on an interface that isn't yet
+    // associated with a machine, while its DPU-paired predicted-host record
+    // lives on the DPU-connected boot interface named by the kernel-cmdline
+    // `machine_interface_id`. When the connecting (IP-resolved) interface has no
+    // machine, prefer that cmdline interface for host identity so both the
+    // TPM/serial guard below and the host-id sync operate on the correct record
+    // instead of failing with `machine_id not found`. Gated on `!is_dpu()` — the
+    // DPU discovery path resolves its interface differently and is unaffected.
+    if !hardware_info.is_dpu()
+        && interface.machine_id.is_none()
+        && let Some(cmdline_id) = interface_id.filter(|id| *id != interface.id)
+        && let Ok(cmdline_interface) = db::machine_interface::find_one(&mut txn, cmdline_id).await
+        && cmdline_interface.machine_id.is_some()
+    {
+        tracing::info!(
+            ip_interface_id = %interface.id,
+            %cmdline_id,
+            "Connecting interface has no associated machine; using kernel-cmdline machine_interface_id for host identity",
+        );
+        interface = cmdline_interface;
+    }
+
     if !hardware_info.is_dpu()
         && hardware_info.tpm_ek_certificate.is_none()
         && stable_machine_id.source() == MachineIdSource::ProductBoardChassisSerial
