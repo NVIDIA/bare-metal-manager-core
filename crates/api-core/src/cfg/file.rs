@@ -3463,7 +3463,6 @@ mod tests {
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
-                explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
@@ -3672,7 +3671,6 @@ mod tests {
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
-                explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
@@ -4016,7 +4014,6 @@ mod tests {
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
-                explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
@@ -4208,11 +4205,6 @@ mod tests {
         assert!(config.create_machines.load(AtomicOrdering::Relaxed));
         assert!(config.create_switches.load(AtomicOrdering::Relaxed));
         assert!(config.create_power_shelves.load(AtomicOrdering::Relaxed));
-        assert!(
-            config
-                .explore_power_shelves_from_static_ip
-                .load(AtomicOrdering::Relaxed)
-        );
         Ok(())
     }
 
