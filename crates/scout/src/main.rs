@@ -94,6 +94,11 @@ async fn main() -> Result<(), eyre::Report> {
         return Ok(());
     }
 
+    // Purely local interrogation for troubleshooting.
+    if matches!(config.subcmd, Some(Command::LldpNeighbors)) {
+        return carbide_host_support::lldp_collector::print_lldp_neighbors();
+    }
+
     check_if_running_in_qemu().await;
 
     carbide_host_support::init_logging("nico-scout")?;
@@ -308,6 +313,8 @@ async fn run_standalone(config: &Options) -> Result<(), eyre::Report> {
         // sure we match everything. Maybe this could
         // log something.
         Command::Mlx(_) => return Ok(()),
+        // Handled in main() before logging/API setup; kept for exhaustiveness.
+        Command::LldpNeighbors => return Ok(()),
     };
 
     handle_action(action, &machine_id, machine_interface_id, config).await?;

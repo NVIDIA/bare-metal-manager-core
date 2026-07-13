@@ -424,9 +424,15 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(is_self_loopback(&neighbor("mac", "58:a2:e1:54:6f:ae"), &own));
+        assert!(is_self_loopback(
+            &neighbor("mac", "58:a2:e1:54:6f:ae"),
+            &own
+        ));
         // different chassis value -> genuine external link
-        assert!(!is_self_loopback(&neighbor("mac", "24:8a:07:b4:41:aa"), &own));
+        assert!(!is_self_loopback(
+            &neighbor("mac", "24:8a:07:b4:41:aa"),
+            &own
+        ));
         // same string value but different id type -> not self
         assert!(!is_self_loopback(
             &neighbor("local", "58:a2:e1:54:6f:ae"),
