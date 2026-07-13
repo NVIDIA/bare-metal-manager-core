@@ -19,6 +19,7 @@
 
 use std::hash::Hash;
 
+use carbide_instrument::Event;
 use moka::future::Cache;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Meter};
@@ -61,63 +62,97 @@ where
         .build();
 }
 
-/// Consumer metrics using OpenTelemetry counters.
+// The four message counters are `carbide-instrument` events. Their exposed
+// names are grandfathered, and `name_unchecked` keeps them byte-identical:
+// the pre-framework counters registered names that already ended in `_total`,
+// and the OpenTelemetry Prometheus exporter appends its own `_total` to every
+// counter -- so `/metrics` has always shown a doubled `_total_total` suffix.
+// The framework strips one `_total` before registering and the exporter
+// re-appends it, reproducing the exact name every existing dashboard and alert
+// already selects on.
+
+/// An MQTT message reached a subscription handler, before any queueing.
+#[derive(Event)]
+#[event(
+    name = "carbide_dsx_exchange_consumer_messages_received_total_total",
+    name_unchecked,
+    component = "nico-dsx-exchange-consumer",
+    log = off,
+    metric = counter,
+    describe = "Total number of MQTT messages received"
+)]
+pub struct MessageReceived;
+
+/// A message was correlated with its metadata and its rack health update
+/// applied (or its alert cleared).
+#[derive(Event)]
+#[event(
+    name = "carbide_dsx_exchange_consumer_messages_processed_total_total",
+    name_unchecked,
+    component = "nico-dsx-exchange-consumer",
+    log = off,
+    metric = counter,
+    describe = "Total number of messages successfully processed"
+)]
+pub struct MessageProcessed;
+
+/// The bounded internal queue was full, so an incoming message was dropped.
+///
+/// Metric-only: the `tracing::warn!` at each drop site is unchanged, so this
+/// event only moves the counter beside it.
+#[derive(Event)]
+#[event(
+    name = "carbide_dsx_exchange_consumer_messages_dropped_total_total",
+    name_unchecked,
+    component = "nico-dsx-exchange-consumer",
+    log = off,
+    metric = counter,
+    describe = "Total number of messages dropped due to queue overflow"
+)]
+pub struct MessageDropped;
+
+/// A value matched the state already cached for its point, so no API update
+/// was sent.
+///
+/// Metric-only: the `tracing::trace!` at the dedup site is unchanged, so this
+/// event only moves the counter beside it.
+#[derive(Event)]
+#[event(
+    name = "carbide_dsx_exchange_consumer_dedup_skipped_total_total",
+    name_unchecked,
+    component = "nico-dsx-exchange-consumer",
+    log = off,
+    metric = counter,
+    describe = "Total number of messages skipped due to deduplication"
+)]
+pub struct MessageDeduplicated;
+
+/// Consumer metrics that remain hand-rolled OpenTelemetry counters.
+///
+/// Only `alerts_detected` stays here: its `point_type` label is a
+/// caller-supplied string that needs a bounded mapping before it can become a
+/// framework event, which is tracked separately. The message counters are the
+/// `carbide-instrument` events above.
 ///
 /// Cloning is cheap and correct: OpenTelemetry counters are internally Arc'd,
 /// so clones share the same underlying metric instances.
 #[derive(Clone)]
 pub struct ConsumerMetrics {
-    messages_received: Counter<u64>,
-    messages_processed: Counter<u64>,
-    messages_dropped: Counter<u64>,
     alerts_detected: Counter<u64>,
-    dedup_skipped: Counter<u64>,
 }
 
 impl ConsumerMetrics {
     pub fn new(meter: &Meter) -> Self {
         Self {
-            messages_received: meter
-                .u64_counter(format!("{METRICS_PREFIX}_messages_received_total"))
-                .with_description("Total number of MQTT messages received")
-                .build(),
-            messages_processed: meter
-                .u64_counter(format!("{METRICS_PREFIX}_messages_processed_total"))
-                .with_description("Total number of messages successfully processed")
-                .build(),
-            messages_dropped: meter
-                .u64_counter(format!("{METRICS_PREFIX}_messages_dropped_total"))
-                .with_description("Total number of messages dropped due to queue overflow")
-                .build(),
             alerts_detected: meter
                 .u64_counter(format!("{METRICS_PREFIX}_alerts_detected_total"))
                 .with_description("Total number of leak alerts detected")
                 .build(),
-            dedup_skipped: meter
-                .u64_counter(format!("{METRICS_PREFIX}_dedup_skipped_total"))
-                .with_description("Total number of messages skipped due to deduplication")
-                .build(),
         }
-    }
-
-    pub fn record_message_received(&self) {
-        self.messages_received.add(1, &[]);
-    }
-
-    pub fn record_message_processed(&self) {
-        self.messages_processed.add(1, &[]);
-    }
-
-    pub fn record_message_dropped(&self) {
-        self.messages_dropped.add(1, &[]);
     }
 
     pub fn record_alert_detected(&self, point_type: &str) {
         self.alerts_detected
             .add(1, &[KeyValue::new("point_type", point_type.to_string())]);
-    }
-
-    pub fn record_dedup_skipped(&self) {
-        self.dedup_skipped.add(1, &[]);
     }
 }
