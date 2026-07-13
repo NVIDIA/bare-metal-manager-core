@@ -297,7 +297,7 @@ curl -X PATCH "${BASE_URL}/v2/org/${ORG}/nico/machine/${MACHINE_ID}/dpu/reprovis
   -d '{"mode":"Set"}'
 ```
 
-Use `Set` to start reprovisioning and `Clear` to remove a pending request. `Restart` accepts a host ID only and restarts DPUs that already have a reprovisioning request. If an Instance is attached to the Machine, also pass `"acknowledgeAttachedInstance": true`. The REST `updateFirmware` field is accepted for compatibility, but firmware is always verified and updated during reprovisioning.
+Use `Set` mode in the PATCH operation to start reprovisioning and `Clear` to remove a pending request. `Restart` mode accepts a host ID only, and restarts DPUs that already have a reprovisioning request. If an Instance is attached to the Machine, also pass `"acknowledgeAttachedInstance": true`. The REST `updateFirmware` field is accepted for compatibility, but firmware is always verified and updated during reprovisioning.
 
 ### Monitoring Reprovisioning Progress
 

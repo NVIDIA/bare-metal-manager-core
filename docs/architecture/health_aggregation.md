@@ -320,7 +320,7 @@ The override API offers 2 different modes of operation:
   will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
 
 The API allows multiple `Merge` overrides on a host at the same time by using a different `source` identifier for each report.
-This allows to integrate health information from multiple external systems and users which are not at risk of overriding each others data. E.g. health information from an external fleet health monitoring system and from SREs can be stored independently.
+This allows you to integrate health information from multiple external systems and users which are not at risk of overriding each other's data. For example, health information from an external fleet health monitoring system and from SREs can be stored independently.
 
 If a ManagedHost's health is overridden, the remaining behavior is exactly the same
 as if the overridden Health report would have been directly derived from monitoring
