@@ -148,7 +148,7 @@ pub fn get_dpu_info() -> Result<DpuData, DpuEnumerationError> {
         firmware_version: fw_ver[0].clone(),
         firmware_date: fw_date[0].clone(),
         // Left empty here; LLDP neighbors are collected and reported separately
-        // by the lldp_collector/lldp_reporter.
+        // by the lldp_collector (lldp_reporter will be done in next PRs).
         switches: vec![],
     };
     Ok(dpu_info)
