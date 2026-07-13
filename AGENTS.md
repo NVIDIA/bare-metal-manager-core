@@ -45,7 +45,7 @@ infra-controller/
 ├── lints/               # Custom Clippy lints (carbide-lints crate)
 ├── include/             # Shared Makefile fragments
 ├── .github/             # GitHub Actions workflows and templates
-|-- rest-api/            # Golang-based REST API
+├── rest-api/            # Golang-based REST API
 ├── Cargo.toml           # Workspace dependency management
 ├── Makefile.toml        # Primary build/task automation
 ├── Makefile-build.toml  # Build-specific tasks
@@ -65,7 +65,7 @@ infra-controller/
 - **API definitions:** Protocol Buffers (protobuf)
 
 ### REST API and components
-- **Language (REST API):** Golang 1.26.5
+- **Language (REST API):** Golang 1.26.x
 
 ## Build, Test, and Lint Commands
 

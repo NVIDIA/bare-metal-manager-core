@@ -698,8 +698,8 @@ fn prefer() {
 
 ### Avoid stringly-typed values
 
-When a value has a known, finite set of possibilities, model it with an enum (or
-a struct of enums) and derive its string form via `Display`/`FromStr` — do not
+When a value has a known, finite set of possibilities, model it with an enum
+(or a struct of enums) and implement traits `Display` and `FromStr` — do not
 pass it around as a bare `String` or `&str` literal. Stringly-typed values are
 easy to misspell (`NICO-` vs `NICOO-`), silently break log filters and alerts,
 and can't be exhaustively checked by the compiler. See
