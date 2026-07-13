@@ -2656,12 +2656,14 @@ dependencies = [
  "carbide-version",
  "clap",
  "http-body",
+ "logfmt",
  "metrics",
  "metrics-endpoint",
  "metrics-exporter-prometheus",
  "mime",
  "pin-project-lite",
  "prometheus",
+ "rand 0.10.1",
  "serde",
  "tempfile",
  "tera",
@@ -2672,6 +2674,8 @@ dependencies = [
  "tower-http",
  "tower-layer",
  "tower-service",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 

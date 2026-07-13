@@ -27,6 +27,10 @@ use common::AppState;
 use tera::Tera;
 use tower_http::services::ServeDir;
 use tower_layer::Layer;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 mod common;
 mod config;
@@ -49,24 +53,30 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opts = Args::parse();
     if opts.version {
+        // The --version flag writes the bare version to stdout by design (a
+        // machine-readable value, not a log line), so it stays a println.
         println!("{}", carbide_version::version!());
         return Ok(());
     }
 
+    setup_tracing()?;
+
     let static_path = std::path::Path::new(&opts.static_dir);
     if !&static_path.exists() {
-        println!(
-            "Static path {} does not exist. Creating directory",
-            &static_path.display()
+        tracing::info!(
+            static_path = %static_path.display(),
+            "static path does not exist; creating directory"
         );
 
         match std::fs::create_dir_all(static_path) {
-            Ok(_) => println!("Directory {}, created", &static_path.display()),
-            Err(e) => eprintln!("Could not create directory: {e}"),
+            Ok(_) => {
+                tracing::info!(static_path = %static_path.display(), "created static directory")
+            }
+            Err(e) => tracing::error!(error = %e, "could not create static directory"),
         }
     }
 
-    println!("Start carbide-pxe version {}", carbide_version::version!());
+    tracing::info!(version = %carbide_version::version!(), "starting carbide-pxe");
     let prometheus_handle = metrics::setup_prometheus();
 
     // The instrumentation framework's events resolve their instruments from
@@ -75,6 +85,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // alive for the process lifetime -- dropping it stops collection.
     let otel_metrics = metrics_endpoint::new_metrics_setup("carbide-pxe", "carbide", true)
         .expect("unable to install the OTel meter provider?");
+
+    // Bind the log-events counter -- installed as a subscriber layer in
+    // setup_tracing so it counts from startup -- to the meter now that the
+    // provider exists, so carbide_log_events_total exports pxe's log volume and
+    // error rate like every other fleet binary.
+    carbide_instrument::log_events::register(&otel_metrics.meter);
 
     let runtime_config =
         config::RuntimeConfig::from_env().expect("unable to build runtime config?");
@@ -124,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(socket_addr)
         .await
         .map_err(|err| {
-            eprintln!("unable to bind to tcp listener with error: {err}");
+            tracing::error!(error = %err, "unable to bind tcp listener");
             err
         })?;
 
@@ -133,6 +149,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         final_app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await?;
+
+    Ok(())
+}
+
+/// Installs the tracing subscriber that emits logs in the fleet's logfmt
+/// format, tagged with the `nico-pxe` component, plus the log-events counting
+/// layer that feeds the fleet-standard `carbide_log_events_total` counter.
+/// Matches the other carbide binaries: an `INFO` default with the usual
+/// dependency caps, overridable via `RUST_LOG`. The counter is bound to the
+/// meter by `log_events::register` in `main`, once the provider exists.
+fn setup_tracing() -> Result<(), Box<dyn std::error::Error>> {
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("hyper=warn".parse()?)
+        .add_directive("h2=warn".parse()?)
+        .add_directive("tower=warn".parse()?)
+        .add_directive("rustls=warn".parse()?)
+        .add_directive("tokio_util::codec=warn".parse()?);
+
+    // Counts every log line into carbide_log_events_total from startup; the
+    // counts are exposed once main() installs the meter provider. The env
+    // filter sits on the registry as a global filter so the counting layer and
+    // the logfmt output see exactly the same events.
+    let log_events = carbide_instrument::LogEventsMetric::new("nico-pxe");
+    tracing_subscriber::registry()
+        .with(log_events.layer())
+        .with(
+            logfmt::layer()
+                .with_event_fields([logfmt::EventField::with_default("component", "nico-pxe")]),
+        )
+        .with(env_filter)
+        .try_init()?;
 
     Ok(())
 }
