@@ -19,7 +19,8 @@ type Store interface {
 	RunInTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 	FetchRunnableIDs(ctx context.Context, limit int) ([]uuid.UUID, error)
 	LockRunnable(ctx context.Context, id uuid.UUID) (*operationrun.OperationRun, error)
-	LockOperationRunTargets(ctx context.Context, runID uuid.UUID) ([]*operationrun.OperationRunTarget, error)
+	LockOperationRunTargets(ctx context.Context, runID uuid.UUID, phaseIndex int32) ([]*operationrun.OperationRunTarget, error)
+	GetTargetPhaseAggregate(ctx context.Context, runID uuid.UUID, currentPhaseIndex int32) (operationrun.TargetPhaseAggregate, error)
 	UpdateRunState(ctx context.Context, run *operationrun.OperationRun) error
 	UpdateTargetState(ctx context.Context, target *operationrun.OperationRunTarget) error
 }
