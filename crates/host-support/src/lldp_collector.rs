@@ -31,7 +31,7 @@ pub struct LldpValue {
     pub value: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct LldpId {
     #[serde(rename = "type")]
     pub id_type: String,
@@ -85,8 +85,14 @@ pub struct LldpResponse {
 ///
 /// Enumerates Ethernet net interfaces and returns `(local_mac, neighbor)` pairs
 /// for every interface that currently has an LLDP neighbor. Interfaces without a
-/// neighbor (or when lldpd is unavailable) are omitted, (todo loopback omit) so a full-snapshot report
+/// neighbor (or when lldpd is unavailable) are omitted, so a full-snapshot report
 /// lets the server reconcile (drop) interfaces whose neighbor disappeared.
+///
+/// Neighbors advertising our own chassis id are discarded: on DPUs, e-switch
+/// representor pairs loop LLDP frames back through the embedded switch, so the
+/// box would otherwise report itself as its own neighbor. Comparing chassis ids
+/// (rather than matching interface names) works regardless of NIC vendor,
+/// naming convention, or host type.
 ///
 /// This is intentionally cheap so it can run on a short interval.
 pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<(String, rpc_discovery::LldpSwitchData)>>
@@ -94,6 +100,8 @@ pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<(String, rpc_discover
     let context = libudev::Context::new()?;
     let mut enumerator = libudev::Enumerator::new(&context)?;
     enumerator.match_subsystem("net")?;
+
+    let local_chassis_id = get_local_chassis_id();
 
     let mut out = Vec::new();
     for device in enumerator.scan_devices()? {
@@ -114,10 +122,64 @@ pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<(String, rpc_discover
         out.extend(
             lldp_for_device(&device)
                 .into_iter()
+                // When the local chassis id is unknown nothing is filtered —
+                // better a spurious self-entry than a lost fabric link.
+                .filter(|lldp| match &local_chassis_id {
+                    Some(own) => !is_self_loopback(lldp, own),
+                    None => true,
+                })
                 .map(|lldp| (mac.clone(), lldp)),
         );
     }
     Ok(out)
+}
+
+/// True when a neighbor's chassis id (type + value) matches our own local
+/// chassis id, i.e. the "neighbor" is this box itself via an internal loopback
+/// (e.g. a DPU e-switch representor pair).
+fn is_self_loopback(neighbor: &rpc_discovery::LldpSwitchData, own: &LldpId) -> bool {
+    let is_self = neighbor.id_type == own.id_type && neighbor.id_value == own.value;
+    if is_self {
+        debug!(
+            local_port = neighbor.local_port,
+            "dropping self-loopback LLDP neighbor"
+        );
+    }
+    is_self
+}
+
+/// Chassis id this host's lldpd advertises (`lldpcli -f json0 show chassis`).
+///
+/// Best-effort: `None` when lldpd is unavailable or the output is malformed.
+fn get_local_chassis_id() -> Option<LldpId> {
+    let out = Cmd::new("bash")
+        .args(vec!["-c", "lldpcli -f json0 show chassis"])
+        .output()
+        .map_err(|e| warn!("Could not read local LLDP chassis: {e}"))
+        .ok()?;
+    parse_local_chassis_id(&out)
+}
+
+/// Parse `lldpcli -f json0 show chassis` output down to the first chassis id.
+fn parse_local_chassis_id(json: &str) -> Option<LldpId> {
+    #[derive(Deserialize, Default)]
+    struct LocalChassisEntry {
+        #[serde(default)]
+        chassis: Vec<LldpChassis>,
+    }
+    #[derive(Deserialize, Default)]
+    struct LocalChassisRoot {
+        #[serde(rename = "local-chassis", default)]
+        local_chassis: Vec<LocalChassisEntry>,
+    }
+
+    let root: LocalChassisRoot = serde_json::from_str(json)
+        .map_err(|e| warn!("Could not deserialize local LLDP chassis {json}, {e}"))
+        .ok()?;
+    root.local_chassis
+        .into_iter()
+        .flat_map(|entry| entry.chassis)
+        .find_map(|chassis| chassis.id.into_iter().next())
 }
 
 /// Collect the LLDP neighbors visible on this host and print them. Purely local
@@ -244,7 +306,7 @@ fn parse_port_lldp(lldp_json: &str) -> LldpCollectorResult<Vec<rpc_discovery::Ll
 
 #[cfg(test)]
 mod tests {
-    use super::parse_port_lldp;
+    use super::{LldpId, is_self_loopback, parse_local_chassis_id, parse_port_lldp, rpc_discovery};
 
     // Three LLDP neighbors on a single physical port (`vlldp`). `-f json0` emits
     // each as its own `interface` array entry, so `parse_port_lldp` must yield one
@@ -322,5 +384,53 @@ mod tests {
     fn parses_no_neighbors_as_empty() {
         let neighbors = parse_port_lldp(r#"{"lldp":[{"interface":[]}]}"#).expect("parse");
         assert!(neighbors.is_empty());
+    }
+
+    // Shape of `lldpcli -f json0 show chassis` on a DPU.
+    const LOCAL_CHASSIS: &str = r#"{
+      "local-chassis": [
+        { "chassis": [
+            { "id": [{"type":"mac","value":"58:a2:e1:54:6f:ae"}],
+              "name": [{"value":"10-213-2-193.forge.local"}],
+              "descr": [{"value":"Forge-SRE"}] }] }
+      ]
+    }"#;
+
+    #[test]
+    fn parses_local_chassis_id() {
+        let id = parse_local_chassis_id(LOCAL_CHASSIS).expect("chassis id");
+        assert_eq!(id.id_type, "mac");
+        assert_eq!(id.value, "58:a2:e1:54:6f:ae");
+    }
+
+    #[test]
+    fn parses_local_chassis_id_absent() {
+        assert!(parse_local_chassis_id(r#"{"local-chassis":[{"chassis":[{}]}]}"#).is_none());
+        assert!(parse_local_chassis_id("not json").is_none());
+    }
+
+    // Representor pairs on a DPU report the DPU's own chassis as the neighbor;
+    // only a matching (type, value) pair marks the loopback — a genuinely
+    // different switch must be kept.
+    #[test]
+    fn self_loopback_detected_by_chassis_id() {
+        let own = LldpId {
+            id_type: "mac".into(),
+            value: "58:a2:e1:54:6f:ae".into(),
+        };
+        let neighbor = |id_type: &str, id_value: &str| rpc_discovery::LldpSwitchData {
+            id_type: id_type.into(),
+            id_value: id_value.into(),
+            ..Default::default()
+        };
+
+        assert!(is_self_loopback(&neighbor("mac", "58:a2:e1:54:6f:ae"), &own));
+        // different chassis value -> genuine external link
+        assert!(!is_self_loopback(&neighbor("mac", "24:8a:07:b4:41:aa"), &own));
+        // same string value but different id type -> not self
+        assert!(!is_self_loopback(
+            &neighbor("local", "58:a2:e1:54:6f:ae"),
+            &own
+        ));
     }
 }
