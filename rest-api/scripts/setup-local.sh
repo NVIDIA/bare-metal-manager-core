@@ -189,8 +189,8 @@ create_site() {
     EXISTING_SITE=$(echo "$EXISTING_RESP" | jq -r '.[] | select(.name == "local-dev-site") | .id' 2>/dev/null || echo "")
 
     if [ -n "$EXISTING_SITE" ] && [ "$EXISTING_SITE" != "null" ]; then
+        SITE_ID="$EXISTING_SITE"
         SITE_REG_TOKEN=$(echo "$EXISTING_RESP" | jq -r '.[] | select(.name == "local-dev-site") | .registrationToken // empty' 2>/dev/null)
-        echo "$EXISTING_SITE"
         return
     fi
 
@@ -210,7 +210,6 @@ create_site() {
         SITE_ID=$(echo "$SITE_RESP" | jq -r '.id // empty')
         if [ -n "$SITE_ID" ] && [ "$SITE_ID" != "null" ]; then
             SITE_REG_TOKEN=$(echo "$SITE_RESP" | jq -r '.registrationToken // empty')
-            echo "$SITE_ID"
             return
         fi
 
@@ -306,13 +305,15 @@ setup_site_agent() {
     TOKEN=$(get_token)
 
     echo "Creating site..."
-    SITE_ID=$(create_site "$TOKEN")
+    create_site "$TOKEN"
     echo "Site ID: $SITE_ID"
 
-    SITE_REG_TOKEN=$(curl -sf "$API_URL/v2/org/$ORG/nico/site/$SITE_ID?infrastructureProviderId=$(
-        curl -sf "$API_URL/v2/org/$ORG/nico/infrastructure-provider/current" \
-            -H "Authorization: Bearer $TOKEN" | jq -r '.id'
-    )" -H "Authorization: Bearer $TOKEN" | jq -r '.registrationToken // empty' 2>/dev/null)
+    if [ -z "${SITE_REG_TOKEN:-}" ] || [ "$SITE_REG_TOKEN" = "null" ]; then
+        SITE_REG_TOKEN=$(curl -sf "$API_URL/v2/org/$ORG/nico/site/$SITE_ID?infrastructureProviderId=$(
+            curl -sf "$API_URL/v2/org/$ORG/nico/infrastructure-provider/current" \
+                -H "Authorization: Bearer $TOKEN" | jq -r '.id'
+        )" -H "Authorization: Bearer $TOKEN" | jq -r '.registrationToken // empty' 2>/dev/null)
+    fi
     if [ -z "$SITE_REG_TOKEN" ] || [ "$SITE_REG_TOKEN" = "null" ]; then
         echo "Registration token is no longer exposed by the API"
     else

@@ -86,13 +86,22 @@ require_kind_context_for_rest() {
 }
 
 rest_postgres_sql() {
+  local rest_postgres_db_b64
+  local rest_postgres_password_b64
+  local rest_postgres_user_b64
+
+  rest_postgres_db_b64="$(printf '%s' "${REST_POSTGRES_DB}" | base64 | tr -d '\n')"
+  rest_postgres_user_b64="$(printf '%s' "${REST_POSTGRES_USER}" | base64 | tr -d '\n')"
+  rest_postgres_password_b64="$(printf '%s' "${REST_POSTGRES_PASSWORD}" | base64 | tr -d '\n')"
+
   printf '%s\n' \
+    "SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', convert_from(decode('${rest_postgres_user_b64}', 'base64'), 'UTF8'), convert_from(decode('${rest_postgres_password_b64}', 'base64'), 'UTF8'))" \
+    "WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = convert_from(decode('${rest_postgres_user_b64}', 'base64'), 'UTF8'))" \
+    '\gexec' \
+    "SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', convert_from(decode('${rest_postgres_user_b64}', 'base64'), 'UTF8'), convert_from(decode('${rest_postgres_password_b64}', 'base64'), 'UTF8'))" \
+    '\gexec' \
     'DO $$' \
     'BEGIN' \
-    "  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${REST_POSTGRES_USER}') THEN" \
-    "    EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', '${REST_POSTGRES_USER}', '${REST_POSTGRES_PASSWORD}');" \
-    '  END IF;' \
-    "  EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L', '${REST_POSTGRES_USER}', '${REST_POSTGRES_PASSWORD}');" \
     "  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'keycloak') THEN" \
     "    CREATE ROLE keycloak LOGIN PASSWORD 'keycloak';" \
     '  END IF;' \
@@ -103,11 +112,14 @@ rest_postgres_sql() {
     "  ALTER ROLE temporal WITH LOGIN PASSWORD 'temporal' CREATEDB;" \
     'END' \
     '$$;' \
-    "SELECT format('CREATE DATABASE %I OWNER %I', '${REST_POSTGRES_DB}', '${REST_POSTGRES_USER}')" \
-    "WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '${REST_POSTGRES_DB}')" \
+    "SELECT format('CREATE DATABASE %I OWNER %I', convert_from(decode('${rest_postgres_db_b64}', 'base64'), 'UTF8'), convert_from(decode('${rest_postgres_user_b64}', 'base64'), 'UTF8'))" \
+    "WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = convert_from(decode('${rest_postgres_db_b64}', 'base64'), 'UTF8'))" \
     '\gexec' \
-    "\\connect ${REST_POSTGRES_DB}" \
-    "GRANT ALL ON SCHEMA public TO ${REST_POSTGRES_USER};" \
+    "SELECT format('%I', convert_from(decode('${rest_postgres_db_b64}', 'base64'), 'UTF8')) AS rest_postgres_db_quoted" \
+    '\gset' \
+    '\connect :rest_postgres_db_quoted' \
+    "SELECT format('GRANT ALL ON SCHEMA public TO %I', convert_from(decode('${rest_postgres_user_b64}', 'base64'), 'UTF8'))" \
+    '\gexec' \
     'CREATE EXTENSION IF NOT EXISTS pg_trgm;' \
     '\connect postgres' \
     "SELECT 'CREATE DATABASE keycloak OWNER keycloak'" \
