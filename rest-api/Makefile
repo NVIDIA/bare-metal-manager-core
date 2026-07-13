@@ -619,6 +619,15 @@ kind-reset-kustomize: kind-reset-infra
 
 	@echo "Setting up Nico REST Site Agent..."
 	kubectl apply -k deploy/kustomize/overlays/site-agent
+	@# The base ConfigMap leaves CORE_GRPC_ADDRESS empty (production-neutral).
+	@# For the default kind flow, point the agent at the in-cluster mock-core;
+	@# the LOCAL_CORE=true case is handled by configure-local-core-site-agent below.
+	@if [ "$(LOCAL_CORE)" != "true" ]; then \
+		echo "Pointing site-agent at in-cluster mock-core (CORE_GRPC_ADDRESS=nico-rest-mock-core:11079)..." ; \
+		kubectl -n nico-rest patch configmap nico-rest-site-agent-config --type merge \
+			-p '{"data":{"CORE_GRPC_ADDRESS":"nico-rest-mock-core:11079","CORE_GRPC_SEC_OPT":"0"}}' ; \
+		kubectl -n nico-rest rollout restart statefulset/nico-rest-site-agent ; \
+	fi
 	kubectl -n nico-rest rollout status statefulset/nico-rest-site-agent --timeout=240s
 
 	@echo "Setting up Site Agent secrets..."

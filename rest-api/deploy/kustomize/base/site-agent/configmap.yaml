@@ -17,7 +17,7 @@ data:
   ENABLE_DEBUG: "true"
   ENABLE_TLS: "true"
   # NICo Core configuration
-  CORE_GRPC_ADDRESS: "nico-rest-mock-core:11079"
+  CORE_GRPC_ADDRESS: ""
   CORE_GRPC_SEC_OPT: "0"
   CORE_GRPC_CA_CERT_PATH: "/etc/core-grpc/ca.crt"
   CORE_GRPC_CLIENT_CERT_PATH: "/etc/core-grpc/tls.crt"
