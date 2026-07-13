@@ -251,7 +251,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			logger.Error().Err(serr).Msg("error resolving privileged Site access for Tenant")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify privileges for Tenant", nil)
 		}
-		if len(privilegedSiteIDs) == 0 {
+		if len(privilegedSiteIDs) == 0 && infrastructureProvider == nil {
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled for any Site", nil)
 		}
 	}
@@ -261,8 +261,11 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 	if qSiteID != "" {
 		site, serr := common.GetSiteFromIDString(ctx, nil, qSiteID, gamh.dbSession)
 		if serr != nil {
-			if serr == cdb.ErrDoesNotExist {
-				return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Site specified in query", nil)
+			if errors.Is(serr, common.ErrInvalidID) {
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Site ID specified in query", nil)
+			}
+			if errors.Is(serr, cdb.ErrDoesNotExist) {
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Could not find Site specified in query", nil)
 			}
 			logger.Error().Err(serr).Str("Site ID", qSiteID).Msg("error retrieving Site specified in query")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Site specified in query", nil)
@@ -281,7 +284,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			}
 			filterInput.SiteIDs = []uuid.UUID{site.ID}
 		}
-	} else if tenant != nil {
+	} else if tenant != nil && (infrastructureProvider == nil || len(privilegedSiteIDs) > 0) {
 		filterInput.SiteIDs = privilegedSiteIDs
 	}
 
@@ -296,8 +299,11 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 				instanceTypeIdError := validation.Errors{
 					"instanceTypeId": errors.New(instanceTypeID),
 				}
-				if serr == cdb.ErrDoesNotExist {
-					return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Instance Type specified in query", instanceTypeIdError)
+				if errors.Is(serr, common.ErrInvalidID) {
+					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Instance Type ID specified in query", instanceTypeIdError)
+				}
+				if errors.Is(serr, cdb.ErrDoesNotExist) {
+					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Could not find Instance Type specified in query", instanceTypeIdError)
 				}
 				logger.Error().Err(serr).Str("Instance Type ID", instanceTypeID).Msg("error retrieving Instance Type specified in query")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Instance Type specified in query", instanceTypeIdError)
@@ -343,7 +349,6 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 	qTenantIDStrs := qParams["tenantId"]
 	if len(qTenantIDStrs) > 0 {
 		gamh.tracerSpan.SetAttribute(handlerSpan, attribute.StringSlice("tenantId", qTenantIDStrs), logger)
-		tenantAccountDAO := cdbm.NewTenantAccountDAO(gamh.dbSession)
 		tenantIDs := make([]uuid.UUID, 0, len(qTenantIDStrs))
 		for _, tenantIDStr := range qTenantIDStrs {
 			tenantID, err := uuid.Parse(tenantIDStr)
@@ -353,21 +358,30 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			tenantIDs = append(tenantIDs, tenantID)
 		}
 
-		tenantAccounts, _, err := tenantAccountDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-			TenantIDs:                tenantIDs,
-			InfrastructureProviderID: &infrastructureProvider.ID,
-		}, cdbp.PageInput{}, nil)
-		if err != nil {
-			logger.Error().Err(err).Msg("error retrieving Tenant Accounts for tenant IDs specified in query")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Tenant Accounts for Tenants specified in query", nil)
-		}
-		tenantIDsMap := make(map[uuid.UUID]bool)
-		for _, tenantAccount := range tenantAccounts {
-			tenantIDsMap[*tenantAccount.TenantID] = true
-		}
-		for _, tenantID := range tenantIDs {
-			if !tenantIDsMap[tenantID] {
-				return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Tenant ID %s specified in query param does not have an account with current org's Provider", tenantID.String()), nil)
+		if infrastructureProvider != nil {
+			tenantAccountDAO := cdbm.NewTenantAccountDAO(gamh.dbSession)
+			tenantAccounts, _, err := tenantAccountDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
+				TenantIDs:                tenantIDs,
+				InfrastructureProviderID: &infrastructureProvider.ID,
+			}, cdbp.PageInput{}, nil)
+			if err != nil {
+				logger.Error().Err(err).Msg("error retrieving Tenant Accounts for tenant IDs specified in query")
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Tenant Accounts for Tenants specified in query", nil)
+			}
+			tenantIDsMap := make(map[uuid.UUID]bool)
+			for _, tenantAccount := range tenantAccounts {
+				tenantIDsMap[*tenantAccount.TenantID] = true
+			}
+			for _, tenantID := range tenantIDs {
+				if !tenantIDsMap[tenantID] {
+					return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Tenant ID %s specified in query param does not have an account with current org's Provider", tenantID.String()), nil)
+				}
+			}
+		} else if tenant != nil {
+			for _, tenantID := range tenantIDs {
+				if tenantID != tenant.ID {
+					return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Tenant ID %s specified in query param is not associated with current org", tenantID.String()), nil)
+				}
 			}
 		}
 

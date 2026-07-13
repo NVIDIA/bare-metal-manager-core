@@ -3049,4 +3049,37 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 	assert.ElementsMatch(t, []uuid.UUID{site.ID, site3.ID}, privilegedSiteIDs)
 
 	_ = ts2
+
+	// A Tenant whose Ready TenantAccount global default is disabled but which
+	// has a per-site override enabling the capability must pass the coarse
+	// (site == nil) ceiling used by the privileged-tenant precheck.
+	overrideTenant, err := tnDAO.Create(ctx, nil, cdbm.TenantCreateInput{
+		Name:      "override-tenant",
+		Org:       effOrg + "-override-tenant",
+		CreatedBy: effUser.ID,
+	})
+	assert.Nil(t, err)
+
+	_, err = taDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
+		AccountNumber:             uuid.NewString(),
+		TenantID:                  &overrideTenant.ID,
+		TenantOrg:                 overrideTenant.Org,
+		InfrastructureProviderID:  effIP.ID,
+		InfrastructureProviderOrg: effIP.Org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
+		CreatedBy:                 effUser.ID,
+	})
+	assert.Nil(t, err)
+
+	// Coarse ceiling is false before any enabling override exists.
+	got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, overrideTenant, nil)
+	assert.Nil(t, gerr)
+	assert.False(t, got)
+
+	cdbm.TestBuildTenantSite(t, dbSession, overrideTenant, site, &cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)}, effUser)
+
+	got, gerr = TenantHasTargetedInstanceCreation(ctx, nil, dbSession, overrideTenant, nil)
+	assert.Nil(t, gerr)
+	assert.True(t, got)
 }

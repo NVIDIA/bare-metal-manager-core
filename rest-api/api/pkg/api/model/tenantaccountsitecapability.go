@@ -19,6 +19,7 @@ const (
 	validationErrorGlobalSiteIDsNotAllowed    = "siteIds must be omitted or empty when scope is global"
 	validationErrorLimitedSiteIDsRequired     = "siteIds must be specified when scope is limited"
 	validationErrorDuplicateGlobalScope       = "only one global siteCapabilities entry is allowed"
+	validationErrorMissingGlobalScope         = "exactly one global siteCapabilities entry is required"
 	validationErrorDuplicateSiteID            = "duplicate siteIds are not allowed across siteCapabilities entries"
 )
 
@@ -102,7 +103,10 @@ func (caps APITenantAccountSiteCapabilitiesUpdateRequest) Validate() error {
 		}
 	}
 
-	if globalCount != 1 {
+	if globalCount == 0 {
+		return validation.Errors{"siteCapabilities": fmt.Errorf(validationErrorMissingGlobalScope)}
+	}
+	if globalCount > 1 {
 		return validation.Errors{"siteCapabilities": fmt.Errorf(validationErrorDuplicateGlobalScope)}
 	}
 

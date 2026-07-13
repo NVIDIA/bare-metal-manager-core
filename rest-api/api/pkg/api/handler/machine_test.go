@@ -199,8 +199,8 @@ func testMachineEnableTenantAccountTargetedInstanceCreation(t *testing.T, dbSess
 		TenantIDs:                []uuid.UUID{tenantID},
 		Statuses:                 []string{cdbm.TenantAccountStatusReady},
 	}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
-	assert.Nil(t, err)
-	assert.NotEmpty(t, tas)
+	require.NoError(t, err)
+	require.NotEmpty(t, tas)
 
 	_, err = taDAO.Update(context.Background(), nil, cdbm.TenantAccountUpdateInput{
 		TenantAccountID: tas[0].ID,
@@ -984,7 +984,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			reqOrgName:     ipOrg3,
 			user:           ipu,
 			expectedErr:    true,
-			expectedStatus: http.StatusNotFound,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "error when Site ID specified in query is an invalid UUID",
@@ -1410,7 +1410,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			user:             ipu,
 			querySiteID:      cutil.GetPtr(site.ID.String()),
 			queryHasInstance: cutil.GetPtr(false),
-			queryTenantID:    []string{tenant.ID.String()},
+			queryTenantID:    []string{tenant7.ID.String()},
 			expectedErr:      true,
 			expectedStatus:   http.StatusBadRequest,
 		},
@@ -1525,15 +1525,19 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			}
 			err := gamh.Handle(ec)
 			assert.Nil(t, err)
-			assert.Equal(t, tc.expectedErr, rec.Code != http.StatusOK)
-			if tc.expectedErr {
-				return
-			}
-
 			if rec.Code != tc.expectedStatus {
 				t.Errorf("response %v", rec.Body.String())
 			}
 			require.Equal(t, tc.expectedStatus, rec.Code)
+
+			if tc.verifyChildSpanner {
+				span := oteltrace.SpanFromContext(ec.Request().Context())
+				assert.True(t, span.SpanContext().IsValid())
+			}
+
+			if tc.expectedErr {
+				return
+			}
 
 			resp := []model.APIMachine{}
 			err = json.Unmarshal(rec.Body.Bytes(), &resp)
@@ -1594,11 +1598,6 @@ func TestMachineHandler_GetAll(t *testing.T) {
 				if len(resp) > 0 && resp[0].Instance != nil {
 					assert.Equal(t, "", resp[0].Instance.InstanceTypeID)
 				}
-			}
-
-			if tc.verifyChildSpanner {
-				span := oteltrace.SpanFromContext(ec.Request().Context())
-				assert.True(t, span.SpanContext().IsValid())
 			}
 		})
 	}

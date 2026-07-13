@@ -314,10 +314,9 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider or tenant for the org. We do not request the
-	// privileged-tenant pre-gate (requirePrivilegedTenant=false): a Tenant's
-	// visibility is scoped below to the Sites it has TenantSite access to (and
-	// only when TargetedInstanceCreation is enabled), so a non-privileged Tenant
-	// receives an empty list rather than a spurious 403.
+	// privileged-tenant pre-gate (requirePrivilegedTenant=false): tenant-only
+	// callers are scoped below to Sites with effective TargetedInstanceCreation,
+	// and receive 403 when none are resolved.
 	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaemh.dbSession, org, dbUser, true, false)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
@@ -356,6 +355,10 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)
 		}
 		filterInput.SiteIDs = append(filterInput.SiteIDs, privilegedSiteIDs...)
+	}
+
+	if infrastructureProvider == nil && tenant != nil && len(filterInput.SiteIDs) == 0 {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled for any Site", nil)
 	}
 
 	siteIDStr := c.QueryParam("siteId")

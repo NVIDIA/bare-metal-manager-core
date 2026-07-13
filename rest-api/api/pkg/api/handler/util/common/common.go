@@ -1518,9 +1518,12 @@ func IsTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session
 // have to repeat the tenant nil check.
 //
 // When site is nil, this is the coarse filter for discovery/listing paths that
-// lack a specific Site context: true if any Ready TenantAccount has the
-// capability enabled (the provider-agnostic "ceiling"). It deliberately no
-// longer reads the deprecated tenant-level flag (tenant.Config.TargetedInstanceCreation),
+// lack a specific Site context: true if the Tenant has effective
+// TargetedInstanceCreation on any Site (the provider-agnostic "ceiling"). This
+// honors per-site TenantSite.config overrides, so a Tenant whose Ready
+// TenantAccount global default is disabled but which has an override enabling a
+// specific Site is still considered privileged. It deliberately does not read
+// the deprecated tenant-level flag (tenant.Config.TargetedInstanceCreation),
 // which is superseded by TenantAccount.config.
 //
 // When site is non-nil, this resolves the effective capability for that Site:
@@ -1543,13 +1546,23 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 			return false, err
 		}
 
+		// A Ready TenantAccount whose global default enables the capability
+		// makes the Tenant privileged regardless of per-site state.
 		for _, ta := range tas {
 			if ta.Config.TargetedInstanceCreation {
 				return true, nil
 			}
 		}
 
-		return false, nil
+		// Every Ready TenantAccount global default is disabled: a per-site
+		// TenantSite.config override may still enable TargetedInstanceCreation
+		// for a specific Site, so honor those overrides here rather than
+		// rejecting a site-privileged Tenant at this coarse ceiling.
+		privilegedSiteIDs, err := GetPrivilegedAccessSiteIDsForTenant(ctx, tx, dbSession, tenant)
+		if err != nil {
+			return false, err
+		}
+		return len(privilegedSiteIDs) > 0, nil
 	}
 
 	taDAO := cdbm.NewTenantAccountDAO(dbSession)
