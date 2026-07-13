@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	camu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -31,6 +32,8 @@ const (
 	HostFirmwareComponentTypeCombinedBmcUefi HostFirmwareComponentType = "CombinedBmcUefi"
 	HostFirmwareComponentTypeGPU             HostFirmwareComponentType = "GPU"
 	HostFirmwareComponentTypeCx7             HostFirmwareComponentType = "Cx7"
+
+	maxCurrentVersionDetectionRegExLength = 1024
 )
 
 var hostFirmwareComponentTypeChoiceMap = map[HostFirmwareComponentType]corev1.HostFirmwareComponentType{
@@ -104,9 +107,10 @@ type APIHostFirmwareVersionConfig struct {
 
 // APIHostFirmwareComponentConfig is one component entry in an upsert request.
 type APIHostFirmwareComponentConfig struct {
-	Type                      HostFirmwareComponentType      `json:"type"`
-	Firmware                  []APIHostFirmwareVersionConfig `json:"firmware"`
-	PreingestUpgradeWhenBelow *string                        `json:"preingestUpgradeWhenBelow,omitempty"`
+	Type                         HostFirmwareComponentType      `json:"type"`
+	Firmware                     []APIHostFirmwareVersionConfig `json:"firmware"`
+	PreingestUpgradeWhenBelow    *string                        `json:"preingestUpgradeWhenBelow,omitempty"`
+	CurrentVersionDetectionRegEx *string                        `json:"currentVersionDetectionRegEx,omitempty"`
 }
 
 // APIHostFirmwareComponent is one component entry in a HostFirmwareConfig response.
@@ -203,6 +207,16 @@ func (c APIHostFirmwareComponentConfig) Validate() error {
 	if c.PreingestUpgradeWhenBelow != nil && strings.TrimSpace(*c.PreingestUpgradeWhenBelow) == "" {
 		return validation.Errors{"preingestUpgradeWhenBelow": errors.New("must not be empty when provided")}
 	}
+	if c.CurrentVersionDetectionRegEx != nil {
+		if strings.TrimSpace(*c.CurrentVersionDetectionRegEx) == "" {
+			return validation.Errors{"currentVersionDetectionRegEx": errors.New("must not be empty when provided")}
+		}
+		if utf8.RuneCountInString(*c.CurrentVersionDetectionRegEx) > maxCurrentVersionDetectionRegExLength {
+			return validation.Errors{
+				"currentVersionDetectionRegEx": fmt.Errorf("must not exceed %d characters", maxCurrentVersionDetectionRegExLength),
+			}
+		}
+	}
 	if len(c.Firmware) == 0 {
 		return validation.Errors{"firmware": errors.New("at least one firmware version is required")}
 	}
@@ -222,6 +236,9 @@ func (c APIHostFirmwareComponentConfig) ToProto() *corev1.UpsertHostFirmwareComp
 	if c.PreingestUpgradeWhenBelow != nil {
 		trimmed := strings.TrimSpace(*c.PreingestUpgradeWhenBelow)
 		protoComponent.PreingestUpgradeWhenBelow = &trimmed
+	}
+	if c.CurrentVersionDetectionRegEx != nil {
+		protoComponent.CurrentVersionReportedAs = c.CurrentVersionDetectionRegEx
 	}
 	for _, firmware := range c.Firmware {
 		protoComponent.Firmware = append(protoComponent.Firmware, firmware.ToProto())

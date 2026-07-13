@@ -49619,6 +49619,7 @@ type UpsertHostFirmwareComponentConfig struct {
 	Type                      HostFirmwareComponentType    `protobuf:"varint,1,opt,name=type,proto3,enum=forge.HostFirmwareComponentType" json:"type,omitempty"`
 	Firmware                  []*HostFirmwareVersionConfig `protobuf:"bytes,2,rep,name=firmware,proto3" json:"firmware,omitempty"`
 	PreingestUpgradeWhenBelow *string                      `protobuf:"bytes,3,opt,name=preingest_upgrade_when_below,json=preingestUpgradeWhenBelow,proto3,oneof" json:"preingest_upgrade_when_below,omitempty"`
+	CurrentVersionReportedAs  *string                      `protobuf:"bytes,4,opt,name=current_version_reported_as,json=currentVersionReportedAs,proto3,oneof" json:"current_version_reported_as,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -49670,6 +49671,13 @@ func (x *UpsertHostFirmwareComponentConfig) GetFirmware() []*HostFirmwareVersion
 func (x *UpsertHostFirmwareComponentConfig) GetPreingestUpgradeWhenBelow() string {
 	if x != nil && x.PreingestUpgradeWhenBelow != nil {
 		return *x.PreingestUpgradeWhenBelow
+	}
+	return ""
+}
+
+func (x *UpsertHostFirmwareComponentConfig) GetCurrentVersionReportedAs() string {
+	if x != nil && x.CurrentVersionReportedAs != nil {
+		return *x.CurrentVersionReportedAs
 	}
 	return ""
 }
@@ -64688,12 +64696,14 @@ const file_nico_nico_proto_rawDesc = "" +
 	"updated_by\"O\n" +
 	"\x1fDeleteHostFirmwareConfigRequest\x12\x16\n" +
 	"\x06vendor\x18\x01 \x01(\tR\x06vendor\x12\x14\n" +
-	"\x05model\x18\x02 \x01(\tR\x05model\"\xfe\x01\n" +
+	"\x05model\x18\x02 \x01(\tR\x05model\"\xe2\x02\n" +
 	"!UpsertHostFirmwareComponentConfig\x124\n" +
 	"\x04type\x18\x01 \x01(\x0e2 .forge.HostFirmwareComponentTypeR\x04type\x12<\n" +
 	"\bfirmware\x18\x02 \x03(\v2 .forge.HostFirmwareVersionConfigR\bfirmware\x12D\n" +
-	"\x1cpreingest_upgrade_when_below\x18\x03 \x01(\tH\x00R\x19preingestUpgradeWhenBelow\x88\x01\x01B\x1f\n" +
-	"\x1d_preingest_upgrade_when_below\"\xe4\x02\n" +
+	"\x1cpreingest_upgrade_when_below\x18\x03 \x01(\tH\x00R\x19preingestUpgradeWhenBelow\x88\x01\x01\x12B\n" +
+	"\x1bcurrent_version_reported_as\x18\x04 \x01(\tH\x01R\x18currentVersionReportedAs\x88\x01\x01B\x1f\n" +
+	"\x1d_preingest_upgrade_when_belowB\x1e\n" +
+	"\x1c_current_version_reported_as\"\xe4\x02\n" +
 	"#HostFirmwareComponentConfigResponse\x124\n" +
 	"\x04type\x18\x01 \x01(\x0e2 .forge.HostFirmwareComponentTypeR\x04type\x12B\n" +
 	"\x1bcurrent_version_reported_as\x18\x02 \x01(\tH\x00R\x18currentVersionReportedAs\x88\x01\x01\x12<\n" +

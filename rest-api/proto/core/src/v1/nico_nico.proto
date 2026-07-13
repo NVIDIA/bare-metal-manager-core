@@ -8000,6 +8000,7 @@ message UpsertHostFirmwareComponentConfig {
   HostFirmwareComponentType type = 1;
   repeated HostFirmwareVersionConfig firmware = 2;
   optional string preingest_upgrade_when_below = 3;
+  optional string current_version_reported_as = 4;
 }
 
 message HostFirmwareComponentConfigResponse {

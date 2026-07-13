@@ -74,6 +74,10 @@ async fn upsert_host_firmware_config_creates_and_merges_versions(
 
     let cx7 = response_component(&response.components, HostFirmwareComponentType::Cx7);
     assert_eq!(
+        cx7.current_version_reported_as.as_deref(),
+        Some("^CX7_[0-9]+$")
+    );
+    assert_eq!(
         cx7.preingest_upgrade_when_below.as_deref(),
         Some("28.48.1000")
     );
@@ -116,6 +120,56 @@ async fn upsert_host_firmware_config_creates_and_merges_versions(
             })
             .collect::<Vec<_>>(),
         vec![("28.47.2682", false, true), ("28.48.1111", true, false)]
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn upsert_host_firmware_config_accepts_and_preserves_custom_component_regex(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    env.api
+        .upsert_host_firmware_config(Request::new(upsert_request_for(
+            "Supermicro",
+            "SYS-121H-TNR",
+            vec![component_config_with_regex(
+                HostFirmwareComponentType::Bmc,
+                vec![version_config("1.0.0", true)],
+                None,
+                Some("^BMC-Firmware$"),
+            )],
+            vec![HostFirmwareComponentType::Bmc],
+            Some(false),
+        )))
+        .await?;
+
+    let response = env
+        .api
+        .upsert_host_firmware_config(Request::new(upsert_request_for(
+            "Supermicro",
+            "SYS-121H-TNR",
+            vec![component_config(
+                HostFirmwareComponentType::Bmc,
+                vec![version_config("1.1.0", true)],
+                None,
+            )],
+            Vec::new(),
+            None,
+        )))
+        .await?
+        .into_inner();
+
+    let bmc = response_component(&response.components, HostFirmwareComponentType::Bmc);
+    assert_eq!(
+        bmc.current_version_reported_as.as_deref(),
+        Some("^BMC-Firmware$")
+    );
+    assert_eq!(
+        firmware_defaults(bmc),
+        vec![("1.0.0", false), ("1.1.0", true)]
     );
 
     Ok(())
@@ -395,10 +449,20 @@ fn component_config(
     firmware: Vec<HostFirmwareVersionConfig>,
     preingest_upgrade_when_below: Option<&str>,
 ) -> UpsertHostFirmwareComponentConfig {
+    component_config_with_regex(component_type, firmware, preingest_upgrade_when_below, None)
+}
+
+fn component_config_with_regex(
+    component_type: HostFirmwareComponentType,
+    firmware: Vec<HostFirmwareVersionConfig>,
+    preingest_upgrade_when_below: Option<&str>,
+    current_version_reported_as: Option<&str>,
+) -> UpsertHostFirmwareComponentConfig {
     UpsertHostFirmwareComponentConfig {
         r#type: component_type as i32,
         firmware,
         preingest_upgrade_when_below: preingest_upgrade_when_below.map(str::to_string),
+        current_version_reported_as: current_version_reported_as.map(str::to_string),
     }
 }
 

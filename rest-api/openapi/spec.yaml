@@ -13764,6 +13764,15 @@ components:
           description: |-
             Optional minimum firmware version required before BMC pre-ingestion can
             complete. Omitted on update preserves the stored value.
+        currentVersionDetectionRegEx:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: |-
+            Optional inventory identifier regex used to find this component's
+            reported firmware version. Omitted on update preserves the stored
+            value. Omitted for a new component uses Core's built-in mapping when
+            one exists; otherwise this field is required.
     HostFirmwareComponent:
       type: object
       title: HostFirmwareComponent

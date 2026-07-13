@@ -33,6 +33,8 @@ use url::Url;
 use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 
+const MAX_CURRENT_VERSION_REPORTED_AS_LENGTH: usize = 1024;
+
 pub(crate) async fn set_firmware_update_time_window(
     api: &Api,
     request: Request<rpc::SetFirmwareUpdateTimeWindowRequest>,
@@ -236,7 +238,7 @@ struct HostFirmwareConfigPatch {
 }
 
 struct FirmwareComponentPatch {
-    current_version_reported_as: Regex,
+    current_version_reported_as: Option<Regex>,
     preingest_upgrade_when_below: Option<String>,
     known_firmware: Vec<FirmwareEntryPatch>,
 }
@@ -247,16 +249,26 @@ struct FirmwareEntryPatch {
 }
 
 impl FirmwareComponentPatch {
-    fn into_component(self) -> FirmwareComponent {
-        FirmwareComponent {
-            current_version_reported_as: Some(self.current_version_reported_as),
+    fn into_component(
+        self,
+        vendor: bmc_vendor::BMCVendor,
+        model: &str,
+        component_type: FirmwareComponentType,
+    ) -> Result<FirmwareComponent, CarbideError> {
+        let current_version_reported_as = match self.current_version_reported_as {
+            Some(regex) => regex,
+            None => component_regex(vendor, model, component_type)?,
+        };
+
+        Ok(FirmwareComponent {
+            current_version_reported_as: Some(current_version_reported_as),
             preingest_upgrade_when_below: self.preingest_upgrade_when_below,
             known_firmware: self
                 .known_firmware
                 .into_iter()
                 .map(FirmwareEntryPatch::into_entry)
                 .collect(),
-        }
+        })
     }
 }
 
@@ -292,7 +304,12 @@ impl HostFirmwareConfigPatch {
                 )));
             }
 
-            let current_version_reported_as = component_regex(vendor, &model, component_type)?;
+            let current_version_reported_as = parse_component_regex(
+                vendor,
+                &model,
+                component_type,
+                component.current_version_reported_as.as_deref(),
+            )?;
             let preingest_upgrade_when_below = parse_preingest_upgrade_when_below(
                 component_type,
                 component.preingest_upgrade_when_below.as_deref(),
@@ -345,9 +362,12 @@ fn merge_host_firmware_config_patch(
         if let Some(existing_component) = runtime_config.components.get_mut(&component_type) {
             merge_host_firmware_component(existing_component, incoming_component);
         } else {
-            runtime_config
-                .components
-                .insert(component_type, incoming_component.into_component());
+            let component = incoming_component.into_component(
+                runtime_config.vendor,
+                &runtime_config.model,
+                component_type,
+            )?;
+            runtime_config.components.insert(component_type, component);
         }
     }
 
@@ -364,8 +384,9 @@ fn merge_host_firmware_component(
     existing_component: &mut FirmwareComponent,
     incoming_component: FirmwareComponentPatch,
 ) {
-    existing_component.current_version_reported_as =
-        Some(incoming_component.current_version_reported_as);
+    if let Some(regex) = incoming_component.current_version_reported_as {
+        existing_component.current_version_reported_as = Some(regex);
+    }
     if incoming_component.preingest_upgrade_when_below.is_some() {
         existing_component.preingest_upgrade_when_below =
             incoming_component.preingest_upgrade_when_below;
@@ -503,6 +524,34 @@ fn parse_vendor(vendor: &str) -> Result<bmc_vendor::BMCVendor, CarbideError> {
         )));
     }
     Ok(parsed)
+}
+
+fn parse_component_regex(
+    vendor: bmc_vendor::BMCVendor,
+    model: &str,
+    component_type: FirmwareComponentType,
+    value: Option<&str>,
+) -> Result<Option<Regex>, CarbideError> {
+    value
+        .map(|value| {
+            if value.trim().is_empty() {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "current_version_reported_as is empty for {vendor} {model} {component_type}"
+                )));
+            }
+            if value.chars().count() > MAX_CURRENT_VERSION_REPORTED_AS_LENGTH {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "current_version_reported_as exceeds {MAX_CURRENT_VERSION_REPORTED_AS_LENGTH} characters for {vendor} {model} {component_type}"
+                )));
+            }
+
+            Regex::new(value).map_err(|error| {
+                CarbideError::InvalidArgument(format!(
+                    "invalid current_version_reported_as for {vendor} {model} {component_type}: {error}"
+                ))
+            })
+        })
+        .transpose()
 }
 
 fn component_regex(
@@ -838,6 +887,59 @@ mod tests {
     }
 
     #[test]
+    fn parse_component_regex_validates_supplied_values() {
+        let regex = parse_component_regex(
+            bmc_vendor::BMCVendor::Supermicro,
+            "SYS-121H-TNR",
+            FirmwareComponentType::Bmc,
+            Some("^BMC-Firmware$"),
+        )
+        .unwrap()
+        .expect("supplied regex");
+        assert_eq!(regex.as_str(), "^BMC-Firmware$");
+
+        assert!(
+            parse_component_regex(
+                bmc_vendor::BMCVendor::Supermicro,
+                "SYS-121H-TNR",
+                FirmwareComponentType::Bmc,
+                None,
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            parse_component_regex(
+                bmc_vendor::BMCVendor::Supermicro,
+                "SYS-121H-TNR",
+                FirmwareComponentType::Bmc,
+                Some(" "),
+            )
+            .is_err()
+        );
+        assert!(
+            parse_component_regex(
+                bmc_vendor::BMCVendor::Supermicro,
+                "SYS-121H-TNR",
+                FirmwareComponentType::Bmc,
+                Some("("),
+            )
+            .is_err()
+        );
+
+        let oversized = "a".repeat(MAX_CURRENT_VERSION_REPORTED_AS_LENGTH + 1);
+        assert!(
+            parse_component_regex(
+                bmc_vendor::BMCVendor::Supermicro,
+                "SYS-121H-TNR",
+                FirmwareComponentType::Bmc,
+                Some(&oversized),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn parse_host_firmware_config_model_trims_and_rejects_empty_values() {
         scenarios!(run = |input| parse_host_firmware_config_model(input).map_err(drop);
             "valid models" {
@@ -909,6 +1011,7 @@ mod tests {
                     preingestion_exclusive_config: None,
                 }],
                 preingest_upgrade_when_below: Some("1.0.0".to_string()),
+                current_version_reported_as: None,
             }],
             explicit_start_needed: Some(true),
             ordering: vec![rpc::HostFirmwareComponentType::Bmc as i32],
@@ -1043,6 +1146,134 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![("7.10", false), ("7.20", false), ("7.30", true)]
         );
+    }
+
+    #[test]
+    fn merge_host_firmware_config_preserves_omitted_component_regex() {
+        let existing = test_firmware(HashMap::from([(
+            FirmwareComponentType::Bmc,
+            test_component(
+                "^existing-bmc$",
+                vec![test_entry(
+                    "7.20",
+                    true,
+                    "https://firmware.example.invalid/bmc-7.20.bin",
+                )],
+            ),
+        )]));
+        let mut patch = test_patch(HashMap::from([(
+            FirmwareComponentType::Bmc,
+            test_component(
+                "^ignored$",
+                vec![test_entry(
+                    "7.30",
+                    true,
+                    "https://firmware.example.invalid/bmc-7.30.bin",
+                )],
+            ),
+        )]));
+        patch
+            .components
+            .get_mut(&FirmwareComponentType::Bmc)
+            .unwrap()
+            .current_version_reported_as = None;
+
+        let merged = merge_host_firmware_config_patch(Some(existing), patch).unwrap();
+
+        assert_eq!(
+            merged.components[&FirmwareComponentType::Bmc]
+                .current_version_reported_as
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "^existing-bmc$"
+        );
+    }
+
+    #[test]
+    fn merge_host_firmware_config_uses_catalog_regex_for_new_component() {
+        let mut patch = test_patch(HashMap::from([(
+            FirmwareComponentType::Cx7,
+            test_component(
+                "^ignored$",
+                vec![test_entry(
+                    "28.47.2682",
+                    true,
+                    "https://firmware.example.invalid/cx7.bin",
+                )],
+            ),
+        )]));
+        patch.ordering = vec![FirmwareComponentType::Cx7];
+        patch
+            .components
+            .get_mut(&FirmwareComponentType::Cx7)
+            .unwrap()
+            .current_version_reported_as = None;
+
+        let merged = merge_host_firmware_config_patch(None, patch).unwrap();
+
+        assert_eq!(
+            merged.components[&FirmwareComponentType::Cx7]
+                .current_version_reported_as
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "^CX7_[0-9]+$"
+        );
+    }
+
+    #[test]
+    fn merge_host_firmware_config_accepts_custom_regex_without_catalog_mapping() {
+        let mut patch = test_patch(HashMap::from([(
+            FirmwareComponentType::Bmc,
+            test_component(
+                "^BMC-Firmware$",
+                vec![test_entry(
+                    "1.0.0",
+                    true,
+                    "https://firmware.example.invalid/bmc.bin",
+                )],
+            ),
+        )]));
+        patch.vendor = bmc_vendor::BMCVendor::Supermicro;
+        patch.model = "SYS-121H-TNR".to_string();
+        patch.ordering = vec![FirmwareComponentType::Bmc];
+
+        let merged = merge_host_firmware_config_patch(None, patch).unwrap();
+
+        assert_eq!(
+            merged.components[&FirmwareComponentType::Bmc]
+                .current_version_reported_as
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "^BMC-Firmware$"
+        );
+    }
+
+    #[test]
+    fn merge_host_firmware_config_rejects_new_component_without_regex_mapping() {
+        let mut patch = test_patch(HashMap::from([(
+            FirmwareComponentType::Bmc,
+            test_component(
+                "^ignored$",
+                vec![test_entry(
+                    "1.0.0",
+                    true,
+                    "https://firmware.example.invalid/bmc.bin",
+                )],
+            ),
+        )]));
+        patch.vendor = bmc_vendor::BMCVendor::Supermicro;
+        patch.model = "SYS-121H-TNR".to_string();
+        patch.ordering = vec![FirmwareComponentType::Bmc];
+        patch
+            .components
+            .get_mut(&FirmwareComponentType::Bmc)
+            .unwrap()
+            .current_version_reported_as = None;
+
+        assert!(merge_host_firmware_config_patch(None, patch).is_err());
     }
 
     #[test]
@@ -1480,7 +1711,7 @@ mod tests {
             .collect();
 
         FirmwareComponentPatch {
-            current_version_reported_as: component.current_version_reported_as.unwrap(),
+            current_version_reported_as: component.current_version_reported_as,
             preingest_upgrade_when_below: component.preingest_upgrade_when_below,
             known_firmware: firmware,
         }
@@ -1491,7 +1722,7 @@ mod tests {
         entries: Vec<(FirmwareEntry, Option<bool>)>,
     ) -> FirmwareComponentPatch {
         FirmwareComponentPatch {
-            current_version_reported_as: Regex::new(regex).unwrap(),
+            current_version_reported_as: Some(Regex::new(regex).unwrap()),
             preingest_upgrade_when_below: None,
             known_firmware: entries
                 .into_iter()

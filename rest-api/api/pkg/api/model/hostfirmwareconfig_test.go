@@ -54,6 +54,48 @@ func TestAPIHostFirmwareComponentConfig_ToProto_preingestUpgradeWhenBelow(t *tes
 	assert.Equal(t, "28.48.1000", *proto.PreingestUpgradeWhenBelow)
 }
 
+func TestAPIHostFirmwareComponentConfig_Validate_currentVersionDetectionRegEx(t *testing.T) {
+	validComponent := func(regex *string) APIHostFirmwareComponentConfig {
+		return APIHostFirmwareComponentConfig{
+			Type:                         HostFirmwareComponentTypeBMC,
+			CurrentVersionDetectionRegEx: regex,
+			Firmware: []APIHostFirmwareVersionConfig{{
+				Version: "1.0.0",
+				Default: true,
+				Artifacts: []APIHostFirmwareArtifact{{
+					URL: "https://firmware.example.invalid/1.0.0/fw.bin",
+				}},
+			}},
+		}
+	}
+
+	assert.NoError(t, validComponent(nil).Validate())
+	assert.NoError(t, validComponent(cutil.GetPtr("^BMC-Firmware$")).Validate())
+
+	for _, invalid := range []string{"", "   ", strings.Repeat("a", maxCurrentVersionDetectionRegExLength+1)} {
+		err := validComponent(&invalid).Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "currentVersionDetectionRegEx")
+	}
+}
+
+func TestAPIHostFirmwareComponentConfig_ToProto_currentVersionDetectionRegEx(t *testing.T) {
+	proto := APIHostFirmwareComponentConfig{
+		Type:                         HostFirmwareComponentTypeBMC,
+		CurrentVersionDetectionRegEx: cutil.GetPtr(" ^BMC-Firmware$ "),
+		Firmware: []APIHostFirmwareVersionConfig{{
+			Version: "1.0.0",
+			Default: true,
+			Artifacts: []APIHostFirmwareArtifact{{
+				URL: "https://firmware.example.invalid/1.0.0/fw.bin",
+			}},
+		}},
+	}.ToProto()
+
+	require.NotNil(t, proto.CurrentVersionReportedAs)
+	assert.Equal(t, " ^BMC-Firmware$ ", *proto.CurrentVersionReportedAs)
+}
+
 func TestAPIHostFirmwareVersionConfig_Validate_artifactSha256(t *testing.T) {
 	validSHA := "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
 	validVersion := func(sha256 *string) APIHostFirmwareVersionConfig {

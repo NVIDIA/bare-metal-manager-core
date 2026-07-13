@@ -29,6 +29,8 @@ type HostFirmwareComponentConfig struct {
 	Firmware []HostFirmwareVersionConfig `json:"firmware"`
 	// Optional minimum firmware version required before BMC pre-ingestion can complete. Omitted on update preserves the stored value.
 	PreingestUpgradeWhenBelow *string `json:"preingestUpgradeWhenBelow,omitempty"`
+	// Optional inventory identifier regex used to find this component's reported firmware version. Omitted on update preserves the stored value. Omitted for a new component uses Core's built-in mapping when one exists; otherwise this field is required.
+	CurrentVersionDetectionRegEx *string `json:"currentVersionDetectionRegEx,omitempty"`
 }
 
 type _HostFirmwareComponentConfig HostFirmwareComponentConfig
@@ -132,6 +134,38 @@ func (o *HostFirmwareComponentConfig) SetPreingestUpgradeWhenBelow(v string) {
 	o.PreingestUpgradeWhenBelow = &v
 }
 
+// GetCurrentVersionDetectionRegEx returns the CurrentVersionDetectionRegEx field value if set, zero value otherwise.
+func (o *HostFirmwareComponentConfig) GetCurrentVersionDetectionRegEx() string {
+	if o == nil || IsNil(o.CurrentVersionDetectionRegEx) {
+		var ret string
+		return ret
+	}
+	return *o.CurrentVersionDetectionRegEx
+}
+
+// GetCurrentVersionDetectionRegExOk returns a tuple with the CurrentVersionDetectionRegEx field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *HostFirmwareComponentConfig) GetCurrentVersionDetectionRegExOk() (*string, bool) {
+	if o == nil || IsNil(o.CurrentVersionDetectionRegEx) {
+		return nil, false
+	}
+	return o.CurrentVersionDetectionRegEx, true
+}
+
+// HasCurrentVersionDetectionRegEx returns a boolean if a field has been set.
+func (o *HostFirmwareComponentConfig) HasCurrentVersionDetectionRegEx() bool {
+	if o != nil && !IsNil(o.CurrentVersionDetectionRegEx) {
+		return true
+	}
+
+	return false
+}
+
+// SetCurrentVersionDetectionRegEx gets a reference to the given string and assigns it to the CurrentVersionDetectionRegEx field.
+func (o *HostFirmwareComponentConfig) SetCurrentVersionDetectionRegEx(v string) {
+	o.CurrentVersionDetectionRegEx = &v
+}
+
 func (o HostFirmwareComponentConfig) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -146,6 +180,9 @@ func (o HostFirmwareComponentConfig) ToMap() (map[string]interface{}, error) {
 	toSerialize["firmware"] = o.Firmware
 	if !IsNil(o.PreingestUpgradeWhenBelow) {
 		toSerialize["preingestUpgradeWhenBelow"] = o.PreingestUpgradeWhenBelow
+	}
+	if !IsNil(o.CurrentVersionDetectionRegEx) {
+		toSerialize["currentVersionDetectionRegEx"] = o.CurrentVersionDetectionRegEx
 	}
 	return toSerialize, nil
 }
