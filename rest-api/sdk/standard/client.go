@@ -109,6 +109,8 @@ type APIClient struct {
 
 	SiteAPI *SiteAPIService
 
+	SiteExplorerAPI *SiteExplorerAPIService
+
 	SubnetAPI *SubnetAPIService
 
 	TaskAPI *TaskAPIService
@@ -175,6 +177,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.SSHKeyGroupAPI = (*SSHKeyGroupAPIService)(&c.common)
 	c.ServiceAccountAPI = (*ServiceAccountAPIService)(&c.common)
 	c.SiteAPI = (*SiteAPIService)(&c.common)
+	c.SiteExplorerAPI = (*SiteExplorerAPIService)(&c.common)
 	c.SubnetAPI = (*SubnetAPIService)(&c.common)
 	c.TaskAPI = (*TaskAPIService)(&c.common)
 	c.TenantAPI = (*TenantAPIService)(&c.common)
