@@ -790,8 +790,8 @@ impl MachineStateHandler {
                     // the host in the first place; `associated_dpu_machine_ids`
                     // is empty, and the outer branch above already transitions
                     // to HostInit before we ever reach this. What's nice is, this
-                    // also allows NicMode hosts to get actively reconfigured to
-                    // NIC mode via `set_nic_mode` during site-explorer ingestion,
+                    // also allows `Nic` hosts to get actively reconfigured
+                    // to NIC mode via `set_nic_mode` during site-explorer ingestion,
                     // which is something we do, but `force_dpu_nic_mode` never did.
                     let mut state_handler_outcome = StateHandlerOutcome::do_nothing();
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
@@ -5967,7 +5967,7 @@ impl StateHandler for HostMachineStateHandler {
                             if !mh_snapshot.has_managed_dpus() {
                                 // No DPU to wait for going down/up -- skip
                                 // straight to BomValidating. Covers
-                                // NicMode/NoDpu hosts and anything else
+                                // `Nic`/`Ignore` hosts and anything else
                                 // with no DPU snapshots; otherwise we'd
                                 // wait `dpu_wait_time` for a DPU that's
                                 // never going to come up.
@@ -10718,11 +10718,11 @@ async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
 
 /// Treat `Err(RedfishError::NoDpu)` as `Ok(None)` *only* when the host is
 /// declared zero-DPU (`expected_dpu_count == 0`). Other error variants and
-/// successful results pass through untouched. The `dpu_mode` gate in
+/// successful results pass through untouched. The host DPU policy gate in
 /// site-explorer is what guarantees `expected_dpu_count == 0` actually
-/// means the host carries no managed DPU -- either `NoDpu` (no DPU hardware)
-/// or `NicMode` (a DPU intentionally running as a plain NIC). Neither has a
-/// DPU to answer Redfish, so a `NoDpu` error is expected, not a fault.
+/// means the host carries no managed DPU -- either `Ignore` or `Nic`.
+/// Neither has a DPU to answer Redfish, so a `NoDpu` error is expected, not a
+/// fault.
 fn handle_no_dpu_error(
     result: Result<Option<String>, RedfishError>,
     expected_dpu_count: usize,

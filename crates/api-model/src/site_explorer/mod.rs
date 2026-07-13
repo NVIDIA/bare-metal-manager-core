@@ -817,7 +817,7 @@ impl EndpointExplorationReport {
         }
     }
 
-    pub fn nic_mode(&self) -> Option<NicMode> {
+    pub fn bluefield_operating_mode(&self) -> Option<BlueFieldOperatingMode> {
         if self.is_dpu() && !self.systems.is_empty() {
             self.systems[0].attributes.nic_mode
         } else {
@@ -1427,7 +1427,7 @@ pub enum EndpointType {
 #[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ComputerSystemAttributes {
-    pub nic_mode: Option<NicMode>,
+    pub nic_mode: Option<BlueFieldOperatingMode>,
     pub is_infinite_boot_enabled: Option<bool>,
 }
 
@@ -1732,15 +1732,19 @@ impl From<Option<bool>> for MachineExpectation {
     }
 }
 
+/// The operating mode reported by a BlueField device.
+///
+/// This is observed hardware state, not the policy NICo applies to the host;
+/// see [`crate::expected_machine::HostDpuPolicy`] for the desired behavior.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum NicMode {
+pub enum BlueFieldOperatingMode {
     #[serde(rename = "DpuMode", alias = "Dpu")]
     Dpu,
     #[serde(rename = "NicMode", alias = "Nic")]
     Nic,
 }
 
-impl Display for NicMode {
+impl Display for BlueFieldOperatingMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
@@ -1934,7 +1938,7 @@ pub struct ExploredMlxDevice {
     /// `device_kind` is its factory SKU, and the two legitimately differ for a
     /// DPU reconfigured to run as a NIC.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nic_mode: Option<NicMode>,
+    pub nic_mode: Option<BlueFieldOperatingMode>,
 }
 
 impl EndpointExplorationReport {
@@ -2059,7 +2063,7 @@ pub fn collect_explored_mlx_devices(endpoints: &[ExploredEndpoint]) -> Vec<Explo
                 .and_then(|serial| dpu_by_serial.get(serial))
             {
                 device.dpu_bmc_ip = Some(dpu_ep.address);
-                device.nic_mode = dpu_ep.report.nic_mode();
+                device.nic_mode = dpu_ep.report.bluefield_operating_mode();
             }
             device
         })
@@ -2354,7 +2358,7 @@ mod explored_mlx_device_tests {
                     id: "Bluefield".to_string(),
                     serial_number: Some("MT2403X00984".to_string()),
                     attributes: ComputerSystemAttributes {
-                        nic_mode: Some(NicMode::Nic),
+                        nic_mode: Some(BlueFieldOperatingMode::Nic),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -2383,7 +2387,7 @@ mod explored_mlx_device_tests {
             nic_dpu.dpu_bmc_ip,
             Some("192.0.2.50".parse::<IpAddr>().unwrap())
         );
-        assert_eq!(nic_dpu.nic_mode, Some(NicMode::Nic));
+        assert_eq!(nic_dpu.nic_mode, Some(BlueFieldOperatingMode::Nic));
 
         let supernic = &devices[1];
         assert_eq!(supernic.device_kind, MlxDeviceKind::Bf3SuperNic);
@@ -2456,7 +2460,7 @@ mod explored_mlx_device_tests {
                         id: "Bluefield".to_string(),
                         serial_number: Some(serial.to_string()),
                         attributes: ComputerSystemAttributes {
-                            nic_mode: Some(NicMode::Nic),
+                            nic_mode: Some(BlueFieldOperatingMode::Nic),
                             ..Default::default()
                         },
                         ..Default::default()
@@ -2511,6 +2515,37 @@ mod tests {
     use super::*;
     use crate::firmware::FirmwareComponent;
     use crate::machine::machine_id::from_hardware_info;
+
+    #[test]
+    fn bluefield_operating_mode_preserves_legacy_serialized_values() {
+        scenarios!(
+            run = |json| serde_json::from_str::<BlueFieldOperatingMode>(json).map_err(drop);
+            "DPU mode canonical value" {
+                r#""DpuMode""# => Yields(BlueFieldOperatingMode::Dpu),
+            }
+
+            "DPU mode alias" {
+                r#""Dpu""# => Yields(BlueFieldOperatingMode::Dpu),
+            }
+
+            "NIC mode canonical value" {
+                r#""NicMode""# => Yields(BlueFieldOperatingMode::Nic),
+            }
+
+            "NIC mode alias" {
+                r#""Nic""# => Yields(BlueFieldOperatingMode::Nic),
+            }
+        );
+
+        assert_eq!(
+            serde_json::to_string(&BlueFieldOperatingMode::Dpu).unwrap(),
+            r#""DpuMode""#
+        );
+        assert_eq!(
+            serde_json::to_string(&BlueFieldOperatingMode::Nic).unwrap(),
+            r#""NicMode""#
+        );
+    }
 
     fn create_test_firmware(firmware_type: FirmwareComponentType, regex_pattern: &str) -> Firmware {
         let mut components = HashMap::new();
@@ -2911,7 +2946,7 @@ mod tests {
                 model: None,
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 attributes: ComputerSystemAttributes {
-                    nic_mode: Some(NicMode::Dpu),
+                    nic_mode: Some(BlueFieldOperatingMode::Dpu),
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],
@@ -2983,7 +3018,7 @@ mod tests {
                 model: None,
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 attributes: ComputerSystemAttributes {
-                    nic_mode: Some(NicMode::Dpu),
+                    nic_mode: Some(BlueFieldOperatingMode::Dpu),
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],

@@ -23,6 +23,7 @@ use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use mac_address::MacAddress;
+use model::expected_machine::HostDpuPolicy;
 use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
@@ -493,14 +494,15 @@ impl ApiClient {
 
     /// Registers a mock expected machine. Static BMC (`bmc_ip_address`) is left unset here;
     /// real environments set it through the admin CLI / API when DHCP discovery is not used.
-    /// `dpu_mode` is the per-host operating mode -- pass `Some(NoDpu)` for zero-DPU mock hosts
-    /// or `Some(NicMode)` for DPU-in-NIC-mode mock hosts; `None` for normal DPU hosts.
+    /// `dpu_policy` is the per-host policy -- pass `Some(Ignore)` for zero-DPU
+    /// mock hosts or `Some(Nic)` for DPU-in-NIC-mode mock hosts; `None` for
+    /// normal DPU hosts.
     pub async fn add_expected_machine(
         &self,
         bmc_mac_address: String,
         chassis_serial_number: String,
         rack_id: Option<RackId>,
-        dpu_mode: Option<rpc::forge::DpuMode>,
+        dpu_policy: Option<HostDpuPolicy>,
         host_nics: Vec<ExpectedHostNic>,
     ) -> ClientApiResult<()> {
         self.0
@@ -521,7 +523,7 @@ impl ApiClient {
                 is_dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: dpu_mode.map(|m| m as i32),
+                dpu_mode: dpu_policy.map(|policy| rpc::forge::DpuMode::from(policy) as i32),
                 bmc_ip_allocation: None,
                 host_lifecycle_profile: None,
             })

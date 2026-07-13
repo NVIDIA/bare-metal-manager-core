@@ -28,59 +28,68 @@ use uuid::Uuid;
 use crate::metadata::Metadata;
 use crate::network_segment::NetworkSegmentType;
 
-/// Per-host DPU operating mode declared by a site operator on an
-/// `ExpectedMachine`. Per-host values win over the site-wide
-/// `[site_explorer] dpu_mode` setting; if neither is set the host
-/// falls back to `DpuMode::DpuMode`.
+/// Operator policy for how NICo treats a host's DPU hardware.
+///
+/// This is distinct from a device's observed operating mode. At the per-host
+/// boundary, [`HostDpuPolicy::Manage`] retains the legacy inheritance behavior:
+/// it defers to the site-wide policy before falling back to managed DPUs.
 ///
 /// Backed by the Postgres enum `dpu_mode_t`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
-#[sqlx(type_name = "dpu_mode_t", rename_all = "snake_case")]
+#[sqlx(type_name = "dpu_mode_t")]
 #[serde(rename_all = "snake_case")]
-#[allow(clippy::enum_variant_names)]
-pub enum DpuMode {
-    /// DPUs are managed by NICo as normal -- upgrades, overlay networking,
-    /// DPA agents, etc. The default.
+pub enum HostDpuPolicy {
+    /// Manage DPUs normally, including upgrades, networking, and DPA agents.
     #[default]
-    DpuMode,
-    /// DPU hardware is physically present but configured as a plain NIC;
-    /// NICo skips DPU ingest / management and treats the host as zero-DPU.
-    NicMode,
-    /// No DPU hardware at all -- a plain host NIC on the underlay.
-    NoDpu,
+    #[sqlx(rename = "dpu_mode")]
+    #[serde(alias = "dpu_mode")]
+    Manage,
+    /// Configure physically present DPUs as NICs and manage the host as zero-DPU.
+    #[sqlx(rename = "nic_mode")]
+    #[serde(alias = "use_as_nic", alias = "nic_mode")]
+    Nic,
+    /// Do not configure or attach DPU hardware to the managed host.
+    #[sqlx(rename = "no_dpu")]
+    #[serde(alias = "no_dpu")]
+    Ignore,
 }
 
-impl DpuMode {
-    /// Returns `true` when the host is not being managed as a host with DPUs
-    /// (`NicMode` or `NoDpu`). Used by site-explorer and the state
-    /// controller to skip DPU-specific work.
-    pub fn is_dpu_managed(&self) -> bool {
-        matches!(self, DpuMode::DpuMode)
-    }
-
-    /// Resolve a host's effective DPU mode from the (optional) per-host
-    /// `ExpectedMachine.dpu_mode` value and the (optional) site-wide
-    /// `[site_explorer] dpu_mode` setting. Notes:
+impl HostDpuPolicy {
+    /// Resolve per-host and site-wide declarations into a concrete policy.
     ///
-    /// - An explicit per-host `NicMode` or `NoDpu` always wins.
-    /// - Per-host `DpuMode` (the default variant) or no `ExpectedMachine`
-    ///   at all == defer to the site-wide setting.
-    /// - Site-wide `NicMode` or `NoDpu` then wins.
-    /// - Site-wide `DpuMode` or missing == fall back to the absolute
-    ///   default of `DpuMode::DpuMode`.
-    pub fn resolve(expected_mode: Option<DpuMode>, site_dpu_mode: Option<DpuMode>) -> DpuMode {
-        match expected_mode {
-            Some(DpuMode::NicMode) => DpuMode::NicMode,
-            Some(DpuMode::NoDpu) => DpuMode::NoDpu,
-            // `DpuMode` (default) or missing == defer to site-wide setting.
-            _ => match site_dpu_mode {
-                Some(DpuMode::NicMode) => DpuMode::NicMode,
-                Some(DpuMode::NoDpu) => DpuMode::NoDpu,
-                // Site-wide `DpuMode` or missing == absolute default.
-                _ => DpuMode::DpuMode,
-            },
+    /// Per-host [`HostDpuPolicy::Nic`] and [`HostDpuPolicy::Ignore`]
+    /// override the site. Per-host [`HostDpuPolicy::Manage`] or a missing
+    /// declaration inherits the site. A missing site declaration resolves to
+    /// [`HostDpuPolicy::Manage`].
+    pub fn resolve(per_host_policy: Option<Self>, site_policy: Option<Self>) -> Self {
+        match per_host_policy {
+            Some(Self::Nic) => Self::Nic,
+            Some(Self::Ignore) => Self::Ignore,
+            Some(Self::Manage) | None => site_policy.unwrap_or_default(),
         }
     }
+
+    /// Whether this policy expects NICo to discover and manage the host's DPUs.
+    pub fn expects_managed_dpus(self) -> bool {
+        matches!(self, Self::Manage)
+    }
+}
+
+#[derive(Deserialize)]
+struct HostDpuPolicyFields {
+    #[serde(default)]
+    dpu_policy: Option<HostDpuPolicy>,
+    #[serde(default)]
+    dpu_mode: Option<HostDpuPolicy>,
+}
+
+fn deserialize_host_dpu_policy<'de, D>(deserializer: D) -> Result<HostDpuPolicy, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let fields = HostDpuPolicyFields::deserialize(deserializer)?;
+
+    Ok(fields.dpu_policy.or(fields.dpu_mode).unwrap_or_default())
 }
 
 /// Controls how a BMC's IP address is assigned and whether it is retained.
@@ -234,12 +243,14 @@ pub struct ExpectedMachineData {
     /// factory-default credentials in Vault as-is.
     #[serde(default)]
     pub bmc_retain_credentials: Option<bool>,
-    /// Per-host DPU operating mode (default `DpuMode::DpuMode` for
-    /// backward compat). See `DpuMode` for semantics. Operators set
-    /// this to `NicMode` when a physically-present DPU should be treated
-    /// as a plain NIC, or to `NoDpu` when there's no DPU hardware at all.
-    #[serde(default)]
-    pub dpu_mode: DpuMode,
+    /// Per-host DPU policy. The default [`HostDpuPolicy::Manage`] inherits the
+    /// site policy. The legacy `dpu_mode` field and its values remain accepted
+    /// during deserialization.
+    ///
+    /// This type is deserialization-only. The nested flattening is intentional
+    /// for dual-key compatibility and is incompatible with `deny_unknown_fields`.
+    #[serde(flatten, deserialize_with = "deserialize_host_dpu_policy")]
+    pub dpu_policy: HostDpuPolicy,
     /// Per-host control over how this BMC's IP is assigned and retained.
     /// Defaults to `BmcIpAllocationType::Auto`, which infers `Fixed` from a
     /// configured `bmc_ip_address` and otherwise `Retained` (pins an
@@ -322,7 +333,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 dpf_enabled: row.try_get("dpf_enabled")?,
                 bmc_ip_address: row.try_get("bmc_ip_address")?,
                 bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
-                dpu_mode: row.try_get("dpu_mode")?,
+                dpu_policy: row.try_get("dpu_mode")?,
                 bmc_ip_allocation: row.try_get("bmc_ip_allocation")?,
                 host_lifecycle_profile: row
                     .try_get::<sqlx::types::Json<HostLifecycleProfile>, _>("host_lifecycle_profile")
@@ -357,106 +368,298 @@ pub struct UnexpectedMachine {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::scenarios;
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
 
     use super::*;
 
-    /// Nothing set anywhere -- the host falls back to the absolute
-    /// default, `DpuMode::DpuMode`.
     #[test]
-    fn resolve_no_expected_mode_no_site_setting_returns_dpu_mode() {
-        assert_eq!(DpuMode::resolve(None, None), DpuMode::DpuMode);
-    }
-
-    /// Explicit per-host `DpuMode` is indistinguishable from "not set"
-    /// in the storage type (the default variant), so it also defers to
-    /// the site-wide setting.
-    #[test]
-    fn resolve_explicit_per_host_dpu_mode_defers_to_site_setting() {
-        assert_eq!(
-            DpuMode::resolve(Some(DpuMode::DpuMode), None),
-            DpuMode::DpuMode
-        );
-        assert_eq!(
-            DpuMode::resolve(Some(DpuMode::DpuMode), Some(DpuMode::NicMode)),
-            DpuMode::NicMode
-        );
-    }
-
-    /// An explicit per-host `NicMode` always wins, regardless of the
-    /// site-wide setting. This is the "I want this specific host in
-    /// NIC mode" override.
-    #[test]
-    fn resolve_per_host_nic_mode_always_wins() {
-        for site_dpu_mode in [None, Some(DpuMode::DpuMode), Some(DpuMode::NoDpu)] {
-            assert_eq!(
-                DpuMode::resolve(Some(DpuMode::NicMode), site_dpu_mode),
-                DpuMode::NicMode,
-                "site_dpu_mode={site_dpu_mode:?}"
-            );
+    fn host_dpu_policy_resolves_legacy_declarations() {
+        struct Declarations {
+            per_host: Option<HostDpuPolicy>,
+            site: Option<HostDpuPolicy>,
         }
-    }
 
-    /// An explicit per-host `NoDpu` always wins. Useful for hosts where
-    /// the operator knows there's genuinely no DPU hardware (as opposed
-    /// to "DPU present but used as NIC", which is `NicMode`).
-    #[test]
-    fn resolve_per_host_no_dpu_always_wins() {
-        for site_dpu_mode in [None, Some(DpuMode::DpuMode), Some(DpuMode::NicMode)] {
-            assert_eq!(
-                DpuMode::resolve(Some(DpuMode::NoDpu), site_dpu_mode),
-                DpuMode::NoDpu,
-                "site_dpu_mode={site_dpu_mode:?}"
-            );
-        }
-    }
-
-    /// Site-wide `NicMode` applies to hosts that don't declare a
-    /// per-host mode -- this is the whole point of the site-wide
-    /// setting (flip an entire site without per-host edits).
-    #[test]
-    fn resolve_site_wide_nic_mode_applies_when_per_host_is_unset() {
-        assert_eq!(
-            DpuMode::resolve(None, Some(DpuMode::NicMode)),
-            DpuMode::NicMode
+        check_values(
+            [
+                Check {
+                    scenario: "unset host, unset site",
+                    input: Declarations {
+                        per_host: None,
+                        site: None,
+                    },
+                    expect: HostDpuPolicy::Manage,
+                },
+                Check {
+                    scenario: "unset host, managed site",
+                    input: Declarations {
+                        per_host: None,
+                        site: Some(HostDpuPolicy::Manage),
+                    },
+                    expect: HostDpuPolicy::Manage,
+                },
+                Check {
+                    scenario: "unset host, NIC-mode site",
+                    input: Declarations {
+                        per_host: None,
+                        site: Some(HostDpuPolicy::Nic),
+                    },
+                    expect: HostDpuPolicy::Nic,
+                },
+                Check {
+                    scenario: "unset host, no-DPU site",
+                    input: Declarations {
+                        per_host: None,
+                        site: Some(HostDpuPolicy::Ignore),
+                    },
+                    expect: HostDpuPolicy::Ignore,
+                },
+                Check {
+                    scenario: "inheriting host, unset site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Manage),
+                        site: None,
+                    },
+                    expect: HostDpuPolicy::Manage,
+                },
+                Check {
+                    scenario: "inheriting host, managed site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Manage),
+                        site: Some(HostDpuPolicy::Manage),
+                    },
+                    expect: HostDpuPolicy::Manage,
+                },
+                Check {
+                    scenario: "inheriting host, NIC-mode site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Manage),
+                        site: Some(HostDpuPolicy::Nic),
+                    },
+                    expect: HostDpuPolicy::Nic,
+                },
+                Check {
+                    scenario: "inheriting host, no-DPU site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Manage),
+                        site: Some(HostDpuPolicy::Ignore),
+                    },
+                    expect: HostDpuPolicy::Ignore,
+                },
+                Check {
+                    scenario: "NIC-mode host, unset site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Nic),
+                        site: None,
+                    },
+                    expect: HostDpuPolicy::Nic,
+                },
+                Check {
+                    scenario: "NIC-mode host, managed site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Nic),
+                        site: Some(HostDpuPolicy::Manage),
+                    },
+                    expect: HostDpuPolicy::Nic,
+                },
+                Check {
+                    scenario: "NIC-mode host, NIC-mode site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Nic),
+                        site: Some(HostDpuPolicy::Nic),
+                    },
+                    expect: HostDpuPolicy::Nic,
+                },
+                Check {
+                    scenario: "NIC-mode host, no-DPU site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Nic),
+                        site: Some(HostDpuPolicy::Ignore),
+                    },
+                    expect: HostDpuPolicy::Nic,
+                },
+                Check {
+                    scenario: "no-DPU host, unset site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Ignore),
+                        site: None,
+                    },
+                    expect: HostDpuPolicy::Ignore,
+                },
+                Check {
+                    scenario: "no-DPU host, managed site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Ignore),
+                        site: Some(HostDpuPolicy::Manage),
+                    },
+                    expect: HostDpuPolicy::Ignore,
+                },
+                Check {
+                    scenario: "no-DPU host, NIC-mode site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Ignore),
+                        site: Some(HostDpuPolicy::Nic),
+                    },
+                    expect: HostDpuPolicy::Ignore,
+                },
+                Check {
+                    scenario: "no-DPU host, no-DPU site",
+                    input: Declarations {
+                        per_host: Some(HostDpuPolicy::Ignore),
+                        site: Some(HostDpuPolicy::Ignore),
+                    },
+                    expect: HostDpuPolicy::Ignore,
+                },
+            ],
+            |Declarations { per_host, site }| HostDpuPolicy::resolve(per_host, site),
         );
-        assert_eq!(
-            DpuMode::resolve(Some(DpuMode::DpuMode), Some(DpuMode::NicMode)),
-            DpuMode::NicMode
+    }
+
+    #[test]
+    fn host_dpu_policy_expects_managed_dpus() {
+        value_scenarios!(
+            run = HostDpuPolicy::expects_managed_dpus;
+            "manage" {
+                HostDpuPolicy::Manage => true,
+            }
+            "use as NIC" {
+                HostDpuPolicy::Nic => false,
+            }
+            "ignore" {
+                HostDpuPolicy::Ignore => false,
+            }
         );
     }
 
-    /// Same as above for `NoDpu`: site-wide setting applies when the
-    /// per-host value is unset (or the default `DpuMode` placeholder).
     #[test]
-    fn resolve_site_wide_no_dpu_applies_when_per_host_is_unset() {
-        assert_eq!(DpuMode::resolve(None, Some(DpuMode::NoDpu)), DpuMode::NoDpu);
-        assert_eq!(
-            DpuMode::resolve(Some(DpuMode::DpuMode), Some(DpuMode::NoDpu)),
-            DpuMode::NoDpu
+    fn host_dpu_policy_deserializes_new_and_legacy_values() {
+        scenarios!(
+            run = |json| serde_json::from_str::<HostDpuPolicy>(json).map_err(drop);
+            "canonical policy values" {
+                r#""manage""# => Yields(HostDpuPolicy::Manage),
+                r#""nic""# => Yields(HostDpuPolicy::Nic),
+                r#""ignore""# => Yields(HostDpuPolicy::Ignore),
+            }
+
+            "compatibility values" {
+                r#""use_as_nic""# => Yields(HostDpuPolicy::Nic),
+                r#""dpu_mode""# => Yields(HostDpuPolicy::Manage),
+                r#""nic_mode""# => Yields(HostDpuPolicy::Nic),
+                r#""no_dpu""# => Yields(HostDpuPolicy::Ignore),
+            }
         );
     }
 
-    /// Site-wide `DpuMode` is indistinguishable from "not set" -- both
-    /// fall back to the absolute `DpuMode` default. Symmetric with the
-    /// per-host `DpuMode` behavior.
     #[test]
-    fn resolve_site_wide_dpu_mode_resolves_to_dpu_mode() {
-        assert_eq!(
-            DpuMode::resolve(None, Some(DpuMode::DpuMode)),
-            DpuMode::DpuMode
+    fn host_dpu_policy_serializes_and_round_trips_canonical_values() {
+        scenarios!(
+            run = |policy| {
+                let json = serde_json::to_string(&policy).map_err(drop)?;
+                let recovered = serde_json::from_str::<HostDpuPolicy>(&json).map_err(drop)?;
+                Ok::<_, ()>((json, recovered))
+            };
+            "default/manage" {
+                HostDpuPolicy::default() => Yields((
+                    r#""manage""#.to_string(),
+                    HostDpuPolicy::Manage,
+                )),
+            }
+
+            "NIC" {
+                HostDpuPolicy::Nic => Yields((
+                    r#""nic""#.to_string(),
+                    HostDpuPolicy::Nic,
+                )),
+            }
+
+            "ignore" {
+                HostDpuPolicy::Ignore => Yields((
+                    r#""ignore""#.to_string(),
+                    HostDpuPolicy::Ignore,
+                )),
+            }
         );
     }
 
-    /// `is_dpu_managed()` returns true only for the default `DpuMode`
-    /// variant -- the two "not managed by NICo as DPU" cases both return
-    /// false, which is what site-explorer and state handlers use to skip
-    /// DPU-specific work.
     #[test]
-    fn is_dpu_managed_covers_both_skip_cases() {
-        assert!(DpuMode::DpuMode.is_dpu_managed());
-        assert!(!DpuMode::NicMode.is_dpu_managed());
-        assert!(!DpuMode::NoDpu.is_dpu_managed());
+    fn expected_machine_deserializes_new_and_legacy_policy_fields() {
+        scenarios!(
+            run = |json| {
+                serde_json::from_str::<ExpectedMachine>(json)
+                    .map(|em| em.data.dpu_policy)
+                    .map_err(drop)
+            };
+            "policy omitted" {
+                r#"{
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-1"
+                }"# => Yields(HostDpuPolicy::Manage),
+            }
+
+            "canonical field and value" {
+                r#"{
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-1",
+                    "dpu_policy": "nic"
+                }"# => Yields(HostDpuPolicy::Nic),
+            }
+
+            "previous canonical field value remains accepted" {
+                r#"{
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-1",
+                    "dpu_policy": "use_as_nic"
+                }"# => Yields(HostDpuPolicy::Nic),
+            }
+
+            "legacy field and value" {
+                r#"{
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-1",
+                    "dpu_mode": "no_dpu"
+                }"# => Yields(HostDpuPolicy::Ignore),
+            }
+
+            "matching new and legacy fields" {
+                r#"{
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-1",
+                    "dpu_policy": "nic",
+                    "dpu_mode": "nic_mode"
+                }"# => Yields(HostDpuPolicy::Nic),
+            }
+
+            "new field wins over conflicting legacy field" {
+                r#"{
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-1",
+                    "dpu_policy": "ignore",
+                    "dpu_mode": "dpu_mode"
+                }"# => Yields(HostDpuPolicy::Ignore),
+            }
+
+            "explicit manage wins when legacy field comes first" {
+                r#"{
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-1",
+                    "dpu_mode": "nic_mode",
+                    "dpu_policy": "manage"
+                }"# => Yields(HostDpuPolicy::Manage),
+            }
+        );
     }
 
     /// JSON deserialization of `ExpectedMachine`, projecting to the

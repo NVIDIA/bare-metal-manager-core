@@ -20,7 +20,8 @@ use std::sync::Arc;
 use bmc_mock::mac_address_pool::PoolConfig as MacAddressPoolConfig;
 use bmc_mock::{HostHardwareType, HostMachineInfo};
 use futures::future::try_join_all;
-use rpc::forge::{DpuMode, ExpectedHostNic, NetworkSegmentType, VpcVirtualizationType};
+use model::expected_machine::HostDpuPolicy;
+use rpc::forge::{ExpectedHostNic, NetworkSegmentType, VpcVirtualizationType};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -44,15 +45,15 @@ pub struct MachineATron {
 
 fn expected_host_nics(
     host_info: &HostMachineInfo,
-    dpu_mode: Option<DpuMode>,
+    dpu_policy: Option<HostDpuPolicy>,
 ) -> Vec<ExpectedHostNic> {
-    let mac_addresses = match dpu_mode {
-        Some(DpuMode::NicMode) => host_info
+    let mac_addresses = match dpu_policy {
+        Some(HostDpuPolicy::Nic) => host_info
             .dpus
             .iter()
             .map(|dpu| dpu.host_mac_address)
             .collect::<Vec<_>>(),
-        Some(DpuMode::NoDpu) => host_info.non_dpu_mac_address.into_iter().collect(),
+        Some(HostDpuPolicy::Ignore) => host_info.non_dpu_mac_address.into_iter().collect(),
         _ => Vec::new(),
     };
 
@@ -231,27 +232,27 @@ impl MachineATron {
                             .await
                     }
                     _ => {
-                        // Derive the expected `dpu_mode` from the machine's
-                        // MachineConfig: zero-DPU hosts declare `NoDpu`, hosts
-                        // running their DPUs as NICs declare `NicMode`, everything
-                        // else defers to the absolute default (DpuMode).
+                        // Derive the expected `dpu_policy` from the machine's
+                        // MachineConfig: zero-DPU hosts declare `Ignore`, hosts
+                        // running their DPUs as NICs declare `Nic`, and
+                        // everything else defers to the default (`Manage`).
                         // Site-explorer's ingestion gate requires this explicit
                         // declaration for any host without DPU PCIe devices.
-                        let dpu_mode = if machine_config.dpu_per_host_count == 0 {
-                            Some(DpuMode::NoDpu)
+                        let dpu_policy = if machine_config.dpu_per_host_count == 0 {
+                            Some(HostDpuPolicy::Ignore)
                         } else if machine_config.dpus_in_nic_mode {
-                            Some(DpuMode::NicMode)
+                            Some(HostDpuPolicy::Nic)
                         } else {
                             None
                         };
-                        let host_nics = expected_host_nics(host_info, dpu_mode);
+                        let host_nics = expected_host_nics(host_info, dpu_policy);
                         self.app_context
                             .api_client()
                             .add_expected_machine(
                                 host_info.bmc_mac_address.to_string(),
                                 host_info.serial.clone(),
                                 rack_id,
-                                dpu_mode,
+                                dpu_policy,
                                 host_nics,
                             )
                             .await
@@ -561,7 +562,7 @@ mod tests {
                     scenario: "NIC-mode host declares every host-facing DPU PF",
                     input: (
                         host_info(&[first_dpu_mac, second_dpu_mac], None),
-                        Some(DpuMode::NicMode),
+                        Some(HostDpuPolicy::Nic),
                     ),
                     expect: vec![
                         expected_nic(first_dpu_mac, true),
@@ -570,7 +571,10 @@ mod tests {
                 },
                 Check {
                     scenario: "zero-DPU host declares its integrated NIC",
-                    input: (host_info(&[], Some(integrated_mac)), Some(DpuMode::NoDpu)),
+                    input: (
+                        host_info(&[], Some(integrated_mac)),
+                        Some(HostDpuPolicy::Ignore),
+                    ),
                     expect: vec![expected_nic(integrated_mac, true)],
                 },
                 Check {
@@ -579,7 +583,7 @@ mod tests {
                     expect: Vec::new(),
                 },
             ],
-            |(host_info, dpu_mode)| expected_host_nics(&host_info, dpu_mode),
+            |(host_info, dpu_policy)| expected_host_nics(&host_info, dpu_policy),
         );
     }
 }

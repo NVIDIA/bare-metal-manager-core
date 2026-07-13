@@ -1084,9 +1084,10 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                 );
 
                 // 2. Flip the ExpectedMachine to NIC mode. Get the current record,
-                //    set `dpu_mode`, and round-trip the full message back through
-                //    UpdateExpectedMachine (the same get-mutate-update the admin CLI
-                //    `patch_expected_machine` uses, so we preserve every other field).
+                //    set the stable Forge `dpu_mode` field (translated to
+                //    HostDpuPolicy internally), and round-trip the full message
+                //    back through UpdateExpectedMachine. This is the same
+                //    get-mutate-update flow the admin CLI uses.
                 let get_req = serde_json::json!({ "bmc_mac_address": bmc_mac });
                 let expected_machine_json =
                     api_test_helper::grpcurl::grpcurl(carbide_api_addrs, "GetExpectedMachine", Some(&get_req))

@@ -52,8 +52,8 @@ use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
 use model::rack_type::RackProfileConfig;
 use model::resource_pool::common::CommonPools;
 use model::site_explorer::{
-    EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
-    ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, NicMode,
+    BlueFieldOperatingMode, EndpointExplorationError, EndpointExplorationReport, EndpointType,
+    ExploredDpu, ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation,
     PowerState, PreingestionState, Service, SiteExplorerLastRun, is_bf3_dpu_part_number,
     is_bf3_supernic_part_number, is_bluefield_part_number, is_bluefield_system,
 };
@@ -84,7 +84,7 @@ use db::ObjectColumnFilter;
 use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
 use model::DpuModel;
-use model::expected_machine::DpuMode;
+use model::expected_machine::HostDpuPolicy;
 use model::firmware::FirmwareComponentType;
 use model::network_segment::NetworkSegmentType;
 mod switch_creator;
@@ -1289,16 +1289,16 @@ impl SiteExplorer {
         explored_dpus: HashMap<IpAddr, ExploredEndpoint>,
         explored_hosts: HashMap<IpAddr, ExploredEndpoint>,
     ) -> SiteExplorerResult<Vec<(ExploredManagedHost, EndpointExplorationReport)>> {
-        // Per-host DPU-mode resolution. Precedence:
-        //   1. Per-host `ExpectedMachine.dpu_mode` (NicMode / NoDpu wins).
-        //   2. Site-wide `SiteExplorerConfig.dpu_mode` setting.
-        //   3. Otherwise: `DpuMode::DpuMode` (the absolute default).
-        let site_dpu_mode = self.config.dpu_mode;
-        let effective_mode = |host_bmc_ip: &IpAddr| -> DpuMode {
+        // Per-host DPU policy resolution. Precedence:
+        //   1. Per-host `ExpectedMachine.dpu_policy` (`Nic` / `Ignore` wins).
+        //   2. Site-wide `SiteExplorerConfig.dpu_policy` setting.
+        //   3. Otherwise: `HostDpuPolicy::Manage` (the absolute default).
+        let site_dpu_policy = self.config.dpu_policy;
+        let effective_policy = |host_bmc_ip: &IpAddr| -> HostDpuPolicy {
             let declared = expected_explored_endpoint_index
                 .matched_expected_machine(host_bmc_ip)
-                .map(|em| em.data.dpu_mode);
-            DpuMode::resolve(declared, site_dpu_mode)
+                .map(|em| em.data.dpu_policy);
+            HostDpuPolicy::resolve(declared, site_dpu_policy)
         };
         // Match HOST and DPU using the serial Redfish reports for the same
         // physical card. BF4 does not expose that serial on the DPU system
@@ -1322,7 +1322,7 @@ impl SiteExplorer {
             // machine_interfaces row (matched by MAC), so the primary-flagged
             // row holds the full pair -- whatever the NIC type (integrated NICs,
             // SuperNICs, DPU host-PFs, DPUs in NIC mode). This sits before the
-            // zero-DPU/NoDpu and unmatched-host `continue`s below, so every
+            // `Ignore` and unmatched-host `continue`s below, so every
             // explored host is covered -- including a zero-DPU host whose primary
             // boots from a plain NIC. The UPDATE no-ops for MACs with no row
             // (e.g. a never-cabled NIC). Last-known-good: only NICs that resolve
@@ -1351,22 +1351,40 @@ impl SiteExplorer {
                 }
             }
 
-            // Resolve the operator-declared DPU mode for this host once;
+            // Resolve the operator-declared DPU policy for this host once;
             // it drives both auto-correction (`check_and_configure_dpu_mode`
             // below -- operator override wins over BF3 part-number heuristics)
-            // and the post-match attach decision (NicMode/NoDpu hosts emit
-            // a bare managed host regardless of what matched).
-            let host_dpu_mode = effective_mode(&ep.address);
+            // and the post-match attach decision (`Nic` / `Ignore` policies
+            // emit a bare managed host regardless of what matched).
+            let host_dpu_policy = effective_policy(&ep.address);
 
-            // If an operator has declared this host `dpu_mode::NoDpu`,
-            // treat it as zero-DPU, regardless of what BMC hardware
+            // A declared `ExpectedHostNic.primary` (when the matched expected
+            // machine sets one) wins over the automatic DPU-PF pick, so the
+            // explored default names the same NIC the managed store will.
+            let declared_primary = expected_explored_endpoint_index
+                .matched_expected_machine(&ep.address)
+                .and_then(|expected| expected.data.declared_primary_mac());
+
+            // If the resolved policy says to ignore this host's DPUs, treat it
+            // as zero-DPU, regardless of what BMC hardware
             // enumeration says about attached DPUs. Without this check,
             // we can't ingest hosts which may have >= DPUs, but aren't
             // actively using them. For instance, a machine may have DPUs
             // that aren't actually cabled up, and we're instead using a
             // basic NIC. Since they aren't cabled, we'll never be able to
             // discover + link them; just ignore them entirely.
-            if matches!(host_dpu_mode, DpuMode::NoDpu) {
+            if matches!(host_dpu_policy, HostDpuPolicy::Ignore) {
+                // `Ignore` deliberately skips DPU discovery, but the host's
+                // explicitly declared primary NIC still needs to refresh the
+                // endpoint-level boot-interface pair. Keep the DPU slice empty
+                // so ignored DPU PFs can never become fallback primaries.
+                if let Some(mac_address) = ep
+                    .report
+                    .fetch_host_primary_interface_mac(&[], declared_primary)
+                {
+                    queue_host_boot_interface(&ep, mac_address, &mut boot_interfaces);
+                }
+
                 managed_hosts.push((
                     ExploredManagedHost {
                         host_bmc_ip: ep.address,
@@ -1405,7 +1423,7 @@ impl SiteExplorer {
                         pcie_device.part_number.as_deref(),
                         pcie_device.serial_number.as_deref(),
                         &dpu_sn_to_endpoint,
-                        host_dpu_mode,
+                        host_dpu_policy,
                         &ep,
                         &mut dpu_exploration,
                         metrics,
@@ -1442,7 +1460,7 @@ impl SiteExplorer {
                             chassis.part_number.as_deref(),
                             chassis.serial_number.as_deref(),
                             &dpu_sn_to_endpoint,
-                            host_dpu_mode,
+                            host_dpu_policy,
                             &ep,
                             &mut dpu_exploration,
                             metrics,
@@ -1454,7 +1472,7 @@ impl SiteExplorer {
                                 network_adapter.part_number.as_deref(),
                                 network_adapter.serial_number.as_deref(),
                                 &dpu_sn_to_endpoint,
-                                host_dpu_mode,
+                                host_dpu_policy,
                                 &ep,
                                 &mut dpu_exploration,
                                 metrics,
@@ -1494,7 +1512,7 @@ impl SiteExplorer {
                                 self.check_and_configure_dpu_mode(
                                     &dpu_ep,
                                     dpu_ep.report.dpu_part_number(),
-                                    host_dpu_mode,
+                                    host_dpu_policy,
                                     metrics,
                                 )
                                 .await,
@@ -1594,9 +1612,10 @@ impl SiteExplorer {
                                 }
                             } else {
                                 // We power-cycled within the rate limit and the
-                                // DPUs still aren't in the declared mode -- either
-                                // the change is mid-flight (the host is booting, a
-                                // pass or two of normal convergence) or this
+                                // DPUs still aren't in the target operating
+                                // mode -- either the change is mid-flight (the
+                                // host is booting, a pass or two of normal
+                                // convergence) or this
                                 // vendor's `PowerCycle` is a warm reset that never
                                 // actually drops power. Keep the pairing-blocker
                                 // signal standing so a host stuck in the warm-reset
@@ -1615,29 +1634,29 @@ impl SiteExplorer {
                         }
 
                         continue;
-                    } else if matches!(host_dpu_mode, DpuMode::DpuMode) {
-                        // Host has no DPU PCIe devices reported by its
-                        // BMC, and the effective `dpu_mode` is the
-                        // default (`DpuMode`) -- i.e. neither per-host
-                        // on `ExpectedMachine.dpu_mode` nor site-wide on
-                        // `[site_explorer] dpu_mode` declared this host
-                        // as zero-DPU. We expect DPUs but found none --
+                    } else if host_dpu_policy.expects_managed_dpus() {
+                        // No DPUs remain available for management, and the
+                        // effective policy is `Manage` --
+                        // i.e. neither per-host `ExpectedMachine.dpu_policy`
+                        // nor site-wide `[site_explorer] dpu_policy` declared
+                        // this host as zero-DPU. We expect DPUs but found none --
                         // probably a misconfiguration or a DPU-discovery
                         // bug. Skip ingestion this cycle; site-explorer
                         // will retry on the next iteration, giving the
-                        // operator a chance to either fix the host or
-                        // declare it as `NoDpu`.
+                        // operator a chance to either fix the host, select
+                        // `HostDpuPolicy::Nic` for installed BlueFields
+                        // that should run as NICs, or select
+                        // `HostDpuPolicy::Ignore` for a host with no usable DPU
+                        // hardware.
                         //
-                        // (`NoDpu` hosts are handled by the fast-path
-                        // earlier in the loop; `NicMode` hosts fall
-                        // through to the push below with an empty `dpus`
-                        // vector -- the operator already declared
-                        // "treat as zero-DPU.")
+                        // `Ignore` hosts are handled by the fast-path earlier in
+                        // the loop; `Nic` hosts fall through to the push
+                        // below with an empty `dpus` vector.
                         tracing::warn!(
                             bmc_ip_address = %ep.address,
                             exploration_report = ?ep,
-                            ?host_dpu_mode,
-                            "cannot identify managed host: site explorer sees no DPUs on this host and it isn't declared as `NoDpu`; declare `dpu_mode = \"no_dpu\"` to ingest as zero-DPU",
+                            ?host_dpu_policy,
+                            "cannot identify managed host: site explorer found no DPUs available for management while the effective DPU policy is `Manage`; use `dpu_policy = \"nic\"` for installed BlueFields that should run as NICs, or `dpu_policy = \"ignore\"` for a host with no usable DPU hardware",
                         );
                         metrics.increment_host_dpu_pairing_blocker(
                             PairingBlockerReason::NoDpuReportedByHost,
@@ -1650,12 +1669,6 @@ impl SiteExplorer {
             // If we know the booting interface of the host, we should use this for deciding
             // primary interface.
             let mut is_sorted = false;
-            // A declared `ExpectedHostNic.primary` (when the matched expected
-            // machine sets one) wins over the automatic DPU-PF pick, so the
-            // explored default names the same NIC the managed store will.
-            let declared_primary = expected_explored_endpoint_index
-                .matched_expected_machine(&ep.address)
-                .and_then(|expected| expected.data.declared_primary_mac());
             if let Some(mac_address) = ep
                 .report
                 .fetch_host_primary_interface_mac(&dpus_explored_for_host, declared_primary)
@@ -1665,21 +1678,7 @@ impl SiteExplorer {
                 // current report: if the MAC has no matching interface id in
                 // this report, keep the last-known-good stored boot interface
                 // rather than clobbering it with a partial record.
-                if let Some(interface_id) = ep.report.find_interface_id_for_mac(mac_address) {
-                    boot_interfaces.push((
-                        ep.address,
-                        MachineBootInterface {
-                            mac_address,
-                            interface_id: interface_id.to_string(),
-                        },
-                    ));
-                } else {
-                    tracing::debug!(
-                        bmc_ip_address = %ep.address,
-                        %mac_address,
-                        "boot interface MAC has no matching Redfish interface id in the report; keeping last-known-good stored boot interface",
-                    );
-                }
+                queue_host_boot_interface(&ep, mac_address, &mut boot_interfaces);
 
                 let primary_dpu_position = dpus_explored_for_host
                     .iter()
@@ -1726,28 +1725,30 @@ impl SiteExplorer {
                 });
             }
 
-            // For NicMode hosts, don't attach DPUs even if matching
+            // For `Nic` hosts, don't attach DPUs even if matching
             // discovered some: the operator has declared "treat this host
             // as zero-DPU". Any DPU hardware has already had `set_nic_mode`
             // issued by the check-and-configure step above if it was in
             // DPU mode; this cycle we just emit a bare host.
-            // For NoDpu hosts, we should have already returned/continued
-            // earlier on after detecting the host_dpu_mode as such, so
+            // For `Ignore` hosts, we should have already returned/continued
+            // earlier on after detecting the host policy as such, so
             // this shouldn't fire.
-            let dpus = match host_dpu_mode {
-                DpuMode::NicMode => {
+            let dpus = match host_dpu_policy {
+                HostDpuPolicy::Nic => {
                     metrics.increment_dpu_migration_signal(
-                        DpuMigrationSignal::RegisteredZeroDpuForNicMode,
+                        DpuMigrationSignal::RegisteredZeroDpuForNic,
                     );
                     Vec::new()
                 }
-                DpuMode::DpuMode => dpus_explored_for_host,
-                // Now that we continue/return early for NoDpu hosts,
+                HostDpuPolicy::Manage => dpus_explored_for_host,
+                // Now that we continue/return early for `Ignore` hosts,
                 // we shouldn't actually get here. Probably could be
                 // lazy and just leave it as Vec::new(), but I think
                 // this firing would also surface a bug, which we
                 // probably want.
-                DpuMode::NoDpu => unreachable!("NoDpu hosts should have already returned early"),
+                HostDpuPolicy::Ignore => {
+                    unreachable!("ignored-DPU hosts should have already returned early")
+                }
             };
 
             managed_hosts.push((
@@ -1815,7 +1816,7 @@ impl SiteExplorer {
         part_number: Option<&str>,
         serial_number: Option<&str>,
         dpu_sn_to_endpoint: &HashMap<String, ExploredEndpoint>,
-        host_dpu_mode: DpuMode,
+        host_dpu_policy: HostDpuPolicy,
         host_ep: &ExploredEndpoint,
         exploration: &mut DpuExplorationState,
         metrics: &mut SiteExplorationMetrics,
@@ -1842,7 +1843,7 @@ impl SiteExplorer {
         // Resolve the DPU's mode against what the host declared. This is the only
         // I/O, and may issue a `set_nic_mode` (in which case it returns `Ok(false)`).
         let mode_check = Some(
-            self.check_and_configure_dpu_mode(dpu_ep, part_number, host_dpu_mode, metrics)
+            self.check_and_configure_dpu_mode(dpu_ep, part_number, host_dpu_policy, metrics)
                 .await,
         );
 
@@ -3084,8 +3085,8 @@ impl SiteExplorer {
             return Ok(true);
         }
 
-        match dpu_endpoint.report.nic_mode() {
-            Some(NicMode::Nic) => {
+        match dpu_endpoint.report.bluefield_operating_mode() {
+            Some(BlueFieldOperatingMode::Nic) => {
                 // DPU's in NIC mode do not have full redfish functionality,
                 // for example, we will not be able to retrieve the base GUID
                 // from the redfish response. Skip the next check because the DPUs
@@ -3096,7 +3097,7 @@ impl SiteExplorer {
                 );
                 return Ok(true);
             }
-            Some(NicMode::Dpu) => {}
+            Some(BlueFieldOperatingMode::Dpu) => {}
             None if dpu_endpoint.report.dpu_pairing_serial_number().is_some() => {
                 tracing::warn!(
                     bmc_ip_address = %dpu_endpoint.address,
@@ -3133,7 +3134,7 @@ impl SiteExplorer {
     async fn set_nic_mode(
         &self,
         dpu_endpoint: &ExploredEndpoint,
-        mode: NicMode,
+        mode: BlueFieldOperatingMode,
     ) -> SiteExplorerResult<()> {
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(dpu_endpoint.address, bmc_target_port);
@@ -3477,13 +3478,13 @@ impl SiteExplorer {
     /// the corrected mode).
     ///
     /// The target is resolved in priority order:
-    /// 1. If the operator explicitly declared `DpuMode::NicMode` on the
-    ///    `ExpectedMachine`, target NIC mode (per-host override).
-    /// 2. If the operator declared `DpuMode::NoDpu`, bail out -- the
+    /// 1. If the resolved host policy is [`HostDpuPolicy::Nic`], target
+    ///    NIC mode.
+    /// 2. If the resolved policy is [`HostDpuPolicy::Ignore`], bail out -- the
     ///    `MachineValidation` state handler is where "hardware reports a
     ///    DPU but operator said no DPU" gets surfaced as a health alert;
     ///    we don't try to reconfigure in that case.
-    /// 3. Otherwise (operator default `DpuMode::DpuMode`), fall back to
+    /// 3. Otherwise ([`HostDpuPolicy::Manage`]), fall back to
     ///    the existing BF3 SuperNIC / BF3 DPU part-number heuristic for
     ///    backward compat: BF3 SuperNIC → NIC mode, BF3 DPU → DPU mode,
     ///    BF2 / unknown → no-op.
@@ -3491,16 +3492,16 @@ impl SiteExplorer {
         &self,
         dpu_ep: &ExploredEndpoint,
         dpu_part_number: Option<&str>,
-        host_dpu_mode: DpuMode,
+        host_dpu_policy: HostDpuPolicy,
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<bool> {
-        // Compute the target NIC mode. `None` means "no opinion -- don't
+        // Compute the target operating mode. `None` means "no opinion -- don't
         // attempt to reconfigure" (e.g., BF2 where the heuristic doesn't
-        // apply, or NoDpu where we defer to the health-check path).
-        let target_nic_mode: Option<NicMode> = match host_dpu_mode {
-            DpuMode::NicMode => Some(NicMode::Nic),
-            DpuMode::NoDpu => None,
-            DpuMode::DpuMode => {
+        // apply, or `Ignore` where we defer to the health-check path).
+        let target_operating_mode: Option<BlueFieldOperatingMode> = match host_dpu_policy {
+            HostDpuPolicy::Nic => Some(BlueFieldOperatingMode::Nic),
+            HostDpuPolicy::Ignore => None,
+            HostDpuPolicy::Manage => {
                 // Preserve existing BF3 part-number heuristics when the operator
                 // hasn't explicitly chosen a mode. Missing part numbers only
                 // disable this heuristic fallback; explicit modes above do not
@@ -3509,9 +3510,9 @@ impl SiteExplorer {
                 // default path does not infer or reconfigure BF4 mode,
                 dpu_part_number.and_then(|dpu_part_number| {
                     if is_bf3_supernic_part_number(dpu_part_number) {
-                        Some(NicMode::Nic)
+                        Some(BlueFieldOperatingMode::Nic)
                     } else if is_bf3_dpu_part_number(dpu_part_number) {
-                        Some(NicMode::Dpu)
+                        Some(BlueFieldOperatingMode::Dpu)
                     } else {
                         None
                     }
@@ -3519,23 +3520,23 @@ impl SiteExplorer {
             }
         };
 
-        let Some(target_nic_mode) = target_nic_mode else {
+        let Some(target_operating_mode) = target_operating_mode else {
             return Ok(true);
         };
 
-        match dpu_ep.report.nic_mode() {
-            Some(observed) if observed == target_nic_mode => Ok(true),
+        match dpu_ep.report.bluefield_operating_mode() {
+            Some(observed) if observed == target_operating_mode => Ok(true),
             Some(observed) => {
                 tracing::warn!(
                     bmc_ip_address = %dpu_ep.address,
                     part_number = ?dpu_part_number,
                     %observed,
-                    ?target_nic_mode,
-                    ?host_dpu_mode,
+                    ?target_operating_mode,
+                    ?host_dpu_policy,
                     "site explorer found a DPU with a mode that does not match the target; will try to reconfigure"
                 );
                 metrics.increment_dpu_migration_signal(DpuMigrationSignal::ModeMismatchFound);
-                self.set_nic_mode(dpu_ep, target_nic_mode).await?;
+                self.set_nic_mode(dpu_ep, target_operating_mode).await?;
                 metrics.increment_dpu_migration_signal(DpuMigrationSignal::SetNicModeIssued);
                 Ok(false)
             }
@@ -3912,7 +3913,10 @@ pub(crate) fn u64_to_mac(value: u64) -> MacAddress {
 
 /// Whether a discovered DPU BMC is reporting that it's running as a plain NIC.
 fn is_dpu_in_nic_mode(dpu_ep: &ExploredEndpoint, host_ep: &ExploredEndpoint) -> bool {
-    let nic_mode = dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic);
+    let nic_mode = dpu_ep
+        .report
+        .bluefield_operating_mode()
+        .is_some_and(|m| m == BlueFieldOperatingMode::Nic);
     if nic_mode {
         tracing::info!(
             dpu_bmc_ip_address = %dpu_ep.address,
@@ -3950,6 +3954,32 @@ fn duplicate_bluefield_serial<'a>(
 
     let serial_number = serial_number.map(str::trim).none_if_empty()?;
     (!seen.insert(serial_number)).then_some(serial_number)
+}
+
+/// Queues a complete host boot-interface pair for endpoint persistence.
+///
+/// A report that resolves only the MAC must not overwrite the last-known-good
+/// pair already stored for the endpoint.
+fn queue_host_boot_interface(
+    endpoint: &ExploredEndpoint,
+    mac_address: MacAddress,
+    boot_interfaces: &mut Vec<(IpAddr, MachineBootInterface)>,
+) {
+    if let Some(interface_id) = endpoint.report.find_interface_id_for_mac(mac_address) {
+        boot_interfaces.push((
+            endpoint.address,
+            MachineBootInterface {
+                mac_address,
+                interface_id: interface_id.to_string(),
+            },
+        ));
+    } else {
+        tracing::debug!(
+            bmc_ip_address = %endpoint.address,
+            %mac_address,
+            "boot interface MAC has no matching Redfish interface id in the report; keeping last-known-good stored boot interface",
+        );
+    }
 }
 
 /// State from exploring a host's DPUs and pairing them with DPU BMCs.
@@ -4480,7 +4510,7 @@ mod tests {
     }
 
     /// A BF2 DPU endpoint with its reported NIC mode forced to `nic_mode`.
-    fn bf2_dpu(nic_mode: Option<NicMode>) -> ExploredEndpoint {
+    fn bf2_dpu(nic_mode: Option<BlueFieldOperatingMode>) -> ExploredEndpoint {
         let mut report = load_bf2_ep_report();
         report
             .systems
@@ -4493,7 +4523,7 @@ mod tests {
 
     #[test]
     fn classify_running_as_dpu_when_in_dpu_mode() {
-        let dpu = bf2_dpu(Some(NicMode::Dpu));
+        let dpu = bf2_dpu(Some(BlueFieldOperatingMode::Dpu));
         let host = explored_endpoint(load_dell_ep_report());
         // Mode already correct (`Ok(true)`) -> attach as a managed DPU.
         assert!(matches!(
@@ -4509,7 +4539,7 @@ mod tests {
 
     #[test]
     fn classify_running_as_nic_when_dpu_reports_nic_mode() {
-        let dpu = bf2_dpu(Some(NicMode::Nic));
+        let dpu = bf2_dpu(Some(BlueFieldOperatingMode::Nic));
         let host = explored_endpoint(load_dell_ep_report());
         assert!(matches!(
             classify_matched_dpu(&dpu, &host, Some(Ok(true))),
@@ -4520,7 +4550,7 @@ mod tests {
     #[test]
     fn classify_needs_reconfig_when_set_nic_mode_was_issued() {
         // `Ok(false)` means `check_and_configure_dpu_mode` just issued a `set_nic_mode`.
-        let dpu = bf2_dpu(Some(NicMode::Nic));
+        let dpu = bf2_dpu(Some(BlueFieldOperatingMode::Nic));
         let host = explored_endpoint(load_dell_ep_report());
         assert!(matches!(
             classify_matched_dpu(&dpu, &host, Some(Ok(false))),
@@ -4530,7 +4560,7 @@ mod tests {
 
     #[test]
     fn classify_mode_check_failed_on_error() {
-        let dpu = bf2_dpu(Some(NicMode::Dpu));
+        let dpu = bf2_dpu(Some(BlueFieldOperatingMode::Dpu));
         let host = explored_endpoint(load_dell_ep_report());
         let err = SiteExplorerError::InvalidArgument("boom".to_string());
         assert!(matches!(

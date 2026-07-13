@@ -2738,19 +2738,21 @@ func (OsImageStatus) EnumDescriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{49}
 }
 
-// Per-host DPU operating mode. Lets site operators mix DPU-mode,
-// NIC-mode, and no-DPU hosts within a single site.
+// NICo RPC representation of the per-host policy for how NICo treats DPU
+// hardware. The server translates this compatibility surface to the internal
+// `HostDpuPolicy` model at the RPC boundary.
 //
-//   - DPU_MODE: The default. Attached DPUs are managed by NICo (DPU upgrades,
-//     overlay networking, etc).
-//   - NIC_MODE: DPUs are present physically but operate as plain NICs. Site
-//     explorer reconfigures them to NIC mode if needed; the host is then
-//     tracked as if it had no DPUs.
-//   - NO_DPU: no DPU hardware at all -- a plain host NIC on the underlay.
+//   - DPU_MODE: `HostDpuPolicy::Manage`. Attached DPUs are managed by NICo. At
+//     the per-host boundary this retains the legacy inheritance behavior and
+//     defers to the site policy.
+//   - NIC_MODE: `HostDpuPolicy::Nic`. Physically present DPUs operate as
+//     plain NICs and the host is tracked as if it had no DPUs.
+//   - NO_DPU: `HostDpuPolicy::Ignore`. NICo does not configure or attach DPU
+//     hardware.
 //
-// Unset and `DPU_MODE_UNSPECIFIED` both mean "use the site default,"
-// which comes from `[site_explorer] dpu_mode` (and falls back to
-// DPU_MODE when that's unset).
+// Unset and `DPU_MODE_UNSPECIFIED` both mean "use the site default," which
+// comes from `[site_explorer] dpu_policy` (and falls back to `Manage` when
+// that's unset).
 type DpuMode int32
 
 const (
@@ -34744,9 +34746,9 @@ type ExpectedMachine struct {
 	// When true, site-explorer skips BMC password rotation and stores the
 	// factory-default credentials in Vault as-is.
 	BmcRetainCredentials *bool `protobuf:"varint,15,opt,name=bmc_retain_credentials,json=bmcRetainCredentials,proto3,oneof" json:"bmc_retain_credentials,omitempty"`
-	// Per-host DPU operating mode. See `DpuMode` above. Unset means "use
-	// the site-wide `[site_explorer] dpu_mode` default" (which itself
-	// defaults to DPU_MODE when unset).
+	// NICo RPC compatibility field for the per-host DPU policy. See `DpuMode`
+	// above. Internal config and admin-CLI inputs call this `dpu_policy`; the RPC
+	// boundary translates between those policy names and this stable field.
 	DpuMode *DpuMode `protobuf:"varint,16,opt,name=dpu_mode,json=dpuMode,proto3,enum=forge.DpuMode,oneof" json:"dpu_mode,omitempty"`
 	// Per-host lifecycle profile. When unset in a patch/update request, the
 	// existing DB value is preserved via COALESCE.

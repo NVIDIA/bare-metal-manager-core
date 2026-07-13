@@ -19,9 +19,9 @@ use mac_address::MacAddress;
 
 use crate::hardware_info::HardwareInfo;
 use crate::site_explorer::{
-    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
-    EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, NicMode,
-    PCIeDevice, PowerState, Service, UefiDevicePath,
+    BlueFieldOperatingMode, Chassis, ComputerSystem, ComputerSystemAttributes,
+    EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
+    Inventory, Manager, PCIeDevice, PowerState, Service, UefiDevicePath,
 };
 use crate::test_support::HardwareInfoTemplate;
 
@@ -40,10 +40,10 @@ pub struct DpuConfig {
     pub override_hosts_uefi_device_path: Option<UefiDevicePath>,
     pub hardware_info_template: HardwareInfoTemplate,
     /// The `nic_mode` value included in the DPU's `EndpointExplorationReport`.
-    /// Defaults to `Some(NicMode::Dpu)`; tests exercising the auto-correct
-    /// path override this to `Some(NicMode::Nic)` to simulate a DPU whose
+    /// Defaults to `Some(BlueFieldOperatingMode::Dpu)`; tests exercising the auto-correct
+    /// path override this to `Some(BlueFieldOperatingMode::Nic)` to simulate a DPU whose
     /// hardware mode doesn't match the operator-declared mode.
-    pub nic_mode: Option<NicMode>,
+    pub nic_mode: Option<BlueFieldOperatingMode>,
 }
 
 impl From<&DpuConfig> for HardwareInfo {
