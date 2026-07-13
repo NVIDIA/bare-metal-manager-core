@@ -2923,6 +2923,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bmc-vendor",
+ "carbide-instrument",
  "carbide-test-support",
  "carbide-uuid",
  "eyre",
