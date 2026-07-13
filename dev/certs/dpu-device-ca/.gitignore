@@ -1,0 +1,7 @@
+# Local-only DPU device root CA certificates (.pem/.cer/.der). This directory is
+# mounted into the localdev API image by dev/deployment/localdev/Dockerfile.api.localdev
+# so carbide-api can seed the device trust store on startup. Never commit real CA
+# material; only this .gitignore is tracked, so the directory exists for the COPY
+# step and the build works (seeding is a no-op) when no certs are present locally.
+*
+!.gitignore

@@ -29,4 +29,5 @@ COPY crates/api/casbin-policy.csv /opt/carbide/
 COPY pxe/scout-firmware-scripts/ /opt/carbide/scout-firmware-scripts/
 COPY pxe/static/blobs/internal/aarch64/secure-boot-pk.pem /forge-boot-artifacts/blobs/internal/aarch64/secure-boot-pk.pem
 COPY pxe/static/blobs/internal/aarch64/preingestion.bfb /forge-boot-artifacts/blobs/internal/aarch64/preingestion.bfb
+COPY dev/certs/dpu-device-ca/ /opt/carbide/dpu-device-ca/
 ENV CASBIN_POLICY_FILE=/opt/carbide/casbin-policy.csv
