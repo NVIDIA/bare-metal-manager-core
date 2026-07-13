@@ -19,12 +19,20 @@
 //! compiles into a production build.
 
 use std::sync::Arc;
+use std::time::Duration;
 
+use bmc_mock::test_support::TestBmc;
+use bmc_mock::test_support::axum_http_client::Error as TestBmcError;
+use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MachineInfo};
+use model::site_explorer::EndpointExplorationReport;
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 
 use crate::chassis::ExploredChassisCollection;
 use crate::computer_system::{self, ExploredComputerSystem};
-use crate::{Config, Error, build_chassis_explore_config, hw, hw_type, is_bluefield_system_id};
+use crate::{
+    Config, Error, ErrorClass, build_chassis_explore_config, hw, hw_type, is_bluefield_system_id,
+    nv_generate_exploration_report,
+};
 
 /// Resolve the [`hw::HwType`] for an endpoint, running only the chassis +
 /// computer-system exploration that detection depends on.
@@ -77,4 +85,84 @@ pub async fn detect_hw_type<B: Bmc>(
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
 
     Ok(hw_type(&root, &explored_system, &explored_chassis))
+}
+
+pub type MockExplorerError = Error<TestBmc>;
+
+#[derive(Clone, Debug)]
+pub struct GeneratedEndpointReport<T> {
+    pub machine_info: T,
+    pub report: EndpointExplorationReport,
+}
+
+#[derive(Clone, Debug)]
+pub struct GeneratedManagedHostReports {
+    pub host: GeneratedEndpointReport<HostMachineInfo>,
+    pub dpus: Vec<GeneratedEndpointReport<DpuMachineInfo>>,
+}
+
+pub async fn generate_report_for_machine(
+    machine_info: MachineInfo,
+) -> Result<EndpointExplorationReport, MockExplorerError> {
+    let bmc = bmc_mock::test_support::bmc_for_machine(machine_info).await;
+    nv_generate_exploration_report(bmc.service_root, &explorer_config()).await
+}
+
+pub async fn generate_managed_host_reports(
+    hw_type: HostHardwareType,
+) -> Result<GeneratedManagedHostReports, MockExplorerError> {
+    generate_managed_host_reports_from_info(host_info_for_hw_type(hw_type)).await
+}
+
+pub async fn generate_managed_host_reports_from_info(
+    host_info: HostMachineInfo,
+) -> Result<GeneratedManagedHostReports, MockExplorerError> {
+    let host_report = generate_report_for_machine(MachineInfo::Host(host_info.clone())).await?;
+    let mut dpus = Vec::with_capacity(host_info.dpus.len());
+
+    for dpu_info in host_info.dpus.iter().cloned() {
+        let report = generate_report_for_machine(MachineInfo::Dpu(dpu_info.clone())).await?;
+        dpus.push(GeneratedEndpointReport {
+            machine_info: dpu_info,
+            report,
+        });
+    }
+
+    Ok(GeneratedManagedHostReports {
+        host: GeneratedEndpointReport {
+            machine_info: host_info,
+            report: host_report,
+        },
+        dpus,
+    })
+}
+
+fn host_info_for_hw_type(hw_type: HostHardwareType) -> HostMachineInfo {
+    let dpu_count = hw_type.fixed_number_of_dpu().unwrap_or(0);
+    let mut pool = bmc_mock::test_support::TEST_MAC_POOL.lock().unwrap();
+    let hw_mac_addr_pool = pool.allocate_range_config().unwrap();
+    let dpus = (0..dpu_count)
+        .map(|_| DpuMachineInfo::new(hw_type, &mut pool, DpuSettings::default()))
+        .collect();
+
+    HostMachineInfo::new(hw_type, dpus, &mut pool, hw_mac_addr_pool)
+}
+
+fn explorer_config() -> Config<'static, TestBmc> {
+    Config {
+        boot_interface_mac: None,
+        error_classifier: &error_classifier,
+        retry_timeout: Duration::from_millis(0),
+    }
+}
+
+fn error_classifier(err: &TestBmcError) -> Option<ErrorClass> {
+    match err {
+        TestBmcError::InvalidResponse { status, .. } => match status.as_u16() {
+            404 => Some(ErrorClass::NotFound),
+            500 => Some(ErrorClass::InternalServerError),
+            _ => None,
+        },
+        _ => None,
+    }
 }

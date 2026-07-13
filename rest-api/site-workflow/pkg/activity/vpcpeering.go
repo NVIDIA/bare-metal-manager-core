@@ -60,13 +60,14 @@ func (mvp *ManageVpcPeering) CreateVpcPeeringOnSite(ctx context.Context, request
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.CreateVpcPeering(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create VpcPeering using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create VpcPeering using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -97,13 +98,14 @@ func (mvp *ManageVpcPeering) DeleteVpcPeeringOnSite(ctx context.Context, request
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.DeleteVpcPeering(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete VpcPeering using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete VpcPeering using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

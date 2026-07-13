@@ -44,6 +44,7 @@ carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 #these are alphabetized
 async-trait = { workspace = true }
 chrono = { workspace = true }
+const_format = { workspace = true }
 domain = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }

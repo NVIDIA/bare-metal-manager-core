@@ -21,14 +21,15 @@ use std::time::Duration;
 
 use carbide_firmware::test_support::script_setup;
 use carbide_machine_controller::config::{FirmwareGlobal, TimePeriod};
-use carbide_machine_controller::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::{
     self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
 };
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::instance::status::tenant::TenantState;
-use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
+use model::machine::{
+    HostReprovisionState, InstanceState, MAX_FIRMWARE_UPGRADE_RETRIES, ManagedHostState,
+};
 use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
 use model::test_support::HardwareInfoTemplate;
 use regex::Regex;
@@ -1525,6 +1526,16 @@ async fn test_script_upgrade_failure(pool: sqlx::PgPool) -> CarbideResult<()> {
         panic!("Not in FailedFirmwareUpgrade");
     };
     txn.commit().await.unwrap();
+
+    // The machine with the exhausted retry budget surfaces on the update
+    // manager's gauge rather than in per-pass logs.
+    update_manager.run_single_iteration().await.unwrap();
+    assert_eq!(
+        env.test_meter
+            .formatted_metric("carbide_exhausted_reprovision_retry_count")
+            .unwrap(),
+        "1"
+    );
 
     Ok(())
 }

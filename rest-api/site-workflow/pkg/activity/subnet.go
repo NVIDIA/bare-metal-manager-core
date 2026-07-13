@@ -66,13 +66,14 @@ func (mm *ManageSubnet) CreateSubnetOnSite(ctx context.Context, request *corev1.
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.CreateNetworkSegment(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Subnet using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create Subnet using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -106,13 +107,14 @@ func (mm *ManageSubnet) DeleteSubnetOnSite(ctx context.Context, request *corev1.
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.DeleteNetworkSegment(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete Subnet using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete Subnet using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

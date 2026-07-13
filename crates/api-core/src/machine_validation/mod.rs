@@ -36,6 +36,89 @@ use tokio_util::sync::CancellationToken;
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
 
+/// The terminal outcome of a machine validation run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+pub(crate) enum MachineValidationOutcome {
+    Passed,
+    Failed,
+}
+
+/// Why a machine validation run failed, in the vocabulary of the
+/// health-report alert ids the completion paths record. `None` is the label
+/// value for a passed run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+pub(crate) enum MachineValidationFailureCause {
+    None,
+    FailedValidationRunItems,
+    FailedValidationTest,
+    FailedValidationTestCompletion,
+    StaleMachineValidationAttempt,
+    StaleMachineValidationRun,
+}
+
+impl MachineValidationFailureCause {
+    /// The health-report alert id recorded for this failure cause; `None` is
+    /// the passed-run label value and records no alert.
+    pub(crate) fn health_alert_id(self) -> Option<&'static str> {
+        match self {
+            Self::None => None,
+            Self::FailedValidationRunItems => Some("FailedValidationRunItems"),
+            Self::FailedValidationTest => Some("FailedValidationTest"),
+            Self::FailedValidationTestCompletion => Some("FailedValidationTestCompletion"),
+            Self::StaleMachineValidationAttempt => Some("StaleMachineValidationAttempt"),
+            Self::StaleMachineValidationRun => Some("StaleMachineValidationRun"),
+        }
+    }
+}
+
+/// A machine validation run completed as passed or failed -- reported by
+/// scout through the completion handler, or reconciled by the manager when
+/// every run item is terminal or the run goes stale. Every emitting path
+/// sits behind the run's single active-to-terminal transition in the
+/// database, so a run counts at most once and the per-cause rate is the
+/// validation pass/fail funnel.
+///
+/// Runs that a disabled validation config skips are deliberately not
+/// counted: the machine controller flips them to `Skipped` through the same
+/// database gate without emitting. If skips ever become worth counting, an
+/// `outcome = Skipped` variant slots in beside `Passed`/`Failed`.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_machine_validation_outcomes_total",
+    component = "nico-api",
+    log = dynamic,
+    metric = counter,
+    message = "machine validation completed",
+    describe = "Number of machine validation runs that completed as passed or failed, by outcome and failure cause; runs skipped by a disabled validation config are not counted"
+)]
+pub(crate) struct MachineValidationCompleted {
+    #[label]
+    pub(crate) outcome: MachineValidationOutcome,
+    #[label]
+    pub(crate) cause: MachineValidationFailureCause,
+    #[context]
+    pub(crate) machine_id: carbide_uuid::machine::MachineId,
+    #[context]
+    pub(crate) validation_id: carbide_uuid::machine_validation::MachineValidationId,
+    #[context]
+    pub(crate) error: String,
+}
+
+/// A passed run logs as routine progress; a failed run logs at the warning
+/// level the stale-run reconciler already used.
+impl carbide_instrument::DynamicLog for MachineValidationCompleted {
+    fn log_at(&self) -> carbide_instrument::LogAt {
+        match self.outcome {
+            MachineValidationOutcome::Passed => {
+                carbide_instrument::LogAt::Level(tracing::Level::INFO)
+            }
+            MachineValidationOutcome::Failed => {
+                carbide_instrument::LogAt::Level(tracing::Level::WARN)
+            }
+        }
+    }
+}
+
 pub struct MachineValidationManager {
     database_connection: sqlx::PgPool,
     config: MachineValidationConfig,
@@ -106,13 +189,22 @@ impl MachineValidationManager {
     /// Returns true if we stopped early due to a timeout.
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = MachineValidationMetrics::new();
+        // Completion events for the runs this iteration transitions, emitted
+        // only after the transaction commits: an iteration that fails and
+        // rolls back leaves the runs active, so an early emit would count
+        // them again when the next iteration re-flips the gate.
+        let mut completions: Vec<MachineValidationCompleted> = Vec::new();
 
         let mut txn = db::Transaction::begin(&self.database_connection).await?;
         let now = chrono::Utc::now();
         let heartbeat_stale_timeout = heartbeat_stale_timeout(self.config.stale_run_timeout);
 
         for validation in db::machine_validation::find_active(&mut txn).await? {
-            reconcile_terminal_run_items(txn.as_pgconn(), validation).await?;
+            if let Some(completion) =
+                reconcile_terminal_run_items(txn.as_pgconn(), validation).await?
+            {
+                completions.push(completion);
+            }
         }
 
         let stale_attempts = db::machine_validation_execution::find_stale_active_attempts(
@@ -126,8 +218,11 @@ impl MachineValidationManager {
             .into_iter()
             .filter(|attempt| attempt.last_heartbeat_at.is_some())
         {
-            if reconcile_stale_attempt(txn.as_pgconn(), stale_attempt, now).await? {
+            if let Some(completion) =
+                reconcile_stale_attempt(txn.as_pgconn(), stale_attempt, now).await?
+            {
                 metrics.stale_validation += 1;
+                completions.push(completion);
             }
         }
 
@@ -139,7 +234,7 @@ impl MachineValidationManager {
         );
 
         for validation in stale_validations {
-            if reconcile_stale_validation(
+            if let Some(completion) = reconcile_stale_validation(
                 txn.as_pgconn(),
                 validation,
                 self.config.stale_run_timeout,
@@ -148,6 +243,7 @@ impl MachineValidationManager {
             .await?
             {
                 metrics.stale_validation += 1;
+                completions.push(completion);
             }
         }
 
@@ -193,6 +289,12 @@ impl MachineValidationManager {
         self.metric_holder.update_metrics(metrics);
 
         txn.commit().await?;
+
+        // The transitions are durable now, so count (and log) each completion
+        // exactly once.
+        for completion in completions {
+            carbide_instrument::emit(completion);
+        }
 
         Ok(())
     }
@@ -242,16 +344,20 @@ fn stale_validations(
         .collect()
 }
 
+// Each reconcile function returns the completion event for the run it
+// transitioned (`None` when another path already completed it) instead of
+// emitting: the caller's transaction is still open, and the event must not
+// count a transition that later rolls back.
 async fn reconcile_terminal_run_items(
     txn: &mut sqlx::PgConnection,
     validation: MachineValidation,
-) -> CarbideResult<bool> {
+) -> CarbideResult<Option<MachineValidationCompleted>> {
     let run_items =
         db::machine_validation_execution::find_run_items_by_run_id(&mut *txn, &validation.id)
             .await?;
 
     if run_items.is_empty() || !run_items.iter().all(run_item_is_terminal) {
-        return Ok(false);
+        return Ok(None);
     }
 
     if run_items
@@ -272,7 +378,7 @@ async fn reconcile_terminal_run_items(
             txn,
             &validation.id,
             error_message,
-            "FailedValidationRunItems",
+            MachineValidationFailureCause::FailedValidationRunItems,
         )
         .await;
     }
@@ -288,7 +394,13 @@ async fn reconcile_terminal_run_items(
         status,
     )
     .await?;
-    Ok(completed)
+    Ok(completed.then(|| MachineValidationCompleted {
+        outcome: MachineValidationOutcome::Passed,
+        cause: MachineValidationFailureCause::None,
+        machine_id: validation.machine_id,
+        validation_id: validation.id,
+        error: String::new(),
+    }))
 }
 
 fn run_item_is_terminal(run_item: &MachineValidationRunItem) -> bool {
@@ -304,7 +416,7 @@ async fn reconcile_stale_attempt(
     txn: &mut sqlx::PgConnection,
     stale_attempt: db::machine_validation_execution::StaleMachineValidationAttempt,
     now: chrono::DateTime<chrono::Utc>,
-) -> CarbideResult<bool> {
+) -> CarbideResult<Option<MachineValidationCompleted>> {
     let error_message = format!(
         "Machine validation attempt {} for test {} in run {} stopped heartbeating or exceeded its timeout",
         stale_attempt.attempt_id, stale_attempt.test_id, stale_attempt.validation_id
@@ -322,14 +434,14 @@ async fn reconcile_stale_attempt(
             attempt_id = %stale_attempt.attempt_id,
             "skipping stale machine validation attempt because it is no longer active"
         );
-        return Ok(false);
+        return Ok(None);
     };
 
     complete_active_validation_as_failed(
         txn,
         &validation_id,
         error_message,
-        "StaleMachineValidationAttempt",
+        MachineValidationFailureCause::StaleMachineValidationAttempt,
     )
     .await
 }
@@ -338,8 +450,8 @@ async fn complete_active_validation_as_failed(
     txn: &mut sqlx::PgConnection,
     validation_id: &carbide_uuid::machine_validation::MachineValidationId,
     error_message: String,
-    alert_id: &str,
-) -> CarbideResult<bool> {
+    cause: MachineValidationFailureCause,
+) -> CarbideResult<Option<MachineValidationCompleted>> {
     let validation = db::machine_validation::find_by_id(&mut *txn, validation_id).await?;
     let status = MachineValidationStatus {
         state: MachineValidationState::Failed,
@@ -354,11 +466,13 @@ async fn complete_active_validation_as_failed(
     )
     .await?;
 
-    if completed {
-        record_failed_validation_side_effects(txn, &validation, error_message, alert_id).await?;
+    if !completed {
+        return Ok(None);
     }
 
-    Ok(completed)
+    let completion =
+        record_failed_validation_side_effects(txn, &validation, error_message, cause).await?;
+    Ok(Some(completion))
 }
 
 async fn reconcile_stale_validation(
@@ -366,9 +480,10 @@ async fn reconcile_stale_validation(
     validation: MachineValidation,
     stale_run_timeout: std::time::Duration,
     now: chrono::DateTime<chrono::Utc>,
-) -> CarbideResult<bool> {
-    // Returns true only when this call actually transitions an active stale run.
-    // False means another path already completed or reconciled the run.
+) -> CarbideResult<Option<MachineValidationCompleted>> {
+    // Returns the completion only when this call actually transitions an
+    // active stale run. `None` means another path already completed or
+    // reconciled the run.
     let error_message = format!(
         "Machine validation run {} exceeded its expected duration plus stale timeout",
         validation.id
@@ -392,40 +507,52 @@ async fn reconcile_stale_validation(
             validation_id = %validation.id,
             "skipping stale machine validation because it is no longer active or stale"
         );
-        return Ok(false);
+        return Ok(None);
     };
 
-    record_failed_validation_side_effects(
+    let completion = record_failed_validation_side_effects(
         txn,
         &validation,
-        error_message.clone(),
-        "StaleMachineValidationRun",
+        error_message,
+        MachineValidationFailureCause::StaleMachineValidationRun,
     )
     .await?;
 
-    tracing::warn!(
-        validation_id = %validation.id,
-        machine_id = %validation.machine_id,
-        error = %error_message,
-        "reconciled stale machine validation run"
-    );
-
-    Ok(true)
+    Ok(Some(completion))
 }
 
 async fn record_failed_validation_side_effects(
     txn: &mut sqlx::PgConnection,
     validation: &MachineValidation,
     error_message: String,
-    alert_id: &str,
-) -> CarbideResult<()> {
+    cause: MachineValidationFailureCause,
+) -> CarbideResult<MachineValidationCompleted> {
+    // The caller just transitioned this run from active to terminal, so this
+    // builds the run's one completion event; the manager emits it after the
+    // iteration's transaction commits. The run counts even when the owning
+    // machine lookup below comes up empty.
+    let completion = MachineValidationCompleted {
+        outcome: MachineValidationOutcome::Failed,
+        cause,
+        machine_id: validation.machine_id,
+        validation_id: validation.id,
+        error: error_message.clone(),
+    };
+
+    let Some(alert_id) = cause.health_alert_id() else {
+        // Unreachable from the completion paths: every caller passes a
+        // failure cause. Without an alert id there are no side effects to
+        // record.
+        return Ok(completion);
+    };
+
     let Some(machine) = db::machine::find_by_validation_id(txn, &validation.id).await? else {
         tracing::warn!(
             validation_id = %validation.id,
             machine_id = %validation.machine_id,
             "failed machine validation has no owning machine"
         );
-        return Ok(());
+        return Ok(completion);
     };
 
     db::machine::update_failure_details_by_machine_id(
@@ -456,7 +583,7 @@ async fn record_failed_validation_side_effects(
     db::machine::set_machine_validation_request(txn, &machine.id, false).await?;
     db::machine::update_machine_validation_time(&machine.id, txn).await?;
 
-    Ok(())
+    Ok(completion)
 }
 
 #[cfg(test)]
@@ -519,5 +646,121 @@ mod tests {
         );
 
         assert!(stale.is_empty());
+    }
+
+    /// One completion emit writes the log line at the outcome's level -- INFO
+    /// for a passed run, WARN for every failure cause -- with the ids and
+    /// error as fields, AND moves the outcome counter under the snake_case
+    /// labels.
+    #[test]
+    fn completion_logs_and_counts_by_outcome_and_cause() {
+        use carbide_instrument::testing::{MetricsCapture, capture_logs};
+
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .expect("a valid machine id");
+        let validation_id = MachineValidationId::new();
+
+        let combos = [
+            (
+                MachineValidationOutcome::Passed,
+                MachineValidationFailureCause::None,
+                "",
+            ),
+            (
+                MachineValidationOutcome::Failed,
+                MachineValidationFailureCause::FailedValidationRunItems,
+                "run item failed",
+            ),
+            (
+                MachineValidationOutcome::Failed,
+                MachineValidationFailureCause::FailedValidationTest,
+                "test failed",
+            ),
+            (
+                MachineValidationOutcome::Failed,
+                MachineValidationFailureCause::FailedValidationTestCompletion,
+                "run did not complete",
+            ),
+            (
+                MachineValidationOutcome::Failed,
+                MachineValidationFailureCause::StaleMachineValidationAttempt,
+                "attempt stopped heartbeating",
+            ),
+            (
+                MachineValidationOutcome::Failed,
+                MachineValidationFailureCause::StaleMachineValidationRun,
+                "run exceeded its timeout",
+            ),
+        ];
+
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            for (outcome, cause, error) in combos {
+                carbide_instrument::emit(MachineValidationCompleted {
+                    outcome,
+                    cause,
+                    machine_id,
+                    validation_id,
+                    error: error.to_string(),
+                });
+            }
+        });
+
+        assert_eq!(logs.len(), 6);
+        let field = |log: &carbide_instrument::testing::CapturedLog, name: &str| {
+            log.fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        };
+        for log in &logs {
+            assert_eq!(log.message, "machine validation completed");
+            assert_eq!(field(log, "machine_id"), Some(machine_id.to_string()));
+            assert_eq!(field(log, "validation_id"), Some(validation_id.to_string()));
+        }
+        assert_eq!(logs[0].level, tracing::Level::INFO);
+        assert_eq!(field(&logs[0], "outcome"), Some("passed".to_string()));
+        assert_eq!(field(&logs[0], "cause"), Some("none".to_string()));
+        assert_eq!(field(&logs[0], "error"), Some(String::new()));
+        for (log, cause_label, error) in [
+            (&logs[1], "failed_validation_run_items", "run item failed"),
+            (&logs[2], "failed_validation_test", "test failed"),
+            (
+                &logs[3],
+                "failed_validation_test_completion",
+                "run did not complete",
+            ),
+            (
+                &logs[4],
+                "stale_machine_validation_attempt",
+                "attempt stopped heartbeating",
+            ),
+            (
+                &logs[5],
+                "stale_machine_validation_run",
+                "run exceeded its timeout",
+            ),
+        ] {
+            assert_eq!(log.level, tracing::Level::WARN, "cause {cause_label}");
+            assert_eq!(field(log, "outcome"), Some("failed".to_string()));
+            assert_eq!(field(log, "cause"), Some(cause_label.to_string()));
+            assert_eq!(field(log, "error"), Some(error.to_string()));
+        }
+
+        // The exact-delta assertion sticks to the one (outcome, cause) pair
+        // no DB-gated completion-flow test in this binary drives (the others
+        // emit from the product funnels without holding the capture lock), so
+        // a parallel run cannot inflate it.
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_machine_validation_outcomes_total",
+                &[
+                    ("outcome", "failed"),
+                    ("cause", "failed_validation_run_items"),
+                ],
+            ),
+            1.0,
+        );
     }
 }

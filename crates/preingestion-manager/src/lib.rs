@@ -267,12 +267,12 @@ impl PreingestionManager {
         }
 
         metrics.machines_in_preingestion =
-            db::explored_endpoints::find_preingest_not_waiting_not_error(&db)
+            db::explored_endpoints::count_preingest_not_waiting_not_error(&db)
                 .await?
-                .len();
-        metrics.waiting_for_installation = db::explored_endpoints::find_preingest_installing(&db)
+                .max(0) as usize;
+        metrics.waiting_for_installation = db::explored_endpoints::count_preingest_installing(&db)
             .await?
-            .len();
+            .max(0) as usize;
 
         tracing::debug!(
             "Preingestion metrics: in_preingestion {} waiting {} delayed {}",

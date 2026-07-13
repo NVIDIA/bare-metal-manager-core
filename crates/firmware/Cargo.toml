@@ -16,6 +16,7 @@ test-support = ["dep:temp-dir", "dep:regex"]
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-instrument = { path = "../instrument" }
 
 # these are alphabetized
 eyre = { workspace = true }
@@ -35,6 +36,7 @@ url = { workspace = true }
 
 [dev-dependencies]
 carbide-test-support = { path = "../test-support" }
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-macros = { path = "../macros" }
 carbide-api-db = { path = "../api-db", default-features = false }
 sqlx = { workspace = true }

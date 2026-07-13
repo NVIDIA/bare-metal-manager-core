@@ -271,6 +271,12 @@ async fn set_primary_interface_core(
 
     let mut txn = api.txn_begin().await?;
 
+    // Advisory-lock the admin segments before the `set_primary_interface`
+    // row writes below, so this transaction holds locks in the allocator
+    // order (segment advisory lock first, then interface rows) on both
+    // branches -- the reconcile passes re-acquire the same locks as no-ops.
+    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
+
     // Normalize the current admin primary's address before moving the flag, so the
     // active DHCP address is one reconciliation can move onto the new primary --
     // but only when there IS a current admin primary to preserve. If the host has

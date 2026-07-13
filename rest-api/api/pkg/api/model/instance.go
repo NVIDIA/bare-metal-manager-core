@@ -1834,6 +1834,29 @@ type APIInstance struct {
 // APIInstanceStats holds aggregated instance status counts at the API layer.
 type APIInstanceStats = cdbm.InstanceCountByStatus
 
+var (
+	// instanceQueryParamDeprecationTime is when the deprecated infrastructureProviderId
+	// query parameter on the list-Instances endpoint will no longer be accepted.
+	instanceQueryParamDeprecationTime = time.Date(2026, time.October, 10, 0, 0, 0, 0, time.UTC)
+
+	// instanceListQueryParamDeprecations are the deprecated query parameters accepted by the
+	// list-Instances endpoint. Instances will no longer be filtered by Infrastructure Provider;
+	// results are scoped to the org's Tenant.
+	instanceListQueryParamDeprecations = []DeprecatedEntity{
+		{OldValue: "infrastructureProviderId", Type: DeprecationTypeQueryParam, TakeActionBy: instanceQueryParamDeprecationTime},
+	}
+)
+
+// InstanceListQueryParamDeprecations returns the deprecation notices for the deprecated query
+// parameters accepted by the list-Instances endpoint.
+func InstanceListQueryParamDeprecations() []APIDeprecation {
+	deprecations := make([]APIDeprecation, 0, len(instanceListQueryParamDeprecations))
+	for _, d := range instanceListQueryParamDeprecations {
+		deprecations = append(deprecations, NewAPIDeprecation(d))
+	}
+	return deprecations
+}
+
 // NewAPIInstance accepts a DB layer Instance object returns an API layer object.
 // SecondaryVpcIDs are derived from interface relations, so callers must preload
 // Interface.VpcPrefix on prefix-backed interfaces when they want those IDs populated.

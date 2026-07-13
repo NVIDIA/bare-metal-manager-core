@@ -41,6 +41,7 @@ use model::component_manager::{
     ComputeTrayComponent as ModelComputeTrayComponent, NvSwitchComponent, PowerAction,
     PowerShelfComponent,
 };
+use model::firmware::FirmwareComponentType;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
@@ -49,6 +50,7 @@ use tonic::{Code, Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
+use crate::handlers::firmware::load_desired_firmware_version_entries;
 
 const MACHINE_POWER_OVERRIDE_SOURCE: &str = "component_power_control";
 const MACHINE_POWER_OVERRIDE_MESSAGE: &str = "Compute-Tray component power control in progress";
@@ -1220,6 +1222,188 @@ fn map_fw_state(state: model::component_manager::FirmwareState) -> i32 {
     }
 }
 
+/// Returns true when every key in `desired` exists in `actual` with the same
+/// value (`desired` is treated as a subset of `actual`).
+fn firmware_versions_match(
+    desired: &HashMap<String, String>,
+    actual: &HashMap<String, String>,
+) -> bool {
+    !desired.is_empty()
+        && desired.iter().all(|(key, value)| {
+            actual
+                .get(key)
+                .is_some_and(|actual_value| actual_value == value)
+        })
+}
+
+fn matches_any_desired_firmware_entry(
+    actual: &HashMap<String, String>,
+    desired_entries: &[rpc::DesiredFirmwareVersionEntry],
+) -> bool {
+    desired_entries
+        .iter()
+        .any(|entry| firmware_versions_match(&entry.component_versions, actual))
+}
+
+fn exploration_report_firmware_versions(
+    report: &model::site_explorer::EndpointExplorationReport,
+) -> HashMap<String, String> {
+    report
+        .versions
+        .iter()
+        .filter(|(component, _)| **component != FirmwareComponentType::Unknown)
+        .filter_map(|(component, version)| {
+            let key = serde_json::to_value(component)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_string))?;
+            Some((key, version.clone()))
+        })
+        .collect()
+}
+
+/// When explored firmware satisfies a desired entry, the update is complete
+/// (or still verifying while the host reprovisions). Otherwise status is
+/// inferred from `update_complete` and the machine's reprovision state.
+fn derive_machine_firmware_update_status(
+    machine_id: &str,
+    machine: Option<&Machine>,
+    actual_firmware: Option<&HashMap<String, String>>,
+    desired_entries: &[rpc::DesiredFirmwareVersionEntry],
+) -> rpc::FirmwareUpdateStatus {
+    let Some(machine) = machine else {
+        return rpc::FirmwareUpdateStatus {
+            result: Some(error_result(
+                machine_id,
+                "machine not found in NICo".to_string(),
+            )),
+            state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+            target_version: String::new(),
+            updated_at: None,
+        };
+    };
+
+    let state_str = machine.state.value.to_string();
+
+    // On-host versions match site desired firmware: the flash succeeded.
+    // Remain in Verifying until reprovision finishes.
+    if let Some(actual) = actual_firmware
+        && !desired_entries.is_empty()
+        && matches_any_desired_firmware_entry(actual, desired_entries)
+    {
+        let state = if state_str.contains("HostReprovision") {
+            rpc::FirmwareUpdateState::FwStateVerifying
+        } else {
+            rpc::FirmwareUpdateState::FwStateCompleted
+        };
+        return rpc::FirmwareUpdateStatus {
+            result: Some(success_result(machine_id)),
+            state: state as i32,
+            target_version: String::new(),
+            updated_at: None,
+        };
+    }
+
+    // No version match (or no version data): use machine update/state signals.
+    let state = if machine.update_complete {
+        rpc::FirmwareUpdateState::FwStateCompleted
+    } else if state_str.contains("HostReprovision") && state_str.contains("FailedFirmwareUpgrade") {
+        rpc::FirmwareUpdateState::FwStateFailed
+    } else if state_str.contains("HostReprovision") {
+        rpc::FirmwareUpdateState::FwStateVerifying
+    } else {
+        rpc::FirmwareUpdateState::FwStateQueued
+    };
+
+    rpc::FirmwareUpdateStatus {
+        result: Some(success_result(machine_id)),
+        state: state as i32,
+        target_version: String::new(),
+        updated_at: None,
+    }
+}
+
+async fn machine_firmware_statuses(
+    api: &Api,
+    machine_ids: &[MachineId],
+) -> Result<Vec<rpc::FirmwareUpdateStatus>, Status> {
+    let machines = db::machine::find(
+        api.db_reader().as_mut(),
+        db::ObjectFilter::List(machine_ids),
+        MachineSearchConfig::default(),
+    )
+    .await
+    .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
+
+    let machine_by_id: HashMap<MachineId, Machine> = machines
+        .into_iter()
+        .map(|machine| (machine.id, machine))
+        .collect();
+
+    let mut txn = api
+        .txn_begin()
+        .await
+        .map_err(|e| Status::internal(format!("db error: {e}")))?;
+    let bmc_pairs =
+        db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, machine_ids.to_vec())
+            .await
+            .map_err(|e| Status::internal(format!("db error: {e}")))?;
+    txn.commit()
+        .await
+        .map_err(|e| Status::internal(format!("db error: {e}")))?;
+
+    let ip_to_machine_id: HashMap<IpAddr, MachineId> = bmc_pairs
+        .into_iter()
+        .filter_map(|(machine_id, ip_str)| {
+            let ip: IpAddr = ip_str?.parse().ok()?;
+            Some((ip, machine_id))
+        })
+        .collect();
+
+    let ips: Vec<IpAddr> = ip_to_machine_id.keys().copied().collect();
+    let endpoints = if ips.is_empty() {
+        Vec::new()
+    } else {
+        db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
+            .await
+            .map_err(|e| Status::internal(format!("db error: {e}")))?
+    };
+
+    let mut actual_firmware_by_machine: HashMap<MachineId, HashMap<String, String>> =
+        HashMap::new();
+    for endpoint in endpoints {
+        let Some(machine_id) = ip_to_machine_id.get(&endpoint.address).copied() else {
+            continue;
+        };
+        let versions = exploration_report_firmware_versions(&endpoint.report);
+        if !versions.is_empty() {
+            actual_firmware_by_machine.insert(machine_id, versions);
+        }
+    }
+
+    let desired_entries = match load_desired_firmware_version_entries(api).await {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "failed to get desired firmware versions, falling back to state-based check"
+            );
+            Vec::new()
+        }
+    };
+
+    Ok(machine_ids
+        .iter()
+        .map(|machine_id| {
+            derive_machine_firmware_update_status(
+                &machine_id.to_string(),
+                machine_by_id.get(machine_id),
+                actual_firmware_by_machine.get(machine_id),
+                &desired_entries,
+            )
+        })
+        .collect())
+}
+
 // ---- Power Control ----
 
 pub(crate) async fn component_power_control(
@@ -2111,10 +2295,12 @@ pub(crate) async fn get_component_firmware_status(
             }));
             statuses
         }
-        rpc::get_component_firmware_status_request::Target::MachineIds(_) => {
-            return Err(Status::unimplemented(
-                "machine firmware status is not supported via this RPC",
-            ));
+        rpc::get_component_firmware_status_request::Target::MachineIds(list) => {
+            if list.machine_ids.is_empty() {
+                return Err(Status::invalid_argument("machine_ids must not be empty"));
+            }
+
+            machine_firmware_statuses(api, &list.machine_ids).await?
         }
         rpc::get_component_firmware_status_request::Target::RackIds(list) => {
             if list.rack_ids.is_empty() {
@@ -3034,6 +3220,44 @@ mod tests {
         assert_eq!(
             map_switch_maintenance_operation(PowerAction::ForceRestart),
             SwitchMaintenanceOperation::Reset,
+        );
+    }
+
+    #[test]
+    fn firmware_versions_match_requires_non_empty_desired_subset() {
+        use super::firmware_versions_match;
+
+        let desired = HashMap::from([("bmc".to_string(), "1.0".to_string())]);
+        let actual = HashMap::from([("bmc".to_string(), "1.0".to_string())]);
+        assert!(firmware_versions_match(&desired, &actual));
+
+        let superset = HashMap::from([
+            ("bmc".to_string(), "1.0".to_string()),
+            ("uefi".to_string(), "2.0".to_string()),
+        ]);
+        assert!(firmware_versions_match(&desired, &superset));
+
+        let mismatch = HashMap::from([("bmc".to_string(), "0.9".to_string())]);
+        assert!(!firmware_versions_match(&desired, &mismatch));
+
+        assert!(!firmware_versions_match(&HashMap::new(), &actual));
+    }
+
+    #[test]
+    fn derive_machine_firmware_update_status_unknown_when_machine_missing() {
+        use super::derive_machine_firmware_update_status;
+
+        let status = derive_machine_firmware_update_status("machine-1", None, None, &[]);
+
+        assert_eq!(
+            status.state,
+            rpc::FirmwareUpdateState::FwStateUnknown as i32
+        );
+        assert!(
+            status
+                .result
+                .as_ref()
+                .is_some_and(|result| result.error.contains("machine not found"))
         );
     }
 }

@@ -129,6 +129,10 @@ func (mnlp ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionsInDB(ctx c
 
 		// Update status if necessary
 		if controllerNvllp.Status != nil {
+			if nvllp.Status == cdbm.NVLinkLogicalPartitionStatusDeleting {
+				continue
+			}
+
 			var mapped cdbm.NVLinkLogicalPartitionStatus
 			mapped.FromProto(controllerNvllp.Status.State)
 			if mapped != "" && mapped != nvllp.Status {

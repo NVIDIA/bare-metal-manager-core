@@ -102,7 +102,7 @@ impl HealthReportProcessor {
             return SensorHealth::Fatal;
         }
 
-        if let Some(lower_fatal) = health.range_min
+        if let Some(lower_fatal) = health.lower_fatal
             && reading <= lower_fatal
         {
             return SensorHealth::Fatal;

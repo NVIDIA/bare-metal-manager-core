@@ -54,6 +54,64 @@ pub async fn find_by_nvos_mac_address(
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
+/// Serialize expected-switch writes on a transaction-scoped advisory lock so
+/// two concurrent creates or updates can't both pass the NVOS MAC conflict
+/// check before either row lands (check-then-write under READ COMMITTED).
+/// The lock releases with the transaction; the namespaced key keeps it from
+/// colliding with other subsystems' advisory locks.
+async fn lock_expected_switch_writes(txn: &mut PgConnection) -> DatabaseResult<()> {
+    let sql = "SELECT pg_advisory_xact_lock(hashtextextended('expected_switches:write', 0))";
+    sqlx::query(sql)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|err| DatabaseError::query(sql, err))
+}
+
+/// Return an entry of `nvos_mac_addresses` that a different expected switch
+/// already claims, if any. "Different" follows the same key `update` targets:
+/// `switch.expected_switch_id` when set, otherwise `switch.bmc_mac_address`.
+/// `macaddr` comparison canonicalizes case and separator differences.
+/// `update_nvos_mac_addresses` stays unguarded on purpose -- it records
+/// hardware-observed truth from site-explorer.
+async fn find_nvos_mac_claimed_elsewhere(
+    txn: &mut PgConnection,
+    nvos_mac_addresses: &[MacAddress],
+    switch: &ExpectedSwitch,
+) -> DatabaseResult<Option<MacAddress>> {
+    if nvos_mac_addresses.is_empty() {
+        return Ok(None);
+    }
+
+    let (sql, exclude_key) = match switch.expected_switch_id {
+        Some(id) => (
+            "SELECT * FROM expected_switches WHERE expected_switch_id != $1::uuid AND nvos_mac_addresses && $2::macaddr[] LIMIT 1",
+            id.to_string(),
+        ),
+        None => (
+            "SELECT * FROM expected_switches WHERE bmc_mac_address != $1::macaddr AND nvos_mac_addresses && $2::macaddr[] LIMIT 1",
+            switch.bmc_mac_address.to_string(),
+        ),
+    };
+
+    let other: Option<ExpectedSwitch> = sqlx::query_as(sql)
+        .bind(exclude_key)
+        .bind(nvos_mac_addresses)
+        .fetch_optional(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))?;
+
+    Ok(other.map(|other| {
+        nvos_mac_addresses
+            .iter()
+            .find(|mac| other.nvos_mac_addresses.contains(mac))
+            .copied()
+            // The SQL overlap guarantees a shared entry; the first requested
+            // MAC is a safe stand-in if equality ever disagrees.
+            .unwrap_or(nvos_mac_addresses[0])
+    }))
+}
+
 pub async fn find_by_serial_number(
     txn: &mut PgConnection,
     serial_number: &str,
@@ -202,6 +260,17 @@ pub async fn create(
     txn: &mut PgConnection,
     switch: ExpectedSwitch,
 ) -> DatabaseResult<ExpectedSwitch> {
+    // NVOS MACs resolve a DHCPing management port to a single expected switch
+    // (`find_by_nvos_mac_address`), so a MAC claimed by another switch is a
+    // conflict. The advisory lock makes the check-then-insert deterministic
+    // under concurrent writers.
+    lock_expected_switch_writes(&mut *txn).await?;
+    if let Some(mac) =
+        find_nvos_mac_claimed_elsewhere(&mut *txn, &switch.nvos_mac_addresses, &switch).await?
+    {
+        return Err(DatabaseError::ExpectedSwitchDuplicateNvosMacAddress(mac));
+    }
+
     let id = switch.expected_switch_id.unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_switches
              (expected_switch_id, bmc_mac_address, bmc_username, bmc_password, serial_number, bmc_ip_address, metadata_name, metadata_description, rack_id, metadata_labels, nvos_username, nvos_password, nvos_mac_addresses, bmc_retain_credentials, nvos_ip_address)
@@ -320,6 +389,12 @@ pub async fn update_nvos_mac_addresses(
 }
 
 pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
+    // Take the write lock before the DELETE grabs row locks so clear-then-
+    // create flows (`replace_all_expected_switches`) acquire locks in the same
+    // order as `create`/`update` -- advisory first, rows second -- instead of
+    // forming a deadlock cycle with them.
+    lock_expected_switch_writes(&mut *txn).await?;
+
     let query = "DELETE FROM expected_switches";
 
     sqlx::query(query)
@@ -332,6 +407,41 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// update updates an existing expected switch. If expected_switch_id is set,
 /// matches by ID; otherwise matches by bmc_mac_address.
 pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> DatabaseResult<()> {
+    // The lock serializes the existence read, conflict check, and UPDATE as
+    // one unit against concurrent expected-switch writers.
+    lock_expected_switch_writes(&mut *txn).await?;
+
+    // Resolve the target first: a missing switch reports NotFound rather than
+    // a MAC conflict, and the current row bounds the conflict check to newly
+    // claimed MACs -- re-asserting a list the row already holds stays valid
+    // even when pre-existing data or site-explorer's hardware-truth writes
+    // recorded the same MAC on two switches.
+    let current = find(
+        &mut *txn,
+        &ExpectedSwitchRequest {
+            expected_switch_id: switch.expected_switch_id,
+            bmc_mac_address: Some(switch.bmc_mac_address),
+        },
+    )
+    .await?
+    .ok_or_else(|| DatabaseError::NotFoundError {
+        kind: "expected_switch",
+        id: switch
+            .expected_switch_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| switch.bmc_mac_address.to_string()),
+    })?;
+
+    let newly_claimed: Vec<MacAddress> = switch
+        .nvos_mac_addresses
+        .iter()
+        .filter(|mac| !current.nvos_mac_addresses.contains(mac))
+        .copied()
+        .collect();
+    if let Some(mac) = find_nvos_mac_claimed_elsewhere(&mut *txn, &newly_claimed, switch).await? {
+        return Err(DatabaseError::ExpectedSwitchDuplicateNvosMacAddress(mac));
+    }
+
     macro_rules! update_expected_switch_query {
         ($where_clause:literal) => {
             concat!(

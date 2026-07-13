@@ -68,6 +68,17 @@ impl BmcEndpoint {
     pub fn switch_data(&self) -> Option<&SwitchData> {
         self.metadata.as_ref().and_then(EndpointMetadata::as_switch)
     }
+
+    /// Returns the connect host direct switch collectors should place in URIs.
+    ///
+    /// Switch collectors connect to the discovered endpoint IP address. DNS
+    /// names used for TLS verification are handled separately.
+    pub fn switch_connect_host_for_uri(&self) -> Cow<'_, str> {
+        match self.addr.ip {
+            IpAddr::V4(ip) => Cow::Owned(ip.to_string()),
+            IpAddr::V6(ip) => Cow::Owned(format!("[{ip}]")),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -216,7 +227,8 @@ mod tests {
 
     use mac_address::MacAddress;
 
-    use super::BmcAddr;
+    use super::{BmcAddr, BmcCredentials};
+    use crate::endpoint::test_support::endpoint_with_creds;
 
     fn addr(ip: &str, port: Option<u16>) -> BmcAddr {
         BmcAddr {
@@ -248,5 +260,20 @@ mod tests {
         let url = addr("2001:db8::1", Some(80)).to_url().unwrap();
         assert_eq!(url.scheme(), "http");
         assert_eq!(url.host_str(), Some("[2001:db8::1]"));
+    }
+
+    #[test]
+    fn switch_connect_host_for_uri_brackets_ipv6() {
+        let endpoint = endpoint_with_creds(
+            addr("2001:db8::1", Some(443)),
+            BmcCredentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: Some("pass".to_string()),
+            },
+            None,
+            None,
+        );
+
+        assert_eq!(endpoint.switch_connect_host_for_uri(), "[2001:db8::1]");
     }
 }

@@ -68,7 +68,6 @@ jobs:
             branch="${GITHUB_REF_NAME}"
             echo "${branch#pull-request/}" > preview-metadata/pr_number
             echo "${branch}" > preview-metadata/head_ref
-            git fetch origin "${DEFAULT_BRANCH}" --depth=64 2>/dev/null || true
             git diff --name-only "origin/${DEFAULT_BRANCH}...HEAD" -- '*.md' > preview-metadata/changed_md_files 2>/dev/null || true
           fi
 

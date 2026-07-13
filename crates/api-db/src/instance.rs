@@ -65,7 +65,43 @@ pub async fn find_ids(
     filter: model::instance::InstanceSearchFilter,
 ) -> Result<Vec<InstanceId>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
+    push_search_filter(&mut builder, filter)?;
 
+    let query = builder.build_query_as();
+    query
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::new("instance::find_ids", e))
+}
+
+/// Counts the instances matching `filter` without materializing their ids.
+///
+/// Callers that only need the number of matches use this instead of
+/// `find_ids(..).len()`: it runs the same predicate but selects a scalar
+/// `count(*)`, so the database returns a single row rather than one id per
+/// matching instance. Shares its WHERE clause with [`find_ids`] via
+/// [`push_search_filter`], so the two always agree on which rows match.
+pub async fn count_ids(
+    txn: impl DbReader<'_>,
+    filter: model::instance::InstanceSearchFilter,
+) -> Result<i64, DatabaseError> {
+    let mut builder = sqlx::QueryBuilder::new("SELECT count(*) FROM instances WHERE TRUE "); // The TRUE will be optimized away.
+    push_search_filter(&mut builder, filter)?;
+
+    builder
+        .build_query_scalar()
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("instance::count_ids", e))
+}
+
+/// Appends the `InstanceSearchFilter` predicate onto a query builder whose SQL
+/// already ends in `... WHERE TRUE `. Shared by [`find_ids`] and [`count_ids`]
+/// so the row-returning and counting queries filter identically.
+fn push_search_filter(
+    builder: &mut sqlx::QueryBuilder<sqlx::Postgres>,
+    filter: model::instance::InstanceSearchFilter,
+) -> Result<(), DatabaseError> {
     if let Some(label) = filter.label {
         match (label.key.is_empty(), label.value) {
             // Label key is empty, label value is set.
@@ -127,11 +163,7 @@ WHERE instance_addresses.vpc_id = ",
         builder.push(")");
     }
 
-    let query = builder.build_query_as();
-    query
-        .fetch_all(txn)
-        .await
-        .map_err(|e| DatabaseError::new("instance::find_ids", e))
+    Ok(())
 }
 
 pub async fn find(
@@ -139,54 +171,26 @@ pub async fn find(
     filter: ObjectColumnFilter<'_, IdColumn>,
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
     let mut query = FilterableQueryBuilder::new(
-        "SELECT row_to_json(i.*), row_to_json(o.*) FROM instances i \
+        "SELECT row_to_json(i.*) AS instance, row_to_json(o.*) AS operating_system \
+         FROM instances i \
          LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL",
     )
     .filter_relation(&filter, Some("i"));
-    let rows: Vec<(serde_json::Value, Option<serde_json::Value>)> = query
+    let rows: Vec<InstanceAndOsRow> = query
         .build_query_as()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query.sql(), e))?;
-    let mut snapshots = Vec::with_capacity(rows.len());
-    for (instance_json, os_json) in rows {
-        let pg_json: InstanceSnapshotPgJson =
-            serde_json::from_value(instance_json).map_err(|e| DatabaseError::Internal {
-                message: format!("instance snapshot json decode: {e}"),
-            })?;
-        let snapshot = match os_json {
-            Some(oj) => {
-                let os_row: OsRow =
-                    serde_json::from_value(oj).map_err(|e| DatabaseError::Internal {
-                        message: format!("operating_system row json decode: {e}"),
-                    })?;
-                let os = build_operating_system_for_snapshot(&os_row, &pg_json);
-                snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| DatabaseError::Internal {
-                    message: format!("instance snapshot from_pg_json_and_os: {e}"),
-                })?
-            }
-            None => InstanceSnapshot::try_from(pg_json).map_err(|e| DatabaseError::Internal {
-                message: format!("instance snapshot try_from: {e}"),
-            })?,
-        };
-        snapshots.push(snapshot);
-    }
-    Ok(snapshots)
+    rows.into_iter().map(InstanceSnapshot::try_from).collect()
 }
 
-/// Converts raw JSON rows to InstanceSnapshots, batch-loading OS definitions as needed.
+/// Converts decoded snapshot rows to InstanceSnapshots, batch-loading OS
+/// definitions as needed.
 async fn resolve_snapshots_from_json_rows(
     txn: &mut PgConnection,
-    rows: Vec<(serde_json::Value,)>,
+    rows: Vec<(Json<InstanceSnapshotPgJson>,)>,
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
-    let mut pg_jsons: Vec<InstanceSnapshotPgJson> = Vec::with_capacity(rows.len());
-    for (json,) in rows {
-        let pg_json: InstanceSnapshotPgJson =
-            serde_json::from_value(json).map_err(|e| DatabaseError::Internal {
-                message: format!("instance snapshot json decode: {e}"),
-            })?;
-        pg_jsons.push(pg_json);
-    }
+    let pg_jsons: Vec<InstanceSnapshotPgJson> = rows.into_iter().map(|(json,)| json.0).collect();
     if pg_jsons.is_empty() {
         return Ok(Vec::new());
     }
@@ -372,7 +376,7 @@ pub async fn find_by_machine_ids(
         return Ok(Vec::new());
     }
     let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = ANY($1)";
-    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(query)
+    let rows: Vec<(Json<InstanceSnapshotPgJson>,)> = sqlx::query_as(query)
         .bind(machine_ids)
         .fetch_all(&mut *txn)
         .await
@@ -401,7 +405,7 @@ pub async fn find_by_extension_service(
     }
     builder.push(")");
 
-    let rows: Vec<(serde_json::Value,)> = builder
+    let rows: Vec<(Json<InstanceSnapshotPgJson>,)> = builder
         .build_query_as()
         .fetch_all(&mut *txn)
         .await
@@ -938,7 +942,7 @@ pub async fn batch_persist<'a>(
 
     // Fetch the inserted instances, resolving OS definitions as needed.
     let query = "SELECT row_to_json(i.*) FROM instances i WHERE i.id = ANY($1)";
-    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(query)
+    let rows: Vec<(Json<InstanceSnapshotPgJson>,)> = sqlx::query_as(query)
         .bind(&instance_ids)
         .fetch_all(&mut *txn)
         .await
@@ -1217,4 +1221,199 @@ pub async fn mark_as_deleted(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::machine::{MachineIdSource, MachineType};
+
+    use super::*;
+
+    const INSTANCE_IPXE_SCRIPT: &str = "#!ipxe boot-from-instance-columns";
+
+    /// Seeds a machine plus an instance on it with the given OS reference and
+    /// an inline iPXE script in the instance columns, returning the instance id.
+    async fn seed_instance(
+        conn: &mut PgConnection,
+        machine_seed: u8,
+        operating_system_id: Option<uuid::Uuid>,
+    ) -> InstanceId {
+        let machine_id = MachineId::new(
+            MachineIdSource::ProductBoardChassisSerial,
+            [machine_seed; 32],
+            MachineType::Host,
+        );
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind(machine_id)
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query_scalar(
+            "INSERT INTO instances \
+             (machine_id, operating_system_id, os_ipxe_script, network_config, nvlink_config) \
+             VALUES ($1, $2, $3, '{\"interfaces\": []}'::jsonb, '{\"gpu_configs\": []}'::jsonb) \
+             RETURNING id",
+        )
+        .bind(machine_id)
+        .bind(operating_system_id)
+        .bind(INSTANCE_IPXE_SCRIPT)
+        .fetch_one(conn)
+        .await
+        .unwrap()
+    }
+
+    /// Pins the SQL NULL semantics the `Option<Json<OsRow>>` decode relies on:
+    /// when the LEFT JOIN finds no live operating_systems row, Postgres
+    /// projects `row_to_json(o.*)` as SQL NULL (decoded as `None`), not as a
+    /// JSON object whose fields are all null (which would fail to decode into
+    /// `OsRow`'s non-optional fields). Covers both unmatched-join paths: an
+    /// instance with no OS reference at all, and an instance whose referenced
+    /// OS is soft-deleted and filtered out by the join's `o.deleted IS NULL`.
+    #[crate::sqlx_test]
+    async fn unmatched_os_join_decodes_as_none(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+
+        let no_os_ref = seed_instance(&mut txn, 0x42, None).await;
+
+        let os = operating_system::create(
+            &mut txn,
+            &operating_system::CreateOperatingSystem {
+                id: None,
+                name: "soft-deleted-os".to_string(),
+                description: None,
+                org: "test-org".to_string(),
+                type_: model::operating_system_definition::OS_TYPE_IPXE.to_string(),
+                status: operating_system::OS_STATUS_READY.to_string(),
+                is_active: true,
+                allow_override: true,
+                phone_home_enabled: false,
+                user_data: None,
+                ipxe_script: Some("#!ipxe boot-from-os-row".to_string()),
+                ipxe_template_id: None,
+                ipxe_parameters: None,
+                ipxe_artifacts: None,
+                ipxe_definition_hash: None,
+            },
+        )
+        .await
+        .unwrap();
+        operating_system::delete(&mut txn, os.id).await.unwrap();
+        let deleted_os_ref = seed_instance(&mut txn, 0x43, Some(os.id)).await;
+
+        // find_by_id loads both instances without a live OS row: the
+        // reference-free instance derives its OS from the inline script
+        // column, and the soft-deleted reference keeps the id-only variant
+        // rather than decoding (or erroring on) the deleted row's contents.
+        let snapshot = find_by_id(&mut *txn, no_os_ref).await.unwrap().unwrap();
+        assert_eq!(
+            snapshot.config.os.variant,
+            OperatingSystemVariant::Ipxe(InlineIpxe {
+                ipxe_script: INSTANCE_IPXE_SCRIPT.to_string()
+            })
+        );
+        let snapshot = find_by_id(&mut *txn, deleted_os_ref)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            snapshot.config.os.variant,
+            OperatingSystemVariant::OperatingSystemId(os.id)
+        );
+
+        // find() projects the OS column the same way; both instances decode.
+        let ids = [no_os_ref, deleted_os_ref];
+        let snapshots = find(&mut *txn, ObjectColumnFilter::List(IdColumn, &ids))
+            .await
+            .unwrap();
+        assert_eq!(snapshots.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod count_ids_tests {
+    use super::*;
+
+    /// Seeds `n` instances for one tenant + instance type and returns the
+    /// filter that selects exactly those instances.
+    async fn seed_instances(
+        txn: &mut PgConnection,
+        tenant_org: &str,
+        instance_type_id: &str,
+        n: usize,
+    ) -> model::instance::InstanceSearchFilter {
+        sqlx::query("INSERT INTO instance_types (id, name) VALUES ($1, $1) ON CONFLICT DO NOTHING")
+            .bind(instance_type_id)
+            .execute(&mut *txn)
+            .await
+            .expect("seed instance_type");
+
+        for _ in 0..n {
+            let machine_id = uuid::Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO machines (id, dpf) \
+                 VALUES ($1, '{\"enabled\": false, \"used_for_ingestion\": false}'::jsonb)",
+            )
+            .bind(machine_id)
+            .execute(&mut *txn)
+            .await
+            .expect("seed machine");
+            sqlx::query(
+                "INSERT INTO instances (id, machine_id, tenant_org, instance_type_id) \
+                 VALUES (gen_random_uuid(), $1, $2, $3)",
+            )
+            .bind(machine_id)
+            .bind(tenant_org)
+            .bind(instance_type_id)
+            .execute(&mut *txn)
+            .await
+            .expect("seed instance");
+        }
+
+        model::instance::InstanceSearchFilter {
+            label: None,
+            tenant_org_id: Some(tenant_org.to_string()),
+            vpc_id: None,
+            instance_type_id: Some(instance_type_id.to_string()),
+        }
+    }
+
+    /// `count_ids` returns the same tally as `find_ids(..).len()`, but the win
+    /// is in what crosses the wire: `find_ids` materializes and decodes one
+    /// `InstanceId` per matching row (N rows), whereas `count_ids` returns a
+    /// single scalar (1 row). Same one query either way — this is a
+    /// rows-transferred/decoded win (N -> 1), not a round-trip win.
+    #[crate::sqlx_test]
+    async fn count_ids_matches_find_ids_len_without_materializing(pool: sqlx::PgPool) {
+        const N: usize = 5;
+        let mut txn = pool.begin().await.unwrap();
+        let filter = seed_instances(&mut txn, "count-ids-tenant", "count-ids-type", N).await;
+
+        let ids = find_ids(&mut *txn, filter.clone()).await.unwrap();
+        let count = count_ids(&mut *txn, filter).await.unwrap();
+
+        // find_ids materialized N ids; count_ids returned the scalar tally.
+        assert_eq!(ids.len(), N, "find_ids should materialize {N} ids");
+        assert_eq!(count, N as i64, "count_ids should tally {N}");
+        assert_eq!(
+            count,
+            ids.len() as i64,
+            "count_ids must agree with find_ids(..).len()"
+        );
+    }
+
+    /// The shared WHERE builder keeps `count_ids` scoped to the same filter as
+    /// `find_ids`: instances for a different tenant are not counted.
+    #[crate::sqlx_test]
+    async fn count_ids_respects_the_filter(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let filter = seed_instances(&mut txn, "tenant-a", "type-a", 3).await;
+        // Rows sharing only ONE filter dimension: same tenant with another
+        // type, and another tenant with the same type. The filter must exclude
+        // both, so a regression that drops either predicate fails the count.
+        let _ = seed_instances(&mut txn, "tenant-a", "type-b", 2).await;
+        let _ = seed_instances(&mut txn, "tenant-b", "type-a", 2).await;
+
+        let count = count_ids(&mut *txn, filter).await.unwrap();
+        assert_eq!(count, 3, "only tenant-a/type-a instances are counted");
+    }
 }

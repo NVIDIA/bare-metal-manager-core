@@ -50,7 +50,7 @@ use tracing::Instrument;
 
 use crate::config::IbFabricDefinition;
 use crate::errors::{IbError, IbResult};
-use crate::ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType};
+use crate::ib::{GetPartitionOptions, IBFabric, IBFabricManager, IBFabricManagerType};
 
 type SkuInactiveDevicesCache = HashMap<String, Option<HashSet<u32>>>;
 
@@ -269,64 +269,26 @@ impl IbFabricMonitor {
             }
         }
 
+        // One client per fabric for the whole iteration: the data-loading phase
+        // below builds it and the change-application phase at the end reuses it.
+        let mut fabric_clients: HashMap<String, Arc<dyn IBFabric>> = HashMap::new();
         let mut fabric_data: HashMap<String, FabricData> = HashMap::new();
         for (fabric, fabric_definition) in self.fabrics.iter() {
             let fabric_data = fabric_data.entry(fabric.to_string()).or_default();
 
             metrics.num_fabrics += 1;
             let fabric_metrics = metrics.fabrics.entry(fabric.to_string()).or_default();
-            if let Err(e) = check_ib_fabric(
+            if let Some(conn) = load_single_fabric_data(
                 self.fabric_manager.as_ref(),
                 fabric,
                 fabric_definition,
+                fabric_data,
                 fabric_metrics,
             )
             .await
             {
-                tracing::error!(fabric, endpoints = fabric_definition.endpoints.join(","), error = %e, "IB fabric health check failed");
-                // TODO: This isn't efficient because we will get a lot of different dimensions
-                // We need to have better defined errors from the UFM APIs, so we can convert
-                // those into a smaller set of labels
-                fabric_metrics.fabric_error = e.to_string();
-                // There's no point in loading other information case the fabric is down
-                continue;
+                fabric_clients.insert(fabric.clone(), conn);
             }
-
-            match get_ports_information(self.fabric_manager.as_ref(), fabric, fabric_metrics).await
-            {
-                Ok(ports) => {
-                    fabric_data.ports_by_guid = Some(ports);
-                }
-                Err(e) => {
-                    tracing::error!(fabric, endpoints = fabric_definition.endpoints.join(","), error = %e, "Loading port information failed");
-                    // TODO: This isn't efficient because we will get a lot of different dimensions
-                    // We need to have better defined errors from the UFM APIs, so we can convert
-                    // those into a smaller set of labels
-                    fabric_metrics.fabric_error = e.to_string();
-                    // There's no point in loading other information case the fabric is down
-                    continue;
-                }
-            }
-
-            match get_partition_information(self.fabric_manager.as_ref(), fabric, fabric_metrics)
-                .await
-            {
-                Ok(partitions) => {
-                    fabric_data.partitions = Some(partitions);
-                }
-                Err(e) => {
-                    tracing::error!(fabric, endpoints = fabric_definition.endpoints.join(","), error = %e, "Loading partition information failed");
-                    // TODO: This isn't efficient because we will get a lot of different dimensions
-                    // We need to have better defined errors from the UFM APIs, so we can convert
-                    // those into a smaller set of labels
-                    fabric_metrics.fabric_error = e.to_string();
-                    // There's no point in loading other information case the fabric is down
-                    continue;
-                }
-            }
-
-            // Derive Partitions by GUID
-            fabric_data.derive_partitions_by_guid();
         }
 
         let sku_inactive_cache = preload_sku_inactive_devices(&self.db_pool, &snapshots)
@@ -359,91 +321,16 @@ impl IbFabricMonitor {
             }
         }
 
-        let mut num_changes = 0;
-
-        for report in reports {
-            for (fabric, guid, pkey) in report.missing_guid_pkeys {
-                let Some(partition_id) = partition_ids_by_pkey.get(&pkey) else {
-                    tracing::warn!("Missing pkey {pkey} does not map to a Partition ID");
-                    continue;
-                };
-                let Some(partition) = tenant_partitions.get(partition_id) else {
-                    tracing::warn!("Missing pkey {pkey} does not map to a Partition");
-                    continue;
-                };
-
-                let conn = self.fabric_manager.new_client(&fabric).await?;
-                let status = match conn
-                    .bind_ib_ports(partition.into(), vec![guid.clone()])
-                    .await
-                {
-                    Ok(()) => {
-                        num_changes += 1;
-                        UfmOperationStatus::Ok
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to bind {guid} to pkey {pkey} on fabric {fabric}: {e}"
-                        );
-                        UfmOperationStatus::Error
-                    }
-                };
-
-                *metrics
-                    .applied_changes
-                    .entry(AppliedChange {
-                        fabric,
-                        operation: UfmOperation::BindGuidToPkey,
-                        status,
-                    })
-                    .or_default() += 1;
-            }
-
-            for (fabric, guid, pkey) in report.unexpected_guid_pkeys {
-                // Only unbind pkeys that are within this Carbide's managed range.
-                // Pkeys outside the configured range should be left alone.
-                // Note: We only enforce expected pkeys for GUIDs configured on the instance.
-                // Unconfigured GUIDs with out-of-range pkeys will be ignored.
-                let managed_pkey = self
-                    .fabrics
-                    .get(&fabric)
-                    .map(|f| is_pkey_in_managed_range(pkey, f))
-                    .unwrap_or(false);
-
-                if !managed_pkey {
-                    tracing::debug!(
-                        %fabric,
-                        %guid,
-                        %pkey,
-                        "Skipping unbind for pkey outside managed range"
-                    );
-                    continue;
-                }
-
-                let conn = self.fabric_manager.new_client(&fabric).await?;
-                let status = match conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await {
-                    Ok(()) => {
-                        num_changes += 1;
-                        UfmOperationStatus::Ok
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to unbind {guid} from pkey {pkey} on fabric {fabric}: {e}"
-                        );
-                        UfmOperationStatus::Error
-                    }
-                };
-
-                *metrics
-                    .applied_changes
-                    .entry(AppliedChange {
-                        fabric,
-                        operation: UfmOperation::UnbindGuidFromPkey,
-                        status,
-                    })
-                    .or_default() += 1;
-            }
-        }
+        let num_changes = apply_guid_pkey_changes(
+            self.fabric_manager.as_ref(),
+            &mut fabric_clients,
+            &self.fabrics,
+            &tenant_partitions,
+            &partition_ids_by_pkey,
+            reports,
+            metrics,
+        )
+        .await?;
 
         Ok(num_changes)
     }
@@ -474,19 +361,111 @@ impl IbFabricMonitor {
     }
 }
 
-/// Checks the status of a single IB fabric
-async fn check_ib_fabric(
+/// Loads the health, port, and partition data for a single IB fabric over one
+/// shared client connection, recording results in `fabric_data` and `fabric_metrics`.
+///
+/// Returns the fabric client so later phases of the monitor iteration can reuse
+/// it instead of building a new one per operation. Returns `None` when no
+/// client could be built. Failures of the individual data loads are recorded in
+/// `fabric_metrics.fabric_error` and leave the corresponding `fabric_data`
+/// fields unset, exactly like a failure of the load itself.
+async fn load_single_fabric_data(
     fabric_manager: &dyn IBFabricManager,
     fabric: &str,
     fabric_definition: &IbFabricDefinition,
-    metrics: &mut FabricMetrics,
-) -> Result<(), IbError> {
-    metrics.endpoints = fabric_definition.endpoints.clone();
-    metrics.allow_insecure_fabric_configuration = fabric_manager
+    fabric_data: &mut FabricData,
+    fabric_metrics: &mut FabricMetrics,
+) -> Option<Arc<dyn IBFabric>> {
+    fabric_metrics.endpoints = fabric_definition.endpoints.clone();
+    fabric_metrics.allow_insecure_fabric_configuration = fabric_manager
         .get_config()
         .allow_insecure_fabric_configuration;
 
-    let conn = fabric_manager.new_client(fabric).await?;
+    let conn = match fabric_manager.new_client(fabric).await {
+        Ok(conn) => conn,
+        Err(e) => {
+            note_fabric_error(
+                fabric_metrics,
+                fabric,
+                &fabric_definition.endpoints,
+                &e,
+                "failed to build the IB fabric client",
+            );
+            return None;
+        }
+    };
+
+    if let Err(e) = check_ib_fabric(conn.as_ref(), fabric_metrics).await {
+        note_fabric_error(
+            fabric_metrics,
+            fabric,
+            &fabric_definition.endpoints,
+            &e,
+            "IB fabric health check failed",
+        );
+        // There's no point in loading other information case the fabric is down
+        return Some(conn);
+    }
+
+    match get_ports_information(conn.as_ref(), fabric_metrics).await {
+        Ok(ports) => {
+            fabric_data.ports_by_guid = Some(ports);
+        }
+        Err(e) => {
+            note_fabric_error(
+                fabric_metrics,
+                fabric,
+                &fabric_definition.endpoints,
+                &e,
+                "Loading port information failed",
+            );
+            // There's no point in loading other information case the fabric is down
+            return Some(conn);
+        }
+    }
+
+    match get_partition_information(conn.as_ref(), fabric_metrics).await {
+        Ok(partitions) => {
+            fabric_data.partitions = Some(partitions);
+        }
+        Err(e) => {
+            note_fabric_error(
+                fabric_metrics,
+                fabric,
+                &fabric_definition.endpoints,
+                &e,
+                "Loading partition information failed",
+            );
+            // There's no point in loading other information case the fabric is down
+            return Some(conn);
+        }
+    }
+
+    // Derive Partitions by GUID
+    fabric_data.derive_partitions_by_guid();
+
+    Some(conn)
+}
+
+/// Records a failed stage of a fabric's data load: logs the failure under the
+/// stage's `message` and stores the error as the fabric's error metric.
+///
+/// TODO: Storing the raw error string isn't efficient because we will get a
+/// lot of different dimensions. We need to have better defined errors from the
+/// UFM APIs, so we can convert those into a smaller set of labels.
+fn note_fabric_error(
+    fabric_metrics: &mut FabricMetrics,
+    fabric: &str,
+    endpoints: &[String],
+    error: &IbError,
+    message: &'static str,
+) {
+    tracing::error!(fabric, endpoints = endpoints.join(","), error = %error, "{message}");
+    fabric_metrics.fabric_error = error.to_string();
+}
+
+/// Checks the status of a single IB fabric over an established client connection
+async fn check_ib_fabric(conn: &dyn IBFabric, metrics: &mut FabricMetrics) -> Result<(), IbError> {
     let version = conn.versions().await?;
     metrics.ufm_version = version.ufm_version;
 
@@ -566,12 +545,9 @@ impl FabricData {
 
 /// Return port information within a single IB fabric
 async fn get_ports_information(
-    fabric_manager: &dyn IBFabricManager,
-    fabric: &str,
+    conn: &dyn IBFabric,
     metrics: &mut FabricMetrics,
 ) -> Result<HashMap<String, IBPort>, IbError> {
-    let conn = fabric_manager.new_client(fabric).await?;
-
     let ports = conn.find_ib_port(None).await?;
     let mut ports_by_state = HashMap::new();
     let mut ports_by_guid = HashMap::new();
@@ -590,12 +566,9 @@ async fn get_ports_information(
 
 /// Return partitioning information within a single IB fabric
 async fn get_partition_information(
-    fabric_manager: &dyn IBFabricManager,
-    fabric: &str,
+    conn: &dyn IBFabric,
     metrics: &mut FabricMetrics,
 ) -> Result<HashMap<u16, IBNetwork>, IbError> {
-    let conn = fabric_manager.new_client(fabric).await?;
-
     // Due to the UFM bug we need to first get partition IDs and then query
     // each partition individually for additional data
     let partitions = conn
@@ -627,6 +600,128 @@ async fn get_partition_information(
     }
 
     Ok(result)
+}
+
+/// Returns the client for a fabric, reusing one from `fabric_clients` when the
+/// current iteration already built it. A client built here is retained in
+/// `fabric_clients` so subsequent operations on the same fabric reuse it too.
+///
+/// The memo still earns its keep now that the manager caches built clients
+/// across iterations: a hit here skips even the manager's per-call
+/// secret-manager read, so each fabric's credentials are read once per
+/// iteration. A miss is cheap -- the manager rebuilds a client only when the
+/// fabric's credentials or endpoint change.
+async fn client_for_fabric(
+    fabric_manager: &dyn IBFabricManager,
+    fabric_clients: &mut HashMap<String, Arc<dyn IBFabric>>,
+    fabric: &str,
+) -> Result<Arc<dyn IBFabric>, IbError> {
+    if let Some(conn) = fabric_clients.get(fabric) {
+        return Ok(conn.clone());
+    }
+
+    let conn = fabric_manager.new_client(fabric).await?;
+    fabric_clients.insert(fabric.to_string(), conn.clone());
+    Ok(conn)
+}
+
+/// Applies the GUID<->pkey binding changes that the per-machine status
+/// evaluations found to be required, and records the outcome of every
+/// operation in `metrics`. Each fabric is served by a single client from
+/// `fabric_clients` for the whole batch.
+///
+/// Returns the number of successfully applied changes.
+async fn apply_guid_pkey_changes(
+    fabric_manager: &dyn IBFabricManager,
+    fabric_clients: &mut HashMap<String, Arc<dyn IBFabric>>,
+    fabrics: &HashMap<String, IbFabricDefinition>,
+    tenant_partitions: &HashMap<IBPartitionId, IBPartition>,
+    partition_ids_by_pkey: &HashMap<PartitionKey, IBPartitionId>,
+    reports: Vec<MachineIbStatusEvaluation>,
+    metrics: &mut IbFabricMonitorMetrics,
+) -> IbResult<usize> {
+    let mut num_changes = 0;
+
+    for report in reports {
+        for (fabric, guid, pkey) in report.missing_guid_pkeys {
+            let Some(partition_id) = partition_ids_by_pkey.get(&pkey) else {
+                tracing::warn!(%pkey, "Missing pkey does not map to a Partition ID");
+                continue;
+            };
+            let Some(partition) = tenant_partitions.get(partition_id) else {
+                tracing::warn!(%pkey, "Missing pkey does not map to a Partition");
+                continue;
+            };
+
+            let conn = client_for_fabric(fabric_manager, fabric_clients, &fabric).await?;
+            let status = match conn
+                .bind_ib_ports(partition.into(), vec![guid.clone()])
+                .await
+            {
+                Ok(()) => {
+                    num_changes += 1;
+                    UfmOperationStatus::Ok
+                }
+                Err(e) => {
+                    tracing::error!(%guid, %pkey, %fabric, error = %e, "Failed to bind GUID to pkey");
+                    UfmOperationStatus::Error
+                }
+            };
+
+            *metrics
+                .applied_changes
+                .entry(AppliedChange {
+                    fabric,
+                    operation: UfmOperation::BindGuidToPkey,
+                    status,
+                })
+                .or_default() += 1;
+        }
+
+        for (fabric, guid, pkey) in report.unexpected_guid_pkeys {
+            // Only unbind pkeys that are within this Carbide's managed range.
+            // Pkeys outside the configured range should be left alone.
+            // Note: We only enforce expected pkeys for GUIDs configured on the instance.
+            // Unconfigured GUIDs with out-of-range pkeys will be ignored.
+            let managed_pkey = fabrics
+                .get(&fabric)
+                .map(|f| is_pkey_in_managed_range(pkey, f))
+                .unwrap_or(false);
+
+            if !managed_pkey {
+                tracing::debug!(
+                    %fabric,
+                    %guid,
+                    %pkey,
+                    "Skipping unbind for pkey outside managed range"
+                );
+                continue;
+            }
+
+            let conn = client_for_fabric(fabric_manager, fabric_clients, &fabric).await?;
+            let status = match conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await {
+                Ok(()) => {
+                    num_changes += 1;
+                    UfmOperationStatus::Ok
+                }
+                Err(e) => {
+                    tracing::error!(%guid, %pkey, %fabric, error = %e, "Failed to unbind GUID from pkey");
+                    UfmOperationStatus::Error
+                }
+            };
+
+            *metrics
+                .applied_changes
+                .entry(AppliedChange {
+                    fabric,
+                    operation: UfmOperation::UnbindGuidFromPkey,
+                    status,
+                })
+                .or_default() += 1;
+        }
+    }
+
+    Ok(num_changes)
 }
 
 /// Find all active partitions in order to determine pkeys
@@ -1616,6 +1711,148 @@ mod tests {
                 } => false,
             }
         );
+    }
+
+    // ============================================================
+    // Unit Tests for per-iteration fabric client reuse
+    // ============================================================
+
+    mod client_reuse {
+        use super::*;
+        use crate::ib::fakes::{CountingFabricManager, make_partition};
+
+        /// One fabric's worth of pending changes: three binds + two unbinds
+        /// against pkey 0x101 on "fab1".
+        fn five_pending_changes(pkey: PartitionKey) -> Vec<MachineIbStatusEvaluation> {
+            vec![MachineIbStatusEvaluation {
+                missing_guid_pkeys: vec![
+                    ("fab1".to_string(), "guid-1".to_string(), pkey),
+                    ("fab1".to_string(), "guid-2".to_string(), pkey),
+                    ("fab1".to_string(), "guid-3".to_string(), pkey),
+                ],
+                unexpected_guid_pkeys: vec![
+                    ("fab1".to_string(), "guid-4".to_string(), pkey),
+                    ("fab1".to_string(), "guid-5".to_string(), pkey),
+                ],
+                unknown_guid_pkeys: vec![],
+                down_port_guids: vec![],
+            }]
+        }
+
+        /// Counts the client builds needed to apply a batch of five GUID<->pkey
+        /// changes (three binds + two unbinds) on one fabric.
+        ///
+        /// Before the per-iteration client reuse this scope built 5 clients
+        /// (one per GUID change); now the whole batch shares one.
+        #[tokio::test]
+        async fn applying_guid_pkey_changes_builds_one_client_per_fabric() {
+            let manager = CountingFabricManager::new();
+            let pkey = PartitionKey::try_from(0x101).expect("valid pkey");
+            let partition = make_partition(Some(0x101), false);
+            let partition_id = partition.id;
+            let tenant_partitions = HashMap::from([(partition_id, partition)]);
+            let partition_ids_by_pkey = HashMap::from([(pkey, partition_id)]);
+            let fabrics = HashMap::from([(
+                "fab1".to_string(),
+                make_fabric_definition(vec![("0x100", "0x8FF")]),
+            )]);
+            let mut fabric_clients = HashMap::new();
+            let mut metrics = IbFabricMonitorMetrics::new();
+
+            let num_changes = apply_guid_pkey_changes(
+                &manager,
+                &mut fabric_clients,
+                &fabrics,
+                &tenant_partitions,
+                &partition_ids_by_pkey,
+                five_pending_changes(pkey),
+                &mut metrics,
+            )
+            .await
+            .expect("applying changes against stub fabric");
+
+            assert_eq!(num_changes, 5, "all five changes applied");
+            assert_eq!(
+                metrics.applied_changes.get(&AppliedChange {
+                    fabric: "fab1".to_string(),
+                    operation: UfmOperation::BindGuidToPkey,
+                    status: UfmOperationStatus::Ok,
+                }),
+                Some(&3),
+            );
+            assert_eq!(
+                metrics.applied_changes.get(&AppliedChange {
+                    fabric: "fab1".to_string(),
+                    operation: UfmOperation::UnbindGuidFromPkey,
+                    status: UfmOperationStatus::Ok,
+                }),
+                Some(&2),
+            );
+            assert_eq!(
+                manager.build_count(),
+                1,
+                "AFTER: one client build serves all five GUID changes"
+            );
+        }
+
+        /// A client built by the data-loading phase is reused by the
+        /// change-application phase: a full per-fabric iteration builds exactly
+        /// one client.
+        #[tokio::test]
+        async fn monitor_iteration_builds_one_client_per_fabric() {
+            let manager = CountingFabricManager::new();
+            let definition = make_fabric_definition(vec![("0x100", "0x8FF")]);
+            let pkey = PartitionKey::try_from(0x101).expect("valid pkey");
+            let partition = make_partition(Some(0x101), false);
+            let partition_id = partition.id;
+            let tenant_partitions = HashMap::from([(partition_id, partition)]);
+            let partition_ids_by_pkey = HashMap::from([(pkey, partition_id)]);
+            let fabrics = HashMap::from([("fab1".to_string(), definition.clone())]);
+            let mut fabric_data = FabricData::default();
+            let mut fabric_metrics = FabricMetrics::default();
+            let mut fabric_clients = HashMap::new();
+
+            // Data-loading phase.
+            let conn = load_single_fabric_data(
+                &manager,
+                "fab1",
+                &definition,
+                &mut fabric_data,
+                &mut fabric_metrics,
+            )
+            .await
+            .expect("client for reachable stub fabric");
+            fabric_clients.insert("fab1".to_string(), conn);
+
+            assert!(fabric_data.ports_by_guid.is_some());
+            assert!(fabric_data.partitions.is_some());
+            assert_eq!(
+                manager.build_count(),
+                1,
+                "AFTER: one client build loads health + ports + partitions"
+            );
+
+            // Change-application phase reuses the data-loading client.
+            let mut metrics = IbFabricMonitorMetrics::new();
+            let num_changes = apply_guid_pkey_changes(
+                &manager,
+                &mut fabric_clients,
+                &fabrics,
+                &tenant_partitions,
+                &partition_ids_by_pkey,
+                five_pending_changes(pkey),
+                &mut metrics,
+            )
+            .await
+            .expect("applying changes against stub fabric");
+
+            assert_eq!(num_changes, 5, "all five changes applied");
+            assert_eq!(
+                manager.build_count(),
+                1,
+                "AFTER: the whole per-fabric iteration shares one client build"
+            );
+        }
     }
 
     // ============================================================

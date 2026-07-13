@@ -29,6 +29,7 @@ pub use intrusion_events::BmcIntrusionEventProcessor;
 pub use leak_events::LeakEventProcessor;
 pub use rack_leak::RackLeakProcessor;
 
+use crate::HealthError;
 use crate::metrics::{ComponentMetrics, MetricsManager};
 use crate::sink::{CollectorEvent, DataSink, EventContext};
 
@@ -106,14 +107,18 @@ impl DataSink for EventProcessingPipeline {
         "event_processing_pipeline"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn try_handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
         let mut queue = VecDeque::from(vec![PendingEvent {
             event: Cow::Borrowed(event),
             blocked_processors: vec![false; self.processors.len()],
         }]);
 
         while let Some(current) = queue.pop_front() {
-            self.sink.handle_event(context, &current.event);
+            self.sink.try_handle_event(context, &current.event)?;
             self.next_events(
                 context,
                 &current.event,
@@ -121,6 +126,8 @@ impl DataSink for EventProcessingPipeline {
                 &mut queue,
             );
         }
+
+        Ok(())
     }
 }
 
@@ -146,8 +153,13 @@ mod tests {
             "counting_sink"
         }
 
-        fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            _event: &CollectorEvent,
+        ) -> Result<(), HealthError> {
             self.counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
     }
 

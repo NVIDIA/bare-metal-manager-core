@@ -22,10 +22,12 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::get;
+use carbide_instrument::emit;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client::ForgeClientConfig;
 
 use crate::common::{AppState, Machine, MachineInterface};
+use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome};
 use crate::routes::RpcContext;
 
 pub enum PxeErrorCode {
@@ -59,17 +61,31 @@ pub async fn whoami(machine: Machine, state: State<AppState>) -> impl IntoRespon
                     template_data.insert("fqdn".to_string(), interface.hostname);
                     template_data.insert("mac_address".to_string(), interface.mac_address);
 
+                    emit(PxeBootOutcome {
+                        endpoint: BootEndpoint::Whoami,
+                        reason: OutcomeReason::Ok,
+                    });
                     ("whoami".to_string(), template_data)
                 }
-                _ => (
-                    "error".to_string(),
-                    generate_error_template(
-                        "Could not load interface or domain",
-                        PxeErrorCode::InterfaceNotFound as isize,
-                    ),
-                ),
+                _ => {
+                    emit(PxeBootOutcome {
+                        endpoint: BootEndpoint::Whoami,
+                        reason: OutcomeReason::InterfaceNotFound,
+                    });
+                    (
+                        "error".to_string(),
+                        generate_error_template(
+                            "Could not load interface or domain",
+                            PxeErrorCode::InterfaceNotFound as isize,
+                        ),
+                    )
+                }
             }
         } else {
+            emit(PxeBootOutcome {
+                endpoint: BootEndpoint::Whoami,
+                reason: OutcomeReason::InstructionsEmpty,
+            });
             (
                 "error".to_string(),
                 generate_error_template(
@@ -115,6 +131,17 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
             )
             .await;
 
+            // The upstream error path still serves a script (an error
+            // template over HTTP 200), so the outcome counter is the
+            // only place the split is visible.
+            emit(PxeBootOutcome {
+                endpoint: BootEndpoint::Boot,
+                reason: match &pxe_response {
+                    Ok(_) => OutcomeReason::Ok,
+                    Err(_) => OutcomeReason::UpstreamApiError,
+                },
+            });
+
             // Use URL overrides from the API if present (for external
             // clients), falling back to global config.
             let (api_url, pxe_url, static_pxe_url) = match &pxe_response {
@@ -157,13 +184,18 @@ exit 101 ||
 
             ("pxe", template_data)
         }
-        None => (
-            "error",
-            generate_error_template(
-                "Architecture not found".to_string(),
-                PxeErrorCode::ArchitectureNotFound as isize,
-            ),
-        ),
+        None => {
+            // Unreachable in production: the MachineInterface extractor
+            // rejects a missing/invalid architecture with a 4xx (and counts
+            // it) before this handler runs. Served defensively, uncounted.
+            (
+                "error",
+                generate_error_template(
+                    "Architecture not found".to_string(),
+                    PxeErrorCode::ArchitectureNotFound as isize,
+                ),
+            )
+        }
     };
 
     axum_template::Render(template_key, state.engine.clone(), template_data)
@@ -176,4 +208,64 @@ pub fn get_router(path_prefix: &str) -> Router<AppState> {
             get(whoami),
         )
         .route(format!("{}/{}", path_prefix, "boot").as_str(), get(boot))
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::MetricsCapture;
+
+    use super::*;
+    use crate::common::test_app_state;
+
+    /// A whoami request with no discovery instructions serves the error
+    /// template and moves the outcome counter -- previously this failure
+    /// left no trace anywhere.
+    #[tokio::test]
+    async fn whoami_without_instructions_counts_instructions_empty() {
+        let metrics = MetricsCapture::start();
+
+        let _ = whoami(
+            Machine {
+                instructions: Default::default(),
+            },
+            State(test_app_state()),
+        )
+        .await;
+
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_pxe_boot_outcomes_total",
+                &[("endpoint", "whoami"), ("reason", "instructions_empty")],
+            ),
+            1.0,
+        );
+    }
+
+    /// A boot request with an invalid `buildarch` never reaches the handler:
+    /// the extractor rejects it with a 4xx and counts the outcome there.
+    #[tokio::test]
+    async fn invalid_buildarch_is_rejected_and_counted_at_the_extractor() {
+        use axum::extract::FromRequestParts;
+
+        let metrics = MetricsCapture::start();
+
+        let request = axum::http::Request::builder()
+            .uri("/boot?buildarch=not-an-architecture")
+            .body(())
+            .expect("request");
+        let (mut parts, _) = request.into_parts();
+        let rejection = MachineInterface::from_request_parts(&mut parts, &test_app_state()).await;
+
+        assert!(
+            rejection.is_err(),
+            "a bad buildarch never reaches the handler"
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_pxe_boot_outcomes_total",
+                &[("endpoint", "boot"), ("reason", "architecture_not_found")],
+            ),
+            1.0,
+        );
+    }
 }

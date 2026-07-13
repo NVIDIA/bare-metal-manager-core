@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use mqttea::stats::{PublishStatsTracker, QueueStatsTracker};
+use mqttea::stats::{ConnectionStateTracker, PublishStatsTracker, QueueStatsTracker};
 
 // Tests for QueueStatsTracker creation and initial state
 #[test]
@@ -512,4 +512,223 @@ fn test_stats_clone() {
     assert_eq!(stats1.pending_messages, stats2.pending_messages);
     assert_eq!(stats1.total_processed, stats2.total_processed);
     assert_eq!(stats1.total_bytes_processed, stats2.total_bytes_processed);
+}
+
+// Tests for register_metrics: the observable instruments expose the
+// trackers' atomics through a local meter provider backed by a plain
+// prometheus registry (gathering the registry runs the callbacks).
+
+// test_meter builds a meter whose instruments export into the returned
+// prometheus registry. The provider must stay alive for the registry to
+// keep collecting.
+fn test_meter() -> (
+    opentelemetry_sdk::metrics::SdkMeterProvider,
+    prometheus::Registry,
+    opentelemetry::metrics::Meter,
+) {
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .without_scope_info()
+        .without_target_info()
+        .build()
+        .expect("build prometheus exporter");
+    let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+        .with_reader(exporter)
+        .build();
+    let meter = opentelemetry::metrics::MeterProvider::meter(&provider, "mqttea-test");
+    (provider, registry, meter)
+}
+
+// metric_value reads a counter or gauge value (with exactly the given
+// label pairs) out of a gathered prometheus registry.
+fn metric_value(registry: &prometheus::Registry, name: &str, labels: &[(&str, &str)]) -> f64 {
+    for family in registry.gather() {
+        if family.name() != name {
+            continue;
+        }
+        for metric in family.get_metric() {
+            let metric_labels: Vec<(String, String)> = metric
+                .get_label()
+                .iter()
+                .map(|pair| (pair.name().to_string(), pair.value().to_string()))
+                .collect();
+            let expected: Vec<(String, String)> = labels
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            if metric_labels == expected {
+                return match family.get_field_type() {
+                    prometheus::proto::MetricType::COUNTER => metric.get_counter().value(),
+                    prometheus::proto::MetricType::GAUGE => metric.get_gauge().value(),
+                    other => panic!("unexpected metric type {other:?} for {name}"),
+                };
+            }
+        }
+        panic!("metric {name} has no series with labels {labels:?}");
+    }
+    panic!("metric {name} not found in registry");
+}
+
+#[test]
+fn test_queue_stats_register_metrics_exposes_atomics() {
+    let (_provider, registry, meter) = test_meter();
+    let tracker = QueueStatsTracker::new();
+    tracker.register_metrics(&meter, "test_client");
+
+    // Three messages in, one processed, one failed, plus a queue-full
+    // drop, an event loop error, and an unmatched topic.
+    tracker.increment_pending(100);
+    tracker.increment_pending(250);
+    tracker.increment_pending(75);
+    tracker.decrement_pending_increment_processed(100);
+    tracker.decrement_pending_increment_failed(250);
+    tracker.increment_dropped(500);
+    tracker.increment_event_loop_errors();
+    tracker.increment_unmatched_topics();
+
+    let labels = [("client", "test_client")];
+    struct Expect {
+        metric: &'static str,
+        value: f64,
+    }
+    let expectations = [
+        Expect {
+            metric: "carbide_mqtt_queue_pending_messages",
+            value: 1.0,
+        },
+        Expect {
+            metric: "carbide_mqtt_queue_pending_bytes",
+            value: 75.0,
+        },
+        Expect {
+            metric: "carbide_mqtt_messages_processed_total",
+            value: 1.0,
+        },
+        Expect {
+            metric: "carbide_mqtt_processed_bytes_total",
+            value: 100.0,
+        },
+        Expect {
+            metric: "carbide_mqtt_messages_failed_total",
+            value: 1.0,
+        },
+        Expect {
+            metric: "carbide_mqtt_messages_dropped_total",
+            value: 1.0,
+        },
+        Expect {
+            metric: "carbide_mqtt_dropped_bytes_total",
+            value: 500.0,
+        },
+        Expect {
+            metric: "carbide_mqtt_event_loop_errors_total",
+            value: 1.0,
+        },
+        Expect {
+            metric: "carbide_mqtt_unmatched_topics_total",
+            value: 1.0,
+        },
+    ];
+    for expect in expectations {
+        assert_eq!(
+            metric_value(&registry, expect.metric, &labels),
+            expect.value,
+            "unexpected value for {}",
+            expect.metric
+        );
+    }
+}
+
+#[test]
+fn test_publish_stats_register_metrics_exposes_atomics() {
+    let (_provider, registry, meter) = test_meter();
+    let tracker = PublishStatsTracker::new();
+    tracker.register_metrics(&meter, "test_client");
+
+    tracker.increment_published(512);
+    tracker.increment_published(256);
+    tracker.increment_failed();
+
+    let labels = [("client", "test_client")];
+    assert_eq!(
+        metric_value(&registry, "carbide_mqtt_messages_published_total", &labels),
+        2.0
+    );
+    assert_eq!(
+        metric_value(&registry, "carbide_mqtt_publish_failures_total", &labels),
+        1.0
+    );
+    assert_eq!(
+        metric_value(&registry, "carbide_mqtt_published_bytes_total", &labels),
+        768.0
+    );
+}
+
+#[test]
+fn test_connection_state_register_metrics_tracks_transitions() {
+    let (_provider, registry, meter) = test_meter();
+    let tracker = ConnectionStateTracker::new();
+    tracker.register_metrics(&meter, "test_client");
+
+    let labels = [("client", "test_client")];
+
+    // Created disconnected.
+    assert!(!tracker.is_connected());
+    assert_eq!(
+        metric_value(&registry, "carbide_mqtt_connected", &labels),
+        0.0
+    );
+
+    // ConnAck arrives.
+    tracker.set_connected(true);
+    assert!(tracker.is_connected());
+    assert_eq!(
+        metric_value(&registry, "carbide_mqtt_connected", &labels),
+        1.0
+    );
+
+    // Connection error drops the flag again.
+    tracker.set_connected(false);
+    assert_eq!(
+        metric_value(&registry, "carbide_mqtt_connected", &labels),
+        0.0
+    );
+}
+
+// A client-level registration covers all three trackers: every instrument
+// appears in the exposition, and a client that never connected reports
+// zeros with the connected gauge down.
+#[tokio::test]
+async fn test_client_register_metrics_registers_all_instruments() {
+    let (_provider, registry, meter) = test_meter();
+    let client = mqttea::MqtteaClient::new("localhost", 1883, "test-metrics-client", None)
+        .await
+        .expect("create client");
+    client.register_metrics(&meter, "test_client");
+
+    let labels = [("client", "test_client")];
+    let all_instruments = [
+        "carbide_mqtt_queue_pending_messages",
+        "carbide_mqtt_queue_pending_bytes",
+        "carbide_mqtt_connected",
+        "carbide_mqtt_messages_processed_total",
+        "carbide_mqtt_processed_bytes_total",
+        "carbide_mqtt_messages_failed_total",
+        "carbide_mqtt_messages_dropped_total",
+        "carbide_mqtt_dropped_bytes_total",
+        "carbide_mqtt_event_loop_errors_total",
+        "carbide_mqtt_unmatched_topics_total",
+        "carbide_mqtt_messages_published_total",
+        "carbide_mqtt_publish_failures_total",
+        "carbide_mqtt_published_bytes_total",
+    ];
+    for name in all_instruments {
+        assert_eq!(
+            metric_value(&registry, name, &labels),
+            0.0,
+            "expected {name} to be registered at zero"
+        );
+    }
+    assert!(!client.is_connected());
 }

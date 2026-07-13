@@ -122,6 +122,114 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
+async fn test_add_expected_switch_rejects_claimed_nvos_mac(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mut expected_switch = rpc::forge::ExpectedSwitch {
+        expected_switch_id: None,
+        bmc_mac_address: "3A:3B:3C:3D:3E:50".to_string(),
+        nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:50".to_string()],
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        switch_serial_number: "SW-NVOS-DUP-001".into(),
+        nvos_username: None,
+        nvos_password: None,
+        metadata: None,
+        rack_id: None,
+        bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
+        nvos_ip_address: None,
+    };
+    env.api
+        .add_expected_switch(tonic::Request::new(expected_switch.clone()))
+        .await
+        .expect("unable to add expected switch");
+
+    // A second switch claiming the same NVOS MAC -- spelled with a different
+    // separator and case, which macaddr comparison canonicalizes -- is rejected.
+    expected_switch.bmc_mac_address = "3A:3B:3C:3D:3E:51".to_string();
+    expected_switch.switch_serial_number = "SW-NVOS-DUP-002".into();
+    expected_switch.nvos_mac_addresses = vec!["4a-4b-4c-4d-4e-50".to_string()];
+    let status = env
+        .api
+        .add_expected_switch(tonic::Request::new(expected_switch))
+        .await
+        .expect_err("adding a switch with a claimed NVOS MAC should fail");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+}
+
+#[crate::sqlx_test]
+async fn test_update_expected_switch_rejects_claimed_nvos_mac(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let switches = create_expected_switches(&mut txn).await;
+    txn.commit().await.unwrap();
+
+    // switches[1] tries to claim an NVOS MAC that switches[0] already holds.
+    let update = rpc::forge::ExpectedSwitch {
+        expected_switch_id: None,
+        bmc_mac_address: switches[1].bmc_mac_address.to_string(),
+        nvos_mac_addresses: switches[0]
+            .nvos_mac_addresses
+            .iter()
+            .map(|mac| mac.to_string())
+            .collect(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        switch_serial_number: switches[1].serial_number.clone(),
+        nvos_username: None,
+        nvos_password: None,
+        metadata: None,
+        rack_id: None,
+        bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
+        nvos_ip_address: None,
+    };
+    let status = env
+        .api
+        .update_expected_switch(tonic::Request::new(update))
+        .await
+        .expect_err("claiming another switch's NVOS MAC should fail");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+}
+
+#[crate::sqlx_test]
+async fn test_replace_all_expected_switches_rejects_intra_list_nvos_dup(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let switch = |bmc: &str, serial: &str| rpc::forge::ExpectedSwitch {
+        expected_switch_id: None,
+        bmc_mac_address: bmc.to_string(),
+        nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:60".to_string()],
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        switch_serial_number: serial.into(),
+        nvos_username: None,
+        nvos_password: None,
+        metadata: None,
+        rack_id: None,
+        bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
+        nvos_ip_address: None,
+    };
+
+    // Two switches in one replace list claiming the same NVOS MAC surface a
+    // config conflict, not an internal server fault.
+    let status = env
+        .api
+        .replace_all_expected_switches(tonic::Request::new(rpc::forge::ExpectedSwitchList {
+            expected_switches: vec![
+                switch("3A:3B:3C:3D:3E:60", "SW-REPLACE-001"),
+                switch("3A:3B:3C:3D:3E:61", "SW-REPLACE-002"),
+            ],
+        }))
+        .await
+        .expect_err("intra-list NVOS MAC duplicate should fail");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+}
+
+#[crate::sqlx_test]
 async fn test_delete_expected_switch(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 

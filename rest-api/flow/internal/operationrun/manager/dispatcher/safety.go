@@ -33,38 +33,16 @@ func newSafetyPolicy(options *operationrun.Options) (*safetyPolicyRuntime, error
 // evaluate checks the configured safety gates against either the current phase
 // or the cumulative run scope.
 func (p safetyPolicyRuntime) evaluate(
-	current []*operationrun.OperationRunTarget,
-	completed []*operationrun.OperationRunTarget,
+	summary operationrun.TargetPhaseSummary,
 ) pauseDecision {
-	for _, gate := range p.gates {
-		stats := statsForScope(current, completed, gate.SafetyGateScope())
-		if !gate.IsTripped(stats.StatusCounts.Failed, stats.SelectedTargets) {
-			continue
-		}
-
+	evaluation := summary.EvaluateSafetyGates(p.gates)
+	if evaluation.Tripped {
 		return pauseDecision{
 			pause:   true,
 			reason:  operationrun.OperationRunStatusReasonSafetyGate,
-			message: stats.SafetyGateTrippedMessage(gate),
+			message: evaluation.Message,
 		}
 	}
 
 	return pauseDecision{}
-}
-
-// statsForScope aggregates target outcomes over the safety-gate scope selected
-// by the user.
-func statsForScope(
-	current []*operationrun.OperationRunTarget,
-	completed []*operationrun.OperationRunTarget,
-	scope operationrun.SafetyGateScope,
-) operationrun.PhaseStats {
-	stats := operationrun.PhaseStats{}
-	stats.AddTargets(current)
-	if scope != operationrun.SafetyGateScopeCumulativeRun {
-		return stats
-	}
-
-	stats.AddTargets(completed)
-	return stats
 }

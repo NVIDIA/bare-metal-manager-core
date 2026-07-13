@@ -17,11 +17,12 @@
 
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
+use rustls_pki_types::DnsName;
 use serde::{Deserialize, Deserializer, Serialize};
 use url::Url;
 
@@ -29,6 +30,8 @@ use url::Url;
 #[serde(default)]
 pub struct Config {
     pub endpoint_sources: EndpointSourcesConfig,
+
+    pub tls: TlsConfig,
 
     pub sinks: SinksConfig,
 
@@ -61,6 +64,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             endpoint_sources: EndpointSourcesConfig::default(),
+            tls: TlsConfig::default(),
             sinks: SinksConfig::default(),
             rate_limit: Configurable::Enabled(RateLimitConfig::default()),
             collectors: CollectorsConfig::default(),
@@ -564,6 +568,84 @@ impl Default for CollectorsConfig {
             nmxc: Configurable::Disabled,
             nvue: Configurable::Disabled,
         }
+    }
+}
+
+/// TLS settings owned by hardware-health.
+///
+/// This section is intentionally outside `[collectors]` because TLS material is
+/// connection policy shared by multiple collectors, not a collector itself.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct TlsConfig {
+    /// Optional mTLS profile used by direct switch collectors.
+    pub switch: Option<MtlsProfileConfig>,
+}
+
+/// mTLS profile for outbound client TLS connections.
+///
+/// `[tls.switch]` uses this shape for direct switch collector connections.
+/// These paths are independent from the Carbide API certificate paths. The
+/// files are read and validated when collectors build HTTP clients or gRPC
+/// channel TLS configs. The optional TLS server name is profile-wide because
+/// deployed switch certificates use the same DNS identity, and Carbide API
+/// discovery does not provide switch certificate identities.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MtlsProfileConfig {
+    /// Path to the CA bundle used to verify switch server certificates.
+    pub ca_cert_path: PathBuf,
+
+    /// Path to the client certificate chain sent to switch services.
+    pub client_cert_path: PathBuf,
+
+    /// Path to the client private key sent to switch services.
+    pub client_key_path: PathBuf,
+
+    /// Optional DNS name used only for TLS SNI and server certificate checks.
+    ///
+    /// Direct switch collectors still open TCP connections to each discovered
+    /// switch endpoint IP. When all switch server certificates carry the same
+    /// DNS subjectAltName, set this field so TLS verifies that DNS identity
+    /// instead of requiring every switch certificate to include an IP SAN.
+    /// This value is never used for endpoint discovery or DNS resolution.
+    ///
+    /// For HTTP collectors, the request URL and HTTP Host header stay on the
+    /// discovered switch IP. Only the TLS server name changes.
+    pub tls_server_name: Option<String>,
+}
+
+impl MtlsProfileConfig {
+    fn validate(&self) -> Result<(), String> {
+        if self.ca_cert_path.as_os_str().is_empty() {
+            return Err("[tls.switch].ca_cert_path must not be empty".to_string());
+        }
+
+        if self.client_cert_path.as_os_str().is_empty() {
+            return Err("[tls.switch].client_cert_path must not be empty".to_string());
+        }
+
+        if self.client_key_path.as_os_str().is_empty() {
+            return Err("[tls.switch].client_key_path must not be empty".to_string());
+        }
+
+        if let Some(tls_server_name) = self.tls_server_name.as_deref() {
+            if tls_server_name.trim().is_empty() {
+                return Err("[tls.switch].tls_server_name must not be empty".to_string());
+            }
+
+            if tls_server_name.trim() != tls_server_name {
+                return Err(
+                    "[tls.switch].tls_server_name must not contain leading or trailing whitespace"
+                        .to_string(),
+                );
+            }
+
+            DnsName::try_from(tls_server_name)
+                .map_err(|_| "[tls.switch].tls_server_name must be a valid DNS name".to_string())?;
+        }
+
+        Ok(())
     }
 }
 
@@ -1328,6 +1410,29 @@ impl Config {
 
         if let Configurable::Enabled(logs) = &self.collectors.logs {
             logs.validate()?;
+        }
+
+        if let Some(tls_config) = &self.tls.switch {
+            tls_config.validate()?;
+
+            if let Configurable::Enabled(nmxt) = &self.collectors.nmxt
+                && nmxt.dangerously_skip_tls_verification
+            {
+                return Err(
+                    "[collectors.nmxt].dangerously_skip_tls_verification must be false when [tls.switch] is configured"
+                        .to_string(),
+                );
+            }
+
+            if let Configurable::Enabled(nvue) = &self.collectors.nvue
+                && let Configurable::Enabled(gnmi) = &nvue.gnmi
+                && gnmi.dangerously_skip_tls_verification
+            {
+                return Err(
+                    "[collectors.nvue.gnmi].dangerously_skip_tls_verification must be false when [tls.switch] is configured"
+                        .to_string(),
+                );
+            }
         }
 
         if let Configurable::Enabled(nmxc) = &self.collectors.nmxc {
@@ -2248,6 +2353,233 @@ dangerously_skip_tls_verification = true
                 panic!("nmxt config should be enabled");
             };
             assert_eq!(nmxt.dangerously_skip_tls_verification, expected);
+        }
+    }
+
+    #[test]
+    fn test_tls_switch_profile_absent_by_default_and_does_not_reuse_api_cert_paths() {
+        let config = Config::default();
+
+        assert!(config.tls.switch.is_none());
+
+        let Configurable::Enabled(carbide_api) = config.endpoint_sources.carbide_api else {
+            panic!("carbide api endpoint source should be enabled by default");
+        };
+
+        assert_eq!(carbide_api.root_ca, "/var/run/secrets/spiffe.io/ca.crt");
+
+        assert_eq!(
+            carbide_api.client_cert,
+            "/var/run/secrets/spiffe.io/tls.crt"
+        );
+
+        assert_eq!(carbide_api.client_key, "/var/run/secrets/spiffe.io/tls.key");
+    }
+
+    #[test]
+    fn test_tls_switch_profile_parses_independent_paths() {
+        let toml = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[tls.switch]
+ca_cert_path = "/var/run/secrets/switch-mtls/ca.crt"
+client_cert_path = "/var/run/secrets/switch-mtls/tls.crt"
+client_key_path = "/var/run/secrets/switch-mtls/tls.key"
+tls_server_name = "switches.example.forge"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("failed to parse mTLS profile config");
+
+        config
+            .validate()
+            .expect("mTLS profile config should validate");
+
+        let tls_config = config
+            .tls
+            .switch
+            .expect("mTLS profile config should be present");
+
+        assert_eq!(
+            tls_config.ca_cert_path,
+            PathBuf::from("/var/run/secrets/switch-mtls/ca.crt")
+        );
+
+        assert_eq!(
+            tls_config.client_cert_path,
+            PathBuf::from("/var/run/secrets/switch-mtls/tls.crt")
+        );
+
+        assert_eq!(
+            tls_config.client_key_path,
+            PathBuf::from("/var/run/secrets/switch-mtls/tls.key")
+        );
+
+        assert_eq!(
+            tls_config.tls_server_name.as_deref(),
+            Some("switches.example.forge")
+        );
+    }
+
+    #[test]
+    fn test_tls_switch_profile_rejects_incomplete_or_unknown_fields() {
+        struct TestCase {
+            name: &'static str,
+            toml: &'static str,
+        }
+
+        let cases = [
+            TestCase {
+                name: "missing CA",
+                toml: r#"
+[tls.switch]
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+"#,
+            },
+            TestCase {
+                name: "missing client cert",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_key_path = "/switch/tls.key"
+"#,
+            },
+            TestCase {
+                name: "missing client key",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+"#,
+            },
+            TestCase {
+                name: "unknown field",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+"#,
+            },
+        ];
+
+        for case in cases {
+            let result = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(case.toml))
+                .extract::<Config>();
+
+            assert!(result.is_err(), "{}", case.name);
+        }
+    }
+
+    #[test]
+    fn test_tls_switch_rejects_empty_paths_and_dangerous_tls_bypass() {
+        struct TestCase {
+            name: &'static str,
+            toml: &'static str,
+            expected: &'static str,
+        }
+
+        let base = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+"#;
+        let cases = [
+            TestCase {
+                name: "empty CA path",
+                toml: r#"
+[tls.switch]
+ca_cert_path = ""
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+"#,
+                expected: "[tls.switch].ca_cert_path must not be empty",
+            },
+            TestCase {
+                name: "empty TLS server name",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+tls_server_name = " "
+"#,
+                expected: "[tls.switch].tls_server_name must not be empty",
+            },
+            TestCase {
+                name: "TLS server name with surrounding whitespace",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+tls_server_name = " switches.example.forge "
+"#,
+                expected: "[tls.switch].tls_server_name must not contain leading or trailing whitespace",
+            },
+            TestCase {
+                name: "invalid TLS server name",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+tls_server_name = "not a dns name"
+"#,
+                expected: "[tls.switch].tls_server_name must be a valid DNS name",
+            },
+            TestCase {
+                name: "NMX-T dangerous skip conflict",
+                toml: r#"
+[collectors.nmxt]
+dangerously_skip_tls_verification = true
+
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+"#,
+                expected: "[collectors.nmxt].dangerously_skip_tls_verification must be false when [tls.switch] is configured",
+            },
+            TestCase {
+                name: "gNMI dangerous skip conflict",
+                toml: r#"
+[collectors.nvue.gnmi]
+dangerously_skip_tls_verification = true
+
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+"#,
+                expected: "[collectors.nvue.gnmi].dangerously_skip_tls_verification must be false when [tls.switch] is configured",
+            },
+        ];
+
+        for case in cases {
+            let toml = format!("{base}{}", case.toml);
+            let config: Config = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(&toml))
+                .extract()
+                .expect(case.name);
+
+            let error = config.validate().expect_err(case.name);
+
+            assert_eq!(error, case.expected, "{}", case.name);
         }
     }
 

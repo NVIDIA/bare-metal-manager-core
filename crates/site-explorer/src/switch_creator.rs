@@ -50,7 +50,13 @@ impl SwitchCreator {
                 .matched_expected_switch(&explored_managed_switch.bmc_ip)
             {
                 Some(expected_switch) => expected_switch,
-                None => continue,
+                None => {
+                    tracing::info!(
+                        bmc_ip = %explored_managed_switch.bmc_ip,
+                        "No expected switch found for explored switch endpoint"
+                    );
+                    continue;
+                }
             };
 
             match self

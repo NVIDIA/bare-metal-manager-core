@@ -564,6 +564,9 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         self.stats_since_last_log.num_completed_tasks += 1;
         if task_result.metrics.common.error.is_some() {
             self.stats_since_last_log.num_errored_tasks += 1;
+            if let Some(emitter) = &self.metric_emitter {
+                emitter.errored_tasks_counter.add(1, &[]);
+            }
         }
 
         self.in_flight.remove(&task_result.object_id);
@@ -789,6 +792,7 @@ pub(super) struct ProcessorMetricsEmitter {
     dispatched_tasks_counter: Counter<u64>,
     completed_tasks_counter: Counter<u64>,
     requeued_tasks_counter: Counter<u64>,
+    errored_tasks_counter: Counter<u64>,
     db: sqlx_query_tracing::DatabaseMetricEmitters,
 }
 
@@ -825,12 +829,20 @@ impl ProcessorMetricsEmitter {
             ))
             .build();
 
+        let errored_tasks_counter = meter
+            .u64_counter(format!("{object_type}_object_tasks_errored"))
+            .with_description(format!(
+                "Number of object handling tasks that have completed with an error for objects of type {object_type}"
+            ))
+            .build();
+
         Self {
             iteration_latency,
             db,
             dispatched_tasks_counter,
             completed_tasks_counter,
             requeued_tasks_counter,
+            errored_tasks_counter,
         }
     }
 

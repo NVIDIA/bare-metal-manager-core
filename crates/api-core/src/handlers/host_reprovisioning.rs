@@ -24,7 +24,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data, truncate};
-use crate::handlers::utils::convert_and_log_machine_id;
+use crate::handlers::utils::{StateHandlerWakeupFailed, WakeupTrigger, convert_and_log_machine_id};
 
 pub(crate) async fn reset_host_reprovisioning(
     api: &Api,
@@ -70,7 +70,7 @@ pub(crate) async fn trigger_host_reprovisioning(
         );
     }
 
-    match req.mode() {
+    let started_initiator = match req.mode() {
         Mode::Set => {
             let initiator = req.initiator().as_str_name();
             db::host_machine_update::trigger_host_reprovisioning_request(
@@ -79,14 +79,31 @@ pub(crate) async fn trigger_host_reprovisioning(
                 &machine_id,
             )
             .await?;
+            Some(initiator)
         }
         Mode::Clear => {
             db::host_machine_update::clear_host_reprovisioning_request(&mut txn, &machine_id)
                 .await?;
+            None
         }
-    }
+    };
 
     txn.commit().await?;
+
+    // Manual initiations pair with the same completion emit the update
+    // manager's automatic path gets, keeping the started-to-completed gap
+    // truthful for every initiator. Counted only after the commit: a
+    // rolled-back trigger never started anything.
+    if let Some(initiator) = started_initiator {
+        carbide_instrument::emit(
+            crate::machine_update_manager::metrics::FirmwareUpdateProgress {
+                target: crate::machine_update_manager::metrics::FirmwareUpdateTarget::Host,
+                phase: crate::machine_update_manager::metrics::FirmwareUpdatePhase::Started,
+                machine_id,
+                detail: initiator.to_string(),
+            },
+        );
+    }
 
     Ok(Response::new(()))
 }
@@ -226,7 +243,11 @@ pub async fn report_scout_firmware_upgrade_status(
         .enqueue_object(&machine_id)
         .await
     {
-        tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
+        carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::ScoutFirmwareUpgradeStatus,
+            machine_id,
+            err: err.to_string(),
+        });
     }
 
     Ok(Response::new(()))

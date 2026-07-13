@@ -112,7 +112,8 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(unmanagedSite).Exec(ctx)
 	assert.Nil(t, err)
 
-	// Create an existing Expected Switch with a specific MAC address for duplicate test
+	// Create an existing Expected Switch with specific BMC and NVOS MAC
+	// addresses for the duplicate tests
 	esDAO := cdbm.NewExpectedSwitchDAO(dbSession)
 	existingMAC := "AA:BB:CC:DD:EE:11"
 	_, err = esDAO.Create(ctx, nil, cdbm.ExpectedSwitchCreateInput{
@@ -120,6 +121,7 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 		SiteID:             site.ID,
 		BmcMacAddress:      existingMAC,
 		SwitchSerialNumber: "EXISTING-SWITCH-001",
+		NvosMacAddresses:   []string{"AA:BB:CC:DD:EE:22"},
 		Labels:             map[string]string{"env": "existing"},
 	})
 	assert.Nil(t, err)
@@ -248,6 +250,23 @@ func TestCreateExpectedSwitchHandler_Handle(t *testing.T) {
 				DefaultBmcPassword: cutil.GetPtr("password"),
 				SwitchSerialNumber: "DUPLICATE-SWITCH-999",
 				Labels:             map[string]string{"env": "duplicate-test"},
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName")
+				c.SetParamValues(org)
+			},
+			expectedStatus: http.StatusConflict,
+		},
+		{
+			name: "NVOS MAC claimed by another switch should return 409",
+			requestBody: model.APIExpectedSwitchCreateRequest{
+				SiteID:             site.ID.String(),
+				BmcMacAddress:      "00:11:22:33:44:AA",
+				DefaultBmcUsername: cutil.GetPtr("admin"),
+				DefaultBmcPassword: cutil.GetPtr("password"),
+				SwitchSerialNumber: "NVOS-DUP-SWITCH-001",
+				NvosMacAddresses:   []string{"aa-bb-cc-dd-ee-22"},
 			},
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
@@ -689,6 +708,18 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, unmanagedES)
 
+	// Create a second ExpectedSwitch on the managed site whose NVOS MAC the
+	// update conflict test tries to claim
+	conflictES, err := esDAO.Create(ctx, nil, cdbm.ExpectedSwitchCreateInput{
+		ExpectedSwitchID:   uuid.New(),
+		SiteID:             site.ID,
+		BmcMacAddress:      "00:11:22:33:44:CC",
+		SwitchSerialNumber: "CONFLICT-SWITCH-789",
+		NvosMacAddresses:   []string{"AA:BB:CC:DD:EE:33"},
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, conflictES)
+
 	// Add mock temporal client for the site
 	mockTemporalClient := &tmocks.Client{}
 	mockWorkflowRun := &tmocks.WorkflowRun{}
@@ -760,6 +791,32 @@ func TestUpdateExpectedSwitchHandler_Handle(t *testing.T) {
 				c.SetParamValues(org, testES.ID.String())
 			},
 			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "update re-asserting its own NvosMacAddresses is not a conflict",
+			id:   testES.ID.String(),
+			requestBody: model.APIExpectedSwitchUpdateRequest{
+				NvosMacAddresses: []string{"00:11:22:33:44:66", "00:11:22:33:44:67"},
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testES.ID.String())
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "update claiming another switch's NVOS MAC should return 409",
+			id:   testES.ID.String(),
+			requestBody: model.APIExpectedSwitchUpdateRequest{
+				NvosMacAddresses: []string{"aa-bb-cc-dd-ee-33"},
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testES.ID.String())
+			},
+			expectedStatus: http.StatusConflict,
 		},
 		{
 			name: "successful update clearing NvosMacAddresses with an explicit empty list",

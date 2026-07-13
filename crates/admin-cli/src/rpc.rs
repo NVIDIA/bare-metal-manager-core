@@ -831,6 +831,7 @@ impl ApiClient {
         dpu_mode: Option<::rpc::forge::DpuMode>,
         bmc_ip_allocation: Option<::rpc::forge::BmcIpAllocationType>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
+        host_nics: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -900,10 +901,12 @@ impl ApiClient {
             fallback_dpu_serial_numbers: fallback_dpu_serial_numbers
                 .unwrap_or(expected_machine.fallback_dpu_serial_numbers),
             metadata: merged_metadata,
-            sku_id,
+            sku_id: sku_id.or(expected_machine.sku_id),
             id: expected_machine.id,
-            // TODO(chet): Add support for patching host_nics at some point.
-            host_nics: expected_machine.host_nics,
+            host_nics: host_nics
+                .map(|s| serde_json::from_str::<Vec<rpc::ExpectedHostNic>>(&s))
+                .transpose()?
+                .unwrap_or(expected_machine.host_nics),
             rack_id: rack_id.or(expected_machine.rack_id),
             default_pause_ingestion_and_poweron,
             #[allow(deprecated)]

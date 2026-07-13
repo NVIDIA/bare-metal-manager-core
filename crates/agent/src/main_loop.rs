@@ -197,6 +197,14 @@ pub async fn setup_and_run(
         }
     }
 
+    // The certificate-expiry gauge re-reads the certificate on every metrics
+    // collection, so it follows the renewals ClientCertRenewer performs over
+    // the agent's lifetime.
+    {
+        let forge_client_config = Arc::clone(&forge_client_config);
+        metrics.record_client_cert_expiry_time(move || forge_client_config.client_cert_expiry());
+    }
+
     if options.agent_platform_type.is_dpu_os()
         && !agent_config.machine.is_fake_dpu
         && let Err(e) = crate::agent_platform::ensure_doca_containers().await

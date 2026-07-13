@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_instrument::testing::MetricsCapture;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
 use model::firmware::FirmwareComponentType;
@@ -194,6 +195,35 @@ async fn rejects_stale_task_id(pool: PgPool) {
     };
     assert_eq!(upgrade_task_id, CURRENT_TASK_ID);
     assert!(result.is_none());
+}
+
+#[sqlx_test]
+async fn counts_failed_state_handler_wakeup(pool: PgPool) {
+    const UPGRADE_TASK_ID: &str = "scout-upgrade-task-id";
+
+    let TestContext { env, mh } = init(pool.clone()).await;
+    mh.advance_state(waiting_state(UPGRADE_TASK_ID)).await;
+
+    // Remove the state-handler queue table so the post-commit wakeup enqueue
+    // fails while the report path itself stays healthy.
+    sqlx::query("DROP TABLE machine_state_controller_queued_objects")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let metrics = MetricsCapture::start();
+    env.api()
+        .report_scout_firmware_upgrade_status(Request::new(status_request(&mh, UPGRADE_TASK_ID)))
+        .await
+        .expect("a failed state-handler wakeup must not fail the status report");
+
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_state_handler_wakeup_failures_total",
+            &[("trigger", "scout_firmware_upgrade_status")],
+        ),
+        1.0
+    );
 }
 
 #[sqlx_test]

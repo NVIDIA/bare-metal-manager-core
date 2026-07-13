@@ -497,13 +497,15 @@ type ApiGetAllIpblockRequest struct {
 	orderBy                  *string
 }
 
-// Filter IP Blocks by Infrastructure Provider ID
+// Filter IP Blocks by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetAllIpblockRequest) InfrastructureProviderId(infrastructureProviderId string) ApiGetAllIpblockRequest {
 	r.infrastructureProviderId = &infrastructureProviderId
 	return r
 }
 
-// Filter IP Blocks by Tenant ID
+// Filter IP Blocks by Tenant ID. Deprecated: Tenant is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetAllIpblockRequest) TenantId(tenantId string) ApiGetAllIpblockRequest {
 	r.tenantId = &tenantId
 	return r
@@ -712,13 +714,15 @@ type ApiGetIpblockRequest struct {
 	includeRelation          *string
 }
 
-// Filter IP Blocks by Infrastructure Provider ID
+// Filter IP Blocks by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetIpblockRequest) InfrastructureProviderId(infrastructureProviderId string) ApiGetIpblockRequest {
 	r.infrastructureProviderId = &infrastructureProviderId
 	return r
 }
 
-// Filter IP Blocks by Tenant ID
+// Filter IP Blocks by Tenant ID. Deprecated: Tenant is now inferred from the org&#39;s membership.
+// Deprecated
 func (r ApiGetIpblockRequest) TenantId(tenantId string) ApiGetIpblockRequest {
 	r.tenantId = &tenantId
 	return r

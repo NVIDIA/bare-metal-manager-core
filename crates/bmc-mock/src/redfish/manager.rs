@@ -274,6 +274,7 @@ impl ManagerState {
 pub struct SingleManagerState {
     id: &'static str,
     ipmi_enabled: Arc<atomic::AtomicBool>,
+    ntp: Mutex<NtpState>,
     config: SingleConfig,
     // PATCHes applied to the manager resource (e.g. HPE lockdown flips
     // Oem.Hpe.VirtualNICEnabled); merged over the built JSON on GET.
@@ -283,14 +284,72 @@ pub struct SingleManagerState {
     host_interface_overrides: Mutex<HashMap<String, serde_json::Value>>,
 }
 
+struct NtpState {
+    protocol_enabled: bool,
+    servers: Vec<String>,
+}
+
+impl Default for NtpState {
+    fn default() -> Self {
+        Self {
+            protocol_enabled: true,
+            servers: Vec::new(),
+        }
+    }
+}
+
+impl NtpState {
+    fn apply_patch(&mut self, patch: &serde_json::Value) {
+        if let Some(v) = patch
+            .get("ProtocolEnabled")
+            .and_then(serde_json::Value::as_bool)
+        {
+            self.protocol_enabled = v;
+        }
+        if let Some(servers) = patch
+            .get("NTPServers")
+            .and_then(serde_json::Value::as_array)
+        {
+            self.servers = servers
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+    }
+}
+
 impl SingleManagerState {
     pub fn new(config: &SingleConfig) -> Self {
         Self {
             id: config.id,
             config: config.clone(),
             ipmi_enabled: Arc::new(false.into()),
+            ntp: Mutex::new(NtpState::default()),
             overrides: Arc::new(Mutex::new(json!({}))),
             host_interface_overrides: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn network_protocol(&self) -> serde_json::Value {
+        let resource = redfish::manager_network_protocol::manager_resource(self.id);
+        let ntp = self.ntp.lock().expect("mutex poisoned");
+        redfish::manager_network_protocol::builder(&resource)
+            .ipmi_enabled(self.ipmi_enabled.load(atomic::Ordering::Relaxed))
+            .ntp(ntp.protocol_enabled, &ntp.servers)
+            .build()
+    }
+
+    fn patch_network_protocol(&self, patch_request: serde_json::Value) {
+        if let Some(v) = patch_request
+            .get("IPMI")
+            .and_then(|v| v.get("ProtocolEnabled"))
+            .and_then(serde_json::Value::as_bool)
+        {
+            self.ipmi_enabled.store(v, atomic::Ordering::Relaxed)
+        }
+        if let Some(v) = patch_request.get("NTP") {
+            self.ntp.lock().expect("mutex poisoned").apply_patch(v);
         }
     }
 
@@ -543,11 +602,7 @@ async fn get_network_protocol(
     let Some(this) = state.manager.find(&manager_id) else {
         return http::not_found();
     };
-    let resource = redfish::manager_network_protocol::manager_resource(&manager_id);
-    redfish::manager_network_protocol::builder(&resource)
-        .ipmi_enabled(this.ipmi_enabled.load(atomic::Ordering::Relaxed))
-        .build()
-        .into_ok_response()
+    this.network_protocol().into_ok_response()
 }
 
 async fn patch_network_protocol(
@@ -558,13 +613,7 @@ async fn patch_network_protocol(
     let Some(this) = state.manager.find(&manager_id) else {
         return http::not_found();
     };
-    if let Some(v) = json
-        .get("IPMI")
-        .and_then(|v| v.get("ProtocolEnabled"))
-        .and_then(serde_json::Value::as_bool)
-    {
-        this.ipmi_enabled.store(v, atomic::Ordering::Relaxed)
-    }
+    this.patch_network_protocol(json);
     http::ok_no_content()
 }
 

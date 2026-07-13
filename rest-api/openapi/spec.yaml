@@ -312,7 +312,8 @@ tags:
 
       Active Deprecations:
 
-      - Currently there are no active deprecations
+      Instance:
+      - `infrastructureProviderId` query parameter on the list Instances endpoint was deprecated and will be removed on October 10th, 2026 0:00 UTC. Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the `siteId` parameter to scope results to a specific Infrastructure Provider's Sites.
 
       Recent Deprecations:
 
@@ -859,13 +860,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter Sites by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter Sites by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter Sites by Tenant ID
+          deprecated: true
+          description: "Filter Sites by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: string
           in: query
@@ -896,6 +899,11 @@ paths:
           in: query
           name: includeMachineStats
           description: Include a breakdown of Machine counts by lifecycle status and health. Requires Provider Admin role.
+        - schema:
+            type: boolean
+          in: query
+          name: includeGpuStats
+          description: Include a per-Site breakdown of GPU counts grouped by GPU type. Requires Provider Admin role.
         - schema:
             type: string
           in: query
@@ -1751,13 +1759,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter IP Blocks by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter IP Blocks by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter IP Blocks by Tenant ID
+          deprecated: true
+          description: "Filter IP Blocks by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
@@ -1946,13 +1956,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter IP Blocks by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter IP Blocks by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter IP Blocks by Tenant ID
+          deprecated: true
+          description: "Filter IP Blocks by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: boolean
           in: query
@@ -6306,7 +6318,8 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter by Infrastructure Provider ID. Deprecated: Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the siteId parameter to scope results to a specific Infrastructure Provider's Sites."
         - schema:
             type: string
             format: uuid
@@ -14533,6 +14546,10 @@ components:
               allocatedInUse: 3
               allocatedNotInUse: 3
               unallocated: 5
+          gpuStats:
+            - name: NVIDIA GB200
+              gpus: 64
+              machines: 16
           capabilities:
             nativeNetworking: true
             networkSecurityGroup: true
@@ -14653,6 +14670,11 @@ components:
         machineStats:
           $ref: '#/components/schemas/SiteMachineStats'
           description: 'Machine counts by status for the Site'
+        gpuStats:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineGPUStats'
+          description: 'GPU counts grouped by GPU type for the Site. Populated when includeGpuStats is set'
     SiteSummary:
       title: SiteSummary
       type: object
@@ -16949,8 +16971,6 @@ components:
           allowOverride: false
         - name: debian-12-amd64
           description: Official Debian 12 for AMD/Intel
-          imageUrl: 'https://saimei.ftp.acc.umu.se/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2'
-          imageSha: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
           imageDisk: /dev/sda
@@ -16959,7 +16979,7 @@ components:
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
-      description: Request data to update an Operating System. Only image-related attributes can be updated for image-based OS, and only iPXE attributes can be updated for iPXE-based OS
+      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS'
       properties:
         name:
           type:
@@ -16983,22 +17003,22 @@ components:
             - string
             - 'null'
           format: uri
-          description: 'Original URL from which the Operating System image can be retrieved; required for image-based OS'
+          description: 'Original URL from which the Operating System image can be retrieved. Immutable after creation: it may be re-sent unchanged, but changing it is rejected. Create a new Operating System to use a different image.'
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, required for image-based OS'
+          description: 'SHA hash of the image file. Immutable after creation: it may be re-sent unchanged, but changing it is rejected.'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified'
+          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified. Can be updated independently without re-sending imageUrl/imageSha.'
         imageAuthToken:
           type:
             - string
             - 'null'
-          description: 'Auth token to retrieve the image from image URL, required if imageAuthType is specified'
+          description: 'Auth token to retrieve the image from image URL, required if imageAuthType is specified. Can be updated independently without re-sending imageUrl/imageSha.'
         imageDisk:
           type:
             - string
@@ -24171,6 +24191,13 @@ components:
         machines:
           type: integer
           description: Number of machines that have this GPU capability
+      examples:
+        - name: NVIDIA GB200
+          gpus: 64
+          machines: 16
+        - name: NVIDIA H100
+          gpus: 8
+          machines: 1
     MachineStatusBreakdown:
       title: MachineStatusBreakdown
       description: Machine counts broken down by status

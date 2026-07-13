@@ -941,10 +941,10 @@ impl HostProfile {
 // (i.e. it can't default unknown fields)
 impl<'r> FromRow<'r, PgRow> for Machine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let json: serde_json::value::Value = row.try_get(0)?;
-        MachineSnapshotPgJson::deserialize(json)
-            .map_err(|err| sqlx::Error::Decode(err.into()))?
-            .try_into()
+        // Json<T> deserializes the row bytes straight into the snapshot
+        // struct, skipping the intermediate serde_json::Value DOM.
+        let json: sqlx::types::Json<MachineSnapshotPgJson> = row.try_get(0)?;
+        json.0.try_into()
     }
 }
 
@@ -1070,12 +1070,12 @@ impl Machine {
     }
 
     pub fn to_capabilities(&self) -> Option<MachineCapabilitiesSet> {
-        self.hardware_info.clone().map(|info| {
+        self.hardware_info.as_ref().map(|info| {
             MachineCapabilitiesSet::from_hardware_info(
                 info,
                 self.infiniband_status_observation.as_ref(),
                 self.associated_dpu_machine_ids(),
-                self.interfaces.clone(),
+                &self.interfaces,
             )
         })
     }
@@ -1284,6 +1284,25 @@ pub enum MachineValidatingState {
         #[serde(default = "default_true")]
         is_enabled: bool,
     },
+    /// Machine validation ensures the host's boot device config is in place.
+    /// When it reads reverted -- however it drifted (changed externally, a
+    /// BIOS quirk, or the boot NIC dropping off the BMC's inventory during a
+    /// reboot's POST) -- these states correct it, mirroring host boot repair:
+    /// unlock the BMC, drive the boot-order flow, re-lock, resume validation.
+    PrepareBootRepair {
+        validation_id: MachineValidationId,
+    },
+    UnlockForBootRepair {
+        validation_id: MachineValidationId,
+        unlock_host_state: UnlockHostState,
+    },
+    RepairBootConfig {
+        validation_id: MachineValidationId,
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    LockAfterBootRepair {
+        validation_id: MachineValidationId,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "validation_type", rename_all = "lowercase")]
@@ -1302,6 +1321,11 @@ impl std::fmt::Display for ValidationState {
         write!(f, "{self:?}")
     }
 }
+
+/// The retry budget for a failed host firmware upgrade: once
+/// [`ManagedHostState::HostReprovision`] has consumed this many retries, the
+/// machine stays in its failure state until an operator intervenes.
+pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
 
 impl ManagedHostState {
     pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
@@ -1328,6 +1352,17 @@ impl ManagedHostState {
             ManagedHostState::HostReprovision { retry_count, .. } => *retry_count,
             _ => 0,
         }
+    }
+
+    /// True when this machine is in host reprovisioning with no
+    /// firmware-upgrade retry budget left (see
+    /// [`MAX_FIRMWARE_UPGRADE_RETRIES`]).
+    pub fn host_repro_retries_exhausted(&self) -> bool {
+        matches!(
+            self,
+            ManagedHostState::HostReprovision { retry_count, .. }
+                if *retry_count >= MAX_FIRMWARE_UPGRADE_RETRIES
+        )
     }
 }
 
@@ -2644,6 +2679,12 @@ pub fn state_sla(
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
                 }
                 MachineValidatingState::RebootHost { .. } => {
+                    StateSla::with_sla(slas::VALIDATION, time_in_state)
+                }
+                MachineValidatingState::PrepareBootRepair { .. }
+                | MachineValidatingState::UnlockForBootRepair { .. }
+                | MachineValidatingState::RepairBootConfig { .. }
+                | MachineValidatingState::LockAfterBootRepair { .. } => {
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
                 }
             },

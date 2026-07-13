@@ -453,7 +453,8 @@ type ApiGetAllInstanceRequest struct {
 	networkSecurityGroupId   *string
 }
 
-// Filter by Infrastructure Provider ID
+// Filter by Infrastructure Provider ID. Deprecated: Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org&#39;s Tenant. Use the siteId parameter to scope results to a specific Infrastructure Provider&#39;s Sites.
+// Deprecated
 func (r ApiGetAllInstanceRequest) InfrastructureProviderId(infrastructureProviderId string) ApiGetAllInstanceRequest {
 	r.infrastructureProviderId = &infrastructureProviderId
 	return r

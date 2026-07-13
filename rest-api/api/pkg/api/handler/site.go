@@ -786,80 +786,72 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 		}
 	}
 
-	// Check `includeMachineStats` in query
-	includeMachineStats := false
-	qims := c.QueryParam("includeMachineStats")
-	if qims != "" {
-		includeMachineStats, err = strconv.ParseBool(qims)
-		if err != nil {
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `includeMachineStats` query param", nil)
-		}
+	// Check `includeMachineStats` in query (absent is treated as false)
+	includeMachineStatsPtr, err := common.ParseOptionalBoolQueryParam(c, "includeMachineStats")
+	if err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `includeMachineStats` query param", nil)
 	}
+	includeMachineStats := includeMachineStatsPtr != nil && *includeMachineStatsPtr
 
+	// Check `includeGpuStats` in query (absent is treated as false)
+	includeGpuStatsPtr, err := common.ParseOptionalBoolQueryParam(c, "includeGpuStats")
+	if err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `includeGpuStats` query param", nil)
+	}
+	includeGpuStats := includeGpuStatsPtr != nil && *includeGpuStatsPtr
+
+	// Optional boolean site-config filters. A nil pointer means "not provided"
+	// (no filter); an explicit true/false filters on that value.
 	configFilter := cdbm.SiteConfigFilterInput{}
-	hasConfigFilter := false
 
-	// Check `isNativeNetworkingEnabled` in query
-	qinne := c.QueryParam("isNativeNetworkingEnabled")
-	if qinne != "" {
-		isnnEnabled, err := strconv.ParseBool(qinne)
-		if err != nil {
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isNativeNetworkingEnabled` query param", nil)
-		}
-		configFilter.NativeNetworking = &isnnEnabled
-		hasConfigFilter = true
+	configFilter.NativeNetworking, err = common.ParseOptionalBoolQueryParam(c, "isNativeNetworkingEnabled")
+	if err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isNativeNetworkingEnabled` query param", nil)
 	}
 
-	// Check `isNetworkSecurityGroupEnabled` in query
-	qie := c.QueryParam("isNetworkSecurityGroupEnabled")
-	if qie != "" {
-		isEnabled, err := strconv.ParseBool(qie)
-		if err != nil {
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isNativeNetworkingEnabled` query param", nil)
-		}
-		configFilter.NetworkSecurityGroup = &isEnabled
-		hasConfigFilter = true
+	configFilter.NetworkSecurityGroup, err = common.ParseOptionalBoolQueryParam(c, "isNetworkSecurityGroupEnabled")
+	if err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isNetworkSecurityGroupEnabled` query param", nil)
 	}
 
-	// Check `isNVLinkPartitionEnabled` in query
-	qinlpe := c.QueryParam("isNVLinkPartitionEnabled")
-	if qinlpe != "" {
-		isEnabled, err := strconv.ParseBool(qinlpe)
-		if err != nil {
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isNVLinkPartitionEnabled` query param", nil)
-		}
-		configFilter.NVLinkPartition = &isEnabled
-		hasConfigFilter = true
+	configFilter.NVLinkPartition, err = common.ParseOptionalBoolQueryParam(c, "isNVLinkPartitionEnabled")
+	if err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isNVLinkPartitionEnabled` query param", nil)
 	}
 
-	// Check `isFlowEnabled` in query
-	qirlae := c.QueryParam("isFlowEnabled")
-	if qirlae != "" {
-		isEnabled, err := strconv.ParseBool(qirlae)
-		if err != nil {
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isFlowEnabled` query param", nil)
-		}
-		configFilter.Flow = &isEnabled
-		hasConfigFilter = true
+	configFilter.Flow, err = common.ParseOptionalBoolQueryParam(c, "isFlowEnabled")
+	if err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isFlowEnabled` query param", nil)
 	}
 
-	if hasConfigFilter {
+	if configFilter.NativeNetworking != nil || configFilter.NetworkSecurityGroup != nil ||
+		configFilter.NVLinkPartition != nil || configFilter.Flow != nil {
 		filter.Config = &configFilter
+	}
+
+	// Machine and GPU stats are Provider-only; gate once if either is requested.
+	if (includeMachineStats || includeGpuStats) && provider == nil {
+		logger.Warn().Msg("`includeMachineStats`/`includeGpuStats` are only permitted with Provider Admin role")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User must have Provider Admin role to request `includeMachineStats` or `includeGpuStats`", nil)
 	}
 
 	// Get machine stats if requested
 	var machineStats map[uuid.UUID]*model.APISiteMachineStats
-
 	if includeMachineStats {
-		if provider == nil {
-			logger.Warn().Msg("`includeMachineStats` is only permitted with Provider Admin role")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User must have Provider Admin role to request `includeMachineStats`", nil)
-		}
-
 		machineStats, err = common.GetSiteMachineCountStats(ctx, nil, gash.dbSession, logger, &provider.ID, nil)
 		if err != nil {
 			logger.Error().Err(err).Msg("unable to request Machine stats for Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Unable to request Machine stats for Site", nil)
+		}
+	}
+
+	// Get GPU stats if requested
+	var gpuStats map[uuid.UUID][]model.APIMachineGPUStats
+	if includeGpuStats {
+		gpuStats, err = common.GetSiteGPUStats(ctx, nil, gash.dbSession, logger, &provider.ID, nil)
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving GPU stats by site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving GPU stats by site", nil)
 		}
 	}
 
@@ -961,6 +953,15 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 		apiSite := model.NewAPISite(site, ssdMap[site.ID.String()], tsMap[site.ID])
 		// Attach machine stats for the site if they exist.
 		apiSite.MachineStats = machineStats[site.ID]
+		// Attach GPU stats when requested. Sites with no GPUs get an empty
+		// array (not null), matching the single-site GPU stats endpoint.
+		if includeGpuStats {
+			siteGpuStats := gpuStats[site.ID]
+			if siteGpuStats == nil {
+				siteGpuStats = []model.APIMachineGPUStats{}
+			}
+			apiSite.GpuStats = &siteGpuStats
+		}
 		apiSites = append(apiSites, apiSite)
 	}
 

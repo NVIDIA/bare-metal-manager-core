@@ -48,25 +48,39 @@ spec:
           metadata:
             type: object
           spec:
+            description: BlueFieldSpec defines the desired state of BlueFieldSoftware.
             properties:
+              nicFw:
+                description: |-
+                  NicFw points to the NIC firmware binary used for E/W NIC firmware updates.
+                  Use this when a specific NIC firmware binary is required and is not included in the platform PLDM firmware bundle.
+                  In production, prefer using PlatformPldmFwBundle.
+                minLength: 1
+                type: string
               osIso:
+                description: OS ISO points to the OS ISO used by DPU OS installation
+                  flow.
+                minLength: 1
+                type: string
+              platformPldmFwBundle:
+                description: PlatformPldmFwBundle points to the Vera Rubin PLDM firmware
+                  bundle used for NIC firmware updates.
+                minLength: 1
                 type: string
               pldmFwBundle:
+                description: PldmFwBundle points to the BluefieldPLDM firmware bundle
+                  for baseline firmware updates.
+                minLength: 1
                 type: string
-              tmpFwComponents:
-                properties:
-                  astraNicFw:
-                    type: string
-                  bmcErot:
-                    type: string
-                  bmcFw:
-                    type: string
-                  graceErot:
-                    type: string
-                  graceFw:
-                    type: string
-                type: object
+            required:
+            - osIso
             type: object
+            x-kubernetes-validations:
+            - message: BlueFieldSpec is immutable
+              rule: self == oldSelf
+            - message: nicFw and platformPldmFwBundle are mutually exclusive; set
+                only one
+              rule: '!(has(self.nicFw) && has(self.platformPldmFwBundle))'
           status:
             default:
               phase: Initializing
@@ -134,17 +148,11 @@ spec:
                 description: DownloadedComponents tracks which components have been
                   successfully downloaded
                 properties:
-                  astraNicFw:
-                    type: string
-                  bmcErot:
-                    type: string
-                  bmcFW:
-                    type: string
-                  graceErot:
-                    type: string
-                  graceFw:
+                  nicFw:
                     type: string
                   osIso:
+                    type: string
+                  platformPldmFwBundle:
                     type: string
                   pldmFwBundle:
                     type: string
@@ -160,6 +168,7 @@ spec:
                 enum:
                 - Initializing
                 - Downloading
+                - Extracting
                 - Ready
                 - Deleting
                 - Error
@@ -167,36 +176,25 @@ spec:
               versions:
                 description: Versions tracks the versions of the components
                 properties:
+                  astraNicFwVersion:
+                    type: string
+                  bmcErotVersion:
+                    type: string
+                  bmcVersion:
+                    type: string
                   fwBundleVersion:
                     type: string
                   osISOVersion:
                     type: string
-                  tmpFwComponentsVersions:
-                    properties:
-                      astraNicFwVersion:
-                        type: string
-                      bmcErotVersion:
-                        type: string
-                      bmcFwVersion:
-                        type: string
-                      graceErotVersion:
-                        type: string
-                      graceFwVersion:
-                        type: string
-                    type: object
-                required:
-                - tmpFwComponentsVersions
+                  sbiosVersion:
+                    type: string
                 type: object
-                x-kubernetes-validations:
-                - message: fwBundleVersion is immutable
-                  rule: self.fwBundleVersion == oldSelf.fwBundleVersion
-                - message: osISOVersion is immutable
-                  rule: self.osISOVersion == oldSelf.osISOVersion
-                - message: tmpFwComponentsVersions is immutable
-                  rule: self.tmpFwComponentsVersions == oldSelf.tmpFwComponentsVersions
             required:
             - phase
             type: object
+            x-kubernetes-validations:
+            - message: versions cannot be removed once set
+              rule: '!has(oldSelf.versions) || has(self.versions)'
         type: object
         x-kubernetes-validations:
         - message: name length can't be bigger than 187 chars

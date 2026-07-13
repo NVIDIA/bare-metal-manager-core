@@ -75,6 +75,9 @@ impl Run for Args {
                         disable_lockdown: hlp.disable_lockdown,
                     }
                 }),
+                // TODO: file-based update preserves existing host_nics; wire in
+                // expected_machine.host_nics to honor the file's list
+                None,
             )
             .await?;
         Ok(())

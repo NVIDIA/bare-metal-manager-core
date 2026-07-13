@@ -582,11 +582,12 @@ func TestDecideSetsTerminalStatusFromTargetOutcomes(t *testing.T) {
 			run := &operationrun.OperationRun{
 				Status: operationrun.OperationRunStatusRunning,
 			}
-			summary := newReconciliationSummary(len(tt.statuses))
-			summary.targetCount = len(tt.statuses)
+			summary := newReconciliationSummary()
+			summary.CurrentPhaseIndex = -1
+			summary.TargetCount = len(tt.statuses)
 			for _, status := range tt.statuses {
 				if status.IsFailedOrTerminated() {
-					summary.failedOrTerminated++
+					summary.FailedOrTerminatedTargetCount++
 				}
 			}
 

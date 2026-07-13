@@ -34,5 +34,9 @@ eyre = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
 
+[dev-dependencies]
+carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
 [lints]
 workspace = true

@@ -30,7 +30,7 @@ use crate::CarbideError;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::api::{Api, log_request_data};
 use crate::compat::BuildAndFillLegacyFields;
-use crate::handlers::utils::convert_and_log_machine_id;
+use crate::handlers::utils::{StateHandlerWakeupFailed, WakeupTrigger, convert_and_log_machine_id};
 
 // Records Scout cleanup success/failure and wakes the host state controller.
 // The state controller decides whether cleanup returns to discovery or deprovision flow.
@@ -127,6 +127,7 @@ pub(crate) async fn cleanup_machine_completed(
             .await
     {
         carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::CleanupCompleted,
             machine_id,
             err: err.to_string(),
         });
@@ -431,26 +432,6 @@ fn record_reboot_duration_metric(
     );
 }
 
-/// A machine finished rebooting but its state handler could not be woken:
-/// the machine sits idle until the next periodic enqueue, so the rate of
-/// these is a leading "machine stuck" signal.
-#[derive(carbide_instrument::Event)]
-#[event(
-    name = "carbide_state_handler_wakeup_failures_total",
-    component = "nico-api",
-    log = warn,
-    metric = counter,
-    message = "Failed to wake up state handler for machine",
-    describe = "The amount of times a machine's state handler could not be woken after a \
-                scout-reported event"
-)]
-struct StateHandlerWakeupFailed {
-    #[context]
-    machine_id: carbide_uuid::machine::MachineId,
-    #[context]
-    err: String,
-}
-
 // Host has rebooted
 pub(crate) async fn reboot_completed(
     api: &Api,
@@ -480,6 +461,7 @@ pub(crate) async fn reboot_completed(
             .await
     {
         carbide_instrument::emit(StateHandlerWakeupFailed {
+            trigger: WakeupTrigger::RebootCompleted,
             machine_id,
             err: err.to_string(),
         });

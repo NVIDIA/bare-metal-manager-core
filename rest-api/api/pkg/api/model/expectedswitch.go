@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,7 +40,7 @@ func (macs APINvosMacAddresses) Validate() error {
 
 	seen := make(map[string]bool, len(macs))
 	for _, mac := range macs {
-		key := strings.ToLower(strings.ReplaceAll(mac, "-", ":"))
+		key := cdbm.NormalizeMacAddress(mac)
 		if seen[key] {
 			return fmt.Errorf("duplicate MAC address: %s", mac)
 		}

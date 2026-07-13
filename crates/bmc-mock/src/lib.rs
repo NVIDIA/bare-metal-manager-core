@@ -40,6 +40,7 @@ pub mod tls;
 
 pub use bmc_state::{BmcEvent, BmcState};
 pub use combined_server::{CombinedServer, ListenerOrAddress};
+pub use combined_service::combined_router;
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
 };

@@ -138,13 +138,15 @@ func (mnvllp *ManageNVLinkLogicalPartition) CreateNVLinkLogicalPartitionOnSite(c
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Call Core gRPC endpoint
+	start := time.Now()
 	nvLinkLogicalPartition, err := grpcServiceClient.CreateNVLinkLogicalPartition(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create NVLink Logical Partition using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create NVLink Logical Partition using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
-	logger.Info().Msg("Completed activity")
 	return nvLinkLogicalPartition, nil
 }
 
@@ -181,13 +183,14 @@ func (mnvllp *ManageNVLinkLogicalPartition) UpdateNVLinkLogicalPartitionOnSite(c
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Call Core gRPC endpoint
+	start := time.Now()
 	_, err = grpcServiceClient.UpdateNVLinkLogicalPartition(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update NVLink Logical Partition using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update NVLink Logical Partition using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -218,13 +221,14 @@ func (mnvllp *ManageNVLinkLogicalPartition) DeleteNVLinkLogicalPartitionOnSite(c
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.DeleteNVLinkLogicalPartition(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete NVLink Logical Partition using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete NVLink Logical Partition using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

@@ -2120,6 +2120,12 @@ async fn test_machine_validation_manager_reconciles_stale_run(
 
     let mut config = env.config.machine_validation_config.clone();
     config.stale_run_timeout = std::time::Duration::from_secs(1);
+    // Reconciling the stale run is the run's one completion, so the outcome
+    // counter must move exactly once under the stale-run cause. Only this
+    // test drives that cause through the product funnel, and the emit-level
+    // test serializes behind the same capture lock, so the exact delta is
+    // race-free.
+    let metrics = carbide_instrument::testing::MetricsCapture::start();
     crate::machine_validation::MachineValidationManager::new(
         env.pool.clone(),
         config,
@@ -2127,6 +2133,17 @@ async fn test_machine_validation_manager_reconciles_stale_run(
     )
     .run_single_iteration()
     .await?;
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_machine_validation_outcomes_total",
+            &[
+                ("outcome", "failed"),
+                ("cause", "stale_machine_validation_run"),
+            ],
+        ),
+        1.0
+    );
+    drop(metrics);
 
     let late_result_name = "late-stale-result".to_string();
     env.api

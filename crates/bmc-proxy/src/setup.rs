@@ -170,7 +170,14 @@ mod tests {
 
     #[test]
     fn metrics_setup_initializes_health_controller() {
-        let setup = setup_metrics().expect("metrics setup succeeds");
+        // Mirrors setup_metrics() without its global-meter install: the
+        // process-wide test meter (installed at load by
+        // carbide_instrument::testing) owns instrument bindings for this
+        // binary's event tests, and swapping the global provider mid-run
+        // would steal first-emit bindings from them.
+        let setup =
+            metrics_endpoint::new_metrics_setup("carbide-bmc-proxy", "carbide-system", false)
+                .expect("metrics setup succeeds");
 
         assert!(setup.health_controller.is_ready());
         assert!(setup.health_controller.is_healthy());

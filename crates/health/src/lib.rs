@@ -35,6 +35,8 @@ pub mod processor;
 pub mod sharding;
 pub mod sink;
 
+mod tls;
+
 pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
 
@@ -95,6 +97,10 @@ pub enum HealthError {
 
     #[error("NMX-C RPC failed: {0}")]
     NmxcStatus(tonic::Status),
+
+    /// Client TLS material could not be read, validated, or applied.
+    #[error("mTLS profile error: {0}")]
+    Tls(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<String> for HealthError {
@@ -106,6 +112,12 @@ impl From<String> for HealthError {
 impl From<BmcError> for HealthError {
     fn from(err: BmcError) -> Self {
         HealthError::BmcError(Box::new(err))
+    }
+}
+
+impl From<tls::TlsError> for HealthError {
+    fn from(err: tls::TlsError) -> Self {
+        HealthError::Tls(Box::new(err))
     }
 }
 
@@ -257,6 +269,12 @@ fn build_data_sink(
 }
 
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
+    if let Some(tls_config) = &config.tls.switch {
+        tls::preflight(tls_config).await?;
+    }
+
+    let tls_config = config.tls.switch.clone();
+
     let metrics_endpoint = config.metrics_addr()?;
     let metrics_manager = Arc::new(MetricsManager::new(&config.metrics.prefix)?);
 
@@ -317,7 +335,12 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         let endpoint_source = endpoint_source.clone();
         let data_sink = data_sink.clone();
 
-        let mut ctx = DiscoveryLoopContext::new(limiter, metrics_manager, config.clone())?;
+        let mut ctx = DiscoveryLoopContext::new_with_tls_config(
+            limiter,
+            metrics_manager,
+            config.clone(),
+            tls_config,
+        )?;
 
         async move {
             loop {
