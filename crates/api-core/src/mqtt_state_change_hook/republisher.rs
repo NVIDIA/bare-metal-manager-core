@@ -20,13 +20,12 @@
 use std::time::Duration;
 
 use carbide_mqtt_common::hook::{MqttPublisher, publish_with_deadline};
-use carbide_mqtt_common::metrics::MqttHookMetrics;
+use carbide_mqtt_common::metrics::{MqttHookMetrics, PublishComponent};
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use health_report::HealthReport;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostState};
-use opentelemetry::metrics::Meter;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
@@ -72,8 +71,8 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
     /// Reuses the change-hook publish metrics (`carbide_dsx_event_bus_publish_count`)
     /// under the `managed_host_republish` component so periodic publishes can be
     /// told apart from change-driven ones on dashboards.
-    pub fn new(publisher: P, params: ManagedHostStateRepublisherParams, meter: &Meter) -> Self {
-        let metrics = MqttHookMetrics::without_queue_depth(meter, "managed_host_republish");
+    pub fn new(publisher: P, params: ManagedHostStateRepublisherParams) -> Self {
+        let metrics = MqttHookMetrics::without_queue_depth(PublishComponent::ManagedHostRepublish);
         Self {
             publisher,
             db_pool: params.db_pool,
@@ -324,18 +323,13 @@ mod tests {
 
     use carbide_uuid::machine::{MachineIdSource, MachineType};
     use mqttea::MqtteaClientError;
-    use opentelemetry::global;
     use tokio::sync::Barrier;
 
     use super::*;
     use crate::cfg::file::PublishRate;
 
-    fn test_meter() -> Meter {
-        global::meter("republisher-test")
-    }
-
     fn test_metrics() -> MqttHookMetrics {
-        MqttHookMetrics::without_queue_depth(&test_meter(), "managed_host_republish_test")
+        MqttHookMetrics::without_queue_depth(PublishComponent::ManagedHostRepublish)
     }
 
     fn test_machine_id() -> MachineId {

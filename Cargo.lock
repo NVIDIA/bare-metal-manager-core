@@ -2490,6 +2490,8 @@ name = "carbide-mqtt-common"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-instrument",
+ "carbide-test-support",
  "mqttea",
  "opentelemetry 0.32.0",
  "tokio",
