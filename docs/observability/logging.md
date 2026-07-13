@@ -64,12 +64,12 @@ Most NICo components use [logfmt](https://brandur.org/logfmt) - a line-oriented 
 space-separated `key=value` pairs, easy for both humans and machines to parse.
 
 **Event lines** — one per log call:
-```
+```text
 level=INFO component=nico-api span_id=0x4f… msg="Starting reconciliation" location="handlers/machine.rs:142"
 ```
 
 **Span lines** — emitted when a unit of work closes (`level=SPAN`), carrying timing data:
-```
+```text
 level=SPAN component=site-explorer span_id=0xf7… span_name=explore_site timing_elapsed_us=1523 timing_busy_ns=1200000 timing_idle_ns=323000
 ```
 
@@ -92,7 +92,7 @@ without enabling full distributed tracing.
 
 On logfmt lines, NICo sets the `component` field to identify the emitting service or subsystem:
 
-```
+```text
 nico-api                       — API handlers, DB, startup: anything not in a subsystem below
 ├── site-explorer
 ├── machine_state_controller
@@ -149,7 +149,7 @@ nico-dns uses `tracing-subscriber`'s JSON formatter. Each line is a self-contain
 nico-ssh-console uses `tracing-subscriber`'s compact formatter - a human-readable single-line
 format similar to traditional log output:
 
-```
+```text
 2026-01-15T10:23:45.123Z  INFO carbide_ssh_console: Session started session_id=abc-123
 ```
 
@@ -167,7 +167,7 @@ tracing output.
 When a BMC console session is established, nico-ssh-console streams the serial output to a
 per-machine log file:
 
-```
+```text
 /var/log/consoles/<machine-id>_<bmc-ip>.log
 ```
 
@@ -206,7 +206,7 @@ logger, meaning:
 - Output goes to Kea's configured destinations (stdout by default in the container)
 
 Example Kea log output:
-```
+```text
 2026-07-06 10:15:23.456 INFO  [kea-dhcp4.hooks/12345] DHCP4_SUBNET_SELECTED [hwtype=1 ...] subnet selected
 ```
 
@@ -266,13 +266,8 @@ logger config instead (see section 2.6).
 Three binaries accept a `--debug` flag that sets the default level to DEBUG:
 
 ```bash
-# carbide-api: --debug is a parent flag, must precede subcommand
 carbide-api --debug run --config-path /etc/carbide/config.toml
-
-# carbide-bmc-proxy
 carbide-bmc-proxy --debug --config-path /etc/carbide/bmc-proxy.toml
-
-# ssh-console
 ssh-console --debug --config /etc/ssh-console/config.toml
 ```
 
@@ -283,7 +278,7 @@ ssh-console --debug --config /etc/ssh-console/config.toml
 NICo components automatically suppress verbose output from common dependencies. For example,
 nico-api applies these directives by default:
 
-```
+```text
 sqlxmq::runner=warn,sqlx::query=warn,rustify=off,hyper=error,rustls=warn,h2=warn,vaultrs=error
 ```
 
@@ -686,7 +681,7 @@ processors:
 ```
 
 Query example:
-```logql
+```text
 {k8s_container_name="nico-api"} | logfmt | level="ERROR"
 ```
 
@@ -750,7 +745,7 @@ components at once.
 
 The startup log shows the initial log level. Look for lines like:
 
-```
+```text
 level=INFO msg="current log level: INFO" location="setup.rs:142"
 ```
 
