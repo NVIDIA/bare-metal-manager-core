@@ -36,7 +36,9 @@ sidecar - just configure your collector to read pod logs.
 
 > **Note**: nico-ssh-console is an exception - in addition to stdout, it writes **machine
 > console output** (BMC serial console streams) to local files. These are not service logs
-> but captured output from managed machines. See section 2.5 for details.
+<Note>
+nico-ssh-console is an exception - in addition to stdout, it writes **machine console output** (BMC serial console streams) to local files. These are not service logs but captured output from managed machines. See [Machine console logs](#25-machine-console-logs-nico-ssh-console) for details.
+</Note>
 
 ---
 
@@ -46,17 +48,17 @@ sidecar - just configure your collector to read pod logs.
 |-----------|--------|------------|-------|
 | **nico-api** | `carbide-api` | logfmt | Primary control plane. Supports runtime level changes. |
 | **nico-dns** | `carbide-dns` | JSON | DNS resolution service. |
-| **nico-dhcp** | Kea + `libdhcp.so` | Kea format | See section 2.6 below. |
+| **nico-dhcp** | Kea + `libdhcp.so` | Kea format | See [Kea DHCP format](#26-kea-dhcp-format-nico-dhcp). |
 | **nico-pxe** | `carbide` | plain text | iPXE boot service. Hand-rolled `println!`, no log levels. |
 | **nico-bmc-proxy** | `carbide-bmc-proxy` | logfmt | BMC credential proxy. |
 | **nico-hardware-health** | `forge-hw-health` | logfmt | Hardware health monitoring. |
-| **nico-ssh-console** | `ssh-console` | compact | SSH console access. Also captures machine/DPU console output to files (see 2.5). |
+| **nico-ssh-console** | `ssh-console` | compact | SSH console access. Also captures machine/DPU console output to files (see [Machine console logs](#25-machine-console-logs-nico-ssh-console)). |
 | **nico-dsx-exchange-consumer** | `carbide-dsx-exchange-consumer` | logfmt | DSX message consumer. |
 | **nico-dpu-otel-agent** | `forge-dpu-otel-agent` | full | mTLS cert renewal agent on DPUs. See note below. |
 
-> **Note**: `nico-dpu-otel-agent` currently ignores `RUST_LOG` due to a source bug
-> (`fmt().init()` instead of `fmt::init()`). It logs at INFO level only until this is fixed.
-> See [#3151](https://github.com/NVIDIA/infra-controller/issues/3151).
+<Note>
+`nico-dpu-otel-agent` currently ignores `RUST_LOG` due to a source bug (`fmt().init()` instead of `fmt::init()`). It logs at INFO level only until this is fixed. See [#3151](https://github.com/NVIDIA/infra-controller/issues/3151).
+</Note>
 
 ### 2.1 logfmt format
 
@@ -134,7 +136,7 @@ Components that **do not** use the logfmt layer and carry no `component` field:
 | nico-pxe | `carbide` | plain text | Hand-rolled `println!`, no log levels |
 | nico-ssh-console | `ssh-console` | compact | Uses tracing-subscriber compact formatter |
 | nico-dpu-otel-agent | `forge-dpu-otel-agent` | full | Default tracing-subscriber formatter. Ignores `RUST_LOG`. |
-| nico-dhcp | Kea + `libdhcp.so` | Kea | Production uses Kea logger, not Rust tracing (see 2.6) |
+| nico-dhcp | Kea + `libdhcp.so` | Kea | Production uses Kea logger, not Rust tracing (see [Kea DHCP format](#26-kea-dhcp-format-nico-dhcp)) |
 
 ### 2.2 JSON format (nico-dns)
 
@@ -193,7 +195,9 @@ hardware issues.
 > to Loki. The sidecar reads from `/var/log/consoles/*.log`, extracts the machine ID and BMC
 > IP from filenames, and exports to your Loki endpoint. To use a different backend, customize
 > the `configFiles.otelcolConfig` value in the chart. See [Machine and DPU Logs](machine-dpu-logs.md)
-> for detailed collection workflows.
+<Tip title="Centralizing console logs">
+The nico-ssh-console Helm chart includes an optional OpenTelemetry Collector sidecar (`lokiLogCollector.enabled: true`) that ships console logs to Loki. The sidecar reads from `/var/log/consoles/*.log`, extracts the machine ID and BMC IP from filenames, and exports to your Loki endpoint. To use a different backend, customize the `configFiles.otelcolConfig` value in the chart. See [Machine and DPU Logs](machine-dpu-logs.md) for detailed collection workflows.
+</Tip>
 
 ### 2.6 Kea DHCP format (nico-dhcp)
 
@@ -206,9 +210,7 @@ logger, meaning:
 - Output goes to Kea's configured destinations (stdout by default in the container)
 
 Example Kea log output:
-```text
-2026-07-06 10:15:23.456 INFO  [kea-dhcp4.hooks/12345] DHCP4_SUBNET_SELECTED [hwtype=1 ...] subnet selected
-```
+
 
 To adjust log levels, modify the Kea configuration in the Helm chart's ConfigMap. The
 `loggers` section controls verbosity:
@@ -234,8 +236,9 @@ Set `severity` to `DEBUG` and increase `debuglevel` (0-99) for more verbose outp
 the NICo hook. The hook maps Rust log levels to Kea severity: `info` → INFO, `debug` →
 DEBUG/10, `trace` → DEBUG/99.
 
-> **Dev environment**: The standalone `forge-dhcp-server` binary uses logfmt output and
-> respects `RUST_LOG`. It is used for local development and testing only.
+<Tip title="Dev environment">
+The standalone `forge-dhcp-server` binary uses logfmt output and respects `RUST_LOG`. Use the standalone binary for local development and testing only.
+</Tip>
 
 ---
 
@@ -304,8 +307,9 @@ nico-admin-cli set log-filter -f "trace,h2=warn,hyper=warn" --expiry 5min
 When the expiry elapses, the log filter **automatically reverts** to the startup value. This
 prevents accidentally leaving debug logging on and filling your storage.
 
-> **Note**: Expiry is checked every 15 minutes by an internal poll. A filter with `--expiry 5min`
-> will actually revert at the next 15-minute poll cycle, not exactly at 5 minutes.
+<Note>
+Expiry is checked every 15 minutes by an internal poll. A filter with `--expiry 5min` will actually revert at the next 15-minute poll cycle, not exactly at 5 minutes.
+</Note>
 
 #### How it works
 
@@ -749,7 +753,7 @@ The startup log shows the initial log level. Look for lines like:
 level=INFO msg="current log level: INFO" location="setup.rs:142"
 ```
 
-Note that this shows the coarse `LevelFilter` (e.g., INFO), not the full directive string.
+Note that this shows the coarse `LevelFilter` (such as INFO), not the full directive string.
 There is currently no `get log-filter` command in nico-admin-cli to query the active filter
 at runtime.
 

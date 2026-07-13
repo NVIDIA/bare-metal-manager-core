@@ -341,13 +341,13 @@ exporters:
 
 DPU logs are sent over mTLS using machine certificates provisioned by NICo.
 
-> **Note on DPU services**: Two separate services handle telemetry on the DPU:
-> - **`otelcol-contrib`** — The OpenTelemetry Collector that collects and exports logs/metrics
-> - **`forge-dpu-otel-agent`** — A Rust helper service that periodically renews the mTLS
->   certificates used by otelcol-contrib to authenticate with the site controller
->
-> The cert renewal agent is *not* a custom OTel build — it's a sidecar that manages certificate
-> lifecycle so otelcol-contrib can maintain secure connections.
+<Note title="DPU services">
+Two separate services handle telemetry on the DPU:
+- **`otelcol-contrib`** — The OpenTelemetry Collector that collects and exports logs/metrics
+- **`forge-dpu-otel-agent`** — A Rust helper service that periodically renews the mTLS certificates used by otelcol-contrib to authenticate with the site controller
+
+The cert renewal agent is *not* a custom OTel build — it's a sidecar that manages certificate lifecycle so otelcol-contrib can maintain secure connections.
+</Note>
 
 ### 3.3 Site collector receiver
 
@@ -386,8 +386,9 @@ processors:
         value: raw
 ```
 
-> **Note**: The routing/pipeline configuration depends on your deployment and may require
-> customization for your environment.
+<Note>
+The routing/pipeline configuration depends on your deployment. It may require customization for your environment.
+</Note>
 
 ### 3.4 Querying DPU logs
 
