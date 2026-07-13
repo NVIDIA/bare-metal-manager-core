@@ -94,7 +94,7 @@ async fn fetch_irot_chain_pem(api: &Api, hardware_info: &HardwareInfo) -> Option
         .map(|d| d.product_serial.clone())
         .filter(|s| !s.is_empty())?;
 
-    let mut endpoints = db::explored_endpoints::find_by_dpu_serial_numbers(
+    let endpoints = db::explored_endpoints::find_by_dpu_serial_numbers(
         &mut api.db_reader(),
         vec![serial.clone()],
     )
@@ -103,11 +103,16 @@ async fn fetch_irot_chain_pem(api: &Api, hardware_info: &HardwareInfo) -> Option
     .ok()?;
 
     if endpoints.len() > 1 {
+        // Ambiguous correlation: picking one (e.g. the lowest address) could
+        // fetch a *different* DPU's valid IRoT cert and bind its hardware
+        // identity to this report. Treat the identity as unavailable so
+        // `required` fails closed and `best_effort` falls back to the legacy id.
         tracing::warn!(
-            "DPU {serial}: {} explored BMC endpoints match this serial; using the lowest address",
+            "DPU {serial}: {} explored BMC endpoints match this serial; \
+             treating device identity as unavailable (ambiguous correlation)",
             endpoints.len()
         );
-        endpoints.sort_by_key(|e| e.address);
+        return None;
     }
     let Some(endpoint) = endpoints.into_iter().next() else {
         tracing::info!("DPU {serial}: no explored BMC endpoint; cannot fetch IRoT cert");

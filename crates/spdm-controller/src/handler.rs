@@ -62,20 +62,27 @@ impl SpdmAttestationStateHandler {
 /// - Chain verifies → `Passed`.
 /// - Chain fails to parse or verify → `Failed`: a `Passed` status must mean the
 ///   device identity actually chains to a trusted root.
-/// - Trust store empty → `Passed` with a warning: the site never seeded device
-///   roots (`nico-admin-cli dpu-device-ca add`), and failing every BlueField
-///   here would block machine lifecycles at sites that never opted into DPU
-///   device attestation.
+/// - Trust store empty → `Failed`: with no seeded device roots the chain cannot
+///   be verified, so a `Passed` here would attest an unverified device. Fail
+///   closed — a compromised BMC must not be able to satisfy attestation by
+///   presenting an arbitrary chain when no roots are configured.
 async fn verify_bluefield_irot_chain(
     chain_pem: &str,
     conn: &mut sqlx::PgConnection,
 ) -> Result<SpdmAttestationState, StateHandlerError> {
     let roots = db::attestation::dpu_device_ca_certs::get_all(&mut *conn).await?;
     if roots.is_empty() {
+        // Fail closed: with no seeded device roots we cannot verify the chain, so
+        // `Passed` would attest an unverified device (a compromised BMC could
+        // present any chain). `Passed` must remain evidence of a verified chain.
         tracing::warn!(
-            "no trusted DPU device root CAs seeded; accepting BlueField IRoT certificate chain without verification"
+            "no trusted DPU device root CAs seeded; cannot verify BlueField IRoT certificate chain"
         );
-        return Ok(SpdmAttestationState::Passed);
+        return Ok(SpdmAttestationState::Failed(
+            "no trusted DPU device root CAs are seeded (nico-admin-cli dpu-device-ca add); \
+             cannot verify the BlueField IRoT certificate chain"
+                .to_string(),
+        ));
     }
 
     let roots_der: Vec<Vec<u8>> = roots.into_iter().map(|r| r.ca_cert_der).collect();

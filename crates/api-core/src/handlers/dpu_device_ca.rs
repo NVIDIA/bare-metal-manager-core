@@ -66,8 +66,11 @@ pub(crate) async fn dpu_add_device_ca_cert(
         subject.as_slice(),
     )
     .await?
-    .ok_or_else(|| {
-        tonic::Status::already_exists("this DPU device CA certificate is already trusted")
+    .ok_or_else(|| CarbideError::AlreadyFoundError {
+        kind: "DPU device CA certificate",
+        id: X509Name::from_der(subject.as_slice())
+            .map(|(_, name)| name.to_string())
+            .unwrap_or_else(|_| "unknown subject".to_string()),
     })?;
     txn.commit().await?;
 

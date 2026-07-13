@@ -93,21 +93,23 @@ impl ApiDpuDeviceIdentityResolver {
         }
     }
 
-    /// Best-effort binding audit record. A failure here must not fail resolution.
+    /// Durable device-identity binding write. Unlike a lookup, a failure here
+    /// **must** fail resolution: without a committed binding, a later best-effort
+    /// discovery that cannot fetch the IRoT falls back to the legacy id and
+    /// duplicates the DPU. See the invariant in the body.
     async fn record_binding(
         &self,
         machine_id: MachineId,
         legacy_machine_id: Option<MachineId>,
         device: &VerifiedDpuDevice,
-    ) {
-        let mut txn = match self.db.begin().await {
-            Ok(txn) => txn,
-            Err(e) => {
-                tracing::warn!("failed to begin DPU device-identity binding txn: {e}");
-                return;
-            }
-        };
-        if let Err(e) = db::attestation::dpu_device_cert_status::upsert(
+    ) -> Result<(), DpuDeviceIdentityError> {
+        // The binding is the durable memory that this DPU adopted a device-rooted
+        // id. It must commit before we return that id: if the write is lost, a
+        // later best-effort discovery that cannot fetch the IRoT falls back to the
+        // legacy id and duplicates the DPU. Propagate the failure so the caller
+        // does not hand out an unbound device-rooted id.
+        let mut txn = self.db.begin().await.map_err(internal)?;
+        db::attestation::dpu_device_cert_status::upsert(
             &mut txn,
             machine_id,
             legacy_machine_id,
@@ -117,13 +119,9 @@ impl ApiDpuDeviceIdentityResolver {
             &Utc::now(),
         )
         .await
-        {
-            tracing::warn!("failed to write DPU device-identity binding: {e}");
-            return;
-        }
-        if let Err(e) = txn.commit().await {
-            tracing::warn!("failed to commit DPU device-identity binding: {e}");
-        }
+        .map_err(internal)?;
+        txn.commit().await.map_err(internal)?;
+        Ok(())
     }
 
     /// Whether a machine record exists under `machine_id`.
@@ -214,7 +212,7 @@ impl DpuDeviceIdentityResolver for ApiDpuDeviceIdentityResolver {
         match selection {
             DpuIdentitySelection::DeviceRooted(machine_id) => {
                 if let Some(device) = &verified {
-                    self.record_binding(machine_id, legacy_id, device).await;
+                    self.record_binding(machine_id, legacy_id, device).await?;
                 }
                 Ok(Some(machine_id))
             }

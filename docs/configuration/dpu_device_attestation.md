@@ -46,18 +46,26 @@ You need:
   BMC has been ingested **before** the DPU is discovered. If it has not, a new DPU cannot be
   given a device-rooted id (it falls back per mode).
 - **Trusted device root CA(s)** loaded into the `dpu_device_ca_certs` table (see
-  [Trust anchors](#trust-anchors)). Until this is populated, verification fails closed.
+  [Trust anchors](#trust-anchors)). Until this is populated, chain verification returns
+  `NoTrustedRoot`, so no DPU gets a device-rooted id: `best_effort` falls back to the legacy
+  serial-derived id, and `required` fails discovery for a new DPU.
 
 Confirm a target DPU BMC exposes the IRoT target (replace IP / credentials):
 
 ```bash
-curl -sk -u root:'<bmc-pass>' \
+set -o pipefail
+# --user root (no inline password) makes curl prompt, so the BMC password does
+# not land in shell history or process listings; --cacert verifies the BMC's TLS
+# certificate instead of disabling verification with -k; --fail --show-error
+# surfaces Redfish/HTTP errors instead of piping an error body into jq.
+curl --fail --silent --show-error --user root --cacert <dpu-bmc-ca.pem> \
   "https://<dpu-bmc-ip>/redfish/v1/ComponentIntegrity?\$expand=.(\$levels=1)" \
   | jq '.Members[] | {Id, Type:.ComponentIntegrityType, Version:.ComponentIntegrityTypeVersion, Enabled:.ComponentIntegrityEnabled}'
 ```
 
-Expect a `Bluefield_DPU_IRoT` member with `Type=SPDM`, `Version=1.1.0`, `Enabled=true`, and
-`ServiceRoot.Product = "BlueField-3 DPU"`.
+Expect a `Bluefield_DPU_IRoT` member with `Type=SPDM`, `Version=1.1.0`, and `Enabled=true`.
+(The DPU model — `ServiceRoot.Product = "BlueField-3 DPU"` — is a separate check against
+`/redfish/v1/`; the command above only queries `ComponentIntegrity`.)
 
 ---
 
@@ -147,9 +155,17 @@ where DPU owners are distinct from and untrusted by the operator, seed **only** 
 factory root.
 
 > **Operational note:** a DPU's device-rooted `machine_id` is derived from its device
-> certificate, so re-provisioning the IRoT certificate changes the id and the DPU is seen as a
-> new machine on its next discovery. (DPUs already enrolled under a legacy serial-derived id
-> are unaffected — see [Backward compatibility](#backward-compatibility).)
+> certificate, but re-provisioning the IRoT certificate does **not** re-key an already-enrolled
+> DPU on its own. While the DPU's machine record and its device-identity binding still exist,
+> discovery returns the previously bound `machine_id` (the binding is the durable memory of the
+> adopted id). To treat the DPU as a new machine, clear it explicitly first with
+> `nico-admin-cli machine force-delete --machine <id> --delete-device-identity`, which drops the
+> binding so the next discovery can derive a fresh id. That re-keying still depends on the
+> mode: under `best_effort`/`required` the DPU takes a new device-rooted id once the new
+> certificate verifies (`best_effort` falls back to the legacy id if it does not, `required`
+> fails discovery), and under `disabled` it simply returns to its legacy serial-derived id.
+> (DPUs already enrolled under a legacy serial-derived id are unaffected — see
+> [Backward compatibility](#backward-compatibility).)
 
 ---
 

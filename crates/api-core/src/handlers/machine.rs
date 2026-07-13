@@ -750,23 +750,20 @@ pub(crate) async fn admin_force_delete_machine(
         db::machine::force_cleanup(&mut txn, &dpu_machine.id).await?;
 
         if request.delete_device_identity {
-            match db::attestation::dpu_device_cert_status::delete_by_machine_id(
+            // The caller explicitly asked to drop the device-identity binding so
+            // the DPU re-keys. If that write fails, do not report a successful
+            // force-delete with the binding still in place (which would pin the
+            // DPU to its previous machine_id on the next discovery) — propagate
+            // the error so the whole force-delete transaction rolls back.
+            let removed = db::attestation::dpu_device_cert_status::delete_by_machine_id(
                 &mut txn,
                 dpu_machine.id,
             )
-            .await
-            {
-                Ok(removed) => tracing::info!(
-                    "Removed {removed} DPU device-identity binding(s) for machine {}",
-                    dpu_machine.id
-                ),
-                // Best-effort: a failure here must not block the force delete.
-                Err(e) => tracing::error!(
-                    "Could not remove DPU device-identity binding for machine {}: {}",
-                    dpu_machine.id,
-                    e
-                ),
-            }
+            .await?;
+            tracing::info!(
+                "Removed {removed} DPU device-identity binding(s) for machine {}",
+                dpu_machine.id
+            );
         }
 
         if request.delete_interfaces {

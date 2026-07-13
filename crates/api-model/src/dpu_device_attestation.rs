@@ -90,6 +90,10 @@ pub enum DpuAttestError {
     IssuerNameMismatch { index: usize },
     #[error("issuer certificate at chain index {index} is not a CA")]
     IssuerNotCa { index: usize },
+    #[error(
+        "device (leaf) certificate at chain index 0 is a CA certificate; a CA cannot serve as a device identity"
+    )]
+    LeafIsCa,
 }
 
 /// Verifies a DPU device-identity **certificate chain** (no proof of
@@ -191,6 +195,14 @@ pub fn verify_device_cert_chain(
     //    display; the machine_id is rooted in the full leaf certificate bytes,
     //    mirroring how the host path hashes the TPM EK certificate.
     let leaf = &chain[0];
+    // The leaf must be an end-entity (device) certificate, not a CA. Without
+    // this guard a one-cert chain consisting solely of a trusted root passes
+    // step 3 (a self-signed root verifies against itself), so a public root
+    // certificate could be replayed as a device identity with no proof of
+    // possession of a device key.
+    if leaf.is_ca() {
+        return Err(DpuAttestError::LeafIsCa);
+    }
     let device_serial = leaf
         .subject()
         .iter_common_name()
@@ -439,6 +451,22 @@ mod tests {
         let err =
             verify_device_cert_chain(&[device.cert_der], &[real_ca.cert_der], now()).unwrap_err();
         assert!(matches!(err, DpuAttestError::NoTrustedRoot), "got {err:?}");
+    }
+
+    #[test]
+    fn trusted_root_presented_as_device_leaf_is_rejected() {
+        // A one-cert chain whose only certificate is a trusted root must not
+        // yield a device identity: a self-signed CA verifies against itself, so
+        // without the leaf-is-CA guard a public root cert could be replayed as a
+        // device certificate with no proof of possession.
+        let ca = make_ca("NVIDIA BlueField Device CA");
+        let err = verify_device_cert_chain(
+            std::slice::from_ref(&ca.cert_der),
+            std::slice::from_ref(&ca.cert_der),
+            now(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, DpuAttestError::LeafIsCa), "got {err:?}");
     }
 
     #[test]
