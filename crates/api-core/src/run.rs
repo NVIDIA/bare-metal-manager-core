@@ -261,14 +261,11 @@ pub async fn run(
             &cancel_token,
         )?;
 
-        let pg_mgr = Arc::new(
-            crate::secrets::PostgresCredentialManager::new(
-                db_pool.clone(),
-                routing.clone(),
-                kms.clone(),
-            )
-            .with_metrics(crate::secrets::SecretsMetrics::new(&metrics.meter)),
-        );
+        let pg_mgr = Arc::new(crate::secrets::PostgresCredentialManager::new(
+            db_pool.clone(),
+            routing.clone(),
+            kms.clone(),
+        ));
         tracing::info!(
             active_provider = %secrets_config.kms.active,
             backends = ?secrets_config.backends,
