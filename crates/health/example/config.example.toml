@@ -195,6 +195,9 @@ connect_failure_threshold = 5
 logs_collection_interval = "5m"
 state_refresh_interval = "30m"
 logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+# Skip any Redfish LogService whose odata id contains one of these substrings.
+# Applies when auto-mode downgrades to periodic collection. See [collectors.logs.periodic].
+exclude_services = ["Journal"]
 
 # SSE reconnect backoff; read when mode = "sse" and during auto-mode SSE attempts.
 [collectors.logs.sse]
@@ -207,6 +210,11 @@ max_backoff = "30s"
 logs_collection_interval = "5m"
 state_refresh_interval = "30m"
 logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+# Skip any Redfish LogService whose odata id contains one of these substrings.
+# Defaults to ["Journal"] to suppress the bmcweb HTTP-access log (high-volume noise,
+# self-referential since polling generates Journal entries). Set to [] to collect
+# from every discovered LogService. Also read by auto-mode after downgrade.
+exclude_services = ["Journal"]
 
 # ==============================================================================
 # Switch Host Collectors: What data to collect from NVLink Switch Hosts

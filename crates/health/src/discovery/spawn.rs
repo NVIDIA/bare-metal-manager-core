@@ -238,6 +238,7 @@ fn spawn_generic_redfish_collectors(
                     service_refresh_interval: pcfg.state_refresh_interval,
                     data_sink,
                     include_diagnostics: ctx.logs_include_diagnostics,
+                    exclude_services: pcfg.exclude_services.clone(),
                 },
                 CollectorStartContext {
                     limiter: ctx.limiter.clone(),

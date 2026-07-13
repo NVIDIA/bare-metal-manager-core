@@ -814,6 +814,14 @@ pub struct PeriodicLogConfig {
 
     /// Path to logs collector state file (supports {machine_id} placeholder).
     pub logs_state_file: String,
+
+    /// Substrings matched against each Redfish LogService odata id; any service
+    /// whose id contains one of these is skipped during discovery. Defaults to
+    /// `["Journal"]` to suppress the bmcweb HTTP-access log, which is
+    /// high-volume and self-referential. Set to `[]` to collect from every
+    /// discovered LogService.
+    #[serde(default)]
+    pub exclude_services: Vec<String>,
 }
 
 impl Default for PeriodicLogConfig {
@@ -822,6 +830,7 @@ impl Default for PeriodicLogConfig {
             logs_collection_interval: Duration::from_secs(300),
             state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
+            exclude_services: vec!["Journal".to_string()],
         }
     }
 }
