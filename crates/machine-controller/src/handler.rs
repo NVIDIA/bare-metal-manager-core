@@ -119,20 +119,22 @@ mod bios_config;
 mod dpf;
 mod firmware_artifact;
 mod helpers;
+mod host_boot_config;
 mod machine_validation;
 mod power;
 mod sku;
 #[cfg(test)]
 mod test_machine_setup;
 
-use bios_config::{
-    BiosConfigJobAdvanceOutcome, BiosConfigOutcome, PollingBiosSetupOutcome,
-    advance_bios_config_job, advance_polling_bios_setup, configure_host_bios,
-    handle_bios_setup_failed_recovery,
-};
+use bios_config::handle_bios_setup_failed_recovery;
 use helpers::{
     DpuDiscoveringStateHelper, DpuInitStateHelper, ManagedHostStateHelper, NextState,
     ReprovisionStateHelper, all_equal,
+};
+use host_boot_config::{
+    HostBootConfigCheckOutcome, HostBootConfigDecision, HostBootConfigDpuFreshness,
+    HostBootConfigOutcome, HostBootConfigStage, check_host_boot_config,
+    initial_set_boot_order_info, run_host_boot_config_stage, should_skip_boot_order_remediation,
 };
 use state_controller::db_write_batch::DbWriteBatch;
 
@@ -1472,11 +1474,7 @@ impl MachineStateHandler {
                     FailureCause::BiosSetupFailed { .. } if machine_id.machine_type().is_host() => {
                         let recovered = ManagedHostState::HostInit {
                             machine_state: MachineState::SetBootOrder {
-                                set_boot_order_info: Some(SetBootOrderInfo {
-                                    set_boot_order_jid: None,
-                                    set_boot_order_state: SetBootOrderState::SetBootOrder,
-                                    retry_count: 0,
-                                }),
+                                set_boot_order_info: Some(initial_set_boot_order_info()),
                             },
                         };
                         handle_bios_setup_failed_recovery(ctx, mh_snapshot, recovered).await
@@ -3137,243 +3135,70 @@ async fn handle_dpu_reprovision(
             // WaitingForNetworkConfig already accepted the DPU observation. Do
             // not require a newer observation just because the host state
             // version advanced while entering host boot repair.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
-            let next_state = match check_host_boot_config(
-                redfish_client.as_ref(),
+            handle_dpu_reprovision_host_boot_config_check(
+                ctx,
                 state,
                 reachability_params,
                 HostBootConfigDpuFreshness::AlreadyValidated,
-                ctx,
             )
-            .await?
-            {
-                HostBootConfigDecision::Wait(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
-                }
-                HostBootConfigDecision::ConfigureBoot => {
-                    ReprovisionState::ConfigureHostBoot { retry_count: 0 }
-                }
-                HostBootConfigDecision::LockHost => ReprovisionState::LockHostAfterBootRepair,
-            };
-
-            Ok(StateHandlerOutcome::transition(
-                update_reprovision_targets_to_reprovision_state(state, next_state)?,
-            ))
+            .await
         }
         ReprovisionState::CheckHostBootConfigAfterHostReboot => {
             // This path rebooted the host after unlocking, so require a DPU
             // observation newer than that reboot before trusting boot checks.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
-            let next_state = match check_host_boot_config(
-                redfish_client.as_ref(),
+            handle_dpu_reprovision_host_boot_config_check(
+                ctx,
                 state,
                 reachability_params,
                 HostBootConfigDpuFreshness::SinceLastHostRebootRequest,
-                ctx,
             )
-            .await?
-            {
-                HostBootConfigDecision::Wait(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
-                }
-                HostBootConfigDecision::ConfigureBoot => {
-                    ReprovisionState::ConfigureHostBoot { retry_count: 0 }
-                }
-                HostBootConfigDecision::LockHost => ReprovisionState::LockHostAfterBootRepair,
-            };
-
-            Ok(StateHandlerOutcome::transition(
-                update_reprovision_targets_to_reprovision_state(state, next_state)?,
-            ))
+            .await
         }
         ReprovisionState::ConfigureHostBoot { retry_count } => {
-            // Run machine_setup only after the reprovisioned DPU is healthy; it
-            // may patch BIOS settings and trigger host-impacting recovery.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
-            match configure_host_bios(
+            handle_dpu_reprovision_host_boot_config_stage(
                 ctx,
-                reachability_params,
-                redfish_client.as_ref(),
                 state,
-                *retry_count,
+                reachability_params,
+                HostBootConfigStage::ConfigureBios {
+                    retry_count: *retry_count,
+                },
             )
-            .await?
-            {
-                BiosConfigOutcome::Done => Ok(StateHandlerOutcome::transition(
-                    update_reprovision_targets_to_reprovision_state(
-                        state,
-                        ReprovisionState::PollingHostBiosSetup {
-                            retry_count: *retry_count,
-                        },
-                    )?,
-                )),
-                BiosConfigOutcome::WaitingForBiosJob(bios_config_info) => {
-                    Ok(StateHandlerOutcome::transition(
-                        update_reprovision_targets_to_reprovision_state(
-                            state,
-                            ReprovisionState::WaitingForHostBiosJob { bios_config_info },
-                        )?,
-                    ))
-                }
-                BiosConfigOutcome::WaitingForReboot(reason) => {
-                    Ok(StateHandlerOutcome::wait(reason))
-                }
-            }
+            .await
         }
         ReprovisionState::WaitingForHostBiosJob { bios_config_info } => {
-            // Poll vendor BIOS jobs before verifying the setup and boot order.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
-            match advance_bios_config_job(
+            handle_dpu_reprovision_host_boot_config_stage(
                 ctx,
-                redfish_client.as_ref(),
                 state,
-                bios_config_info.clone(),
+                reachability_params,
+                HostBootConfigStage::WaitingForBiosJob {
+                    bios_config_info: bios_config_info.clone(),
+                },
             )
-            .await?
-            {
-                BiosConfigJobAdvanceOutcome::Continue(updated) => {
-                    Ok(StateHandlerOutcome::transition(
-                        update_reprovision_targets_to_reprovision_state(
-                            state,
-                            ReprovisionState::WaitingForHostBiosJob {
-                                bios_config_info: updated,
-                            },
-                        )?,
-                    ))
-                }
-                BiosConfigJobAdvanceOutcome::Done => Ok(StateHandlerOutcome::transition(
-                    update_reprovision_targets_to_reprovision_state(
-                        state,
-                        ReprovisionState::PollingHostBiosSetup {
-                            retry_count: bios_config_info.retry_count,
-                        },
-                    )?,
-                )),
-                BiosConfigJobAdvanceOutcome::Failed { failure } => Ok(
-                    StateHandlerOutcome::transition(dpu_reprovision_host_boot_failed_state(
-                        &state.managed_state,
-                        state.host_snapshot.id,
-                        failure,
-                    )),
-                ),
-                BiosConfigJobAdvanceOutcome::RetryPlatformConfiguration { retry_count } => {
-                    Ok(StateHandlerOutcome::transition(
-                        update_reprovision_targets_to_reprovision_state(
-                            state,
-                            ReprovisionState::ConfigureHostBoot { retry_count },
-                        )?,
-                    ))
-                }
-                BiosConfigJobAdvanceOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
-            }
+            .await
         }
         ReprovisionState::PollingHostBiosSetup { retry_count } => {
-            // Verify machine_setup effects before promoting the DPU boot option.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
-            let predictions = load_boot_predictions(ctx, &state.host_snapshot.id).await?;
-            match advance_polling_bios_setup(
-                redfish_client.as_ref(),
+            handle_dpu_reprovision_host_boot_config_stage(
+                ctx,
                 state,
-                *retry_count,
-                &ctx.services.site_config.machine_state_controller,
-                &predictions,
+                reachability_params,
+                HostBootConfigStage::PollingBiosSetup {
+                    retry_count: *retry_count,
+                },
             )
-            .await?
-            {
-                PollingBiosSetupOutcome::Verified => {
-                    let next_state = if should_skip_boot_order_remediation(state) {
-                        ReprovisionState::LockHostAfterBootRepair
-                    } else {
-                        ReprovisionState::SetHostBootOrder {
-                            set_boot_order_info: SetBootOrderInfo {
-                                set_boot_order_jid: None,
-                                set_boot_order_state: SetBootOrderState::SetBootOrder,
-                                retry_count: 0,
-                            },
-                        }
-                    };
-
-                    Ok(StateHandlerOutcome::transition(
-                        update_reprovision_targets_to_reprovision_state(state, next_state)?,
-                    ))
-                }
-                PollingBiosSetupOutcome::EnterRecovery(bios_config_info) => {
-                    Ok(StateHandlerOutcome::transition(
-                        update_reprovision_targets_to_reprovision_state(
-                            state,
-                            ReprovisionState::WaitingForHostBiosJob { bios_config_info },
-                        )?,
-                    ))
-                }
-                PollingBiosSetupOutcome::Failed { failure } => Ok(StateHandlerOutcome::transition(
-                    dpu_reprovision_host_boot_failed_state(
-                        &state.managed_state,
-                        state.host_snapshot.id,
-                        failure,
-                    ),
-                )),
-                PollingBiosSetupOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
-            }
+            .await
         }
         ReprovisionState::SetHostBootOrder {
             set_boot_order_info,
         } => {
-            // Promote the selected DPU boot option after machine_setup has enabled it.
-            let redfish_client = ctx
-                .services
-                .create_redfish_client_from_machine(&state.host_snapshot)
-                .await?;
-
-            match set_host_boot_order(
+            handle_dpu_reprovision_host_boot_config_stage(
                 ctx,
-                reachability_params,
-                redfish_client.as_ref(),
                 state,
-                set_boot_order_info.clone(),
+                reachability_params,
+                HostBootConfigStage::SetBootOrder {
+                    set_boot_order_info: set_boot_order_info.clone(),
+                },
             )
-            .await?
-            {
-                SetBootOrderOutcome::Continue(boot_order_info) => {
-                    Ok(StateHandlerOutcome::transition(
-                        update_reprovision_targets_to_reprovision_state(
-                            state,
-                            ReprovisionState::SetHostBootOrder {
-                                set_boot_order_info: boot_order_info,
-                            },
-                        )?,
-                    ))
-                }
-                SetBootOrderOutcome::Done => Ok(StateHandlerOutcome::transition(
-                    update_reprovision_targets_to_reprovision_state(
-                        state,
-                        ReprovisionState::LockHostAfterBootRepair,
-                    )?,
-                )),
-                SetBootOrderOutcome::WaitingForReboot(reason) => {
-                    Ok(StateHandlerOutcome::wait(reason))
-                }
-                SetBootOrderOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
-            }
+            .await
         }
         ReprovisionState::LockHostAfterBootRepair => {
             // Preserve expected-machine lockdown policy after temporarily
@@ -3499,6 +3324,117 @@ async fn handle_dpu_reprovision(
     }
 }
 
+/// Checks host boot configuration for DPU reprovisioning and maps the shared
+/// decision back into the reprovision state while preserving all active DPU
+/// targets. The caller selects the observation-freshness requirement because
+/// only the post-unlock path has rebooted the host.
+async fn handle_dpu_reprovision_host_boot_config_check(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    state: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
+    dpu_freshness: HostBootConfigDpuFreshness,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(&state.host_snapshot)
+        .await?;
+
+    let next_state = match check_host_boot_config(
+        redfish_client.as_ref(),
+        state,
+        reachability_params,
+        dpu_freshness,
+        ctx,
+    )
+    .await?
+    {
+        HostBootConfigCheckOutcome::Wait(reason) => {
+            return Ok(StateHandlerOutcome::wait(reason));
+        }
+        HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::ConfigureBios) => {
+            ReprovisionState::ConfigureHostBoot { retry_count: 0 }
+        }
+        HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::SetBootOrder) => {
+            ReprovisionState::SetHostBootOrder {
+                set_boot_order_info: initial_set_boot_order_info(),
+            }
+        }
+        HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::Complete) => {
+            ReprovisionState::LockHostAfterBootRepair
+        }
+    };
+
+    Ok(StateHandlerOutcome::transition(
+        update_reprovision_targets_to_reprovision_state(state, next_state)?,
+    ))
+}
+
+/// Handles a host boot-configuration stage owned by DPU reprovisioning.
+///
+/// Called by `handle_dpu_reprovision` for its host BIOS configuration,
+/// vendor-job, polling, and boot-order substates. This adapter preserves the
+/// active DPU reprovision targets, continues to `LockHostAfterBootRepair` on
+/// completion, and attributes terminal failure to the lifecycle that owns the
+/// reprovision.
+async fn handle_dpu_reprovision_host_boot_config_stage(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    state: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
+    stage: HostBootConfigStage,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(&state.host_snapshot)
+        .await?;
+
+    match run_host_boot_config_stage(
+        ctx,
+        reachability_params,
+        redfish_client.as_ref(),
+        state,
+        stage,
+    )
+    .await?
+    {
+        HostBootConfigOutcome::Continue(stage) => {
+            let reprovision_state = match stage {
+                HostBootConfigStage::ConfigureBios { retry_count } => {
+                    ReprovisionState::ConfigureHostBoot { retry_count }
+                }
+                HostBootConfigStage::WaitingForBiosJob { bios_config_info } => {
+                    ReprovisionState::WaitingForHostBiosJob { bios_config_info }
+                }
+                HostBootConfigStage::PollingBiosSetup { retry_count } => {
+                    ReprovisionState::PollingHostBiosSetup { retry_count }
+                }
+                HostBootConfigStage::SetBootOrder {
+                    set_boot_order_info,
+                } => ReprovisionState::SetHostBootOrder {
+                    set_boot_order_info,
+                },
+            };
+
+            Ok(StateHandlerOutcome::transition(
+                update_reprovision_targets_to_reprovision_state(state, reprovision_state)?,
+            ))
+        }
+        HostBootConfigOutcome::Complete => Ok(StateHandlerOutcome::transition(
+            update_reprovision_targets_to_reprovision_state(
+                state,
+                ReprovisionState::LockHostAfterBootRepair,
+            )?,
+        )),
+        HostBootConfigOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
+        HostBootConfigOutcome::Failed { failure } => Ok(StateHandlerOutcome::transition(
+            dpu_reprovision_host_boot_failed_state(
+                &state.managed_state,
+                state.host_snapshot.id,
+                failure,
+            ),
+        )),
+    }
+}
+
 /// Build the correct failed state for host boot repair during DPU reprovision.
 fn dpu_reprovision_host_boot_failed_state(
     current_state: &ManagedHostState,
@@ -3553,152 +3489,6 @@ async fn load_boot_predictions(
     let predictions =
         db::predicted_machine_interface::find_by_machine_id(&mut conn, machine_id).await?;
     Ok(predictions)
-}
-
-/// Check whether host BIOS and DPU-first boot order remediation is required.
-async fn check_host_boot_config(
-    redfish_client: &dyn Redfish,
-    mh_snapshot: &ManagedHostStateSnapshot,
-    reachability_params: &ReachabilityParams,
-    dpu_freshness: HostBootConfigDpuFreshness,
-    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-) -> Result<HostBootConfigDecision, StateHandlerError> {
-    // Wait for DPUs only when this caller needs a fresh observation. DPU
-    // reprovision already validated DPU health before entering host boot repair.
-    if should_wait_for_dpus_before_host_boot_config(
-        mh_snapshot,
-        reachability_params,
-        dpu_freshness,
-        ctx,
-    )
-    .await
-    {
-        return Ok(HostBootConfigDecision::Wait(
-            "Waiting for DPUs to come up.".to_string(),
-        ));
-    }
-
-    // Resolve the interface whose boot option should be first in host UEFI. A
-    // zero-DPU host whose boot NIC has not taken its first HostInband lease yet
-    // falls back to its predicted boot NIC, and only waits when even that is
-    // unavailable.
-    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-    let boot_interface = match require_boot_interface(
-        mh_snapshot,
-        &predictions,
-        "configuring boot",
-        HostBootConfigDecision::Wait,
-    )? {
-        RequiredBootInterface::Ready(target) => target,
-        RequiredBootInterface::Wait(decision) => return Ok(decision),
-    };
-
-    let vendor = mh_snapshot.host_snapshot.bmc_vendor();
-
-    log_host_config(redfish_client, mh_snapshot).await;
-
-    let is_bios_setup = boot_interface
-        .run(|bi| redfish_client.is_bios_setup(Some(bi)))
-        .await
-        .map_err(|e| redfish_error("is_bios_setup", e))?;
-
-    if should_skip_boot_order_remediation(mh_snapshot) {
-        if is_bios_setup {
-            tracing::info!(
-                machine_id = %mh_snapshot.host_snapshot.id,
-                bmc_vendor = %vendor,
-                "Skipping boot order remediation on Viking (known FW/BMC issue)"
-            );
-            return Ok(HostBootConfigDecision::LockHost);
-        }
-
-        tracing::warn!(
-            machine_id = %mh_snapshot.host_snapshot.id,
-            bmc_vendor = %vendor,
-            "Host BIOS setup is not configured properly on Viking; running BIOS repair before skipping boot order remediation"
-        );
-        return Ok(HostBootConfigDecision::ConfigureBoot);
-    }
-
-    let is_boot_order_setup = boot_interface
-        .run(|bi| redfish_client.is_boot_order_setup(bi))
-        .await
-        .map_err(|e| redfish_error("is_boot_order_setup", e))?;
-
-    if is_bios_setup && is_boot_order_setup {
-        tracing::info!(
-            machine_id = %mh_snapshot.host_snapshot.id,
-            bmc_vendor = %vendor,
-            "Host BIOS setup and boot order are configured properly"
-        );
-        Ok(HostBootConfigDecision::LockHost)
-    } else {
-        tracing::warn!(
-            machine_id = %mh_snapshot.host_snapshot.id,
-            bmc_vendor = %vendor,
-            is_bios_setup,
-            is_boot_order_setup,
-            "Host BIOS setup or boot order is not configured properly"
-        );
-        Ok(HostBootConfigDecision::ConfigureBoot)
-    }
-}
-
-/// Viking BMC firmware cannot safely run boot-order remediation; BIOS repair still applies.
-fn should_skip_boot_order_remediation(mh_snapshot: &ManagedHostStateSnapshot) -> bool {
-    mh_snapshot
-        .host_snapshot
-        .hardware_info
-        .as_ref()
-        .is_some_and(|hw| hw.is_dgx_h100())
-}
-
-async fn should_wait_for_dpus_before_host_boot_config(
-    mh_snapshot: &ManagedHostStateSnapshot,
-    reachability_params: &ReachabilityParams,
-    dpu_freshness: HostBootConfigDpuFreshness,
-    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-) -> bool {
-    if !mh_snapshot.has_managed_dpus() {
-        return false;
-    }
-
-    match dpu_freshness {
-        HostBootConfigDpuFreshness::AlreadyValidated => false,
-        HostBootConfigDpuFreshness::CurrentHostState => {
-            !are_dpus_up_trigger_reboot_if_needed(mh_snapshot, reachability_params, ctx).await
-        }
-        HostBootConfigDpuFreshness::SinceLastHostRebootRequest => {
-            let Some(last_reboot_requested) = mh_snapshot.host_snapshot.last_reboot_requested
-            else {
-                tracing::warn!(
-                    machine_id = %mh_snapshot.host_snapshot.id,
-                    "No host reboot request timestamp found before post-reboot host boot config check"
-                );
-                return false;
-            };
-
-            for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-                if !is_dpu_observed_since(dpu_snapshot, last_reboot_requested.time) {
-                    match trigger_reboot_if_needed(
-                        dpu_snapshot,
-                        mh_snapshot,
-                        None,
-                        reachability_params,
-                        ctx,
-                    )
-                    .await
-                    {
-                        Ok(_) => {}
-                        Err(e) => tracing::warn!("could not reboot dpu {}: {e}", dpu_snapshot.id),
-                    }
-                    return true;
-                }
-            }
-
-            false
-        }
-    }
 }
 
 // Returns true if update_manager flagged this managed host as needing its firmware examined
@@ -4930,26 +4720,15 @@ pub struct RebootStatus {
 /// Outcome of set_host_boot_order function.
 enum SetBootOrderOutcome {
     Continue(SetBootOrderInfo),
+    /// BIOS drifted after the caller's inspection; return to the shared BIOS
+    /// configuration stages so any Redfish job ID is persisted and polled.
+    ConfigureBios,
     Done,
     WaitingForReboot(String),
     /// No boot interface to act on yet -- e.g. a zero-DPU host whose boot NIC
     /// has not been discovered. Distinct from `WaitingForReboot`: nothing was
     /// rebooted, the caller just waits and retries.
     Wait(String),
-}
-
-/// Decision from checking whether host boot repair is still required.
-enum HostBootConfigDecision {
-    ConfigureBoot,
-    LockHost,
-    Wait(String),
-}
-
-/// DPU observation freshness required before checking host boot config.
-enum HostBootConfigDpuFreshness {
-    AlreadyValidated,
-    CurrentHostState,
-    SinceLastHostRebootRequest,
 }
 
 /// Outcome of [`require_boot_interface`]: the resolved boot NIC, or the
@@ -5409,63 +5188,63 @@ fn check_host_health_for_alerts(state: &ManagedHostStateSnapshot) -> Result<(), 
     }
 }
 
-async fn handle_host_boot_order_setup(
+/// Handles a shared boot-configuration stage during host initialization.
+///
+/// Called by `HostMachineStateHandler::handle_object_state` for its platform
+/// configuration, vendor-job, polling, and boot-order states. This adapter maps
+/// continued stages back into `MachineState`, proceeds to measurements on
+/// completion, and reports terminal failure as a host-init BIOS setup failure.
+async fn handle_host_init_boot_config_stage(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    host_handler_params: HostHandlerParams,
-    mh_snapshot: &mut ManagedHostStateSnapshot,
-    set_boot_order_info: Option<SetBootOrderInfo>,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
+    redfish_client: &dyn Redfish,
+    stage: HostBootConfigStage,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    tracing::info!(
-        "Starting Boot Order Configuration for {}: {set_boot_order_info:#?}",
-        mh_snapshot.host_snapshot.id
-    );
-
-    let redfish_client = ctx
-        .services
-        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
-        .await?;
-
-    let next_state = match set_boot_order_info {
-        Some(info) => {
-            match set_host_boot_order(
-                ctx,
-                &host_handler_params.reachability_params,
-                redfish_client.as_ref(),
-                mh_snapshot,
-                info,
-            )
-            .await?
-            {
-                SetBootOrderOutcome::Continue(boot_order_info) => ManagedHostState::HostInit {
-                    machine_state: MachineState::SetBootOrder {
-                        set_boot_order_info: Some(boot_order_info),
-                    },
-                },
-                SetBootOrderOutcome::Done => ManagedHostState::HostInit {
-                    machine_state: MachineState::Measuring {
-                        measuring_state: MeasuringState::WaitingForMeasurements,
-                    },
-                },
-                SetBootOrderOutcome::WaitingForReboot(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
+    match run_host_boot_config_stage(ctx, reachability_params, redfish_client, mh_snapshot, stage)
+        .await?
+    {
+        HostBootConfigOutcome::Continue(stage) => {
+            let machine_state = match stage {
+                HostBootConfigStage::ConfigureBios { retry_count } => {
+                    MachineState::WaitingForPlatformConfiguration { retry_count }
                 }
-                SetBootOrderOutcome::Wait(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
+                HostBootConfigStage::WaitingForBiosJob { bios_config_info } => {
+                    MachineState::WaitingForBiosJob { bios_config_info }
                 }
-            }
+                HostBootConfigStage::PollingBiosSetup { retry_count } => {
+                    MachineState::PollingBiosSetup { retry_count }
+                }
+                HostBootConfigStage::SetBootOrder {
+                    set_boot_order_info,
+                } => MachineState::SetBootOrder {
+                    set_boot_order_info: Some(set_boot_order_info),
+                },
+            };
+            Ok(StateHandlerOutcome::transition(
+                ManagedHostState::HostInit { machine_state },
+            ))
         }
-        None => ManagedHostState::HostInit {
-            machine_state: MachineState::SetBootOrder {
-                set_boot_order_info: Some(SetBootOrderInfo {
-                    set_boot_order_jid: None,
-                    set_boot_order_state: SetBootOrderState::SetBootOrder,
-                    retry_count: 0,
-                }),
+        HostBootConfigOutcome::Complete => Ok(StateHandlerOutcome::transition(
+            ManagedHostState::HostInit {
+                machine_state: MachineState::Measuring {
+                    measuring_state: MeasuringState::WaitingForMeasurements,
+                },
             },
-        },
-    };
-
-    Ok(StateHandlerOutcome::transition(next_state))
+        )),
+        HostBootConfigOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
+        HostBootConfigOutcome::Failed { failure } => {
+            Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::BiosSetupFailed { err: failure },
+                    failed_at: Utc::now(),
+                    source: FailureSource::StateMachineArea(StateMachineArea::HostInit),
+                },
+                machine_id: mh_snapshot.host_snapshot.id,
+                retry_count: 0,
+            }))
+        }
+    }
 }
 
 /// TODO: we need to handle the case where the job is deleted for some reason
@@ -5849,147 +5628,76 @@ impl StateHandler for HostMachineStateHandler {
                         }
                     }
 
-                    match configure_host_bios(
+                    handle_host_init_boot_config_stage(
                         ctx,
+                        mh_snapshot,
                         &self.host_handler_params.reachability_params,
                         redfish_client.as_ref(),
-                        mh_snapshot,
-                        *retry_count,
+                        HostBootConfigStage::ConfigureBios {
+                            retry_count: *retry_count,
+                        },
                     )
-                    .await?
-                    {
-                        BiosConfigOutcome::Done => Ok(StateHandlerOutcome::transition(
-                            ManagedHostState::HostInit {
-                                machine_state: MachineState::PollingBiosSetup {
-                                    retry_count: *retry_count,
-                                },
-                            },
-                        )),
-                        BiosConfigOutcome::WaitingForBiosJob(bios_config_info) => Ok(
-                            StateHandlerOutcome::transition(ManagedHostState::HostInit {
-                                machine_state: MachineState::WaitingForBiosJob { bios_config_info },
-                            }),
-                        ),
-                        BiosConfigOutcome::WaitingForReboot(reason) => {
-                            Ok(StateHandlerOutcome::wait(reason))
-                        }
-                    }
+                    .await
                 }
                 MachineState::WaitingForBiosJob { bios_config_info } => {
                     let redfish_client = ctx
                         .services
                         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
                         .await?;
-                    match advance_bios_config_job(
+                    handle_host_init_boot_config_stage(
                         ctx,
-                        redfish_client.as_ref(),
                         mh_snapshot,
-                        bios_config_info.clone(),
+                        &self.host_handler_params.reachability_params,
+                        redfish_client.as_ref(),
+                        HostBootConfigStage::WaitingForBiosJob {
+                            bios_config_info: bios_config_info.clone(),
+                        },
                     )
-                    .await?
-                    {
-                        BiosConfigJobAdvanceOutcome::Continue(updated) => Ok(
-                            StateHandlerOutcome::transition(ManagedHostState::HostInit {
-                                machine_state: MachineState::WaitingForBiosJob {
-                                    bios_config_info: updated,
-                                },
-                            }),
-                        ),
-                        BiosConfigJobAdvanceOutcome::Done => Ok(StateHandlerOutcome::transition(
-                            ManagedHostState::HostInit {
-                                machine_state: MachineState::PollingBiosSetup {
-                                    retry_count: bios_config_info.retry_count,
-                                },
-                            },
-                        )),
-                        BiosConfigJobAdvanceOutcome::Failed { failure } => {
-                            Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
-                                details: FailureDetails {
-                                    cause: FailureCause::BiosSetupFailed { err: failure },
-                                    failed_at: Utc::now(),
-                                    source: FailureSource::StateMachineArea(
-                                        StateMachineArea::HostInit,
-                                    ),
-                                },
-                                machine_id: mh_snapshot.host_snapshot.id,
-                                retry_count: 0,
-                            }))
-                        }
-                        BiosConfigJobAdvanceOutcome::RetryPlatformConfiguration { retry_count } => {
-                            Ok(StateHandlerOutcome::transition(
-                                ManagedHostState::HostInit {
-                                    machine_state: MachineState::WaitingForPlatformConfiguration {
-                                        retry_count,
-                                    },
-                                },
-                            ))
-                        }
-                        BiosConfigJobAdvanceOutcome::Wait(reason) => {
-                            Ok(StateHandlerOutcome::wait(reason))
-                        }
-                    }
+                    .await
                 }
                 MachineState::PollingBiosSetup { retry_count } => {
-                    let next_state = ManagedHostState::HostInit {
-                        machine_state: MachineState::SetBootOrder {
-                            set_boot_order_info: Some(SetBootOrderInfo {
-                                set_boot_order_jid: None,
-                                set_boot_order_state: SetBootOrderState::SetBootOrder,
-                                retry_count: 0,
-                            }),
-                        },
-                    };
-
                     let redfish_client = ctx
                         .services
                         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
                         .await?;
-                    let predictions =
-                        load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-                    match advance_polling_bios_setup(
-                        redfish_client.as_ref(),
+                    handle_host_init_boot_config_stage(
+                        ctx,
                         mh_snapshot,
-                        *retry_count,
-                        &ctx.services.site_config.machine_state_controller,
-                        &predictions,
+                        &self.host_handler_params.reachability_params,
+                        redfish_client.as_ref(),
+                        HostBootConfigStage::PollingBiosSetup {
+                            retry_count: *retry_count,
+                        },
                     )
-                    .await?
-                    {
-                        PollingBiosSetupOutcome::Verified => {
-                            Ok(StateHandlerOutcome::transition(next_state))
-                        }
-                        PollingBiosSetupOutcome::EnterRecovery(bios_config_info) => Ok(
-                            StateHandlerOutcome::transition(ManagedHostState::HostInit {
-                                machine_state: MachineState::WaitingForBiosJob { bios_config_info },
-                            }),
-                        ),
-                        PollingBiosSetupOutcome::Failed { failure } => {
-                            Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
-                                details: FailureDetails {
-                                    cause: FailureCause::BiosSetupFailed { err: failure },
-                                    failed_at: Utc::now(),
-                                    source: FailureSource::StateMachineArea(
-                                        StateMachineArea::HostInit,
-                                    ),
-                                },
-                                machine_id: mh_snapshot.host_snapshot.id,
-                                retry_count: 0,
-                            }))
-                        }
-                        PollingBiosSetupOutcome::Wait(reason) => {
-                            Ok(StateHandlerOutcome::wait(reason))
-                        }
-                    }
+                    .await
                 }
                 MachineState::SetBootOrder {
                     set_boot_order_info,
-                } => Ok(handle_host_boot_order_setup(
-                    ctx,
-                    self.host_handler_params.clone(),
-                    mh_snapshot,
-                    set_boot_order_info.clone(),
-                )
-                .await?),
+                } => {
+                    let Some(set_boot_order_info) = set_boot_order_info.clone() else {
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::HostInit {
+                                machine_state: MachineState::SetBootOrder {
+                                    set_boot_order_info: Some(initial_set_boot_order_info()),
+                                },
+                            },
+                        ));
+                    };
+                    let redfish_client = ctx
+                        .services
+                        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+                        .await?;
+                    handle_host_init_boot_config_stage(
+                        ctx,
+                        mh_snapshot,
+                        &self.host_handler_params.reachability_params,
+                        redfish_client.as_ref(),
+                        HostBootConfigStage::SetBootOrder {
+                            set_boot_order_info,
+                        },
+                    )
+                    .await
+                }
                 MachineState::Measuring { measuring_state } => {
                     if !self.host_handler_params.attestation_enabled {
                         return Ok(StateHandlerOutcome::transition(
@@ -7274,11 +6982,7 @@ impl StateHandler for InstanceStateHandler {
                             instance_state: InstanceState::HostPlatformConfiguration {
                                 platform_config_state:
                                     HostPlatformConfigurationState::SetBootOrder {
-                                        set_boot_order_info: SetBootOrderInfo {
-                                            set_boot_order_jid: None,
-                                            set_boot_order_state: SetBootOrderState::SetBootOrder,
-                                            retry_count: 0,
-                                        },
+                                        set_boot_order_info: initial_set_boot_order_info(),
                                     },
                             },
                         };
@@ -10954,6 +10658,75 @@ async fn log_host_config(redfish_client: &dyn Redfish, mh_snapshot: &ManagedHost
     );
 }
 
+/// Handles a shared boot-configuration stage during assigned-host platform
+/// configuration.
+///
+/// Called by `handle_instance_host_platform_config` for its BIOS configuration,
+/// vendor-job, polling, and boot-order states. This adapter maps continued
+/// stages back into `HostPlatformConfigurationState`, proceeds to `LockHost` on
+/// completion, and scopes terminal failure to the assigned instance.
+async fn handle_instance_host_boot_config_stage(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    reachability_params: &ReachabilityParams,
+    redfish_client: &dyn Redfish,
+    stage: HostBootConfigStage,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    match run_host_boot_config_stage(ctx, reachability_params, redfish_client, mh_snapshot, stage)
+        .await?
+    {
+        HostBootConfigOutcome::Continue(stage) => {
+            let platform_config_state = match stage {
+                HostBootConfigStage::ConfigureBios { retry_count } => {
+                    HostPlatformConfigurationState::ConfigureBios {
+                        bios_config_info: None,
+                        retry_count,
+                    }
+                }
+                HostBootConfigStage::WaitingForBiosJob { bios_config_info } => {
+                    HostPlatformConfigurationState::WaitingForBiosJob { bios_config_info }
+                }
+                HostBootConfigStage::PollingBiosSetup { retry_count } => {
+                    HostPlatformConfigurationState::PollingBiosSetup { retry_count }
+                }
+                HostBootConfigStage::SetBootOrder {
+                    set_boot_order_info,
+                } => HostPlatformConfigurationState::SetBootOrder {
+                    set_boot_order_info,
+                },
+            };
+
+            Ok(StateHandlerOutcome::transition(
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::HostPlatformConfiguration {
+                        platform_config_state,
+                    },
+                },
+            ))
+        }
+        HostBootConfigOutcome::Complete => Ok(StateHandlerOutcome::transition(
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::HostPlatformConfiguration {
+                    platform_config_state: HostPlatformConfigurationState::LockHost,
+                },
+            },
+        )),
+        HostBootConfigOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
+        HostBootConfigOutcome::Failed { failure } => Ok(StateHandlerOutcome::transition(
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::Failed {
+                    details: FailureDetails {
+                        cause: FailureCause::BiosSetupFailed { err: failure },
+                        failed_at: Utc::now(),
+                        source: FailureSource::StateMachineArea(StateMachineArea::AssignedInstance),
+                    },
+                    machine_id: mh_snapshot.host_snapshot.id,
+                },
+            },
+        )),
+    }
+}
+
 async fn handle_instance_host_platform_config(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     mh_snapshot: &mut ManagedHostStateSnapshot,
@@ -11182,18 +10955,29 @@ async fn handle_instance_host_platform_config(
             )
             .await?
             {
-                HostBootConfigDecision::Wait(reason) => {
+                HostBootConfigCheckOutcome::Wait(reason) => {
                     return Ok(StateHandlerOutcome::wait(reason));
                 }
-                HostBootConfigDecision::ConfigureBoot => InstanceState::HostPlatformConfiguration {
-                    platform_config_state: HostPlatformConfigurationState::ConfigureBios {
-                        bios_config_info: None,
-                        retry_count: 0,
-                    },
-                },
-                HostBootConfigDecision::LockHost => InstanceState::HostPlatformConfiguration {
-                    platform_config_state: HostPlatformConfigurationState::LockHost,
-                },
+                HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::ConfigureBios) => {
+                    InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::ConfigureBios {
+                            bios_config_info: None,
+                            retry_count: 0,
+                        },
+                    }
+                }
+                HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::SetBootOrder) => {
+                    InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::SetBootOrder {
+                            set_boot_order_info: initial_set_boot_order_info(),
+                        },
+                    }
+                }
+                HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::Complete) => {
+                    InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::LockHost,
+                    }
+                }
             }
         }
         HostPlatformConfigurationState::ConfigureBios {
@@ -11214,174 +10998,48 @@ async fn handle_instance_host_platform_config(
                 ));
             }
 
-            let next_platform = match configure_host_bios(
+            return handle_instance_host_boot_config_stage(
                 ctx,
+                mh_snapshot,
                 reachability_params,
                 redfish_client.as_ref(),
-                mh_snapshot,
-                retry_count,
+                HostBootConfigStage::ConfigureBios { retry_count },
             )
-            .await?
-            {
-                BiosConfigOutcome::Done => {
-                    HostPlatformConfigurationState::PollingBiosSetup { retry_count }
-                }
-                BiosConfigOutcome::WaitingForBiosJob(bios_config_info) => {
-                    HostPlatformConfigurationState::WaitingForBiosJob { bios_config_info }
-                }
-                BiosConfigOutcome::WaitingForReboot(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
-                }
-            };
-            return Ok(StateHandlerOutcome::transition(
-                ManagedHostState::Assigned {
-                    instance_state: InstanceState::HostPlatformConfiguration {
-                        platform_config_state: next_platform,
-                    },
-                },
-            ));
+            .await;
         }
         HostPlatformConfigurationState::WaitingForBiosJob { bios_config_info } => {
-            let next_platform = match advance_bios_config_job(
+            return handle_instance_host_boot_config_stage(
                 ctx,
-                redfish_client.as_ref(),
                 mh_snapshot,
-                bios_config_info.clone(),
+                reachability_params,
+                redfish_client.as_ref(),
+                HostBootConfigStage::WaitingForBiosJob { bios_config_info },
             )
-            .await?
-            {
-                BiosConfigJobAdvanceOutcome::Continue(updated) => {
-                    HostPlatformConfigurationState::WaitingForBiosJob {
-                        bios_config_info: updated,
-                    }
-                }
-                BiosConfigJobAdvanceOutcome::Done => {
-                    HostPlatformConfigurationState::PollingBiosSetup {
-                        retry_count: bios_config_info.retry_count,
-                    }
-                }
-                BiosConfigJobAdvanceOutcome::Failed { failure } => {
-                    return Ok(StateHandlerOutcome::transition(
-                        ManagedHostState::Assigned {
-                            instance_state: InstanceState::Failed {
-                                details: FailureDetails {
-                                    cause: FailureCause::BiosSetupFailed { err: failure },
-                                    failed_at: Utc::now(),
-                                    source: FailureSource::StateMachineArea(
-                                        StateMachineArea::AssignedInstance,
-                                    ),
-                                },
-                                machine_id: mh_snapshot.host_snapshot.id,
-                            },
-                        },
-                    ));
-                }
-                BiosConfigJobAdvanceOutcome::RetryPlatformConfiguration {
-                    retry_count: next_count,
-                } => HostPlatformConfigurationState::ConfigureBios {
-                    bios_config_info: None,
-                    retry_count: next_count,
-                },
-                BiosConfigJobAdvanceOutcome::Wait(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
-                }
-            };
-            return Ok(StateHandlerOutcome::transition(
-                ManagedHostState::Assigned {
-                    instance_state: InstanceState::HostPlatformConfiguration {
-                        platform_config_state: next_platform,
-                    },
-                },
-            ));
+            .await;
         }
         HostPlatformConfigurationState::PollingBiosSetup { retry_count } => {
-            let next_instance_state = InstanceState::HostPlatformConfiguration {
-                platform_config_state: if should_skip_boot_order_remediation(mh_snapshot) {
-                    HostPlatformConfigurationState::LockHost
-                } else {
-                    HostPlatformConfigurationState::SetBootOrder {
-                        set_boot_order_info: SetBootOrderInfo {
-                            set_boot_order_jid: None,
-                            set_boot_order_state: SetBootOrderState::SetBootOrder,
-                            retry_count: 0,
-                        },
-                    }
-                },
-            };
-
-            let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-            match advance_polling_bios_setup(
-                redfish_client.as_ref(),
+            return handle_instance_host_boot_config_stage(
+                ctx,
                 mh_snapshot,
-                retry_count,
-                &ctx.services.site_config.machine_state_controller,
-                &predictions,
+                reachability_params,
+                redfish_client.as_ref(),
+                HostBootConfigStage::PollingBiosSetup { retry_count },
             )
-            .await?
-            {
-                PollingBiosSetupOutcome::Verified => next_instance_state,
-                PollingBiosSetupOutcome::EnterRecovery(bios_config_info) => {
-                    return Ok(StateHandlerOutcome::transition(
-                        ManagedHostState::Assigned {
-                            instance_state: InstanceState::HostPlatformConfiguration {
-                                platform_config_state:
-                                    HostPlatformConfigurationState::WaitingForBiosJob {
-                                        bios_config_info,
-                                    },
-                            },
-                        },
-                    ));
-                }
-                PollingBiosSetupOutcome::Failed { failure } => {
-                    return Ok(StateHandlerOutcome::transition(
-                        ManagedHostState::Assigned {
-                            instance_state: InstanceState::Failed {
-                                details: FailureDetails {
-                                    cause: FailureCause::BiosSetupFailed { err: failure },
-                                    failed_at: Utc::now(),
-                                    source: FailureSource::StateMachineArea(
-                                        StateMachineArea::AssignedInstance,
-                                    ),
-                                },
-                                machine_id: mh_snapshot.host_snapshot.id,
-                            },
-                        },
-                    ));
-                }
-                PollingBiosSetupOutcome::Wait(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
-                }
-            }
+            .await;
         }
         HostPlatformConfigurationState::SetBootOrder {
             set_boot_order_info,
         } => {
-            match set_host_boot_order(
+            return handle_instance_host_boot_config_stage(
                 ctx,
+                mh_snapshot,
                 reachability_params,
                 redfish_client.as_ref(),
-                mh_snapshot,
-                set_boot_order_info,
-            )
-            .await?
-            {
-                SetBootOrderOutcome::Continue(boot_order_info) => {
-                    InstanceState::HostPlatformConfiguration {
-                        platform_config_state: HostPlatformConfigurationState::SetBootOrder {
-                            set_boot_order_info: boot_order_info,
-                        },
-                    }
-                }
-                SetBootOrderOutcome::Done => InstanceState::HostPlatformConfiguration {
-                    platform_config_state: HostPlatformConfigurationState::LockHost,
+                HostBootConfigStage::SetBootOrder {
+                    set_boot_order_info,
                 },
-                SetBootOrderOutcome::WaitingForReboot(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
-                }
-                SetBootOrderOutcome::Wait(reason) => {
-                    return Ok(StateHandlerOutcome::wait(reason));
-                }
-            }
+            )
+            .await;
         }
         HostPlatformConfigurationState::LockHost => {
             if mh_snapshot.host_snapshot.host_profile.disable_lockdown {
@@ -11442,51 +11100,36 @@ async fn set_host_boot_order(
                 RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
-            // Don't re-apply a boot config that's already in place. `SetBootOrder`
-            // re-asserts the HTTP-boot device (`machine_setup`) and then sets the
-            // boot order, but on Dell two BIOS config writes can't share one
-            // pending job: re-asserting commits a config job, and
-            // `set_boot_order_dpu_first` then can't set the order (iDRAC `SYS011`,
-            // "a config job is already committed"), so re-applying an
-            // already-correct config collides and loops. Check first -- if the
-            // config is already set, skip straight to verification. Only when the
-            // HTTP-boot device was actually reverted (the boot NIC dropped off the
-            // BMC's Redfish inventory on a reboot) do we re-assert it, and then
-            // reboot to apply it before the boot-order set, so the two writes
-            // never land in one pass.
+            // Don't re-apply a boot config that's already in place. On Dell two
+            // BIOS config writes cannot share one pending job: machine_setup can
+            // commit a job that collides with set_boot_order_dpu_first (iDRAC
+            // `SYS011`). If the HTTP device drifted since the owning lifecycle's
+            // inspection, return to the shared BIOS/job stages before attempting
+            // the order write.
             let is_bios_setup = boot_interface
                 .run(|bi| redfish_client.is_bios_setup(Some(bi)))
                 .await
                 .map_err(|e| redfish_error("is_bios_setup", e))?;
 
             if !is_bios_setup {
-                // The HTTP-boot device was reverted (the boot NIC dropped off the
-                // BMC's Redfish inventory on a reboot), so re-assert it with
-                // `machine_setup` and restart the host to apply it *before*
-                // setting the boot order -- the two BIOS writes never share one
-                // pass (they can't share one Dell config job). The re-assert
-                // commits once: `WaitForHttpBootDeviceApplied` polls the device
-                // across the reboot instead of this arm re-writing the staged
-                // settings and re-creating the config job every pass while the
-                // reboot lands.
-                call_machine_setup_and_handle_no_dpu_error(
-                    redfish_client,
-                    Some(&boot_interface),
-                    mh_snapshot.host_snapshot.associated_dpu_machine_ids().len(),
-                    &ctx.services.site_config,
-                )
-                .await
-                .map_err(|e| redfish_error("machine_setup", e))?;
+                // The HTTP-boot device drifted after the owning lifecycle's
+                // inspection. Route back through the shared BIOS driver rather
+                // than issuing machine_setup here: vendor jobs must be persisted
+                // and polled before boot-order work can safely continue.
+                return Ok(SetBootOrderOutcome::ConfigureBios);
+            }
 
-                handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
-                    .await?;
-                log_host_config(redfish_client, mh_snapshot).await;
-
-                return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
-                    set_boot_order_jid: None,
-                    set_boot_order_state: SetBootOrderState::WaitForHttpBootDeviceApplied,
-                    retry_count: set_boot_order_info.retry_count,
-                }));
+            // Keep the vendor safety policy at the actuator boundary. This is
+            // intentionally after the BIOS check: validation reuses this state
+            // to restore a reverted HTTP boot device on Viking, where BIOS
+            // repair is supported but boot-order remediation is not.
+            if should_skip_boot_order_remediation(mh_snapshot) {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    bmc_vendor = %mh_snapshot.host_snapshot.bmc_vendor(),
+                    "Skipping boot order remediation on Viking (known FW/BMC issue)"
+                );
+                return Ok(SetBootOrderOutcome::Done);
             }
 
             // HTTP-boot device is already set, so `machine_setup` was not re-run
@@ -11577,14 +11220,9 @@ async fn set_host_boot_order(
             }))
         }
         SetBootOrderState::WaitForHttpBootDeviceApplied => {
-            // The SetBootOrder substate re-asserted the reverted HTTP-boot device
-            // and restarted the host; the staged BIOS settings apply across that
-            // reboot. Poll until the device verifies, then return to SetBootOrder
-            // to set the boot order. If it still hasn't applied once the reboot
-            // has had time to land (the boot NIC can drop off the BMC's Redfish
-            // inventory again on the apply reboot itself), return to SetBootOrder
-            // for a fresh re-assert -- re-commits stay bounded to one per wait
-            // window instead of one per pass.
+            // Backward compatibility for hosts persisted in the former inline
+            // machine_setup flow. Once its wait window expires, migrate into the
+            // shared BIOS/job stages so any new vendor job is retained.
             const HTTP_BOOT_DEVICE_APPLY_WAIT_MINUTES: i64 = 10;
             const MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES: u32 = 3;
 
@@ -11623,11 +11261,10 @@ async fn set_host_boot_order(
                 .num_minutes();
 
             if minutes_waiting >= HTTP_BOOT_DEVICE_APPLY_WAIT_MINUTES {
-                // Each expired window spends one retry from the SetBootOrder
-                // state machine's shared budget. Once it's exhausted the device
-                // is not coming back on its own -- stop re-asserting and surface
-                // the host for an operator, the same terminal escalation the
-                // reboot pacer applies to a host that never comes up.
+                // Preserve the terminal behavior of a legacy state whose old
+                // retry budget was already exhausted. Any nonterminal state
+                // carries its existing count into the shared convergence
+                // budget.
                 if set_boot_order_info.retry_count >= MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES {
                     return Err(StateHandlerError::ManualInterventionRequired(format!(
                         "HTTP boot device on host {} still not applied after {} re-asserts; manual intervention required",
@@ -11637,13 +11274,9 @@ async fn set_host_boot_order(
                 tracing::warn!(
                     machine_id = %mh_snapshot.host_snapshot.id,
                     minutes_waiting,
-                    "Re-asserted HTTP boot device still not applied after the wait window; returning to SetBootOrder to re-assert",
+                    "Re-asserted HTTP boot device still not applied after the wait window; migrating to shared BIOS repair",
                 );
-                return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
-                    set_boot_order_jid: None,
-                    set_boot_order_state: SetBootOrderState::SetBootOrder,
-                    retry_count: set_boot_order_info.retry_count + 1,
-                }));
+                return Ok(SetBootOrderOutcome::ConfigureBios);
             }
 
             Ok(SetBootOrderOutcome::WaitingForReboot(format!(
@@ -11673,7 +11306,8 @@ async fn set_host_boot_order(
             }))
         }
         SetBootOrderState::RebootHost => {
-            // Host needs to be rebooted to pick up the changes after calling machine_setup
+            // Reboot before final verification so any accepted boot-order
+            // change or vendor job can apply.
             handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart).await?;
 
             Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
@@ -11857,10 +11491,14 @@ async fn set_host_boot_order(
             }
         }
         SetBootOrderState::CheckBootOrder => {
-            const MAX_BOOT_ORDER_RETRIES: u32 = 3;
             const CHECK_BOOT_ORDER_TIMEOUT_MINUTES: i64 = 30;
 
             let retry_count = set_boot_order_info.retry_count;
+            let max_retries = ctx
+                .services
+                .site_config
+                .machine_state_controller
+                .max_bios_config_retries;
 
             let boot_interface = match require_boot_interface(
                 mh_snapshot,
@@ -11871,6 +11509,36 @@ async fn set_host_boot_order(
                 RequiredBootInterface::Ready(target) => target,
                 RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
+
+            // The boot-order job/recovery reboot can itself revert the HTTP
+            // device or another managed BIOS attribute. Verify BIOS first for
+            // every platform and return to the shared job-aware repair before
+            // declaring the overall boot configuration complete.
+            let is_bios_setup = boot_interface
+                .run(|bi| redfish_client.is_bios_setup(Some(bi)))
+                .await
+                .map_err(|e| redfish_error("is_bios_setup", e))?;
+
+            if !is_bios_setup {
+                tracing::warn!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    bmc_vendor = %mh_snapshot.host_snapshot.bmc_vendor(),
+                    "Host BIOS drifted during boot-order recovery; returning to shared BIOS repair"
+                );
+                return Ok(SetBootOrderOutcome::ConfigureBios);
+            }
+
+            // A controller upgrade can resume a Viking after an old boot-order
+            // job or power-recovery substate. Once the operation and BIOS
+            // verification are complete, skip the unsupported order read.
+            if should_skip_boot_order_remediation(mh_snapshot) {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    bmc_vendor = %mh_snapshot.host_snapshot.bmc_vendor(),
+                    "Skipping boot order verification on Viking (known FW/BMC issue)"
+                );
+                return Ok(SetBootOrderOutcome::Done);
+            }
 
             let boot_order_configured = boot_interface
                 .run(|bi| redfish_client.is_boot_order_setup(bi))
@@ -11896,16 +11564,23 @@ async fn set_host_boot_order(
                 time_since_state_change.num_minutes()
             );
 
-            // If we've been stuck for 30+ minutes and haven't exhausted retries, retry SetBootOrder
-            if time_since_state_change.num_minutes() >= CHECK_BOOT_ORDER_TIMEOUT_MINUTES
-                && retry_count < MAX_BOOT_ORDER_RETRIES
-            {
-                tracing::info!(
-                    "Boot order check timed out for {} after {} minutes, retrying SetBootOrder (retry {} of {})",
+            if time_since_state_change.num_minutes() < CHECK_BOOT_ORDER_TIMEOUT_MINUTES {
+                return Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "Boot order is not configured properly for host {} after SetBootOrder completed (retry_count: {}, max_retries: {}, time_in_state: {} minutes)",
                     mh_snapshot.host_snapshot.id,
-                    time_since_state_change.num_minutes(),
-                    retry_count + 1,
-                    MAX_BOOT_ORDER_RETRIES
+                    retry_count,
+                    max_retries,
+                    time_since_state_change.num_minutes()
+                )));
+            }
+
+            if retry_count < max_retries {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    time_in_state_minutes = time_since_state_change.num_minutes(),
+                    retry_count = retry_count + 1,
+                    max_retries,
+                    "Boot order check timed out; retrying SetBootOrder"
                 );
 
                 return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
@@ -11915,11 +11590,13 @@ async fn set_host_boot_order(
                 }));
             }
 
-            // Either still within timeout window or exhausted retries - return error
-            Err(StateHandlerError::GenericError(eyre::eyre!(
-                "Boot order is not configured properly for host {} after SetBootOrder completed (retry_count: {}, time_in_state: {} minutes)",
+            // Keep the state parked so an operator can repair the BMC and the
+            // next verification can complete without resetting the lifecycle.
+            Err(StateHandlerError::ManualInterventionRequired(format!(
+                "Boot order is not configured properly for host {} after SetBootOrder completed; automated boot-config convergence exhausted (retry_count: {}, max_retries: {}, time_in_state: {} minutes)",
                 mh_snapshot.host_snapshot.id,
                 retry_count,
+                max_retries,
                 time_since_state_change.num_minutes()
             )))
         }

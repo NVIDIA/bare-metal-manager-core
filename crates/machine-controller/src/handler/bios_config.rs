@@ -363,7 +363,7 @@ fn try_bios_recovery_attempt(
         );
         return Ok(BiosRecoveryAttemptOutcome::Failed {
             failure: format!(
-                "{failure} (automated BIOS recovery exhausted after {} attempts)",
+                "{failure} (automated BIOS recovery exhausted after {} retries)",
                 machine_controller_config.max_bios_config_retries
             ),
         });
