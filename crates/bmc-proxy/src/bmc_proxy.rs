@@ -32,7 +32,7 @@ use carbide_authn::SpiffeContext;
 use carbide_authn::middleware::{
     AuthContext, Authorization, CertDescriptionMiddleware, ConnectionAttributes, Principal,
 };
-use carbide_instrument::emit;
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_utils::HostPortPair;
 use forge_tls::client_config::ClientCert;
 use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
@@ -40,8 +40,6 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto;
 use hyper_util::service::TowerToHyperService;
 use mac_address::{MacAddress, MacParseError};
-use opentelemetry::KeyValue;
-use opentelemetry::metrics::Meter;
 use rpc::forge;
 use rpc::forge::find_bmc_ips_request::LookupBy;
 use rpc::forge_api_client::ForgeApiClient;
@@ -79,13 +77,11 @@ pub enum BmcProxyError {
 
 pub struct BmcProxyParams {
     pub config: Arc<crate::Config>,
-    pub meter: Meter,
 }
 
 #[derive(Clone)]
 struct BmcProxyState {
     config: Arc<crate::Config>,
-    meter: Meter,
     api_client: ForgeApiClient,
     credential_cache: CredentialCache,
     client_cache: HttpClientCache,
@@ -145,7 +141,7 @@ pub async fn start(
     join_set: &mut JoinSet<()>,
 ) -> Result<(), BmcProxyError> {
     // Destructure params to save typing
-    let BmcProxyParams { config, meter } = params;
+    let BmcProxyParams { config } = params;
 
     tracing::info!(
         address = config.listen.to_string(),
@@ -175,7 +171,6 @@ pub async fn start(
         credential_cache: Default::default(),
         client_cache: Default::default(),
         ip_cache: Default::default(),
-        meter,
     };
 
     let app = Router::new()
@@ -225,6 +220,60 @@ impl RefreshableTlsAcceptor {
     }
 }
 
+/// An inbound connection was accepted from the listener, before it is served.
+/// Counted, never logged.
+#[derive(Event)]
+#[event(
+    name = "carbide_bmc_proxy_tls_connection_attempted_total",
+    component = "nico-bmc-proxy",
+    log = off,
+    metric = counter,
+    describe = "The amount of tls connections that were attempted"
+)]
+struct TlsConnectionAttempted;
+
+/// The TLS handshake completed and the connection was handed to the HTTP
+/// stack. Counted, never logged.
+#[derive(Event)]
+#[event(
+    name = "carbide_bmc_proxy_tls_connection_success_total",
+    component = "nico-bmc-proxy",
+    log = off,
+    metric = counter,
+    describe = "The amount of tls connections that were successful"
+)]
+struct TlsConnectionSucceeded;
+
+/// Why an inbound connection failed, as the bounded `reason` label. The
+/// rendered strings are the metric's contract: each variant renders to the
+/// snake_case value the counter has always reported, byte for byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum ConnectionFailReason {
+    /// The TCP accept itself errored.
+    TcpConnectionFailure,
+    /// The TLS acceptor could not be reloaded from disk.
+    TlsCertificateInvalid,
+    /// The TLS handshake errored.
+    TlsConnectionFailure,
+}
+
+/// An inbound connection failed before it could be served -- the TCP accept
+/// errored, the TLS acceptor could not be reloaded, or the TLS handshake
+/// errored. Metric-only: the `tracing::error!` beside each emit stays the log,
+/// byte-for-byte as before; the `reason` label distinguishes which leg failed.
+#[derive(Event)]
+#[event(
+    name = "carbide_bmc_proxy_tls_connection_fail_total",
+    component = "nico-bmc-proxy",
+    log = off,
+    metric = counter,
+    describe = "The amount of tcp connections that were failures"
+)]
+struct TlsConnectionFailed {
+    #[label]
+    reason: ConnectionFailReason,
+}
+
 struct BmcProxy {
     app: Router,
     listener: TcpListener,
@@ -236,36 +285,18 @@ impl BmcProxy {
     async fn run(mut self, cancel_token: CancellationToken) {
         let http = auto::Builder::new(TokioExecutor::new());
 
-        let connection_total_counter = self
-            .state
-            .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_attempted")
-            .with_description("The amount of tls connections that were attempted")
-            .build();
-        let connection_succeeded_counter = self
-            .state
-            .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_success")
-            .with_description("The amount of tls connections that were successful")
-            .build();
-        let connection_failed_counter = self
-            .state
-            .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_fail")
-            .with_description("The amount of tcp connections that were failures")
-            .build();
-
         while let Some(incoming_connection) = cancel_token
             .run_until_cancelled(self.listener.accept())
             .await
         {
-            connection_total_counter.add(1, &[]);
+            emit(TlsConnectionAttempted);
             let (conn, addr) = match incoming_connection {
                 Ok(incoming) => incoming,
                 Err(e) => {
                     tracing::error!(error = %e, "Error accepting connection");
-                    connection_failed_counter
-                        .add(1, &[KeyValue::new("reason", "tcp_connection_failure")]);
+                    emit(TlsConnectionFailed {
+                        reason: ConnectionFailReason::TcpConnectionFailure,
+                    });
                     continue;
                 }
             };
@@ -278,8 +309,9 @@ impl BmcProxy {
                         Ok(acceptor) => acceptor,
                         Err(e) => {
                             tracing::error!("Error reloading TLS certificate, will retry: {e}");
-                            connection_failed_counter
-                                .add(1, &[KeyValue::new("reason", "tls_certificate_invalid")]);
+                            emit(TlsConnectionFailed {
+                                reason: ConnectionFailReason::TlsCertificateInvalid,
+                            });
                             continue;
                         }
                     };
@@ -289,8 +321,6 @@ impl BmcProxy {
             // Spawn task to handle request
             let http = http.clone();
             let app = self.app.clone();
-            let connection_succeeded_counter = connection_succeeded_counter.clone();
-            let connection_failed_counter = connection_failed_counter.clone();
 
             tokio::task::Builder::new()
                 .name("http conn handler")
@@ -299,7 +329,7 @@ impl BmcProxy {
                         match tls_acceptor.accept(conn).await {
                             Ok(conn) => {
                                 let conn = TokioIo::new(conn);
-                                connection_succeeded_counter.add(1, &[]);
+                                emit(TlsConnectionSucceeded);
 
                                 let (_, session) = conn.inner().get_ref();
                                 let connection_attributes = {
@@ -327,8 +357,9 @@ impl BmcProxy {
                             }
                             Err(error) => {
                                 tracing::error!(%error, address = %addr, "error accepting tls connection");
-                                connection_failed_counter
-                                    .add(1, &[KeyValue::new("reason", "tls_connection_failure")]);
+                                emit(TlsConnectionFailed {
+                                    reason: ConnectionFailReason::TlsConnectionFailure,
+                                });
                             }
                         }
                     }
@@ -1023,7 +1054,6 @@ mod tests {
     use carbide_utils::HostPortPair;
     use http_body_util::BodyExt;
     use mac_address::MacAddress;
-    use opentelemetry::global;
     use rpc::forge;
     use rpc::forge::find_bmc_ips_request::LookupBy;
     use rpc::forge_api_client::ForgeApiClient;
@@ -1112,7 +1142,6 @@ mod tests {
                 )
                 .expect("test config should parse"),
             ),
-            meter: global::meter("carbide-bmc-proxy-test"),
             api_client: ForgeApiClient::new(&api_config),
             credential_cache: Default::default(),
             client_cache: Default::default(),
@@ -1831,5 +1860,38 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(body, Bytes::from_static(br#"{"value":"ok"}"#));
+    }
+
+    /// The `reason` label values are the metric's contract: each variant
+    /// renders to the exact snake_case string the fail counter has always
+    /// reported. The failure path is not exercised by the metrics endpoint
+    /// tests, so this is what locks those bytes.
+    #[test]
+    fn connection_fail_reason_renders_expected_label_values() {
+        use carbide_instrument::LabelValue;
+        use carbide_test_support::{Check, check_values};
+
+        use super::ConnectionFailReason;
+
+        check_values(
+            [
+                Check {
+                    scenario: "tcp accept failure",
+                    input: ConnectionFailReason::TcpConnectionFailure,
+                    expect: "tcp_connection_failure".to_string(),
+                },
+                Check {
+                    scenario: "tls certificate reload failure",
+                    input: ConnectionFailReason::TlsCertificateInvalid,
+                    expect: "tls_certificate_invalid".to_string(),
+                },
+                Check {
+                    scenario: "tls handshake failure",
+                    input: ConnectionFailReason::TlsConnectionFailure,
+                    expect: "tls_connection_failure".to_string(),
+                },
+            ],
+            |reason| reason.label_value().to_string(),
+        );
     }
 }
