@@ -234,10 +234,11 @@ write_files:
       original = content
 
       # Fix 1: only check current boot's journal
-      content = content.replace(
-          'journalctl -u sfc.service --no-pager',
-          'journalctl -u sfc.service --no-pager -b'
-      )
+      if 'journalctl -u sfc.service --no-pager -b' not in content:
+          content = content.replace(
+              'journalctl -u sfc.service --no-pager',
+              'journalctl -u sfc.service --no-pager -b'
+          )
 
       # Fix 2: poll pod namespace as fallback (two spacing variants)
       POLL_FIX = (
@@ -258,13 +259,14 @@ write_files:
       )
 
       # Fix 3: non-fatal interface move
-      content = content.replace(
-          'chroot /host nsenter -t 1 -n /usr/sbin/ip link set'
-          ' ${intf} netns ${NS}',
-          'chroot /host nsenter -t 1 -n /usr/sbin/ip link set'
-          ' ${intf} netns ${NS} 2>/dev/null ||'
-          ' echo "Interface ${intf} already in pod namespace"'
-      )
+      if 'echo "Interface ${intf} already in pod namespace"' not in content:
+          content = content.replace(
+              'chroot /host nsenter -t 1 -n /usr/sbin/ip link set'
+              ' ${intf} netns ${NS}',
+              'chroot /host nsenter -t 1 -n /usr/sbin/ip link set'
+              ' ${intf} netns ${NS} 2>/dev/null ||'
+              ' echo "Interface ${intf} already in pod namespace"'
+          )
 
       # Fix 4: replace iptables-based IP/gateway extraction with direct
       # eth0 reading from the pod namespace. The old approach greps all
@@ -349,16 +351,19 @@ write_files:
               '      sysctl'
           )
 
-      if content == original:
-          if ('journalctl -u sfc.service --no-pager -b' in content
-                  and 'ip -4 addr show eth0' in content
-                  and 'rm -f /host/var/lib/hbn/var/support/nvue_startup' in content):
-              print(f"CARBIDE PATCH: {path} already patched")
-              sys.exit(0)
-          print(f"CARBIDE PATCH: WARNING - no patches applied to {path}")
+      expected_markers = {
+          "fix1 (journalctl -b)": 'journalctl -u sfc.service --no-pager -b' in content,
+          "fix4 (eth0 IP read)": 'ip -4 addr show eth0' in content,
+          "fix6 (nvue rm)": 'rm -f /host/var/lib/hbn/var/support/nvue_startup' in content,
+      }
+      missing = [name for name, ok in expected_markers.items() if not ok]
+      if missing:
+          print(f"CARBIDE PATCH: WARNING - fixes not applied to {path}: {', '.join(missing)}")
           print("The manifest structure may have changed upstream.")
           sys.exit(1)
-
+      if content == original:
+          print(f"CARBIDE PATCH: {path} already patched")
+          sys.exit(0)
       with open(path, 'w') as f:
           f.write(content)
       print(f"CARBIDE PATCH: {path} patched successfully")
