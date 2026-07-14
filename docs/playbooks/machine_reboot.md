@@ -25,17 +25,17 @@ Use `GracefulRestart` when the operating system can shut down cleanly. Use `Forc
 
 ```bash
 nicocli machine power-control-machine machine-power-control-machine \
-  <machine-id> \
-  --action GracefulRestart
+  --action GracefulRestart \
+  <machine-id>
 ```
 
 If the Machine has an attached Instance, acknowledge the workload disruption explicitly:
 
 ```bash
 nicocli machine power-control-machine machine-power-control-machine \
-  <machine-id> \
   --action GracefulRestart \
-  --acknowledge-attached-instance true
+  --acknowledge-attached-instance true \
+  <machine-id>
 ```
 
 A successful request returns HTTP 202. Retrieve the Machine afterward with `nicocli machine get <machine-id>` and confirm that it returns to the expected lifecycle state.
