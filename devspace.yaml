@@ -294,7 +294,7 @@ hooks:
             "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}"
           ;;
         k3s-*)
-          # k3s in uses 'default' context by default.
+          # k3s uses 'default' context by default.
           # Rename it to match this pattern:
           #  sudo kubectl config rename-context default k3s-nico
           if command -v k3s &> /dev/null; then
@@ -302,6 +302,9 @@ hooks:
             docker save "${runtime.images.nico-api.image}:${runtime.images.nico-api.tag}" | sudo k3s ctr images import -
             docker save "${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag}" | sudo k3s ctr images import -
             docker save "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}" | sudo k3s ctr images import -
+          else
+            echo "ERROR: k3s command is required to load local images for a k3s-* context" >&2
+            exit 1
           fi
           ;;
         # Add new local K8s tools here
