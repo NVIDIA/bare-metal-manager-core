@@ -3,12 +3,12 @@
 Use this workflow to release an instance, track NICo cleanup progress, and
 verify that the host is ready for reuse.
 
-When an instance is released, NICo removes the host from tenant service, returns
-networking to the admin side, runs cleanup and sanitization workflows, performs
-the configured trust checks, validates the host, and returns the managed host to
-`Ready` when it is eligible for allocation again.
+When an instance is released, NICo removes the host from tenant service and
+returns networking to the admin side. NICo then runs cleanup and sanitization
+workflows, performs the configured trust checks, and validates the host. When
+the host is eligible for allocation again, NICo returns it to `Ready`.
 
-For reference, see:
+For reference, refer to the following resources:
 
 - [Managed Host State Diagrams](../architecture/state_machines/managedhost.md)
 - [Repair Workflows](../manuals/repair/overview.md)
@@ -50,8 +50,8 @@ nico-admin-cli -a <core-api-url> instance release --machine <machine-id>
 `nico-admin-cli`. REST and `nicocli` commands use the REST API base URL from
 the `nicocli` config.
 
-To report a hardware, network, performance, or other issue during release, see
-[Repair Workflows](../manuals/repair/overview.md).
+To report a hardware, network, performance, or other issue during release,
+refer to [Repair Workflows](../manuals/repair/overview.md).
 
 When the release request is accepted, cleanup is asynchronous. Track the
 instance lifecycle first, then inspect the managed-host state when site-level
@@ -99,70 +99,74 @@ runs in the `Assigned/SwitchToAdminNetwork` and
 `Assigned/WaitingForNetworkReconfig` states, ahead of storage and platform
 sanitization.
 
-NICo drives DPU networking declaratively. The DPU agent polls NICo for the
-managed host's desired network configuration roughly every 30 seconds, applies
-it to HBN through NVUE, reconfigures the DPU-side DHCP server, and reports the
-applied configuration version and health back. On release, NICo sets
-`use_admin_network` on the managed-host configuration and increments its
-version; on its next poll the DPU re-renders with the tenant configuration
-removed. NICo does not advance the release until the DPU reports the new
-configuration applied and healthy.
+NICo drives DPU networking declaratively. Roughly every 30 seconds, the DPU
+agent polls NICo for the managed host's desired network configuration and
+applies it to HBN through NVUE. As part of the same update, the agent
+reconfigures the DPU-side DHCP server. The agent then reports the applied
+configuration version and health to NICo.
 
-The following network cleanup behaviors are available for an operator to rely
-on and verify.
+On release, NICo sets `use_admin_network` on the managed-host configuration and
+increments its version. On its next poll, the DPU re-renders without the tenant
+configuration. NICo advances the release only after the DPU reports that it
+applied the new configuration and is healthy.
+
+Operators can rely on and verify the following network cleanup behaviors:
 
 **Remove prior tenant configuration from the DPU/host path.** NICo sets
 `use_admin_network` and bumps the managed-host config version. On its next
-poll, the DPU agent re-renders HBN/NVUE and the DPU-side DHCP server with the
-tenant interface configuration (VPC VRF membership, SVI, VNI, tenant prefixes,
-and any Network Security Group ACLs) removed. The transition does not complete
-until the DPU confirms the applied version and reports healthy.
+poll, the DPU agent re-renders HBN/NVUE without the tenant interface
+configuration. The removed configuration includes VPC VRF membership, SVI,
+VNI, tenant prefixes, and any Network Security Group ACLs. The agent also
+reconfigures the DPU-side DHCP server. The transition does not complete until
+the DPU confirms the applied version and reports healthy.
 
 **Detach the host from the tenant overlay/VPC.** NICo moves every host
-interface out of the tenant VPC's VRF and into the admin VRF. The per-VPC VRF,
-its link-net/SVI addressing, and the per-VPC DPU loopback used as the EVPN
-next-hop are torn down; the instance's tenant IPs and the per-VPC DPU loopback
-are released back to their pools.
+interface out of the tenant VPC's VRF and into the admin VRF. NICo tears down
+the per-VPC VRF, its link-net/SVI addressing, and the per-VPC DPU loopback used
+as the EVPN next-hop. NICo returns the instance's tenant IPs and the per-VPC DPU
+loopback to their pools.
 
 **Revert the host to the admin or isolated network state.** With
 `use_admin_network` set, the DPU places all host interfaces on the admin
-overlay — a NICo-owned VPC/VRF separate from every tenant VPC — so the host
-cannot exchange traffic with any tenant instance. If NICo has no configuration
-for the DPU at all (for example, the host is unknown and the lookup returns
-`NOT_FOUND`), the DPU enters isolated mode and detaches every interface from
-any overlay (fail-closed). On transient errors the DPU keeps its last-known
-configuration.
+overlay. This overlay is a NICo-owned VPC/VRF that is separate from every
+tenant VPC, so the host cannot exchange traffic with any tenant instance. If
+NICo has no configuration for the DPU, the DPU enters isolated mode and
+detaches every interface from any overlay (fail-closed). This can occur when
+the host is unknown and the lookup returns `NOT_FOUND`. On transient errors,
+the DPU keeps its last-known configuration.
 
-**Reconfigure DHCP behavior on the DPU.** The DPU-side DHCP server is
-reconfigured on the same apply. It serves the admin interface's DHCP parameters
-(server address, NTP, nameservers, MTU) instead of the tenant's, so the
-released host — now booting the discovery image — receives an admin/discovery
-lease. Because the instance is no longer assigned, NICo also serves the host's
-discovery cloud-init rather than the prior tenant's instance metadata.
+**Reconfigure DHCP behavior on the DPU.** As part of the same configuration
+update, the DPU agent reconfigures the DPU-side DHCP server. The server provides
+the admin interface's DHCP parameters instead of the tenant's parameters. These
+parameters include the server address, NTP, nameservers, and MTU. The released
+host—now booting the discovery image—receives an admin/discovery lease. Because
+the instance is no longer assigned, NICo also serves the host's discovery
+cloud-init rather than the prior tenant's instance metadata.
 
-**Withdraw old routes / BGP configuration.** With the tenant VRF removed,
-the DPU stops advertising the tenant's host routes as BGP EVPN type-5 prefixes
-(tagged with the VPC's route-target), so they are withdrawn from the fabric and
-every other DPU importing that route-target drops them from its copy of the VPC
-VRF. The host-to-DPU BGP session in the tenant VRF, per-interface routing
-policy, and any routes previously leaked to the underlay are removed.
+**Withdraw old routes and BGP configuration.** With the tenant VRF removed,
+the DPU stops advertising the tenant's host routes as BGP EVPN type-5 prefixes.
+These prefixes are tagged with the VPC's route-target. The fabric withdraws the
+prefixes, and every other DPU that imports the route-target drops them from its
+copy of the VPC VRF. The DPU also removes the host-to-DPU BGP session in the
+tenant VRF, per-interface routing policy, and any routes previously leaked to
+the underlay.
 
 **Prevent unknown or released hosts from using network resources.** The
-release flow is convergence-gated: the state machine blocks until the DPU
-confirms all tenant interfaces have moved onto the admin overlay (or the
-machine carries a health alert that prevents reuse), so a released instance
-cannot linger as a "ghost instance." Tenant IP, VNI, and DPU-loopback
-allocations return to their pools and the instance record is deleted.
-Force-delete tears down the same fabric state through the same APIs.
+release flow is convergence-gated. The state machine blocks until either the
+DPU confirms that all tenant interfaces have moved onto the admin overlay or
+the machine carries a health alert that prevents reuse. This gate prevents a
+released instance from lingering as a "ghost instance." NICo returns tenant IP,
+VNI, and DPU-loopback allocations to their pools and deletes the instance
+record. Force-delete tears down the same fabric state through the same APIs.
 
-**Prevent cross-tenant leakage of IPs, connectivity, or metadata.** Termination
-is gated on every fabric (Ethernet, InfiniBand, NVLink) reporting the host
-removed from all tenant partitions before the instance is reported deleted.
-Addresses and VNIs return to their pools only after teardown, and the released
-instance's DNS records are removed, so the next tenant cannot inherit a live
-address or reach the prior tenant. The DPU metadata service is reconfigured for
-the post-tenant phase, so a later occupant cannot read the prior tenant's
-metadata or identity.
+**Prevent cross-tenant leakage of IPs, connectivity, or metadata.** NICo does
+not report the instance as deleted until every fabric—Ethernet, InfiniBand, and
+NVLink—reports that the host has been removed from all tenant partitions.
+Addresses and VNIs return to their pools only after teardown. The released
+instance's DNS records are also removed. These actions prevent the next tenant
+from inheriting a live address or reaching the prior tenant. The DPU metadata
+service is reconfigured for the post-tenant phase so that a later occupant
+cannot read the prior tenant's metadata or identity.
 
 Verify network cleanup from the per-host cleanup state and DPU/machine network
 status:
@@ -178,12 +182,12 @@ nico-admin-cli -a <core-api-url> dpu network status --extended
 
 A host stuck in `Assigned/SwitchToAdminNetwork` or
 `Assigned/WaitingForNetworkReconfig` has not yet converged onto the admin
-network; check DPU agent status, DPA status, admin-network config generation,
-and any cleanup-related health reports. See
+network. Check DPU agent status, DPA status, admin-network config generation,
+and any cleanup-related health reports. Refer to
 [Troubleshooting Stuck Cleanup](#troubleshooting-stuck-cleanup) for the
 per-state checks.
 
-For the isolation model these guarantees rest on, see
+For the isolation model that supports these guarantees, refer to
 [Default Isolation: The Admin Overlay](../manuals/vpc/vpc_network_virtualization.md#default-isolation-the-admin-overlay)
 and [Network Isolation](../manuals/network_isolation.md).
 
@@ -224,7 +228,7 @@ nico-admin-cli -a <core-api-url> machine health-report show <machine-id>
 
 ### Happy Path Verification
 
-A normal release can be verified with this sequence:
+Verify a normal release with this sequence:
 
 ```bash
 nicocli instance delete <instance-id>
@@ -319,7 +323,7 @@ storage cleanup:
 1. Re-enable host lockdown.
 1. Continue to post-cleanup validation.
 
-If the Redfish job fails, NICo retries the job path and may power-cycle the host
+If the Redfish job fails, NICo retries the job path and can power-cycle the host
 as part of the recovery loop.
 
 ### InfiniBand Cleanup
@@ -333,14 +337,14 @@ state machine from advancing before InfiniBand cleanup has cleared.
 Tenant cleanup includes platform and trust controls that run through Redfish,
 firmware management, measured boot, and site policy.
 
-| Control | How to verify |
+| Control | How to Verify |
 |---|---|
 | Redfish power control | The state machine uses `ForceRestart` during cleanup and after Scout cleanup completion. Redfish `ForceRestart` is also the reset type used to apply pending BIOS or UEFI changes. |
 | TPM clear | NICo includes vendor-specific Redfish support for TPM clear. Verify completion through the platform-specific cleanup evidence used by the site. |
 | BIOS recommit | Verify that pending BIOS or UEFI settings have been applied after the cleanup `ForceRestart` path. |
 | DPU restricted mode and BMC in-band restrictions | Verify that tenant-side network configuration has been removed, admin-network configuration has synced, and platform lockdown settings are in the expected post-cleanup state. |
 | Firmware default version | Verify that host and DPU firmware match the configured site default or are under an approved firmware update workflow. |
-| Measured boot | Verify measured boot state when attestation is enabled. Measured boot may be configured in permissive mode; in that mode, use measurement results as cleanup evidence according to site policy. |
+| Measured boot | Verify measured boot state when attestation is enabled. Measured boot can be configured in permissive mode; in that mode, use measurement results as cleanup evidence according to site policy. |
 
 Useful attestation commands include:
 
@@ -388,7 +392,7 @@ nico-admin-cli -a <core-api-url> managed-host show <machine-id>
 nico-admin-cli -a <core-api-url> machine health-report show <machine-id>
 ```
 
-| State | What it means | Checks |
+| State | What It Means | Checks |
 |---|---|---|
 | `Assigned/BootingWithDiscoveryImage` | The host is rebooting into the discovery image. | Check BMC reachability, host power state, boot order, and repeated reboot metrics. |
 | `Assigned/SwitchToAdminNetwork` | NICo is moving the host out of tenant networking. | Check DPU agent status, DPA status, and admin-network config generation. |
