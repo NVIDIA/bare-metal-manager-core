@@ -348,7 +348,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         &mut docs,
         "This file contains a list of metrics exported by NVIDIA Infra Controller (NICo). \
         The list is auto-generated from an integration test (`test_integration`). \
-        Metrics for workflows which are not exercised by the test are missing. \
+        Metrics no test exercises are added with `cargo xtask check-metric-docs --fix`. \
         NVLink partition monitor's metrics are documented in the manual: \
         [NVLink Partitioning](../manuals/nvlink_partitioning.md#metrics)."
     )

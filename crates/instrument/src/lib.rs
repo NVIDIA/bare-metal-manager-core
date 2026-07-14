@@ -38,6 +38,7 @@
 //!     component = "component_manager",
 //!     log       = warn,                          // error|warn|info|debug|trace|off
 //!     metric    = counter,                       // counter | histogram | none
+//!     describe  = "Number of power control operations that failed", // counter HELP text
 //!     message   = "power control failed",
 //! )]
 //! struct PowerControlFailed {
@@ -71,7 +72,8 @@
 //! ```compile_fail
 //! #[derive(carbide_instrument::Event)]
 //! #[event(event_name = "demo", metric_name = "carbide_demo_total",
-//!         component = "demo", log = off, metric = counter)]
+//!         component = "demo", log = off, metric = counter,
+//!         describe = "Number of demo events")]
 //! struct Demo {
 //!     #[label]
 //!     machine_id: String, // ERROR: String is not a LabelValue
@@ -119,6 +121,47 @@
 //! #[derive(carbide_instrument::Event)]
 //! #[event(event_name = "demo", component = "demo", message = "demo", describe = "demo")]
 //! struct Demo {} // ERROR: `describe` documents a metric; this event has metric = none
+//! ```
+//!
+//! A counter documents itself: `describe` is required and opens with
+//! "Number of ..." (the tech-writer house rule, so the `core_metrics.md`
+//! catalogue reads consistently):
+//!
+//! ```compile_fail
+//! #[derive(carbide_instrument::Event)]
+//! #[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo",
+//!         log = off, metric = counter)]
+//! struct Demo {} // ERROR: a counter must document itself with describe = "Number of ..."
+//! ```
+//!
+//! ```compile_fail
+//! #[derive(carbide_instrument::Event)]
+//! #[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo",
+//!         log = off, metric = counter, describe = "Total number of demos")]
+//! struct Demo {} // ERROR: a counter's describe opens with "Number of ..."
+//! ```
+//!
+//! A counter name ends in `_total` (Prometheus convention) but not
+//! `_total_total` -- the framework strips one `_total` before registering and
+//! the exporter appends it back, so a doubled suffix ships a `_total_total`
+//! series:
+//!
+//! ```compile_fail
+//! #[derive(carbide_instrument::Event)]
+//! #[event(event_name = "demo", metric_name = "carbide_demo_total_total", component = "demo",
+//!         log = off, metric = counter, describe = "Number of demos")]
+//! struct Demo {} // ERROR: counter name ends in `_total_total`
+//! ```
+//!
+//! Both checks have a greppable escape hatch for grandfathered metrics --
+//! `describe_unchecked` for the text, `metric_name_unchecked` for the name:
+//!
+//! ```
+//! #[derive(carbide_instrument::Event)]
+//! #[event(event_name = "demo", metric_name = "carbide_demo_total_total", component = "demo",
+//!         log = off, metric = counter, metric_name_unchecked,
+//!         describe = "Total number of demos", describe_unchecked)]
+//! struct Demo {}
 //! ```
 
 use std::time::Duration;
@@ -414,6 +457,7 @@ mod tests {
         component = "instrument_test",
         log = off,
         metric = counter,
+        describe = "Number of metric-only reserved-label test events",
     )]
     struct MetricOnlyReservedLabels {
         #[label]

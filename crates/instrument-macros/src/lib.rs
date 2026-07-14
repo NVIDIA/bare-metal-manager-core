@@ -94,7 +94,10 @@ fn expand_label_value(input: DeriveInput) -> syn::Result<TokenStream> {
 /// (enum via `LabelValue`; goes to both the log line and the metric),
 /// `#[context]` (any `Display`; log-only), or `#[observation]` (the histogram
 /// value). The metric name is validated at compile time: `carbide_` prefix,
-/// `_total` for counters, a unit suffix for histograms.
+/// `_total` for counters (never a doubled `_total_total`), a unit suffix for
+/// histograms. A counter's `describe` is checked too -- present and opening
+/// with "Number of ..." -- with `describe_unchecked` as the escape hatch for
+/// grandfathered text, mirroring `metric_name_unchecked` for names.
 #[proc_macro_derive(Event, attributes(event, label, context, observation))]
 pub fn derive_event(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
@@ -132,6 +135,7 @@ struct EventArgs {
     log: LogSpec,
     metric: MetricSpec,
     metric_name_unchecked: bool,
+    describe_unchecked: bool,
 }
 
 fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
@@ -145,6 +149,7 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
         log: LogSpec::Info,
         metric: MetricSpec::None,
         metric_name_unchecked: false,
+        describe_unchecked: false,
     };
     let mut saw_attr = false;
 
@@ -184,6 +189,8 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
                     "`name_unchecked` was renamed to `metric_name_unchecked` because it only \
                      relaxes validation of a grandfathered metric name",
                 ));
+            } else if meta.path.is_ident("describe_unchecked") {
+                args.describe_unchecked = true;
             } else if meta.path.is_ident("log") {
                 let ident: Ident = meta.value()?.parse()?;
                 args.log = match ident.to_string().as_str() {
@@ -216,7 +223,7 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
             } else {
                 return Err(meta.error(
                     "unknown `event` key; expected event_name, metric_name, component, message, \
-                     describe, log, metric, unit, or metric_name_unchecked",
+                     describe, log, metric, unit, metric_name_unchecked, or describe_unchecked",
                 ));
             }
             Ok(())
@@ -357,11 +364,28 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             ));
         }
         match args.metric {
-            MetricSpec::Counter if !metric_name_value.ends_with("_total") => {
-                return Err(syn::Error::new_spanned(
-                    metric_name,
-                    "counter names end in `_total` (Prometheus convention)",
-                ));
+            MetricSpec::Counter => {
+                if !metric_name_value.ends_with("_total") {
+                    return Err(syn::Error::new_spanned(
+                        metric_name,
+                        "counter names end in `_total` (Prometheus convention)",
+                    ));
+                }
+                // The OpenTelemetry instrument name must not carry `_total`
+                // itself: the Prometheus exporter appends it, so a name that
+                // still ends in `_total` after one is stripped ships a doubled
+                // `_total_total` series (the #3431 footgun).
+                if metric_name_value
+                    .strip_suffix("_total")
+                    .is_some_and(|base| base.ends_with("_total"))
+                {
+                    return Err(syn::Error::new_spanned(
+                        metric_name,
+                        "counter name ends in `_total_total`: the Prometheus exporter appends the \
+                         `_total` suffix, so the instrument name must carry only one. Drop a \
+                         `_total` (use metric_name_unchecked only to keep a grandfathered doubled name)",
+                    ));
+                }
             }
             MetricSpec::Histogram if histogram_unit.is_none() => {
                 return Err(syn::Error::new_spanned(
@@ -396,6 +420,32 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             "`describe` documents a metric (the Prometheus HELP text); this event has \
              metric = none",
         ));
+    }
+    // A counter's `describe` is its Prometheus HELP text and the row the
+    // `core_metrics.md` catalogue records, so a counter must document itself,
+    // and the tech-writer house rule is that the text opens with "Number of ".
+    // `describe_unchecked` is the escape hatch for a grandfathered describe --
+    // legacy phrasings, or the "Total number of ..." on a metric_name_unchecked
+    // counter -- mirroring `metric_name_unchecked` for names.
+    if args.metric == MetricSpec::Counter && !args.describe_unchecked {
+        match &args.describe {
+            None => {
+                return Err(syn::Error::new_spanned(
+                    &input.ident,
+                    "a counter must document itself: add describe = \"Number of ...\" (its \
+                     Prometheus HELP text, and the core_metrics.md catalogue row). Use \
+                     describe_unchecked to keep a grandfathered counter's describe",
+                ));
+            }
+            Some(describe) if !describe.value().starts_with("Number of ") => {
+                return Err(syn::Error::new_spanned(
+                    describe,
+                    "a counter's describe opens with \"Number of ...\" (the tech-writer house \
+                     rule). Use describe_unchecked to keep a grandfathered describe",
+                ));
+            }
+            Some(_) => {}
+        }
     }
     let unit_value: String = match (&args.unit, histogram_unit) {
         (Some(explicit), _) => explicit.value(),

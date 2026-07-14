@@ -586,6 +586,7 @@ dependencies = [
   "check-format-nightly",
   "check-event-names",
   "check-workspace-deps",
+  "check-metric-docs",
   "check-licenses",
   "check-bans",
 ]
@@ -836,6 +837,13 @@ script = [
 workspace = false
 description = "Check that production instrumented Events have unique event_name identities"
 script = ["cargo --quiet xtask check-event-names"]
+
+[tasks.check-metric-docs]
+workspace = false
+description = "Fail if a #[derive(Event)] counter/histogram is missing a row in docs/observability/core_metrics.md"
+script = [
+  "cargo --quiet xtask check-metric-docs || (RC=$?; echo 'To fix automatically, run `cargo xtask check-metric-docs --fix`'; exit $RC)",
+]
 
 [tasks.check-isolated-package-builds]
 workspace = false

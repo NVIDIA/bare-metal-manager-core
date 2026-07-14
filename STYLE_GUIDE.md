@@ -157,6 +157,30 @@ Networking technologies should be integrated using the workflows described in [N
 When designing metrics, be careful with cardinality. Do not attach highly unique labels that explode time-series
 count, like per-machine or per-instance attributes.
 
+## Instrumentation
+
+A significant event -- a count, a rate, or a duration -- is declared with the instrumentation framework
+(`carbide-instrument`) rather than by hand-rolling an OpenTelemetry instrument. One `#[derive(Event)]` declaration
+produces a structured log line, a Prometheus metric, or both from a single `emit()`, with metric cardinality bounded by
+the type system. See [Instrumentation](docs/observability/instrumentation.md) for the full model and when to use it.
+
+The canonical pattern, checked at compile time by the derive:
+
+- **`carbide_` prefix** on every metric name. The name in the attribute is the exposed name, verbatim, so a dashboard
+  greps straight back to the source line.
+- **`_total` suffix for counters** (never a doubled `_total_total` -- the Prometheus exporter appends the suffix), and a
+  **unit suffix for histograms** (`_seconds`, `_milliseconds`, `_microseconds`, `_bytes`).
+- **A counter's `describe` opens with "Number of ..."**. That HELP text is the row the
+  [core metrics catalogue](docs/observability/core_metrics.md) records, and every framework counter and histogram --
+  apart from a `name_unchecked` one, whose exposed name is an OTel-sanitized transform -- must appear there, enforced by
+  `cargo xtask check-metric-docs`. When it flags a missing row, run `cargo xtask check-metric-docs --fix` to add it
+  automatically, in sorted position -- no hand-editing the catalogue.
+- **Bounded `#[label]` fields; high-cardinality detail in `#[context]`**. Labels come from `LabelValue` enums; machine
+  IDs, IPs, and error text stay on the log line only.
+
+`name_unchecked` and `describe_unchecked` are the greppable escape hatches for grandfathered metrics; new metrics use
+the standard form.
+
 ## Logging
 
 All services should emit logs in "logfmt" syntax. This structured logging format allows administrators to efficiently

@@ -1386,6 +1386,8 @@ jobs:
 
       - name: Check instrumented event names
         run: cargo xtask check-event-names
+      - name: Check metric docs
+        run: cargo xtask check-metric-docs
 
       - name: Check licenses
         run: cargo make --no-workspace check-licenses
