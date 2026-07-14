@@ -6,7 +6,9 @@ The [Day One Operations](day_one_operations.md) guide uses this reference for al
 
 ## Installation
 
-Building `nicocli` or `nico-mcp` requires Go 1.26.4 or newer.
+Building `nicocli` or `nico-mcp` requires Go 1.26.4 or newer, plus working
+`git` and `make`. You also need write access to the selected install directory,
+and that directory must be on `$PATH` to invoke the installed binary by name.
 
 Build and install from the `rest-api/` directory of the `infra-controller` repo:
 
@@ -403,7 +405,7 @@ The `--query` flag is a **free-text search across `name`, `description`, and `st
 
 ### `--debug`
 
-The global `--debug` flag logs the full HTTP request and response for the wrapped command. The bearer token is redacted; everything else is visible:
+The global `--debug` flag logs the full HTTP request and response for the wrapped command. The bearer token is redacted; everything else is visible. Because `--debug` is a global flag, it must precede the resource and operation. By contrast, `--output` belongs to the generated operation and follows it.
 
 ```bash
 $ nicocli --debug tenant current
@@ -458,9 +460,15 @@ Build and run it from the `rest-api` directory:
 
 ```bash
 make nico-mcp
-nico-mcp --listen :8080 --path /mcp \
-  --base-url https://nico.example.com --org tester
+nico-mcp --listen :8080 \
+  --path /mcp \
+  --base-url https://nico.example.com \
+  --org tester
 ```
+
+The default `:8080` listen address binds port 8080 on all network interfaces.
+Use `127.0.0.1:8080` to restrict the server to loopback. `--listen` also accepts
+a hostname or fully qualified domain name followed by a port.
 
 The server has these properties:
 
@@ -483,6 +491,12 @@ The `nico-mcp` command takes the following flags:
 | `--api-name` | `NICO_API_NAME` | API path segment. Defaults to `nico`. |
 | `--token` | `NICO_TOKEN` | Default bearer token. |
 | `--debug` | None | Log full HTTP requests and responses. |
+
+`--shutdown-timeout` uses Go duration syntax: nanoseconds (`ns`), microseconds
+(`us`), milliseconds (`ms`), seconds (`s`), minutes (`m`), and hours (`h`).
+Combined and fractional values such as `2h45m` and `300ms` are accepted; days
+are not. There is no application-level minimum or maximum. Zero or negative
+values cause the shutdown deadline to expire immediately.
 
 Every generated tool also accepts `org`, `base_url`, `api_name`, and `token` arguments. For each call, an explicit tool argument takes precedence over the inbound authorization header for `token`, followed by the server startup default. The server does not read `~/.nico/config.yaml`; `org` and `base_url` must resolve from a tool argument, startup flag, or environment variable.
 

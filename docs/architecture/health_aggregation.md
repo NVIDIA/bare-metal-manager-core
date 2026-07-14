@@ -311,13 +311,14 @@ through these REST operations:
 
 The override API offers 2 different modes of operation:
 
-1. `Merge` - In this mode, any health probe alerts indicated in the override
-  will get merged with health probe alerts reported by built-in NICo tools in order
-  to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
-2. `Replace` - In this mode, the health probe alerts reported by built-in NICo
-  monitoring tools will be ignored. Only alerts that are passed as part of the
-  override will be taken into account. If the override list is empty, the system
-  will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
+`Merge` - In this mode, any health probe alerts indicated in the override
+will get merged with health probe alerts reported by built-in NICo tools in order
+to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
+
+`Replace` - In this mode, the health probe alerts reported by built-in NICo
+monitoring tools will be ignored. Only alerts that are passed as part of the
+override will be taken into account. If the override list is empty, the system
+will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
 
 The API allows multiple `Merge` overrides on a host at the same time by using a different `source` identifier for each report.
 This allows you to integrate health information from multiple external systems and users which are not at risk of overriding each other's data. For example, health information from an external fleet health monitoring system and from SREs can be stored independently.
