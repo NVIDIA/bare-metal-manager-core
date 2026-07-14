@@ -638,10 +638,13 @@ pub async fn batch_allocate_instances(
             instance_type_id: Some(instance_type_id.to_string()),
         };
 
-        let new_total_instance_count =
-            req_count + db::instance::find_ids(&mut txn, filter).await?.len();
+        // Saturate rather than wrap: an absurd request count then trips the
+        // limit check (fail closed) instead of going negative past it.
+        let new_total_instance_count = i64::try_from(req_count)
+            .unwrap_or(i64::MAX)
+            .saturating_add(db::instance::count_ids(&mut txn, filter).await?);
 
-        if new_total_instance_count > compute_allocation_total as usize {
+        if new_total_instance_count > i64::from(compute_allocation_total) {
             // # enforce_if_present:  Instance type not required in creation request. If sent and allocations are found for instance type ID, enforce it; otherwise, it's like no limits.
             // # always:              Instance type not required in creation request. If sent, enforce allocations.  If none are found, its a constraint value of 0 (i.e., you get nothing / default-deny).
             // # warn_only (default): Instance type not required in creation request. If sent in and allocations are found, don't enforce, but log what would have happened if they were enforced.
@@ -702,14 +705,20 @@ pub async fn batch_allocate_instances(
     )
     .await?;
 
-    for mid in &machine_ids {
-        let dpa_search_config = DpaSearchConfig::default();
-        let dpa_interfaces =
-            db::dpa_interface::find_by_machine_id(&mut txn, *mid, dpa_search_config).await?;
-        let machine_snapshot = snapshot_map.get(mid).unwrap();
-        let mut machine_snapshot = machine_snapshot.clone();
-        machine_snapshot.dpa_interface_snapshots = dpa_interfaces;
-        snapshot_map.insert(*mid, machine_snapshot.clone());
+    // Attach each machine's DPA interfaces to its snapshot in-place, loaded
+    // with a single batched query rather than one query per machine. The ids
+    // are sourced from the snapshot map itself (not the request list, which may
+    // hold duplicates) so the query keys and the removal keys are the same
+    // deduplicated set; each map key is visited exactly once, so `remove` is
+    // safe here.
+    let dpa_search_config = DpaSearchConfig::default();
+    let snapshot_ids: Vec<MachineId> = snapshot_map.keys().copied().collect();
+    let mut dpa_interfaces_by_machine =
+        db::dpa_interface::find_by_machine_ids(&mut txn, &snapshot_ids, dpa_search_config).await?;
+    for (machine_id, snapshot) in snapshot_map.iter_mut() {
+        snapshot.dpa_interface_snapshots = dpa_interfaces_by_machine
+            .remove(machine_id)
+            .unwrap_or_default();
     }
 
     // Verify all snapshots were loaded and validate usability

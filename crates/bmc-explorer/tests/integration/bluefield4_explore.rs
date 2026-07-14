@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use bmc_explorer::nv_generate_exploration_report;
-use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, test_support};
+use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, MachineInfo, test_support};
 use mac_address::MacAddress;
 use model::site_explorer::EndpointType;
 use tokio::test;
@@ -98,7 +98,16 @@ async fn explore_bluefield4_and_generate_machine_id_from_bluefield_bmc_chassis_s
 
 #[test]
 async fn explore_b4240v_and_generate_machine_id() {
-    let h = test_support::nvidia_dgx_vr_bluefield4_dpu_bmc(DpuSettings::default()).await;
+    let host_mac_address = MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x14, 0x02]);
+    let h = test_support::bmc_for_machine(MachineInfo::Dpu(DpuMachineInfo {
+        hw_type: HostHardwareType::NvidiaDgxVr,
+        bmc_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x14, 0x01]),
+        host_mac_address,
+        oob_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x14, 0x03]),
+        serial: "MT2610604VN5".to_string(),
+        settings: DpuSettings::default(),
+    }))
+    .await;
     let mut report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .expect("B4240V exploration should succeed");
@@ -108,6 +117,15 @@ async fn explore_b4240v_and_generate_machine_id() {
     assert!(report.chassis.iter().any(|chassis| {
         chassis.id == "BlueField_BMC_0" && chassis.model.as_deref() == Some("B4240V")
     }));
+    assert_eq!(
+        report
+            .systems
+            .first()
+            .expect("systems must be present")
+            .base_mac
+            .map(|mac| mac.to_mac()),
+        Some(host_mac_address)
+    );
 
     let machine_id = report
         .generate_machine_id(false)

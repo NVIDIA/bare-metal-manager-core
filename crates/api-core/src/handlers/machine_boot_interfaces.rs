@@ -112,6 +112,25 @@ pub(crate) async fn get_machine_boot_interfaces(
     let effective_mac = effective.map(|i| i.mac_address);
     let effective_boot_interface = effective.and_then(|i| i.boot_interface());
 
+    // The default pick: the same selection with the primary flag masked --
+    // what the automation would choose if nothing were declared. Reported so
+    // the candidates view can show whether a primary designation is
+    // overriding the automatic choice.
+    let default_pick = model::machine::pick_default_boot_interface(&owned_interfaces);
+    let default_boot_interface = boot_interface_message(
+        default_pick.map(|i| i.mac_address),
+        default_pick.and_then(|i| i.boot_interface()),
+    );
+
+    // The predicted pick: what `pick_boot_prediction` would boot from while
+    // the machine is still waiting on its first DHCP lease. `None` also when
+    // the pick refuses to guess among several undeclared predictions.
+    let predicted_pick = model::machine::pick_boot_prediction(&predicted_interfaces);
+    let predicted_boot_interface = boot_interface_message(
+        predicted_pick.map(|p| p.mac_address),
+        predicted_pick.and_then(|p| p.boot_interface()),
+    );
+
     // Divergence: do the stores agree on which MAC boots this machine? We
     // compare the boot-MAC signals each store offers -- the effective owned
     // pick, every explored endpoint's recorded default, and any predicted NIC
@@ -144,6 +163,7 @@ pub(crate) async fn get_machine_boot_interfaces(
                 primary_interface: i.primary_interface,
                 boot_interface_id: i.boot_interface_id.clone(),
                 network_segment_type: i.network_segment_type.map(|t| t.to_string()),
+                interface_id: Some(i.id),
             })
             .collect(),
         predicted_interfaces: predicted_interfaces
@@ -174,5 +194,23 @@ pub(crate) async fn get_machine_boot_interfaces(
         effective_boot_interface_mac: effective_mac.map(|m| m.to_string()),
         effective_boot_interface_id: effective_boot_interface.map(|b| b.interface_id),
         divergent,
+        default_boot_interface,
+        predicted_boot_interface,
     }))
+}
+
+/// The wire form of a pick: the complete pair when captured, else the MAC
+/// alone -- whatever halves exist travel.
+fn boot_interface_message(
+    mac: Option<MacAddress>,
+    pair: Option<model::machine_boot_interface::MachineBootInterface>,
+) -> Option<rpc::MachineBootInterface> {
+    match (mac, pair) {
+        (_, Some(pair)) => Some(pair.into()),
+        (Some(mac), None) => Some(rpc::MachineBootInterface {
+            mac_address: mac.to_string(),
+            interface_id: None,
+        }),
+        (None, None) => None,
+    }
 }

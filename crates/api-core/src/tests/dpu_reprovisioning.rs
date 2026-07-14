@@ -1159,6 +1159,12 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_reboot_retry(pool: sqlx::PgPool) {
+    // The reconcile-heavy body builds a future too large for the test
+    // thread's stack in debug builds; box it like its siblings above.
+    Box::pin(test_reboot_retry_impl(pool)).await;
+}
+
+async fn test_reboot_retry_impl(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
     let mut txn = env.pool.begin().await.unwrap();

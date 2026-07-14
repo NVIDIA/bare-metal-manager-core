@@ -29,6 +29,21 @@ type Store interface {
 	// CreateTask creates a new task record.
 	CreateTask(ctx context.Context, task *taskdef.Task) error
 
+	// LockRack takes a transaction-scoped lock for rack-level task admission.
+	// Callers must invoke it inside RunInTransaction before conflict checks.
+	LockRack(ctx context.Context, rackID uuid.UUID) error
+
+	// LockIdempotencyKey takes a transaction-scoped lock for stable submission
+	// lookup and resume. Callers must invoke it inside RunInTransaction.
+	LockIdempotencyKey(ctx context.Context, key string) error
+
+	// GetTaskByIdempotencyKey retrieves the existing task for a stable
+	// submission key. It returns nil when no task exists for the key.
+	GetTaskByIdempotencyKey(
+		ctx context.Context,
+		key string,
+	) (*taskdef.Task, error)
+
 	// GetTask retrieves a single task by its ID.
 	// Returns an error if the task is not found.
 	GetTask(ctx context.Context, id uuid.UUID) (*taskdef.Task, error)

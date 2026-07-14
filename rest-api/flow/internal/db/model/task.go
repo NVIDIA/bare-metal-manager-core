@@ -46,12 +46,60 @@ type Task struct {
 	// QueueExpiresAt is set only for waiting tasks. After this time, the
 	// Promoter will discard the task instead of promoting it.
 	QueueExpiresAt *time.Time `bun:"queue_expires_at"`
+
+	IdempotencyKey string `bun:"idempotency_key,nullzero"`
+}
+
+func (t *Task) HasIdempotencyKey() bool {
+	return t != nil && t.IdempotencyKey != ""
 }
 
 // Create inserts the task record into the backing store.
 func (t *Task) Create(ctx context.Context, idb bun.IDB) error {
 	_, err := idb.NewInsert().Model(t).Exec(ctx)
 	return err
+}
+
+// CreateOrGetByIdempotencyKey inserts the task or returns the existing task
+// carrying the same idempotency key.
+func (t *Task) CreateOrGetByIdempotencyKey(
+	ctx context.Context,
+	idb bun.IDB,
+) (*Task, bool, error) {
+	if !t.HasIdempotencyKey() {
+		return nil, false, fmt.Errorf("idempotency key is required")
+	}
+
+	// First try to insert the candidate task. The partial unique index on
+	// idempotency_key lets Postgres arbitrate concurrent submissions for the
+	// same logical request.
+	result, err := idb.NewInsert().
+		Model(t).
+		On("CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING").
+		Exec(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, false, err
+	}
+
+	// A non-zero row count means this call created the task and the caller can
+	// continue with the candidate row it supplied.
+	if rowsAffected > 0 {
+		return t, true, nil
+	}
+
+	// No row was inserted, so another attempt already created the task. Return
+	// the persisted row so callers can recover the task ID and scheduling state.
+	existing, err := GetTaskByIdempotencyKey(ctx, idb, t.IdempotencyKey)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return existing, false, nil
 }
 
 // UpdateScheduledTask updates the scheduled task information.
@@ -240,6 +288,26 @@ func GetTask(ctx context.Context, idb bun.IDB, id uuid.UUID) (*Task, error) {
 	if err := idb.NewSelect().
 		Model(&task).
 		Where("id = ?", id).
+		Scan(ctx); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// GetTaskByIdempotencyKey retrieves one task by its stable submission key.
+func GetTaskByIdempotencyKey(
+	ctx context.Context,
+	idb bun.IDB,
+	key string,
+) (*Task, error) {
+	if key == "" {
+		return nil, fmt.Errorf("idempotency key is required")
+	}
+
+	var task Task
+	if err := idb.NewSelect().
+		Model(&task).
+		Where("idempotency_key = ?", key).
 		Scan(ctx); err != nil {
 		return nil, err
 	}

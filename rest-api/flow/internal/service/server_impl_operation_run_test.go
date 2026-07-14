@@ -17,6 +17,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/converter/protobuf"
 	dbquery "github.com/NVIDIA/infra-controller/rest-api/flow/internal/db/query"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/operation"
 	operationrun "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun"
 	operationrunmanager "github.com/NVIDIA/infra-controller/rest-api/flow/internal/operationrun/manager"
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
@@ -354,6 +355,92 @@ func TestListOperationRunTargetsMapsMissingRunToNotFound(t *testing.T) {
 	require.Equal(t, 1, manager.listTargetsCalls)
 }
 
+func TestPauseOperationRunCallsManager(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := &mockOperationRunManager{
+		pauseRun: testOperationRun(t, runID),
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.PauseOperationRun(
+		context.Background(),
+		&pb.PauseOperationRunRequest{Id: protobuf.UUIDTo(runID)},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, manager.pauseCalls)
+	require.Equal(t, runID, manager.pauseID)
+	require.Equal(t, runID.String(), resp.GetSummary().GetId().GetId())
+}
+
+func TestResumeOperationRunCallsManager(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := &mockOperationRunManager{
+		resumeRun: testOperationRun(t, runID),
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.ResumeOperationRun(
+		context.Background(),
+		&pb.ResumeOperationRunRequest{Id: protobuf.UUIDTo(runID)},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, manager.resumeCalls)
+	require.Equal(t, runID, manager.resumeID)
+	require.Equal(t, runID.String(), resp.GetSummary().GetId().GetId())
+}
+
+func TestAdvanceOperationRunPhaseCallsManager(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	expectedPhase := int32(2)
+	manager := &mockOperationRunManager{
+		advanceRun: testOperationRun(t, runID),
+	}
+	server := &FlowServerImpl{operationRunManager: manager}
+
+	resp, err := server.AdvanceOperationRunPhase(
+		context.Background(),
+		&pb.AdvanceOperationRunPhaseRequest{
+			Id:                 protobuf.UUIDTo(runID),
+			ExpectedPhaseIndex: &expectedPhase,
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, manager.advanceCalls)
+	require.Equal(t, runID, manager.advanceID)
+	require.NotNil(t, manager.advanceExpectedPhaseIndex)
+	require.Equal(t, expectedPhase, *manager.advanceExpectedPhaseIndex)
+	require.Equal(t, runID.String(), resp.GetSummary().GetId().GetId())
+}
+
+func TestCancelOperationRunCallsManager(t *testing.T) {
+	runID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	manager := &mockOperationRunManager{
+		cancelRun: testOperationRun(t, runID),
+	}
+	server := &FlowServerImpl{
+		operationRunManager: manager,
+		taskManager:         &fakeOperationRunTaskManager{},
+	}
+
+	resp, err := server.CancelOperationRun(
+		context.Background(),
+		&pb.CancelOperationRunRequest{
+			Id:     protobuf.UUIDTo(runID),
+			Reason: "operator requested",
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, manager.cancelCalls)
+	require.Equal(t, runID, manager.cancelID)
+	require.Equal(t, "operator requested", manager.cancelReason)
+	require.NotNil(t, manager.cancelCanceller)
+	require.Equal(t, runID.String(), resp.GetSummary().GetId().GetId())
+}
+
 type mockOperationRunManager struct {
 	createID    uuid.UUID
 	createErr   error
@@ -379,6 +466,29 @@ type mockOperationRunManager struct {
 	listTargetsOpts        operationrun.TargetListOptions
 	listTargetsOptsHistory []operationrun.TargetListOptions
 	pageListTargets        bool
+
+	pauseRun   *operationrun.OperationRun
+	pauseErr   error
+	pauseCalls int
+	pauseID    uuid.UUID
+
+	resumeRun   *operationrun.OperationRun
+	resumeErr   error
+	resumeCalls int
+	resumeID    uuid.UUID
+
+	advanceRun                *operationrun.OperationRun
+	advanceErr                error
+	advanceCalls              int
+	advanceID                 uuid.UUID
+	advanceExpectedPhaseIndex *int32
+
+	cancelRun       *operationrun.OperationRun
+	cancelErr       error
+	cancelCalls     int
+	cancelID        uuid.UUID
+	cancelReason    string
+	cancelCanceller operationrunmanager.TaskCanceller
 }
 
 func (m *mockOperationRunManager) Create(
@@ -448,6 +558,83 @@ func (m *mockOperationRunManager) ListTargets(
 	}
 
 	return targets, m.listTargetsTotal, nil
+}
+
+func (m *mockOperationRunManager) Pause(
+	_ context.Context,
+	id uuid.UUID,
+) (*operationrun.OperationRun, error) {
+	m.pauseCalls++
+	m.pauseID = id
+	if m.pauseErr != nil {
+		return nil, m.pauseErr
+	}
+
+	return m.pauseRun, nil
+}
+
+func (m *mockOperationRunManager) Resume(
+	_ context.Context,
+	id uuid.UUID,
+) (*operationrun.OperationRun, error) {
+	m.resumeCalls++
+	m.resumeID = id
+	if m.resumeErr != nil {
+		return nil, m.resumeErr
+	}
+
+	return m.resumeRun, nil
+}
+
+func (m *mockOperationRunManager) AdvancePhase(
+	_ context.Context,
+	id uuid.UUID,
+	expectedPhaseIndex *int32,
+) (*operationrun.OperationRun, error) {
+	m.advanceCalls++
+	m.advanceID = id
+	m.advanceExpectedPhaseIndex = expectedPhaseIndex
+	if m.advanceErr != nil {
+		return nil, m.advanceErr
+	}
+
+	return m.advanceRun, nil
+}
+
+func (m *mockOperationRunManager) Cancel(
+	_ context.Context,
+	id uuid.UUID,
+	reason string,
+	canceller operationrunmanager.TaskCanceller,
+) (*operationrun.OperationRun, error) {
+	m.cancelCalls++
+	m.cancelID = id
+	m.cancelReason = reason
+	m.cancelCanceller = canceller
+	if m.cancelErr != nil {
+		return nil, m.cancelErr
+	}
+
+	return m.cancelRun, nil
+}
+
+type fakeOperationRunTaskManager struct{}
+
+func (*fakeOperationRunTaskManager) Start(context.Context) error {
+	return nil
+}
+
+func (*fakeOperationRunTaskManager) Stop(context.Context) {}
+
+func (*fakeOperationRunTaskManager) SubmitTask(
+	context.Context,
+	*operation.Request,
+) ([]uuid.UUID, error) {
+	return nil, nil
+}
+
+func (*fakeOperationRunTaskManager) CancelTask(context.Context, uuid.UUID) error {
+	return nil
 }
 
 func cloneTargetListOptions(opts operationrun.TargetListOptions) operationrun.TargetListOptions {

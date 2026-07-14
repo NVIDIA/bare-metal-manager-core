@@ -235,6 +235,8 @@ type APISite struct {
 	Contact *APISiteContact `json:"contact"`
 	// MachineStats holds machine counts by status for a site
 	MachineStats *APISiteMachineStats `json:"machineStats"`
+	// GpuStats holds GPU summary stats grouped by GPU type for a site
+	GpuStats *[]APIMachineGPUStats `json:"gpuStats"`
 	// Capabilities holds the capabilities, currently for use
 	// as site-level feature flagging.
 	Capabilities *APISiteCapabilities `json:"capabilities"`

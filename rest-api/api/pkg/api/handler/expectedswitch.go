@@ -121,7 +121,7 @@ func (cesh CreateExpectedSwitchHandler) Handle(c echo.Context) error {
 	// Check for duplicate MAC address. The DB enforces UNIQUE (bmc_mac_address, site_id),
 	// but we pre-check here so we can return the conflicting record's ID in the response.
 	esDAO := cdbm.NewExpectedSwitchDAO(cesh.dbSession)
-	ess, count, err := esDAO.GetAll(ctx, nil, cdbm.ExpectedSwitchFilterInput{
+	ess, _, err := esDAO.GetAll(ctx, nil, cdbm.ExpectedSwitchFilterInput{
 		BmcMacAddresses: []string{apiRequest.BmcMacAddress},
 		SiteIDs:         []uuid.UUID{site.ID},
 	}, paginator.PageInput{
@@ -133,12 +133,36 @@ func (cesh CreateExpectedSwitchHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate MAC address uniqueness on Site due to DB error", nil)
 	}
 
-	if count > 0 {
+	if len(ess) > 0 {
 		logger.Warn().Str("MacAddress", apiRequest.BmcMacAddress).Msg("Expected Switch with specified MAC address already exists on Site")
 
 		return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Expected Switch with specified MAC address already exists on Site", validation.Errors{
 			"id": errors.New(ess[0].ID.String()),
 		})
+	}
+
+	// NVOS MACs identify the switch's management ports during discovery, so a
+	// MAC claimed by another Expected Switch on the Site is a conflict.
+	if len(apiRequest.NvosMacAddresses) > 0 {
+		conflicts, _, derr := esDAO.GetAll(ctx, nil, cdbm.ExpectedSwitchFilterInput{
+			NvosMacAddresses: apiRequest.NvosMacAddresses,
+			SiteIDs:          []uuid.UUID{site.ID},
+		}, paginator.PageInput{
+			Limit: cutil.GetPtr(1),
+		}, nil)
+
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error checking for duplicate NVOS MAC addresses on Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate NVOS MAC address uniqueness on Site due to DB error", nil)
+		}
+
+		if len(conflicts) > 0 {
+			logger.Warn().Strs("NvosMacAddresses", apiRequest.NvosMacAddresses).Msg("Expected Switch with specified NVOS MAC address already exists on Site")
+
+			return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Expected Switch with specified NVOS MAC address already exists on Site", validation.Errors{
+				"id": errors.New(conflicts[0].ID.String()),
+			})
+		}
 	}
 
 	expectedSwitch, err := cdb.WithTxResult(ctx, cesh.dbSession, func(tx *cdb.Tx) (*cdbm.ExpectedSwitch, error) {
@@ -580,6 +604,32 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 
 	if !hasAccess {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Switch", nil)
+	}
+
+	// NVOS MACs identify the switch's management ports during discovery, so a
+	// MAC claimed by another Expected Switch on the Site is a conflict. The
+	// switch being updated is excluded so re-asserting its own MACs stays valid.
+	if len(apiRequest.NvosMacAddresses) > 0 {
+		conflicts, _, derr := esDAO.GetAll(ctx, nil, cdbm.ExpectedSwitchFilterInput{
+			NvosMacAddresses:         apiRequest.NvosMacAddresses,
+			SiteIDs:                  []uuid.UUID{site.ID},
+			ExcludeExpectedSwitchIDs: []uuid.UUID{expectedSwitch.ID},
+		}, paginator.PageInput{
+			Limit: cutil.GetPtr(1),
+		}, nil)
+
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error checking for duplicate NVOS MAC addresses on Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to validate NVOS MAC address uniqueness on Site due to DB error", nil)
+		}
+
+		if len(conflicts) > 0 {
+			logger.Warn().Strs("NvosMacAddresses", apiRequest.NvosMacAddresses).Msg("Expected Switch with specified NVOS MAC address already exists on Site")
+
+			return cutil.NewAPIErrorResponse(c, http.StatusConflict, "Expected Switch with specified NVOS MAC address already exists on Site", validation.Errors{
+				"id": errors.New(conflicts[0].ID.String()),
+			})
+		}
 	}
 
 	updatedExpectedSwitch, err := cdb.WithTxResult(ctx, uesh.dbSession, func(tx *cdb.Tx) (*cdbm.ExpectedSwitch, error) {

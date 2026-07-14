@@ -21,6 +21,12 @@ var (
 	ErrOperationRunNotFound = errors.New("operation run not found")
 	// ErrNoPlannedTargets reports that planning produced no executable targets.
 	ErrNoPlannedTargets = errors.New("operation run has no planned targets")
+	// ErrOperationRunInvalidState reports that a manual lifecycle operation
+	// cannot be applied to the run's current state.
+	ErrOperationRunInvalidState = errors.New("operation run is not in a valid state for the requested operation")
+	// ErrOperationRunSafetyGateTripped reports that resuming would immediately
+	// violate the configured safety policy.
+	ErrOperationRunSafetyGateTripped = errors.New("operation run safety gate is tripped")
 )
 
 // Create persists an operation run and its frozen planned targets.

@@ -72,13 +72,17 @@ pub struct Config<'a, B: Bmc> {
     pub retry_timeout: Duration,
 }
 
+fn is_bf4_product(product: Option<Product<&str>>) -> bool {
+    // TODO: we should use part_number similar to BF3.
+    product == Some(Product::new("B4240V")) || product == Some(Product::new("BlueField-4"))
+}
+
 /// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
 /// and the [`detect_hw_type`] accessor, so detection cannot drift between them.
 fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Config {
     let is_nvidia_vendor = root.vendor() == Some(Vendor::new("Nvidia"))
         || root.vendor() == Some(Vendor::new("NVIDIA"));
-    let is_bf4_product = root.product() == Some(Product::new("B4240V"));
-    let need_bf4_network_device_fns = is_nvidia_vendor && is_bf4_product;
+    let need_bf4_network_device_fns = is_nvidia_vendor && is_bf4_product(root.product());
 
     chassis::Config {
         network_adapter: network_adapter::Config {

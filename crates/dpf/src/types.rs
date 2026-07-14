@@ -52,8 +52,14 @@ pub const DTS_SERVICE_NAME: &str = "dts";
 /// DPUDeployment, service templates, etc.) during initialization.
 #[derive(Debug, Clone)]
 pub struct InitDpfResourcesConfig {
-    /// URL for the BFB (BlueField Bundle) image.
+    /// URL for the BFB (BlueField Bundle) image. Used for BF3-class DPUs.
+    /// Ignored when [`bluefield_software`](Self::bluefield_software) is set.
     pub bfb_url: String,
+    /// BlueFieldSoftware spec for BF4-class DPUs. When set, a `BlueFieldSoftware`
+    /// CR is created and referenced by the DPUDeployment instead of a BFB, and
+    /// [`bfb_url`](Self::bfb_url) is ignored. Exactly one provisioning source
+    /// (BFB or BlueFieldSoftware) is expected per deployment.
+    pub bluefield_software: Option<BlueFieldSoftwareParams>,
     /// Name of the DPUDeployment CR.
     pub deployment_name: String,
     /// Name of the DPUFlavor CR.
@@ -67,10 +73,23 @@ pub struct InitDpfResourcesConfig {
     pub deployment_type: DpuDeploymentType,
 }
 
+/// Parameters for a `BlueFieldSoftware` CR, used to provision BF4-class DPUs.
+/// Mirrors the `spec` of the `provisioning.dpu.nvidia.com/v1alpha1`
+/// `BlueFieldSoftware` resource.
+#[derive(Debug, Clone)]
+pub struct BlueFieldSoftwareParams {
+    /// OS ISO URL used by the DPU OS installation flow (`spec.osIso`).
+    pub os_iso: String,
+    /// Optional PLDM firmware bundle URL for baseline firmware updates
+    /// (`spec.pldmFwBundle`).
+    pub pldm_fw_bundle: Option<String>,
+}
+
 impl Default for InitDpfResourcesConfig {
     fn default() -> Self {
         Self {
             bfb_url: String::new(),
+            bluefield_software: None,
             deployment_name: "dpu-deployment".to_string(),
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
@@ -244,6 +263,9 @@ pub struct DpuFlavorBridgeDefinition {
 
 /// Deployment type of a DPU — used to route devices to the correct
 /// DPUDeployment and select the appropriate DPUFlavor configuration.
+///
+/// BF4-class DPUs are provisioned from a single `BlueFieldSoftware` CR (the CR
+/// itself carries the PSID→PLDM mapping), so there is one BF4 deployment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DpuDeploymentType {
     Bf3,
@@ -267,8 +289,6 @@ pub struct DpuDeviceInfo {
     pub dpu_machine_id: String,
     /// is _primary dpu?
     pub is_primary: bool,
-    /// Deployment type for this DPU — used to look up deployment-specific labels.
-    pub deployment_type: DpuDeploymentType,
 }
 
 /// Information about a DPU node (host with DPUs).
@@ -350,6 +370,7 @@ impl From<DpuStatusPhase> for DpuPhase {
             DpuStatusPhase::PerformArmForceRestart => {
                 Self::Provisioning("PerformArmForceRestart".into())
             }
+            DpuStatusPhase::UpdateFirmware => Self::Provisioning("UpdateFirmware".into()),
         }
     }
 }

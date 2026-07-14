@@ -31,20 +31,29 @@ carbide-instrument = { path = "../instrument" }
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
+bytes = { workspace = true }
 chrono = { workspace = true }
 dashmap = { workspace = true }
 figment = { workspace = true, features = ["toml", "env"] }
 futures = { workspace = true }
 http = { workspace = true }
+http-body-util = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 hyper = { workspace = true }
-hyper-rustls = { workspace = true, features = ["http2"] }
-hyper-util = { workspace = true }
+hyper-rustls = { workspace = true, features = ["http1", "http2"] }
+hyper-util = { workspace = true, features = [
+  "client-legacy",
+  "http1",
+  "http2",
+  "tokio",
+] }
 mac_address = { workspace = true }
+metrics-endpoint = { path = "../metrics-endpoint" }
 prometheus = { workspace = true }
-reqwest = { workspace = true, features = ["query", "json"] }
+reqwest = { workspace = true, features = ["query", "json", "rustls"] }
 rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
@@ -80,6 +89,7 @@ nv-redfish = { workspace = true, features = [
 ] }
 rand = { workspace = true }
 url = { workspace = true, features = ["serde"] }
+x509-parser = { workspace = true }
 
 # [local-dependencies]
 carbide-health-report = { path = "../health-report" }
@@ -98,9 +108,12 @@ tonic-prost-build = { workspace = true }
 bench-hooks = []
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 criterion = { workspace = true }
+rcgen = { workspace = true }
 tempfile = { workspace = true }
+time = { workspace = true }
 
 [[bench]]
 name = "sink_pipeline"

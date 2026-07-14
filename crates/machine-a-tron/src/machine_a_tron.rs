@@ -48,6 +48,8 @@ impl MachineATron {
     }
 
     pub async fn make_machines(&self, paused: bool) -> eyre::Result<Vec<HostMachineHandle>> {
+        self.app_context.app_config.validate()?;
+
         let mut persisted_machines = self
             .app_context
             .app_config
@@ -136,8 +138,22 @@ impl MachineATron {
         };
 
         if self.app_context.app_config.register_expected_machines {
+            for (rack_id, rack) in &self.app_context.app_config.racks {
+                self.app_context
+                    .api_client()
+                    .ensure_expected_rack(rack_id.clone(), rack.rack_profile_id.clone())
+                    .await?;
+            }
+
             for machine in &machines {
                 let host_info = machine.host_info();
+                let machine_config = self
+                    .app_context
+                    .app_config
+                    .machines
+                    .get(machine.machine_config_section())
+                    .expect("machine was constructed from a configured machine group");
+                let rack_id = machine_config.rack_id.clone();
                 let result = match host_info.hw_type {
                     HostHardwareType::LiteOnPowerShelf => {
                         self.app_context
@@ -145,6 +161,7 @@ impl MachineATron {
                             .add_expected_power_shelf(
                                 host_info.bmc_mac_address.to_string(),
                                 host_info.serial.clone(),
+                                rack_id,
                             )
                             .await
                     }
@@ -162,6 +179,7 @@ impl MachineATron {
                                     .iter()
                                     .map(|mac| mac.to_string())
                                     .collect(),
+                                rack_id,
                             )
                             .await
                     }
@@ -172,25 +190,19 @@ impl MachineATron {
                         // else defers to the absolute default (DpuMode).
                         // Site-explorer's ingestion gate requires this explicit
                         // declaration for any host without DPU PCIe devices.
-                        let dpu_mode = self
-                            .app_context
-                            .app_config
-                            .machines
-                            .get(machine.machine_config_section())
-                            .and_then(|config| {
-                                if config.dpu_per_host_count == 0 {
-                                    Some(DpuMode::NoDpu)
-                                } else if config.dpus_in_nic_mode {
-                                    Some(DpuMode::NicMode)
-                                } else {
-                                    None
-                                }
-                            });
+                        let dpu_mode = if machine_config.dpu_per_host_count == 0 {
+                            Some(DpuMode::NoDpu)
+                        } else if machine_config.dpus_in_nic_mode {
+                            Some(DpuMode::NicMode)
+                        } else {
+                            None
+                        };
                         self.app_context
                             .api_client()
                             .add_expected_machine(
                                 host_info.bmc_mac_address.to_string(),
                                 host_info.serial.clone(),
+                                rack_id,
                                 dpu_mode,
                             )
                             .await

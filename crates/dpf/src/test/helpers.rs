@@ -213,6 +213,11 @@ pub(crate) fn make_status(phase: DpuStatusPhase) -> DpuStatus {
         previous_phase: None,
         redfish_task_id: None,
         secure_boot: None,
+        deployment_mode: None,
+        hostless: None,
+        identity_mode: None,
+        outdated: None,
+        reboot_status: None,
     }
 }
 
@@ -230,7 +235,7 @@ pub(crate) fn make_dpu(
             ..Default::default()
         },
         spec: DpuSpec {
-            bfb: "bfb".into(),
+            bfb: Some("bfb".to_string()),
             bmc_ip: Some("10.0.0.100".into()),
             cluster: None,
             dpu_device_name: device.into(),
@@ -251,6 +256,7 @@ pub(crate) fn make_dpu(
             serial_number: "SN".into(),
             blue_field_software: None,
             secure_boot: None,
+            astra_enabled: None,
         },
         status: Some(make_status(phase)),
     }

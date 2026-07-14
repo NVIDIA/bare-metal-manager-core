@@ -56,6 +56,7 @@ impl Run for Args {
                     .map(|dl| ::rpc::forge::HostLifecycleProfile {
                         disable_lockdown: Some(dl),
                     }),
+                self.host_nics,
             )
             .await?;
         Ok(())

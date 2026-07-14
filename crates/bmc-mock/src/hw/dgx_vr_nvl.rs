@@ -34,6 +34,10 @@ pub struct DgxVrNvl<'a> {
 }
 
 impl DgxVrNvl<'_> {
+    const BLUEFIELD_CHASSIS_ID: &'static str = "BlueField_0";
+    const BLUEFIELD_NIC_ID: &'static str = "BlueField_NIC_0";
+    const BLUEFIELD_PCIE_DEVICE_ID: &'static str = "BlueField_0";
+
     pub fn manager_config(&self) -> redfish::manager::Config {
         let bmc_manager_id = "BMC_0";
         let bmc_eth_builder = |eth| {
@@ -154,6 +158,7 @@ impl DgxVrNvl<'_> {
                     leak_detectors: None,
                     ..redfish::chassis::SingleChassisConfig::defaults()
                 },
+                self.bluefield_chassis_config(),
                 redfish::chassis::SingleChassisConfig {
                     id: "HGX_Chassis_0".into(),
                     chassis_type: "Zone".into(),
@@ -167,6 +172,63 @@ impl DgxVrNvl<'_> {
                 },
             ],
         }
+    }
+
+    fn bluefield_chassis_config(&self) -> redfish::chassis::SingleChassisConfig {
+        let bf4 = self.dpu.host_nic();
+        redfish::chassis::SingleChassisConfig {
+            id: Self::BLUEFIELD_CHASSIS_ID.into(),
+            chassis_type: "Component".into(),
+            manufacturer: Some("NVIDIA".into()),
+            model: bf4.model.clone(),
+            part_number: bf4.part_number.clone(),
+            serial_number: bf4.serial_number.clone(),
+            network_adapters: Some(vec![self.bluefield_network_adapter()]),
+            pcie_devices: Some(vec![
+                redfish::pcie_device::builder_from_nic(
+                    &redfish::pcie_device::chassis_resource(
+                        Self::BLUEFIELD_CHASSIS_ID,
+                        Self::BLUEFIELD_PCIE_DEVICE_ID,
+                    ),
+                    &bf4,
+                )
+                .status(redfish::resource::Status::Ok)
+                .build(),
+            ]),
+            sensors: None,
+            leak_detectors: None,
+            ..redfish::chassis::SingleChassisConfig::defaults()
+        }
+    }
+
+    fn bluefield_network_adapter(&self) -> redfish::network_adapter::NetworkAdapter {
+        let network_device_functions = ["0", "1"]
+            .into_iter()
+            .map(|id| {
+                redfish::network_device_function::builder(
+                    &redfish::network_device_function::chassis_resource(
+                        Self::BLUEFIELD_CHASSIS_ID,
+                        Self::BLUEFIELD_NIC_ID,
+                        id,
+                    ),
+                )
+                .build()
+            })
+            .collect();
+
+        redfish::network_adapter::builder(&redfish::network_adapter::chassis_resource(
+            Self::BLUEFIELD_CHASSIS_ID,
+            Self::BLUEFIELD_NIC_ID,
+        ))
+        .network_device_functions(
+            &redfish::network_device_function::chassis_collection(
+                Self::BLUEFIELD_CHASSIS_ID,
+                Self::BLUEFIELD_NIC_ID,
+            ),
+            network_device_functions,
+        )
+        .status(redfish::resource::Status::Ok)
+        .build()
     }
 
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {

@@ -187,6 +187,7 @@ func TaskFrom(dao *model.Task) *taskdef.Task {
 		StartedAt:      dao.StartedAt,
 		FinishedAt:     dao.FinishedAt,
 		QueueExpiresAt: dao.QueueExpiresAt,
+		IdempotencyKey: dao.IdempotencyKey,
 	}
 }
 
@@ -319,6 +320,7 @@ func TaskTo(task *taskdef.Task) *model.Task {
 		Report:         task.Report,
 		AppliedRuleID:  task.AppliedRuleID,
 		QueueExpiresAt: task.QueueExpiresAt,
+		IdempotencyKey: task.IdempotencyKey,
 	}
 }
 

@@ -25,9 +25,12 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// The kind of BlueField/Mellanox device, classified from its part number. A
-// BlueField-3's part number records the mode it is operating in: 900-9D3B4
-// (NIC), 900-9D3B6 (DPU), 900-9D3D4 (SuperNIC).
+// The kind of BlueField/Mellanox device, classified from its part number. The
+// part number identifies the factory SKU, not the operating mode: 900-9D3B6 is
+// a BlueField-3 DPU product, 900-9D3B4 and 900-9D3D4 are BlueField-3 SuperNIC
+// products. A DPU/NIC mode flip does not change it -- nic_mode carries the
+// operating mode. The *_MODE value names are frozen from when this was
+// believed to track the operating mode.
 type MlxDeviceKind int32
 
 const (
@@ -1322,7 +1325,9 @@ type ExploredMlxDevice struct {
 	// DPU we have explored -- the address to target for a firmware push.
 	DpuBmcIp *string `protobuf:"bytes,9,opt,name=dpu_bmc_ip,json=dpuBmcIp,proto3,oneof" json:"dpu_bmc_ip,omitempty"`
 	// The DPU's authoritative operating mode, read from its own Redfish endpoint
-	// when matched.
+	// when matched. This is the mode the card is running in right now; it
+	// legitimately differs from the SKU-derived device_kind for a DPU
+	// reconfigured to run as a NIC.
 	NicMode       *NicMode `protobuf:"varint,10,opt,name=nic_mode,json=nicMode,proto3,enum=site_explorer.NicMode,oneof" json:"nic_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

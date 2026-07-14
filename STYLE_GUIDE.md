@@ -53,7 +53,7 @@ Other common places where we've seen `#[allow(dead_code)]` that are not necessar
 
 Prefer **table-driven tests** for any function that maps inputs to outputs, errors, or other observable results —
 parsers, validators, conversions, serde round-trips, formatters, and the like. The `carbide-test-support` crate
-provides tiny, zero-dependency helpers for exactly this. Add it as a dev-dependency:
+provides tiny helpers for exactly this. Add it as a dev-dependency:
 
 ```toml
 [dev-dependencies]

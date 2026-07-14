@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-//! Tiny, zero-dependency helpers for making table-driven tests.
+//! Tiny shared test helpers: table-driven tests, and a query counter for
+//! pinning database round-trip counts (see [`query_counter`]).
 //!
 //! Write a test as a list of labeled cases — each a `scenario`, an `input`, and an
 //! `expect`ed result — then run them all through one operation, written once.
@@ -205,6 +206,8 @@
 //! [`Case`] and [`Check`]. [`assert_outcome`] is the primitive they are built on;
 //! reach for it directly only when a case needs a fully hand-written body that
 //! neither a macro nor [`Case::check`] can express.
+
+pub mod query_counter;
 
 use std::fmt::Debug;
 use std::future::Future;

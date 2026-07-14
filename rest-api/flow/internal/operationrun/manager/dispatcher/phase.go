@@ -24,13 +24,12 @@ func newPhasePolicy(options *operationrun.Options) (*phasePolicyRuntime, error) 
 }
 
 func (p phasePolicyRuntime) evaluate(
-	targets []*operationrun.OperationRunTarget,
-	phase int32,
+	summary operationrun.TargetPhaseSummary,
 	previousPhaseTerminalChanged bool,
 ) pauseDecision {
-	if phase == 0 ||
+	if summary.CurrentPhaseIndex == 0 ||
 		!previousPhaseTerminalChanged ||
-		!phaseNotStarted(targets) {
+		!summary.CurrentPhaseNotStarted() {
 		// No phase boundary was crossed into a fresh phase, so there is
 		// nothing for phase policy to pause or report.
 		return pauseDecision{
@@ -50,22 +49,4 @@ func (p phasePolicyRuntime) evaluate(
 		reason:  operationrun.OperationRunStatusReasonPhaseGate,
 		message: "waiting for phase advance",
 	}
-}
-
-// phaseNotStarted reports whether a phase still has only untouched pending
-// targets.
-func phaseNotStarted(
-	targets []*operationrun.OperationRunTarget,
-) bool {
-	if len(targets) == 0 {
-		return false
-	}
-
-	for _, target := range targets {
-		if target.Status != operationrun.OperationRunTargetStatusPending ||
-			target.TaskID != nil {
-			return false
-		}
-	}
-	return true
 }

@@ -151,3 +151,69 @@ impl From<rpc::PowerShelfSearchFilter> for PowerShelfSearchFilter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::power_shelf::PowerShelfId;
+    use config_version::{ConfigVersion, Versioned};
+    use model::metadata::Metadata;
+    use model::power_shelf::{PowerShelfControllerState, PowerShelfStatus};
+
+    use super::*;
+
+    #[test]
+    fn test_power_shelf_model_to_rpc_conversion() -> Result<(), Box<dyn std::error::Error>> {
+        let power_shelf_id = PowerShelfId::from(uuid::Uuid::new_v4());
+        let power_shelf = PowerShelf {
+            id: power_shelf_id,
+            config: PowerShelfConfig {
+                name: "Conversion Test Power Shelf".to_string(),
+                capacity: Some(5000),
+                voltage: Some(240),
+            },
+            status: Some(PowerShelfStatus {
+                shelf_name: "Conversion Test Power Shelf".to_string(),
+                power_state: "on".to_string(),
+                health_status: "ok".to_string(),
+            }),
+            deleted: None,
+            controller_state: Versioned {
+                value: PowerShelfControllerState::Initializing,
+                version: ConfigVersion::initial(),
+            },
+            controller_state_outcome: None,
+            bmc_mac_address: None,
+            bmc_info: None,
+            rack_id: None,
+            power_shelf_maintenance_requested: None,
+            metadata: Metadata::default(),
+            version: ConfigVersion::initial(),
+            health_reports: Default::default(),
+        };
+
+        let rpc_power_shelf = rpc::PowerShelf::try_from(power_shelf)?;
+
+        assert_eq!(
+            rpc_power_shelf.id.unwrap().to_string(),
+            power_shelf_id.to_string()
+        );
+
+        let rpc_config = rpc_power_shelf
+            .config
+            .as_ref()
+            .expect("config should be present");
+        assert_eq!(rpc_config.name, "Conversion Test Power Shelf");
+        assert_eq!(rpc_config.capacity, Some(5000));
+        assert_eq!(rpc_config.voltage, Some(240));
+
+        let rpc_status = rpc_power_shelf.status.expect("status should be present");
+        assert_eq!(
+            rpc_status.shelf_name,
+            Some("Conversion Test Power Shelf".to_string())
+        );
+        assert_eq!(rpc_status.power_state, Some("on".to_string()));
+        assert_eq!(rpc_status.health_status, Some("ok".to_string()));
+
+        Ok(())
+    }
+}

@@ -23,6 +23,7 @@ use ::rpc::forge::{
     InstanceDpuExtensionServiceConfig, InstanceDpuExtensionServicesConfig,
     ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
+use carbide_instrument::testing::MetricsCapture;
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::network_segment::{
@@ -243,6 +244,38 @@ async fn test_record_dpu_network_status_keeps_use_admin_network_changed_without_
     assert_eq!(
         use_admin_network_changed(&env, dpu_machine_id).await,
         Some(true)
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_record_dpu_network_status_counts_failed_host_wakeup(pool: sqlx::PgPool) {
+    let env = api_fixtures::create_test_env(pool.clone()).await;
+    let mh = create_managed_host(&env).await;
+    let dpu_machine_id = mh.dpu().id;
+
+    // Remove the state-handler queue table so the host wakeup enqueue fails
+    // while the status report itself stays healthy.
+    sqlx::query("DROP TABLE machine_state_controller_queued_objects")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let metrics = MetricsCapture::start();
+    // A never-before-observed network config version registers as a change,
+    // which is what prompts the host state-handler wakeup.
+    record_dpu_network_status(
+        &env,
+        dpu_machine_id,
+        Some("wakeup-probe-version".to_string()),
+    )
+    .await;
+
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_state_handler_wakeup_failures_total",
+            &[("trigger", "dpu_network_status")],
+        ),
+        1.0
     );
 }
 

@@ -1250,6 +1250,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			TenantID:           &tenant1.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
 			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			ImageSHA:           cutil.GetPtr("10886660c5b2746ff48224646c5094ebcf88c889"),
 			AllowOverride:      false,
 			EnableBlockStorage: true,
 			PhoneHomeEnabled:   false,
@@ -1345,6 +1346,7 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			TenantID:           &tenant2.ID,
 			OsType:             cdbm.OperatingSystemTypeImage,
 			ImageURL:           cutil.GetPtr("https://oldimagepath.iso"),
+			ImageSHA:           cutil.GetPtr("10886660c5b2746ff48224646c5094ebcf88c889"),
 			AllowOverride:      false,
 			EnableBlockStorage: true,
 			PhoneHomeEnabled:   false,
@@ -1476,8 +1478,18 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 	errBodyImageUrlIpxe, err := json.Marshal(updReqImageUrl)
 	assert.Nil(t, err)
 
-	updReqValidImageUrl := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-3"), Description: cutil.GetPtr("Updated Description"), ImageURL: cutil.GetPtr("http://newimagepath.iso"), ImageSHA: cutil.GetPtr("10886660c5b2746ff48224646c5094ebcf88c889"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), ImageDisk: cutil.GetPtr("/dev/nvme2n1")}
+	// imageUrl/imageSha are immutable, so a valid update re-sends the
+	// existing imageUrl (matching the os5/os9 fixtures) unchanged while
+	// updating mutable image attributes such as the root filesystem and
+	// image disk.
+	updReqValidImageUrl := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-3"), Description: cutil.GetPtr("Updated Description"), ImageURL: cutil.GetPtr("https://oldimagepath.iso"), ImageSHA: cutil.GetPtr("10886660c5b2746ff48224646c5094ebcf88c889"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), ImageDisk: cutil.GetPtr("/dev/nvme2n1")}
 	okBodyImageUrl, err := json.Marshal(updReqValidImageUrl)
+	assert.Nil(t, err)
+
+	// Changing imageUrl is rejected up front because the underlying image
+	// content is immutable after creation.
+	updReqChangeImageUrl := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-change-url"), ImageURL: cutil.GetPtr("http://newimagepath.iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980")}
+	errBodyChangeImageUrl, err := json.Marshal(updReqChangeImageUrl)
 	assert.Nil(t, err)
 
 	updReqDeactivate := model.APIOperatingSystemUpdateRequest{Name: cutil.GetPtr("test-os-updated-deactivate"), Description: cutil.GetPtr("Updated Description for deactivation"), IsActive: cutil.GetPtr(false), DeactivationNote: cutil.GetPtr("Deactivated for a valid reason")}
@@ -1728,22 +1740,31 @@ func TestOperatingSystemHandler_Update(t *testing.T) {
 			expectedDeactivationNote: nil,
 		},
 		{
-			name:             "success when updated with required valid imageURL attribute",
+			name:             "success when image OS updated with unchanged imageURL and mutable attributes",
 			reqOrgName:       ipOrg1,
 			user:             user,
 			reqBody:          string(okBodyImageUrl),
-			reqUpdateModel:   &updReqImageUrl,
+			reqUpdateModel:   &updReqValidImageUrl,
 			osID:             os5.ID.String(),
 			expectedErr:      false,
 			expectedStatus:   http.StatusOK,
-			expectedImageURL: cutil.GetPtr("http://newimagepath.iso"),
+			expectedImageURL: cutil.GetPtr("https://oldimagepath.iso"),
 		},
 		{
-			name:           "error when updated with required valid imageURL attribute failed with context deadline error",
+			name:           "error when image OS update tries to change imageURL",
+			reqOrgName:     ipOrg1,
+			user:           user,
+			reqBody:        string(errBodyChangeImageUrl),
+			osID:           os5.ID.String(),
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "error when image OS update workflow fails with context deadline error",
 			reqOrgName:     ipOrg2,
 			user:           user,
 			reqBody:        string(okBodyImageUrl),
-			reqUpdateModel: &updReqImageUrl,
+			reqUpdateModel: &updReqValidImageUrl,
 			osID:           os9.ID.String(),
 			expectedErr:    true,
 			expectedStatus: http.StatusInternalServerError,

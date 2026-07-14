@@ -47,7 +47,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
         let metrics = shared_metrics.clone();
         meter
             .u64_observable_gauge("carbide_machine_validation_completed")
-            .with_description("Count of machine validation that have completed successfully")
+            .with_description("Number of successfully completed machine validation runs")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     observer.observe(metrics.completed_validation as u64, attrs);
@@ -60,7 +60,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
         let metrics = shared_metrics.clone();
         meter
             .u64_observable_gauge("carbide_machine_validation_failed")
-            .with_description("Count of machine validation that have failed")
+            .with_description("Number of failed machine validation runs")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     observer.observe(metrics.failed_validation as u64, attrs);
@@ -73,7 +73,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
         let metrics = shared_metrics.clone();
         meter
             .u64_observable_gauge("carbide_machine_validation_in_progress")
-            .with_description("Count of machine validation that are in progress")
+            .with_description("Number of machine validation runs in progress")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     observer.observe(metrics.in_progress_validation as u64, attrs);
@@ -97,7 +97,7 @@ fn hydrate_meter(meter: Meter, shared_metrics: SharedMetricsHolder<MachineValida
         let metrics = shared_metrics.clone();
         meter
             .u64_observable_gauge("carbide_machine_validation_stale_runs_count")
-            .with_description("Count of active machine validation runs considered stale")
+            .with_description("Number of active machine validation runs considered stale")
             .with_callback(move |observer| {
                 metrics.if_available(|metrics, attrs| {
                     observer.observe(metrics.stale_validation as u64, attrs);

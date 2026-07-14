@@ -990,11 +990,16 @@ mod tests {
             "capturing_sink"
         }
 
-        fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+        fn try_handle_event(
+            &self,
+            context: &EventContext,
+            event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
             self.events
                 .lock()
                 .expect("lock poisoned")
                 .push((context.clone(), event.clone()));
+            Ok(())
         }
     }
 

@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::{CollectorEvent, DataSink, EventContext};
+use crate::HealthError;
 use crate::metrics::{ComponentKind, ComponentMetrics, MetricsManager};
 
 pub struct CompositeDataSink {
@@ -34,12 +35,17 @@ impl CompositeDataSink {
         }
     }
 
-    fn record_sink_operation(&self, sink: &dyn DataSink, duration: std::time::Duration) {
+    fn record_sink_operation(
+        &self,
+        sink: &dyn DataSink,
+        duration: std::time::Duration,
+        success: bool,
+    ) {
         self.component_metrics.record_operation(
             ComponentKind::Sink,
             sink.sink_type(),
             duration,
-            true,
+            success,
         );
     }
 }
@@ -49,11 +55,20 @@ impl DataSink for CompositeDataSink {
         "composite_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    /// Fans the event out to every sink, recording each sink's duration and
+    /// outcome. A failing sink never blocks the others: its error is fully
+    /// reported here (the sink logs its own detail, the composite meters the
+    /// failure), so the fanout itself always succeeds.
+    fn try_handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
         for sink in &self.sinks {
             let start = Instant::now();
-            sink.handle_event(context, event);
-            self.record_sink_operation(sink.as_ref(), start.elapsed());
+            let result = sink.try_handle_event(context, event);
+            self.record_sink_operation(sink.as_ref(), start.elapsed(), result.is_ok());
         }
+        Ok(())
     }
 }
