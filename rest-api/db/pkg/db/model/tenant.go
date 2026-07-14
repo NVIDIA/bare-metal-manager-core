@@ -69,11 +69,11 @@ type TenantConfig struct {
 type Tenant struct {
 	bun.BaseModel `bun:"table:tenant,alias:tn"`
 
-	ID             uuid.UUID  `bun:"type:uuid,pk"`
-	Name           string     `bun:"name,notnull"`
-	DisplayName    *string    `bun:"display_name"`
-	Org            string     `bun:"org,notnull"`
-	OrgDisplayName *string    `bun:"org_display_name"`
+	ID             uuid.UUID `bun:"type:uuid,pk"`
+	Name           string    `bun:"name,notnull"`
+	DisplayName    *string   `bun:"display_name"`
+	Org            string    `bun:"org,notnull"`
+	OrgDisplayName *string   `bun:"org_display_name"`
 	// Deprecated: superseded by TenantAccount.config and TenantSite.config.
 	// Kept as scanonly so new code never writes it (the DB DEFAULT applies on
 	// insert) while the column survives for older API pods mid-deployment.
