@@ -37,11 +37,15 @@ func sameBaseURL(a, b string) bool {
 	if err != nil {
 		return false
 	}
-	left.Scheme = strings.ToLower(left.Scheme)
-	left.Host = strings.ToLower(left.Host)
-	right.Scheme = strings.ToLower(right.Scheme)
-	right.Host = strings.ToLower(right.Host)
-	return left.String() == right.String()
+	if !sameOrigin(left, right) || (left.User == nil) != (right.User == nil) {
+		return false
+	}
+	if left.User != nil && left.User.String() != right.User.String() {
+		return false
+	}
+	left.Scheme, left.Host, left.User = "", "", nil
+	right.Scheme, right.Host, right.User = "", "", nil
+	return *left == *right
 }
 
 // normalizeToken strips a leading "Bearer " scheme (case-insensitive) so

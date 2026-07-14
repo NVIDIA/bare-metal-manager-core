@@ -82,6 +82,20 @@ func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 			},
 		},
 		{
+			name: "configured_base_url_accepts_matching_explicit_default_port",
+			in: map[string]any{
+				"base_url": "https://opts.example.com/v2",
+			},
+			req:  requestWithBearer("from-header"),
+			opts: Options{BaseURL: "https://opts.example.com:443/v2", Org: "opts-org", APIName: "nico"},
+			expected: expect{
+				baseURL: "https://opts.example.com/v2",
+				org:     "opts-org",
+				apiName: "nico",
+				token:   "from-header",
+			},
+		},
+		{
 			name: "configured_base_url_rejects_different_path_case",
 			in: map[string]any{
 				"base_url": "https://opts.example.com/V2",
