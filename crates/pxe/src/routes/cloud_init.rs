@@ -675,7 +675,7 @@ mod tests {
             }
         }
     }
-}
+
     /// A meta-data request with no metadata lands in the generic-error
     /// funnel, which serves the error template and moves the outcome
     /// counter.
