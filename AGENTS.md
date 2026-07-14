@@ -209,10 +209,10 @@ lives in [`docs/observability/instrumentation.md`](docs/observability/instrument
 
 ## Documentation review
 
-These are release gates, not style guidance. Apply every gate touched by the
-change before requesting review.
+These are documentation checks, not style guidance. Apply every relevant
+check before requesting review.
 
-- **Interface contract gate:** Document the complete contract, not just the name or happy path.
+- **Interface contracts:** Document the complete contract, not just the name or happy path.
 
   - For every documented command, flag, environment variable, config key, API
     field, mode, or state, verify from code, schema, or exercised output: exact
@@ -226,7 +226,7 @@ change before requesting review.
   - If any answer is unknown, stop and ask the owner; another documentation page
     is not evidence.
 
-- **Generated interface gate:** Change the source, regenerate every output, and prove they stay in sync.
+- **Generated interfaces:** Change the source, regenerate every output, and prove they stay in sync.
 
   - Never edit a generated reference alone.
   - For `nico-admin-cli`, change the Clap declarations under
@@ -241,7 +241,7 @@ change before requesting review.
     `make openapi-breaking`; do not edit `rest-api/sdk/standard/` or
     `rest-api/docs/index.html` alone.
 
-- **Workflow parity gate:** Make the documentation match the workflow that actually runs.
+- **Workflow parity:** Make the documentation match the workflow that actually runs.
 
   - For setup documentation, `helm-prereqs/setup.sh` is the source of truth for
     phases, skip flags, environment requirements, and component order. Run
@@ -252,7 +252,7 @@ change before requesting review.
     handler. Narrative, Mermaid, and transition tables must contain the same
     states and edges, including persisted resume state.
 
-- **Metric catalogue gate:** A metric is not documented until its HELP text, emitted series, and generated catalogue agree.
+- **Metric catalogue:** A metric is not documented until its HELP text, emitted series, and generated catalogue agree.
 
   - Treat metric HELP text and `docs/observability/core_metrics.md` as generated
     API documentation.
@@ -263,7 +263,7 @@ change before requesting review.
     `test_integration` so catalogue generation includes their exposed name,
     type, and description. Do not patch the generated table alone.
 
-- **Cross-surface drift gate:** Change a fact everywhere it appears or make one page canonical and link the rest.
+- **Cross-surface drift:** Change a fact everywhere it appears or make one page canonical and link the rest.
 
   - Search every changed literal or behavior with
     `rg -n --fixed-strings '<literal>' README.md crates/ rest-api/ docs/ book/ helm/ helm-prereqs/ deploy/`;
@@ -275,7 +275,7 @@ change before requesting review.
     `rest-api/CHANGELOG.md` is legacy history whose published entry order must
     be preserved.
 
-- **Temporary claim and version gate:** Tie temporary claims and pinned versions to a real support boundary.
+- **Temporary claims and versions:** Tie temporary claims and pinned versions to a real support boundary.
 
   - Search changed prose for `currently`, `today`, `for now`, `temporarily`, and
     `draft`. Each match must name a release, deliberate support boundary, or
@@ -285,7 +285,7 @@ change before requesting review.
     maximum, or pinned compatibility boundary; otherwise link the authoritative
     release page.
 
-- **Renderer gate:** Review each artifact in the renderer its readers actually use.
+- **Rendered output:** Review each artifact in the renderer its readers actually use.
 
   - Run `rumdl check --config docs/.rumdl.toml <changed-markdown-files>` and fail
     on every finding.
