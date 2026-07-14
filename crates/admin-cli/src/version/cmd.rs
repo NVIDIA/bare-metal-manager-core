@@ -143,6 +143,7 @@ pub async fn handle_show_version(
         r!(table, config, dpf_enabled);
         r!(table, config, compile_time_helm_version);
         r!(table, config, compile_time_docker_version);
+        r!(table, config, restart_ovs_on_use_admin_network_change);
 
         _ = table.print_tty(true);
     }

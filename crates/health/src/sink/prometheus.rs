@@ -154,12 +154,12 @@ impl PrometheusSink {
         }
     }
 
-    fn remove_collector_metrics(&self, context: &EventContext) {
+    fn remove_collector_metrics(&self, context: &EventContext) -> Result<(), HealthError> {
         let Some(endpoint_metrics) = self.stream_metrics.get::<str>(context.endpoint_key()) else {
-            return;
+            return Ok(());
         };
         let Some((_, metrics)) = endpoint_metrics.remove(context.collector_type) else {
-            return;
+            return Ok(());
         };
 
         metrics.clear();
@@ -170,7 +170,10 @@ impl PrometheusSink {
                 collector = context.collector_type,
                 "Failed to unregister Prometheus stream metrics"
             );
+            return Err(error.into());
         }
+
+        Ok(())
     }
 }
 
@@ -179,7 +182,11 @@ impl DataSink for PrometheusSink {
         "prometheus_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn try_handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
         match event {
             CollectorEvent::MetricCollectionStart => {
                 match self.get_or_create_stream_metrics(context) {
@@ -191,6 +198,7 @@ impl DataSink for PrometheusSink {
                             collector = context.collector_type,
                             "Failed to initialize Prometheus stream metrics"
                         );
+                        return Err(error);
                     }
                 }
             }
@@ -216,6 +224,7 @@ impl DataSink for PrometheusSink {
                         metric_type = sample.metric_type,
                         "Failed to record Prometheus metric sample"
                     );
+                    return Err(error);
                 }
             },
             CollectorEvent::MetricCollectionEnd => {
@@ -226,11 +235,13 @@ impl DataSink for PrometheusSink {
                     entry.value().sweep_stale();
                 }
             }
-            CollectorEvent::CollectorRemoved => self.remove_collector_metrics(context),
+            CollectorEvent::CollectorRemoved => return self.remove_collector_metrics(context),
             CollectorEvent::Log(_)
             | CollectorEvent::Firmware(_)
             | CollectorEvent::HealthReport(_) => {}
         }
+
+        Ok(())
     }
 }
 

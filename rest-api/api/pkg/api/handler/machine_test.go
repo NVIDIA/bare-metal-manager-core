@@ -20,7 +20,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -2737,7 +2737,7 @@ func TestMachineHandler_Update(t *testing.T) {
 					ttscm := ttsc.(*tmocks.Client)
 					for _, call := range ttscm.Calls {
 						if call.Method == "ExecuteWorkflow" && call.Arguments[2] == "AssociateMachinesWithInstanceType" {
-							siteReq := call.Arguments[3].(*cwssaws.AssociateMachinesWithInstanceTypeRequest)
+							siteReq := call.Arguments[3].(*corev1.AssociateMachinesWithInstanceTypeRequest)
 
 							siteCallMachineID := siteReq.MachineIds[0]
 							siteCallInstTypeID := uuid.MustParse(siteReq.InstanceTypeId)
@@ -2786,7 +2786,7 @@ func TestMachineHandler_Update(t *testing.T) {
 					ttscm := ttsc.(*tmocks.Client)
 					for _, call := range ttscm.Calls {
 						if call.Method == "ExecuteWorkflow" && call.Arguments[2] == "RemoveMachineInstanceTypeAssociation" {
-							siteReq := call.Arguments[3].(*cwssaws.RemoveMachineInstanceTypeAssociationRequest)
+							siteReq := call.Arguments[3].(*corev1.RemoveMachineInstanceTypeAssociationRequest)
 
 							siteCallMachineID := siteReq.MachineId
 							machine, err := machineDAO.GetByID(ctx, nil, siteCallMachineID, nil, false)
@@ -3317,20 +3317,20 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 	cfg := common.GetTestConfig()
 
 	// Mock Temporal: success path returns two DPU machines for the workflow.
-	dpuMachineList := []*cwssaws.DpuMachine{
+	dpuMachineList := []*corev1.DpuMachine{
 		{
-			Machine: &cwssaws.Machine{
-				Id:    &cwssaws.MachineId{Id: dpu1.ID},
+			Machine: &corev1.Machine{
+				Id:    &corev1.MachineId{Id: dpu1.ID},
 				State: "READY",
 			},
-			DpuNetworkConfig: &cwssaws.ManagedHostNetworkConfigResponse{
+			DpuNetworkConfig: &corev1.ManagedHostNetworkConfigResponse{
 				Asn:                          65001,
 				VniDevice:                    "pf0hpf",
 				ManagedHostConfigVersion:     "v1.0.0",
 				UseAdminNetwork:              true,
 				InstanceNetworkConfigVersion: "v1.0.0",
 				RemoteId:                     "host-123",
-				VpcIsolationBehavior:         cwssaws.VpcIsolationBehaviorType_VPC_ISOLATION_MUTUAL,
+				VpcIsolationBehavior:         corev1.VpcIsolationBehaviorType_VPC_ISOLATION_MUTUAL,
 				StatefulAclsEnabled:          true,
 				EnableDhcp:                   false,
 				IsPrimaryDpu:                 true,
@@ -3338,18 +3338,18 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 			},
 		},
 		{
-			Machine: &cwssaws.Machine{
-				Id:    &cwssaws.MachineId{Id: dpu2.ID},
+			Machine: &corev1.Machine{
+				Id:    &corev1.MachineId{Id: dpu2.ID},
 				State: "READY",
 			},
-			DpuNetworkConfig: &cwssaws.ManagedHostNetworkConfigResponse{
+			DpuNetworkConfig: &corev1.ManagedHostNetworkConfigResponse{
 				Asn:                          65002,
 				VniDevice:                    "pf0hpf",
 				ManagedHostConfigVersion:     "v1.0.0",
 				UseAdminNetwork:              false,
 				InstanceNetworkConfigVersion: "v1.0.0",
 				RemoteId:                     "host-456",
-				VpcIsolationBehavior:         cwssaws.VpcIsolationBehaviorType_VPC_ISOLATION_MUTUAL,
+				VpcIsolationBehavior:         corev1.VpcIsolationBehaviorType_VPC_ISOLATION_MUTUAL,
 				StatefulAclsEnabled:          true,
 				EnableDhcp:                   false,
 				IsPrimaryDpu:                 false,
@@ -3361,7 +3361,7 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 	wrun := &tmocks.WorkflowRun{}
 	wrun.On("GetID").Return("test-workflow-id-dpu")
 	wrun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		result := args.Get(1).(*[]*cwssaws.DpuMachine)
+		result := args.Get(1).(*[]*corev1.DpuMachine)
 		*result = dpuMachineList
 	}).Return(nil)
 

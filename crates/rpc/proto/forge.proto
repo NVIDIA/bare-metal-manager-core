@@ -676,6 +676,12 @@ service Forge {
   rpc CreateBmcUser(CreateBmcUserRequest) returns (CreateBmcUserResponse);
   // Delete BMC User
   rpc DeleteBmcUser(DeleteBmcUserRequest) returns (DeleteBmcUserResponse);
+  // Set (rotate) a BMC's root password directly on the device. This is an
+  // out-of-band set: the credential-rotation engine will reassert the
+  // site-wide password on its next pass. For fleet rotation use RotateCredential.
+  rpc SetBmcRootPassword(SetBmcRootPasswordRequest) returns (SetBmcRootPasswordResponse);
+  // Resolve a BMC's Redfish vendor.
+  rpc ProbeBmcVendor(ProbeBmcVendorRequest) returns (ProbeBmcVendorResponse);
   // Enable Infinite Boot
   rpc EnableInfiniteBoot(EnableInfiniteBootRequest) returns (EnableInfiniteBootResponse);
   // Check Infinite Boot Status
@@ -1524,6 +1530,7 @@ message RuntimeConfig {
 
   string compile_time_helm_version = 51;
   string compile_time_docker_version = 52;
+  bool restart_ovs_on_use_admin_network_change = 53;
 }
 
 message EchoRequest {
@@ -4065,6 +4072,9 @@ message ExpireDhcpLeaseResponse {
 }
 
 message DhcpRecord {
+  reserved 14, 15;
+  reserved "dhcpv6_preferred_lifetime_secs", "dhcpv6_valid_lifetime_secs";
+
   common.MachineId machine_id = 1;
   common.MachineInterfaceId machine_interface_id = 2;
   common.NetworkSegmentId segment_id = 3;
@@ -4087,15 +4097,6 @@ message DhcpRecord {
 
   // Per site NTP server IPs
   repeated string ntp_servers = 13;
-
-  // DHCPv6 preferred lifetime in seconds. Set only on IPv6 DHCP responses.
-  // When present, dhcpv6_valid_lifetime_secs must also be present and must be
-  // greater than or equal to this value.
-  optional uint32 dhcpv6_preferred_lifetime_secs = 14;
-  // DHCPv6 valid lifetime in seconds. Set only on IPv6 DHCP responses.
-  // When both DHCPv6 lifetime fields are present, this value must be greater
-  // than or equal to dhcpv6_preferred_lifetime_secs.
-  optional uint32 dhcpv6_valid_lifetime_secs = 15;
 }
 
 message NetworkSegmentList {
@@ -4386,6 +4387,11 @@ message ManagedHostNetworkConfigResponse {
   optional string bgp_leaf_session_password = 118;
 
   optional AstraConfig astra_config = 119;
+
+  // Tracks admin->tenant and tenant->admin change. The DPU agent will
+  // restart openvswitch-switch if this is set. Other actions could also
+  // be added based on this tracking variable.
+  optional bool use_admin_network_changed = 120;
 }
 
 message TrafficInterceptConfig {
@@ -7910,6 +7916,30 @@ message DeleteBmcUserRequest {
 message DeleteBmcUserResponse {
 }
 
+// Must provide either machine_id or ip/mac pair
+message SetBmcRootPasswordRequest {
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+  // New BMC root password to set. The server authenticates with the currently
+  // stored root credentials, probes the vendor, sets the new password, and
+  // records it as the device's per-BMC credential.
+  string new_password = 3;
+}
+
+message SetBmcRootPasswordResponse {
+}
+
+// Must provide either machine_id or ip/mac pair
+message ProbeBmcVendorRequest {
+  optional BmcEndpointRequest bmc_endpoint_request = 1;
+  optional string machine_id = 2;
+}
+
+message ProbeBmcVendorResponse {
+  // Resolved Redfish vendor, in the RedfishVendor `Display` form (e.g. "Dell").
+  string vendor = 1;
+}
+
 message SetFirmwareUpdateTimeWindowRequest {
   repeated common.MachineId machine_ids = 1;
   google.protobuf.Timestamp start_timestamp = 2;
@@ -9060,6 +9090,16 @@ message GetMachineBootInterfacesRequest {
   common.MachineId machine_id = 1;
 }
 
+// A boot interface reference: a NIC's MAC together with its vendor-native
+// Redfish `EthernetInterface.Id`. Mirrors the api-model `MachineBootInterface`
+// pair; `interface_id` is optional here so a pick whose id has not been
+// captured yet still reports its MAC (the model type requires both halves,
+// which the `TryFrom` conversion enforces).
+message MachineBootInterface {
+  string mac_address = 1;
+  optional string interface_id = 2;
+}
+
 // A `machine_interfaces` row's boot interface: the authoritative store for an
 // owned machine. `primary_interface` is the designation `pick_boot_interface`
 // keys on.
@@ -9071,6 +9111,9 @@ message MachineInterfaceBootInterface {
   optional string boot_interface_id = 3;
   // Segment type of the row, when one is known (denormalized from the segment).
   optional string network_segment_type = 4;
+  // The `machine_interfaces` row id, so a candidate reported here can be
+  // handed straight to `SetPrimaryInterface`.
+  common.MachineInterfaceId interface_id = 5;
 }
 
 // A `predicted_machine_interfaces` row's boot interface: the candidate a host
@@ -9123,4 +9166,17 @@ message GetMachineBootInterfacesResponse {
   // different NIC than the effective owned pick, or a predicted primary
   // disagrees). See the handler for the exact comparison.
   bool divergent = 8;
+
+  // What the automatic selection would choose if no row were flagged primary
+  // -- `pick_boot_interface`'s fallback of the lowest-MAC non-underlay row.
+  // Comparing this against the effective pick shows whether a primary
+  // designation is overriding the automatic choice. Absent when no managed
+  // row qualifies; `interface_id` absent until captured for that NIC.
+  MachineBootInterface default_boot_interface = 9;
+
+  // The prediction `pick_boot_prediction` would boot from for a machine still
+  // waiting on its first DHCP lease: the declared primary, else the sole
+  // non-underlay prediction. Absent when there are no predictions or when the
+  // pick refuses to guess among several undeclared NICs.
+  MachineBootInterface predicted_boot_interface = 10;
 }

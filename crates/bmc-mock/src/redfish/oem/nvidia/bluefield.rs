@@ -19,7 +19,7 @@ use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, patch, post};
 use mac_address::MacAddress;
@@ -94,9 +94,9 @@ impl BluefieldState {
     }
 }
 
-pub fn resource() -> redfish::Resource<'static> {
+pub fn resource(system_id: &str) -> redfish::Resource<'static> {
     redfish::Resource {
-        odata_id: Cow::Borrowed("/redfish/v1/Systems/Bluefield/Oem/Nvidia"),
+        odata_id: Cow::Owned(format!("/redfish/v1/Systems/{system_id}/Oem/Nvidia")),
         odata_type: Cow::Borrowed("#NvidiaComputerSystem.v1_0_0.NvidiaComputerSystem"),
         // Neither BF2 nor BF-3 provide Id & Name in the resource We
         // simulate this behavior by removing these fields from final answer.
@@ -104,32 +104,39 @@ pub fn resource() -> redfish::Resource<'static> {
         name: Cow::Borrowed(""),
     }
 }
+
 const SYSTEMS_OEM_RESOURCE_DELETE_FIELDS: &[&str] = &["Id", "Name"];
 
 pub fn add_routes(r: Router<BmcState>) -> Router<BmcState> {
-    r.route(&resource().odata_id, get(get_oem_nvidia))
-        .route(
-            // TODO: This is BF-3 only.
-            &format!("{}/Actions/HostRshim.Set", resource().odata_id),
-            post(hostrshim_set),
-        )
-        .route(
-            // BF-3 OEM mode flip. Staged here and applied on the next power
-            // cycle, the same as real hardware.
-            &format!("{}/Actions/Mode.Set", resource().odata_id),
-            post(mode_set),
-        )
-        .route(
-            "/redfish/v1/Managers/Bluefield_BMC/Oem/Nvidia",
-            patch(patch_managers_oem_nvidia),
-        )
+    r.route(
+        "/redfish/v1/Systems/{system_id}/Oem/Nvidia",
+        get(get_oem_nvidia),
+    )
+    .route(
+        // TODO: This is BF-3 only.
+        "/redfish/v1/Systems/{system_id}/Oem/Nvidia/Actions/HostRshim.Set",
+        post(hostrshim_set),
+    )
+    .route(
+        // BF-3 OEM mode flip. Staged here and applied on the next power
+        // cycle, the same as real hardware.
+        "/redfish/v1/Systems/{system_id}/Oem/Nvidia/Actions/Mode.Set",
+        post(mode_set),
+    )
+    .route(
+        "/redfish/v1/Managers/{manager_id}/Oem/Nvidia",
+        patch(patch_managers_oem_nvidia),
+    )
 }
 
 async fn hostrshim_set() -> Response {
     json!({}).into_ok_response()
 }
 
-async fn get_oem_nvidia(State(state): State<BmcState>) -> Response {
+async fn get_oem_nvidia(
+    State(state): State<BmcState>,
+    axum::extract::Path(system_id): axum::extract::Path<String>,
+) -> Response {
     let redfish::oem::State::NvidiaBluefield(state) = state.oem_state else {
         return http::not_found();
     };
@@ -140,7 +147,7 @@ async fn get_oem_nvidia(State(state): State<BmcState>) -> Response {
             } else {
                 "DpuMode"
             };
-            resource()
+            resource(&system_id)
                 .json_patch()
                 .patch(json!({
                     "Mode": mode,
@@ -149,14 +156,21 @@ async fn get_oem_nvidia(State(state): State<BmcState>) -> Response {
                 .delete_fields(SYSTEMS_OEM_RESOURCE_DELETE_FIELDS)
                 .into_ok_response()
         }
-        BluefieldState::Bluefield4 => resource()
+        BluefieldState::Bluefield4 => resource(&system_id)
             .json_patch()
             .delete_fields(SYSTEMS_OEM_RESOURCE_DELETE_FIELDS)
             .into_ok_response(),
     }
 }
 
-async fn patch_managers_oem_nvidia() -> Response {
+async fn patch_managers_oem_nvidia(
+    State(state): State<BmcState>,
+    Path(manager_id): Path<String>,
+) -> Response {
+    if state.manager.find(&manager_id).is_none() {
+        return http::not_found();
+    }
+
     // This is used by enable_rshim_bmc() of libredfish client.
     json!({}).into_ok_response()
 }

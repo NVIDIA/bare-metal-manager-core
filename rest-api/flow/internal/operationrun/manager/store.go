@@ -19,6 +19,12 @@ type Store interface {
 	// Get returns the operation run with the given ID, or an error if not found.
 	Get(ctx context.Context, id uuid.UUID) (*operationrun.OperationRun, error)
 
+	// LockOperationRun locks one operation run for manual lifecycle changes.
+	LockOperationRun(
+		ctx context.Context,
+		id uuid.UUID,
+	) (*operationrun.OperationRun, error)
+
 	// List returns operation runs matching opts, along with the total count
 	// before pagination is applied. Selector and operation template are not
 	// populated because list responses use the lightweight summary shape.
@@ -42,6 +48,23 @@ type Store interface {
 		runID uuid.UUID,
 		opts operationrun.TargetListOptions,
 	) ([]*operationrun.OperationRunTarget, int32, error)
+
+	// LockOperationRunTargets locks all materialized targets for one run.
+	LockOperationRunTargets(
+		ctx context.Context,
+		runID uuid.UUID,
+	) ([]*operationrun.OperationRunTarget, error)
+
+	// UpdateRunState persists lifecycle fields owned by dispatch/manual
+	// controls.
+	UpdateRunState(ctx context.Context, run *operationrun.OperationRun) error
+
+	// UpdateTargetState persists target lifecycle fields owned by
+	// dispatch/manual controls.
+	UpdateTargetState(
+		ctx context.Context,
+		target *operationrun.OperationRunTarget,
+	) error
 
 	// RunInTransaction executes fn within a database transaction. The
 	// transaction is propagated through ctx so nested Store calls participate in

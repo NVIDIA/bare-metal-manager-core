@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 
 use crate::crds::dpuflavors_generated::{
     DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesOperation, DpuFlavorDpuMode,
-    DpuFlavorNvconfig, DpuFlavorNvconfigDevice, DpuFlavorSpec,
+    DpuFlavorGrub, DpuFlavorNvconfig, DpuFlavorNvconfigDevice, DpuFlavorSpec,
 };
 use crate::types::{DpfProxyDetails, DpuDeploymentType};
 
@@ -64,6 +64,47 @@ fn get_default_ovs_defaults() -> String {
     .to_string()
 }
 
+/// OVS raw config script for the BF4 flavor.
+fn get_bf4_ovs_defaults() -> String {
+    concat!(
+        "_ovs-vsctl() {\n",
+        "    ovs-vsctl --timeout 15 \"$@\"\n",
+        "}\n",
+
+        "# Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side\n",
+        "for i in $(seq 1 99); do\n",
+        "    ovs-vsctl --if-exists del-br \"ovsbr${i}\"\n",
+        "done\n",
+
+        "ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true\n",
+
+        "_ovs-vsctl set Open_vSwitch . other_config:doca-init=true\n",
+        "_ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000\n",
+        "_ovs-vsctl set Open_vSwitch . other_config:hw-offload=true\n",
+        "_ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true\n",
+        "_ovs-vsctl set Open_vSwitch . other_config:max-idle=20000\n",
+        "_ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000\n",
+        "_ovs-vsctl set Open_vSwitch . other_config:doca-congestion-threshold=60\n",
+        "_ovs-vsctl set Open_vSwitch . other_config:flow-limit=500000\n",
+        "_ovs-vsctl set Open_vSwitch . other_config:hw-offload-ct-unidir-udp-enabled=true\n",
+        "_ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true\n",
+
+        "if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then\n",
+        "    systemctl restart openvswitch-switch\n",
+        "elif systemctl list-unit-files openvswitch.service &>/dev/null; then\n",
+        "    systemctl restart openvswitch\n",
+        "fi\n",
+        "_ovs-vsctl --may-exist add-br br-sfc\n",
+        "_ovs-vsctl set bridge br-sfc datapath_type=netdev\n",
+        "_ovs-vsctl set bridge br-sfc fail_mode=secure\n",
+        "_ovs-vsctl --may-exist add-port br-sfc p0\n",
+        "_ovs-vsctl set Interface p0 type=dpdk\n",
+        "_ovs-vsctl set Interface p0 mtu_request=9216\n",
+        "_ovs-vsctl set Port p0 external_ids:dpf-type=physical\n",
+    )
+    .to_string()
+}
+
 /// Rejects proxy strings containing characters that would break a systemd `Environment="..."` line:
 /// double-quotes (break the quoting), newlines / carriage returns (break the unit-file line), and
 /// any other ASCII control character (< 0x20 or DEL 0x7f).
@@ -88,10 +129,79 @@ fn validate_proxy_string(value: &str, field: &str) -> Result<(), crate::error::D
 pub fn default_flavor_for(
     namespace: &str,
     proxy: &Option<DpfProxyDetails>,
-    // This should be used to create a separate flavor for BF3, BF4Generic, BF4Astra
-    _deployment_type: DpuDeploymentType,
+    // Selects the DPUFlavor variant to build for the given deployment type.
+    deployment_type: DpuDeploymentType,
 ) -> Result<DPUFlavor, crate::error::DpfError> {
-    default_flavor(namespace, proxy)
+    match deployment_type {
+        DpuDeploymentType::Bf4Generic => flavor_bf4(namespace, proxy),
+        DpuDeploymentType::Bf3 => default_flavor(namespace, proxy),
+    }
+}
+
+/// Build the BF4 (generic) DPUFlavor spec, with BF4-specific grub and OVS configuration.
+/// If `proxy` is set, a containerd proxy drop-in config file is appended so the DPU can pull
+/// images through the proxy.
+///
+/// Returns `ConfigError` if any proxy string contains characters that would break the generated
+/// systemd `Environment="..."` lines (quotes, newlines, or other control characters).
+///
+/// `metadata.name` is left unset; callers must set it (typically via [`DPUFlavor::unique_name`])
+/// before creating the resource in the cluster.
+pub fn flavor_bf4(
+    namespace: &str,
+    proxy: &Option<DpfProxyDetails>,
+) -> Result<DPUFlavor, crate::error::DpfError> {
+    let bfcfg_parameters = vec![
+        "UPDATE_ATF_UEFI=yes".to_string(),
+        "UPDATE_DPU_OS=yes".to_string(),
+        "WITH_NIC_FW_UPDATE=yes".to_string(),
+    ];
+    Ok(DPUFlavor {
+        metadata: ObjectMeta {
+            name: None,
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        },
+        spec: DpuFlavorSpec {
+            dpu_mode: Some(DpuFlavorDpuMode::ZeroTrust),
+            dpu_resources: None,
+            bfcfg_parameters: Some(bfcfg_parameters),
+            config_files: Some(get_config_files(proxy)?),
+            containerd_config: None,
+            grub: Some(bf4_grub_params()),
+            host_network_interface_configs: None,
+            nvconfig: Some(vec![get_default_nvconfig()]),
+            ovs: Some(crate::crds::dpuflavors_generated::DpuFlavorOvs {
+                raw_config_script: Some(get_bf4_ovs_defaults()),
+            }),
+            sysctl: None,
+            system_reserved_resources: None,
+            ew_nic_configurations: None,
+            packages: None,
+            systemd_services: None,
+        },
+    })
+}
+
+/// Default grub kernel parameters for the BF4 flavor.
+pub fn bf4_grub_params() -> DpuFlavorGrub {
+    DpuFlavorGrub {
+        kernel_parameters: Some(
+            vec![
+                "console=hvc0",
+                "console=ttyAMA0",
+                "net.ifnames=0",
+                "biosdevname=0",
+                "iommu.passthrough=1",
+                "cgroup_no_v1=net_prio,net_cls",
+                "hugepagesz=2048kB",
+                "hugepages=250",
+            ]
+            .into_iter()
+            .map(|x| x.to_string())
+            .collect(),
+        ),
+    }
 }
 
 /// Build the default DPUFlavor spec. If `proxy` is set, a containerd proxy drop-in config file
@@ -131,6 +241,9 @@ pub fn default_flavor(
             }),
             sysctl: None,
             system_reserved_resources: None,
+            ew_nic_configurations: None,
+            packages: None,
+            systemd_services: None,
         },
     })
 }
@@ -141,7 +254,7 @@ fn get_config_files(
 ) -> Result<Vec<DpuFlavorConfigFiles>, crate::error::DpfError> {
     let mut config_files = vec![
         DpuFlavorConfigFiles {
-            path: Some("/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string()),
+            path: "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(
@@ -155,15 +268,19 @@ fn get_config_files(
                 )
                 .to_string(),
             ),
+            content_from: None,
+            r#type: None,
         },
         DpuFlavorConfigFiles {
-            path: Some("/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string()),
+            path: "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(dhcp_acl_rules()),
+            content_from: None,
+            r#type: None,
         },
         DpuFlavorConfigFiles {
-            path: Some("/etc/mellanox/mlnx-bf.conf".to_string()),
+            path: "/etc/mellanox/mlnx-bf.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(
@@ -174,18 +291,24 @@ fn get_config_files(
                 )
                 .to_string(),
             ),
+            content_from: None,
+            r#type: None,
         },
         DpuFlavorConfigFiles {
-            path: Some("/etc/mellanox/mlnx-ovs.conf".to_string()),
+            path: "/etc/mellanox/mlnx-ovs.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(concat!("CREATE_OVS_BRIDGES=\"no\"\n", "OVS_DOCA=\"yes\"\n").to_string()),
+            content_from: None,
+            r#type: None,
         },
         DpuFlavorConfigFiles {
-            path: Some("/etc/mellanox/mlnx-sf.conf".to_string()),
+            path: "/etc/mellanox/mlnx-sf.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some("".to_string()),
+            content_from: None,
+            r#type: None,
         },
     ];
 
@@ -215,10 +338,12 @@ fn get_config_files(
             ));
         }
         config_files.push(DpuFlavorConfigFiles {
-            path: Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf".to_string()),
+            path: "/etc/systemd/system/containerd.service.d/socks-proxy.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(raw),
+            content_from: None,
+            r#type: None,
         });
     }
 
@@ -548,9 +673,7 @@ mod tests {
         value_scenarios!(
             run = |ok| ok;
             "path" {
-                f.path.is_some()
-                && f.path.as_deref()
-                    == Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf") => true,
+                f.path == "/etc/systemd/system/containerd.service.d/socks-proxy.conf" => true,
             }
 
             "permissions 0644" {
@@ -571,9 +694,9 @@ mod tests {
             .spec
             .config_files
             .unwrap();
-        let paths: Vec<&str> = files.iter().filter_map(|f| f.path.as_deref()).collect();
+        let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
         value_scenarios!(
-            run = |path| paths.contains(&path);
+            run = |path| paths.contains(&path.to_string());
             "acltool.conf" {
                 "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf" => true,
             }

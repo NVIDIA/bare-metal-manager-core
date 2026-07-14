@@ -32,6 +32,7 @@ use ::rpc::forge::{
 };
 use carbide_secrets::credentials::CredentialReader;
 use carbide_secrets::key_encryption;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use db::{WithTransaction, tenant, tenant_identity_config};
 use model::tenant::identity_config::TenantIdentityCurrentSigningKeySlot;
 use model::tenant::{
@@ -608,7 +609,7 @@ async fn reencrypt_one_field(
     target_aes: &key_encryption::Aes256Key,
     dry_run: bool,
 ) -> Result<ReencryptFieldResult, Status> {
-    let Some(ciphertext) = ciphertext.filter(|s| !s.is_empty()) else {
+    let Some(ciphertext) = ciphertext.none_if_empty() else {
         return Ok(ReencryptFieldResult::Absent);
     };
     match reencrypt_ciphertext_if_needed(

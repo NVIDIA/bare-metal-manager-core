@@ -24,6 +24,7 @@ use carbide_test_harness::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
+use model::allocation_type::AllocationType;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{DhcpDiscovery, ExpireDhcpLeaseRequest, ExpireDhcpLeaseStatus};
 use tonic::Request;
@@ -257,6 +258,53 @@ async fn test_expire_does_not_delete_static_allocation(
         db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await?;
     txn.commit().await?;
     assert_eq!(addr.address, static_ip, "static address should still exist");
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_expire_does_not_delete_slaac_allocation(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (env, admin_segment) = init(pool).await;
+    let relay: std::net::IpAddr = admin_segment.relay_address;
+    let mac = MacAddress::from_str("aa:bb:cc:dd:ee:0e").unwrap();
+    let slaac_ip: IpAddr = "2001:db8:2::ff:fe00:e".parse().unwrap();
+
+    // Create a normal DHCP interface, then add an observed SLAAC address.
+    let mut txn = env.db_txn().await;
+    let interface = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        mac,
+        std::slice::from_ref(&relay),
+        None,
+        None,
+    )
+    .await?;
+    db::machine_interface_address::insert(&mut txn, interface.id, slaac_ip, AllocationType::Slaac)
+        .await?;
+    txn.commit().await?;
+
+    // Try to expire the SLAAC address; only DHCP allocations are releasable.
+    let response = env
+        .api()
+        .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
+            ip_address: slaac_ip.to_string(),
+            mac_address: Some(mac.to_string()),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(response.status(), ExpireDhcpLeaseStatus::NotFound);
+
+    // Verify through a fresh DB read that the SLAAC row remained.
+    let mut txn = env.db_txn().await;
+    let addresses =
+        db::machine_interface_address::find_for_interface(&mut txn, interface.id).await?;
+    txn.commit().await?;
+    assert!(
+        addresses.iter().any(|address| address.address == slaac_ip
+            && address.allocation_type == AllocationType::Slaac)
+    );
 
     Ok(())
 }

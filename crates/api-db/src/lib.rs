@@ -101,8 +101,8 @@ pub mod vpc_peering;
 pub mod vpc_prefix;
 pub mod work_lock_manager;
 
-#[cfg(test)]
-mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::error::Error;
@@ -353,6 +353,8 @@ pub enum DatabaseError {
     InvalidArgument(String),
     #[error("Duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
+    #[error("NVOS MAC address is already claimed by another expected switch: {0}")]
+    ExpectedSwitchDuplicateNvosMacAddress(MacAddress),
     #[error("Argument is missing in input: {0}")]
     MissingArgument(&'static str),
     #[error("Uuid type conversion error: {0}")]
@@ -557,6 +559,9 @@ impl From<DatabaseError> for tonic::Status {
                 Status::failed_precondition(error.to_string())
             }
             error @ DatabaseError::ExpectedHostDuplicateMacAddress(_) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ DatabaseError::ExpectedSwitchDuplicateNvosMacAddress(_) => {
                 Status::failed_precondition(error.to_string())
             }
             error @ DatabaseError::FailedPrecondition(_) => {

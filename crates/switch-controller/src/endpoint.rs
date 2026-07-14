@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use carbide_secrets::credentials::{CredentialKey, CredentialManager, Credentials};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::switch::SwitchId;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use db::switch::SwitchEndpointRow;
@@ -66,10 +67,7 @@ pub fn switch_endpoint_from_row(
         nvos_mac,
         bmc_credentials: nvos_credentials.clone(),
         nvos_credentials,
-        nvos_host_name: row
-            .nvos_hostname
-            .clone()
-            .filter(|hostname| !hostname.is_empty()),
+        nvos_host_name: row.nvos_hostname.clone().none_if_empty(),
     })
 }
 

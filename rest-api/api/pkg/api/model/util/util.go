@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -146,14 +146,14 @@ func InsertPhoneHomeIntoUserData(documentRoot *yaml.Node, url string) error {
 	return nil
 }
 
-// ProtobufLabelsFromAPILabels converts API labels (map[string]string) to protobuf labels ([]*cwssaws.Label)
-func ProtobufLabelsFromAPILabels(labels map[string]string) []*cwssaws.Label {
+// ProtobufLabelsFromAPILabels converts API labels (map[string]string) to protobuf labels ([]*corev1.Label)
+func ProtobufLabelsFromAPILabels(labels map[string]string) []*corev1.Label {
 	if labels == nil {
 		return nil
 	}
-	protoLabels := []*cwssaws.Label{}
+	protoLabels := []*corev1.Label{}
 	for k, v := range labels {
-		protoLabels = append(protoLabels, &cwssaws.Label{
+		protoLabels = append(protoLabels, &corev1.Label{
 			Key:   k,
 			Value: &v,
 		})

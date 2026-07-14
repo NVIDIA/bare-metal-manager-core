@@ -139,7 +139,15 @@ impl IntegrationTestEnvironment {
             credential_config,
             db_url,
             db_pool,
-            metrics: metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?, // unique to each test
+            metrics: {
+                let metrics =
+                    metrics_endpoint::new_metrics_setup("carbide-api", "forge-system", true)?; // unique to each test
+                // Counts are process-wide; registering here puts
+                // carbide_log_events_total on the in-process API's /metrics
+                // (and, via the catalogue regeneration, in core_metrics.md).
+                carbide_instrument::log_events::register(&metrics.meter);
+                metrics
+            },
             _vault_handle: Arc::new(vault),
         }))
     }
@@ -231,11 +239,8 @@ pub async fn start_api_server(
     // which can also only be initialized once. What a mess.
     // Error is: "attempted to set a logger after the logging system was already initialized"
 
-    #[allow(clippy::large_stack_arrays)] // It should be fixed in sqlx.
-    let m = sqlx::migrate!("../api-db/migrations");
-
     // Dependencies: Postgres, Vault and a Redfish BMC
-    m.run(&db_pool).await?;
+    db::migrations::migrate(&db_pool).await?;
 
     populate_initial_vault_secrets(&credential_config, &metrics).await?;
 

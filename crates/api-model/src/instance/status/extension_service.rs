@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
@@ -85,11 +86,7 @@ impl InstanceExtensionServicesStatus {
                             dpu_statuses.push(MachineExtensionServiceStatus {
                                 machine_id: *dpu_id,
                                 status: service_status.overall_state.clone(),
-                                error_message: if service_status.message.is_empty() {
-                                    None
-                                } else {
-                                    Some(service_status.message.clone())
-                                },
+                                error_message: service_status.message.clone().none_if_empty(),
                                 components: service_status.components.clone(),
                             });
                         } else {

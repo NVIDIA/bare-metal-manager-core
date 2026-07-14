@@ -56,6 +56,7 @@ impl LiteOnPowerShelf<'_> {
                     .build(),
                 ]),
                 host_interfaces: None,
+                serial_interfaces: None,
                 firmware_version: Some("r1.3.9"),
                 oem: None,
             }],
@@ -84,6 +85,7 @@ impl LiteOnPowerShelf<'_> {
                 base_bios: Some(
                     redfish::bios::builder(&redfish::bios::resource(system_id)).build(),
                 ),
+                serial_console: None,
                 secure_boot_available: false,
             }],
         }

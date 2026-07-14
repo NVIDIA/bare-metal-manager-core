@@ -17,7 +17,7 @@ import (
 	cwu "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
@@ -40,8 +40,8 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 
 	// 1) Create: inventory contains one sku not in DB
 	id1 := "sku-1"
-	inv1 := &cwssaws.SkuInventory{
-		Skus: []*cwssaws.Sku{{Id: id1, Components: &cwssaws.SkuComponents{}}},
+	inv1 := &corev1.SkuInventory{
+		Skus: []*corev1.Sku{{Id: id1, Components: &corev1.SkuComponents{}}},
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv1))
 
@@ -55,7 +55,7 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	}
 
 	// 2) Update: same id, ensure still one record
-	inv2 := &cwssaws.SkuInventory{Skus: []*cwssaws.Sku{{Id: id1, Components: &cwssaws.SkuComponents{}}}}
+	inv2 := &corev1.SkuInventory{Skus: []*corev1.Sku{{Id: id1, Components: &corev1.SkuComponents{}}}}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv2))
 
 	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
@@ -63,7 +63,7 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	assert.Equal(t, 1, total)
 
 	// 3) Delete: send empty inventory, final page implied
-	inv3 := &cwssaws.SkuInventory{Skus: []*cwssaws.Sku{}}
+	inv3 := &corev1.SkuInventory{Skus: []*corev1.Sku{}}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv3))
 
 	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
@@ -87,7 +87,7 @@ func TestManageSku_NilComponents_ClearsExisting(t *testing.T) {
 
 	// Seed a SKU with non-nil Components.
 	id := "sku-clear"
-	_, err := dbSession.DB.NewInsert().Model(&cdbm.SKU{ID: id, SiteID: site.ID, Components: &cdbm.SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}}).Exec(ctx)
+	_, err := dbSession.DB.NewInsert().Model(&cdbm.SKU{ID: id, SiteID: site.ID, Components: &cdbm.SkuComponents{SkuComponents: &corev1.SkuComponents{}}}).Exec(ctx)
 	assert.NoError(t, err)
 
 	ms := NewManageSku(dbSession, cwu.TestTemporalSiteClientPool(t))
@@ -95,8 +95,8 @@ func TestManageSku_NilComponents_ClearsExisting(t *testing.T) {
 	// Send inventory with the same SKU but Components: nil. The activity should
 	// translate nil to a non-nil empty wrapper so the DAO actually writes the
 	// clear (the DAO skips nil Components fields).
-	inv := &cwssaws.SkuInventory{
-		Skus: []*cwssaws.Sku{{Id: id, Components: nil}},
+	inv := &corev1.SkuInventory{
+		Skus: []*corev1.Sku{{Id: id, Components: nil}},
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv))
 
@@ -129,9 +129,9 @@ func TestManageSku_InventoryStatusFailed_Skip(t *testing.T) {
 
 	ms := NewManageSku(dbSession, cwu.TestTemporalSiteClientPool(t))
 
-	inv := &cwssaws.SkuInventory{
-		Skus:            []*cwssaws.Sku{{Id: "sku-other"}},
-		InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED,
+	inv := &corev1.SkuInventory{
+		Skus:            []*corev1.Sku{{Id: "sku-other"}},
+		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
 	}
 
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv))
@@ -169,10 +169,10 @@ func TestManageSku_PagedDeletion(t *testing.T) {
 	ms := NewManageSku(dbSession, cwu.TestTemporalSiteClientPool(t))
 
 	// First page: report only first ID, no deletion should occur yet
-	inv1 := &cwssaws.SkuInventory{
-		Skus:            []*cwssaws.Sku{{Id: seed[0]}},
-		InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-		InventoryPage:   &cwssaws.InventoryPage{CurrentPage: 1, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: []string{seed[0], seed[1]}},
+	inv1 := &corev1.SkuInventory{
+		Skus:            []*corev1.Sku{{Id: seed[0]}},
+		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		InventoryPage:   &corev1.InventoryPage{CurrentPage: 1, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: []string{seed[0], seed[1]}},
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv1))
 	_, total, err := ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
@@ -180,10 +180,10 @@ func TestManageSku_PagedDeletion(t *testing.T) {
 	assert.Equal(t, 3, total)
 
 	// Last page: report only second ID, third should be deleted
-	inv2 := &cwssaws.SkuInventory{
-		Skus:            []*cwssaws.Sku{{Id: seed[1]}},
-		InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-		InventoryPage:   &cwssaws.InventoryPage{CurrentPage: 2, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: []string{seed[0], seed[1]}},
+	inv2 := &corev1.SkuInventory{
+		Skus:            []*corev1.Sku{{Id: seed[1]}},
+		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		InventoryPage:   &corev1.InventoryPage{CurrentPage: 2, TotalPages: 2, PageSize: 1, TotalItems: 2, ItemIds: []string{seed[0], seed[1]}},
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv2))
 

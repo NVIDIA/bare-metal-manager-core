@@ -20,7 +20,7 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -56,6 +56,55 @@ type ConnectResult = Result<TokioIo<TcpStream>, ConnectError>;
 /// the end of the day you just need to call metrics.clone() to
 /// get another metrics instance with Arc::cloned references in
 /// it.
+/// Process-wide connect totals across every connector instance -- what
+/// [`register_global_metrics`] exposes. The per-connector [`ConnectorMetrics`]
+/// remain in-memory instrumentation (their per-addr maps are unbounded and
+/// test-oriented); these totals are bumped on every connect regardless.
+struct GlobalConnectTotals {
+    attempts: AtomicU64,
+    successes: AtomicU64,
+    errors: AtomicU64,
+}
+
+static GLOBAL_TOTALS: GlobalConnectTotals = GlobalConnectTotals {
+    attempts: AtomicU64::new(0),
+    successes: AtomicU64::new(0),
+    errors: AtomicU64::new(0),
+};
+
+/// Registers the process-wide TCP connect counters on `meter`:
+/// `carbide_client_tcp_connect_attempts_total`, `_successes_total`, and
+/// `_errors_total` (the exporter appends the `_total`). Call once, after the
+/// meter provider exists; the totals accumulate from process start either way.
+pub fn register_global_metrics(meter: &opentelemetry::metrics::Meter) {
+    let instruments = [
+        (
+            "carbide_client_tcp_connect_attempts",
+            "Number of outbound TCP connect attempts across all HTTP connectors",
+            &GLOBAL_TOTALS.attempts,
+        ),
+        (
+            "carbide_client_tcp_connect_successes",
+            "Number of successful outbound TCP connects across all HTTP connectors",
+            &GLOBAL_TOTALS.successes,
+        ),
+        (
+            "carbide_client_tcp_connect_errors",
+            "Number of failed outbound TCP connect attempts across all HTTP connectors",
+            &GLOBAL_TOTALS.errors,
+        ),
+    ];
+    for (name, description, total) in instruments {
+        meter
+            .u64_observable_counter(name)
+            .with_description(description)
+            .with_callback(move |observer| {
+                observer.observe(total.load(Ordering::Relaxed), &[]);
+            })
+            .build();
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ConnectorMetrics {
     inner: ConnectorMetricsInner,
@@ -145,6 +194,7 @@ impl ConnectorMetricsInner {
             .unwrap()
             .add_attempt_by_addr(addr, connect_start);
         self.total_attempts.fetch_add(1, Ordering::SeqCst);
+        GLOBAL_TOTALS.attempts.fetch_add(1, Ordering::Relaxed);
     }
 
     // connect_success is the "inner" function for handling a
@@ -153,6 +203,7 @@ impl ConnectorMetricsInner {
     fn connect_success(&mut self, addr: SocketAddr, connect_start: Instant) {
         self.connect_attempt(addr, connect_start);
         self.total_successes.fetch_add(1, Ordering::SeqCst);
+        GLOBAL_TOTALS.successes.fetch_add(1, Ordering::Relaxed);
         self.addr_maps.lock().unwrap().add_success_by_addr(addr);
         trace!("connected to {addr}");
     }
@@ -163,6 +214,7 @@ impl ConnectorMetricsInner {
     fn connect_error(&mut self, addr: SocketAddr, connect_start: Instant, e: &ConnectError) {
         self.connect_attempt(addr, connect_start);
         self.total_errors.fetch_add(1, Ordering::SeqCst);
+        GLOBAL_TOTALS.errors.fetch_add(1, Ordering::Relaxed);
         self.addr_maps.lock().unwrap().add_error_by_addr(addr);
         info!("connect error for {}: {:?}", addr, e);
     }

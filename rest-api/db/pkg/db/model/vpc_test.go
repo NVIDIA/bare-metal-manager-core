@@ -12,7 +12,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1012,11 +1012,11 @@ func TestVpcSQLDAO_CreateFromParams(t *testing.T) {
 		Vni:                       cutil.GetPtr(555),
 		NetworkSecurityGroupID:    &networkSecurityGroup.ID,
 		NetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{
-			NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{
+			NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{
 				Id:                      "",
 				RelatedInstanceIds:      []string{},
 				UnpropagatedInstanceIds: []string{},
-				Status:                  cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
+				Status:                  corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
 			},
 		},
 		Labels: map[string]string{
@@ -1164,11 +1164,11 @@ func TestVpcSQLDAO_Update(t *testing.T) {
 			"zone": "west1",
 		},
 		NetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{
-			NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{
+			NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{
 				Id:                      "",
 				RelatedInstanceIds:      []string{},
 				UnpropagatedInstanceIds: []string{},
-				Status:                  cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
+				Status:                  corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
 			},
 		},
 	}
@@ -1384,7 +1384,7 @@ func TestVpcSQLDAO_ClearFromParams(t *testing.T) {
 
 	vpc := testBuildVpc(t, dbSession, nil, "test-vpc", cutil.GetPtr("Test Description"), tn.Org, ip.ID, tn.ID, st.ID, nil, cutil.GetPtr(VpcEthernetVirtualizer), cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(VpcStatusReady), tnu.ID, &networkSecurityGroup.ID)
 	vpc.NetworkSecurityGroupPropagationDetails = &NetworkSecurityGroupPropagationDetails{
-		NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{},
+		NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{},
 	}
 
 	testUpdateVpc(t, dbSession, vpc)
@@ -1563,7 +1563,7 @@ func TestVpc_ToProto(t *testing.T) {
 		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &fnn}
 		got := v.ToProto()
 		require.NotNil(t, got.NetworkVirtualizationType)
-		assert.Equal(t, cwssaws.VpcVirtualizationType_FNN, *got.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.NetworkVirtualizationType)
 	})
 
 	t.Run("maps NetworkVirtualizationType ethernet string to ETHERNET_VIRTUALIZER", func(t *testing.T) {
@@ -1571,7 +1571,7 @@ func TestVpc_ToProto(t *testing.T) {
 		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &eth}
 		got := v.ToProto()
 		require.NotNil(t, got.NetworkVirtualizationType)
-		assert.Equal(t, cwssaws.VpcVirtualizationType_ETHERNET_VIRTUALIZER, *got.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER, *got.NetworkVirtualizationType)
 	})
 
 	t.Run("omits NetworkVirtualizationType when the entity has none", func(t *testing.T) {
@@ -1596,8 +1596,8 @@ func TestVpc_FromProto(t *testing.T) {
 
 	t.Run("invalid id leaves vpc.ID unchanged", func(t *testing.T) {
 		v := &Vpc{ID: id}
-		v.FromProto(&cwssaws.Vpc{
-			Id:   &cwssaws.VpcId{Value: "not-a-uuid"},
+		v.FromProto(&corev1.Vpc{
+			Id:   &corev1.VpcId{Value: "not-a-uuid"},
 			Name: "vpc-a",
 		})
 		assert.Equal(t, id, v.ID)
@@ -1606,16 +1606,16 @@ func TestVpc_FromProto(t *testing.T) {
 
 	t.Run("populates fields from proto", func(t *testing.T) {
 		v := &Vpc{}
-		v.FromProto(&cwssaws.Vpc{
-			Id:                              &cwssaws.VpcId{Value: id.String()},
+		v.FromProto(&corev1.Vpc{
+			Id:                              &corev1.VpcId{Value: id.String()},
 			Name:                            "vpc-a",
 			TenantOrganizationId:            "org-1",
 			NetworkSecurityGroupId:          &nsg,
-			DefaultNvlinkLogicalPartitionId: &cwssaws.NVLinkLogicalPartitionId{Value: nvllpID.String()},
-			Metadata: &cwssaws.Metadata{
+			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: nvllpID.String()},
+			Metadata: &corev1.Metadata{
 				Name:        "vpc-a",
 				Description: "primary",
-				Labels: []*cwssaws.Label{
+				Labels: []*corev1.Label{
 					{Key: "env", Value: cutil.GetPtr("prod")},
 				},
 			},
@@ -1642,8 +1642,8 @@ func TestVpc_FromProto(t *testing.T) {
 			NVLinkLogicalPartitionID: &staleNvllp,
 			Labels:                   map[string]string{"old": "val"},
 		}
-		v.FromProto(&cwssaws.Vpc{
-			Id:   &cwssaws.VpcId{Value: id.String()},
+		v.FromProto(&corev1.Vpc{
+			Id:   &corev1.VpcId{Value: id.String()},
 			Name: "vpc-a",
 		})
 		assert.Nil(t, v.NetworkSecurityGroupID)
@@ -1655,30 +1655,30 @@ func TestVpc_FromProto(t *testing.T) {
 	t.Run("invalid NVLink partition id clears the field", func(t *testing.T) {
 		staleNvllp := uuid.New()
 		v := &Vpc{ID: id, NVLinkLogicalPartitionID: &staleNvllp}
-		v.FromProto(&cwssaws.Vpc{
-			Id:                              &cwssaws.VpcId{Value: id.String()},
+		v.FromProto(&corev1.Vpc{
+			Id:                              &corev1.VpcId{Value: id.String()},
 			Name:                            "vpc-a",
-			DefaultNvlinkLogicalPartitionId: &cwssaws.NVLinkLogicalPartitionId{Value: "not-a-uuid"},
+			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: "not-a-uuid"},
 		})
 		assert.Nil(t, v.NVLinkLogicalPartitionID)
 	})
 
 	t.Run("prefers Metadata.Name over the deprecated top-level Name field", func(t *testing.T) {
 		v := &Vpc{}
-		v.FromProto(&cwssaws.Vpc{
-			Id:       &cwssaws.VpcId{Value: id.String()},
+		v.FromProto(&corev1.Vpc{
+			Id:       &corev1.VpcId{Value: id.String()},
 			Name:     "deprecated-top-level",
-			Metadata: &cwssaws.Metadata{Name: "metadata-name"},
+			Metadata: &corev1.Metadata{Name: "metadata-name"},
 		})
 		assert.Equal(t, "metadata-name", v.Name)
 	})
 
 	t.Run("falls back to top-level Name when Metadata.Name is empty", func(t *testing.T) {
 		v := &Vpc{}
-		v.FromProto(&cwssaws.Vpc{
-			Id:       &cwssaws.VpcId{Value: id.String()},
+		v.FromProto(&corev1.Vpc{
+			Id:       &corev1.VpcId{Value: id.String()},
 			Name:     "top-level-fallback",
-			Metadata: &cwssaws.Metadata{Name: ""},
+			Metadata: &corev1.Metadata{Name: ""},
 		})
 		assert.Equal(t, "top-level-fallback", v.Name)
 	})

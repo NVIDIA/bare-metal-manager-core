@@ -19,7 +19,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/extra/bundebug"
@@ -185,9 +185,9 @@ func testInstanceBuildNetworkSecurityGroup(t *testing.T, dbSession *db.Session, 
 		Status:    InstanceTypeStatusReady,
 		Rules: []*NetworkSecurityGroupRule{
 			&NetworkSecurityGroupRule{
-				&cwssaws.NetworkSecurityGroupRuleAttributes{
+				&corev1.NetworkSecurityGroupRuleAttributes{
 					Id:     cutil.GetPtr(uuid.NewString()),
-					Action: cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
+					Action: corev1.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_DENY,
 				},
 			},
 		},
@@ -279,7 +279,7 @@ func TestInstanceSQLDAO_Create(t *testing.T) {
 					InstanceTypeID:           &instanceType.ID,
 					NetworkSecurityGroupID:   &networkSecurityGroup.ID,
 					NetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{
-						NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{
+						NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{
 							Id:                      "",
 							RelatedInstanceIds:      []string{},
 							UnpropagatedInstanceIds: []string{},
@@ -2516,7 +2516,7 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			paramControlledInstanceID:     &dummyUUID,
 			paramHostname:                 nil,
 			paramOperatingSystemID:        &operatingSystem2.ID,
-			paramNetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{}},
+			paramNetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{}},
 			paramAlwaysBootWithCustomIpxe:               cutil.GetPtr(true),
 			paramEnablePhoneHome:                        cutil.GetPtr(true),
 			paramIsUpdatePending:                        cutil.GetPtr(true),
@@ -2540,7 +2540,7 @@ func TestInstanceSQLDAO_Update(t *testing.T) {
 			expectedControllerInstanceID:                   &dummyUUID,
 			expectedHostname:                               cutil.GetPtr("updated.com"),
 			expectedOperatingSystemID:                      &operatingSystem2.ID,
-			expectedNetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{}},
+			expectedNetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{}},
 			expectedIpxeScript:                             cutil.GetPtr("updatedIpxe"),
 			expectAlwaysBootWithCustomIpxe:                 cutil.GetPtr(true),
 			expectEnablePhoneHome:                          cutil.GetPtr(true),
@@ -2801,7 +2801,7 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 			Status:                   InstanceStatusPending,
 			CreatedBy:                user.ID,
 			NetworkSecurityGroupPropagationDetails: &NetworkSecurityGroupPropagationDetails{
-				NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{},
+				NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{},
 			},
 		},
 	)
@@ -2862,7 +2862,7 @@ func TestInstanceSQLDAO_Clear(t *testing.T) {
 		expectedSiteID                                 *uuid.UUID
 		expectedInstanceTypeID                         *uuid.UUID
 		expectedNetworkSecurityGroupID                 *string
-		expectednetworkSecurityGroupPropagationDetails *cwssaws.NetworkSecurityGroupPropagationObjectStatus
+		expectednetworkSecurityGroupPropagationDetails *corev1.NetworkSecurityGroupPropagationObjectStatus
 		expectedVpcID                                  *uuid.UUID
 		expectedMachineID                              *string
 		expectedControllerInstanceID                   *uuid.UUID

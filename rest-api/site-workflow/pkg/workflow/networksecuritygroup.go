@@ -11,14 +11,14 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
 
 // CreateNetworkSecurityGroup is a workflow to create new NetworkSecurityGroups using the CreateNetworkSecurityGroupOnSite activity
 // to speak to nico directly.
-func CreateNetworkSecurityGroup(ctx workflow.Context, request *cwssaws.CreateNetworkSecurityGroupRequest) error {
+func CreateNetworkSecurityGroup(ctx workflow.Context, request *corev1.CreateNetworkSecurityGroupRequest) error {
 	logger := log.With().Str("Workflow", "NetworkSecurityGroup").Str("Action", "Create").Str("NetworkSecurityGroup ID", request.GetId()).Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -53,7 +53,7 @@ func CreateNetworkSecurityGroup(ctx workflow.Context, request *cwssaws.CreateNet
 }
 
 // UpdateNetworkSecurityGroup is a workflow to update NetworkSecurityGroup data using then UpdateNetworkSecurityGroupOnSite activity
-func UpdateNetworkSecurityGroup(ctx workflow.Context, updateRequest *cwssaws.UpdateNetworkSecurityGroupRequest) error {
+func UpdateNetworkSecurityGroup(ctx workflow.Context, updateRequest *corev1.UpdateNetworkSecurityGroupRequest) error {
 	logger := log.With().Str("Workflow", "NetworkSecurityGroup").Str("Action", "Update").Str("NetworkSecurityGroup ID", updateRequest.GetId()).Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -88,7 +88,7 @@ func UpdateNetworkSecurityGroup(ctx workflow.Context, updateRequest *cwssaws.Upd
 }
 
 // DeleteNetworkSecurityGroup is a workflow to delete new NetworkSecurityGroups using the DeleteNetworkSecurityGroupOnSite activity
-func DeleteNetworkSecurityGroup(ctx workflow.Context, request *cwssaws.DeleteNetworkSecurityGroupRequest) error {
+func DeleteNetworkSecurityGroup(ctx workflow.Context, request *corev1.DeleteNetworkSecurityGroupRequest) error {
 
 	logger := log.With().Str("Workflow", "NetworkSecurityGroup").Str("Action", "Delete").Str("Request", request.String()).Logger()
 

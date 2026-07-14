@@ -49,10 +49,73 @@ pub use tracing::TracingSink;
 pub(crate) use self::otlp::OtlpSink;
 #[cfg(feature = "bench-hooks")]
 pub use self::otlp::OtlpSink;
+use crate::HealthError;
 
 pub trait DataSink: Send + Sync {
     fn sink_type(&self) -> &'static str;
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent);
+
+    /// Handles one event, surfacing failure to the caller.
+    ///
+    /// Implementations log their own failure detail at the failure site; the
+    /// returned error exists so dispatchers can meter per-sink outcomes (the
+    /// composite records it as `component_failures_total{component_kind="sink"}`).
+    fn try_handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError>;
+
+    /// Fire-and-forget entry point for callers that do not track outcomes.
+    ///
+    /// The result is deliberately dropped here: failures are already logged
+    /// by the failing sink, and metered when dispatched through the composite.
+    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+        if let Err(error) = self.try_handle_event(context, event) {
+            // Fire-and-forget by contract: the sink logged its own detail and
+            // the composite meters failures; this line is the safety net for a
+            // future sink that forgets to do either.
+            ::tracing::debug!(%error, "sink dropped an event");
+        }
+    }
+}
+
+/// One attempt to submit a health report upstream to the NICo API, emitted by
+/// the report sinks' submission workers for every completed attempt.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_health_report_submissions_total",
+    component = "nico-hardware-health",
+    log = dynamic,
+    metric = counter,
+    message = "Failed to submit health report",
+    describe = "Number of health report submissions to the NICo API, by report target and outcome."
+)]
+pub(crate) struct HealthReportSubmitted {
+    #[label]
+    pub target: HealthReportTarget,
+    #[label]
+    pub outcome: carbide_instrument::Outcome,
+    /// The machine, rack, switch, or power shelf the report describes.
+    #[context]
+    pub id: String,
+    #[context]
+    pub worker_id: usize,
+    /// The submission error's text; empty on success (the line only renders
+    /// on failure).
+    #[context]
+    pub error: String,
+}
+
+/// Every submission is counted; only the failures write the WARN line.
+impl carbide_instrument::DynamicLog for HealthReportSubmitted {
+    fn log_at(&self) -> carbide_instrument::LogAt {
+        match self.outcome {
+            carbide_instrument::Outcome::Error => {
+                carbide_instrument::LogAt::Level(::tracing::Level::WARN)
+            }
+            carbide_instrument::Outcome::Ok => carbide_instrument::LogAt::Off,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -80,8 +143,13 @@ mod tests {
             "counting_sink"
         }
 
-        fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            _event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
             self.counter.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
     }
 
@@ -92,7 +160,31 @@ mod tests {
             "noop_sink"
         }
 
-        fn handle_event(&self, _context: &EventContext, _event: &CollectorEvent) {}
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            _event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
+            Ok(())
+        }
+    }
+
+    struct FailingSink;
+
+    impl DataSink for FailingSink {
+        fn sink_type(&self) -> &'static str {
+            "failing_sink"
+        }
+
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            _event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
+            Err(crate::HealthError::GenericError(
+                "sink rejected the event".to_string(),
+            ))
+        }
     }
 
     #[tokio::test]
@@ -139,6 +231,119 @@ mod tests {
         composite.handle_event(&context, &event);
 
         assert_eq!(success_counter.load(Ordering::SeqCst), 2);
+    }
+
+    /// A failing sink must move `component_failures_total{component_kind="sink"}`
+    /// for its own series, keep the fanout going, and leave the healthy
+    /// sinks' failure series untouched.
+    #[tokio::test]
+    async fn test_composite_sink_meters_per_sink_failures() {
+        let handled_counter = Arc::new(AtomicUsize::new(0));
+        let metrics_manager =
+            Arc::new(MetricsManager::new("test").expect("should create metrics manager"));
+
+        let composite = CompositeDataSink::new(
+            vec![
+                Arc::new(FailingSink),
+                Arc::new(CountingSink {
+                    counter: handled_counter.clone(),
+                }),
+            ],
+            metrics_manager.clone(),
+        );
+
+        let context = EventContext {
+            endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
+            addr: BmcAddr {
+                ip: "10.0.0.1".parse().expect("valid ip"),
+                port: Some(443),
+                mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
+            },
+            collector_type: "test",
+            metadata: None,
+            rack_id: None,
+        };
+        let event = CollectorEvent::MetricCollectionStart;
+
+        composite.handle_event(&context, &event);
+        composite.handle_event(&context, &event);
+
+        assert_eq!(
+            handled_counter.load(Ordering::SeqCst),
+            2,
+            "a failing sink must not block the sinks after it"
+        );
+
+        let export = metrics_manager
+            .export_metrics()
+            .expect("service metrics export should work");
+        let failure_lines: Vec<&str> = export
+            .lines()
+            .filter(|line| line.starts_with("test_component_failures_total{"))
+            .collect();
+
+        assert_eq!(
+            failure_lines,
+            vec![
+                r#"test_component_failures_total{component_kind="sink",component_name="failing_sink"} 2"#
+            ],
+            "only the failing sink's series may move"
+        );
+    }
+
+    /// A failed submission writes one WARN line and ticks the counter's
+    /// error series.
+    #[test]
+    fn health_report_submission_failure_logs_warn_and_ticks_counter() {
+        use carbide_instrument::testing::{MetricsCapture, capture_logs};
+
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            carbide_instrument::emit(super::HealthReportSubmitted {
+                target: super::HealthReportTarget::Rack,
+                outcome: carbide_instrument::Outcome::Error,
+                id: "RACK_1".to_string(),
+                worker_id: 3,
+                error: "connection refused".to_string(),
+            });
+        });
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, tracing::Level::WARN);
+        assert_eq!(logs[0].message, "Failed to submit health report");
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_health_report_submissions_total",
+                &[("target", "rack"), ("outcome", "error")],
+            ),
+            1.0
+        );
+    }
+
+    /// A successful submission is counted but never logged.
+    #[test]
+    fn health_report_submission_success_counts_without_logging() {
+        use carbide_instrument::testing::{MetricsCapture, capture_logs};
+
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            carbide_instrument::emit(super::HealthReportSubmitted {
+                target: super::HealthReportTarget::Machine,
+                outcome: carbide_instrument::Outcome::Ok,
+                id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string(),
+                worker_id: 0,
+                error: String::new(),
+            });
+        });
+
+        assert!(logs.is_empty(), "successful submissions must not log");
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_health_report_submissions_total",
+                &[("target", "machine"), ("outcome", "ok")],
+            ),
+            1.0
+        );
     }
 
     #[tokio::test]

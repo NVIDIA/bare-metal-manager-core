@@ -26,6 +26,23 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 
+fn switch_nvos_info_from_endpoint_row(
+    row: &db_switch::SwitchEndpointRow,
+) -> Option<rpc::SwitchNvosInfo> {
+    let ip = row.nvos_ip.as_ref().map(ToString::to_string);
+    let mac = row.nvos_mac.as_ref().map(ToString::to_string);
+
+    if ip.is_none() && mac.is_none() {
+        return None;
+    }
+
+    Some(rpc::SwitchNvosInfo {
+        ip,
+        mac,
+        port: None,
+    })
+}
+
 pub async fn find_switch(
     api: &Api,
     request: Request<rpc::SwitchQuery>,
@@ -96,19 +113,7 @@ pub async fn find_switch(
             // through the model->rpc conversion; only nvos_info is stitched in
             // here from the endpoint lookup.
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
-                rpc_switch.nvos_info = endpoint_info.and_then(|row| {
-                    let (Some(nvos_mac), Some(nvos_ip)) =
-                        (row.nvos_mac.as_ref(), row.nvos_ip.as_ref())
-                    else {
-                        return None;
-                    };
-
-                    Some(rpc::SwitchNvosInfo {
-                        ip: Some(nvos_ip.to_string()),
-                        mac: Some(nvos_mac.to_string()),
-                        port: None,
-                    })
-                });
+                rpc_switch.nvos_info = endpoint_info.and_then(switch_nvos_info_from_endpoint_row);
                 rpc_switch
             })
         })
@@ -183,19 +188,7 @@ pub async fn find_by_ids(
             // through the model->rpc conversion; only nvos_info is stitched in
             // here from the endpoint lookup.
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
-                rpc_switch.nvos_info = endpoint_info.and_then(|row| {
-                    let (Some(nvos_mac), Some(nvos_ip)) =
-                        (row.nvos_mac.as_ref(), row.nvos_ip.as_ref())
-                    else {
-                        return None;
-                    };
-
-                    Some(rpc::SwitchNvosInfo {
-                        ip: Some(nvos_ip.to_string()),
-                        mac: Some(nvos_mac.to_string()),
-                        port: None,
-                    })
-                });
+                rpc_switch.nvos_info = endpoint_info.and_then(switch_nvos_info_from_endpoint_row);
                 rpc_switch
             })
         })
@@ -555,4 +548,56 @@ async fn remove_switch_health_report_by_source(
     db_switch::remove_health_report(&mut *txn, &switch.id, mode, &source).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod switch_nvos_info_tests {
+    use std::net::IpAddr;
+    use std::str::FromStr;
+
+    use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
+    use db::switch::SwitchEndpointRow;
+    use mac_address::MacAddress;
+
+    use super::switch_nvos_info_from_endpoint_row;
+
+    fn endpoint_row(nvos_mac: Option<&str>, nvos_ip: Option<&str>) -> SwitchEndpointRow {
+        SwitchEndpointRow {
+            switch_id: SwitchId::new(SwitchIdSource::Tpm, [0u8; 32], SwitchType::NvLink),
+            bmc_mac: MacAddress::from_str("b8:3f:d2:1a:44:9c").unwrap(),
+            bmc_ip: IpAddr::from_str("10.0.0.1").unwrap(),
+            nvos_mac: nvos_mac.map(|mac| MacAddress::from_str(mac).unwrap()),
+            nvos_ip: nvos_ip.map(|ip| IpAddr::from_str(ip).unwrap()),
+            nvos_hostname: None,
+        }
+    }
+
+    #[test]
+    fn returns_none_when_ip_and_mac_are_missing() {
+        assert!(switch_nvos_info_from_endpoint_row(&endpoint_row(None, None)).is_none());
+    }
+
+    #[test]
+    fn preserves_ip_and_mac_independently() {
+        let ip_only = switch_nvos_info_from_endpoint_row(&endpoint_row(None, Some("10.2.14.52")))
+            .expect("ip-only nvos info");
+        assert_eq!(ip_only.ip.as_deref(), Some("10.2.14.52"));
+        assert!(ip_only.mac.is_none());
+
+        let mac_only =
+            switch_nvos_info_from_endpoint_row(&endpoint_row(Some("b8:3f:d2:1a:44:9d"), None))
+                .expect("mac-only nvos info");
+        assert!(mac_only.ip.is_none());
+        assert_eq!(mac_only.mac.as_deref(), Some("B8:3F:D2:1A:44:9D"));
+    }
+
+    #[test]
+    fn leaves_port_unset() {
+        let info = switch_nvos_info_from_endpoint_row(&endpoint_row(
+            Some("b8:3f:d2:1a:44:9d"),
+            Some("10.2.14.52"),
+        ))
+        .expect("nvos info");
+        assert!(info.port.is_none());
+    }
 }

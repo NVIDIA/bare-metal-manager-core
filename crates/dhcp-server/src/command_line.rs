@@ -46,6 +46,13 @@ pub struct Args {
                 When omitted the gRPC server is not started and config reload is disabled."
     )]
     pub grpc_listen_addr: Option<String>,
+
+    #[arg(
+        long,
+        help = "HTTP listen address for the metrics/health endpoint (e.g. 0.0.0.0:9090). \
+                When omitted the endpoint is not served; metrics are still collected."
+    )]
+    pub metrics_listen_addr: Option<String>,
 }
 
 #[derive(ValueEnum, Clone, Debug)]

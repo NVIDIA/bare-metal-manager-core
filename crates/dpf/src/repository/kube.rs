@@ -33,6 +33,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::traits::*;
 use crate::crds::bfbs_generated::BFB;
+use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
 use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
@@ -109,6 +110,36 @@ impl BfbRepository for KubeRepository {
 
     async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError> {
         let api: Api<BFB> = self.api(namespace);
+        api.delete(name, &Default::default()).await?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl BlueFieldSoftwareRepository for KubeRepository {
+    async fn get(
+        &self,
+        name: &str,
+        namespace: &str,
+    ) -> Result<Option<BlueFieldSoftware>, DpfError> {
+        let api = self.api(namespace);
+        Ok(api.get_opt(name).await?)
+    }
+
+    async fn list(&self, namespace: &str) -> Result<Vec<BlueFieldSoftware>, DpfError> {
+        let api = self.api(namespace);
+        let list = api.list(&ListParams::default()).await?;
+        Ok(list.items)
+    }
+
+    async fn create(&self, bfs: &BlueFieldSoftware) -> Result<BlueFieldSoftware, DpfError> {
+        let namespace = bfs.meta().namespace.as_deref().unwrap_or("default");
+        let api = self.api(namespace);
+        Ok(api.create(&PostParams::default(), bfs).await?)
+    }
+
+    async fn delete(&self, name: &str, namespace: &str) -> Result<(), DpfError> {
+        let api: Api<BlueFieldSoftware> = self.api(namespace);
         api.delete(name, &Default::default()).await?;
         Ok(())
     }

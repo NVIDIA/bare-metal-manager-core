@@ -36,7 +36,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
@@ -1088,8 +1088,8 @@ func (dsh DeleteSubnetHandler) Handle(c echo.Context) error {
 		}
 
 		// Prepare the delete/release request workflow object
-		deleteSubnetRequest := &cwssaws.NetworkSegmentDeletionRequest{
-			Id: &cwssaws.NetworkSegmentId{Value: subnet.GetSiteID().String()},
+		deleteSubnetRequest := &corev1.NetworkSegmentDeletionRequest{
+			Id: &corev1.NetworkSegmentId{Value: subnet.GetSiteID().String()},
 		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{

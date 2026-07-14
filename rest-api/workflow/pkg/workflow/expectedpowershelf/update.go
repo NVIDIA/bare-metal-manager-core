@@ -15,12 +15,12 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	expectedPowerShelfActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/expectedpowershelf"
 )
 
 // UpdateExpectedPowerShelfInventory is a workflow called by Site Agent to update ExpectedPowerShelf inventory for a Site
-func UpdateExpectedPowerShelfInventory(ctx workflow.Context, siteID string, expectedPowerShelfInventory *cwssaws.ExpectedPowerShelfInventory) (err error) {
+func UpdateExpectedPowerShelfInventory(ctx workflow.Context, siteID string, expectedPowerShelfInventory *corev1.ExpectedPowerShelfInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateExpectedPowerShelfInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

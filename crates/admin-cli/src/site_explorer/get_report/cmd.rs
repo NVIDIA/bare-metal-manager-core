@@ -21,6 +21,7 @@ use ::rpc::admin_cli::OutputFormat;
 use ::rpc::site_explorer::{
     EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost, SiteExplorationReport,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use prettytable::{Cell, Row, Table, format, row};
 
 use super::args::Args;
@@ -458,7 +459,7 @@ fn convert_endpoints_to_nice_table(endpoints: &[ExploredEndpoint]) -> Box<Table>
         "BMC Mac Address",
         "Vendor",
         "MachineId",
-        "Preingt State",
+        "Pre-ingestion State",
         "Serial Number",
         "Last Exploration Error",
     ];
@@ -484,7 +485,7 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
                 .map(|a| {
                     let mac = a.mac_address.as_deref().unwrap_or_default();
                     if a.interface_enabled() {
-                        if let Some(ls) = a.link_status.as_deref().filter(|v| !v.is_empty()) {
+                        if let Some(ls) = a.link_status.as_deref().none_if_empty() {
                             format!("{mac} [{}]", ls)
                         } else {
                             mac.to_string()

@@ -11,7 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -50,6 +50,7 @@ type ExpectedSwitch struct {
 	BmcMacAddress      string    `bun:"bmc_mac_address,notnull"`
 	SwitchSerialNumber string    `bun:"switch_serial_number,notnull"`
 	BmcIpAddress       *string   `bun:"bmc_ip_address"`
+	NvosMacAddresses   []string  `bun:"nvos_mac_addresses,array"`
 	RackID             *string   `bun:"rack_id"`
 	Name               *string   `bun:"name"`
 	Manufacturer       *string   `bun:"manufacturer"`
@@ -62,6 +63,14 @@ type ExpectedSwitch struct {
 	Created            time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated            time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	CreatedBy          uuid.UUID `bun:"type:uuid,notnull"`
+}
+
+// NormalizeMacAddress lowercases a MAC address and converts hyphen separators
+// to colons so equivalent spellings compare equal. It is the one home for the
+// canonical-spelling rule shared by request validation and the DAO's
+// NvosMacAddresses conflict filter.
+func NormalizeMacAddress(mac string) string {
+	return strings.ToLower(strings.ReplaceAll(mac, "-", ":"))
 }
 
 // ExpectedSwitchCredentials carries the BMC and NVOS credentials for one
@@ -77,18 +86,19 @@ type ExpectedSwitchCredentials struct {
 // ToProto builds the workflow proto for this ExpectedSwitch. BMC and NVOS
 // credentials are passed in because they aren't persisted on the record;
 // labels are read from es.Labels.
-func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.ExpectedSwitch {
-	proto := &cwssaws.ExpectedSwitch{
-		ExpectedSwitchId:   &cwssaws.UUID{Value: es.ID.String()},
+func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *corev1.ExpectedSwitch {
+	proto := &corev1.ExpectedSwitch{
+		ExpectedSwitchId:   &corev1.UUID{Value: es.ID.String()},
 		BmcMacAddress:      es.BmcMacAddress,
 		SwitchSerialNumber: es.SwitchSerialNumber,
+		NvosMacAddresses:   es.NvosMacAddresses,
 	}
 
 	if es.BmcIpAddress != nil {
 		proto.BmcIpAddress = *es.BmcIpAddress
 	}
 	if es.RackID != nil {
-		proto.RackId = &cwssaws.RackId{Id: *es.RackID}
+		proto.RackId = &corev1.RackId{Id: *es.RackID}
 	}
 	if es.Name != nil {
 		proto.Name = es.Name
@@ -125,7 +135,7 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.Expe
 		proto.NvosPassword = creds.NvosPassword
 	}
 
-	metadata := &cwssaws.Metadata{
+	metadata := &corev1.Metadata{
 		Labels: expectedComponentLabelsInput{
 			Manufacturer: es.Manufacturer,
 			Model:        es.Model,
@@ -150,7 +160,7 @@ func (es *ExpectedSwitch) ToProto(creds ExpectedSwitchCredentials) *cwssaws.Expe
 // by a Site. A nil proto is a no-op. An invalid or missing
 // proto.ExpectedSwitchId leaves es.ID unchanged so the caller can validate
 // the proto's UUID before calling.
-func (es *ExpectedSwitch) FromProto(proto *cwssaws.ExpectedSwitch) {
+func (es *ExpectedSwitch) FromProto(proto *corev1.ExpectedSwitch) {
 	if proto == nil {
 		return
 	}
@@ -161,6 +171,7 @@ func (es *ExpectedSwitch) FromProto(proto *cwssaws.ExpectedSwitch) {
 	}
 	es.BmcMacAddress = proto.BmcMacAddress
 	es.SwitchSerialNumber = proto.SwitchSerialNumber
+	es.NvosMacAddresses = proto.NvosMacAddresses
 	if proto.BmcIpAddress != "" {
 		addr := proto.BmcIpAddress
 		es.BmcIpAddress = &addr
@@ -190,6 +201,7 @@ type ExpectedSwitchCreateInput struct {
 	BmcMacAddress      string
 	SwitchSerialNumber string
 	BmcIpAddress       *string
+	NvosMacAddresses   []string
 	RackID             *string
 	Name               *string
 	Manufacturer       *string
@@ -208,6 +220,7 @@ type ExpectedSwitchUpdateInput struct {
 	BmcMacAddress      *string
 	SwitchSerialNumber *string
 	BmcIpAddress       *string
+	NvosMacAddresses   []string
 	RackID             *string
 	Name               *string
 	Manufacturer       *string
@@ -223,6 +236,7 @@ type ExpectedSwitchUpdateInput struct {
 type ExpectedSwitchClearInput struct {
 	ExpectedSwitchID uuid.UUID
 	BmcIpAddress     bool
+	NvosMacAddresses bool
 	RackID           bool
 	Name             bool
 	Manufacturer     bool
@@ -236,9 +250,15 @@ type ExpectedSwitchClearInput struct {
 
 // ExpectedSwitchFilterInput filtering options for GetAll method
 type ExpectedSwitchFilterInput struct {
-	ExpectedSwitchIDs   []uuid.UUID
-	SiteIDs             []uuid.UUID
-	BmcMacAddresses     []string
+	ExpectedSwitchIDs []uuid.UUID
+	// ExcludeExpectedSwitchIDs drops the given switches from the result set
+	ExcludeExpectedSwitchIDs []uuid.UUID
+	SiteIDs                  []uuid.UUID
+	BmcMacAddresses          []string
+	// NvosMacAddresses matches switches whose NVOS MAC list contains any of the
+	// given addresses. Comparison ignores case and separator style since those
+	// spellings refer to the same interface.
+	NvosMacAddresses    []string
 	SwitchSerialNumbers []string
 	SearchQuery         *string
 }
@@ -307,6 +327,7 @@ func (essd ExpectedSwitchSQLDAO) Create(ctx context.Context, tx *db.Tx, input Ex
 		BmcMacAddress:      input.BmcMacAddress,
 		SwitchSerialNumber: input.SwitchSerialNumber,
 		BmcIpAddress:       input.BmcIpAddress,
+		NvosMacAddresses:   input.NvosMacAddresses,
 		RackID:             input.RackID,
 		Name:               input.Name,
 		Manufacturer:       input.Manufacturer,
@@ -389,10 +410,28 @@ func (essd ExpectedSwitchSQLDAO) setQueryWithFilter(filter ExpectedSwitchFilterI
 		}
 	}
 
+	if len(filter.ExcludeExpectedSwitchIDs) > 0 {
+		query = query.Where("es.id NOT IN (?)", bun.In(filter.ExcludeExpectedSwitchIDs))
+		if expectedSwitchDAOSpan != nil {
+			essd.tracerSpan.SetAttribute(expectedSwitchDAOSpan, "exclude_expected_switch_ids", filter.ExcludeExpectedSwitchIDs)
+		}
+	}
+
 	if filter.BmcMacAddresses != nil {
 		query = query.Where("es.bmc_mac_address IN (?)", bun.In(filter.BmcMacAddresses))
 		if expectedSwitchDAOSpan != nil {
 			essd.tracerSpan.SetAttribute(expectedSwitchDAOSpan, "bmc_mac_addresses", filter.BmcMacAddresses)
+		}
+	}
+
+	if len(filter.NvosMacAddresses) > 0 {
+		normalized := make([]string, 0, len(filter.NvosMacAddresses))
+		for _, mac := range filter.NvosMacAddresses {
+			normalized = append(normalized, NormalizeMacAddress(mac))
+		}
+		query = query.Where("EXISTS (SELECT 1 FROM unnest(es.nvos_mac_addresses) AS m(mac) WHERE lower(replace(m.mac, '-', ':')) IN (?))", bun.In(normalized))
+		if expectedSwitchDAOSpan != nil {
+			essd.tracerSpan.SetAttribute(expectedSwitchDAOSpan, "nvos_mac_addresses", filter.NvosMacAddresses)
 		}
 	}
 
@@ -501,6 +540,10 @@ func (essd ExpectedSwitchSQLDAO) Update(ctx context.Context, tx *db.Tx, input Ex
 		es.BmcIpAddress = input.BmcIpAddress
 		columnsSet["bmc_ip_address"] = true
 	}
+	if input.NvosMacAddresses != nil {
+		es.NvosMacAddresses = input.NvosMacAddresses
+		columnsSet["nvos_mac_addresses"] = true
+	}
 	if input.RackID != nil {
 		es.RackID = input.RackID
 		columnsSet["rack_id"] = true
@@ -586,6 +629,10 @@ func (essd ExpectedSwitchSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Exp
 	if input.BmcIpAddress {
 		es.BmcIpAddress = nil
 		updatedFields = append(updatedFields, "bmc_ip_address")
+	}
+	if input.NvosMacAddresses {
+		es.NvosMacAddresses = nil
+		updatedFields = append(updatedFields, "nvos_mac_addresses")
 	}
 	if input.RackID {
 		es.RackID = nil

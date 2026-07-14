@@ -58,11 +58,12 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
 
     // Set up OpenTelemetry + Prometheus metrics
     let metrics_setup =
-        metrics_endpoint::new_metrics_setup("carbide-dsx-exchange-consumer", "carbide", false)
+        metrics_endpoint::new_metrics_setup("carbide-dsx-exchange-consumer", "carbide", true)
             .map_err(|e| DsxConsumerError::Metrics(e.to_string()))?;
 
     let registry = metrics_setup.registry;
     let meter = metrics_setup.meter;
+    carbide_instrument::log_events::register(&meter);
 
     // Spawn metrics server
     let metrics_config = metrics_endpoint::MetricsEndpointConfig {
@@ -86,12 +87,7 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     // Connect to MQTT and get message receiver. mqttea tracks subscriptions
     // and replays them after reconnect when the broker reports that the
     // previous session was not resumed.
-    let rx = mqtt_consumer::connect(
-        &config.mqtt,
-        consumer_metrics.clone(),
-        credential_manager.clone(),
-    )
-    .await?;
+    let rx = mqtt_consumer::connect(&config.mqtt, &meter, credential_manager.clone()).await?;
 
     // Set up API client and create health updater
     let join_updater = if let Some(api_config) = config.carbide_api {

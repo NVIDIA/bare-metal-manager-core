@@ -26,6 +26,8 @@ description = "Helpers for interacting with TLS authentication, client certs, SP
 name = "carbide_authn"
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
+
 thiserror = { workspace = true }
 x509-parser = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -35,7 +37,9 @@ tower = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
+rcgen = { workspace = true }
 
 [lints]
 workspace = true

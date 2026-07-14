@@ -23,6 +23,7 @@ use ::rpc::forge::{
     self as rpc, Jwks, JwksKind, JwksRequest, MachineIdentityResponse, OpenIdConfigRequest,
     OpenIdConfiguration,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use db::{WithTransaction, tenant_identity_config};
@@ -211,14 +212,11 @@ pub(crate) async fn sign_machine_identity(
     let now = Utc::now().timestamp();
 
     if let (Some(token_endpoint), Some(subject_token_audience), Some(auth_method)) = (
-        identity_row
-            .token_endpoint
-            .as_deref()
-            .filter(|u| !u.is_empty()),
+        identity_row.token_endpoint.as_deref().none_if_empty(),
         identity_row
             .subject_token_audience
             .as_deref()
-            .filter(|a| !a.is_empty()),
+            .none_if_empty(),
         identity_row.auth_method,
     ) {
         let subject_ttl = i64::from(identity_row.token_ttl_sec);

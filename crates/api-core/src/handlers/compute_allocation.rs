@@ -451,17 +451,9 @@ pub(crate) async fn update(
             instance_type_id: Some(instance_type_id.to_string()),
         };
 
-        let instance_count = instance::find_ids(&mut txn, filter).await?.len();
+        let instance_count = instance::count_ids(&mut txn, filter).await?;
 
-        if instance_count
-            > new_tenant_allocation_total
-                .try_into()
-                .map_err(|e: TryFromIntError| CarbideError::Internal {
-                    message: format!(
-                        "unable to compare current instance and allocation counts - {e}"
-                    ),
-                })?
-        {
+        if instance_count > i64::from(new_tenant_allocation_total) {
             return Err(CarbideError::FailedPrecondition(format!(
                 "requested update would decrease allocation count ({new_tenant_allocation_total}) below existing instances count ({instance_count})"
             ))
@@ -594,17 +586,9 @@ pub(crate) async fn delete(
             instance_type_id: Some(allocation.instance_type_id.to_string()),
         };
 
-        let instance_count = instance::find_ids(&mut txn, filter).await?.len();
+        let instance_count = instance::count_ids(&mut txn, filter).await?;
 
-        if instance_count
-            > new_tenant_allocation_total
-                .try_into()
-                .map_err(|e: TryFromIntError| CarbideError::Internal {
-                    message: format!(
-                        "unable to compare current instance and allocation counts - {e}"
-                    ),
-                })?
-        {
+        if instance_count > i64::from(new_tenant_allocation_total) {
             return Err(CarbideError::FailedPrecondition(format!(
                 "requested delete would decrease allocation count ({new_tenant_allocation_total}) below existing instances count ({instance_count})"
             ))

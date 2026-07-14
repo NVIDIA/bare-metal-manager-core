@@ -58,6 +58,7 @@ impl WiwynnGB200Nvl<'_> {
                         .interface_enabled(true)
                         .build(),
                     ]),
+                    serial_interfaces: None,
                     firmware_version: Some("25.06-2_NV_WW_02"),
                     oem: None,
                 },
@@ -65,6 +66,7 @@ impl WiwynnGB200Nvl<'_> {
                     id: "HGX_BMC_0",
                     eth_interfaces: Some(vec![]), // TODO: usb0
                     host_interfaces: None,
+                    serial_interfaces: None,
                     firmware_version: Some("GB200Nvl-25.06-A"),
                     oem: None,
                 },
@@ -107,7 +109,7 @@ impl WiwynnGB200Nvl<'_> {
                     boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                     callbacks,
                     chassis: vec!["BMC_0".into()],
-                    boot_options: Some(boot_options.into()),
+                    boot_options: Some(boot_options),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
                     oem: redfish::computer_system::Oem::Generic,
                     base_bios: Some(
@@ -120,6 +122,7 @@ impl WiwynnGB200Nvl<'_> {
                     log_services: None,
                     storage: None,
                     processors: None,
+                    serial_console: None,
                     secure_boot_available: true,
                 },
                 redfish::computer_system::SingleSystemConfig {
@@ -143,6 +146,7 @@ impl WiwynnGB200Nvl<'_> {
                             .flat_map(|board| board.hgx_gpu_processors(hgx_baseboard_id))
                             .collect(),
                     ),
+                    serial_console: None,
                     secure_boot_available: false,
                 },
             ],

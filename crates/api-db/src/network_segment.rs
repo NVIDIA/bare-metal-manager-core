@@ -189,6 +189,10 @@ pub async fn for_vpc(
     Ok(results)
 }
 
+/// Returns the segment matched by a DHCP relay address.
+///
+/// Exact DHCPv6 link-address matches win over prefix containment, matching the
+/// candidate ordering used by `for_relay_all`.
 pub async fn for_relay(
     txn: &mut PgConnection,
     relay: IpAddr,
@@ -197,8 +201,57 @@ pub async fn for_relay(
 
     match results.len() {
         0 | 1 => Ok(results.pop()),
+        _ => {
+            // DHCPv6 link-address equality is unique and more specific than
+            // prefix containment, so it resolves the otherwise ambiguous match.
+            results
+                .into_iter()
+                .find(|segment| {
+                    segment
+                        .prefixes
+                        .iter()
+                        .any(|prefix| prefix.dhcpv6_link_address == Some(relay))
+                })
+                .map(Some)
+                .ok_or_else(|| {
+                    DatabaseError::internal(format!(
+                        "Multiple network segments defined for relay address {relay}"
+                    ))
+                })
+        }
+    }
+}
+
+/// Returns the segment whose managed prefix contains `address`.
+///
+/// This intentionally ignores `dhcpv6_link_address`: that field is DHCP relay
+/// routing context and may be outside the segment prefix.
+pub async fn for_prefix_containing_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+) -> DatabaseResult<Option<NetworkSegment>> {
+    static QUERY: &str = concat!(
+        network_segment_snapshot_query!(),
+        r#"
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM network_prefixes
+                    WHERE network_prefixes.segment_id = ns.id
+                    -- Static address ownership uses managed prefix containment only.
+                    AND $1::inet <<= network_prefixes.prefix
+                )
+                ORDER BY ns.id"#,
+    );
+    let mut results: Vec<NetworkSegment> = sqlx::query_as(QUERY)
+        .bind(IpNetwork::from(address))
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))?;
+
+    match results.len() {
+        0 | 1 => Ok(results.pop()),
         _ => Err(DatabaseError::internal(format!(
-            "Multiple network segments defined for relay address {relay}"
+            "Multiple network segments contain address {address}"
         ))),
     }
 }
@@ -215,12 +268,25 @@ pub async fn for_relay_all(
                     SELECT 1
                     FROM network_prefixes
                     WHERE network_prefixes.segment_id = ns.id
-                    AND EXISTS (
-                        SELECT 1 FROM unnest($1::inet[]) AS ip
-                        WHERE ip <<= network_prefixes.prefix
+                    AND (
+                        -- Relay candidates match either normal prefix containment...
+                        EXISTS (
+                            SELECT 1 FROM unnest($1::inet[]) AS ip
+                            WHERE ip <<= network_prefixes.prefix
+                        )
+                        -- ...or exact DHCPv6 link-address metadata.
+                        OR network_prefixes.dhcpv6_link_address = ANY($1::inet[])
                     )
                 )
-                ORDER BY ns.id"#,
+                -- Exact DHCPv6 link-address matches sort first so callers see
+                -- the authoritative segment before prefix fallback candidates.
+                ORDER BY EXISTS (
+                    SELECT 1
+                    FROM network_prefixes
+                    WHERE network_prefixes.segment_id = ns.id
+                    AND network_prefixes.dhcpv6_link_address = ANY($1::inet[])
+                ) DESC,
+                ns.id"#,
     );
     let results = sqlx::query_as(QUERY)
         .bind(
@@ -250,13 +316,27 @@ pub async fn for_segment_type_all(
                     SELECT 1
                     FROM network_prefixes
                     WHERE network_prefixes.segment_id = ns.id
-                    AND EXISTS (
-                        SELECT 1 FROM unnest($1::inet[]) AS ip
-                        WHERE ip <<= network_prefixes.prefix
+                    AND (
+                        -- Relay candidates match either normal prefix containment...
+                        EXISTS (
+                            SELECT 1 FROM unnest($1::inet[]) AS ip
+                            WHERE ip <<= network_prefixes.prefix
+                        )
+                        -- ...or exact DHCPv6 link-address metadata.
+                        OR network_prefixes.dhcpv6_link_address = ANY($1::inet[])
                     )
                 )
+                -- Apply requested segment-type narrowing after relay ownership matching.
                 AND $2 = ns.network_segment_type
-                ORDER BY ns.id"#,
+                -- Exact DHCPv6 link-address matches sort first so callers see
+                -- the authoritative segment before prefix fallback candidates.
+                ORDER BY EXISTS (
+                    SELECT 1
+                    FROM network_prefixes
+                    WHERE network_prefixes.segment_id = ns.id
+                    AND network_prefixes.dhcpv6_link_address = ANY($1::inet[])
+                ) DESC,
+                ns.id"#,
     );
 
     let results = sqlx::query_as(QUERY)
@@ -272,22 +352,6 @@ pub async fn for_segment_type_all(
         .map_err(|e| DatabaseError::new(QUERY, e))?;
 
     Ok(results)
-}
-
-pub async fn for_segment_type(
-    txn: &mut PgConnection,
-    relay: IpAddr,
-    segment_type: NetworkSegmentType,
-) -> DatabaseResult<Option<NetworkSegment>> {
-    let mut results = for_segment_type_all(txn, std::slice::from_ref(&relay), segment_type).await?;
-    if results.len() > 1 {
-        tracing::trace!(
-            "Multiple network segments defined for segment_type {} and relay address {}",
-            segment_type.to_string(),
-            relay.to_string()
-        );
-    }
-    Ok(results.pop())
 }
 
 /// Retrieves the IDs of all network segments.
@@ -944,6 +1008,7 @@ pub async fn allocate_svi_ip(
 
 #[cfg(test)]
 mod tests {
+    use model::network_prefix::NewNetworkPrefix;
     use model::network_segment::NetworkDefinitionSegmentType;
 
     use super::*;
@@ -961,6 +1026,100 @@ mod tests {
         .fetch_one(pool)
         .await
     }
+
+    /// Persists one test segment with a single prefix row.
+    async fn persist_test_segment(
+        pool: &sqlx::PgPool,
+        name: &str,
+        prefix: &str,
+        gateway: Option<&str>,
+        dhcpv6_link_address: Option<&str>,
+    ) -> Result<NetworkSegmentId, Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let segment = NewNetworkSegment {
+            id: uuid::Uuid::new_v4().into(),
+            name: name.to_string(),
+            subdomain_id: None,
+            vpc_id: None,
+            mtu: 1500,
+            prefixes: vec![NewNetworkPrefix {
+                prefix: prefix.parse()?,
+                gateway: gateway.map(str::parse).transpose()?,
+                dhcpv6_link_address: dhcpv6_link_address.map(str::parse).transpose()?,
+                num_reserved: 1,
+            }],
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Admin,
+            can_stretch: None,
+            allocation_strategy: Default::default(),
+        };
+        let segment_id = segment.id;
+
+        persist(segment, &mut txn, NetworkSegmentControllerState::Ready).await?;
+        txn.commit().await?;
+        Ok(segment_id)
+    }
+
+    #[crate::sqlx_test]
+    async fn for_prefix_containing_address_ignores_dhcpv6_link_address(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let link_address = "2001:db8:ffff::1";
+
+        // A DHCPv6 link-address outside the prefix must not make the segment
+        // own that address for static assignment.
+        persist_test_segment(
+            &pool,
+            "link-only",
+            "2001:db8:a::/64",
+            None,
+            Some(link_address),
+        )
+        .await?;
+        let mut txn = pool.begin().await?;
+        let segment = for_prefix_containing_address(&mut txn, link_address.parse()?).await?;
+        assert!(segment.is_none());
+        txn.rollback().await?;
+
+        // If another segment's real prefix contains the same address, static
+        // ownership follows the prefix, not the link-address equality branch.
+        let owner_segment =
+            persist_test_segment(&pool, "prefix-owner", "2001:db8:ffff::/64", None, None).await?;
+        let mut txn = pool.begin().await?;
+        let segment = for_prefix_containing_address(&mut txn, link_address.parse()?)
+            .await?
+            .expect("prefix-containing segment should resolve");
+        assert_eq!(segment.id, owner_segment);
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn for_relay_prefers_exact_dhcpv6_link_address_over_prefix_containment(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let relay = "2001:db8:ffff::1";
+
+        // One segment matches only because its managed prefix contains the relay.
+        persist_test_segment(&pool, "prefix-owner", "2001:db8:ffff::/64", None, None).await?;
+
+        // The other segment owns the relay by exact DHCPv6 link-address.
+        let exact_segment =
+            persist_test_segment(&pool, "link-owner", "2001:db8:a::/64", None, Some(relay)).await?;
+
+        // The exact link-address match should disambiguate the relay lookup.
+        let mut txn = pool.begin().await?;
+        let segment = for_relay(&mut txn, relay.parse()?)
+            .await?
+            .expect("relay should resolve to exact link-address segment");
+        assert_eq!(segment.id, exact_segment);
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
     // A brand-new network is declared but no segment exists yet and no
     // snapshot has been recorded.
     // (`create_initial_networks`) is responsible for inserting both the

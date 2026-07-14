@@ -67,6 +67,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0
           submodules: recursive
 
@@ -77,7 +78,6 @@ jobs:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
           NGC_PATH_OVERRIDE: ${{ vars.NICO_TARGET_NGC_PATH }}
         run: |
-          git fetch --tags --force
           RAW_VERSION=$(git describe --tags --first-parent --always --long)
           SEMANTIC_VERSION="${RAW_VERSION}"
 

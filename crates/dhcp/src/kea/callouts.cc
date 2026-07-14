@@ -133,6 +133,11 @@ void update_option(CalloutHandle &handle, Pkt4Ptr response4_ptr,
                       "[%1]. Exception: %2")
         .arg(option)
         .arg(e.what());
+    // Several options are updated per reply and each failing update throws;
+    // count the packet's drop once, on the throw that marks it dropped.
+    if (handle.getStatus() != CalloutHandle::NEXT_STEP_DROP) {
+      carbide_increment_dropped_requests("OptionEncodingFailed");
+    }
     handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
   }
 }
@@ -519,6 +524,7 @@ int pkt4_send(CalloutHandle &handle) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_PKT4_SEND)
         .arg("Missing machine object from handle context");
     handle.setStatus(CalloutHandle::NEXT_STEP_DROP);
+    carbide_increment_dropped_requests("MissingMachineContext");
     return 1;
   }
 
@@ -542,6 +548,14 @@ int pkt4_send(CalloutHandle &handle) {
 
   LOG_INFO(logger, isc::log::LOG_CARBIDE_PKT4_SEND)
       .arg(response4_ptr->toText());
+
+  /*
+   * The reply is fully assembled; count it by DHCP message type unless an
+   * option failure above already marked the exchange dropped (and counted).
+   */
+  if (handle.getStatus() != CalloutHandle::NEXT_STEP_DROP) {
+    carbide_increment_reply_sent(response4_ptr->getType());
+  }
 
   return 0;
 }
@@ -603,6 +617,7 @@ int lease4_select(CalloutHandle &handle) {
         .arg("Missing lease4 argument");
     // At lease4_select, SKIP means Kea will not assign its selected lease.
     handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    carbide_increment_dropped_requests("AllocationRefused");
     return 1;
   }
 
@@ -620,6 +635,7 @@ int lease4_select(CalloutHandle &handle) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_SELECT)
         .arg("Missing machine object from handle context");
     handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    carbide_increment_dropped_requests("AllocationRefused");
     return 1;
   }
 
@@ -631,6 +647,7 @@ int lease4_select(CalloutHandle &handle) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_SELECT)
         .arg("Carbide returned no usable IPv4 address; refusing to allocate");
     handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    carbide_increment_dropped_requests("AllocationRefused");
     return 1;
   }
 
@@ -683,6 +700,7 @@ int lease4_renew(CalloutHandle &handle) {
         .arg("Missing lease4 argument");
     // At lease4_renew, SKIP means Kea will not update the lease database.
     handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    carbide_increment_dropped_requests("RenewalRefused");
     return 1;
   }
 
@@ -692,6 +710,7 @@ int lease4_renew(CalloutHandle &handle) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_RENEW)
         .arg("Missing machine object from handle context");
     handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    carbide_increment_dropped_requests("RenewalRefused");
     return 1;
   }
 
@@ -700,6 +719,7 @@ int lease4_renew(CalloutHandle &handle) {
     LOG_ERROR(logger, isc::log::LOG_CARBIDE_LEASE4_RENEW)
         .arg("Carbide returned no usable IPv4 address; refusing to renew");
     handle.setStatus(CalloutHandle::NEXT_STEP_SKIP);
+    carbide_increment_dropped_requests("RenewalRefused");
     return 1;
   }
 

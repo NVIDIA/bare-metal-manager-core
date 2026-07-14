@@ -202,7 +202,7 @@ kubectl rollout status statefulset/postgres -n postgres
 
 Keycloak is the **reference OIDC identity provider** for the NICo REST API. It handles authentication and issues JWTs that the API validates on every request. It is pre-loaded with the `nico-dev` realm via an imported realm ConfigMap, which includes the `nico-api` client, realm roles, and a set of pre-seeded dev users.
 
-Users of NICo can also bring their own OpenID/OAuth JWT Provider, see [Auth docs](https://github.com/NVIDIA/infra-controller/rest-api/tree/main/auth) for more details.
+Users of NICo can also bring their own OpenID/OAuth JWT Provider, see [Auth docs](https://github.com/NVIDIA/infra-controller/tree/main/rest-api/auth) for more details.
 
 ### Manifests
 
@@ -702,7 +702,8 @@ The site agent bootstrap flow is:
 
 | Variable | Default | Description |
 |---|---|---|
-| `NICO_ADDRESS` | `nico-rest-mock-core:11079` | NICo/NICo gRPC endpoint — **set this to your Core gRPC server address in production** |
+| `CORE_GRPC_ADDRESS` | `""` (empty) | NICo Core gRPC endpoint — **set this to your Core gRPC server address in production**. Empty falls back to the binary's in-cluster default; the local kind flow injects the mock-core address via the Makefile. |
+| `CORE_GRPC_SEC_OPT` | `0` | Core gRPC security mode (`0` insecure, `1` server TLS, `2` mutual TLS) |
 | `CLUSTER_ID` | `00000000-0000-4000-8000-000000000001` | Site UUID — **must match a registered site** |
 | `TEMPORAL_HOST` | `temporal-frontend.temporal` | Temporal frontend host |
 | `TEMPORAL_PORT` | `7233` | Temporal frontend port |
@@ -892,7 +893,7 @@ Or run commands directly for scripting:
 nicocli --config ~/.nico/config.yaml site list
 ```
 
-See [cli/README.md](cli/README.md) for the full configuration reference and command list.
+See [cli/README.md](../cli/README.md) for the full configuration reference and command list.
 
 ### Getting an access token
 

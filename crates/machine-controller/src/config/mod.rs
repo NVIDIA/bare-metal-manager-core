@@ -48,6 +48,7 @@ pub struct MachineStateHandlerSiteConfig {
     pub spdm_enabled: bool,
 
     pub dpu_enable_secure_boot: bool,
+    pub restart_ovs_on_use_admin_network_change: bool,
 }
 
 impl MachineStateHandlerSiteConfig {
@@ -65,6 +66,7 @@ impl MachineStateHandlerSiteConfig {
             dpf_enabled: false,
             spdm_enabled: false,
             dpu_enable_secure_boot: true,
+            restart_ovs_on_use_admin_network_change: false,
         }
     }
 }

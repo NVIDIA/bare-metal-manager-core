@@ -69,6 +69,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           submodules: recursive
           fetch-depth: 0  # Full git history needed for git describe
 

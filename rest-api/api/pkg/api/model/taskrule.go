@@ -13,7 +13,7 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 )
 
 // APIOperationType is the operationType field of an Operation Rule.

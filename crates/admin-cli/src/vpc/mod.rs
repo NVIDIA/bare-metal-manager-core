@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+mod create;
 mod set_virtualizer;
 mod show;
 
@@ -31,6 +32,8 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
+    #[clap(about = "Create VPC")]
+    Create(create::Args),
     #[clap(about = "Display VPC information")]
     Show(show::Args),
     SetVirtualizer(set_virtualizer::Args),

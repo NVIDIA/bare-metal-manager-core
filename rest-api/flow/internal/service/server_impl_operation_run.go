@@ -19,8 +19,6 @@ import (
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
-const operationRunUnimplementedMessage = "operation run API is not implemented"
-
 func (rs *FlowServerImpl) CreateOperationRun(
 	ctx context.Context,
 	req *pb.CreateOperationRunRequest,
@@ -68,6 +66,9 @@ func operationRunStatusError(
 		c = codes.NotFound
 	} else if errors.Is(err, operationrunmanager.ErrNoPlannedTargets) {
 		c = codes.InvalidArgument
+	} else if errors.Is(err, operationrunmanager.ErrOperationRunInvalidState) ||
+		errors.Is(err, operationrunmanager.ErrOperationRunSafetyGateTripped) {
+		c = codes.FailedPrecondition
 	} else {
 		c = defaultCode
 	}
@@ -241,19 +242,77 @@ func (rs *FlowServerImpl) PauseOperationRun(
 	ctx context.Context,
 	req *pb.PauseOperationRunRequest,
 ) (*pb.OperationRun, error) {
-	return nil, status.Error(codes.Unimplemented, operationRunUnimplementedMessage)
+	return rs.handleOperationRunControl(
+		req.GetId(),
+		func(manager operationrunmanager.Manager, id uuid.UUID) (*operationrun.OperationRun, error) {
+			return manager.Pause(ctx, id)
+		},
+	)
 }
 
 func (rs *FlowServerImpl) ResumeOperationRun(
 	ctx context.Context,
 	req *pb.ResumeOperationRunRequest,
 ) (*pb.OperationRun, error) {
-	return nil, status.Error(codes.Unimplemented, operationRunUnimplementedMessage)
+	return rs.handleOperationRunControl(
+		req.GetId(),
+		func(manager operationrunmanager.Manager, id uuid.UUID) (*operationrun.OperationRun, error) {
+			return manager.Resume(ctx, id)
+		},
+	)
+}
+
+func (rs *FlowServerImpl) AdvanceOperationRunPhase(
+	ctx context.Context,
+	req *pb.AdvanceOperationRunPhaseRequest,
+) (*pb.OperationRun, error) {
+	return rs.handleOperationRunControl(
+		req.GetId(),
+		func(manager operationrunmanager.Manager, id uuid.UUID) (*operationrun.OperationRun, error) {
+			return manager.AdvancePhase(ctx, id, req.ExpectedPhaseIndex)
+		},
+	)
 }
 
 func (rs *FlowServerImpl) CancelOperationRun(
 	ctx context.Context,
 	req *pb.CancelOperationRunRequest,
 ) (*pb.OperationRun, error) {
-	return nil, status.Error(codes.Unimplemented, operationRunUnimplementedMessage)
+	if rs.taskManager == nil {
+		return nil, status.Error(codes.FailedPrecondition, "task manager is not configured")
+	}
+
+	return rs.handleOperationRunControl(
+		req.GetId(),
+		func(manager operationrunmanager.Manager, id uuid.UUID) (*operationrun.OperationRun, error) {
+			return manager.Cancel(ctx, id, req.GetReason(), rs.taskManager)
+		},
+	)
+}
+
+func (rs *FlowServerImpl) handleOperationRunControl(
+	reqID *pb.UUID,
+	action func(operationrunmanager.Manager, uuid.UUID) (*operationrun.OperationRun, error),
+) (*pb.OperationRun, error) {
+	manager, err := rs.requireOperationRunManager()
+	if err != nil {
+		return nil, err
+	}
+
+	id := protobuf.UUIDFrom(reqID)
+	if id == uuid.Nil {
+		return nil, status.Error(codes.InvalidArgument, "operation run ID is required")
+	}
+
+	run, err := action(manager, id)
+	if err != nil {
+		return nil, operationRunStatusError(codes.Internal, err)
+	}
+
+	result, err := protobuf.OperationRunTo(run)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return result, nil
 }

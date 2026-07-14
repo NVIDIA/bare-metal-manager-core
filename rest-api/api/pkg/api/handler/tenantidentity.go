@@ -26,7 +26,7 @@ import (
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
@@ -160,7 +160,7 @@ func (umich CreateOrUpdateTenantIdentityConfigHandler) Handle(c echo.Context) er
 	wid := we.GetID()
 	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous create or update Tenant Identity Config workflow")
 
-	var protoResponse cwssaws.TenantIdentityConfigResponse
+	var protoResponse corev1.TenantIdentityConfigResponse
 	err = we.Get(ctx, &protoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -261,7 +261,7 @@ func (gmich GetTenantIdentityConfigHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 	}
 
-	protoRequest := &cwssaws.GetTenantIdentityConfigRequest{OrganizationId: org}
+	protoRequest := &corev1.GetTenantIdentityConfigRequest{OrganizationId: org}
 
 	workflowOptions := tclient.StartWorkflowOptions{
 		ID:                       "tenant-identity-config-get-" + org + "-" + site.ID.String(),
@@ -282,7 +282,7 @@ func (gmich GetTenantIdentityConfigHandler) Handle(c echo.Context) error {
 	wid := we.GetID()
 	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous get Tenant Identity Config workflow")
 
-	var protoResponse cwssaws.TenantIdentityConfigResponse
+	var protoResponse corev1.TenantIdentityConfigResponse
 	err = we.Get(ctx, &protoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -378,7 +378,7 @@ func (dmich DeleteTenantIdentityConfigHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 	}
 
-	protoRequest := &cwssaws.GetTenantIdentityConfigRequest{OrganizationId: org}
+	protoRequest := &corev1.GetTenantIdentityConfigRequest{OrganizationId: org}
 
 	workflowOptions := tclient.StartWorkflowOptions{
 		ID:                       "tenant-identity-config-delete-" + org + "-" + site.ID.String(),
@@ -533,7 +533,7 @@ func (utdh CreateOrUpdateTenantIdentityTokenDelegationHandler) Handle(c echo.Con
 	wid := we.GetID()
 	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous create or update Token Delegation workflow")
 
-	var protoResponse cwssaws.TokenDelegationResponse
+	var protoResponse corev1.TokenDelegationResponse
 	err = we.Get(ctx, &protoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -634,7 +634,7 @@ func (gtdh GetTenantIdentityTokenDelegationHandler) Handle(c echo.Context) error
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 	}
 
-	protoRequest := &cwssaws.GetTokenDelegationRequest{OrganizationId: org}
+	protoRequest := &corev1.GetTokenDelegationRequest{OrganizationId: org}
 
 	workflowOptions := tclient.StartWorkflowOptions{
 		ID:                       "tenant-identity-token-delegation-get-" + org + "-" + site.ID.String(),
@@ -655,7 +655,7 @@ func (gtdh GetTenantIdentityTokenDelegationHandler) Handle(c echo.Context) error
 	wid := we.GetID()
 	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous get Token Delegation workflow")
 
-	var protoResponse cwssaws.TokenDelegationResponse
+	var protoResponse corev1.TokenDelegationResponse
 	err = we.Get(ctx, &protoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -751,7 +751,7 @@ func (dtdh DeleteTenantIdentityTokenDelegationHandler) Handle(c echo.Context) er
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 	}
 
-	protoRequest := &cwssaws.GetTokenDelegationRequest{OrganizationId: org}
+	protoRequest := &corev1.GetTokenDelegationRequest{OrganizationId: org}
 
 	workflowOptions := tclient.StartWorkflowOptions{
 		ID:                       "tenant-identity-token-delegation-delete-" + org + "-" + site.ID.String(),
@@ -794,11 +794,11 @@ type GetJWKSHandler struct {
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
 	tracerSpan *cutil.TracerSpan
-	kind       cwssaws.JwksKind
+	kind       corev1.JwksKind
 }
 
 // NewGetJWKSHandler returns a new GetJWKSHandler.
-func NewGetJWKSHandler(dbSession *cdb.Session, scp *sc.ClientPool, kind cwssaws.JwksKind) GetJWKSHandler {
+func NewGetJWKSHandler(dbSession *cdb.Session, scp *sc.ClientPool, kind corev1.JwksKind) GetJWKSHandler {
 	return GetJWKSHandler{
 		dbSession:  dbSession,
 		scp:        scp,
@@ -858,7 +858,7 @@ func (gjwksh GetJWKSHandler) Handle(c echo.Context) error {
 	}
 
 	kind := gjwksh.kind
-	protoRequest := &cwssaws.JwksRequest{OrganizationId: org, Kind: &kind}
+	protoRequest := &corev1.JwksRequest{OrganizationId: org, Kind: &kind}
 
 	workflowOptions := tclient.StartWorkflowOptions{
 		ID:                       "tenant-identity-jwks-get-" + org + "-" + site.ID.String() + "-" + kind.String(),
@@ -879,7 +879,7 @@ func (gjwksh GetJWKSHandler) Handle(c echo.Context) error {
 	wid := we.GetID()
 	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous get JWKS workflow")
 
-	var protoResponse cwssaws.Jwks
+	var protoResponse corev1.Jwks
 	err = we.Get(ctx, &protoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError
@@ -981,7 +981,7 @@ func (goidch GetOpenIDConfigurationHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 	}
 
-	protoRequest := &cwssaws.OpenIdConfigRequest{OrganizationId: org}
+	protoRequest := &corev1.OpenIdConfigRequest{OrganizationId: org}
 
 	workflowOptions := tclient.StartWorkflowOptions{
 		ID:                       "tenant-identity-openid-configuration-get-" + org + "-" + site.ID.String(),
@@ -1002,7 +1002,7 @@ func (goidch GetOpenIDConfigurationHandler) Handle(c echo.Context) error {
 	wid := we.GetID()
 	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous get OpenID Configuration workflow")
 
-	var protoResponse cwssaws.OpenIdConfiguration
+	var protoResponse corev1.OpenIdConfiguration
 	err = we.Get(ctx, &protoResponse)
 	if err != nil {
 		var timeoutErr *tp.TimeoutError

@@ -34,6 +34,9 @@ use rpc::protos::mlx_device::MlxDeviceInfo;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
+use crate::machine_update_manager::metrics::{
+    FirmwareUpdatePhase, FirmwareUpdateProgress, FirmwareUpdateTarget,
+};
 use crate::{CarbideError, CarbideResult};
 
 // Code to handle SVPC specific information.
@@ -197,12 +200,16 @@ fn build_apply_firmware_command<'a>(
             return None;
         }
 
-        tracing::info!(
-            %machine_id, %pci_name, %part_number, %psid,
-            observed_fw_version = ?device_info.fw_version_current,
-            expected_fw_version = %fw_profile.firmware_spec.version,
-            "firmware version mismatch, applying firmware"
-        );
+        carbide_instrument::emit(FirmwareUpdateProgress {
+            target: FirmwareUpdateTarget::SuperNic,
+            phase: FirmwareUpdatePhase::Started,
+            machine_id,
+            detail: format!(
+                "pci_name={pci_name} part_number={part_number} psid={psid} \
+                 observed_fw_version={:?} expected_fw_version={}",
+                device_info.fw_version_current, fw_profile.firmware_spec.version
+            ),
+        });
         Some(Cow::Borrowed(fw_profile))
     })();
 

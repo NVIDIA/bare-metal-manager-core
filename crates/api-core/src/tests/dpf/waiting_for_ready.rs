@@ -67,7 +67,7 @@ fn dpf_config() -> crate::cfg::file::DpfConfig {
         enabled: true,
         deployments: crate::cfg::file::DpfDeploymentsConfig {
             bf3: crate::cfg::file::DpfDeploymentConfig {
-                bfb_url: "http://example.com/test.bfb".to_string(),
+                bfb_url: Some("http://example.com/test.bfb".to_string()),
                 ..Default::default()
             },
             ..Default::default()

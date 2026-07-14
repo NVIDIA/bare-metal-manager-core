@@ -56,6 +56,16 @@ impl ManagerNetworkProtocolBuilder {
         self.apply_patch(json!({"IPMI": { "ProtocolEnabled": value }}))
     }
 
+    pub fn ntp(self, protocol_enabled: bool, servers: &[impl AsRef<str>]) -> Self {
+        let servers = servers.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+        self.apply_patch(json!({
+            "NTP": {
+                "NTPServers": servers,
+                "ProtocolEnabled": protocol_enabled,
+            },
+        }))
+    }
+
     pub fn build(self) -> serde_json::Value {
         self.value
     }

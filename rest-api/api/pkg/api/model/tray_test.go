@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/flow/protobuf/v1"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

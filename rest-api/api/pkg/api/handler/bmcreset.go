@@ -20,7 +20,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ResetMachineBMCHandler resets a Machine BMC.
@@ -152,8 +152,8 @@ func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
 
 	logger.Info().Str("machine_id", machineID).Str("site_id", site.ID.String()).Bool("use_ipmi_tool", apiReq.UseIpmiTool).Msg("Resetting Machine BMC via Core gRPC proxy")
 
-	coreResp := &cwssaws.AdminBmcResetResponse{}
-	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_AdminBmcReset_FullMethodName, apiReq.ToProto(machineID), coreResp, site.ID.String())
+	coreResp := &corev1.AdminBmcResetResponse{}
+	apiErr := common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_AdminBmcReset_FullMethodName, apiReq.ToProto(machineID), coreResp, site.ID.String())
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "Failed to reset Machine BMC via Core gRPC proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)

@@ -282,72 +282,26 @@ func (m *ManagerImpl) createAndExecuteTask(
 	req *operation.Request,
 	targetRack *rack.Rack,
 ) (uuid.UUID, error) {
-	// Build component map by type for fine-grained conflict detection.
-	compsByType := make(
-		map[devicetypes.ComponentType][]uuid.UUID,
-		len(targetRack.Components),
-	)
-	for _, c := range targetRack.Components {
-		compsByType[c.Type] = append(compsByType[c.Type], c.Info.ID)
+	if req.HasIdempotencyKey() {
+		return m.createAndExecuteIdempotentTask(ctx, req, targetRack)
 	}
 
-	// Build the task record (status and rule are determined below).
-	task := taskdef.Task{
-		ID:        uuid.New(),
-		Operation: req.Operation,
-		RackID:    targetRack.Info.ID,
-		Attributes: taskcommon.TaskAttributes{
-			ComponentsByType: compsByType,
-		},
-		Description:  req.Description,
-		ExecutorType: taskcommon.ExecutorTypeUnknown,
-		ExecutionID:  "",
-	}
+	task := newTaskForRack(req, targetRack)
 
 	// Check for conflicts inside a transaction to avoid a race between the
 	// check and the creation.
 	txErr := m.taskStore.RunInTransaction(
 		ctx,
 		func(txCtx context.Context) error {
-			hasConflict, err := m.conflictResolver.HasConflict(
-				txCtx, &task,
-			)
+			err := m.lockRackAndResolveConflict(txCtx, req, targetRack, &task)
 			if err != nil {
 				return err
-			}
-
-			if hasConflict {
-				if req.ConflictStrategy != operation.ConflictStrategyQueue {
-					return fmt.Errorf(
-						"rack %s already has a conflicting task: %w",
-						targetRack.Info.ID, ErrRackConflict,
-					)
-				}
-
-				count, err := m.taskStore.CountWaitingTasksForRack(
-					txCtx, targetRack.Info.ID,
-				)
-				if err != nil {
-					return err
-				}
-				if count >= m.maxWaitingPerRack {
-					return fmt.Errorf(
-						"rack %s waiting queue is full (%d/%d tasks)",
-						targetRack.Info.ID, count, m.maxWaitingPerRack,
-					)
-				}
-
-				task.Status = taskcommon.TaskStatusWaiting
-				task.Message = message.ForStatus(taskcommon.TaskStatusWaiting)
-				task.QueueExpiresAt = m.getReqExpiresAt(req)
-			} else {
-				task.Status = taskcommon.TaskStatusPending
-				task.Message = message.ForStatus(taskcommon.TaskStatusPending)
 			}
 
 			return m.taskStore.CreateTask(txCtx, &task)
 		},
 	)
+
 	if txErr != nil {
 		return uuid.Nil, txErr
 	}
@@ -366,6 +320,153 @@ func (m *ManagerImpl) createAndExecuteTask(
 	}
 
 	return task.ID, nil
+}
+
+func (m *ManagerImpl) createAndExecuteIdempotentTask(
+	ctx context.Context,
+	req *operation.Request,
+	targetRack *rack.Rack,
+) (uuid.UUID, error) {
+	var task taskdef.Task
+	txErr := m.taskStore.RunInTransaction(
+		ctx,
+		func(txCtx context.Context) error {
+			if err := m.taskStore.LockIdempotencyKey(txCtx, req.IdempotencyKey); err != nil {
+				return err
+			}
+
+			persistedTask, err := m.taskStore.GetTaskByIdempotencyKey(
+				txCtx,
+				req.IdempotencyKey,
+			)
+			if err != nil {
+				return err
+			}
+
+			if persistedTask != nil {
+				// There are existing tasks with this idempotency key, reuse it.
+				task = *persistedTask
+
+				if task.IsScheduled() {
+					// The task is already scheduled, so we can return it.
+					log.Info().
+						Str("task_id", task.ID.String()).
+						Str("idempotency_key", task.IdempotencyKey).
+						Msg("idempotent duplicate: returning existing scheduled task")
+					return nil
+				}
+			} else {
+				// No existing tasks with this idempotency key, create a new one.
+				task = newTaskForRack(req, targetRack)
+				if err := m.lockRackAndResolveConflict(txCtx, req, targetRack, &task); err != nil {
+					return err
+				}
+
+				if err := m.taskStore.CreateTask(txCtx, &task); err != nil {
+					return err
+				}
+			}
+
+			if task.Status == taskcommon.TaskStatusWaiting {
+				// The task has conflict and is waiting, so we can return it.
+				log.Info().
+					Str("task_id", task.ID.String()).
+					Str("rack_id", targetRack.Info.ID.String()).
+					Msg("task queued: waiting for rack to become available")
+				return nil
+			}
+
+			// Resolve and execute the task.
+			return m.resolveAndExecuteTask(txCtx, &task, targetRack)
+		},
+	)
+
+	if txErr != nil {
+		return uuid.Nil, txErr
+	}
+
+	return task.ID, nil
+}
+
+func newTaskForRack(req *operation.Request, targetRack *rack.Rack) taskdef.Task {
+	compsByType := make(
+		map[devicetypes.ComponentType][]uuid.UUID,
+		len(targetRack.Components),
+	)
+	for _, c := range targetRack.Components {
+		compsByType[c.Type] = append(compsByType[c.Type], c.Info.ID)
+	}
+
+	return taskdef.Task{
+		ID:        uuid.New(),
+		Operation: req.Operation,
+		RackID:    targetRack.Info.ID,
+		Attributes: taskcommon.TaskAttributes{
+			ComponentsByType: compsByType,
+		},
+		Description:    req.Description,
+		ExecutorType:   taskcommon.ExecutorTypeUnknown,
+		ExecutionID:    "",
+		IdempotencyKey: req.IdempotencyKey,
+	}
+}
+
+// lockRackAndResolveConflict must be called inside RunInTransaction.
+func (m *ManagerImpl) lockRackAndResolveConflict(
+	ctx context.Context,
+	req *operation.Request,
+	targetRack *rack.Rack,
+	task *taskdef.Task,
+) error {
+	// Serialize rack-level admission so concurrent submissions cannot both
+	// observe an empty active set and create conflicting pending tasks.
+	if err := m.taskStore.LockRack(ctx, targetRack.Info.ID); err != nil {
+		return err
+	}
+
+	hasConflict, err := m.conflictResolver.HasConflict(ctx, task)
+	if err != nil {
+		return err
+	}
+
+	if !hasConflict {
+		// No active task blocks this operation, so it can be scheduled
+		// immediately after the transaction commits.
+		task.Status = taskcommon.TaskStatusPending
+		task.Message = message.ForStatus(taskcommon.TaskStatusPending)
+		return nil
+	}
+
+	if req.ConflictStrategy != operation.ConflictStrategyQueue {
+		// The caller chose rejection over queueing, so surface the conflict
+		// without creating a task row.
+		return fmt.Errorf(
+			"rack %s already has a conflicting task: %w",
+			targetRack.Info.ID, ErrRackConflict,
+		)
+	}
+
+	count, err := m.taskStore.CountWaitingTasksForRack(ctx, targetRack.Info.ID)
+	if err != nil {
+		return err
+	}
+
+	if count >= m.maxWaitingPerRack {
+		// Preserve a bounded per-rack queue; otherwise a stuck rack could
+		// accumulate unbounded waiting work.
+		return fmt.Errorf(
+			"rack %s waiting queue is full (%d/%d tasks)",
+			targetRack.Info.ID, count, m.maxWaitingPerRack,
+		)
+	}
+
+	// Queue the task behind the currently active rack work. The promoter will
+	// move it to pending once the rack no longer has a conflicting active task.
+	task.Status = taskcommon.TaskStatusWaiting
+	task.Message = message.ForStatus(taskcommon.TaskStatusWaiting)
+	task.QueueExpiresAt = m.getReqExpiresAt(req)
+
+	return nil
 }
 
 // promoteTask is invoked by the Promoter to execute a previously waiting task
@@ -468,7 +569,7 @@ func (m *ManagerImpl) CancelTask(ctx context.Context, taskID uuid.UUID) error {
 
 	// Terminate the Temporal workflow if one was scheduled (pending/running).
 	// Waiting tasks have no workflow (ExecutionID is empty) so this is skipped.
-	if task.ExecutionID != "" {
+	if task.IsScheduled() {
 		if err := m.executor.TerminateTask(
 			ctx, task.ExecutionID, "Cancelled by user",
 		); err != nil {

@@ -75,14 +75,14 @@ use model::machine::{
     CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
     DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
     HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, Machine, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
-    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
-    PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState,
-    SetBootOrderInfo, SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea,
-    UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
-    dpf_based_dpu_provisioning_possible, get_display_ids,
+    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
+    MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
+    MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
+    PowerDrainState, PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext,
+    SecureEraseBossState, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
+    SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState, UnlockHostState,
+    ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::power_manager::PowerHandlingOutcome;
 use model::predicted_machine_interface::PredictedMachineInterface;
@@ -144,16 +144,33 @@ use crate::write_ops::MachineWriteOp;
 const NOT_FOUND: u16 = 404;
 
 #[cfg(not(test))]
-pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
-
-#[cfg(test)]
-pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 2; // Faster for tests
-
-#[cfg(not(test))]
 pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 5;
 
 #[cfg(test)]
 pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 2; // Faster for tests
+
+/// A failed host firmware upgrade is being retried. `attempt` is the retry
+/// about to run (1-based), out of a budget of [`MAX_FIRMWARE_UPGRADE_RETRIES`].
+/// Machines whose budget ran out are visible on the
+/// `carbide_exhausted_reprovision_retry_count` gauge instead.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_host_reprovision_retries_total",
+    component = "machine-controller",
+    log = info,
+    metric = counter,
+    message = "Retrying the host firmware upgrade",
+    describe = "Number of times a failed host firmware upgrade was retried during host \
+                reprovisioning"
+)]
+struct HostFirmwareUpgradeRetried {
+    #[context]
+    machine_id: MachineId,
+    #[context]
+    attempt: u32,
+    #[context]
+    error: String,
+}
 
 // Compute the API-side deadline for a scout firmware upgrade from scout's
 // timeout envelope: fixed script download timeout, script execution timeout,
@@ -1251,10 +1268,18 @@ impl MachineStateHandler {
                 }
             }
             ManagedHostState::Created => {
-                tracing::error!("Machine just created. We should not be here.");
-                Err(StateHandlerError::InvalidHostState(
-                    *host_machine_id,
-                    Box::new(mh_state.clone()),
+                // Created is the insert-default state, and its exits are external to
+                // this handler: machine-creation flows promote the row in the same
+                // transaction that creates it, and a predicted host is promoted when
+                // scout's discovery callout reports the real host. Transitioning here
+                // would race those writers -- the handler's only job is to wait.
+                tracing::debug!(
+                    machine_id = %host_machine_id,
+                    "Machine in Created; waiting for its creation flow or scout discovery",
+                );
+                Ok(StateHandlerOutcome::wait(
+                    "Waiting for the machine creation flow or the scout discovery callout"
+                        .to_string(),
                 ))
             }
             ManagedHostState::ForceDeletion => {
@@ -3558,20 +3583,14 @@ async fn check_host_boot_config(
     // falls back to its predicted boot NIC, and only waits when even that is
     // unavailable.
     let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-    let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-        BootInterfaceResolution::Ready(target) => target,
-        BootInterfaceResolution::AwaitingNic => {
-            return Ok(HostBootConfigDecision::Wait(format!(
-                "Waiting for zero-DPU host {} to discover its boot NIC before configuring boot.",
-                mh_snapshot.host_snapshot.id
-            )));
-        }
-        BootInterfaceResolution::Missing => {
-            return Err(StateHandlerError::GenericError(eyre::eyre!(
-                "Missing boot interface for host: {}",
-                mh_snapshot.host_snapshot.id
-            )));
-        }
+    let boot_interface = match require_boot_interface(
+        mh_snapshot,
+        &predictions,
+        "configuring boot",
+        HostBootConfigDecision::Wait,
+    )? {
+        RequiredBootInterface::Ready(target) => target,
+        RequiredBootInterface::Wait(decision) => return Ok(decision),
     };
 
     let vendor = mh_snapshot.host_snapshot.bmc_vendor();
@@ -4931,6 +4950,117 @@ enum HostBootConfigDpuFreshness {
     AlreadyValidated,
     CurrentHostState,
     SinceLastHostRebootRequest,
+}
+
+/// Outcome of [`require_boot_interface`]: the resolved boot NIC, or the
+/// caller's wait outcome for a zero-DPU host still discovering its boot NIC.
+#[derive(Debug)]
+enum RequiredBootInterface<W> {
+    Ready(BootInterfaceTarget),
+    Wait(W),
+}
+
+/// Resolve the boot NIC for a Redfish boot step, folding the not-ready cases
+/// every caller handles the same way: a zero-DPU host that has not discovered
+/// its boot NIC yet maps to the caller's wait outcome (`wait` wraps the shared
+/// message; `activity` names the blocked step), and a host with no resolvable
+/// interface is a hard error. Keeps the boot-order substates and host boot
+/// repair resolving the boot NIC identically.
+fn require_boot_interface<W>(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    predictions: &[PredictedMachineInterface],
+    activity: &str,
+    wait: impl FnOnce(String) -> W,
+) -> Result<RequiredBootInterface<W>, StateHandlerError> {
+    map_boot_interface_resolution(
+        resolve_boot_interface(mh_snapshot, predictions),
+        &mh_snapshot.host_snapshot.id,
+        activity,
+        wait,
+    )
+}
+
+/// The mapping behind [`require_boot_interface`], split out from the snapshot
+/// lookup so it can be unit-tested directly.
+fn map_boot_interface_resolution<W>(
+    resolution: BootInterfaceResolution,
+    host_id: &MachineId,
+    activity: &str,
+    wait: impl FnOnce(String) -> W,
+) -> Result<RequiredBootInterface<W>, StateHandlerError> {
+    match resolution {
+        BootInterfaceResolution::Ready(target) => Ok(RequiredBootInterface::Ready(target)),
+        BootInterfaceResolution::AwaitingNic => Ok(RequiredBootInterface::Wait(wait(format!(
+            "Waiting for zero-DPU host {host_id} to discover its boot NIC before {activity}."
+        )))),
+        BootInterfaceResolution::Missing => Err(StateHandlerError::GenericError(eyre::eyre!(
+            "Missing boot interface for host: {host_id}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod require_boot_interface_tests {
+    use super::*;
+
+    fn host_id() -> MachineId {
+        "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng"
+            .parse()
+            .unwrap()
+    }
+
+    // Ready passes the resolved target through untouched.
+    #[test]
+    fn ready_passes_the_target_through() {
+        let target = BootInterfaceTarget::MacOnly("20:00:00:00:00:01".parse().unwrap());
+        let resolved = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::Ready(target.clone()),
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap();
+        let RequiredBootInterface::Ready(out) = resolved else {
+            panic!("expected Ready");
+        };
+        assert_eq!(out, target);
+    }
+
+    // AwaitingNic becomes the caller's wait outcome, built from the shared
+    // message with the caller's activity spliced in.
+    #[test]
+    fn awaiting_nic_maps_to_the_callers_wait_outcome() {
+        let resolved = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::AwaitingNic,
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap();
+        let RequiredBootInterface::Wait(msg) = resolved else {
+            panic!("expected Wait");
+        };
+        assert_eq!(
+            msg,
+            format!(
+                "Waiting for zero-DPU host {} to discover its boot NIC before setting boot order.",
+                host_id()
+            )
+        );
+    }
+
+    // Missing is a hard error, not a wait.
+    #[test]
+    fn missing_is_a_hard_error() {
+        let err = map_boot_interface_resolution::<String>(
+            BootInterfaceResolution::Missing,
+            &host_id(),
+            "setting boot order",
+            |msg| msg,
+        )
+        .unwrap_err();
+        assert!(matches!(err, StateHandlerError::GenericError(_)));
+    }
 }
 
 /// In case machine does not come up until a specified duration, this function tries to reboot
@@ -6889,14 +7019,27 @@ impl StateHandler for InstanceStateHandler {
                     let mut txn = ctx.services.db_pool.begin().await?;
                     let host_version = mh_snapshot.host_snapshot.network_config.version;
                     let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
+                    let old_use_admin_network = host_netconf.use_admin_network;
                     host_netconf.use_admin_network = Some(true);
-                    db::machine::try_update_network_config(
+                    let updated = db::machine::try_update_network_config(
                         &mut txn,
                         &mh_snapshot.host_snapshot.id,
                         host_version,
                         &host_netconf,
                     )
                     .await?;
+
+                    // Set use_admin_network_changed if we want to reboot
+                    // ovs on admin network change.
+                    if updated
+                        && old_use_admin_network != host_netconf.use_admin_network
+                        && ctx
+                            .services
+                            .site_config
+                            .restart_ovs_on_use_admin_network_change
+                    {
+                        process_dpu_use_admin_network_state_change(&mut txn, mh_snapshot).await?;
+                    }
 
                     // Bump each DPA interface's config version so the DPA State Controller
                     // re-evaluates and sends SetVNI commands with VNI zero.
@@ -7234,14 +7377,27 @@ impl StateHandler for InstanceStateHandler {
                     let mut txn = ctx.services.db_pool.begin().await?;
                     let host_version = mh_snapshot.host_snapshot.network_config.version;
                     let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
+                    let old_use_admin_network = host_netconf.use_admin_network;
                     host_netconf.use_admin_network = Some(false);
-                    db::machine::try_update_network_config(
+                    let updated = db::machine::try_update_network_config(
                         &mut txn,
                         &mh_snapshot.host_snapshot.id,
                         host_version,
                         &host_netconf,
                     )
                     .await?;
+
+                    // Set use_admin_network_changed if we want to reboot
+                    // ovs on admin network change.
+                    if updated
+                        && old_use_admin_network != host_netconf.use_admin_network
+                        && ctx
+                            .services
+                            .site_config
+                            .restart_ovs_on_use_admin_network_change
+                    {
+                        process_dpu_use_admin_network_state_change(&mut txn, mh_snapshot).await?;
+                    }
 
                     // The host was already flipped to tenant network in the
                     // Ready -> Assigned transition; that write fanned out via
@@ -7258,6 +7414,66 @@ impl StateHandler for InstanceStateHandler {
             Ok(StateHandlerOutcome::do_nothing())
         }
     }
+}
+
+// Process the host's use_admin_network flag change and selectively flag
+// DPUs that undergo an actual network mode change with the
+// use_admin_network_changed flag if restart_ovs_on_use_admin_network_change
+// is true.
+// Not every DPU participates in tenant networking — only those with instance
+// interface configs assigned to them. DPUs without tenant interfaces remain on
+// the admin network regardless of the host-level toggle.
+async fn process_dpu_use_admin_network_state_change(
+    txn: &mut PgConnection,
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> Result<(), StateHandlerError> {
+    tracing::info!(
+        "Set use_admin_network_changed flag as host {} has changed use_admin_network state and site-restart-ovs is set",
+        &mh_snapshot.host_snapshot.id
+    );
+
+    // Determine which DPUs have tenant interface configs. A DPU matches if:
+    //  - the interface config has no device_locator and the DPU is the
+    // primary, OR
+    //  - the interface config's device_locator matches this DPU's PCI device
+    //
+    // Only these DPUs actually transition between admin and tenant network.
+    // On allocate: they switch from admin → tenant.
+    // On release: they switch from tenant → admin.
+    // DPUs without tenant interfaces never change mode — skip them.
+    let interface_configs = mh_snapshot
+        .instance
+        .as_ref()
+        .map(|i| i.config.network.interfaces.clone())
+        .unwrap_or_default();
+
+    let primary_dpu_id = mh_snapshot
+        .host_snapshot
+        .interfaces
+        .iter()
+        .find(|i| i.primary_interface)
+        .and_then(|i| i.attached_dpu_machine_id);
+
+    for dpu in &mh_snapshot.dpu_snapshots {
+        let dpu_has_tenant_interface_config = interface_configs.iter().any(|cfg| {
+            let is_primary = primary_dpu_id == Some(dpu.id);
+            (cfg.device_locator.is_none() && is_primary)
+                || (cfg.device_locator.is_some()
+                    && mh_snapshot
+                        .host_snapshot
+                        .get_device_locator_for_dpu_id(&dpu.id)
+                        .ok()
+                        .as_ref()
+                        == cfg.device_locator.as_ref())
+        });
+
+        if dpu_has_tenant_interface_config {
+            tracing::info!("Set DPU use_admin_network_changed flag for dpu {}", &dpu.id);
+            db::machine::set_use_admin_network_changed(txn, &dpu.id, true).await?;
+        }
+    }
+
+    Ok(())
 }
 
 // Gets extension services status from DB, checks if any removed services are fully terminated
@@ -8096,7 +8312,11 @@ impl HostUpgradeState {
                     Ok(StateHandlerOutcome::do_nothing())
                 }
             }
-            HostReprovisionState::FailedFirmwareUpgrade { report_time, .. } => {
+            HostReprovisionState::FailedFirmwareUpgrade {
+                report_time,
+                reason,
+                ..
+            } => {
                 // A special case in Rackfirmware upgrade to handle FailedFirmwareUpgrade
                 // Accept a freshly-issued Host Reprovision request that arrives while we are
                 // sitting in FailedFirmwareUpgrade. `trigger_host_reprovisioning_request`
@@ -8133,10 +8353,13 @@ impl HostUpgradeState {
                         .site_config
                         .firmware_global
                         .host_firmware_upgrade_retry_interval;
-                let should_retry = can_retry && waited_enough;
 
-                if should_retry {
-                    tracing::info!("Retrying firmware upgrade on {}", state.host_snapshot.id);
+                if can_retry && waited_enough {
+                    carbide_instrument::emit(HostFirmwareUpgradeRetried {
+                        machine_id: *machine_id,
+                        attempt: retry_count + 1,
+                        error: reason.clone().unwrap_or_default(),
+                    });
 
                     let reprovision_state = HostReprovisionState::CheckingFirmwareV2 {
                         firmware_type: None,
@@ -8145,8 +8368,14 @@ impl HostUpgradeState {
                     Ok(StateHandlerOutcome::transition(
                         scenario.actual_new_state(reprovision_state, retry_count + 1),
                     ))
+                } else if can_retry {
+                    // Still inside the retry interval; a later pass decides.
+                    Ok(StateHandlerOutcome::do_nothing())
                 } else {
-                    // doesn't make sense to retry anymore, remain in this failure state
+                    // No retry budget left; remain in this failure state until
+                    // an operator intervenes. Exhausted machines are counted
+                    // by the carbide_exhausted_reprovision_retry_count gauge,
+                    // so nothing is logged per pass.
                     Ok(StateHandlerOutcome::do_nothing())
                 }
             }
@@ -9787,14 +10016,13 @@ fn requires_manual_firmware_upgrade(
         return false;
     }
 
-    let is_gb200 = state
+    let is_mnnvl_capable = state
         .host_snapshot
         .hardware_info
         .as_ref()
-        .map(|hi| hi.is_gbx00())
-        .unwrap_or(false);
+        .is_some_and(|hi| hi.is_mnnvl_capable());
 
-    if !is_gb200 {
+    if !is_mnnvl_capable {
         return false;
     }
 
@@ -11204,20 +11432,14 @@ async fn set_host_boot_order(
             // HostInband lease creates a real row, a zero-DPU/NIC-mode host
             // resolves via its predictions; it waits only when neither a real row
             // nor a usable prediction exists.
-            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-                BootInterfaceResolution::Ready(target) => target,
-                BootInterfaceResolution::AwaitingNic => {
-                    return Ok(SetBootOrderOutcome::Wait(format!(
-                        "Waiting for zero-DPU host {} to discover its boot NIC before setting boot order.",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
-                BootInterfaceResolution::Missing => {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Missing boot interface for host: {}",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "setting boot order",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
             // Don't re-apply a boot config that's already in place. `SetBootOrder`
@@ -11366,20 +11588,14 @@ async fn set_host_boot_order(
             const HTTP_BOOT_DEVICE_APPLY_WAIT_MINUTES: i64 = 10;
             const MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES: u32 = 3;
 
-            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-                BootInterfaceResolution::Ready(target) => target,
-                BootInterfaceResolution::AwaitingNic => {
-                    return Ok(SetBootOrderOutcome::Wait(format!(
-                        "Waiting for zero-DPU host {} to discover its boot NIC before verifying the re-asserted HTTP boot device.",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
-                BootInterfaceResolution::Missing => {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Missing boot interface for host: {}",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "verifying the re-asserted HTTP boot device",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
             let is_bios_setup = boot_interface
@@ -11646,20 +11862,14 @@ async fn set_host_boot_order(
 
             let retry_count = set_boot_order_info.retry_count;
 
-            let boot_interface = match resolve_boot_interface(mh_snapshot, &predictions) {
-                BootInterfaceResolution::Ready(target) => target,
-                BootInterfaceResolution::AwaitingNic => {
-                    return Ok(SetBootOrderOutcome::Wait(format!(
-                        "Waiting for zero-DPU host {} to discover its boot NIC before verifying boot order.",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
-                BootInterfaceResolution::Missing => {
-                    return Err(StateHandlerError::GenericError(eyre::eyre!(
-                        "Missing boot interface for host: {}",
-                        mh_snapshot.host_snapshot.id
-                    )));
-                }
+            let boot_interface = match require_boot_interface(
+                mh_snapshot,
+                &predictions,
+                "verifying boot order",
+                SetBootOrderOutcome::Wait,
+            )? {
+                RequiredBootInterface::Ready(target) => target,
+                RequiredBootInterface::Wait(outcome) => return Ok(outcome),
             };
 
             let boot_order_configured = boot_interface
@@ -11728,6 +11938,7 @@ async fn get_power_state(redfish_client: &dyn Redfish) -> Result<PowerState, Sta
 mod tests {
     use std::str::FromStr;
 
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use model::firmware::FirmwareComponent;
     use model::site_explorer::{
         EndpointExplorationReport, EndpointType, Inventory, PreingestionState, Service,
@@ -11735,6 +11946,43 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    /// One emit per actual retry: the INFO line carries the machine, the
+    /// 1-based attempt, and the failure it recovers from, and the unlabeled
+    /// counter moves by one.
+    #[test]
+    fn host_firmware_upgrade_retry_logs_and_counts() {
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .unwrap();
+
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            carbide_instrument::emit(HostFirmwareUpgradeRetried {
+                machine_id,
+                attempt: 1,
+                error: "scout upgrade failed".to_string(),
+            });
+        });
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, tracing::Level::INFO);
+        assert_eq!(logs[0].message, "Retrying the host firmware upgrade");
+        let field = |name: &str| {
+            logs[0]
+                .fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        };
+        assert_eq!(field("machine_id"), Some(machine_id.to_string()));
+        assert_eq!(field("attempt"), Some("1".to_string()));
+        assert_eq!(field("error"), Some("scout upgrade failed".to_string()));
+        assert_eq!(
+            metrics.counter_delta("carbide_host_reprovision_retries_total", &[]),
+            1.0
+        );
+    }
 
     #[test]
     fn scout_firmware_upgrade_deadline_accounts_for_each_artifact() {

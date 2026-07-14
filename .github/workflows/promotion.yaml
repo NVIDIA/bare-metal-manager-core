@@ -42,6 +42,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Calculate Helm chart version
         id: version
@@ -208,6 +210,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Package and push Helm prereqs chart to production NGC
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5

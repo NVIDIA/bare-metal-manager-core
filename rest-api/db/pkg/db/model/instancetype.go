@@ -17,7 +17,7 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -122,22 +122,22 @@ func (it *InstanceType) AttachCapabilities(mcs []MachineCapability) {
 // request-side `Validate` having already gated the type / device-type
 // / numeric bounds. A nil/empty `Capabilities` slice yields a nil
 // `Attributes.DesiredCapabilities` so the proto round-trips cleanly.
-func (it *InstanceType) ToProto() *cwssaws.InstanceType {
-	var capabilities []*cwssaws.InstanceTypeMachineCapabilityFilterAttributes
+func (it *InstanceType) ToProto() *corev1.InstanceType {
+	var capabilities []*corev1.InstanceTypeMachineCapabilityFilterAttributes
 	for _, mc := range it.Capabilities {
 		if mc == nil {
 			continue
 		}
 		capabilities = append(capabilities, mc.ToProto())
 	}
-	md := &cwssaws.Metadata{Name: it.Name, Labels: it.Labels.ToProto()}
+	md := &corev1.Metadata{Name: it.Name, Labels: it.Labels.ToProto()}
 	if it.Description != nil {
 		md.Description = *it.Description
 	}
-	return &cwssaws.InstanceType{
+	return &corev1.InstanceType{
 		Id:       it.ID.String(),
 		Metadata: md,
-		Attributes: &cwssaws.InstanceTypeAttributes{
+		Attributes: &corev1.InstanceTypeAttributes{
 			DesiredCapabilities: capabilities,
 		},
 	}
@@ -147,7 +147,7 @@ func (it *InstanceType) ToProto() *cwssaws.InstanceType {
 // representation. A nil proto is a no-op. This is the inverse of
 // `ToProto` and exists for convention symmetry — currently no code
 // path on the cloud side reconstructs a full InstanceType entity from
-// a `cwssaws.InstanceType` (the site is the destination, not the
+// a `corev1.InstanceType` (the site is the destination, not the
 // source), but the method is provided so future reconciliation flows
 // have a single canonical entry point.
 //
@@ -164,7 +164,7 @@ func (it *InstanceType) ToProto() *cwssaws.InstanceType {
 // `Attributes` (capabilities) is intentionally NOT mapped onto the
 // receiver because capabilities live in a separate DB table and would
 // require DAO writes the model layer should not perform.
-func (it *InstanceType) FromProto(proto *cwssaws.InstanceType) {
+func (it *InstanceType) FromProto(proto *corev1.InstanceType) {
 	if proto == nil {
 		return
 	}

@@ -266,7 +266,7 @@ impl EnqueuerMetricsEmitter {
         let num_enqueued_objects_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_enqueued"))
             .with_description(format!(
-                "The amount of types that object handling tasks that have been freshly enqueued for objects of type {object_type}"
+                "Number of object handling tasks freshly enqueued for objects of type {object_type}"
             ))
             .build();
 

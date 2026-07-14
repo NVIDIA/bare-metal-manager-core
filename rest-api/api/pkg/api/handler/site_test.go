@@ -1504,10 +1504,15 @@ func TestGetAllSiteHandler_Handle(t *testing.T) {
 	common.TestBuildStatusDetail(t, dbSession, stdemo1.ID.String(), cdbm.SiteStatusPending, cutil.GetPtr("request received, pending processing"))
 	common.TestBuildStatusDetail(t, dbSession, stdemo1.ID.String(), cdbm.SiteStatusPending, cutil.GetPtr("Site is now ready for use"))
 
-	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusReady)
-	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusReady)
+	stdemo1m1 := testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusReady)
+	stdemo1m2 := testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusReady)
 	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusError)
 	_ = testSiteBuildMachine(t, dbSession, ip2.ID, stdemo1.ID, cdbm.MachineStatusError)
+
+	// GPU capabilities for stdemo1 machines, used by the includeGpuStats case.
+	// stdemo1 -> NVIDIA H100: 16 GPUs across 2 machines.
+	common.TestBuildMachineCapability(t, dbSession, &stdemo1m1.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA H100", nil, nil, nil, cutil.GetPtr(8), nil, nil)
+	common.TestBuildMachineCapability(t, dbSession, &stdemo1m2.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA H100", nil, nil, nil, cutil.GetPtr(8), nil, nil)
 
 	stdemo2 := testSiteBuildSite(t, dbSession, ip2, "pdx-dev3", cdbm.SiteStatusRegistered, ipu2, nil, nil, nil)
 	common.TestBuildStatusDetail(t, dbSession, stdemo2.ID.String(), cdbm.SiteStatusPending, cutil.GetPtr("request received, pending processing"))
@@ -1567,6 +1572,9 @@ func TestGetAllSiteHandler_Handle(t *testing.T) {
 		wantRespCode           int
 		wantFirstEntry         *cdbm.Site
 		wantMachineStats       map[string]int
+		wantGpuStatsRequested  bool
+		wantGpuStatsForSite    string
+		wantGpuStats           map[string]int
 		verifyTenantAttributes bool
 		verifyChildSpanner     bool
 	}{
@@ -1608,6 +1616,45 @@ func TestGetAllSiteHandler_Handle(t *testing.T) {
 			wantTotalCount:     2,
 			wantRespCode:       http.StatusOK,
 			verifyChildSpanner: true,
+		},
+		{
+			name: "get all Sites by Provider admin with gpu stats success",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        &tmocks.Client{},
+				cfg:       cfg,
+			},
+			args: args{
+				org: ipOrg2,
+				query: url.Values{
+					"includeGpuStats": []string{"True"},
+				},
+				user: ipu2,
+			},
+			wantCount:             2,
+			wantTotalCount:        2,
+			wantRespCode:          http.StatusOK,
+			wantGpuStatsRequested: true,
+			wantGpuStatsForSite:   "pdx-demo1",
+			wantGpuStats: map[string]int{
+				"NVIDIA H100": 16,
+			},
+		},
+		{
+			name: "includeGpuStats denied for tenant user",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        &tmocks.Client{},
+				cfg:       cfg,
+			},
+			args: args{
+				org: tnOrg,
+				query: url.Values{
+					"includeGpuStats": []string{"True"},
+				},
+				user: tnu,
+			},
+			wantRespCode: http.StatusForbidden,
 		},
 		{
 			name: "get all Sites by Provider admin with native networking enabled success",
@@ -2133,6 +2180,22 @@ func TestGetAllSiteHandler_Handle(t *testing.T) {
 					}
 
 					assert.NotNil(t, apist.MachineStats.TotalByAllocation)
+				}
+
+				if tt.wantGpuStatsRequested {
+					// Field is always populated (non-nil) when requested; sites
+					// with no GPUs get an empty slice.
+					require.NotNil(t, apist.GpuStats)
+
+					if apist.Name == tt.wantGpuStatsForSite {
+						gpuByName := map[string]int{}
+						for _, g := range *apist.GpuStats {
+							gpuByName[g.Name] = g.GPUs
+						}
+						for name, gpus := range tt.wantGpuStats {
+							assert.Equal(t, gpus, gpuByName[name])
+						}
+					}
 				}
 
 				if tt.args.includeRelation {

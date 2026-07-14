@@ -425,7 +425,6 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -1615,6 +1614,110 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
         matches!(outcome, PersistentStateHandlerOutcome::Wait{ reason, source_ref: Some(source_ref) } if !reason.is_empty() && source_ref.file.ends_with("/handler.rs")),
         "Third iteration should be waiting for DPU agent, and include a wait reason and source reference",
     );
+}
+
+/// `Created` is the state every machine row begins in, and a machine rests
+/// there until its initial state sync moves it along -- a just-created host
+/// leaves as soon as its creation flow completes. The controller treats a
+/// handling pass in that window as normal cadence: it records a Wait outcome
+/// (never an error) and leaves the machine parked in Created.
+#[crate::sqlx_test]
+async fn test_host_in_created_waits_for_initial_state_sync(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // Rest the host in Created with a fresh state timestamp (well within the
+    // Created SLA) and no recorded outcome, so the outcome read back below is
+    // the one this handling pass produces.
+    set_host_controller_state_stuck_in(&env, mh.id, &ManagedHostState::Created, 1).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host_machine = mh.host().db_machine(&mut txn).await;
+    txn.rollback().await.unwrap();
+
+    assert_eq!(
+        host_machine.current_state(),
+        &ManagedHostState::Created,
+        "a host in Created should stay parked there until its initial state sync"
+    );
+    let outcome = host_machine
+        .controller_state_outcome
+        .expect("the controller should have handled the host and recorded an outcome");
+    assert!(
+        matches!(
+            &outcome,
+            PersistentStateHandlerOutcome::Wait { reason, .. } if !reason.is_empty()
+        ),
+        "handling a host in Created should record a Wait outcome with a reason, got {outcome:?}"
+    );
+}
+
+/// The machine state controller deliberately dequeues predicted hosts --
+/// machines site-explorer has minted from exploration reports before
+/// discovery promotes them to full hosts. A handling pass over one resting in
+/// `Created` is the same quiet Wait as for a full host: no error, and the
+/// machine stays parked in Created.
+#[crate::sqlx_test]
+async fn test_predicted_host_parked_in_created_waits_for_initial_state_sync(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mock_host = ManagedHostConfig::zero_dpu();
+    let inband_mac = *mock_host.non_dpu_macs.first().unwrap();
+    let _mock = common::api_fixtures::site_explorer::ingest_zero_dpu_host_awaiting_first_lease(
+        &env, mock_host,
+    )
+    .await?;
+
+    // The pre-lease machine minted by ingestion: a PredictedHost-type id whose
+    // interfaces are still predictions.
+    let machine_id = {
+        let mut txn = env.db_txn().await;
+        let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
+            .await?
+            .expect("zero-DPU ingest should have minted a predicted interface");
+        predicted.machine_id
+    };
+    assert!(
+        machine_id.machine_type().is_predicted_host(),
+        "the pre-lease machine should be a predicted host, got {machine_id}"
+    );
+
+    // Rest the predicted host in Created -- the state every machine row begins
+    // in -- with a fresh state timestamp and no recorded outcome.
+    set_host_controller_state_stuck_in(&env, machine_id, &ManagedHostState::Created, 1).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let search_config = MachineSearchConfig {
+        include_predicted_host: true,
+        ..Default::default()
+    };
+
+    let mut txn = env.db_txn().await;
+    let machine = db::machine::find_one(txn.as_mut(), &machine_id, search_config)
+        .await?
+        .expect("the predicted host machine should still exist");
+    assert_eq!(
+        machine.current_state(),
+        &ManagedHostState::Created,
+        "a predicted host should stay parked in Created until discovery promotes it"
+    );
+    let outcome = machine
+        .controller_state_outcome
+        .expect("the controller should have handled the predicted host and recorded an outcome");
+    assert!(
+        matches!(
+            &outcome,
+            PersistentStateHandlerOutcome::Wait { reason, .. } if !reason.is_empty()
+        ),
+        "handling a predicted host in Created should record a Wait outcome, got {outcome:?}"
+    );
+
+    Ok(())
 }
 
 #[crate::sqlx_test]
@@ -3045,6 +3148,117 @@ async fn test_set_boot_order_reassert_window_expiry_bounds_reapplies(pool: sqlx:
             host.current_state()
         );
     }
+}
+
+/// A host that cannot return from a validation reboot because its boot config
+/// reverted (the boot NIC dropped off the BMC's inventory during POST, so the
+/// BIOS reset the HTTP-boot device) gets repaired in place: validation unlocks
+/// the BMC, re-drives the boot-order flow (re-assert, reboot to apply,
+/// reorder, verify), re-locks, and resumes validation from its reboot step --
+/// instead of pacing reboots that can never succeed.
+#[crate::sqlx_test]
+async fn test_machine_validation_repairs_reverted_boot_config(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let host_id = mh.host().id;
+    let boot_nic_mac = host_inband_nic_mac(&env, host_id).await;
+
+    // The validation reboot's POST reverted the boot config, and HostInit
+    // enabled lockdown before validation reached this point: BIOS writes
+    // bounce off the BMC until it is unlocked.
+    env.redfish_sim.set_is_bios_setup(false);
+    env.redfish_sim.set_is_boot_order_setup(false);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Enabled);
+
+    // Park the host mid-validation, waiting on a reboot that cannot land
+    // (the state is newer than the host's last reported boot).
+    set_host_controller_state_stuck_in(
+        &env,
+        host_id,
+        &ManagedHostState::Validation {
+            validation_state: ValidationState::MachineValidation {
+                machine_validation: MachineValidatingState::MachineValidating {
+                    context: "Discovery".to_string(),
+                    id: MachineValidationId::new(),
+                    completed: 1,
+                    total: 1,
+                    is_enabled: true,
+                },
+            },
+        },
+        0,
+    )
+    .await;
+
+    let checkpoint = env.redfish_sim.timepoint();
+
+    // Detection through re-assert: the flow notices the reverted config,
+    // unlocks the BMC, and re-asserts the HTTP-boot device.
+    for _ in 0..6 {
+        env.run_machine_state_controller_iteration().await;
+        if env
+            .redfish_sim
+            .actions_since(&checkpoint)
+            .all_hosts()
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. }))
+        {
+            break;
+        }
+    }
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
+        "validation boot repair should re-assert the reverted HTTP boot device, got: {actions:?}"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .contains(&libredfish::EnabledDisabled::Disabled),
+        "boot repair should unlock the BMC before writing BIOS settings"
+    );
+
+    // The repair reboot applies the re-asserted device.
+    env.redfish_sim.set_is_bios_setup(true);
+
+    // The repair completes (reorder + verify), re-locks the BMC, and resumes
+    // validation from its reboot step.
+    let mut resumed = false;
+    for _ in 0..20 {
+        env.run_machine_state_controller_iteration().await;
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        if matches!(
+            host.current_state(),
+            ManagedHostState::Validation {
+                validation_state: ValidationState::MachineValidation {
+                    machine_validation: MachineValidatingState::RebootHost { .. },
+                },
+            }
+        ) {
+            resumed = true;
+            break;
+        }
+    }
+    assert!(
+        resumed,
+        "the repaired host should resume validation from its reboot step"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .iter()
+            .all(|l| *l == libredfish::EnabledDisabled::Enabled),
+        "boot repair should re-lock the BMC once the boot config is repaired"
+    );
+
+    // Across the repair, the re-assert targeting the boot NIC preceded the reorder.
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert_machine_setup_precedes_reorder_for(&actions, boot_nic_mac);
 }
 
 /// When HostInit/PollingBiosSetup retry budget is exhausted, enter Failed and recover via is_bios_setup.

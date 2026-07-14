@@ -145,6 +145,21 @@ pub async fn dgx_gb300_bmc() -> TestBmcHandle {
     .await
 }
 
+/// Host-mode mock for the NvidiaDgxVr hardware type ("vr-tray" in machine-a-tron
+/// configs). Unlike the other GB300-family types (Lenovo, Nvidia DGX GB300,
+/// Supermicro), this one previously only had a DPU-mode helper
+/// (`nvidia_dgx_vr_bluefield4_dpu_bmc`), so there was no way to test exploring
+/// it as a host tray at all. Added while investigating #3159.
+pub async fn nvidia_dgx_vr_host_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        &host_info(HostHardwareType::NvidiaDgxVr),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
 pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HostHardwareType::SupermicroGb300Nvl),
@@ -168,6 +183,33 @@ pub async fn generic_supermicro_bmc() -> TestBmcHandle {
 pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HostHardwareType::LiteOnPowerShelf),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
+pub async fn delta_powershelf_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        &host_info(HostHardwareType::DeltaPowerShelf),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
+/// Delta power shelf whose PSUs report the given per-bay on/off states under
+/// `Oem.deltaenergysystems.Power`. Lets tests exercise off and mixed shelves
+/// (the default [`delta_powershelf_bmc`] is an all-on six-bay shelf).
+pub async fn delta_powershelf_bmc_with_psu_power(states: Vec<bool>) -> TestBmcHandle {
+    let machine_info = match host_info(HostHardwareType::DeltaPowerShelf) {
+        MachineInfo::Host(host) => MachineInfo::Host(host.with_delta_psu_power(states)),
+        MachineInfo::Dpu(_) => unreachable!("Delta power shelf must be a host"),
+    };
+    test_bmc(machine_router(
+        &machine_info,
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -328,5 +370,25 @@ mod test {
             }
             other => panic!("expected invalid response error, got: {other}"),
         }
+    }
+
+    #[test]
+    fn lenovo_gb300_discovery_includes_dpu_host_interface() {
+        let machine = host_info(HostHardwareType::LenovoGB300Nvl);
+        let expected_mac = match &machine {
+            MachineInfo::Host(host) => host.primary_dpu().unwrap().host_mac_address.to_string(),
+            MachineInfo::Dpu(_) => unreachable!("Lenovo GB300 must be a host"),
+        };
+
+        let interfaces = machine.discovery_info().network_interfaces;
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(interfaces[0].mac_address, expected_mac);
+
+        let pci = interfaces[0]
+            .pci_properties
+            .as_ref()
+            .expect("DPU host interface must include PCI properties");
+        assert!(pci.vendor.to_ascii_lowercase().contains("mellanox"));
+        assert_eq!(pci.slot.as_deref(), Some("0000:03:00.0"));
     }
 }

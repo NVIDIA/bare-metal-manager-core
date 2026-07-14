@@ -6,7 +6,7 @@ package model
 import (
 	"fmt"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -20,16 +20,16 @@ const (
 )
 
 // ToProto converts the MachineDpuReprovisionMode to a Core gRPC DpuReprovisioningRequest_Mode
-func (m MachineDpuReprovisionMode) ToProto() cwssaws.DpuReprovisioningRequest_Mode {
+func (m MachineDpuReprovisionMode) ToProto() corev1.DpuReprovisioningRequest_Mode {
 	switch m {
 	case MachineDpuReprovisionModeSet:
-		return cwssaws.DpuReprovisioningRequest_Set
+		return corev1.DpuReprovisioningRequest_Set
 	case MachineDpuReprovisionModeClear:
-		return cwssaws.DpuReprovisioningRequest_Clear
+		return corev1.DpuReprovisioningRequest_Clear
 	case MachineDpuReprovisionModeRestart:
-		return cwssaws.DpuReprovisioningRequest_Restart
+		return corev1.DpuReprovisioningRequest_Restart
 	}
-	return cwssaws.DpuReprovisioningRequest_Set
+	return corev1.DpuReprovisioningRequest_Set
 }
 
 // MachineDpuReprovisionModeValues is a list of all valid MachineDpuReprovisionMode values.
@@ -57,12 +57,12 @@ func (amdrr *APIMachineDpuReprovisionRequest) Validate() error {
 }
 
 // ToProto converts the APIMachineDpuReprovisionRequest to a Core gRPC DpuReprovisioningRequest
-func (amdrr *APIMachineDpuReprovisionRequest) ToProto(machineID string) *cwssaws.DpuReprovisioningRequest {
-	return &cwssaws.DpuReprovisioningRequest{
-		MachineId: &cwssaws.MachineId{Id: machineID},
+func (amdrr *APIMachineDpuReprovisionRequest) ToProto(machineID string) *corev1.DpuReprovisioningRequest {
+	return &corev1.DpuReprovisioningRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
 		Mode:      MachineDpuReprovisionMode(amdrr.Mode).ToProto(),
 		// TODO: Add end user initiator in Core gRPC API
-		Initiator:      cwssaws.UpdateInitiator_AdminCli,
+		Initiator:      corev1.UpdateInitiator_AdminCli,
 		UpdateFirmware: amdrr.UpdateFirmware,
 	}
 }

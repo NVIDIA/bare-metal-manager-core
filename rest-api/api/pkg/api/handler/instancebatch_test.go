@@ -22,7 +22,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -45,9 +45,9 @@ func testBatchInstanceInitDB(t *testing.T) *cdb.Session {
 func testBatchBuildMachineWithNVLinkDomain(t *testing.T, dbSession *cdb.Session, ip uuid.UUID, site uuid.UUID, nvlinkDomainID string) *cdbm.Machine {
 	mc := testInstanceBuildMachine(t, dbSession, ip, site, cutil.GetPtr(false), nil)
 	mc.Metadata = &cdbm.SiteControllerMachine{
-		Machine: &cwssaws.Machine{
-			NvlinkInfo: &cwssaws.MachineNVLinkInfo{
-				DomainUuid: &cwssaws.NVLinkDomainId{
+		Machine: &corev1.Machine{
+			NvlinkInfo: &corev1.MachineNVLinkInfo{
+				DomainUuid: &corev1.NVLinkDomainId{
 					Value: nvlinkDomainID,
 				},
 			},
@@ -1354,11 +1354,11 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 					}
 
 					if hasInlineRoutingProfile {
-						var batchReq *cwssaws.BatchInstanceAllocationRequest
+						var batchReq *corev1.BatchInstanceAllocationRequest
 						for i := len(tsc.Calls) - 1; i >= 0; i-- {
 							call := tsc.Calls[i]
 							if call.Method == "ExecuteWorkflow" && len(call.Arguments) > 3 && call.Arguments[2] == "CreateInstances" {
-								batchReq = call.Arguments[3].(*cwssaws.BatchInstanceAllocationRequest)
+								batchReq = call.Arguments[3].(*corev1.BatchInstanceAllocationRequest)
 								break
 							}
 						}

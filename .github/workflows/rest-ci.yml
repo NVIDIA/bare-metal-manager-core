@@ -26,6 +26,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Detect rest-api changes
@@ -102,6 +103,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Run TruffleHog Scan
         uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@f435aa6bf125fe6f9e5ac438f8cef75f90e29a2b

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use config_version::ConfigVersion;
 use model::machine_validation::{
     MachineValidationTest, MachineValidationTestAddRequest, MachineValidationTestUpdatePayload,
@@ -30,11 +31,7 @@ use crate::{DatabaseError, DatabaseResult};
 /// For slice fields from a patch payload, an empty slice is treated like "omit" (same as historical
 /// dynamic SQL that skipped empty JSON arrays).
 fn patch_vec(values: &[String]) -> Option<Vec<String>> {
-    if values.is_empty() {
-        None
-    } else {
-        Some(values.to_vec())
-    }
+    values.to_vec().none_if_empty()
 }
 
 pub async fn find(
@@ -117,11 +114,7 @@ pub async fn save(
     let extra_output_file = req.extra_output_file.clone();
     let extra_err_file = req.extra_err_file.clone();
     let pre_condition = req.pre_condition.clone();
-    let custom_tags = if req.custom_tags.is_empty() {
-        None::<Vec<String>>
-    } else {
-        Some(req.custom_tags.clone())
-    };
+    let custom_tags = req.custom_tags.clone().none_if_empty();
     let components = if req.components.is_empty() {
         vec!["Compute".to_string()]
     } else {

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"strings"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -51,16 +51,16 @@ type pagedInventoryInput struct {
 	// current page number
 	pageNumber int
 	// status
-	status        cwssaws.InventoryStatus
+	status        corev1.InventoryStatus
 	statusMessage string
 }
 
-func (pii *pagedInventoryInput) buildPage() *cwssaws.InventoryPage {
+func (pii *pagedInventoryInput) buildPage() *corev1.InventoryPage {
 	// if we are reporting an error, we do not want to include paging information
-	if pii.status != cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS {
+	if pii.status != corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS {
 		return nil
 	}
-	return &cwssaws.InventoryPage{
+	return &corev1.InventoryPage{
 		TotalPages:  int32(pii.totalPages),
 		CurrentPage: int32(pii.pageNumber),
 		PageSize:    int32(pii.pageSize),
@@ -109,7 +109,7 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 		logger.Warn().Err(err).Msg("Failed to retrieve IDs using Core gRPC API")
 		// Error encountered before we've published anything, report inventory collection error to Cloud
 		pagedInput := buildPagedInventoryInput(0, impl.config.CloudPageSize)
-		pagedInput.status = cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED
+		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_FAILED
 		pagedInput.statusMessage = err.Error()
 		inventory := impl.internalPagedInventory([]K{}, []R{}, pagedInput)
 		if _, execErr := impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, impl.config.SiteID, inventory); execErr != nil {
@@ -123,7 +123,7 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 	pagedInput := buildPagedInventoryInput(len(allIDs), impl.config.CloudPageSize)
 	if pagedInput.totalItems == 0 {
 		pagedInput.pageNumber = 1
-		pagedInput.status = cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS
+		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS
 		pagedInput.statusMessage = "No items reported by Site Controller"
 		inventoryPage := impl.internalPagedInventory([]K{}, []R{}, pagedInput)
 
@@ -163,7 +163,7 @@ func (impl *manageInventoryImpl[K, R, P]) CollectAndPublishInventory(ctx context
 			}
 			// Create an inventory page
 			pagedInput.pageNumber = cloudEffectivePage
-			pagedInput.status = cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS
+			pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS
 			pagedInput.statusMessage = "Successfully retrieved from Site Controller"
 			inventoryPage := impl.internalPagedInventory(allIDs, items, pagedInput)
 
@@ -198,7 +198,7 @@ func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.
 		logger.Warn().Err(err).Msg("Failed to retrieve using Site Controller fallback API")
 		// Error encountered before we've published anything, report inventory collection error to Cloud
 		pagedInput := buildPagedInventoryInput(0, impl.config.CloudPageSize)
-		pagedInput.status = cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED
+		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_FAILED
 		pagedInput.statusMessage = err.Error()
 		inventory := impl.internalPagedInventory([]K{}, []R{}, pagedInput)
 		if _, execErr := impl.config.TemporalPublishClient.ExecuteWorkflow(context.Background(), workflowOptions, workflowName, impl.config.SiteID, inventory); execErr != nil {
@@ -212,7 +212,7 @@ func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.
 	pagedInput := buildPagedInventoryInput(len(allIDs), impl.config.CloudPageSize)
 	if pagedInput.totalItems == 0 {
 		pagedInput.pageNumber = 1
-		pagedInput.status = cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS
+		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS
 		pagedInput.statusMessage = "No items reported by Site Controller"
 		inventoryPage := impl.internalPagedInventory([]K{}, []R{}, pagedInput)
 
@@ -233,7 +233,7 @@ func (impl *manageInventoryImpl[K, R, P]) collectAndPublishFallback(ctx context.
 		}
 		// Create an inventory page
 		pagedInput.pageNumber = page + 1
-		pagedInput.status = cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS
+		pagedInput.status = corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS
 		pagedInput.statusMessage = "Successfully retrieved from Site Controller"
 		inventoryPage := impl.internalPagedInventory(allIDs, items, pagedInput)
 

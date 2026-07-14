@@ -12,7 +12,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -571,7 +571,7 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		assert.Equal(t, "vpc-a", got.Name)
 		assert.Equal(t, "org-1", got.TenantOrganizationId)
 		require.NotNil(t, got.NetworkVirtualizationType)
-		assert.Equal(t, cwssaws.VpcVirtualizationType_FNN, *got.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.NetworkVirtualizationType)
 		require.NotNil(t, got.RoutingProfileType)
 		assert.Equal(t, apiVpcRoutingProfileSiteInternal, *got.RoutingProfileType)
 		require.NotNil(t, got.NetworkSecurityGroupId)
@@ -589,7 +589,7 @@ func TestAPIVpcCreateRequest_ToProto(t *testing.T) {
 		vpc := &cdbm.Vpc{ID: id, Org: "org-1", Name: "vpc-a", NetworkVirtualizationType: &eth}
 		got := APIVpcCreateRequest{}.ToProto(vpc)
 		require.NotNil(t, got.NetworkVirtualizationType)
-		assert.Equal(t, cwssaws.VpcVirtualizationType_ETHERNET_VIRTUALIZER, *got.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER, *got.NetworkVirtualizationType)
 	})
 
 	t.Run("omits NetworkVirtualizationType when the entity has none", func(t *testing.T) {

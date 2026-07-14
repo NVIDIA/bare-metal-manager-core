@@ -16,7 +16,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 var (
@@ -55,10 +55,10 @@ func TestVpcPeering_FromProto(t *testing.T) {
 		v1 := uuid.New()
 		v2 := uuid.New()
 		vp := &VpcPeering{}
-		vp.FromProto(&cwssaws.VpcPeering{
-			Id:        &cwssaws.VpcPeeringId{Value: id.String()},
-			VpcId:     &cwssaws.VpcId{Value: v1.String()},
-			PeerVpcId: &cwssaws.VpcId{Value: v2.String()},
+		vp.FromProto(&corev1.VpcPeering{
+			Id:        &corev1.VpcPeeringId{Value: id.String()},
+			VpcId:     &corev1.VpcId{Value: v1.String()},
+			PeerVpcId: &corev1.VpcId{Value: v2.String()},
 		})
 		assert.Equal(t, id, vp.ID)
 		assert.Equal(t, v1, vp.Vpc1ID)
@@ -70,10 +70,10 @@ func TestVpcPeering_FromProto(t *testing.T) {
 		origV1 := uuid.New()
 		origV2 := uuid.New()
 		vp := &VpcPeering{ID: origID, Vpc1ID: origV1, Vpc2ID: origV2}
-		vp.FromProto(&cwssaws.VpcPeering{
-			Id:        &cwssaws.VpcPeeringId{Value: "not-a-uuid"},
+		vp.FromProto(&corev1.VpcPeering{
+			Id:        &corev1.VpcPeeringId{Value: "not-a-uuid"},
 			VpcId:     nil,
-			PeerVpcId: &cwssaws.VpcId{Value: "also-bad"},
+			PeerVpcId: &corev1.VpcId{Value: "also-bad"},
 		})
 		assert.Equal(t, origID, vp.ID)
 		assert.Equal(t, origV1, vp.Vpc1ID)

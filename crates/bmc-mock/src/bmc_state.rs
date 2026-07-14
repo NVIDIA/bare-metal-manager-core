@@ -39,6 +39,11 @@ pub struct BmcState {
     pub session_service_state: Arc<SessionServiceState>,
     pub injection: Arc<InjectionStore>,
     pub callbacks: Option<Arc<dyn crate::Callbacks>>,
+    /// Whether this BMC advertises and serves the `/redfish/v1/Systems`
+    /// collection. Delta power shelves expose no `ComputerSystem` collection,
+    /// so the service root omits the `Systems` link and the collection endpoint
+    /// returns 404.
+    pub exposes_computer_systems: bool,
 }
 
 #[derive(Clone, Copy, Debug)]

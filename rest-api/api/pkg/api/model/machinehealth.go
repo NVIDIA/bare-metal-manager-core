@@ -10,7 +10,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -25,22 +25,22 @@ const (
 )
 
 // ToProto converts a MachineHealthReportMode to its protobuf form.
-func (mhm MachineHealthReportMode) ToProto() cwssaws.HealthReportApplyMode {
+func (mhm MachineHealthReportMode) ToProto() corev1.HealthReportApplyMode {
 	switch mhm {
 	case MachineHealthReportModeMerge:
-		return cwssaws.HealthReportApplyMode_Merge
+		return corev1.HealthReportApplyMode_Merge
 	case MachineHealthReportModeReplace:
-		return cwssaws.HealthReportApplyMode_Replace
+		return corev1.HealthReportApplyMode_Replace
 	}
-	return cwssaws.HealthReportApplyMode_Merge
+	return corev1.HealthReportApplyMode_Merge
 }
 
 // FromProto converts a protobuf health report apply mode to its API form.
-func (mhm MachineHealthReportMode) FromProto(mode cwssaws.HealthReportApplyMode) MachineHealthReportMode {
+func (mhm MachineHealthReportMode) FromProto(mode corev1.HealthReportApplyMode) MachineHealthReportMode {
 	switch mode {
-	case cwssaws.HealthReportApplyMode_Merge:
+	case corev1.HealthReportApplyMode_Merge:
 		return MachineHealthReportModeMerge
-	case cwssaws.HealthReportApplyMode_Replace:
+	case corev1.HealthReportApplyMode_Replace:
 		return MachineHealthReportModeReplace
 	}
 	return MachineHealthReportModeMerge
@@ -56,7 +56,7 @@ type APIMachineHealth struct {
 }
 
 // FromProto populates an APIMachineHealth from its protobuf form.
-func (mh *APIMachineHealth) FromProto(protoHealth *cwssaws.HealthReport) {
+func (mh *APIMachineHealth) FromProto(protoHealth *corev1.HealthReport) {
 	if protoHealth == nil {
 		return
 	}
@@ -125,7 +125,7 @@ type APIMachineHealthProbeSuccess struct {
 }
 
 // FromProto populates an APIMachineHealthProbeSuccess from its protobuf form.
-func (ahps *APIMachineHealthProbeSuccess) FromProto(protoSuccess *cwssaws.HealthProbeSuccess) {
+func (ahps *APIMachineHealthProbeSuccess) FromProto(protoSuccess *corev1.HealthProbeSuccess) {
 	if protoSuccess == nil {
 		return
 	}
@@ -134,8 +134,8 @@ func (ahps *APIMachineHealthProbeSuccess) FromProto(protoSuccess *cwssaws.Health
 }
 
 // ToProto populates a protobuf form of an APIMachineHealthProbeSuccess from its API form.
-func (ahps APIMachineHealthProbeSuccess) ToProto() *cwssaws.HealthProbeSuccess {
-	return &cwssaws.HealthProbeSuccess{
+func (ahps APIMachineHealthProbeSuccess) ToProto() *corev1.HealthProbeSuccess {
+	return &corev1.HealthProbeSuccess{
 		Id:     ahps.ID,
 		Target: ahps.Target,
 	}
@@ -158,7 +158,7 @@ type APIMachineHealthProbeAlert struct {
 }
 
 // FromProto populates an APIMachineHealthProbeAlert from its protobuf form.
-func (ahpa *APIMachineHealthProbeAlert) FromProto(protoAlert *cwssaws.HealthProbeAlert) {
+func (ahpa *APIMachineHealthProbeAlert) FromProto(protoAlert *corev1.HealthProbeAlert) {
 	if protoAlert == nil {
 		return
 	}
@@ -174,8 +174,8 @@ func (ahpa *APIMachineHealthProbeAlert) FromProto(protoAlert *cwssaws.HealthProb
 }
 
 // ToProto populates a protobuf form of an APIMachineHealthProbeAlert from its API form.
-func (ahpa APIMachineHealthProbeAlert) ToProto() *cwssaws.HealthProbeAlert {
-	return &cwssaws.HealthProbeAlert{
+func (ahpa APIMachineHealthProbeAlert) ToProto() *corev1.HealthProbeAlert {
+	return &corev1.HealthProbeAlert{
 		Id:              ahpa.ID,
 		Target:          ahpa.Target,
 		InAlertSince:    cutil.StrPtrToProtoTimePtr(ahpa.InAlertSince),
@@ -206,7 +206,7 @@ type APIMachineHealthReportEntry struct {
 }
 
 // FromProto populates an APIMachineHealthReportEntry from its protobuf form.
-func (amhre *APIMachineHealthReportEntry) FromProto(entry *cwssaws.HealthReportEntry) {
+func (amhre *APIMachineHealthReportEntry) FromProto(entry *corev1.HealthReportEntry) {
 	report := entry.GetReport()
 	if report == nil {
 		return
@@ -239,19 +239,19 @@ func (amhre *APIMachineHealthReportEntry) FromProto(entry *cwssaws.HealthReportE
 }
 
 // ToProto converts an APIMachineHealthReportEntry to its protobuf form.
-func (amhre APIMachineHealthReportEntry) ToProto() *cwssaws.HealthReportEntry {
-	successes := make([]*cwssaws.HealthProbeSuccess, 0, len(amhre.Successes))
+func (amhre APIMachineHealthReportEntry) ToProto() *corev1.HealthReportEntry {
+	successes := make([]*corev1.HealthProbeSuccess, 0, len(amhre.Successes))
 	for _, success := range amhre.Successes {
 		successes = append(successes, success.ToProto())
 	}
 
-	alerts := make([]*cwssaws.HealthProbeAlert, 0, len(amhre.Alerts))
+	alerts := make([]*corev1.HealthProbeAlert, 0, len(amhre.Alerts))
 	for _, alert := range amhre.Alerts {
 		alerts = append(alerts, alert.ToProto())
 	}
 
-	return &cwssaws.HealthReportEntry{
-		Report: &cwssaws.HealthReport{
+	return &corev1.HealthReportEntry{
+		Report: &corev1.HealthReport{
 			Source:      amhre.Source,
 			TriggeredBy: amhre.TriggeredBy,
 			ObservedAt:  cutil.StrPtrToProtoTimePtr(amhre.ObservedAt),
@@ -310,13 +310,13 @@ func (amhrer *APIMachineHealthReportEntryRequest) Validate() error {
 }
 
 // ToProto converts an APIMachineHealthReportEntryRequest to its protobuf form.
-func (amhrer APIMachineHealthReportEntryRequest) ToProto(machineID string, triggeredBy *cdbm.User) *cwssaws.InsertMachineHealthReportRequest {
+func (amhrer APIMachineHealthReportEntryRequest) ToProto(machineID string, triggeredBy *cdbm.User) *corev1.InsertMachineHealthReportRequest {
 	observedAt := time.Now().Format(time.RFC3339Nano)
 
-	protoRequest := &cwssaws.InsertMachineHealthReportRequest{
-		MachineId: &cwssaws.MachineId{Id: machineID},
-		HealthReportEntry: &cwssaws.HealthReportEntry{
-			Report: &cwssaws.HealthReport{
+	protoRequest := &corev1.InsertMachineHealthReportRequest{
+		MachineId: &corev1.MachineId{Id: machineID},
+		HealthReportEntry: &corev1.HealthReportEntry{
+			Report: &corev1.HealthReport{
 				Source:      amhrer.Source,
 				TriggeredBy: cutil.GetPtr(triggeredBy.ID.String()),
 				ObservedAt:  cutil.StrPtrToProtoTimePtr(&observedAt),

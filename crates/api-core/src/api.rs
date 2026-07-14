@@ -2862,6 +2862,20 @@ impl Forge for Api {
         crate::handlers::bmc_endpoint_explorer::create_bmc_user(self, request).await
     }
 
+    async fn set_bmc_root_password(
+        &self,
+        request: Request<rpc::SetBmcRootPasswordRequest>,
+    ) -> Result<Response<rpc::SetBmcRootPasswordResponse>, Status> {
+        crate::handlers::bmc_endpoint_explorer::set_bmc_root_password(self, request).await
+    }
+
+    async fn probe_bmc_vendor(
+        &self,
+        request: Request<rpc::ProbeBmcVendorRequest>,
+    ) -> Result<Response<rpc::ProbeBmcVendorResponse>, Status> {
+        crate::handlers::bmc_endpoint_explorer::probe_bmc_vendor(self, request).await
+    }
+
     async fn delete_bmc_user(
         &self,
         request: Request<rpc::DeleteBmcUserRequest>,

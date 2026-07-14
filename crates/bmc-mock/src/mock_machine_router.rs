@@ -91,7 +91,9 @@ pub fn machine_router(
         MachineInfo::Dpu(_) => {
             router.add_routes(crate::redfish::oem::nvidia::bluefield::add_routes)
         }
-        MachineInfo::Host(_) => router.add_routes(crate::redfish::oem::dell::idrac::add_routes),
+        MachineInfo::Host(_) => router
+            .add_routes(crate::redfish::oem::dell::idrac::add_routes)
+            .add_routes(crate::redfish::oem::supermicro::manager::add_routes),
     };
     let manager = Arc::new(ManagerState::new(&machine_info.manager_config()));
     let system_state = Arc::new(crate::redfish::computer_system::SystemState::from_config(
@@ -122,12 +124,16 @@ pub fn machine_router(
         session_service_state,
         injection: injection.clone(),
         callbacks: Some(callbacks.clone()),
+        exposes_computer_systems: machine_info.exposes_computer_systems(),
     };
     let account_service_state = state.account_service_state.clone();
     let session_service_state = state.session_service_state.clone();
     let permit_factory_default_password = matches!(
         &machine_info,
-        MachineInfo::Host(h) if h.hw_type == HostHardwareType::LiteOnPowerShelf
+        MachineInfo::Host(h) if matches!(
+            h.hw_type,
+            HostHardwareType::LiteOnPowerShelf | HostHardwareType::DeltaPowerShelf
+        )
     );
     let router = ([
         Box::new(redfish::expander_router::append),

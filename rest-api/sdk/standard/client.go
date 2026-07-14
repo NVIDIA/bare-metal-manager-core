@@ -121,6 +121,8 @@ type APIClient struct {
 
 	TrayAPI *TrayAPIService
 
+	UEFICredentialAPI *UEFICredentialAPIService
+
 	UserAPI *UserAPIService
 
 	VPCAPI *VPCAPIService
@@ -181,6 +183,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.TenantAccountAPI = (*TenantAccountAPIService)(&c.common)
 	c.TenantIdentityAPI = (*TenantIdentityAPIService)(&c.common)
 	c.TrayAPI = (*TrayAPIService)(&c.common)
+	c.UEFICredentialAPI = (*UEFICredentialAPIService)(&c.common)
 	c.UserAPI = (*UserAPIService)(&c.common)
 	c.VPCAPI = (*VPCAPIService)(&c.common)
 	c.VPCPeeringAPI = (*VPCPeeringAPIService)(&c.common)
@@ -553,6 +556,15 @@ func (c *APIClient) decode(v interface{}, b []byte, contentType string) (err err
 	}
 	if s, ok := v.(*string); ok {
 		*s = string(b)
+		return nil
+	}
+	if r, ok := v.(*io.Reader); ok {
+		*r = bytes.NewReader(b)
+		return nil
+	}
+	// Must stay before the JSON branch: json.Unmarshal would base64-decode into *[]byte.
+	if p, ok := v.(*[]byte); ok {
+		*p = b
 		return nil
 	}
 	if f, ok := v.(*os.File); ok {

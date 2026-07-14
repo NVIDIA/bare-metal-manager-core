@@ -14,7 +14,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
@@ -276,7 +276,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	// Set propagation details for VPC21.
 	// We'll expect these to be cleared later.
 	vpc12.NetworkSecurityGroupPropagationDetails = &cdbm.NetworkSecurityGroupPropagationDetails{
-		NetworkSecurityGroupPropagationObjectStatus: &cwssaws.NetworkSecurityGroupPropagationObjectStatus{},
+		NetworkSecurityGroupPropagationObjectStatus: &corev1.NetworkSecurityGroupPropagationObjectStatus{},
 	}
 	cwu.TestUpdateVPC(t, dbSession, vpc12)
 
@@ -304,22 +304,22 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 		pagedInvIds = append(pagedInvIds, vpc.ControllerVpcID.String())
 	}
 
-	pagedCtrlVpcs := []*cwssaws.Vpc{}
+	pagedCtrlVpcs := []*corev1.Vpc{}
 	for i := 0; i < 34; i++ {
-		ctrlVpc := &cwssaws.Vpc{
-			Id:   &cwssaws.VpcId{Value: pagedVpcs[i].ControllerVpcID.String()},
+		ctrlVpc := &corev1.Vpc{
+			Id:   &corev1.VpcId{Value: pagedVpcs[i].ControllerVpcID.String()},
 			Name: pagedVpcs[i].Name,
 			Vni:  util.GetUint32Ptr(uint32(i)),
-			Status: &cwssaws.VpcStatus{
+			Status: &corev1.VpcStatus{
 				Vni: util.GetUint32Ptr(uint32(i)),
 			},
 		}
 
 		if i == 1 {
-			ctrlVpc.Metadata = &cwssaws.Metadata{
+			ctrlVpc.Metadata = &corev1.Metadata{
 				Name:        "Test VPC",
 				Description: "Test description",
-				Labels: []*cwssaws.Label{
+				Labels: []*corev1.Label{
 					{
 						Key:   "west1",
 						Value: cutil.GetPtr("gpu1"),
@@ -349,8 +349,8 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	mtc1 := &tmocks.Client{}
 	mtc1.Mock.On("ExecuteWorkflow", context.Background(), workflowOptions1, "UpdateVPC", mock.Anything).Return(wrun, nil)
 
-	nwvt := cwssaws.VpcVirtualizationType_FNN
-	evt := cwssaws.VpcVirtualizationType_ETHERNET_VIRTUALIZER
+	nwvt := corev1.VpcVirtualizationType_FNN
+	evt := corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER
 
 	type fields struct {
 		dbSession        *cdb.Session
@@ -362,7 +362,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 	type args struct {
 		ctx          context.Context
 		siteID       uuid.UUID
-		vpcInventory *cwssaws.VPCInventory
+		vpcInventory *corev1.VPCInventory
 	}
 
 	tests := []struct {
@@ -396,8 +396,8 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: uuid.New(),
-				vpcInventory: &cwssaws.VPCInventory{
-					Vpcs: []*cwssaws.Vpc{},
+				vpcInventory: &corev1.VPCInventory{
+					Vpcs: []*corev1.Vpc{},
 				},
 			},
 			wantErr: true,
@@ -413,52 +413,52 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st.ID,
-				vpcInventory: &cwssaws.VPCInventory{
-					NetworkSecurityGroupPropagations: []*cwssaws.NetworkSecurityGroupPropagationObjectStatus{
-						&cwssaws.NetworkSecurityGroupPropagationObjectStatus{
+				vpcInventory: &corev1.VPCInventory{
+					NetworkSecurityGroupPropagations: []*corev1.NetworkSecurityGroupPropagationObjectStatus{
+						&corev1.NetworkSecurityGroupPropagationObjectStatus{
 							Id:      vpc1.ID.String(),
-							Status:  cwssaws.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
+							Status:  corev1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
 							Details: cutil.GetPtr("nothing to see here"),
 						},
 					},
-					Vpcs: []*cwssaws.Vpc{
+					Vpcs: []*corev1.Vpc{
 						{
-							Id:                        &cwssaws.VpcId{Value: vpc1.ID.String()},
+							Id:                        &corev1.VpcId{Value: vpc1.ID.String()},
 							Name:                      vpc1.ID.String(),
 							NetworkVirtualizationType: &nwvt,
 							RoutingProfileType:        cutil.GetPtr("INTERNAL"),
 						},
 						{
-							Id:   &cwssaws.VpcId{Value: vpc2.ControllerVpcID.String()},
+							Id:   &corev1.VpcId{Value: vpc2.ControllerVpcID.String()},
 							Name: vpc2.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcId{Value: vpc3.ControllerVpcID.String()},
+							Id:   &corev1.VpcId{Value: vpc3.ControllerVpcID.String()},
 							Name: vpc3.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcId{Value: vpc4.ControllerVpcID.String()},
+							Id:   &corev1.VpcId{Value: vpc4.ControllerVpcID.String()},
 							Name: vpc4.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcId{Value: vpc8.ControllerVpcID.String()},
+							Id:   &corev1.VpcId{Value: vpc8.ControllerVpcID.String()},
 							Name: vpc8.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcId{Value: uuid.NewString()},
+							Id:   &corev1.VpcId{Value: uuid.NewString()},
 							Name: vpc9.ID.String(),
 						},
 						{
-							Id:   &cwssaws.VpcId{Value: uuid.NewString()},
+							Id:   &corev1.VpcId{Value: uuid.NewString()},
 							Name: vpc10.ID.String(),
 						},
 						{
-							Id:                        &cwssaws.VpcId{Value: vpc12.ControllerVpcID.String()},
+							Id:                        &corev1.VpcId{Value: vpc12.ControllerVpcID.String()},
 							Name:                      vpc12.ID.String(),
 							NetworkVirtualizationType: &evt,
 						},
 						{
-							Id:                        &cwssaws.VpcId{Value: vpc13.ControllerVpcID.String()},
+							Id:                        &corev1.VpcId{Value: vpc13.ControllerVpcID.String()},
 							Name:                      vpc13.ID.String(),
 							NetworkVirtualizationType: &evt,
 						},
@@ -489,11 +489,11 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st2.ID,
-				vpcInventory: &cwssaws.VPCInventory{
-					Vpcs:            []*cwssaws.Vpc{},
+				vpcInventory: &corev1.VPCInventory{
+					Vpcs:            []*corev1.Vpc{},
 					Timestamp:       timestamppb.Now(),
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  0,
 						PageSize:    25,
@@ -514,10 +514,10 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				vpcInventory: &cwssaws.VPCInventory{
+				vpcInventory: &corev1.VPCInventory{
 					Vpcs:      pagedCtrlVpcs[0:10],
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -539,10 +539,10 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				vpcInventory: &cwssaws.VPCInventory{
+				vpcInventory: &corev1.VPCInventory{
 					Vpcs:      pagedCtrlVpcs[30:34],
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 4,
 						TotalPages:  4,
 						PageSize:    10,
@@ -565,10 +565,10 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 			args: args{
 				ctx:    ctx,
 				siteID: st3.ID,
-				vpcInventory: &cwssaws.VPCInventory{
+				vpcInventory: &corev1.VPCInventory{
 					Vpcs:      pagedCtrlVpcs[0:10],
 					Timestamp: timestamppb.Now(),
-					InventoryPage: &cwssaws.InventoryPage{
+					InventoryPage: &corev1.InventoryPage{
 						CurrentPage: 1,
 						TotalPages:  4,
 						PageSize:    10,
@@ -691,7 +691,7 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 				assert.True(t, len(tt.fields.clientPoolClient.Calls) > 0)
 				assert.Equal(t, len(tt.fields.clientPoolClient.Calls[0].Arguments), 4)
 
-				scReq := tt.fields.clientPoolClient.Calls[0].Arguments[3].(*cwssaws.VpcUpdateRequest)
+				scReq := tt.fields.clientPoolClient.Calls[0].Arguments[3].(*corev1.VpcUpdateRequest)
 				assert.Equal(t, tt.metadataVpcUpdate.ID.String(), scReq.Id.Value)
 			}
 

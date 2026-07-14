@@ -43,6 +43,28 @@ func (s OperationRunStatus) IsTerminal() bool {
 		s == OperationRunStatusFailed
 }
 
+// Message returns the default status message for run transitions.
+func (s OperationRunStatus) Message() string {
+	switch s {
+	case OperationRunStatusPending:
+		return "operation run pending"
+	case OperationRunStatusRunning:
+		return "operation run running"
+	case OperationRunStatusPaused:
+		return "operation run paused"
+	case OperationRunStatusCompleted:
+		return "operation run completed"
+	case OperationRunStatusCompletedWithFailures:
+		return "operation run completed with failed targets"
+	case OperationRunStatusCancelled:
+		return "operation run cancelled"
+	case OperationRunStatusFailed:
+		return "operation run failed"
+	default:
+		return ""
+	}
+}
+
 // OperationRunStatusReason records why a run is in its current non-terminal
 // state. It is especially important for paused runs: ResumeOperationRun uses
 // the reason to distinguish phase gates from operator, safety, and conflict
@@ -138,15 +160,52 @@ type OperationRun struct {
 	FinishedAt        *time.Time
 }
 
+// CanPause reports whether a pause request can leave the run paused. It is
+// true for already-paused non-terminal runs because PauseOperationRun is
+// idempotent and preserves the existing pause reason.
+func (r *OperationRun) CanPause() bool {
+	if r == nil {
+		return false
+	}
+
+	return !r.Status.IsTerminal()
+}
+
+// CanResume reports whether a paused run can continue without crossing a
+// manual phase gate.
+func (r *OperationRun) CanResume() bool {
+	if r == nil {
+		return false
+	}
+
+	return r.Status == OperationRunStatusPaused &&
+		r.StatusReason != OperationRunStatusReasonPhaseGate
+}
+
+// CanAdvancePhase reports whether a paused run is waiting at a manual phase
+// gate and can be advanced to the next phase.
+func (r *OperationRun) CanAdvancePhase() bool {
+	if r == nil {
+		return false
+	}
+
+	return r.Status == OperationRunStatusPaused &&
+		r.StatusReason == OperationRunStatusReasonPhaseGate
+}
+
 // Start marks the run as running. StartedAt records the first transition from
-// pending to running and is not refreshed by later dispatcher passes.
-func (r *OperationRun) Start(now time.Time) {
+// pending to running and is not refreshed by later dispatcher passes. A
+// non-empty message replaces the current status message.
+func (r *OperationRun) Start(now time.Time, message string) {
 	if r.Status == OperationRunStatusPending && r.StartedAt == nil {
 		r.StartedAt = timePtr(now)
 	}
 
 	r.Status = OperationRunStatusRunning
 	r.StatusReason = OperationRunStatusReasonNone
+	if message != "" {
+		r.StatusMessage = message
+	}
 }
 
 // Pause marks the run as paused for a non-terminal reason.
@@ -179,6 +238,14 @@ func (r *OperationRun) Complete(now time.Time, message string) {
 // set with at least one failed or terminated target.
 func (r *OperationRun) CompleteWithFailures(now time.Time, message string) {
 	r.Status = OperationRunStatusCompletedWithFailures
+	r.StatusReason = OperationRunStatusReasonNone
+	r.StatusMessage = message
+	r.FinishedAt = timePtr(now)
+}
+
+// Cancel marks the run as cancelled and records its terminal timestamp.
+func (r *OperationRun) Cancel(now time.Time, message string) {
+	r.Status = OperationRunStatusCancelled
 	r.StatusReason = OperationRunStatusReasonNone
 	r.StatusMessage = message
 	r.FinishedAt = timePtr(now)
@@ -239,6 +306,73 @@ type OperationRunTarget struct {
 	RetryState       json.RawMessage
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+// clearRetry clears retry metadata once a target leaves a retryable state.
+func (t *OperationRunTarget) clearRetry() {
+	t.RetryAfter = nil
+	t.RetryState = nil
+}
+
+// SetMessage records an informational target lifecycle message without
+// changing status.
+func (t *OperationRunTarget) SetMessage(message string) {
+	t.Message = message
+}
+
+// Claim marks the target claimed for child-task submission until the claim
+// lease expires.
+func (t *OperationRunTarget) Claim(
+	leaseExpiresAt time.Time,
+	message string,
+) {
+	t.TaskID = nil
+	t.Status = OperationRunTargetStatusClaimed
+	t.Message = message
+	t.RetryAfter = timePtr(leaseExpiresAt)
+	t.RetryState = nil
+}
+
+// Block marks the target blocked by a retryable conflict.
+func (t *OperationRunTarget) Block(
+	message string,
+	retryAfter time.Time,
+	retryState json.RawMessage,
+) {
+	t.TaskID = nil
+	t.Status = OperationRunTargetStatusBlocked
+	t.Message = message
+	t.RetryAfter = timePtr(retryAfter)
+	t.RetryState = retryState
+}
+
+// Submit marks the target submitted with its child task ID.
+func (t *OperationRunTarget) Submit(taskID uuid.UUID, message string) {
+	t.TaskID = &taskID
+	t.Status = OperationRunTargetStatusSubmitted
+	t.Message = message
+	t.clearRetry()
+}
+
+// Fail marks the target failed and clears retry metadata.
+func (t *OperationRunTarget) Fail(message string) {
+	t.Status = OperationRunTargetStatusFailed
+	t.Message = message
+	t.clearRetry()
+}
+
+// Skip marks the target skipped and clears retry metadata.
+func (t *OperationRunTarget) Skip(message string) {
+	t.Status = OperationRunTargetStatusSkipped
+	t.Message = message
+	t.clearRetry()
+}
+
+// Terminate marks the target terminated and clears retry metadata.
+func (t *OperationRunTarget) Terminate(message string) {
+	t.Status = OperationRunTargetStatusTerminated
+	t.Message = message
+	t.clearRetry()
 }
 
 // StateFilter matches operation runs by status, reason, or both. When both are

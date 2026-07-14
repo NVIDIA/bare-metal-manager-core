@@ -40,6 +40,7 @@ pub fn setup_logging() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     if let Err(e) = tracing_subscriber::registry()
+        .with(carbide_instrument::LogEventsMetric::new("nico-api").layer())
         .with(
             tracing_subscriber::fmt::Layer::default()
                 .compact()

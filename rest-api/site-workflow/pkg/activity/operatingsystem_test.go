@@ -7,8 +7,8 @@ import (
 	"context"
 	"testing"
 
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -28,7 +28,7 @@ func TestManageOsImage_CreateOsImageOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.OsImageAttributes
+		request *corev1.OsImageAttributes
 	}
 	tests := []struct {
 		name    string
@@ -43,7 +43,7 @@ func TestManageOsImage_CreateOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.OsImageAttributes{
+				request: &corev1.OsImageAttributes{
 					TenantOrganizationId: orgID,
 					SourceUrl:            "http://imagenet.com",
 					Digest:               "1231d1dffq213123",
@@ -58,7 +58,7 @@ func TestManageOsImage_CreateOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.OsImageAttributes{
+				request: &corev1.OsImageAttributes{
 					SourceUrl: "http://imagenet.com",
 					Digest:    "1231d1dffq213123",
 				},
@@ -72,7 +72,7 @@ func TestManageOsImage_CreateOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.OsImageAttributes{
+				request: &corev1.OsImageAttributes{
 					TenantOrganizationId: orgID,
 					Digest:               "1231d1dffq213123",
 				},
@@ -86,7 +86,7 @@ func TestManageOsImage_CreateOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.OsImageAttributes{
+				request: &corev1.OsImageAttributes{
 					SourceUrl:            "http://imagenet.com",
 					TenantOrganizationId: orgID,
 				},
@@ -131,7 +131,7 @@ func TestManageOsImage_UpdateOsImageOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.OsImageAttributes
+		request *corev1.OsImageAttributes
 	}
 	tests := []struct {
 		name    string
@@ -146,7 +146,7 @@ func TestManageOsImage_UpdateOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.OsImageAttributes{
+				request: &corev1.OsImageAttributes{
 					TenantOrganizationId: orgID,
 					SourceUrl:            "http://updateimagenet.com",
 					Digest:               "1231231dqweffqwq342",
@@ -161,7 +161,7 @@ func TestManageOsImage_UpdateOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.OsImageAttributes{
+				request: &corev1.OsImageAttributes{
 					SourceUrl: "http://updateimagenet.com",
 					Digest:    "1231231dqweffqwq342",
 				},
@@ -175,7 +175,7 @@ func TestManageOsImage_UpdateOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.OsImageAttributes{
+				request: &corev1.OsImageAttributes{
 					TenantOrganizationId: orgID,
 					Digest:               "1231231dqweffqwq342",
 				},
@@ -189,7 +189,7 @@ func TestManageOsImage_UpdateOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.OsImageAttributes{
+				request: &corev1.OsImageAttributes{
 					SourceUrl:            "http://updateimagenet.com",
 					TenantOrganizationId: orgID,
 				},
@@ -234,7 +234,7 @@ func TestManageOsImage_DeleteOsImageOnSite(t *testing.T) {
 	}
 	type args struct {
 		ctx     context.Context
-		request *cwssaws.DeleteOsImageRequest
+		request *corev1.DeleteOsImageRequest
 	}
 	tests := []struct {
 		name    string
@@ -249,8 +249,8 @@ func TestManageOsImage_DeleteOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx: context.Background(),
-				request: &cwssaws.DeleteOsImageRequest{
-					Id:                   &cwssaws.UUID{Value: uuid.NewString()},
+				request: &corev1.DeleteOsImageRequest{
+					Id:                   &corev1.UUID{Value: uuid.NewString()},
 					TenantOrganizationId: orgID,
 				},
 			},
@@ -263,7 +263,7 @@ func TestManageOsImage_DeleteOsImageOnSite(t *testing.T) {
 			},
 			args: args{
 				ctx:     context.Background(),
-				request: &cwssaws.DeleteOsImageRequest{},
+				request: &corev1.DeleteOsImageRequest{},
 			},
 			wantErr: true,
 		},
@@ -382,7 +382,7 @@ func TestManageOsImageInventory_DiscoverOsImageInventory(t *testing.T) {
 				tc.AssertNumberOfCalls(t, "ExecuteWorkflow", totalPages)
 			}
 
-			inventory, ok := tc.Calls[0].Arguments[4].(*cwssaws.OsImageInventory)
+			inventory, ok := tc.Calls[0].Arguments[4].(*corev1.OsImageInventory)
 			assert.True(t, ok)
 
 			if tt.args.wantTotalItems == 0 {
@@ -391,7 +391,7 @@ func TestManageOsImageInventory_DiscoverOsImageInventory(t *testing.T) {
 				assert.Equal(t, tt.fields.cloudPageSize, len(inventory.OsImages))
 			}
 
-			assert.Equal(t, cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
+			assert.Equal(t, corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS, inventory.InventoryStatus)
 			assert.Equal(t, totalPages, int(inventory.InventoryPage.TotalPages))
 			assert.Equal(t, 1, int(inventory.InventoryPage.CurrentPage))
 			assert.Equal(t, tt.fields.cloudPageSize, int(inventory.InventoryPage.PageSize))

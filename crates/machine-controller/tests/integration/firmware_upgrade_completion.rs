@@ -15,11 +15,15 @@
  * limitations under the License.
  */
 
+use carbide_instrument::testing::MetricsCapture;
 use carbide_machine_controller::handler::MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES;
+use carbide_test_harness::CarbideConfig;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
 use model::firmware::FirmwareComponentType;
-use model::machine::{HostReprovisionState, ManagedHostState, ScoutUpgradeResult};
+use model::machine::{
+    HostReprovisionState, MAX_FIRMWARE_UPGRADE_RETRIES, ManagedHostState, ScoutUpgradeResult,
+};
 use model::test_support::ManagedHostConfig;
 
 use crate::env::Env;
@@ -31,7 +35,14 @@ struct TestContext {
 
 impl TestContext {
     async fn init(pool: PgPool) -> Self {
-        let env = Env::builder(pool).build().await;
+        Self::init_with_runtime(pool, |_| {}).await
+    }
+
+    async fn init_with_runtime(pool: PgPool, configure: impl FnOnce(&mut CarbideConfig)) -> Self {
+        let env = Env::builder(pool)
+            .configure_runtime(configure)
+            .build()
+            .await;
         let domain = env.test_harness.test_domain().await;
         let network_controller = env.test_harness.network_controller();
         let underlay_segment = network_controller.create_underlay_segment(&domain).await;
@@ -60,6 +71,12 @@ trait TestManagedHostFirmwareExt {
         &self,
         previous_reset_time: i64,
         reset_retry_count: u32,
+    );
+
+    async fn put_in_failed_firmware_upgrade(
+        &self,
+        report_time: chrono::DateTime<chrono::Utc>,
+        retry_count: u32,
     );
 }
 
@@ -100,6 +117,22 @@ impl TestManagedHostFirmwareExt for TestManagedHost {
                 reset_retry_count,
             },
             retry_count: 0,
+        })
+        .await;
+    }
+
+    async fn put_in_failed_firmware_upgrade(
+        &self,
+        report_time: chrono::DateTime<chrono::Utc>,
+        retry_count: u32,
+    ) {
+        self.advance_state(ManagedHostState::HostReprovision {
+            reprovision_state: HostReprovisionState::FailedFirmwareUpgrade {
+                firmware_type: FirmwareComponentType::Bmc,
+                report_time: Some(report_time),
+                reason: Some("scout upgrade failed".to_string()),
+            },
+            retry_count,
         })
         .await;
     }
@@ -318,4 +351,92 @@ async fn scout_upgrade_before_deadline_waits(pool: PgPool) {
         ),
         "expected to remain in WaitingForScoutUpgrade, got {reprovision_state:?}",
     );
+}
+
+/// Drives the `FailedFirmwareUpgrade` arm through all three of its retry
+/// outcomes: inside the retry interval nothing moves, past the interval one
+/// retry is consumed and counted, and with the budget exhausted the machine
+/// parks in the failure state without another count. The log side of the
+/// retry emit is covered by the unit test next to the event declaration.
+#[sqlx_test]
+async fn failed_firmware_upgrade_retries_until_the_budget_is_exhausted(pool: PgPool) {
+    const RETRIES_TOTAL: &str = "carbide_host_reprovision_retries_total";
+    let retry_interval = chrono::TimeDelta::hours(1);
+    let TestContext { mut env, mh } = TestContext::init_with_runtime(pool, |config| {
+        config.firmware_global.host_firmware_upgrade_retry_interval = retry_interval;
+    })
+    .await;
+    let metrics = MetricsCapture::start();
+
+    // Still inside the retry interval: the machine stays put and nothing is
+    // counted.
+    mh.put_in_failed_firmware_upgrade(chrono::Utc::now(), 0)
+        .await;
+    env.run_single_iteration().await;
+    let machine = mh.host.machine().await;
+    let ManagedHostState::HostReprovision {
+        reprovision_state,
+        retry_count,
+    } = machine.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    assert!(
+        matches!(
+            reprovision_state,
+            HostReprovisionState::FailedFirmwareUpgrade { .. }
+        ),
+        "expected to remain in FailedFirmwareUpgrade, got {reprovision_state:?}",
+    );
+    assert_eq!(*retry_count, 0);
+    assert_eq!(metrics.counter_delta(RETRIES_TOTAL, &[]), 0.0);
+
+    // Past the retry interval with budget left: one retry is taken and
+    // counted, and the consumed attempt lands in the state's retry_count.
+    mh.put_in_failed_firmware_upgrade(chrono::Utc::now() - retry_interval * 2, 0)
+        .await;
+    env.run_single_iteration().await;
+    let machine = mh.host.machine().await;
+    let ManagedHostState::HostReprovision {
+        reprovision_state,
+        retry_count,
+    } = machine.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    assert!(
+        matches!(
+            reprovision_state,
+            HostReprovisionState::CheckingFirmwareV2 { .. }
+        ),
+        "expected CheckingFirmwareV2, got {reprovision_state:?}",
+    );
+    assert_eq!(*retry_count, 1);
+    assert_eq!(metrics.counter_delta(RETRIES_TOTAL, &[]), 1.0);
+
+    // Past the retry interval with the budget exhausted: the machine parks in
+    // the failure state and the counter does not move again.
+    mh.put_in_failed_firmware_upgrade(
+        chrono::Utc::now() - retry_interval * 2,
+        MAX_FIRMWARE_UPGRADE_RETRIES,
+    )
+    .await;
+    env.run_single_iteration().await;
+    let machine = mh.host.machine().await;
+    let ManagedHostState::HostReprovision {
+        reprovision_state,
+        retry_count,
+    } = machine.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    assert!(
+        matches!(
+            reprovision_state,
+            HostReprovisionState::FailedFirmwareUpgrade { .. }
+        ),
+        "expected to remain in FailedFirmwareUpgrade, got {reprovision_state:?}",
+    );
+    assert_eq!(*retry_count, MAX_FIRMWARE_UPGRADE_RETRIES);
+    assert_eq!(metrics.counter_delta(RETRIES_TOTAL, &[]), 1.0);
 }

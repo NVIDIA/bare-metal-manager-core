@@ -19,6 +19,7 @@ use std::net::SocketAddr;
 
 use carbide_redfish::boot_interface::BootInterfaceTarget;
 use libredfish::RoleId;
+use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
@@ -158,4 +159,24 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         interface: &MachineInterfaceSnapshot,
         username: &str,
     ) -> Result<(), EndpointExplorationError>;
+
+    // set_bmc_root_password authenticates with the endpoint's currently stored
+    // BMC root credentials, probes the vendor, sets `new_password` on the
+    // device, and records it as the device's per-BMC credential. This is an
+    // out-of-band set that does not update rotation convergence; the rotation
+    // engine will reassert the site-wide password on its next pass.
+    async fn set_bmc_root_password(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        new_password: &str,
+    ) -> Result<(), EndpointExplorationError>;
+
+    // probe_bmc_vendor resolves the endpoint's Redfish vendor using its stored
+    // BMC root credentials.
+    async fn probe_bmc_vendor(
+        &self,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+    ) -> Result<RedfishVendor, EndpointExplorationError>;
 }

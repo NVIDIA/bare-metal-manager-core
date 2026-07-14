@@ -49,12 +49,18 @@ pub fn subscriber() -> impl SubscriberInitExt {
         .add_directive("netlink_proto=warn".parse().unwrap());
     let stdout_formatter = logfmt::layer()
         .with_event_fields([logfmt::EventField::with_default("component", "nico-fmds")]);
-    Box::new(tracing_subscriber::registry().with(stdout_formatter.with_filter(env_filter)))
+    let log_events = carbide_instrument::LogEventsMetric::new("nico-fmds");
+    Box::new(
+        tracing_subscriber::registry()
+            .with(log_events.layer().with_filter(env_filter.clone()))
+            .with(stdout_formatter.with_filter(env_filter)),
+    )
 }
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
-    subscriber()
+    let subscriber = subscriber();
+    subscriber
         .try_init()
         .expect("tracing_subscriber setup failed");
     tracing::error!("Starting fmds...");
@@ -98,6 +104,8 @@ async fn main() -> eyre::Result<()> {
     );
 
     let (prometheus_registry, http_request_metrics_state) = http_request_metrics::init()?;
+    // init() installed the global meter provider, so the log-event counter can register now.
+    carbide_instrument::log_events::register(&opentelemetry::global::meter("carbide-instrument"));
     let http_request_metrics_state = Arc::new(http_request_metrics_state);
 
     let metrics_address = options.metrics_address;

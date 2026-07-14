@@ -19,7 +19,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // ManageExpectedPowerShelf is an activity wrapper for managing ExpectedPowerShelf lifecycle that allows
@@ -38,7 +38,7 @@ type ManageExpectedPowerShelf struct {
 // - UUID existing in NICo but not in DB: create record in DB
 // - UUID existing in both NICo and DB with differences: update record in DB
 // - UUID existing in DB but not in NICo: delete record in DB
-func (mei ManageExpectedPowerShelf) UpdateExpectedPowerShelvesInDB(ctx context.Context, siteID uuid.UUID, expectedPowerShelfInventory *cwssaws.ExpectedPowerShelfInventory) error {
+func (mei ManageExpectedPowerShelf) UpdateExpectedPowerShelvesInDB(ctx context.Context, siteID uuid.UUID, expectedPowerShelfInventory *corev1.ExpectedPowerShelfInventory) error {
 	logger := log.With().Str("Activity", "UpdateExpectedPowerShelvesInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -48,7 +48,7 @@ func (mei ManageExpectedPowerShelf) UpdateExpectedPowerShelvesInDB(ctx context.C
 		return errors.New("UpdateExpectedPowerShelvesInDB called with nil inventory")
 	}
 
-	if expectedPowerShelfInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if expectedPowerShelfInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}

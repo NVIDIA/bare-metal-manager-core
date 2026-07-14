@@ -30,7 +30,11 @@ async fn main() -> Result<(), HealthError> {
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
 
+    // Counts events from startup; `run_service` registers the metric with the
+    // framework registry its /metrics response exposes.
+    let log_events = carbide_instrument::LogEventsMetric::new("nico-hardware-health");
     tracing_subscriber::registry()
+        .with(log_events.layer())
         .with(
             logfmt::layer().with_event_fields([logfmt::EventField::with_default(
                 "component",

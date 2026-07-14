@@ -46,6 +46,11 @@ pub struct HostMachineInfo {
     pub nvos_mac_addresses: Vec<MacAddress>,
     pub switch_serial_number: Option<String>,
     pub hw_mac_addr_pool: MacAddressPoolConfig,
+    /// Per-PSU commanded on/off states for a Delta power shelf, reported under
+    /// `Oem.deltaenergysystems.Power`. `None` uses the default all-on shelf;
+    /// set it (e.g. via [`HostMachineInfo::with_delta_psu_power`]) to model
+    /// off/mixed shelves. Ignored for non-Delta hardware.
+    pub delta_psu_power: Option<Vec<bool>>,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +134,7 @@ impl DpuMachineInfo {
             | HostHardwareType::NvidiaDgxGb300
             | HostHardwareType::SupermicroGb300Nvl => hw::bluefield3::Mode::B3240ColdAisle,
             HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::DeltaPowerShelf
             | HostHardwareType::NvidiaSwitchNd5200Ld
             | HostHardwareType::NvidiaDgxVr
             | HostHardwareType::DellPowerEdgeR760Bf4 => {
@@ -163,6 +169,7 @@ impl DpuMachineInfo {
             | HostHardwareType::NvidiaDgxGb300
             | HostHardwareType::SupermicroGb300Nvl
             | HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::DeltaPowerShelf
             | HostHardwareType::NvidiaSwitchNd5200Ld => {
                 panic!("Bluefield4 DPU is defined for {}", self.hw_type)
             }
@@ -189,6 +196,7 @@ impl DpuMachineInfo {
             | HostHardwareType::NvidiaDgxGb300
             | HostHardwareType::SupermicroGb300Nvl
             | HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::DeltaPowerShelf
             | HostHardwareType::NvidiaSwitchNd5200Ld => DpuType::Bluefield3,
             HostHardwareType::DellPowerEdgeR760Bf4 | HostHardwareType::NvidiaDgxVr => {
                 DpuType::Bluefield4
@@ -280,7 +288,9 @@ impl HostMachineInfo {
             non_dpu_mac_address: if dpus.is_empty()
                 && !matches!(
                     hw_type,
-                    HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld
+                    HostHardwareType::LiteOnPowerShelf
+                        | HostHardwareType::DeltaPowerShelf
+                        | HostHardwareType::NvidiaSwitchNd5200Ld
                 ) {
                 Some(next_mac())
             } else {
@@ -290,7 +300,17 @@ impl HostMachineInfo {
             switch_serial_number,
             dpus,
             hw_mac_addr_pool,
+            delta_psu_power: None,
         }
+    }
+
+    /// Override the Delta power shelf's per-PSU on/off states (one entry per
+    /// PSU bay). Used by tests to model off/mixed shelves; the default is an
+    /// all-on six-bay shelf.
+    #[must_use]
+    pub fn with_delta_psu_power(mut self, states: Vec<bool>) -> Self {
+        self.delta_psu_power = Some(states);
+        self
     }
 
     pub fn primary_dpu(&self) -> Option<&DpuMachineInfo> {
@@ -311,14 +331,17 @@ impl HostMachineInfo {
             HostHardwareType::WiwynnGB200Nvl
             | HostHardwareType::LenovoGB300Nvl
             | HostHardwareType::NvidiaDgxGb300
-            | HostHardwareType::SupermicroGb300Nvl
             | HostHardwareType::NvidiaDgxVr
             | HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::DeltaPowerShelf
             | HostHardwareType::NvidiaDgxH100
             | HostHardwareType::NvidiaSwitchNd5200Ld
             | HostHardwareType::GenericAmi
             | HostHardwareType::HpeProliantDl380aGen11
             | HostHardwareType::GenericSupermicro => redfish::oem::State::Other,
+            HostHardwareType::SupermicroGb300Nvl => redfish::oem::State::Supermicro(
+                redfish::oem::supermicro::manager::SupermicroState::default(),
+            ),
         }
     }
 
@@ -337,6 +360,7 @@ impl HostMachineInfo {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
             }
             HostHardwareType::LiteOnPowerShelf => redfish::oem::BmcVendor::LiteOn,
+            HostHardwareType::DeltaPowerShelf => redfish::oem::BmcVendor::Delta,
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 redfish::oem::BmcVendor::Nvidia(redfish::oem::NvidiaNamestyle::Uppercase)
             }
@@ -359,6 +383,7 @@ impl HostMachineInfo {
             HostHardwareType::SupermicroGb300Nvl => Some("GB NVL"),
             HostHardwareType::NvidiaDgxVr => Some("VR NVL72"),
             HostHardwareType::LiteOnPowerShelf => None,
+            HostHardwareType::DeltaPowerShelf => None,
             HostHardwareType::NvidiaSwitchNd5200Ld => Some("P3809"),
             HostHardwareType::NvidiaDgxH100 => Some("AMI Redfish Server"),
             HostHardwareType::GenericAmi => Some("AMI Redfish Server"),
@@ -378,6 +403,7 @@ impl HostMachineInfo {
             HostHardwareType::SupermicroGb300Nvl => "1.17.0",
             HostHardwareType::NvidiaDgxVr => "1.17.0",
             HostHardwareType::LiteOnPowerShelf => "1.9.0",
+            HostHardwareType::DeltaPowerShelf => "1.9.0",
             HostHardwareType::NvidiaSwitchNd5200Ld => "1.17.0",
             HostHardwareType::NvidiaDgxH100 => "1.11.0",
             HostHardwareType::GenericAmi => "1.17.0",
@@ -398,6 +424,7 @@ impl HostMachineInfo {
             HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().manager_config(),
             HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().manager_config(),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().manager_config(),
+            HostHardwareType::DeltaPowerShelf => self.delta_power_shelf().manager_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().manager_config()
             }
@@ -430,6 +457,7 @@ impl HostMachineInfo {
                 self.supermicro_gb300_nvl().system_config(callbacks)
             }
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().system_config(),
+            HostHardwareType::DeltaPowerShelf => self.delta_power_shelf().system_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().system_config()
             }
@@ -455,6 +483,7 @@ impl HostMachineInfo {
             HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().chassis_config(),
             HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().chassis_config(),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().chassis_config(),
+            HostHardwareType::DeltaPowerShelf => self.delta_power_shelf().chassis_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().chassis_config()
             }
@@ -484,6 +513,7 @@ impl HostMachineInfo {
             }
             HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().update_service_config(),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().update_service_config(),
+            HostHardwareType::DeltaPowerShelf => self.delta_power_shelf().update_service_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().update_service_config()
             }
@@ -515,7 +545,9 @@ impl HostMachineInfo {
             HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
                 self.generic_server().discovery_info()
             }
-            HostHardwareType::LiteOnPowerShelf | HostHardwareType::NvidiaSwitchNd5200Ld => {
+            HostHardwareType::LiteOnPowerShelf
+            | HostHardwareType::DeltaPowerShelf
+            | HostHardwareType::NvidiaSwitchNd5200Ld => {
                 panic!("discovery_info requested for {}", self.hw_type)
             }
         }
@@ -637,8 +669,8 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::dgx_gb300_nvl::DgxGB300Nvl {
-            system_0_serial_number: "1332425360072".into(),
-            chassis_0_serial_number: "1332425360072".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
+            chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
                 .expect("One DPU must present for DGX GB300 NVL")
@@ -680,8 +712,8 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::supermicro_gb300_nvl::SupermicroGB300Nvl {
-            system_0_serial_number: "A978250X6404492".into(),
-            chassis_0_serial_number: "HA261S056572".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
+            chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
                 .expect("One DPU must present for SMC GB300 NVL")
@@ -717,7 +749,7 @@ impl HostMachineInfo {
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
         hw::lenovo_gb300_nvl::LenovoGB300Nvl {
-            system_0_serial_number: "012345678901234567890123".into(),
+            system_0_serial_number: Cow::Borrowed(&self.serial),
             chassis_0_serial_number: Cow::Borrowed(&self.serial),
             dpu: dpus
                 .next()
@@ -788,6 +820,23 @@ impl HostMachineInfo {
             bmc_mac_address: self.bmc_mac_address,
             product_serial_number: Cow::Borrowed(&self.serial),
         }
+    }
+
+    fn delta_power_shelf(&self) -> hw::delta_power_shelf::DeltaPowerShelf<'_> {
+        hw::delta_power_shelf::DeltaPowerShelf {
+            bmc_mac_address: self.bmc_mac_address,
+            product_serial_number: Cow::Borrowed(&self.serial),
+            psu_power: self.delta_psu_power.as_deref().map_or(
+                Cow::Borrowed(hw::delta_power_shelf::DEFAULT_PSU_POWER),
+                Cow::Borrowed,
+            ),
+        }
+    }
+
+    /// Whether this host advertises and serves a `/redfish/v1/Systems`
+    /// collection. Delta power shelves do not.
+    pub fn exposes_computer_systems(&self) -> bool {
+        !matches!(self.hw_type, HostHardwareType::DeltaPowerShelf)
     }
 
     fn nvidia_switch_nd5200_ld(&self) -> hw::nvidia_switch_nd5200_ld::NvidiaSwitchNd5200Ld<'_> {
@@ -955,6 +1004,15 @@ impl MachineInfo {
         }
     }
 
+    /// Whether this machine advertises and serves a `/redfish/v1/Systems`
+    /// collection. Only Delta power shelves omit it.
+    pub fn exposes_computer_systems(&self) -> bool {
+        match self {
+            Self::Host(h) => h.exposes_computer_systems(),
+            Self::Dpu(_) => true,
+        }
+    }
+
     pub fn product_serial(&self) -> &String {
         match self {
             Self::Host(h) => &h.serial,
@@ -1059,5 +1117,43 @@ fn gb300_boards<'a>(
                 serial_number: io1.into(),
             },
         ],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mac_address_pool::{Config, PoolConfig};
+
+    fn gb300_host_info(hw_type: HostHardwareType, pool: &mut MacAddressPool) -> HostMachineInfo {
+        let hw_mac_addr_pool = PoolConfig::new(MacAddress::new([6, 0, 0, 0, 0, 0]), 16)
+            .expect("valid hardware MAC pool");
+        let dpu = DpuMachineInfo::new(hw_type, pool, DpuSettings::default());
+        HostMachineInfo::new(hw_type, vec![dpu], pool, hw_mac_addr_pool)
+    }
+
+    #[test]
+    fn gb300_primary_serials_match_machine_serial() {
+        let pool_config =
+            PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
+        let mut pool = MacAddressPool::new(Config {
+            ranges: None,
+            pool: Some(pool_config),
+        });
+
+        let dgx = gb300_host_info(HostHardwareType::NvidiaDgxGb300, &mut pool);
+        let supermicro = gb300_host_info(HostHardwareType::SupermicroGb300Nvl, &mut pool);
+
+        let dgx_redfish = dgx.dgx_gb300_nvl();
+        assert_eq!(dgx_redfish.system_0_serial_number, dgx.serial);
+        assert_eq!(dgx_redfish.chassis_0_serial_number, dgx.serial);
+
+        let supermicro_redfish = supermicro.supermicro_gb300_nvl();
+        assert_eq!(supermicro_redfish.system_0_serial_number, supermicro.serial);
+        assert_eq!(
+            supermicro_redfish.chassis_0_serial_number,
+            supermicro.serial
+        );
+        assert_ne!(dgx.serial, supermicro.serial);
     }
 }

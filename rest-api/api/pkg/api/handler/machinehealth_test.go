@@ -16,17 +16,17 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestGetAllMachineHealthReportHandlerProxiesRequest(t *testing.T) {
-	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, &cwssaws.ListHealthReportResponse{
-		HealthReportEntries: []*cwssaws.HealthReportEntry{
+	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, &corev1.ListHealthReportResponse{
+		HealthReportEntries: []*corev1.HealthReportEntry{
 			{
-				Mode: cwssaws.HealthReportApplyMode_Merge,
-				Report: &cwssaws.HealthReport{
+				Mode: corev1.HealthReportApplyMode_Merge,
+				Report: &corev1.HealthReport{
 					Source: "overrides.sre",
-					Alerts: []*cwssaws.HealthProbeAlert{{Id: "probe.alert", Message: "forced unhealthy"}},
+					Alerts: []*corev1.HealthProbeAlert{{Id: "probe.alert", Message: "forced unhealthy"}},
 				},
 			},
 		},
@@ -35,10 +35,10 @@ func TestGetAllMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 
 	rec := fixture.Request(t, handler.Handle, http.MethodGet, "/", nil, "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, cwssaws.Forge_ListMachineHealthReports_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_ListMachineHealthReports_FullMethodName, fixture.ProxiedReq.FullMethod)
 	assert.Empty(t, fixture.ProxiedReq.EncryptedSecrets)
 
-	var coreReq cwssaws.MachineId
+	var coreReq corev1.MachineId
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetId())
 	assert.Contains(t, rec.Body.String(), "overrides.sre")
@@ -46,13 +46,13 @@ func TestGetAllMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 }
 
 func TestGetAllMachineHealthReportHandlerAllowsPrivilegedTenant(t *testing.T) {
-	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, &cwssaws.ListHealthReportResponse{
-		HealthReportEntries: []*cwssaws.HealthReportEntry{
+	fixture := common.NewTestSetupProviderMachineHandlerFixture(t, &corev1.ListHealthReportResponse{
+		HealthReportEntries: []*corev1.HealthReportEntry{
 			{
-				Mode: cwssaws.HealthReportApplyMode_Merge,
-				Report: &cwssaws.HealthReport{
+				Mode: corev1.HealthReportApplyMode_Merge,
+				Report: &corev1.HealthReport{
 					Source: "overrides.sre",
-					Alerts: []*cwssaws.HealthProbeAlert{{Id: "probe.alert", Message: "forced unhealthy"}},
+					Alerts: []*corev1.HealthProbeAlert{{Id: "probe.alert", Message: "forced unhealthy"}},
 				},
 			},
 		},
@@ -62,9 +62,9 @@ func TestGetAllMachineHealthReportHandlerAllowsPrivilegedTenant(t *testing.T) {
 
 	rec := fixture.Request(t, handler.Handle, http.MethodGet, "/", nil, "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, cwssaws.Forge_ListMachineHealthReports_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_ListMachineHealthReports_FullMethodName, fixture.ProxiedReq.FullMethod)
 
-	var coreReq cwssaws.MachineId
+	var coreReq corev1.MachineId
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetId())
 }
@@ -80,10 +80,10 @@ func TestCreateOrUpdateMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 
 	rec := fixture.Request(t, handler.Handle, http.MethodPut, "/", req, "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, cwssaws.Forge_InsertMachineHealthReport_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_InsertMachineHealthReport_FullMethodName, fixture.ProxiedReq.FullMethod)
 	assert.Empty(t, fixture.ProxiedReq.EncryptedSecrets)
 
-	var coreReq cwssaws.InsertMachineHealthReportRequest
+	var coreReq corev1.InsertMachineHealthReportRequest
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetMachineId().GetId())
 	assert.Equal(t, "overrides.sre", coreReq.GetHealthReportEntry().GetReport().GetSource())
@@ -102,9 +102,9 @@ func TestCreateOrUpdateMachineHealthReportHandlerAllowsPrivilegedTenant(t *testi
 
 	rec := fixture.Request(t, handler.Handle, http.MethodPut, "/", req, "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, cwssaws.Forge_InsertMachineHealthReport_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_InsertMachineHealthReport_FullMethodName, fixture.ProxiedReq.FullMethod)
 
-	var coreReq cwssaws.InsertMachineHealthReportRequest
+	var coreReq corev1.InsertMachineHealthReportRequest
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetMachineId().GetId())
 	assert.Equal(t, "overrides.sre", coreReq.GetHealthReportEntry().GetReport().GetSource())
@@ -125,10 +125,10 @@ func TestDeleteMachineHealthReportHandlerProxiesRequest(t *testing.T) {
 
 	rec := fixture.Request(t, handler.Handle, http.MethodDelete, "/", nil, "overrides.sre")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, cwssaws.Forge_RemoveMachineHealthReport_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_RemoveMachineHealthReport_FullMethodName, fixture.ProxiedReq.FullMethod)
 	assert.Empty(t, fixture.ProxiedReq.EncryptedSecrets)
 
-	var coreReq cwssaws.RemoveMachineHealthReportRequest
+	var coreReq corev1.RemoveMachineHealthReportRequest
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetMachineId().GetId())
 	assert.Equal(t, "overrides.sre", coreReq.GetSource())
@@ -142,9 +142,9 @@ func TestDeleteMachineHealthReportHandlerAllowsPrivilegedTenant(t *testing.T) {
 
 	rec := fixture.Request(t, handler.Handle, http.MethodDelete, "/", nil, "overrides.sre")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, cwssaws.Forge_RemoveMachineHealthReport_FullMethodName, fixture.ProxiedReq.FullMethod)
+	assert.Equal(t, corev1.Forge_RemoveMachineHealthReport_FullMethodName, fixture.ProxiedReq.FullMethod)
 
-	var coreReq cwssaws.RemoveMachineHealthReportRequest
+	var coreReq corev1.RemoveMachineHealthReportRequest
 	require.NoError(t, protojson.Unmarshal(fixture.ProxiedReq.RequestJSON, &coreReq))
 	assert.Equal(t, fixture.MachineID, coreReq.GetMachineId().GetId())
 	assert.Equal(t, "overrides.sre", coreReq.GetSource())

@@ -5,10 +5,10 @@ This file provides guidance for AI coding agents working in the
 
 ## Project Overview
 
-**NCX Infra Controller (NICo)** is an API-based microservice written in Rust
-that provides site-local, zero-trust, bare-metal lifecycle management with
-DPU-enforced isolation. It automates the complexity of the bare-metal lifecycle
-to fast-track building next-generation AI Cloud offerings.
+**NVIDIA Infra Controller (NICo)** is an API-based microservice written in Rust
+and Golang that provides site-local, zero-trust, bare-metal lifecycle
+management with DPU-enforced isolation. It automates the complexity of the
+bare-metal lifecycle to fast-track building next-generation AI Cloud offerings.
 
 > **Status:** Experimental/Preview. APIs, configurations, and features may
 > change without notice between releases.
@@ -45,6 +45,7 @@ infra-controller/
 ├── lints/               # Custom Clippy lints (carbide-lints crate)
 ├── include/             # Shared Makefile fragments
 ├── .github/             # GitHub Actions workflows and templates
+├── rest-api/            # Golang-based REST API
 ├── Cargo.toml           # Workspace dependency management
 ├── Makefile.toml        # Primary build/task automation
 ├── Makefile-build.toml  # Build-specific tasks
@@ -53,6 +54,7 @@ infra-controller/
 
 ## Technology Stack
 
+### gRPC API and components:
 - **Language:** Rust (edition 2024, toolchain pinned in `rust-toolchain.toml`)
 - **Async runtime:** Tokio
 - **gRPC framework:** Tonic (with TLS via Rustls/aws_lc_rs)
@@ -61,6 +63,9 @@ infra-controller/
 - **Observability:** OpenTelemetry, Tracing (structured logfmt logging)
 - **Build tool:** `cargo-make` (TOML task runner)
 - **API definitions:** Protocol Buffers (protobuf)
+
+### REST API and components
+- **Language (REST API):** Golang 1.26.x
 
 ## Build, Test, and Lint Commands
 
@@ -100,6 +105,10 @@ When writing tests, prefer the **table-driven** style — see the [Testing secti
 Enumerating a function's input variants as grouped `carbide-test-support` scenarios (`scenarios!` / `value_scenarios!`)
 or explicit cases (`check_cases` / `check_values`) is the easiest way to reach thorough coverage of parsers, validators,
 conversions, and the like.
+
+Keep test rack-profile capability counts aligned with the inventory the fixture
+actually instantiates. Use zero for unsupported component types so tests do not
+generate expected-but-absent discovery errors.
 
 ### Linting and Formatting
 
@@ -146,6 +155,10 @@ make rest-kind-reset     # spin up the local kind dev cluster (~10 min)
 make rest-api/<target>   # pass any target through to rest-api/Makefile
 ```
 
+Published container artifacts must pin external base images by immutable
+digest. When architecture-specific targets share a base image, define one
+overridable variable so their versions cannot drift independently.
+
 ## Coding Conventions
 
 Follow the shared [Engineering Guidelines](CONTRIBUTING.md#engineering-guidelines)
@@ -155,16 +168,42 @@ verification expectations.
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 
-### Avoid stringly-typed values
+### Instrumentation: logs and metrics
 
-When a value has a known, finite set of possibilities, model it with an enum (or
-a struct of enums) and derive its string form via `Display`/`FromStr` — do not
-pass it around as a bare `String` or `&str` literal. Stringly-typed values are
-easy to misspell (`NICO-` vs `NICOO-`), silently break log filters and alerts,
-and can't be exhaustively checked by the compiler. See
-[`ErrorCode`](crates/api-model/src/errors.rs) for the pattern: typed
-`ErrorSystem`/`ErrorSubsystem` parts plus a `code`, rendered to the wire string
-in one place. Reserve raw strings for genuinely open-ended values.
+The decision rule:
+
+- **Just logging words?** Use plain `tracing::` macros with structured fields
+  (`warn!(%machine_id, error = %e, "...")`). Most log sites are and stay this.
+- **Does the event deserve a count, rate, or duration** (a failure you'd alert
+  on, an outcome you'd trend, a hot-path rate)? Declare it once as a
+  `carbide_instrument::Event` and `emit()` it — that produces the metric and
+  (optionally) the log line together, correlated by `span_id`:
+
+  ```rust
+  #[derive(carbide_instrument::Event)]
+  #[event(name = "carbide_power_control_total", component = "component_manager",
+          log = warn, metric = counter, message = "power control failed")]
+  struct PowerControlFailed {
+      #[label]   backend: Backend,  // bounded via LabelValue — enums, usually
+      #[context] error: String,     // high-cardinality — log line only
+  }
+  ```
+
+  `log = off, metric = counter` counts a hot-path event with no log line at
+  all; `metric = none` is a typed log. Never put `machine_id`/IPs/error text
+  in a `#[label]` — that's what `#[context]` is for, and `String` doesn't
+  implement `LabelValue` precisely to stop it. A bounded-but-not-enum value
+  (a vendor, a SKU) can get a manual `LabelValue` impl on a newtype — the
+  reviewed escape hatch — but only when the value is bounded *at the call
+  site*; anything caller-supplied stays in `#[context]`.
+- **Point-in-time state** ("how many machines are in state X") stays on the
+  existing observable-gauge / `SharedMetricsHolder` pattern — the framework models
+  occurrences, not state.
+
+New metric names are validated at compile time (`carbide_` prefix, `_total`
+counters, unit-suffixed histograms) and the name in the attribute is the
+exposed name, verbatim. Existing metric names never change. The full standard
+lives in [`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
 
 ## Further Reading
 

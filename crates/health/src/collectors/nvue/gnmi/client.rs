@@ -28,7 +28,7 @@ use super::proto::{
     SubscriptionMode,
 };
 use crate::HealthError;
-use crate::config::NvueGnmiPaths;
+use crate::config::{MtlsProfileConfig, NvueGnmiPaths};
 
 pub fn nvue_subscribe_paths(paths_config: &NvueGnmiPaths) -> Vec<Path> {
     let mut paths = Vec::with_capacity(4);
@@ -106,13 +106,52 @@ pub struct GnmiClient {
     password: Option<String>,
     request_timeout: Duration,
     dangerously_skip_tls_verification: bool,
+    tls_config: Option<MtlsProfileConfig>,
 }
 
-fn configure_tls_endpoint(
+/// Configuration used to build one gNMI client instance.
+pub(super) struct GnmiClientConfig {
+    /// Switch identifier used in logs and error messages.
+    pub switch_id: String,
+
+    /// Switch host or IP address used for the gNMI channel.
+    pub host: String,
+
+    /// gNMI TCP port on the switch host.
+    pub port: u16,
+
+    /// Optional username sent as gNMI `username` metadata.
+    pub username: Option<String>,
+
+    /// Optional password sent as gNMI `password` metadata.
+    pub password: Option<String>,
+
+    /// Timeout applied to gNMI connection and RPC operations.
+    pub request_timeout: Duration,
+
+    /// Whether legacy non-mTLS connections accept invalid switch certificates.
+    pub dangerously_skip_tls_verification: bool,
+
+    /// mTLS profile used when opening the gNMI channel.
+    pub tls_config: Option<MtlsProfileConfig>,
+}
+
+async fn configure_tls_endpoint(
     endpoint: Endpoint,
     switch_id: &str,
     dangerously_skip_tls_verification: bool,
+    tls_config: Option<&MtlsProfileConfig>,
 ) -> Result<Endpoint, HealthError> {
+    if let Some(config) = tls_config {
+        // mTLS config supplies both trust roots and client identity. Use it as
+        // the complete TLS policy for this channel.
+        let tls_config = crate::tls::tonic_tls_config(config).await?;
+
+        return endpoint.tls_config(tls_config).map_err(|e| {
+            HealthError::GnmiError(format!("switch {switch_id}: invalid gNMI TLS config: {e}"))
+        });
+    }
+
     if !dangerously_skip_tls_verification {
         return Ok(endpoint);
     }
@@ -130,23 +169,16 @@ fn configure_tls_endpoint(
 }
 
 impl GnmiClient {
-    pub fn new(
-        switch_id: String,
-        host: &str,
-        port: u16,
-        username: Option<String>,
-        password: Option<String>,
-        request_timeout: Duration,
-        dangerously_skip_tls_verification: bool,
-    ) -> Self {
+    pub(super) fn new(config: GnmiClientConfig) -> Self {
         Self {
-            switch_id,
-            host: host.to_string(),
-            port,
-            username,
-            password,
-            request_timeout,
-            dangerously_skip_tls_verification,
+            switch_id: config.switch_id,
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            request_timeout: config.request_timeout,
+            dangerously_skip_tls_verification: config.dangerously_skip_tls_verification,
+            tls_config: config.tls_config,
         }
     }
 
@@ -169,7 +201,9 @@ impl GnmiClient {
             Endpoint::from(uri),
             &self.switch_id,
             self.dangerously_skip_tls_verification,
-        )?
+            self.tls_config.as_ref(),
+        )
+        .await?
         .connect_timeout(self.request_timeout)
         .timeout(self.request_timeout);
 
@@ -498,26 +532,30 @@ mod tests {
 
     #[test]
     fn test_gnmi_client_stores_dangerous_tls_skip_flag() {
-        let strict = GnmiClient::new(
-            "switch-1".to_string(),
-            "10.0.0.9",
-            9339,
-            None,
-            None,
-            Duration::from_secs(30),
-            false,
-        );
+        let strict = GnmiClient::new(GnmiClientConfig {
+            switch_id: "switch-1".to_string(),
+            host: "10.0.0.9".to_string(),
+            port: 9339,
+            username: None,
+            password: None,
+            request_timeout: Duration::from_secs(30),
+            dangerously_skip_tls_verification: false,
+            tls_config: None,
+        });
+
         assert!(!strict.dangerously_skip_tls_verification);
 
-        let dangerous = GnmiClient::new(
-            "switch-1".to_string(),
-            "10.0.0.9",
-            9339,
-            None,
-            None,
-            Duration::from_secs(30),
-            true,
-        );
+        let dangerous = GnmiClient::new(GnmiClientConfig {
+            switch_id: "switch-1".to_string(),
+            host: "10.0.0.9".to_string(),
+            port: 9339,
+            username: None,
+            password: None,
+            request_timeout: Duration::from_secs(30),
+            dangerously_skip_tls_verification: true,
+            tls_config: None,
+        });
+
         assert!(dangerous.dangerously_skip_tls_verification);
     }
 

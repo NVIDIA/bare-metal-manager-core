@@ -23,6 +23,7 @@ use crate::routes;
 
 mod env;
 mod explored_endpoint;
+mod firmware;
 mod health;
 mod managed_host;
 mod vpc;

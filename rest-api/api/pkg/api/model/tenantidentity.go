@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -70,8 +70,8 @@ func (req APITenantIdentityConfigCreateOrUpdateRequest) Validate() error {
 // ToProto converts the request to its gRPC form. The Core proto field
 // names retain the `_sec` suffix (`token_ttl_sec`, `signing_key_overlap_sec`);
 // only the REST/JSON spelling uses `Seconds`.
-func (req APITenantIdentityConfigCreateOrUpdateRequest) ToProto(org string) *cwssaws.SetTenantIdentityConfigRequest {
-	cfg := &cwssaws.TenantIdentityConfig{
+func (req APITenantIdentityConfigCreateOrUpdateRequest) ToProto(org string) *corev1.SetTenantIdentityConfigRequest {
+	cfg := &corev1.TenantIdentityConfig{
 		DefaultAudience:  req.DefaultAudience,
 		AllowedAudiences: req.AllowedAudiences,
 		SubjectPrefix:    req.SubjectPrefix,
@@ -87,7 +87,7 @@ func (req APITenantIdentityConfigCreateOrUpdateRequest) ToProto(org string) *cws
 		cfg.SigningKeyOverlapSec = &v
 	}
 
-	return &cwssaws.SetTenantIdentityConfigRequest{
+	return &corev1.SetTenantIdentityConfigRequest{
 		OrganizationId: org,
 		Config:         cfg,
 	}
@@ -116,7 +116,7 @@ type APITenantIdentityConfig struct {
 }
 
 // FromResponseProto populates the response from the gRPC reply.
-func (resp *APITenantIdentityConfig) FromResponseProto(proto *cwssaws.TenantIdentityConfigResponse) {
+func (resp *APITenantIdentityConfig) FromResponseProto(proto *corev1.TenantIdentityConfigResponse) {
 	if proto == nil {
 		return
 	}
@@ -199,20 +199,20 @@ func (req APITenantIdentityTokenDelegationCreateOrUpdateRequest) Validate() erro
 }
 
 // ToProto converts the request to its gRPC form.
-func (req APITenantIdentityTokenDelegationCreateOrUpdateRequest) ToProto(org string) *cwssaws.TokenDelegationRequest {
-	cfg := &cwssaws.TokenDelegation{
+func (req APITenantIdentityTokenDelegationCreateOrUpdateRequest) ToProto(org string) *corev1.TokenDelegationRequest {
+	cfg := &corev1.TokenDelegation{
 		TokenEndpoint:        req.TokenEndpoint,
 		SubjectTokenAudience: req.SubjectTokenAudience,
 	}
 	if req.ClientSecretBasic != nil {
-		cfg.AuthMethodConfig = &cwssaws.TokenDelegation_ClientSecretBasic{
-			ClientSecretBasic: &cwssaws.ClientSecretBasic{
+		cfg.AuthMethodConfig = &corev1.TokenDelegation_ClientSecretBasic{
+			ClientSecretBasic: &corev1.ClientSecretBasic{
 				ClientId:     req.ClientSecretBasic.ClientID,
 				ClientSecret: req.ClientSecretBasic.ClientSecret,
 			},
 		}
 	}
-	return &cwssaws.TokenDelegationRequest{
+	return &corev1.TokenDelegationRequest{
 		OrganizationId: org,
 		Config:         cfg,
 	}
@@ -228,7 +228,7 @@ type APITenantIdentityTokenDelegation struct {
 }
 
 // FromResponseProto populates the response from the gRPC reply.
-func (resp *APITenantIdentityTokenDelegation) FromResponseProto(proto *cwssaws.TokenDelegationResponse) {
+func (resp *APITenantIdentityTokenDelegation) FromResponseProto(proto *corev1.TokenDelegationResponse) {
 	if proto == nil {
 		return
 	}
@@ -271,7 +271,7 @@ type APIOpenIDConfiguration struct {
 }
 
 // FromResponseProto populates the response from the gRPC reply.
-func (resp *APIOpenIDConfiguration) FromResponseProto(proto *cwssaws.OpenIdConfiguration) {
+func (resp *APIOpenIDConfiguration) FromResponseProto(proto *corev1.OpenIdConfiguration) {
 	if proto == nil {
 		return
 	}

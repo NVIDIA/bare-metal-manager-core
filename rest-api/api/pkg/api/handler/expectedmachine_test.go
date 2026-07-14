@@ -21,7 +21,7 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbu "github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -194,10 +194,11 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 
 	// Test cases
 	tests := []struct {
-		name           string
-		requestBody    model.APIExpectedMachineCreateRequest
-		setupContext   func(c echo.Context)
-		expectedStatus int
+		name             string
+		requestBody      model.APIExpectedMachineCreateRequest
+		setupContext     func(c echo.Context)
+		expectedStatus   int
+		expectedErrorMsg *string
 	}{
 		{
 			name: "successful creation",
@@ -283,6 +284,21 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 				c.SetParamValues(org)
 			},
 			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name: "site ID is empty",
+			requestBody: model.APIExpectedMachineCreateRequest{
+				SiteID:              "",
+				BmcMacAddress:       "00:11:22:33:44:88",
+				ChassisSerialNumber: "CHASSIS127",
+			},
+			setupContext: func(c echo.Context) {
+				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName")
+				c.SetParamValues(org)
+			},
+			expectedStatus:   http.StatusBadRequest,
+			expectedErrorMsg: cutil.GetPtr("Site ID specified in request data is not valid"),
 		},
 		{
 			name: "cannot create on unmanaged site",
@@ -402,6 +418,8 @@ func TestCreateExpectedMachineHandler_Handle(t *testing.T) {
 						assert.Equal(t, *tt.requestBody.BmcIpAddress, *response.BmcIpAddress, "BmcIpAddress in response should match request")
 					}
 				}
+			} else if tt.expectedErrorMsg != nil {
+				assert.Contains(t, rec.Body.String(), *tt.expectedErrorMsg, fmt.Sprintf("Expected: %s, got: %s", *tt.expectedErrorMsg, rec.Body.String()))
 			}
 		})
 	}
@@ -1866,12 +1884,12 @@ func TestCreateExpectedMachinesHandler_Handle(t *testing.T) {
 	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
 			// Cast result to BatchExpectedMachineOperationResponse and populate
-			if resultPtr, ok := args.Get(1).(*cwssaws.BatchExpectedMachineOperationResponse); ok {
+			if resultPtr, ok := args.Get(1).(*corev1.BatchExpectedMachineOperationResponse); ok {
 				// Extract machines from the captured request
-				if req, ok := capturedRequest.(*cwssaws.BatchExpectedMachineOperationRequest); ok {
+				if req, ok := capturedRequest.(*corev1.BatchExpectedMachineOperationRequest); ok {
 					if req.ExpectedMachines != nil && req.ExpectedMachines.ExpectedMachines != nil {
 						// Create results for each machine (all successful for tests)
-						results := make([]*cwssaws.ExpectedMachineOperationResult, 0, len(req.ExpectedMachines.ExpectedMachines))
+						results := make([]*corev1.ExpectedMachineOperationResult, 0, len(req.ExpectedMachines.ExpectedMachines))
 						for idx, machine := range req.ExpectedMachines.ExpectedMachines {
 							if machine != nil && machine.Id != nil {
 								success := true
@@ -1882,7 +1900,7 @@ func TestCreateExpectedMachinesHandler_Handle(t *testing.T) {
 										errMsg = &msg
 									}
 								}
-								result := &cwssaws.ExpectedMachineOperationResult{
+								result := &corev1.ExpectedMachineOperationResult{
 									Id:      machine.Id,
 									Success: success,
 								}
@@ -2105,14 +2123,14 @@ func TestCreateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow(t *testi
 	_, site := testExpectedMachineSetupTestData(t, dbSession, org)
 
 	// Capture the proto struct forwarded to the Temporal workflow.
-	var capturedRequest *cwssaws.ExpectedMachine
+	var capturedRequest *corev1.ExpectedMachine
 	mockTemporalClient := &tmocks.Client{}
 	mockWorkflowRun := &tmocks.WorkflowRun{}
 	mockWorkflowRun.On("GetID").Return("test-workflow-id")
 	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
 	mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateExpectedMachine", mock.Anything).
 		Run(func(args mock.Arguments) {
-			if req, ok := args.Get(3).(*cwssaws.ExpectedMachine); ok {
+			if req, ok := args.Get(3).(*corev1.ExpectedMachine); ok {
 				capturedRequest = req
 			}
 		}).
@@ -2184,14 +2202,14 @@ func TestCreateExpectedMachineHandler_DpfEnabledForwardedToWorkflow(t *testing.T
 	org := "test-org"
 	_, site := testExpectedMachineSetupTestData(t, dbSession, org)
 
-	var capturedRequest *cwssaws.ExpectedMachine
+	var capturedRequest *corev1.ExpectedMachine
 	mockTemporalClient := &tmocks.Client{}
 	mockWorkflowRun := &tmocks.WorkflowRun{}
 	mockWorkflowRun.On("GetID").Return("test-workflow-id")
 	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
 	mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateExpectedMachine", mock.Anything).
 		Run(func(args mock.Arguments) {
-			if req, ok := args.Get(3).(*cwssaws.ExpectedMachine); ok {
+			if req, ok := args.Get(3).(*corev1.ExpectedMachine); ok {
 				capturedRequest = req
 			}
 		}).
@@ -2278,14 +2296,14 @@ func TestUpdateExpectedMachineHandler_BmcCredentialsForwardedToWorkflow(t *testi
 	assert.NotNil(t, testEM)
 
 	// Capture the proto struct forwarded to the Temporal workflow.
-	var capturedRequest *cwssaws.ExpectedMachine
+	var capturedRequest *corev1.ExpectedMachine
 	mockTemporalClient := &tmocks.Client{}
 	mockWorkflowRun := &tmocks.WorkflowRun{}
 	mockWorkflowRun.On("GetID").Return("test-workflow-id")
 	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
 	mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateExpectedMachine", mock.Anything).
 		Run(func(args mock.Arguments) {
-			if req, ok := args.Get(3).(*cwssaws.ExpectedMachine); ok {
+			if req, ok := args.Get(3).(*corev1.ExpectedMachine); ok {
 				capturedRequest = req
 			}
 		}).
@@ -2427,12 +2445,12 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).
 		Run(func(args mock.Arguments) {
 			// Cast result to BatchExpectedMachineOperationResponse and populate
-			if resultPtr, ok := args.Get(1).(*cwssaws.BatchExpectedMachineOperationResponse); ok {
+			if resultPtr, ok := args.Get(1).(*corev1.BatchExpectedMachineOperationResponse); ok {
 				// Extract machines from the captured request
-				if req, ok := capturedRequest.(*cwssaws.BatchExpectedMachineOperationRequest); ok {
+				if req, ok := capturedRequest.(*corev1.BatchExpectedMachineOperationRequest); ok {
 					if req.ExpectedMachines != nil && req.ExpectedMachines.ExpectedMachines != nil {
 						// Create results for each machine (all successful for tests)
-						results := make([]*cwssaws.ExpectedMachineOperationResult, 0, len(req.ExpectedMachines.ExpectedMachines))
+						results := make([]*corev1.ExpectedMachineOperationResult, 0, len(req.ExpectedMachines.ExpectedMachines))
 						for idx, machine := range req.ExpectedMachines.ExpectedMachines {
 							if machine != nil && machine.Id != nil {
 								success := true
@@ -2443,7 +2461,7 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 										errMsg = &msg
 									}
 								}
-								result := &cwssaws.ExpectedMachineOperationResult{
+								result := &corev1.ExpectedMachineOperationResult{
 									Id:      machine.Id,
 									Success: success,
 								}

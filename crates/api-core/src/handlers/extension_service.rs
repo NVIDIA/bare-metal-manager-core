@@ -17,6 +17,7 @@
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_secrets::credentials::{CredentialKey, Credentials};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
 use db::{WithTransaction, extension_service, instance};
@@ -635,22 +636,18 @@ pub(crate) async fn get_versions_info(
     let req = request.into_inner();
 
     // Parse versions from strings to ConfigVersions
-    let versions: Option<Vec<ConfigVersion>> = if !req.versions.is_empty() {
-        let versions = req
-            .versions
-            .iter()
-            .map(|v| v.parse::<config_version::ConfigVersion>())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
-                    "Failed to parse version: {}",
-                    e
-                )))
-            })?;
-        Some(versions)
-    } else {
-        None
-    };
+    let versions: Option<Vec<ConfigVersion>> = req
+        .versions
+        .iter()
+        .map(|v| v.parse::<config_version::ConfigVersion>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
+                "Failed to parse version: {}",
+                e
+            )))
+        })?
+        .none_if_empty();
 
     let mut txn = api.txn_begin().await?;
 

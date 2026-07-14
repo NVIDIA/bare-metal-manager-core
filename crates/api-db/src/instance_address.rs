@@ -35,12 +35,19 @@ use model::network_prefix::NetworkPrefix;
 use model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
 };
-use sqlx::{FromRow, PgConnection, PgTransaction, query_as};
+use sqlx::{FromRow, PgConnection, PgTransaction, query_as, query_scalar};
 
 use super::{ObjectColumnFilter, network_segment, vpc};
 use crate::db_read::DbReader;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
-use crate::{DatabaseError, DatabaseResult, Transaction};
+use crate::{BIND_LIMIT, DatabaseError, DatabaseResult, Transaction};
+
+/// Parameters bound per row by [`insert_instance_addresses`]; with one
+/// statement holding at most [`BIND_LIMIT`] bindings, rows are written in
+/// chunks of `BIND_LIMIT / ADDRESS_BINDS_PER_ROW`. Practical allocations
+/// (interfaces x prefixes) sit far below one chunk, so the INSERT is a
+/// single statement.
+const ADDRESS_BINDS_PER_ROW: usize = 6;
 
 #[derive(Copy, Clone)]
 pub struct PrefixColumn;
@@ -198,6 +205,9 @@ fn validate(
 }
 
 /// Counts the amount of addresses that have been allocated for a given segment.
+///
+/// Keep this predicate in sync with [`segment_has_allocations`] (used by the
+/// segment-drain reconcile).
 pub async fn count_by_segment_id(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
@@ -215,6 +225,73 @@ pub async fn count_by_segment_id(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(address_count.max(0) as usize)
+}
+
+/// Returns whether a segment still holds any IP allocation — a machine
+/// interface or an instance address bound to it.
+///
+/// The drain check only needs to know whether *any* allocation remains, so this
+/// answers it in a single round-trip: one query with two `EXISTS` subqueries,
+/// which Postgres can answer without necessarily probing both tables.
+/// Callers previously ran [`count_by_segment_id`] and
+/// [`crate::machine_interface::count_by_segment_id`] and summed the totals —
+/// two round-trips to compute a boolean. Both per-table count functions remain
+/// in production use for the can't-delete-yet error messages
+/// (`network_segment::mark_as_deleted`); keep this predicate in sync with them.
+pub async fn segment_has_allocations(
+    txn: &mut PgConnection,
+    segment_id: &NetworkSegmentId,
+) -> Result<bool, DatabaseError> {
+    let query = "SELECT \
+                 EXISTS(SELECT 1 FROM machine_interfaces WHERE segment_id = $1) \
+                 OR EXISTS(SELECT 1 FROM instance_addresses WHERE segment_id = $1)";
+    query_scalar(query)
+        .bind(segment_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Persists every [`InstanceAddress`] row `allocate` accumulated, with a
+/// single multi-row INSERT -- collapsing the write side of the exclusive lock
+/// window to one statement instead of one per address. Callers are expected
+/// to hold the `instance_addresses` exclusive lock so the batched write
+/// closes the allocation atomically.
+///
+/// Each row binds six parameters and one statement holds at most
+/// [`BIND_LIMIT`] bindings, so rows are written in chunks of
+/// `BIND_LIMIT / 6`. Practical row counts (interfaces × prefixes) are far
+/// below one chunk, so this issues exactly one statement; only a degenerate,
+/// huge allocation splits into multiple statements, keeping every row count
+/// insertable.
+async fn insert_instance_addresses(
+    txn: &mut PgConnection,
+    rows: &[InstanceAddress],
+) -> DatabaseResult<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let query = "INSERT INTO instance_addresses \
+        (instance_id, address, segment_id, prefix, vpc_id, hostname) ";
+    for chunk in rows.chunks(BIND_LIMIT / ADDRESS_BINDS_PER_ROW) {
+        let mut qb = sqlx::QueryBuilder::new(query);
+        qb.push_values(chunk.iter(), |mut b, row| {
+            b.push_bind(row.instance_id)
+                .push_bind(row.address)
+                .push_bind(row.segment_id)
+                .push_bind(row.prefix)
+                .push_bind(row.vpc_id)
+                .push_bind(&row.hostname);
+        });
+
+        qb.build()
+            .execute(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?;
+    }
+
+    Ok(())
 }
 
 /// Tries to allocate IP addresses for a tenant network configuration
@@ -296,6 +373,12 @@ pub async fn allocate(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     // Assign all addresses in one shot.
+    //
+    // Rows for every interface and every assigned address accumulate here and
+    // are written with a single INSERT after the loops, so the write side of
+    // the exclusive lock window is one statement rather than one per address.
+    let mut rows: Vec<InstanceAddress> = Vec::new();
+
     for iface in &mut updated_config.interfaces {
         if !iface.ip_addrs.is_empty() {
             // IP is already allocated. Don't assign new IP.
@@ -392,29 +475,23 @@ pub async fn allocate(
             .ok_or(ConfigValidationError::VpcNotAttachedToSegment(segment.id))?;
         iface.vpc_id = Some(vpc_id);
 
-        let query =
-            "INSERT INTO instance_addresses (instance_id, address, segment_id, prefix, vpc_id, hostname)
-                         VALUES ($1::uuid, $2, $3::uuid, $4::cidr, $5::uuid, $6)";
-
         for address in addresses {
-            // The forward-DNS name is the address in the host-naming strategy's
-            // IP-derived form, stored once here so the dns_records_instance view
-            // serves it without re-deriving in SQL.
             let hostname = crate::host_naming::address_to_hostname(&address.ip())?;
-            sqlx::query(query)
-                .bind(instance_id)
-                // eg. 10.3.2.1/30
-                .bind(address.ip())
+            rows.push(InstanceAddress {
+                instance_id,
+                // eg. 10.3.2.1
+                address: address.ip(),
+                segment_id: segment.id,
                 // eg. 10.3.2.0/30
-                .bind(segment.id)
-                .bind(IpNetwork::new(address.network(), address.prefix())?)
-                .bind(vpc_id)
-                .bind(hostname)
-                .fetch_all(inner_txn.as_pgconn())
-                .await
-                .map_err(|e| DatabaseError::query(query, e))?;
+                prefix: IpNetwork::new(address.network(), address.prefix())?,
+                vpc_id,
+                hostname: Some(hostname),
+            });
         }
     }
+
+    // Persist every accumulated address with one INSERT, still under the lock.
+    insert_instance_addresses(inner_txn.as_pgconn(), &rows).await?;
 
     inner_txn.commit().await?;
 
@@ -666,6 +743,7 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
+    use carbide_test_support::query_counter::count_queries;
     use carbide_uuid::vpc::VpcId;
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
@@ -809,5 +887,422 @@ mod tests {
         let config = create_valid_network_config();
         data[9].status.controller_state.value = NetworkSegmentControllerState::Provisioning;
         assert!(super::validate(&data, &config, &[], false).is_err());
+    }
+
+    // --- DB-backed batched-INSERT tests ---------------------------------
+    //
+    // These verify that `insert_instance_addresses` writes every accumulated
+    // row with a SINGLE statement (the batching win), and that the persisted
+    // rows match the input exactly (correctness). The insert helper is what
+    // `allocate` funnels every interface/address row through, so measuring it
+    // measures the lock-window reduction directly: one INSERT regardless of
+    // how many addresses an instance's interfaces carry.
+
+    /// Inserts the minimal FK ancestry `instance_addresses` requires (one vpc,
+    /// one machine, one instance, one segment) and returns their ids.
+    ///
+    /// Mirrors the proven raw-INSERT fixture in `dns::resource_record`'s tests:
+    /// only NOT-NULL columns without a default are supplied.
+    async fn seed_fk_fixtures(conn: &mut PgConnection) -> (InstanceId, NetworkSegmentId, VpcId) {
+        let vpc_id: VpcId =
+            sqlx::query_scalar("INSERT INTO vpcs (name, version) VALUES ($1, $2) RETURNING id")
+                .bind("vpc-p13")
+                .bind("1")
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind("test-machine-p13")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        let instance_id: InstanceId =
+            sqlx::query_scalar("INSERT INTO instances (machine_id) VALUES ($1) RETURNING id")
+                .bind("test-machine-p13")
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+        let segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version, network_segment_type, vpc_id)
+             VALUES ($1, $2, $3::network_segment_type_t, $4) RETURNING id",
+        )
+        .bind("seg-p13")
+        .bind("1")
+        .bind("tenant")
+        .bind(vpc_id)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+        (instance_id, segment_id, vpc_id)
+    }
+
+    /// Builds `k` distinct rows (sequential /32 host addresses) for one
+    /// instance/segment/vpc, deriving the hostname exactly as `allocate` does.
+    fn make_rows(
+        instance_id: InstanceId,
+        segment_id: NetworkSegmentId,
+        vpc_id: VpcId,
+        k: usize,
+    ) -> Vec<InstanceAddress> {
+        (0..k)
+            .map(|i| {
+                let ip = IpAddr::V4(std::net::Ipv4Addr::new(10, 3, 2, (i + 1) as u8));
+                InstanceAddress {
+                    instance_id,
+                    address: ip,
+                    segment_id,
+                    prefix: IpNetwork::new(ip, 32).unwrap(),
+                    vpc_id,
+                    hostname: Some(crate::host_naming::address_to_hostname(&ip).unwrap()),
+                }
+            })
+            .collect()
+    }
+
+    /// The unbatched baseline: one INSERT per row, exactly what `allocate`'s
+    /// inner loop used to issue. Used only to establish the BEFORE count.
+    async fn insert_one_at_a_time(
+        conn: &mut PgConnection,
+        rows: &[InstanceAddress],
+    ) -> DatabaseResult<()> {
+        let query = "INSERT INTO instance_addresses \
+            (instance_id, address, segment_id, prefix, vpc_id, hostname) \
+            VALUES ($1::uuid, $2, $3::uuid, $4::cidr, $5::uuid, $6)";
+        for row in rows {
+            sqlx::query(query)
+                .bind(row.instance_id)
+                .bind(row.address)
+                .bind(row.segment_id)
+                .bind(row.prefix)
+                .bind(row.vpc_id)
+                .bind(&row.hostname)
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| DatabaseError::query(query, e))?;
+        }
+        Ok(())
+    }
+
+    /// BEFORE/AFTER measurement of the INSERT statement count.
+    ///
+    /// K addresses go in two ways under a `sqlx::query`-event counter:
+    ///   * BEFORE = one-INSERT-per-row loop  -> K statements (bite-check: > 1)
+    ///   * AFTER  = `insert_instance_addresses` (batched) -> exactly 1 statement
+    ///
+    /// The `assert_eq!(after, 1)` is the regression guard: if the batched path
+    /// ever regresses to per-row INSERTs, this test fails.
+    #[crate::sqlx_test]
+    async fn insert_instance_addresses_batches_to_one_statement(pool: sqlx::PgPool) {
+        const K: usize = 5;
+
+        // Fixtures are committed once and shared by both measured paths; each
+        // path's addresses roll back with its own transaction, so BEFORE and
+        // AFTER insert the same rows against the same clean slate. Each
+        // counted future opens its transaction inside (BEGIN is queued
+        // without an executed statement, adding nothing to the count) and
+        // returns it, so the persisted-count check and the rollback happen
+        // outside the counted region.
+        let mut txn = pool.begin().await.unwrap();
+        let (instance_id, segment_id, vpc_id) = seed_fk_fixtures(txn.as_mut()).await;
+        txn.commit().await.unwrap();
+        let rows = make_rows(instance_id, segment_id, vpc_id, K);
+
+        // --- BEFORE: unbatched loop ---
+        let (before_count, before_persisted) = {
+            let (mut txn, before_count) = count_queries(async {
+                let mut txn = pool.begin().await.unwrap();
+                insert_one_at_a_time(txn.as_mut(), &rows).await.unwrap();
+                txn
+            })
+            .await;
+
+            let persisted: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM instance_addresses WHERE instance_id = $1",
+            )
+            .bind(instance_id)
+            .fetch_one(txn.as_mut())
+            .await
+            .unwrap();
+            // Roll the addresses back so AFTER starts clean.
+            txn.rollback().await.unwrap();
+            (before_count, persisted)
+        };
+
+        // --- AFTER: batched helper ---
+        let (after_count, after_persisted) = {
+            let (mut txn, after_count) = count_queries(async {
+                let mut txn = pool.begin().await.unwrap();
+                insert_instance_addresses(txn.as_mut(), &rows)
+                    .await
+                    .unwrap();
+                txn
+            })
+            .await;
+
+            let persisted: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM instance_addresses WHERE instance_id = $1",
+            )
+            .bind(instance_id)
+            .fetch_one(txn.as_mut())
+            .await
+            .unwrap();
+            txn.rollback().await.unwrap();
+            (after_count, persisted)
+        };
+
+        println!(
+            "instance_addresses INSERT statements for {K} addresses: BEFORE={before_count} \
+             AFTER={after_count} (delta={})",
+            before_count as i64 - after_count as i64,
+        );
+
+        // Bite-check: the unbatched path really did issue more than one INSERT.
+        assert!(
+            before_count > 1,
+            "bite-check failed: unbatched insert issued {before_count} statements, expected > 1"
+        );
+        assert_eq!(
+            before_count, K,
+            "unbatched path should issue one INSERT per address"
+        );
+        // Regression guard: the batched path issues exactly one INSERT. The
+        // helper only splits into multiple statements above BIND_LIMIT / 6
+        // rows, far beyond any real allocation, so K = 5 is a single chunk.
+        assert_eq!(
+            after_count, 1,
+            "batched insert_instance_addresses must issue exactly one statement"
+        );
+
+        // Both paths persist the same number of rows.
+        assert_eq!(before_persisted, K as i64);
+        assert_eq!(after_persisted, K as i64);
+    }
+
+    /// Correctness: `insert_instance_addresses` persists every row with the
+    /// exact address / segment / vpc / hostname it was handed.
+    #[crate::sqlx_test]
+    async fn insert_instance_addresses_persists_all_rows(pool: sqlx::PgPool) {
+        const K: usize = 4;
+        let mut txn = pool.begin().await.unwrap();
+        let (instance_id, segment_id, vpc_id) = seed_fk_fixtures(txn.as_mut()).await;
+        let rows = make_rows(instance_id, segment_id, vpc_id, K);
+
+        insert_instance_addresses(txn.as_mut(), &rows)
+            .await
+            .unwrap();
+
+        // Read every persisted row back, keyed by address, and compare fields.
+        let persisted: Vec<(IpNetwork, IpNetwork, NetworkSegmentId, VpcId, String)> =
+            sqlx::query_as(
+                "SELECT address, prefix, segment_id, vpc_id, hostname \
+                 FROM instance_addresses WHERE instance_id = $1 ORDER BY address",
+            )
+            .bind(instance_id)
+            .fetch_all(txn.as_mut())
+            .await
+            .unwrap();
+
+        assert_eq!(persisted.len(), rows.len(), "row count mismatch");
+
+        let by_ip: HashMap<IpAddr, &InstanceAddress> =
+            rows.iter().map(|r| (r.address, r)).collect();
+        for (address, prefix, seg, vpc, hostname) in &persisted {
+            let expected = by_ip
+                .get(&address.ip())
+                .unwrap_or_else(|| panic!("unexpected address persisted: {}", address.ip()));
+            assert_eq!(*seg, expected.segment_id, "segment_id mismatch");
+            assert_eq!(*vpc, expected.vpc_id, "vpc_id mismatch");
+            assert_eq!(
+                Some(hostname.as_str()),
+                expected.hostname.as_deref(),
+                "hostname mismatch"
+            );
+            assert_eq!(prefix.ip(), expected.address, "prefix host mismatch");
+        }
+
+        txn.rollback().await.unwrap();
+    }
+
+    /// The empty-input fast path issues no statement at all. The transaction
+    /// lives inside the counted future: neither its queued BEGIN nor its
+    /// drop-rollback executes a statement, so the count stays at zero.
+    #[crate::sqlx_test]
+    async fn insert_instance_addresses_empty_is_noop(pool: sqlx::PgPool) {
+        let ((), count) = count_queries(async {
+            let mut txn = pool.begin().await.unwrap();
+            insert_instance_addresses(txn.as_mut(), &[]).await.unwrap();
+        })
+        .await;
+        assert_eq!(count, 0, "empty insert should issue no statements");
+    }
+}
+
+#[cfg(test)]
+mod segment_has_allocations_tests {
+    use carbide_test_support::query_counter::count_queries;
+    use model::network_prefix::NewNetworkPrefix;
+    use model::network_segment::{
+        AllocationStrategy, NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
+    };
+
+    use super::*;
+
+    /// Seeds a Ready segment plus one machine interface bound to it, so both the
+    /// old count path and the new EXISTS path see an allocation.
+    async fn seed_segment_with_interface(pool: &sqlx::PgPool) -> NetworkSegmentId {
+        let mut txn = pool.begin().await.unwrap();
+        let segment_id: NetworkSegmentId = uuid::Uuid::new_v4().into();
+        network_segment::persist(
+            NewNetworkSegment {
+                id: segment_id,
+                name: format!("seg-{segment_id}"),
+                subdomain_id: None,
+                vpc_id: None,
+                mtu: 1500,
+                prefixes: vec![NewNetworkPrefix {
+                    prefix: "10.9.0.0/24".parse().unwrap(),
+                    gateway: None,
+                    dhcpv6_link_address: None,
+                    num_reserved: 1,
+                }],
+                vlan_id: None,
+                vni: None,
+                segment_type: NetworkSegmentType::Underlay,
+                can_stretch: Some(false),
+                allocation_strategy: AllocationStrategy::Reserved,
+            },
+            txn.deref_mut(),
+            NetworkSegmentControllerState::Ready,
+        )
+        .await
+        .expect("seed segment");
+
+        // A machine interface bound to the segment is one form of allocation.
+        sqlx::query(
+            "INSERT INTO machine_interfaces (segment_id, mac_address, primary_interface, hostname) \
+             VALUES ($1, '02:00:00:00:00:01'::macaddr, true, 'drain-test-host')",
+        )
+        .bind(segment_id)
+        .execute(txn.deref_mut())
+        .await
+        .expect("seed machine interface");
+
+        txn.commit().await.unwrap();
+        segment_id
+    }
+
+    /// Bite-check the round-trip win: the old drain check issued two `count(*)`
+    /// queries (one per table) to compute a boolean, whereas
+    /// `segment_has_allocations` answers it in a single query. Measures 2 vs 1.
+    #[crate::sqlx_test]
+    async fn segment_has_allocations_is_one_round_trip(pool: sqlx::PgPool) {
+        let segment_id = seed_segment_with_interface(&pool).await;
+
+        // Old path: machine_interface::count_by_segment_id + instance_address::count_by_segment_id.
+        let seg = segment_id;
+        let pool_ref = &pool;
+        let ((), old_queries) = count_queries(async {
+            let mut txn = pool_ref.begin().await.unwrap();
+            let mi = crate::machine_interface::count_by_segment_id(&mut txn, &seg)
+                .await
+                .unwrap();
+            let ia = count_by_segment_id(&mut txn, &seg).await.unwrap();
+            // The allocation we seeded is visible to the old summed check.
+            assert!(mi + ia > 0, "seeded interface should register");
+        })
+        .await;
+
+        // New path: a single EXISTS-OR-EXISTS query.
+        let (has, new_queries) = count_queries(async {
+            let mut txn = pool_ref.begin().await.unwrap();
+            segment_has_allocations(&mut txn, &seg).await.unwrap()
+        })
+        .await;
+
+        assert!(has, "segment_has_allocations must see the seeded interface");
+        assert_eq!(old_queries, 2, "old drain check issued two count queries");
+        assert_eq!(new_queries, 1, "segment_has_allocations issues one query");
+    }
+
+    /// A segment with no interfaces and no instance addresses reports no
+    /// allocations.
+    #[crate::sqlx_test]
+    async fn segment_has_allocations_false_when_empty(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let segment_id: NetworkSegmentId = uuid::Uuid::new_v4().into();
+        network_segment::persist(
+            NewNetworkSegment {
+                id: segment_id,
+                name: format!("empty-{segment_id}"),
+                subdomain_id: None,
+                vpc_id: None,
+                mtu: 1500,
+                prefixes: vec![NewNetworkPrefix {
+                    prefix: "10.9.1.0/24".parse().unwrap(),
+                    gateway: None,
+                    dhcpv6_link_address: None,
+                    num_reserved: 1,
+                }],
+                vlan_id: None,
+                vni: None,
+                segment_type: NetworkSegmentType::Underlay,
+                can_stretch: Some(false),
+                allocation_strategy: AllocationStrategy::Reserved,
+            },
+            txn.deref_mut(),
+            NetworkSegmentControllerState::Ready,
+        )
+        .await
+        .expect("seed empty segment");
+
+        let has = segment_has_allocations(&mut txn, &segment_id)
+            .await
+            .unwrap();
+        assert!(!has, "empty segment has no allocations");
+    }
+
+    /// An allocation via `instance_addresses` alone -- no machine interface --
+    /// also reports the segment as allocated, covering the predicate's second
+    /// `EXISTS` arm. Only the two allocation tables are probed, so no
+    /// `network_segments` row is needed.
+    #[crate::sqlx_test]
+    async fn segment_has_allocations_sees_instance_addresses(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let segment_id: NetworkSegmentId = uuid::Uuid::new_v4().into();
+
+        let machine_id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+            .bind(machine_id)
+            .execute(txn.deref_mut())
+            .await
+            .expect("seed machine");
+        let instance_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO instances (id, machine_id) VALUES (gen_random_uuid(), $1) RETURNING id",
+        )
+        .bind(machine_id)
+        .fetch_one(txn.deref_mut())
+        .await
+        .expect("seed instance");
+        let vpc_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO vpcs (name, version) VALUES ('drain-test-vpc', 'v1') RETURNING id",
+        )
+        .fetch_one(txn.deref_mut())
+        .await
+        .expect("seed vpc");
+        sqlx::query(
+            "INSERT INTO instance_addresses (instance_id, address, prefix, segment_id, vpc_id) \
+             VALUES ($1, '10.9.2.10'::inet, '10.9.2.0/24'::cidr, $2, $3)",
+        )
+        .bind(instance_id)
+        .bind(segment_id)
+        .bind(vpc_id)
+        .execute(txn.deref_mut())
+        .await
+        .expect("seed instance address");
+
+        let has = segment_has_allocations(&mut txn, &segment_id)
+            .await
+            .unwrap();
+        assert!(has, "an instance address alone marks the segment allocated");
     }
 }

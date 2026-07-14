@@ -15,12 +15,12 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	skuActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/sku"
 )
 
 // UpdateSkuInventory is a workflow called by Site Agent to update SKU inventory for a Site
-func UpdateSkuInventory(ctx workflow.Context, siteID string, skuInventory *cwssaws.SkuInventory) (err error) {
+func UpdateSkuInventory(ctx workflow.Context, siteID string, skuInventory *corev1.SkuInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateSkuInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

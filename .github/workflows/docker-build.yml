@@ -126,6 +126,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
         if: inputs.download_artifacts == true

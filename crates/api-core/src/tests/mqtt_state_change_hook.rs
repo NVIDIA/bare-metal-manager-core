@@ -24,7 +24,7 @@ use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use chrono::Utc;
 use model::machine::ManagedHostState;
 
-use crate::mqtt_state_change_hook::message::ManagedHostStateChangeMessage;
+use crate::mqtt_state_change_hook::message::ManagedHostStateMessage;
 
 fn test_machine_id() -> MachineId {
     MachineId::new(
@@ -41,7 +41,7 @@ fn test_message_json_structure() {
     let state = ManagedHostState::Ready;
     let timestamp = Utc::now();
 
-    let message = ManagedHostStateChangeMessage {
+    let message = ManagedHostStateMessage {
         machine_id: &machine_id,
         managed_host_state: &state,
         timestamp,
@@ -72,7 +72,7 @@ fn test_complex_state_has_nested_fields() {
     };
     let timestamp = Utc::now();
 
-    let message = ManagedHostStateChangeMessage {
+    let message = ManagedHostStateMessage {
         machine_id: &machine_id,
         managed_host_state: &state,
         timestamp,
@@ -92,7 +92,7 @@ fn test_timestamp_format() {
     let state = ManagedHostState::Ready;
     let timestamp = Utc::now();
 
-    let message = ManagedHostStateChangeMessage {
+    let message = ManagedHostStateMessage {
         machine_id: &machine_id,
         managed_host_state: &state,
         timestamp,

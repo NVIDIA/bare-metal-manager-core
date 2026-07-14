@@ -17,11 +17,11 @@ import (
 
 	tenantActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/tenant"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateTenantInventory is a workflow called by Site Agent to update Tenant inventory for a Site
-func UpdateTenantInventory(ctx workflow.Context, siteID string, tenantInventory *cwssaws.TenantInventory) (err error) {
+func UpdateTenantInventory(ctx workflow.Context, siteID string, tenantInventory *corev1.TenantInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateTenantInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

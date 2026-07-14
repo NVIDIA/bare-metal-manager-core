@@ -20,7 +20,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestVpcPrefix_ToProto(t *testing.T) {
@@ -63,11 +63,11 @@ func TestVpcPrefix_FromProto(t *testing.T) {
 		prefixID := uuid.New()
 		vpcID := uuid.New()
 		vp := &VpcPrefix{}
-		vp.FromProto(&cwssaws.VpcPrefix{
-			Id:       &cwssaws.VpcPrefixId{Value: prefixID.String()},
-			VpcId:    &cwssaws.VpcId{Value: vpcID.String()},
-			Config:   &cwssaws.VpcPrefixConfig{Prefix: "10.0.0.0/16"},
-			Metadata: &cwssaws.Metadata{Name: "prefix-a"},
+		vp.FromProto(&corev1.VpcPrefix{
+			Id:       &corev1.VpcPrefixId{Value: prefixID.String()},
+			VpcId:    &corev1.VpcId{Value: vpcID.String()},
+			Config:   &corev1.VpcPrefixConfig{Prefix: "10.0.0.0/16"},
+			Metadata: &corev1.Metadata{Name: "prefix-a"},
 		})
 		assert.Equal(t, prefixID, vp.ID)
 		assert.Equal(t, vpcID, vp.VpcID)
@@ -78,8 +78,8 @@ func TestVpcPrefix_FromProto(t *testing.T) {
 	t.Run("falls back to deprecated top-level Name and Prefix", func(t *testing.T) {
 		prefixID := uuid.New()
 		vp := &VpcPrefix{}
-		vp.FromProto(&cwssaws.VpcPrefix{
-			Id:     &cwssaws.VpcPrefixId{Value: prefixID.String()},
+		vp.FromProto(&corev1.VpcPrefix{
+			Id:     &corev1.VpcPrefixId{Value: prefixID.String()},
 			Name:   "prefix-legacy",
 			Prefix: "10.1.0.0/16",
 		})
@@ -90,22 +90,22 @@ func TestVpcPrefix_FromProto(t *testing.T) {
 	t.Run("preserves ID when proto Id is unparseable", func(t *testing.T) {
 		preserved := uuid.New()
 		vp := &VpcPrefix{ID: preserved}
-		vp.FromProto(&cwssaws.VpcPrefix{
-			Id: &cwssaws.VpcPrefixId{Value: "not-a-uuid"},
+		vp.FromProto(&corev1.VpcPrefix{
+			Id: &corev1.VpcPrefixId{Value: "not-a-uuid"},
 		})
 		assert.Equal(t, preserved, vp.ID)
 	})
 
 	t.Run("clears VpcID when proto omits VpcId", func(t *testing.T) {
 		vp := &VpcPrefix{VpcID: uuid.New()}
-		vp.FromProto(&cwssaws.VpcPrefix{})
+		vp.FromProto(&corev1.VpcPrefix{})
 		assert.Equal(t, uuid.Nil, vp.VpcID)
 	})
 
 	t.Run("clears VpcID when proto VpcId is unparseable", func(t *testing.T) {
 		vp := &VpcPrefix{VpcID: uuid.New()}
-		vp.FromProto(&cwssaws.VpcPrefix{
-			VpcId: &cwssaws.VpcId{Value: "not-a-uuid"},
+		vp.FromProto(&corev1.VpcPrefix{
+			VpcId: &corev1.VpcId{Value: "not-a-uuid"},
 		})
 		assert.Equal(t, uuid.Nil, vp.VpcID)
 	})

@@ -15,13 +15,15 @@
  * limitations under the License.
  */
 
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
+use rustls_pki_types::DnsName;
 use serde::{Deserialize, Deserializer, Serialize};
 use url::Url;
 
@@ -29,6 +31,8 @@ use url::Url;
 #[serde(default)]
 pub struct Config {
     pub endpoint_sources: EndpointSourcesConfig,
+
+    pub tls: TlsConfig,
 
     pub sinks: SinksConfig,
 
@@ -61,6 +65,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             endpoint_sources: EndpointSourcesConfig::default(),
+            tls: TlsConfig::default(),
             sinks: SinksConfig::default(),
             rate_limit: Configurable::Enabled(RateLimitConfig::default()),
             collectors: CollectorsConfig::default(),
@@ -288,7 +293,7 @@ impl SinksConfig {
             || self
                 .otlp
                 .as_option()
-                .is_some_and(|config| config.include_diagnostics)
+                .is_some_and(OtlpSinkConfig::includes_diagnostics)
     }
 }
 
@@ -340,38 +345,80 @@ impl Default for LogFileSinkConfig {
     }
 }
 
-/// OTLP gRPC sink configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configures OTLP/gRPC fan-out to independent targets.
+///
+/// Each supported log and metric is sent to every target. Targets own separate
+/// queues and drain tasks, so a slow or unavailable destination does not block
+/// delivery to another destination.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OtlpSinkConfig {
-    /// OTLP gRPC target.
+    /// Destinations that receive OTLP logs and metrics.
+    ///
+    /// At least one target is required when the sink is enabled.
+    pub targets: Vec<OtlpTargetConfig>,
+}
+
+impl OtlpSinkConfig {
+    fn includes_diagnostics(&self) -> bool {
+        self.targets.iter().any(|target| target.include_diagnostics)
+    }
+}
+
+/// Delivery and batching policy for one OTLP/gRPC destination.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtlpTargetConfig {
+    /// Endpoint URI that receives both logs and metrics over OTLP/gRPC.
     pub endpoint: String,
 
-    /// Maximum number of events or samples exported per request.
+    /// Maximum number of events or samples exported per request. Defaults to
+    /// 512.
+    #[serde(default = "OtlpTargetConfig::default_batch_size")]
     pub batch_size: usize,
 
-    /// Maximum time to wait before flushing a non-empty batch.
-    #[serde(with = "humantime_serde")]
+    /// Maximum time to wait before flushing a non-empty batch for either
+    /// signal. Defaults to two seconds.
+    #[serde(
+        default = "OtlpTargetConfig::default_flush_interval",
+        with = "humantime_serde"
+    )]
     pub flush_interval: std::time::Duration,
 
-    /// Export Redfish diagnostic payload fields.
+    /// Export Redfish diagnostic payload fields to this target.
     ///
     /// Disabled by default because payload bodies are opaque and may be large or
     /// sensitive. If no diagnostic-capable sink enables diagnostics, collectors
     /// do not attach diagnostic fields. OTLP exports parent logs normally and
     /// keeps diagnostics as latest-wins per endpoint while the drain is backed
     /// up.
+    #[serde(default)]
     pub include_diagnostics: bool,
 }
 
-impl Default for OtlpSinkConfig {
-    fn default() -> Self {
-        Self {
-            endpoint: "http://localhost:4317".to_string(),
-            include_diagnostics: false,
-            batch_size: 512,
-            flush_interval: std::time::Duration::from_secs(2),
+impl OtlpTargetConfig {
+    fn default_batch_size() -> usize {
+        512
+    }
+
+    fn default_flush_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(2)
+    }
+
+    fn validate(&self, index: usize) -> Result<(), String> {
+        let path = format!("sinks.otlp.targets[{index}]");
+
+        if self.batch_size == 0 {
+            return Err(format!("{path}.batch_size must be greater than 0"));
         }
+
+        if self.flush_interval.is_zero() {
+            return Err(format!("{path}.flush_interval must be greater than 0"));
+        }
+
+        tonic::transport::Channel::from_shared(self.endpoint.clone())
+            .map_err(|_| format!("invalid {path}.endpoint: {}", self.endpoint))?;
+
+        Ok(())
     }
 }
 
@@ -564,6 +611,84 @@ impl Default for CollectorsConfig {
             nmxc: Configurable::Disabled,
             nvue: Configurable::Disabled,
         }
+    }
+}
+
+/// TLS settings owned by hardware-health.
+///
+/// This section is intentionally outside `[collectors]` because TLS material is
+/// connection policy shared by multiple collectors, not a collector itself.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct TlsConfig {
+    /// Optional mTLS profile used by direct switch collectors.
+    pub switch: Option<MtlsProfileConfig>,
+}
+
+/// mTLS profile for outbound client TLS connections.
+///
+/// `[tls.switch]` uses this shape for direct switch collector connections.
+/// These paths are independent from the Carbide API certificate paths. The
+/// files are read and validated when collectors build HTTP clients or gRPC
+/// channel TLS configs. The optional TLS server name is profile-wide because
+/// deployed switch certificates use the same DNS identity, and Carbide API
+/// discovery does not provide switch certificate identities.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MtlsProfileConfig {
+    /// Path to the CA bundle used to verify switch server certificates.
+    pub ca_cert_path: PathBuf,
+
+    /// Path to the client certificate chain sent to switch services.
+    pub client_cert_path: PathBuf,
+
+    /// Path to the client private key sent to switch services.
+    pub client_key_path: PathBuf,
+
+    /// Optional DNS name used only for TLS SNI and server certificate checks.
+    ///
+    /// Direct switch collectors still open TCP connections to each discovered
+    /// switch endpoint IP. When all switch server certificates carry the same
+    /// DNS subjectAltName, set this field so TLS verifies that DNS identity
+    /// instead of requiring every switch certificate to include an IP SAN.
+    /// This value is never used for endpoint discovery or DNS resolution.
+    ///
+    /// For HTTP collectors, the request URL and HTTP Host header stay on the
+    /// discovered switch IP. Only the TLS server name changes.
+    pub tls_server_name: Option<String>,
+}
+
+impl MtlsProfileConfig {
+    fn validate(&self) -> Result<(), String> {
+        if self.ca_cert_path.as_os_str().is_empty() {
+            return Err("[tls.switch].ca_cert_path must not be empty".to_string());
+        }
+
+        if self.client_cert_path.as_os_str().is_empty() {
+            return Err("[tls.switch].client_cert_path must not be empty".to_string());
+        }
+
+        if self.client_key_path.as_os_str().is_empty() {
+            return Err("[tls.switch].client_key_path must not be empty".to_string());
+        }
+
+        if let Some(tls_server_name) = self.tls_server_name.as_deref() {
+            if tls_server_name.trim().is_empty() {
+                return Err("[tls.switch].tls_server_name must not be empty".to_string());
+            }
+
+            if tls_server_name.trim() != tls_server_name {
+                return Err(
+                    "[tls.switch].tls_server_name must not contain leading or trailing whitespace"
+                        .to_string(),
+                );
+            }
+
+            DnsName::try_from(tls_server_name)
+                .map_err(|_| "[tls.switch].tls_server_name must be a valid DNS name".to_string())?;
+        }
+
+        Ok(())
     }
 }
 
@@ -1330,13 +1455,50 @@ impl Config {
             logs.validate()?;
         }
 
+        if let Some(tls_config) = &self.tls.switch {
+            tls_config.validate()?;
+
+            if let Configurable::Enabled(nmxt) = &self.collectors.nmxt
+                && nmxt.dangerously_skip_tls_verification
+            {
+                return Err(
+                    "[collectors.nmxt].dangerously_skip_tls_verification must be false when [tls.switch] is configured"
+                        .to_string(),
+                );
+            }
+
+            if let Configurable::Enabled(nvue) = &self.collectors.nvue
+                && let Configurable::Enabled(gnmi) = &nvue.gnmi
+                && gnmi.dangerously_skip_tls_verification
+            {
+                return Err(
+                    "[collectors.nvue.gnmi].dangerously_skip_tls_verification must be false when [tls.switch] is configured"
+                        .to_string(),
+                );
+            }
+        }
+
         if let Configurable::Enabled(nmxc) = &self.collectors.nmxc {
             nmxc.validate()?;
         }
 
         if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
-            tonic::transport::Channel::from_shared(otlp.endpoint.clone())
-                .map_err(|_| format!("invalid sinks.otlp.endpoint: {}", otlp.endpoint))?;
+            if otlp.targets.is_empty() {
+                return Err("sinks.otlp.targets must not be empty".to_string());
+            }
+
+            let mut endpoints = HashSet::new();
+
+            for (index, target) in otlp.targets.iter().enumerate() {
+                target.validate(index)?;
+
+                if !endpoints.insert(target.endpoint.as_str()) {
+                    return Err(format!(
+                        "sinks.otlp.targets[{index}].endpoint must be unique: {}",
+                        target.endpoint
+                    ));
+                }
+            }
         }
 
         self.metrics_addr()?;
@@ -1776,12 +1938,29 @@ username = "root"
         assert!(config.validate().is_ok());
 
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
-            endpoint: "not a valid uri\n".to_string(),
-            ..OtlpSinkConfig::default()
+            targets: vec![OtlpTargetConfig {
+                endpoint: "not a valid uri\n".to_string(),
+                batch_size: 512,
+                flush_interval: Duration::from_secs(2),
+                include_diagnostics: false,
+            }],
         });
+
         assert!(config.validate().is_err());
 
         config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig::default());
+
+        assert!(config.validate().is_err());
+
+        config.sinks.otlp = Configurable::Enabled(OtlpSinkConfig {
+            targets: vec![OtlpTargetConfig {
+                endpoint: "http://localhost:4317".to_string(),
+                batch_size: 512,
+                flush_interval: Duration::from_secs(2),
+                include_diagnostics: false,
+            }],
+        });
+
         assert!(config.validate().is_ok());
     }
 
@@ -1797,16 +1976,109 @@ username = "root"
             .extract()
             .expect("log file config should parse");
         let otlp: OtlpSinkConfig = Figment::new()
-            .merge(Toml::string("include_diagnostics = true"))
+            .merge(Toml::string(
+                r#"
+[[targets]]
+endpoint = "http://localhost:4317"
+include_diagnostics = true
+"#,
+            ))
             .extract()
             .expect("otlp config should parse");
 
         assert!(tracing.include_diagnostics);
         assert!(log_file.include_diagnostics);
-        assert!(otlp.include_diagnostics);
+        assert!(otlp.includes_diagnostics());
         assert!(!TracingSinkConfig::default().include_diagnostics);
         assert!(!LogFileSinkConfig::default().include_diagnostics);
-        assert!(!OtlpSinkConfig::default().include_diagnostics);
+        assert!(!OtlpSinkConfig::default().includes_diagnostics());
+    }
+
+    #[test]
+    fn otlp_target_list_parses_independent_settings() {
+        let otlp: OtlpSinkConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+
+[[targets]]
+endpoint = "https://central.example:4317"
+batch_size = 1024
+flush_interval = "5s"
+include_diagnostics = true
+"#,
+            ))
+            .extract()
+            .expect("multi-target OTLP config should parse");
+
+        let targets = &otlp.targets;
+
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].batch_size, 512);
+        assert_eq!(targets[0].flush_interval, Duration::from_secs(2));
+        assert_eq!(targets[1].batch_size, 1024);
+        assert_eq!(targets[1].flush_interval, Duration::from_secs(5));
+        assert!(targets[1].include_diagnostics);
+
+        let mut config = Config::default();
+
+        config.sinks.otlp = Configurable::Enabled(otlp);
+
+        config
+            .validate()
+            .expect("multi-target OTLP config should validate");
+    }
+
+    #[test]
+    fn otlp_target_list_rejects_invalid_target_contracts() {
+        struct TestCase {
+            name: &'static str,
+            toml: &'static str,
+            expected: &'static str,
+        }
+
+        let cases = [
+            TestCase {
+                name: "empty list",
+                toml: "targets = []",
+                expected: "sinks.otlp.targets must not be empty",
+            },
+            TestCase {
+                name: "zero batch size",
+                toml: r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+batch_size = 0
+"#,
+                expected: "sinks.otlp.targets[0].batch_size must be greater than 0",
+            },
+            TestCase {
+                name: "duplicate endpoint",
+                toml: r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+
+[[targets]]
+endpoint = "http://site.example:4317"
+"#,
+                expected: "sinks.otlp.targets[1].endpoint must be unique: http://site.example:4317",
+            },
+        ];
+
+        for case in cases {
+            let otlp: OtlpSinkConfig = Figment::new()
+                .merge(Toml::string(case.toml))
+                .extract()
+                .expect(case.name);
+
+            let mut config = Config::default();
+            config.sinks.otlp = Configurable::Enabled(otlp);
+
+            let error = config.validate().expect_err(case.name);
+
+            assert_eq!(error, case.expected, "{}", case.name);
+        }
     }
 
     /// Verifies collectors attach diagnostics only when a capable sink opts in.
@@ -1819,7 +2091,14 @@ username = "root"
                 SinksConfig {
                     tracing: Configurable::Enabled(TracingSinkConfig::default()),
                     log_file: Configurable::Enabled(LogFileSinkConfig::default()),
-                    otlp: Configurable::Enabled(OtlpSinkConfig::default()),
+                    otlp: Configurable::Enabled(OtlpSinkConfig {
+                        targets: vec![OtlpTargetConfig {
+                            endpoint: "http://localhost:4317".to_string(),
+                            batch_size: 512,
+                            flush_interval: Duration::from_secs(2),
+                            include_diagnostics: false,
+                        }],
+                    }),
                     ..SinksConfig::default()
                 },
                 false,
@@ -1849,8 +2128,35 @@ username = "root"
                 "otlp-diagnostics",
                 SinksConfig {
                     otlp: Configurable::Enabled(OtlpSinkConfig {
-                        include_diagnostics: true,
-                        ..OtlpSinkConfig::default()
+                        targets: vec![OtlpTargetConfig {
+                            endpoint: "http://localhost:4317".to_string(),
+                            batch_size: 512,
+                            flush_interval: Duration::from_secs(2),
+                            include_diagnostics: true,
+                        }],
+                    }),
+                    ..SinksConfig::default()
+                },
+                true,
+            ),
+            (
+                "one-of-multiple-otlp-targets-enables-diagnostics",
+                SinksConfig {
+                    otlp: Configurable::Enabled(OtlpSinkConfig {
+                        targets: vec![
+                            OtlpTargetConfig {
+                                endpoint: "http://site.example:4317".to_string(),
+                                batch_size: 512,
+                                flush_interval: Duration::from_secs(2),
+                                include_diagnostics: false,
+                            },
+                            OtlpTargetConfig {
+                                endpoint: "http://central.example:4317".to_string(),
+                                batch_size: 512,
+                                flush_interval: Duration::from_secs(2),
+                                include_diagnostics: true,
+                            },
+                        ],
                     }),
                     ..SinksConfig::default()
                 },
@@ -1887,7 +2193,14 @@ username = "root"
             (
                 "otlp",
                 SinksConfig {
-                    otlp: Configurable::Enabled(OtlpSinkConfig::default()),
+                    otlp: Configurable::Enabled(OtlpSinkConfig {
+                        targets: vec![OtlpTargetConfig {
+                            endpoint: "http://localhost:4317".to_string(),
+                            batch_size: 512,
+                            flush_interval: Duration::from_secs(2),
+                            include_diagnostics: false,
+                        }],
+                    }),
                     ..SinksConfig::default()
                 },
                 true,
@@ -2248,6 +2561,233 @@ dangerously_skip_tls_verification = true
                 panic!("nmxt config should be enabled");
             };
             assert_eq!(nmxt.dangerously_skip_tls_verification, expected);
+        }
+    }
+
+    #[test]
+    fn test_tls_switch_profile_absent_by_default_and_does_not_reuse_api_cert_paths() {
+        let config = Config::default();
+
+        assert!(config.tls.switch.is_none());
+
+        let Configurable::Enabled(carbide_api) = config.endpoint_sources.carbide_api else {
+            panic!("carbide api endpoint source should be enabled by default");
+        };
+
+        assert_eq!(carbide_api.root_ca, "/var/run/secrets/spiffe.io/ca.crt");
+
+        assert_eq!(
+            carbide_api.client_cert,
+            "/var/run/secrets/spiffe.io/tls.crt"
+        );
+
+        assert_eq!(carbide_api.client_key, "/var/run/secrets/spiffe.io/tls.key");
+    }
+
+    #[test]
+    fn test_tls_switch_profile_parses_independent_paths() {
+        let toml = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[tls.switch]
+ca_cert_path = "/var/run/secrets/switch-mtls/ca.crt"
+client_cert_path = "/var/run/secrets/switch-mtls/tls.crt"
+client_key_path = "/var/run/secrets/switch-mtls/tls.key"
+tls_server_name = "switches.example.forge"
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("failed to parse mTLS profile config");
+
+        config
+            .validate()
+            .expect("mTLS profile config should validate");
+
+        let tls_config = config
+            .tls
+            .switch
+            .expect("mTLS profile config should be present");
+
+        assert_eq!(
+            tls_config.ca_cert_path,
+            PathBuf::from("/var/run/secrets/switch-mtls/ca.crt")
+        );
+
+        assert_eq!(
+            tls_config.client_cert_path,
+            PathBuf::from("/var/run/secrets/switch-mtls/tls.crt")
+        );
+
+        assert_eq!(
+            tls_config.client_key_path,
+            PathBuf::from("/var/run/secrets/switch-mtls/tls.key")
+        );
+
+        assert_eq!(
+            tls_config.tls_server_name.as_deref(),
+            Some("switches.example.forge")
+        );
+    }
+
+    #[test]
+    fn test_tls_switch_profile_rejects_incomplete_or_unknown_fields() {
+        struct TestCase {
+            name: &'static str,
+            toml: &'static str,
+        }
+
+        let cases = [
+            TestCase {
+                name: "missing CA",
+                toml: r#"
+[tls.switch]
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+"#,
+            },
+            TestCase {
+                name: "missing client cert",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_key_path = "/switch/tls.key"
+"#,
+            },
+            TestCase {
+                name: "missing client key",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+"#,
+            },
+            TestCase {
+                name: "unknown field",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+root_ca = "/var/run/secrets/spiffe.io/ca.crt"
+"#,
+            },
+        ];
+
+        for case in cases {
+            let result = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(case.toml))
+                .extract::<Config>();
+
+            assert!(result.is_err(), "{}", case.name);
+        }
+    }
+
+    #[test]
+    fn test_tls_switch_rejects_empty_paths_and_dangerous_tls_bypass() {
+        struct TestCase {
+            name: &'static str,
+            toml: &'static str,
+            expected: &'static str,
+        }
+
+        let base = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+"#;
+        let cases = [
+            TestCase {
+                name: "empty CA path",
+                toml: r#"
+[tls.switch]
+ca_cert_path = ""
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+"#,
+                expected: "[tls.switch].ca_cert_path must not be empty",
+            },
+            TestCase {
+                name: "empty TLS server name",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+tls_server_name = " "
+"#,
+                expected: "[tls.switch].tls_server_name must not be empty",
+            },
+            TestCase {
+                name: "TLS server name with surrounding whitespace",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+tls_server_name = " switches.example.forge "
+"#,
+                expected: "[tls.switch].tls_server_name must not contain leading or trailing whitespace",
+            },
+            TestCase {
+                name: "invalid TLS server name",
+                toml: r#"
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+tls_server_name = "not a dns name"
+"#,
+                expected: "[tls.switch].tls_server_name must be a valid DNS name",
+            },
+            TestCase {
+                name: "NMX-T dangerous skip conflict",
+                toml: r#"
+[collectors.nmxt]
+dangerously_skip_tls_verification = true
+
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+"#,
+                expected: "[collectors.nmxt].dangerously_skip_tls_verification must be false when [tls.switch] is configured",
+            },
+            TestCase {
+                name: "gNMI dangerous skip conflict",
+                toml: r#"
+[collectors.nvue.gnmi]
+dangerously_skip_tls_verification = true
+
+[tls.switch]
+ca_cert_path = "/switch/ca.crt"
+client_cert_path = "/switch/tls.crt"
+client_key_path = "/switch/tls.key"
+"#,
+                expected: "[collectors.nvue.gnmi].dangerously_skip_tls_verification must be false when [tls.switch] is configured",
+            },
+        ];
+
+        for case in cases {
+            let toml = format!("{base}{}", case.toml);
+            let config: Config = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(&toml))
+                .extract()
+                .expect(case.name);
+
+            let error = config.validate().expect_err(case.name);
+
+            assert_eq!(error, case.expected, "{}", case.name);
         }
     }
 

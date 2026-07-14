@@ -61,6 +61,14 @@ impl fmt::Display for Credentials {
 }
 
 impl Credentials {
+    /// Construct a username/password credential.
+    pub fn new(username: impl Into<String>, password: impl Into<String>) -> Self {
+        Credentials::UsernamePassword {
+            username: username.into(),
+            password: password.into(),
+        }
+    }
+
     /// Build a `PASSWORD_LEN`-character password by drawing uniformly from
     /// `charset` (a list of character classes) and then overwriting one
     /// distinct random position per class, guaranteeing at least one

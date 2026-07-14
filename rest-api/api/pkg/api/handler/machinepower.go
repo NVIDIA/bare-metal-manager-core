@@ -19,7 +19,7 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func logAPIError(logger zerolog.Logger, apiErr *cutil.APIError, msg string) {
@@ -147,8 +147,8 @@ func (h MachinePowerControlHandler) Handle(c echo.Context) error {
 
 	logger.Info().Str("machine_id", machineID).Str("action", string(apiReq.Action)).Str("site_id", site.ID.String()).Msg("Sending Machine power control request via Core gRPC proxy")
 
-	coreResp := &cwssaws.AdminPowerControlResponse{}
-	apiErr := common.ExecuteCoreGRPC(ctx, stc, cwssaws.Forge_AdminPowerControl_FullMethodName, apiReq.ToProto(machineID), coreResp, site.ID.String())
+	coreResp := &corev1.AdminPowerControlResponse{}
+	apiErr := common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_AdminPowerControl_FullMethodName, apiReq.ToProto(machineID), coreResp, site.ID.String())
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "Failed to execute Machine power control request via Core gRPC proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)

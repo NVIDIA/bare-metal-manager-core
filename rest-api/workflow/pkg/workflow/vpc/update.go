@@ -16,11 +16,11 @@ import (
 	cwm "github.com/NVIDIA/infra-controller/rest-api/workflow/internal/metrics"
 	vpcActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/vpc"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // UpdateVpcInventory is a workflow called by Site Agent to update VPC inventory for a Site
-func UpdateVpcInventory(ctx workflow.Context, siteID string, vpcInventory *cwssaws.VPCInventory) (err error) {
+func UpdateVpcInventory(ctx workflow.Context, siteID string, vpcInventory *corev1.VPCInventory) (err error) {
 	logger := log.With().Str("Workflow", "UpdateVpcInventory").Str("Site ID", siteID).Logger()
 
 	startTime := time.Now()

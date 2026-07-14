@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -44,10 +44,10 @@ var (
 
 	// MachineIssueCategoriesFromAPIToProtobuf is the map of instance issue categories to their corresponding values
 	MachineIssueCategoriesFromAPIToProtobuf = map[string]int32{
-		MachineIssueCategoryHardware:    int32(cwssaws.IssueCategory_HARDWARE),
-		MachineIssueCategoryNetwork:     int32(cwssaws.IssueCategory_NETWORK),
-		MachineIssueCategoryPerformance: int32(cwssaws.IssueCategory_PERFORMANCE),
-		MachineIssueCategoryOther:       int32(cwssaws.IssueCategory_OTHER),
+		MachineIssueCategoryHardware:    int32(corev1.IssueCategory_HARDWARE),
+		MachineIssueCategoryNetwork:     int32(corev1.IssueCategory_NETWORK),
+		MachineIssueCategoryPerformance: int32(corev1.IssueCategory_PERFORMANCE),
+		MachineIssueCategoryOther:       int32(corev1.IssueCategory_OTHER),
 	}
 )
 
@@ -1689,11 +1689,11 @@ func (idr *APIInstanceDeleteRequest) Validate() error {
 // cannot see. In particular, the `IsRepairTenant` capability gate
 // (TargetedInstanceCreation on the Tenant config) is an authorization
 // check that stays in the handler before this method runs.
-func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm.User) *cwssaws.InstanceReleaseRequest {
+func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm.User) *corev1.InstanceReleaseRequest {
 	req := instance.ToReleaseRequestProto()
 	if idr.MachineHealthIssue != nil {
-		req.Issue = &cwssaws.Issue{
-			Category: cwssaws.IssueCategory(MachineIssueCategoriesFromAPIToProtobuf[idr.MachineHealthIssue.Category]),
+		req.Issue = &corev1.Issue{
+			Category: corev1.IssueCategory(MachineIssueCategoriesFromAPIToProtobuf[idr.MachineHealthIssue.Category]),
 		}
 		if idr.MachineHealthIssue.Summary != nil {
 			req.Issue.Summary = *idr.MachineHealthIssue.Summary
@@ -1707,7 +1707,7 @@ func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm
 	}
 
 	// Build the delete attribution proto
-	initiatedBy := &cwssaws.DeleteInitiatedBy{
+	initiatedBy := &corev1.DeleteInitiatedBy{
 		Org:      instance.Tenant.Org,
 		UserId:   user.ID.String(),
 		TenantId: instance.Tenant.ID.String(),
@@ -1715,7 +1715,7 @@ func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance, user *cdbm
 	if instance.Tenant.OrgDisplayName != nil {
 		initiatedBy.OrgDisplayName = *instance.Tenant.OrgDisplayName
 	}
-	req.DeleteAttribution = &cwssaws.DeleteAttribution{
+	req.DeleteAttribution = &corev1.DeleteAttribution{
 		InitiatedBy: initiatedBy,
 	}
 	return req
@@ -1833,6 +1833,29 @@ type APIInstance struct {
 
 // APIInstanceStats holds aggregated instance status counts at the API layer.
 type APIInstanceStats = cdbm.InstanceCountByStatus
+
+var (
+	// instanceQueryParamDeprecationTime is when the deprecated infrastructureProviderId
+	// query parameter on the list-Instances endpoint will no longer be accepted.
+	instanceQueryParamDeprecationTime = time.Date(2026, time.October, 10, 0, 0, 0, 0, time.UTC)
+
+	// instanceListQueryParamDeprecations are the deprecated query parameters accepted by the
+	// list-Instances endpoint. Instances will no longer be filtered by Infrastructure Provider;
+	// results are scoped to the org's Tenant.
+	instanceListQueryParamDeprecations = []DeprecatedEntity{
+		{OldValue: "infrastructureProviderId", Type: DeprecationTypeQueryParam, TakeActionBy: instanceQueryParamDeprecationTime},
+	}
+)
+
+// InstanceListQueryParamDeprecations returns the deprecation notices for the deprecated query
+// parameters accepted by the list-Instances endpoint.
+func InstanceListQueryParamDeprecations() []APIDeprecation {
+	deprecations := make([]APIDeprecation, 0, len(instanceListQueryParamDeprecations))
+	for _, d := range instanceListQueryParamDeprecations {
+		deprecations = append(deprecations, NewAPIDeprecation(d))
+	}
+	return deprecations
+}
 
 // NewAPIInstance accepts a DB layer Instance object returns an API layer object.
 // SecondaryVpcIDs are derived from interface relations, so callers must preload

@@ -19,6 +19,7 @@ use std::fmt::Debug;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use eyre::WrapErr;
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
@@ -225,7 +226,7 @@ impl Interface {
             .copied()
             .collect::<Vec<_>>();
 
-        if res.is_empty() { None } else { Some(res) }
+        res.none_if_empty()
     }
 }
 

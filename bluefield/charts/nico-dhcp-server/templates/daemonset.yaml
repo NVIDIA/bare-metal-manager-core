@@ -51,6 +51,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
             - "--grpc-listen-addr=$(POD_IP):10079"
+            - "--metrics-listen-addr=$(POD_IP):10080"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:

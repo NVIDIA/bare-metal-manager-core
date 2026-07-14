@@ -109,7 +109,7 @@ async fn test_nmx_c_partition_id_migration_deletes_legacy_nmx_m_rows(pool: sqlx:
 
     sqlx::raw_sql(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../api-db/migrations/20260526120000_nvlink_partitions_nmx_c_partition_id.sql"
+        "/../api-db/migrations.pre-squash.20260708172302/20260526120000_nvlink_partitions_nmx_c_partition_id.sql"
     )))
     .execute(conn.as_mut())
     .await

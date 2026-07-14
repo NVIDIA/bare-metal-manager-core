@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 mod isolated_package_builds;
+mod squash_migrations;
 mod workspace_deps;
 
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[clap(name = "xtask")]
 enum Xtask {
     #[clap(
@@ -32,6 +33,11 @@ enum Xtask {
         about = "Check that each workspace package builds independently with its default features"
     )]
     IsolatedPackageBuilds,
+    #[clap(
+        name = "squash-migrations",
+        about = "Create a single squashed migration from all existing migrations in crates/api-db/migrations"
+    )]
+    SquashMigrations(squash_migrations::Args),
 }
 
 #[derive(Parser, Debug)]
@@ -44,11 +50,14 @@ struct CheckWorkspaceDeps {
     fix: bool,
 }
 
-fn main() -> eyre::Result<()> {
+#[tokio::main]
+async fn main() -> eyre::Result<()> {
     match Xtask::parse() {
         Xtask::CheckWorkspaceDeps(CheckWorkspaceDeps { fix }) => {
             workspace_deps::check(fix)?.report_and_exit()
         }
-        Xtask::IsolatedPackageBuilds => isolated_package_builds::check(),
+        Xtask::IsolatedPackageBuilds => isolated_package_builds::check()?,
+        Xtask::SquashMigrations(args) => squash_migrations::run(args).await?,
     }
+    Ok(())
 }

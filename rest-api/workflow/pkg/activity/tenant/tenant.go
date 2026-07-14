@@ -19,7 +19,7 @@ import (
 	sc "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/client/site"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 
 	cwutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 )
@@ -32,7 +32,7 @@ type ManageTenant struct {
 }
 
 // UpdateTenantsInDB is a Temporal activity that takes a collection of Tenant data pushed by Site Agent and updates the DB
-func (mt ManageTenant) UpdateTenantsInDB(ctx context.Context, siteID uuid.UUID, tenantInventory *cwssaws.TenantInventory) error {
+func (mt ManageTenant) UpdateTenantsInDB(ctx context.Context, siteID uuid.UUID, tenantInventory *corev1.TenantInventory) error {
 	logger := log.With().Str("Activity", "UpdateTenantsInDB").Str("Site ID", siteID.String()).Logger()
 
 	logger.Info().Msg("starting activity")
@@ -56,7 +56,7 @@ func (mt ManageTenant) UpdateTenantsInDB(ctx context.Context, siteID uuid.UUID, 
 		return err
 	}
 
-	if tenantInventory.InventoryStatus == cwssaws.InventoryStatus_INVENTORY_STATUS_FAILED {
+	if tenantInventory.InventoryStatus == corev1.InventoryStatus_INVENTORY_STATUS_FAILED {
 		logger.Warn().Msg("received failed inventory status from Site Agent, skipping inventory processing")
 		return nil
 	}
@@ -164,7 +164,7 @@ func (mt ManageTenant) UpdateTenantsInDB(ctx context.Context, siteID uuid.UUID, 
 }
 
 // CreateOrUpdateTenantOnSite is a Temporal activity to create or update Tenants on Site
-func (mt ManageTenant) CreateOrUpdateTenantOnSite(ctx context.Context, siteID uuid.UUID, tc client.Client, tenant *cdbm.Tenant, controllerTenant *cwssaws.Tenant) error {
+func (mt ManageTenant) CreateOrUpdateTenantOnSite(ctx context.Context, siteID uuid.UUID, tc client.Client, tenant *cdbm.Tenant, controllerTenant *corev1.Tenant) error {
 	logger := log.With().Str("Activity", "CreateOrUpdateTenantOnSite").Str("Site ID", siteID.String()).Str("Tenant Org", tenant.Org).Logger()
 
 	logger.Info().Msg("starting activity")

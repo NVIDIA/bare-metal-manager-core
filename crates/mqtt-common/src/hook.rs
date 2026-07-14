@@ -56,6 +56,35 @@ impl<T: MqttPublisher> MqttPublisher for Arc<T> {
     }
 }
 
+/// Publish a single pre-serialized payload to `topic`, bounded by `deadline`,
+/// recording the outcome (`ok` / `publish_error` / `timeout`) in `metrics`.
+///
+/// Shared by the queue-draining [`process_events`] task and the periodic
+/// managed-host-state republisher so the publish + timeout + metrics handling
+/// lives in one place.
+pub async fn publish_with_deadline<P: MqttPublisher>(
+    publisher: &P,
+    topic: &str,
+    payload: Vec<u8>,
+    deadline: Instant,
+    metrics: &MqttHookMetrics,
+) {
+    match timeout_at(deadline, publisher.publish(topic, payload)).await {
+        Ok(Ok(())) => {
+            tracing::debug!(topic = %topic, "Published to MQTT");
+            metrics.record_success();
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(topic = %topic, error = %e, "Failed to publish to MQTT");
+            metrics.record_publish_error();
+        }
+        Err(Elapsed { .. }) => {
+            tracing::warn!(topic = %topic, "MQTT publish timed out");
+            metrics.record_timeout();
+        }
+    }
+}
+
 /// Background task that processes queued messages and publishes to MQTT.
 pub async fn process_events<P: MqttPublisher>(
     mut receiver: mpsc::Receiver<QueuedMessage>,
@@ -64,27 +93,7 @@ pub async fn process_events<P: MqttPublisher>(
     cancel_token: CancellationToken,
 ) {
     while let Some(Some(msg)) = cancel_token.run_until_cancelled(receiver.recv()).await {
-        match timeout_at(msg.deadline, client.publish(&msg.topic, msg.payload)).await {
-            Ok(Ok(())) => {
-                tracing::debug!(topic = %msg.topic, "Published state change to MQTT");
-                metrics.record_success();
-            }
-            Ok(Err(e)) => {
-                tracing::warn!(
-                    topic = %msg.topic,
-                    error = %e,
-                    "Failed to publish state change to MQTT"
-                );
-                metrics.record_publish_error();
-            }
-            Err(Elapsed { .. }) => {
-                tracing::warn!(
-                    topic = %msg.topic,
-                    "MQTT publish timed out"
-                );
-                metrics.record_timeout();
-            }
-        }
+        publish_with_deadline(&client, &msg.topic, msg.payload, msg.deadline, &metrics).await;
     }
     tracing::debug!("MQTT state change hook background task stopped");
 }

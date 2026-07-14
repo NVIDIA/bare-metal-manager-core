@@ -41,8 +41,16 @@ pub struct Bluefield4<'a> {
 }
 
 impl Bluefield4<'_> {
+    const SYSTEM_ID: &'static str = "BlueField_0";
+    const MANAGER_ID: &'static str = "BlueField_BMC_0";
+    const BMC_CHASSIS_ID: &'static str = "BlueField_BMC_0";
+    const NETWORK_ADAPTER_ID: &'static str = "BlueField_NIC_0";
+    const NETWORK_DEVICE_FUNCTION_ID: &'static str = "0";
+    const NDF0_TO_BASE_MAC_OFFSET: u64 = 0x10;
+
     fn sensor_layout() -> redfish::sensor::Layout {
-        // BF4 Card1 dump contains 96 sensors total. The generic mock
+        // The older BF4 layout exposed these sensors below Card1. Newer
+        // firmware renamed the main card chassis to BlueField_0. The generic mock
         // layout currently models Temperature, Fan, Power, Current,
         // and Voltage.  Missing BF4 ReadingType counts: Percent=64,
         // Frequency=2, EnergyJoules=1.
@@ -59,7 +67,22 @@ impl Bluefield4<'_> {
         redfish::chassis::ChassisConfig {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
-                    id: "Bluefield_BMC".into(),
+                    id: "BlueField_0".into(),
+                    chassis_type: "Component".into(),
+                    manufacturer: Some("NVIDIA".into()),
+                    model: Some("NA".into()),
+                    part_number: Some(self.part_number().into()),
+                    serial_number: Some(self.product_serial_number.to_string().into()),
+                    network_adapters: Some(self.network_adapters()),
+                    pcie_devices: Some(vec![]),
+                    sensors: Some(redfish::sensor::generate_chassis_sensors(
+                        "BlueField_0",
+                        Self::sensor_layout(),
+                    )),
+                    ..redfish::chassis::SingleChassisConfig::defaults()
+                },
+                redfish::chassis::SingleChassisConfig {
+                    id: Self::BMC_CHASSIS_ID.into(),
                     chassis_type: "Component".into(),
                     manufacturer: Some("Nvidia".into()),
                     model: Some(self.model().into()),
@@ -70,60 +93,91 @@ impl Bluefield4<'_> {
                     ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
-                    id: "Bluefield_BMC_ERoT".into(),
+                    id: "BlueField_ERoT_BMC_0".into(),
                     chassis_type: "Component".into(),
                     manufacturer: Some(Cow::Borrowed("NVIDIA")),
                     serial_number: Some("".into()),
                     ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
-                    id: "Bluefield_CPU_ERoT".into(),
+                    id: "BlueField_ERoT_CPU_0".into(),
                     chassis_type: "Component".into(),
                     manufacturer: Some(Cow::Borrowed("NVIDIA")),
                     serial_number: Some("".into()),
                     ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
-                    id: "Bluefield_NIC".into(),
+                    id: "BlueField_IRoT_NIC_0".into(),
                     chassis_type: "Component".into(),
                     manufacturer: Some(Cow::Borrowed("NVIDIA")),
-                    serial_number: Some("".into()),
-                    ..redfish::chassis::SingleChassisConfig::defaults()
-                },
-                redfish::chassis::SingleChassisConfig {
-                    id: "Card1".into(),
-                    chassis_type: "Card".into(),
-                    pcie_devices: Some(vec![]),
-                    sensors: Some(redfish::sensor::generate_chassis_sensors(
-                        "Card1",
-                        Self::sensor_layout(),
-                    )),
-                    ..redfish::chassis::SingleChassisConfig::defaults()
-                },
-                redfish::chassis::SingleChassisConfig {
-                    id: "MCTP_SPI_DEV".into(),
-                    chassis_type: "".into(),
-                    pcie_devices: Some(vec![]),
-                    sensors: Some(vec![]),
+                    serial_number: Some("0x3BC1ADDC364432C9".into()),
                     ..redfish::chassis::SingleChassisConfig::defaults()
                 },
             ],
         }
     }
 
+    fn network_adapters(&self) -> Vec<redfish::network_adapter::NetworkAdapter> {
+        let function = redfish::network_device_function::builder(
+            &redfish::network_device_function::chassis_resource(
+                Self::SYSTEM_ID,
+                Self::NETWORK_ADAPTER_ID,
+                Self::NETWORK_DEVICE_FUNCTION_ID,
+            ),
+        )
+        .ethernet(json!({
+            "PermanentMACAddress": Self::ndf0_permanent_mac(self.host_mac_address),
+        }))
+        .build();
+
+        vec![
+            redfish::network_adapter::builder_from_nic(
+                &redfish::network_adapter::chassis_resource(
+                    Self::SYSTEM_ID,
+                    Self::NETWORK_ADAPTER_ID,
+                ),
+                &self.host_nic(),
+            )
+            .network_device_functions(
+                &redfish::network_device_function::chassis_collection(
+                    Self::SYSTEM_ID,
+                    Self::NETWORK_ADAPTER_ID,
+                ),
+                vec![function],
+            )
+            .status(redfish::resource::Status::Ok)
+            .build(),
+        ]
+    }
+
+    fn ndf0_permanent_mac(host_mac_address: MacAddress) -> MacAddress {
+        Self::offset_mac(host_mac_address, Self::NDF0_TO_BASE_MAC_OFFSET)
+    }
+
+    fn offset_mac(mac_address: MacAddress, offset: u64) -> MacAddress {
+        let bytes = mac_address.bytes();
+        let value = u64::from_be_bytes([
+            0, 0, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+        ])
+        .checked_add(offset)
+        .expect("BF4 NDF0 MAC offset must not overflow");
+        let bytes = value.to_be_bytes();
+        MacAddress::new([bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]])
+    }
+
     pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
-        let system_id = "Bluefield";
+        let system_id = Self::SYSTEM_ID;
         redfish::computer_system::Config {
             systems: vec![redfish::computer_system::SingleSystemConfig {
-                id: Cow::Borrowed("Bluefield"),
+                id: Cow::Borrowed(system_id),
                 manufacturer: None,
                 model: None,
                 eth_interfaces: Some(vec![]),
-                chassis: vec!["Bluefield_BMC".into()],
+                chassis: vec![Self::BMC_CHASSIS_ID.into()],
                 serial_number: None,
                 boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                 callbacks: Some(callbacks),
-                boot_options: Some(redfish::computer_system::BootOptionsConfig::NullMembers),
+                boot_options: Some(vec![]),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::NvidiaBluefield,
                 base_bios: Some(
@@ -138,6 +192,7 @@ impl Bluefield4<'_> {
                 })),
                 storage: Some(vec![]),
                 processors: Some(vec![]),
+                serial_console: None,
                 secure_boot_available: true,
             }],
         }
@@ -146,17 +201,18 @@ impl Bluefield4<'_> {
     pub fn manager_config(&self) -> redfish::manager::Config {
         redfish::manager::Config {
             managers: vec![redfish::manager::SingleConfig {
-                id: "Bluefield_BMC",
+                id: Self::MANAGER_ID,
                 eth_interfaces: Some(vec![
                     redfish::ethernet_interface::builder(
-                        &redfish::ethernet_interface::manager_resource("Bluefield_BMC", "eth0"),
+                        &redfish::ethernet_interface::manager_resource(Self::MANAGER_ID, "eth0"),
                     )
                     .mac_address(self.bmc_mac_address)
                     .interface_enabled(true)
                     .build(),
                 ]),
                 host_interfaces: None,
-                firmware_version: Some("BF4-26.01-2"),
+                serial_interfaces: None,
+                firmware_version: Some("BF4-26.04-4"),
                 oem: None,
             }],
         }

@@ -36,6 +36,7 @@ Typically, a `/27` pool is used for services running on the control plane cluste
 | Item | Detail |
 |---|---|
 | IPs per host | 1 (host BMC) + 2 per DPU (DPU ARM OS + DPU BMC) |
+| IPs for MNNVL racks | 3 per switch (BMC + 2 NVOS) + 1 per power shelf PMC |
 | Managed by | NICo (can be split across multiple pools) |
 
 <Warning>Out-of-band (OOB) switches must have a DHCP relay pointing to the NICo DHCP service (refer to the [BMC and Out-of-Band Setup](bmc-oob-setup.md) page for more details).</Warning>

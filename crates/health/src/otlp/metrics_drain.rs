@@ -18,41 +18,39 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_instrument::emit;
 use tonic::transport::Channel;
 
 use super::collector_metrics::metrics_service_client::MetricsServiceClient;
 use super::convert::build_metrics_export_request;
+use super::{OtlpExportFailed, OtlpSignal};
 use crate::collectors::{BackoffConfig, ExponentialBackoff};
+use crate::config::OtlpTargetConfig;
 use crate::sink::otlp::OtlpMetricsQueue;
 use crate::sink::{EventContext, MetricSample};
 
 pub(crate) struct OtlpMetricsDrainTask {
     queue: Arc<OtlpMetricsQueue>,
-    endpoint: String,
-    batch_size: usize,
-    flush_interval: Duration,
+    target: OtlpTargetConfig,
     metric_name_prefix: String,
 }
 
 impl OtlpMetricsDrainTask {
     pub fn new(
         queue: Arc<OtlpMetricsQueue>,
-        endpoint: String,
-        batch_size: usize,
-        flush_interval: Duration,
+        target: OtlpTargetConfig,
         metric_name_prefix: String,
     ) -> Self {
         Self {
             queue,
-            endpoint,
-            batch_size,
-            flush_interval,
+            target,
             metric_name_prefix,
         }
     }
 
     fn drain_batch(&self, batch: &mut Vec<(EventContext, MetricSample)>) {
-        let remaining = self.batch_size.saturating_sub(batch.len());
+        let remaining = self.target.batch_size.saturating_sub(batch.len());
+
         for _ in 0..remaining {
             match self.queue.pop() {
                 Some((_key, value)) => batch.push(value),
@@ -67,14 +65,15 @@ impl OtlpMetricsDrainTask {
             None => return,
         };
 
-        let mut batch = Vec::with_capacity(self.batch_size);
-        let mut interval = tokio::time::interval(self.flush_interval);
+        let mut batch = Vec::with_capacity(self.target.batch_size);
+        let mut interval = tokio::time::interval(self.target.flush_interval);
 
         loop {
             tokio::select! {
                 _ = self.queue.notified() => {
                     self.drain_batch(&mut batch);
-                    if batch.len() >= self.batch_size {
+
+                    if batch.len() >= self.target.batch_size {
                         self.flush(&mut client, &mut batch).await;
                         interval.reset();
                     }
@@ -90,14 +89,15 @@ impl OtlpMetricsDrainTask {
     }
 
     async fn connect(&self) -> Option<MetricsServiceClient<Channel>> {
-        let endpoint = match Channel::from_shared(self.endpoint.clone()) {
-            Ok(e) => e,
+        let endpoint = match Channel::from_shared(self.target.endpoint.clone()) {
+            Ok(endpoint) => endpoint,
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    endpoint = %self.endpoint,
+                    endpoint = %self.target.endpoint,
                     "invalid otlp metrics endpoint uri, stopping drain"
                 );
+
                 return None;
             }
         };
@@ -110,14 +110,19 @@ impl OtlpMetricsDrainTask {
         loop {
             match endpoint.connect().await {
                 Ok(channel) => {
-                    tracing::info!(endpoint = %self.endpoint, "connected to otlp metrics collector");
+                    tracing::info!(
+                        endpoint = %self.target.endpoint,
+                        "connected to otlp metrics collector"
+                    );
+
                     return Some(MetricsServiceClient::new(channel));
                 }
                 Err(error) => {
                     let delay = backoff.next_delay();
+
                     tracing::warn!(
                         ?error,
-                        endpoint = %self.endpoint,
+                        endpoint = %self.target.endpoint,
                         retry_in = ?delay,
                         "failed to connect to otlp metrics collector"
                     );
@@ -160,7 +165,12 @@ impl OtlpMetricsDrainTask {
         for attempt in 0..=MAX_RETRIES {
             match client.export(request.clone()).await {
                 Ok(_) => {
-                    tracing::debug!(point_count, "exported metrics to otlp collector");
+                    tracing::debug!(
+                        endpoint = %self.target.endpoint,
+                        point_count,
+                        "exported metrics to otlp target"
+                    );
+
                     break;
                 }
                 Err(status) if is_retryable(&status) && attempt < MAX_RETRIES => {
@@ -168,6 +178,7 @@ impl OtlpMetricsDrainTask {
                     tracing::warn!(
                         code = ?status.code(),
                         message = status.message(),
+                        endpoint = %self.target.endpoint,
                         attempt,
                         retry_in = ?delay,
                         "retryable otlp metrics export error"
@@ -175,13 +186,14 @@ impl OtlpMetricsDrainTask {
                     tokio::time::sleep(delay).await;
                 }
                 Err(status) => {
-                    tracing::error!(
-                        code = ?status.code(),
-                        message = status.message(),
-                        point_count,
+                    emit(OtlpExportFailed {
+                        signal: OtlpSignal::Metrics,
+                        code: status.code().into(),
+                        error: status.message().to_string(),
+                        record_count: point_count,
                         attempt,
-                        "otlp metrics export failed, dropping batch"
-                    );
+                        endpoint: self.target.endpoint.clone(),
+                    });
                     break;
                 }
             }

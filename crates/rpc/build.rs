@@ -324,6 +324,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.MachineBootInterface",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.GetMachineBootInterfacesResponse",
             "#[derive(serde::Serialize)]",
         )
@@ -996,6 +1000,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             "forge.DeviceCredentialRotationStatus",
             "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            ".forge.NetworkSegmentType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.VpcVirtualizationType",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )
         .build_server(true)
         .build_client(true)

@@ -20,7 +20,7 @@
 use std::time::Duration;
 
 use carbide_mqtt_common::hook::{MqttPublisher, QueuedMessage, process_events};
-use carbide_mqtt_common::metrics::MqttHookMetrics;
+use carbide_mqtt_common::metrics::{MqttHookMetrics, PublishComponent};
 use carbide_uuid::machine::MachineId;
 use model::machine::ManagedHostState;
 use opentelemetry::metrics::Meter;
@@ -30,7 +30,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::mqtt_state_change_hook::message::ManagedHostStateChangeMessage;
+use crate::mqtt_state_change_hook::message::ManagedHostStateMessage;
 
 /// MQTT hook that publishes `ManagedHostState` changes to the MQTT broker.
 ///
@@ -52,7 +52,7 @@ impl MqttStateChangeHook {
     ///
     /// Spawns a background task to process queued events.
     /// Emits metrics:
-    /// - `forge_dsx_event_bus_publish_count`: Total number of MQTT publish attempts
+    /// - `forge_dsx_event_bus_publish_count`: Number of MQTT publish attempts
     /// - `forge_dsx_event_bus_queue_depth`: Current queue depth
     pub fn new<P: MqttPublisher>(
         client: P,
@@ -64,7 +64,8 @@ impl MqttStateChangeHook {
         cancel_token: CancellationToken,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(queue_capacity);
-        let metrics = MqttHookMetrics::new(meter, sender.downgrade(), "managed_host");
+        let metrics =
+            MqttHookMetrics::new(meter, sender.downgrade(), PublishComponent::ManagedHost);
         join_set.spawn(process_events(
             receiver,
             client,
@@ -78,21 +79,17 @@ impl MqttStateChangeHook {
             metrics,
         }
     }
-
-    fn build_topic(&self, machine_id: &MachineId) -> String {
-        format!("{}/{}/state", self.topic_prefix, machine_id)
-    }
 }
 
 impl StateChangeHook<MachineId, ManagedHostState> for MqttStateChangeHook {
     fn on_state_changed(&self, event: &StateChangeEvent<'_, MachineId, ManagedHostState>) {
         // Serialize immediately to avoid cloning state
-        let message = ManagedHostStateChangeMessage {
+        let message = ManagedHostStateMessage {
             machine_id: event.object_id,
             managed_host_state: event.new_state,
             timestamp: event.timestamp,
         };
-        let topic = self.build_topic(event.object_id);
+        let topic = message.topic(&self.topic_prefix);
 
         match message.to_json_bytes() {
             Ok(payload) => {

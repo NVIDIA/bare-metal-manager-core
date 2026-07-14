@@ -635,6 +635,8 @@ impl InternalRBACRules {
         x.perm("UpdatePowerOption", vec![ForgeAdminCLI, SiteAgent, Flow]);
         x.perm("CreateBmcUser", vec![ForgeAdminCLI]);
         x.perm("DeleteBmcUser", vec![ForgeAdminCLI]);
+        x.perm("SetBmcRootPassword", vec![ForgeAdminCLI]);
+        x.perm("ProbeBmcVendor", vec![ForgeAdminCLI]);
         x.perm("SetFirmwareUpdateTimeWindow", vec![ForgeAdminCLI, Flow]);
         x.perm("ListHostFirmware", vec![ForgeAdminCLI, Flow]);
         x.perm("EnableInfiniteBoot", vec![ForgeAdminCLI]);

@@ -37,28 +37,29 @@ flowchart TB
             files --> sidecar
         end
 
-        subgraph siteOtel["otel-collector (DaemonSet)"]
+        subgraph siteOtel["otel-collector"]
             otlpRecv["OTLP receiver"]
-            routing["routing/otlp-logs"]
-            logsConsole["logs/console"]
-            logsDPU["logs/dpu"]
-            otlpRecv --> routing
-            routing --> logsConsole
-            routing --> logsDPU
+            routing["routing"]
+            logsDPU["logs/dpu pipeline"]
+            otlpRecv --> routing --> logsDPU
         end
-
-        sidecar --> otlpRecv
     end
 
-    subgraph Backend["Backend (Loki, VL, ES, etc.)"]
+    subgraph Backend["Backend (Loki, VL, etc.)"]
         storage["Log storage"]
     end
 
     serial -->|"SSH/BMC"| files
+    sidecar -->|"Loki API (default)"| storage
     otelDPU -->|"OTLP (mTLS)"| otlpRecv
-    logsConsole --> storage
     logsDPU --> storage
 ```
+
+**Log flow:**
+- **Console logs**: The default sidecar ships directly to Loki via Loki API. This can be
+  reconfigured to export via OTLP to a site collector if needed.
+- **DPU logs**: Always flow via OTLP over mTLS to the site otel-collector, which routes
+  them through processing pipelines to the backend.
 
 ---
 
@@ -338,13 +339,20 @@ exporters:
       max_elapsed_time: 1h
 ```
 
-DPU logs are sent over mTLS using machine certificates provisioned by NICo. The
-`forge-dpu-otel-agent` service handles certificate renewal.
+DPU logs are sent over mTLS using machine certificates provisioned by NICo.
 
-### 3.3 Site controller receiver
+<Note title="DPU services">
+Two separate services handle telemetry on the DPU:
+- **`otelcol-contrib`** — The OpenTelemetry Collector that collects and exports logs/metrics
+- **`forge-dpu-otel-agent`** — A Rust helper service that periodically renews the mTLS certificates used by otelcol-contrib to authenticate with the site controller
 
-The site controller's otel-collector receives DPU logs via OTLP and routes them through
-processing pipelines:
+The cert renewal agent is *not* a custom OTel build — it's a sidecar that manages certificate lifecycle so otelcol-contrib can maintain secure connections.
+</Note>
+
+### 3.3 Site collector receiver
+
+The site otel-collector receives DPU logs via OTLP and routes them to the backend. Example
+configuration (adapt to your deployment):
 
 ```yaml
 receivers:
@@ -352,33 +360,16 @@ receivers:
     protocols:
       grpc:
         endpoint: ${env:MY_POD_IP}:4317
-      http:
-        endpoint: ${env:MY_POD_IP}:4318
-
-connectors:
-  routing/otlp-logs:
-    default_pipelines:
-      - logs/dpu
-    table:
-      # Route console logs separately
-      - statement: route() where attributes["component"] == "nico-ssh-console-rs"
-        pipelines:
-          - logs/console
 
 service:
   pipelines:
-    logs/otlp-in:
-      receivers: [otlp]
-      exporters: [routing/otlp-logs]
-
     logs/dpu:
-      receivers: [routing/otlp-logs]
+      receivers: [otlp]
       processors:
         - memory_limiter
         - resource/dpu-logs-loki
-        - transform/dpu-logs-loki
         - batch
-      exporters: [loki]
+      exporters: [loki]  # or otlphttp for VictoriaLogs
 ```
 
 **Resource labels for Loki indexing:**
@@ -394,6 +385,10 @@ processors:
         key: loki.format
         value: raw
 ```
+
+<Note>
+The routing/pipeline configuration depends on your deployment. It may require customization for your environment.
+</Note>
 
 ### 3.4 Querying DPU logs
 

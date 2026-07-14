@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 
+mod compute_allocation;
 mod connected_device;
+mod credential_rotation;
 mod dhcp_lease_expiration;
 mod dpu_machine_inventory;
 mod explored_managed_host_find;
@@ -27,8 +29,12 @@ mod machine_bmc_metadata;
 mod machine_boot_interfaces;
 mod network_device;
 mod nvlink_domain_health;
+mod operating_system;
 mod power_options;
+mod power_shelf;
+mod power_shelf_delete;
 mod power_shelf_find;
+mod power_shelf_maintenance;
 mod rack_find;
 mod route_servers;
 mod scout_firmware_upgrade_status;

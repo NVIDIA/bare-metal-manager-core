@@ -6,7 +6,7 @@ package model
 import (
 	"fmt"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 )
@@ -69,8 +69,8 @@ func (r *APIBMCCredentialRequest) Validate() error {
 
 // ToProto converts the validated request into the forge.Forge
 // CredentialCreationRequest.
-func (r *APIBMCCredentialRequest) ToProto() *cwssaws.CredentialCreationRequest {
-	return &cwssaws.CredentialCreationRequest{
+func (r *APIBMCCredentialRequest) ToProto() *corev1.CredentialCreationRequest {
+	return &corev1.CredentialCreationRequest{
 		CredentialType: bmcCredentialTypeForKind(r.Kind),
 		Password:       r.Password,
 		Username:       r.Username,
@@ -102,11 +102,11 @@ func validateBMCCredentialKind(kind string, macAddress *string) error {
 	}
 }
 
-func bmcCredentialTypeForKind(kind string) cwssaws.CredentialType {
+func bmcCredentialTypeForKind(kind string) corev1.CredentialType {
 	switch kind {
 	case BMCCredentialKindBMCRoot:
-		return cwssaws.CredentialType_RootBmcByMacAddress
+		return corev1.CredentialType_RootBmcByMacAddress
 	default:
-		return cwssaws.CredentialType_SiteWideBmcRoot
+		return corev1.CredentialType_SiteWideBmcRoot
 	}
 }
