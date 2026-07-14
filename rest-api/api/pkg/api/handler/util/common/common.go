@@ -1567,7 +1567,49 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 
 	// Site-scoped: resolve the effective capability for the exact Site.
 	if scope != nil && scope.SiteID != nil {
-		return tenantPrivilegedForSite(ctx, tx, dbSession, tenant, *scope.SiteID, scope.InfrastructureProviderID)
+		siteID := *scope.SiteID
+		resolvedProviderID := scope.InfrastructureProviderID
+		if resolvedProviderID == nil {
+			siteDAO := cdbm.NewSiteDAO(dbSession)
+			site, err := siteDAO.GetByID(ctx, tx, siteID, nil, false)
+			if err != nil {
+				if errors.Is(err, cdb.ErrDoesNotExist) {
+					return false, nil
+				}
+				return false, err
+			}
+			resolvedProviderID = &site.InfrastructureProviderID
+		}
+
+		taDAO := cdbm.NewTenantAccountDAO(dbSession)
+		tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
+			InfrastructureProviderID: resolvedProviderID,
+			TenantIDs:                []uuid.UUID{tenant.ID},
+			Statuses:                 []string{cdbm.TenantAccountStatusReady},
+		}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
+		if err != nil {
+			return false, err
+		}
+		if len(tas) == 0 {
+			return false, nil
+		}
+
+		global := tas[0].Config.TargetedInstanceCreation
+
+		tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+		ts, err := tsDAO.GetByTenantIDAndSiteID(ctx, tx, tenant.ID, siteID, nil)
+		if err != nil {
+			if errors.Is(err, cdb.ErrDoesNotExist) {
+				return global, nil
+			}
+			return false, err
+		}
+
+		if ts.Config.TargetedInstanceCreation != nil {
+			return *ts.Config.TargetedInstanceCreation, nil
+		}
+
+		return global, nil
 	}
 
 	// Coarse ceiling, optionally narrowed to a single Provider. A nil scope or
@@ -1576,15 +1618,7 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 	if scope != nil {
 		providerFilter = scope.InfrastructureProviderID
 	}
-	return tenantPrivilegedCeiling(ctx, tx, dbSession, tenant, providerFilter)
-}
 
-// tenantPrivilegedCeiling reports whether the Tenant is privileged on any Site,
-// optionally restricted to a single Provider. A Ready TenantAccount whose global
-// default enables the capability makes the Tenant privileged regardless of
-// per-site state; otherwise a per-site TenantSite.config override may still
-// enable it for a specific Site, so those overrides are honored here.
-func tenantPrivilegedCeiling(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant, providerFilter *uuid.UUID) (bool, error) {
 	taFilter := cdbm.TenantAccountFilterInput{
 		TenantIDs: []uuid.UUID{tenant.ID},
 		Statuses:  []string{cdbm.TenantAccountStatusReady},
@@ -1610,57 +1644,6 @@ func tenantPrivilegedCeiling(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Ses
 		return false, err
 	}
 	return len(privilegedSiteIDs) > 0, nil
-}
-
-// tenantPrivilegedForSite resolves the effective capability for a single Site:
-// the provider-scoped global default from a Ready TenantAccount on the Site's
-// Infrastructure Provider, with an optional per-site override from
-// TenantSite.config (effective = siteOverride ?? tenantAccount global). When no
-// Ready TenantAccount exists for the Site's Provider, the result is false. The
-// Provider ID is resolved from the Site when the caller does not supply it.
-func tenantPrivilegedForSite(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant, siteID uuid.UUID, providerID *uuid.UUID) (bool, error) {
-	resolvedProviderID := providerID
-	if resolvedProviderID == nil {
-		siteDAO := cdbm.NewSiteDAO(dbSession)
-		site, err := siteDAO.GetByID(ctx, tx, siteID, nil, false)
-		if err != nil {
-			if errors.Is(err, cdb.ErrDoesNotExist) {
-				return false, nil
-			}
-			return false, err
-		}
-		resolvedProviderID = &site.InfrastructureProviderID
-	}
-
-	taDAO := cdbm.NewTenantAccountDAO(dbSession)
-	tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
-		InfrastructureProviderID: resolvedProviderID,
-		TenantIDs:                []uuid.UUID{tenant.ID},
-		Statuses:                 []string{cdbm.TenantAccountStatusReady},
-	}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
-	if err != nil {
-		return false, err
-	}
-	if len(tas) == 0 {
-		return false, nil
-	}
-
-	global := tas[0].Config.TargetedInstanceCreation
-
-	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
-	ts, err := tsDAO.GetByTenantIDAndSiteID(ctx, tx, tenant.ID, siteID, nil)
-	if err != nil {
-		if errors.Is(err, cdb.ErrDoesNotExist) {
-			return global, nil
-		}
-		return false, err
-	}
-
-	if ts.Config.TargetedInstanceCreation != nil {
-		return *ts.Config.TargetedInstanceCreation, nil
-	}
-
-	return global, nil
 }
 
 // GetPrivilegedAccessSiteIDsForTenant returns Site IDs where the Tenant has
