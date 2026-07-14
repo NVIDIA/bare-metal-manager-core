@@ -35,15 +35,16 @@ use common::api_fixtures::{
     TestEnv, TestManagedHost, create_managed_host_with_hardware_info_template,
     insert_nvlink_nmxc_endpoint_from_managed_host,
 };
-use db::switch as db_switch;
+use db::{ObjectColumnFilter, rack as db_rack, switch as db_switch};
 use ipnetwork::IpNetwork;
 use libnmxc::nmxc_model::{GetGpuInfoListRequest, GetPartitionInfoListRequest, GpuAttr};
 use model::expected_switch::ExpectedSwitch;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::metadata::Metadata;
+use model::rack::{MaintenanceActivity, RackState};
 use model::switch::{
     CONTROL_PLANE_STATE_CONFIGURED, FabricManagerState, FabricManagerStatus, NewSwitch,
-    SwitchConfig, SwitchControllerState, SwitchMaintenanceOperation,
+    SwitchConfig, SwitchControllerState,
 };
 use model::test_support::{HardwareInfoTemplate, ManagedHostConfig};
 use rcgen::{CertifiedKey, generate_simple_self_signed};
@@ -2639,6 +2640,24 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
         .persist(&mut txn)
         .await
         .expect("create rack");
+    let rack = db_rack::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .expect("load rack")
+    .pop()
+    .expect("rack");
+    let updated = db_rack::try_update_controller_state(
+        txn.as_mut(),
+        &rack_id,
+        rack.controller_state.version,
+        rack.controller_state.version.increment(),
+        &RackState::Ready,
+    )
+    .await
+    .expect("set rack ready");
+    assert!(updated, "rack should transition to Ready for rotation");
     txn.commit().await.expect("commit rack");
 
     let switch_id = create_rack_switch_for_nmxc_simulator(&env, &rack_id).await;
@@ -2661,22 +2680,39 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
         .await
         .expect("load switch")
         .expect("switch");
+    let rack = db_rack::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .expect("load rack")
+    .pop()
+    .expect("rack");
     txn.commit().await.expect("commit txn");
 
     if expected_fingerprint_mismatches > 0 {
-        let request = switch
-            .switch_maintenance_requested
-            .as_ref()
-            .expect("switch certificate maintenance request");
-        assert_eq!(
-            request.operation,
-            SwitchMaintenanceOperation::ReconfigureCertificate
+        assert!(
+            switch.switch_maintenance_requested.is_none(),
+            "certificate rotation should not request per-switch maintenance"
         );
-        assert_eq!(request.initiator, "nvlink-switch-cert-monitor");
+        let scope = rack
+            .config
+            .maintenance_requested
+            .as_ref()
+            .expect("rack NMX cluster maintenance request");
+        assert!(scope.is_full_rack());
+        assert_eq!(
+            scope.activities,
+            vec![MaintenanceActivity::ConfigureNmxCluster]
+        );
     } else {
         assert!(
             switch.switch_maintenance_requested.is_none(),
             "matching certificate should not request switch certificate maintenance"
+        );
+        assert!(
+            rack.config.maintenance_requested.is_none(),
+            "matching certificate should not request rack maintenance"
         );
     }
 
@@ -2687,7 +2723,7 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     assert_eq!(
         rms_requests.len(),
         0,
-        "switch cert monitor should queue the switch state machine instead of calling RMS directly"
+        "switch cert monitor should queue the rack state machine instead of calling RMS directly"
     );
 }
 

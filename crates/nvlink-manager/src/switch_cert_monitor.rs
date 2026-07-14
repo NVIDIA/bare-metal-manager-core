@@ -25,10 +25,13 @@ use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::Utc;
-use component_manager::component_manager::ComponentManager;
+use component_manager::component_manager::{
+    ComponentManager, RackMaintenanceEligibility, RackMaintenanceRequestOutcome,
+    request_rack_maintenance_via_state_controller,
+};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
-use model::switch::SwitchMaintenanceOperation;
+use model::rack::{MaintenanceActivity, MaintenanceScope};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 use rustls::{ClientConfig, RootCertStore};
@@ -721,7 +724,7 @@ impl SwitchCertificateMonitor {
                                     rack_id = %rack_id_label,
                                     endpoint = %target.endpoint_url,
                                     error = %error,
-                                    "Failed to request NMX-C switch certificate configuration via switch state machine"
+                                    "Failed to request NMX-C cluster configuration via rack state machine"
                                 );
                                 (SwitchCertApplyStatus::Error, error)
                             }
@@ -797,9 +800,8 @@ impl SwitchCertificateMonitor {
         target: &SwitchCertificateMonitorTarget,
         cancel_token: &CancellationToken,
     ) -> Result<SwitchCertApplyStatus, String> {
-        self.request_certificate_reconfiguration_with_switch_state_controller(target, cancel_token)
-            .await?;
-        Ok(SwitchCertApplyStatus::Pending)
+        self.request_nmx_cluster_configuration_with_rack_state_controller(target, cancel_token)
+            .await
     }
 
     async fn load_switch_certificate_monitor_targets(
@@ -825,54 +827,81 @@ impl SwitchCertificateMonitor {
             .collect())
     }
 
-    async fn request_certificate_reconfiguration_with_switch_state_controller(
+    async fn request_nmx_cluster_configuration_with_rack_state_controller(
         &self,
         target: &SwitchCertificateMonitorTarget,
         cancel_token: &CancellationToken,
-    ) -> Result<(), String> {
-        let Some(component_manager) = self.component_manager.as_ref() else {
+    ) -> Result<SwitchCertApplyStatus, String> {
+        if self.component_manager.is_none() {
             return Err(
-                "component manager is not configured; cannot request switch certificate reconfiguration"
+                "component manager is not configured; cannot request NMX-C cluster configuration"
                     .to_string(),
             );
-        };
+        }
 
-        let switch_ids = [target.switch_id];
-        let results = tokio::select! {
+        // Empty device lists intentionally select the full rack. ConfigureNmxCluster runs the
+        // same certificate and fabric-manager workflow as `rack maintenance start
+        // --activities configure-nmx-cluster`.
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::ConfigureNmxCluster],
+            ..Default::default()
+        };
+        let outcome = tokio::select! {
             _ = cancel_token.cancelled() => {
                 return Err(Self::APPLY_CANCELLED_ERROR.to_string());
             }
-            results = component_manager.request_switch_maintenance_via_state_controller(
+            outcome = request_rack_maintenance_via_state_controller(
                 &self.db_pool,
-                &switch_ids,
-                SwitchMaintenanceOperation::ReconfigureCertificate,
-                "nvlink-switch-cert-monitor",
-            ) => results.map_err(|error| {
+                &target.rack_id,
+                scope,
+                RackMaintenanceEligibility::ReadyOnly,
+                None,
+            ) => outcome.map_err(|error| {
                 format!(
-                    "component manager failed to request switch certificate reconfiguration: {error}"
+                    "component manager failed to request NMX-C cluster configuration: {error}"
                 )
             })?,
         };
 
-        let Some(result) = results.first() else {
-            return Err(format!(
-                "component manager returned no result for switch {} certificate reconfiguration",
-                target.switch_id
-            ));
-        };
-
-        if let Some(error) = &result.error {
-            return Err(error.clone());
+        match outcome {
+            RackMaintenanceRequestOutcome::Scheduled => {
+                tracing::info!(
+                    switch_id = %target.switch_id,
+                    rack_id = %target.rack_id,
+                    endpoint = %target.endpoint_url,
+                    "Requested full-rack NMX-C cluster configuration via component manager"
+                );
+                Ok(SwitchCertApplyStatus::Pending)
+            }
+            RackMaintenanceRequestOutcome::AlreadyPending => {
+                tracing::debug!(
+                    switch_id = %target.switch_id,
+                    rack_id = %target.rack_id,
+                    endpoint = %target.endpoint_url,
+                    "Full-rack NMX-C cluster configuration is already pending"
+                );
+                Ok(SwitchCertApplyStatus::Pending)
+            }
+            RackMaintenanceRequestOutcome::Busy => {
+                tracing::info!(
+                    switch_id = %target.switch_id,
+                    rack_id = %target.rack_id,
+                    endpoint = %target.endpoint_url,
+                    "Deferring NMX-C certificate rotation because different rack maintenance is pending"
+                );
+                Ok(SwitchCertApplyStatus::Skipped)
+            }
+            RackMaintenanceRequestOutcome::Deferred { state } => {
+                tracing::info!(
+                    switch_id = %target.switch_id,
+                    rack_id = %target.rack_id,
+                    endpoint = %target.endpoint_url,
+                    ?state,
+                    "Deferring NMX-C certificate rotation until the rack is ready"
+                );
+                Ok(SwitchCertApplyStatus::Skipped)
+            }
         }
-
-        tracing::info!(
-            switch_id = %target.switch_id,
-            rack_id = %target.rack_id,
-            endpoint = %target.endpoint_url,
-            "Requested switch certificate reconfiguration via component manager"
-        );
-
-        Ok(())
     }
 
     async fn probe_endpoint_certificate(
