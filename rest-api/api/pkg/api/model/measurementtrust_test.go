@@ -89,25 +89,39 @@ func TestMeasurementTrustRemoveProtoSelectors(t *testing.T) {
 
 func TestMeasurementTrustResponsesFromProto(t *testing.T) {
 	created := time.Date(2026, 7, 13, 20, 0, 0, 0, time.UTC)
-	machine := APIMeasurementTrustedMachineFromProto(&corev1.MeasurementApprovedMachineRecordPb{
+	machineRecord := &corev1.MeasurementApprovedMachineRecordPb{
 		ApprovalId:   &corev1.MeasurementApprovedMachineId{Value: "00000000-0000-0000-0000-000000000001"},
 		MachineId:    "00000000-0000-0000-0000-000000000002",
 		ApprovalType: corev1.MeasurementApprovedTypePb_Persist,
 		PcrRegisters: "0,7",
 		Comments:     "trusted machine",
 		Ts:           timestamppb.New(created),
-	})
+	}
+	machine := NewAPIMeasurementTrustedMachine(machineRecord)
 	require.NotNil(t, machine)
 	assert.Equal(t, MeasurementTrustApprovalTypePersist, machine.ApprovalType)
 	assert.Equal(t, created, *machine.Created)
 
-	profile := APIMeasurementTrustedProfileFromProto(&corev1.MeasurementApprovedProfileRecordPb{
+	profileRecord := &corev1.MeasurementApprovedProfileRecordPb{
 		ApprovalId:   &corev1.MeasurementApprovedProfileId{Value: "00000000-0000-0000-0000-000000000003"},
 		ProfileId:    &corev1.MeasurementSystemProfileId{Value: "00000000-0000-0000-0000-000000000004"},
 		ApprovalType: corev1.MeasurementApprovedTypePb_Oneshot,
 		Ts:           timestamppb.New(created),
-	})
+	}
+	profile := NewAPIMeasurementTrustedProfile(profileRecord)
 	require.NotNil(t, profile)
 	assert.Equal(t, MeasurementTrustApprovalTypeOneshot, profile.ApprovalType)
 	assert.Equal(t, created, *profile.Created)
+
+	var machines APIMeasurementTrustedMachines
+	machines.FromProto([]*corev1.MeasurementApprovedMachineRecordPb{machineRecord, nil})
+	require.Len(t, machines, 2)
+	assert.Equal(t, machine, machines[0])
+	assert.Nil(t, machines[1])
+
+	var profiles APIMeasurementTrustedProfiles
+	profiles.FromProto([]*corev1.MeasurementApprovedProfileRecordPb{profileRecord, nil})
+	require.Len(t, profiles, 2)
+	assert.Equal(t, profile, profiles[0])
+	assert.Nil(t, profiles[1])
 }

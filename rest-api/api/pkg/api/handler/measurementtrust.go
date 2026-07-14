@@ -66,7 +66,7 @@ func (h CreateMeasurementTrustedMachineHandler) Handle(c echo.Context) error {
 		logAPIError(logger, apiErr, "failed to create machine trust approval")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	return c.JSON(http.StatusCreated, model.APIMeasurementTrustedMachineFromProto(coreResp.GetApprovalRecord()))
+	return c.JSON(http.StatusCreated, model.NewAPIMeasurementTrustedMachine(coreResp.GetApprovalRecord()))
 }
 
 // ListMeasurementTrustedMachinesHandler lists machine trust approvals.
@@ -97,7 +97,9 @@ func (h ListMeasurementTrustedMachinesHandler) Handle(c echo.Context) error {
 		logAPIError(logger, apiErr, "failed to list machine trust approvals")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	return c.JSON(http.StatusOK, model.APIMeasurementTrustedMachinesFromProto(coreResp.GetApprovalRecords()))
+	var resp model.APIMeasurementTrustedMachines
+	resp.FromProto(coreResp.GetApprovalRecords())
+	return c.JSON(http.StatusOK, resp)
 }
 
 // DeleteMeasurementTrustedMachineHandler deletes a machine trust approval.
@@ -133,7 +135,7 @@ func (h DeleteMeasurementTrustedMachineHandler) Handle(c echo.Context) error {
 		logAPIError(logger, apiErr, "failed to delete machine trust approval")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	return c.JSON(http.StatusOK, model.APIMeasurementTrustedMachineFromProto(coreResp.GetApprovalRecord()))
+	return c.JSON(http.StatusOK, model.NewAPIMeasurementTrustedMachine(coreResp.GetApprovalRecord()))
 }
 
 // CreateMeasurementTrustedProfileHandler creates a profile trust approval.
@@ -172,7 +174,7 @@ func (h CreateMeasurementTrustedProfileHandler) Handle(c echo.Context) error {
 		logAPIError(logger, apiErr, "failed to create profile trust approval")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	return c.JSON(http.StatusCreated, model.APIMeasurementTrustedProfileFromProto(coreResp.GetApprovalRecord()))
+	return c.JSON(http.StatusCreated, model.NewAPIMeasurementTrustedProfile(coreResp.GetApprovalRecord()))
 }
 
 // ListMeasurementTrustedProfilesHandler lists profile trust approvals.
@@ -203,7 +205,9 @@ func (h ListMeasurementTrustedProfilesHandler) Handle(c echo.Context) error {
 		logAPIError(logger, apiErr, "failed to list profile trust approvals")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	return c.JSON(http.StatusOK, model.APIMeasurementTrustedProfilesFromProto(coreResp.GetApprovalRecords()))
+	var resp model.APIMeasurementTrustedProfiles
+	resp.FromProto(coreResp.GetApprovalRecords())
+	return c.JSON(http.StatusOK, resp)
 }
 
 // DeleteMeasurementTrustedProfileHandler deletes a profile trust approval.
@@ -239,5 +243,5 @@ func (h DeleteMeasurementTrustedProfileHandler) Handle(c echo.Context) error {
 		logAPIError(logger, apiErr, "failed to delete profile trust approval")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	return c.JSON(http.StatusOK, model.APIMeasurementTrustedProfileFromProto(coreResp.GetApprovalRecord()))
+	return c.JSON(http.StatusOK, model.NewAPIMeasurementTrustedProfile(coreResp.GetApprovalRecord()))
 }

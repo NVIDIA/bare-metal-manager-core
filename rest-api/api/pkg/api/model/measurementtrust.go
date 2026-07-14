@@ -123,12 +123,22 @@ func (r *APIMeasurementTrustedProfileCreateRequest) ToProto() *corev1.AddMeasure
 	return req
 }
 
-// APIMeasurementTrustedMachineFromProto converts one Core machine trust record.
-func APIMeasurementTrustedMachineFromProto(record *corev1.MeasurementApprovedMachineRecordPb) *APIMeasurementTrustedMachine {
+// NewAPIMeasurementTrustedMachine creates an API model from a Core machine trust record.
+func NewAPIMeasurementTrustedMachine(record *corev1.MeasurementApprovedMachineRecordPb) *APIMeasurementTrustedMachine {
 	if record == nil {
 		return nil
 	}
-	resp := &APIMeasurementTrustedMachine{
+	resp := &APIMeasurementTrustedMachine{}
+	resp.FromProto(record)
+	return resp
+}
+
+// FromProto converts one Core machine trust record.
+func (r *APIMeasurementTrustedMachine) FromProto(record *corev1.MeasurementApprovedMachineRecordPb) {
+	if record == nil {
+		return
+	}
+	*r = APIMeasurementTrustedMachine{
 		ApprovalID:   record.GetApprovalId().GetValue(),
 		MachineID:    record.GetMachineId(),
 		ApprovalType: measurementTrustApprovalTypeFromProto(record.GetApprovalType()),
@@ -137,17 +147,26 @@ func APIMeasurementTrustedMachineFromProto(record *corev1.MeasurementApprovedMac
 	}
 	if ts := record.GetTs(); ts != nil {
 		created := ts.AsTime().UTC()
-		resp.Created = &created
+		r.Created = &created
 	}
-	return resp
 }
 
-// APIMeasurementTrustedProfileFromProto converts one Core profile trust record.
-func APIMeasurementTrustedProfileFromProto(record *corev1.MeasurementApprovedProfileRecordPb) *APIMeasurementTrustedProfile {
+// NewAPIMeasurementTrustedProfile creates an API model from a Core profile trust record.
+func NewAPIMeasurementTrustedProfile(record *corev1.MeasurementApprovedProfileRecordPb) *APIMeasurementTrustedProfile {
 	if record == nil {
 		return nil
 	}
-	resp := &APIMeasurementTrustedProfile{
+	resp := &APIMeasurementTrustedProfile{}
+	resp.FromProto(record)
+	return resp
+}
+
+// FromProto converts one Core profile trust record.
+func (r *APIMeasurementTrustedProfile) FromProto(record *corev1.MeasurementApprovedProfileRecordPb) {
+	if record == nil {
+		return
+	}
+	*r = APIMeasurementTrustedProfile{
 		ApprovalID:   record.GetApprovalId().GetValue(),
 		ProfileID:    record.GetProfileId().GetValue(),
 		ApprovalType: measurementTrustApprovalTypeFromProto(record.GetApprovalType()),
@@ -156,27 +175,32 @@ func APIMeasurementTrustedProfileFromProto(record *corev1.MeasurementApprovedPro
 	}
 	if ts := record.GetTs(); ts != nil {
 		created := ts.AsTime().UTC()
-		resp.Created = &created
+		r.Created = &created
 	}
-	return resp
 }
 
-// APIMeasurementTrustedMachinesFromProto converts Core machine trust records.
-func APIMeasurementTrustedMachinesFromProto(records []*corev1.MeasurementApprovedMachineRecordPb) []*APIMeasurementTrustedMachine {
-	result := make([]*APIMeasurementTrustedMachine, 0, len(records))
+// APIMeasurementTrustedMachines is a list of machine trust approvals.
+type APIMeasurementTrustedMachines []*APIMeasurementTrustedMachine
+
+// FromProto converts Core machine trust records.
+func (r *APIMeasurementTrustedMachines) FromProto(records []*corev1.MeasurementApprovedMachineRecordPb) {
+	result := make(APIMeasurementTrustedMachines, 0, len(records))
 	for _, record := range records {
-		result = append(result, APIMeasurementTrustedMachineFromProto(record))
+		result = append(result, NewAPIMeasurementTrustedMachine(record))
 	}
-	return result
+	*r = result
 }
 
-// APIMeasurementTrustedProfilesFromProto converts Core profile trust records.
-func APIMeasurementTrustedProfilesFromProto(records []*corev1.MeasurementApprovedProfileRecordPb) []*APIMeasurementTrustedProfile {
-	result := make([]*APIMeasurementTrustedProfile, 0, len(records))
+// APIMeasurementTrustedProfiles is a list of profile trust approvals.
+type APIMeasurementTrustedProfiles []*APIMeasurementTrustedProfile
+
+// FromProto converts Core profile trust records.
+func (r *APIMeasurementTrustedProfiles) FromProto(records []*corev1.MeasurementApprovedProfileRecordPb) {
+	result := make(APIMeasurementTrustedProfiles, 0, len(records))
 	for _, record := range records {
-		result = append(result, APIMeasurementTrustedProfileFromProto(record))
+		result = append(result, NewAPIMeasurementTrustedProfile(record))
 	}
-	return result
+	*r = result
 }
 
 // MeasurementTrustedMachineRemoveProto builds and validates a Core machine removal request.
