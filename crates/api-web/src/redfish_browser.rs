@@ -62,11 +62,12 @@ pub struct QueryParams {
 pub async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
-    Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
+    Extension(oauth2_layer): Extension<Option<Arc<Oauth2Layer>>>,
     request_headers: HeaderMap,
 ) -> Response {
-    let cookiejar = oauth2_layer
-        .map(|layer| PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key));
+    let cookiejar = oauth2_layer.map(|layer| {
+        PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key.clone())
+    });
 
     let mut browser = RedfishBrowser {
         url: query.url.clone().unwrap_or_default(),

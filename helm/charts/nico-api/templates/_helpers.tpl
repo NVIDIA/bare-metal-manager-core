@@ -86,7 +86,6 @@ Global image reference
 
 {{/* Statically known effective mode. "unknown" means extraEnv uses valueFrom. */}}
 {{- define "nico-api.webAuth.effectiveMode" -}}
-{{- $configured := include "nico-api.webAuth.configuredMode" . -}}
 {{- $override := include "nico-api.webAuth.literalModeOverride" . -}}
 {{- if eq (include "nico-api.webAuth.hasLiteralModeOverride" .) "true" -}}
   {{- if not (has $override (list "basic" "oauth2" "none")) -}}
@@ -96,15 +95,20 @@ Global image reference
 {{- else if eq (include "nico-api.webAuth.hasModeOverride" .) "true" -}}
 unknown
 {{- else -}}
-{{- $configured -}}
+{{- include "nico-api.webAuth.configuredMode" . -}}
 {{- end -}}
 {{- end -}}
 
 {{/* Render a Basic password Secret for known basic mode, or conservative valueFrom mode. */}}
 {{- define "nico-api.webAuth.renderBasicSecret" -}}
 {{- $effective := include "nico-api.webAuth.effectiveMode" . -}}
-{{- $configured := include "nico-api.webAuth.configuredMode" . -}}
-{{- if or (eq $effective "basic") (and (eq $effective "unknown") (eq $configured "basic")) -}}true{{- else -}}false{{- end -}}
+{{- if eq $effective "basic" -}}
+true
+{{- else if eq $effective "unknown" -}}
+  {{- if eq (include "nico-api.webAuth.configuredMode" .) "basic" -}}true{{- else -}}false{{- end -}}
+{{- else -}}
+false
+{{- end -}}
 {{- end -}}
 
 {{- define "nico-api.webAuth.basicSecretName" -}}

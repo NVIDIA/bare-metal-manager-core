@@ -92,6 +92,9 @@ nico-api:
           key: client_secret
     - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS
       value: "nico-admins,nico-operators"
+    ## Fail-closed examples: replace with the corresponding group object IDs.
+    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS_ID_LIST
+      value: "00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002"
 
   ## NICo Web UI hostname
   hostname: "nico.example.com"

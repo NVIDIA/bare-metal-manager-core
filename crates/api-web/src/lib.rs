@@ -331,7 +331,6 @@ pub(crate) type Oauth2ClientWithPropertiesSet = Client<
     EndpointSet,
 >;
 
-#[derive(Clone)]
 pub(crate) struct Oauth2Layer {
     client: Oauth2ClientWithPropertiesSet,
     http_client: reqwest::Client,
@@ -363,13 +362,12 @@ impl FromStr for WebAuthMode {
     }
 }
 
-#[derive(Clone)]
 enum WebAuth {
     Basic {
         password: String,
         challenge: &'static str,
     },
-    OAuth2(Box<Oauth2Layer>),
+    OAuth2(Arc<Oauth2Layer>),
     None,
 }
 
@@ -473,7 +471,7 @@ fn routes_with_auth_mode(
                 builder.build()?
             };
 
-            WebAuth::OAuth2(Box::new(Oauth2Layer {
+            WebAuth::OAuth2(Arc::new(Oauth2Layer {
                 client,
                 private_cookiejar_key,
                 allowed_access_groups_filter,
@@ -483,8 +481,8 @@ fn routes_with_auth_mode(
         }
         WebAuthMode::None => {
             tracing::warn!(
-                "{}: admin web UI has no in-process authentication; restrict access with network policy, a private network, or an authenticating reverse proxy (for example OAuth2 Proxy)",
-                AUTH_TYPE_ENV
+                auth_type_env = AUTH_TYPE_ENV,
+                "admin web UI has no in-process authentication; restrict access with network policy, a private network, or an authenticating reverse proxy (for example OAuth2 Proxy)"
             );
             WebAuth::None
         }
@@ -494,7 +492,7 @@ fn routes_with_auth_mode(
     };
 
     let oauth_extension_layer = match &web_auth {
-        WebAuth::OAuth2(layer) => Some(layer.as_ref().clone()),
+        WebAuth::OAuth2(layer) => Some(Arc::clone(layer)),
         WebAuth::Basic { .. } | WebAuth::None => None,
     };
 
@@ -894,7 +892,7 @@ fn routes_with_auth_mode(
             .route("/logs/{source}/stream", get(logs::stream))
             .route("/logs/{source}/history", get(logs::history))
             .layer(axum::middleware::from_fn(web_auth_middleware_fn))
-            .layer(Extension(web_auth))
+            .layer(Extension(Arc::new(web_auth)))
             .layer(Extension(oauth_extension_layer))
             .with_state(api),
     ))
@@ -905,7 +903,7 @@ pub async fn web_auth_middleware_fn(
     mut req: Request<AxumBody>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let oauth_extension_layer = match req.extensions().get::<WebAuth>().cloned() {
+    let oauth_extension_layer = match req.extensions().get::<Arc<WebAuth>>().map(AsRef::as_ref) {
         None => {
             tracing::error!("failed to find web authentication extension layer");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -915,12 +913,12 @@ pub async fn web_auth_middleware_fn(
             password,
             challenge,
         }) => {
-            if basic_credentials_are_valid(&headers, &password) {
+            if basic_credentials_are_valid(&headers, password) {
                 return Ok(next.run(req).await);
             }
-            return Ok((StatusCode::UNAUTHORIZED, [(WWW_AUTHENTICATE, challenge)]).into_response());
+            return Ok((StatusCode::UNAUTHORIZED, [(WWW_AUTHENTICATE, *challenge)]).into_response());
         }
-        Some(WebAuth::OAuth2(layer)) => *layer,
+        Some(WebAuth::OAuth2(layer)) => Arc::clone(layer),
     };
 
     // /auth-callback should pass through because that's
@@ -1125,7 +1123,7 @@ mod web_auth_tests {
         Router::new()
             .route("/", get(|| async { StatusCode::NO_CONTENT }))
             .layer(axum::middleware::from_fn(web_auth_middleware_fn))
-            .layer(Extension(auth))
+            .layer(Extension(Arc::new(auth)))
     }
 
     #[tokio::test]

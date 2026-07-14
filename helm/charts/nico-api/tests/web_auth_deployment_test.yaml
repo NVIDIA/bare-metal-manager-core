@@ -32,6 +32,19 @@ tests:
                 name: operator-web-password
                 key: credential
 
+  - it: generates the default Secret with a custom key
+    set:
+      webAuth.basic.existingSecret.key: credential
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CARBIDE_WEB_BASIC_AUTH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: nico-api-web-basic-auth
+                key: credential
+
   - it: oauth2 mode does not inject a Basic password
     set:
       webAuth.mode: oauth2
@@ -76,7 +89,24 @@ tests:
           content:
             name: CARBIDE_WEB_BASIC_AUTH_PASSWORD
 
-  - it: preserves a valueFrom legacy mode without adding a built-in mode or password
+  - it: literal legacy mode takes precedence over an invalid configured mode
+    set:
+      webAuth.mode: saml
+      extraEnv:
+        - name: CARBIDE_WEB_AUTH_TYPE
+          value: oauth2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CARBIDE_WEB_AUTH_TYPE
+            value: oauth2
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CARBIDE_WEB_BASIC_AUTH_PASSWORD
+
+  - it: preserves a valueFrom legacy mode and conservatively injects a password
     set:
       extraEnv:
         - name: CARBIDE_WEB_AUTH_TYPE
@@ -93,10 +123,14 @@ tests:
               configMapKeyRef:
                 name: web-auth-mode
                 key: mode
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: CARBIDE_WEB_BASIC_AUTH_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: nico-api-web-basic-auth
+                key: password
 
   - it: rejects an invalid configured mode
     set:
