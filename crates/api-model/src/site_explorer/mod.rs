@@ -1100,11 +1100,18 @@ impl EndpointExplorationReport {
         Some(
             self.get_inventory_map()
                 .iter()
-                .find(|s| s.0.contains("BMC_Firmware"))
+                // BF3 exposes BMC firmware as inventory id "BMC_Firmware"; BF4
+                // uses exactly "BlueField_FW_BMC_0". Matching the full BF4 id
+                // (via `ends_with`) excludes unrelated components — including
+                // "FW_BMC_0_x" / "FW_BMC_01" and any other id merely ending in
+                // "FW_BMC_0". Both ids are unique per report, so `find` selects
+                // the single BMC firmware entry unambiguously.
+                .find(|s| s.0.contains("BMC_Firmware") || s.0.ends_with("BlueField_FW_BMC_0"))
                 .and_then(|value| value.1.version.as_ref())
                 .unwrap_or(&"0".to_string())
                 .to_lowercase()
-                .replace("bf-", ""),
+                .replace("bf-", "")
+                .replace("bf4-", ""),
         )
     }
 
