@@ -124,6 +124,12 @@ tags:
   - name: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
+  - name: Measured Boot Trusted Machine
+    description: |-
+      Measured Boot Trusted Machine endpoints manage automatic measurement promotion approvals for Machines at a Site
+  - name: Measured Boot Trusted Profile
+    description: |-
+      Measured Boot Trusted Profile endpoints manage automatic measurement promotion approvals for system profiles at a Site
   - name: Allocation
     description: |-
       Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
@@ -1249,6 +1255,261 @@ paths:
         if the selected site-default credential already exists.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/measured-boot/trusted-machine':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create Measured Boot Trusted Machine Approval
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: create-measurement-trusted-machine
+      description: |-
+        Approve a Machine, or all Machines using `*`, for automatic promotion of its next measured-boot report.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeasurementTrustedMachineCreateRequest'
+      responses:
+        '201':
+          description: Measured Boot trusted Machine approval was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+    get:
+      summary: Retrieve All Measured Boot Trusted Machine Approvals
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: get-all-measurement-trusted-machine
+      description: |-
+        Retrieve all measured-boot trusted Machine approvals for a Site.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+      responses:
+        '200':
+          description: Measured Boot trusted Machine approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MeasurementTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-machine/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: id
+        in: path
+        required: true
+        description: Approval ID or Machine ID, as selected by the selector query parameter
+    delete:
+      summary: Delete Measured Boot Trusted Machine Approval
+      tags:
+        - Measured Boot Trusted Machine
+      operationId: delete-measurement-trusted-machine
+      description: |-
+        Delete a measured-boot trusted Machine approval by approval ID or Machine ID.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+        - schema:
+            type: string
+            enum:
+              - ApprovalId
+              - MachineId
+          name: selector
+          in: query
+          required: true
+          description: Whether id identifies the approval or the Machine
+      responses:
+        '200':
+          description: Deleted measured-boot trusted Machine approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementTrustedMachine'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-profile':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create Measured Boot Trusted Profile Approval
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: create-measurement-trusted-profile
+      description: |-
+        Approve a measured-boot system profile for automatic promotion of reports from matching Machines.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeasurementTrustedProfileCreateRequest'
+      responses:
+        '201':
+          description: Measured Boot trusted Profile approval was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+    get:
+      summary: Retrieve All Measured Boot Trusted Profile Approvals
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: get-all-measurement-trusted-profile
+      description: |-
+        Retrieve all measured-boot trusted Profile approvals for a Site.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+      responses:
+        '200':
+          description: Measured Boot trusted Profile approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MeasurementTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+  '/v2/org/{org}/nico/measured-boot/trusted-profile/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: Approval ID or Profile ID, as selected by the selector query parameter
+    delete:
+      summary: Delete Measured Boot Trusted Profile Approval
+      tags:
+        - Measured Boot Trusted Profile
+      operationId: delete-measurement-trusted-profile
+      description: |-
+        Delete a measured-boot trusted Profile approval by approval ID or Profile ID.
+
+        Org must have an Infrastructure Provider entity that owns the Site. User must have authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site
+        - schema:
+            type: string
+            enum:
+              - ApprovalId
+              - ProfileId
+          name: selector
+          in: query
+          required: true
+          description: Whether id identifies the approval or the system profile
+      responses:
+        '200':
+          description: Deleted measured-boot trusted Profile approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementTrustedProfile'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
   '/v2/org/{org}/nico/allocation':
     parameters:
       - schema:
@@ -13550,6 +13811,128 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
 components:
   schemas:
+    MeasurementTrustedMachineCreateRequest:
+      type: object
+      title: MeasurementTrustedMachineCreateRequest
+      description: Request to approve a Machine for automatic promotion of measured-boot reports.
+      required:
+        - siteId
+        - machineId
+        - approvalType
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the approval applies.
+        machineId:
+          type: string
+          description: Machine UUID, or `*` to approve all Machines at the Site.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector. All registers are used when omitted.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+    MeasurementTrustedMachine:
+      type: object
+      title: MeasurementTrustedMachine
+      description: A measured-boot trusted Machine approval.
+      required:
+        - approvalId
+        - machineId
+        - approvalType
+      properties:
+        approvalId:
+          type: string
+          format: uuid
+          description: Unique approval ID.
+        machineId:
+          type: string
+          description: Machine UUID, or `*` when the approval applies to all Machines.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+        created:
+          type: string
+          format: date-time
+          description: Time when the approval was created.
+    MeasurementTrustedProfileCreateRequest:
+      type: object
+      title: MeasurementTrustedProfileCreateRequest
+      description: Request to approve a system profile for automatic promotion of measured-boot reports.
+      required:
+        - siteId
+        - profileId
+        - approvalType
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the approval applies.
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the measured-boot system profile.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector. All registers are used when omitted.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+    MeasurementTrustedProfile:
+      type: object
+      title: MeasurementTrustedProfile
+      description: A measured-boot trusted system profile approval.
+      required:
+        - approvalId
+        - profileId
+        - approvalType
+      properties:
+        approvalId:
+          type: string
+          format: uuid
+          description: Unique approval ID.
+        profileId:
+          type: string
+          format: uuid
+          description: ID of the measured-boot system profile.
+        approvalType:
+          type: string
+          enum:
+            - Oneshot
+            - Persist
+          description: Whether the approval is consumed once or persists for future reports.
+        pcrRegisters:
+          type: string
+          description: Optional comma-separated PCR register selector.
+        comments:
+          type: string
+          description: Optional operator comments about the approval.
+        created:
+          type: string
+          format: date-time
+          description: Time when the approval was created.
     BMCCredentialRequest:
       type: object
       title: BMCCredentialRequest

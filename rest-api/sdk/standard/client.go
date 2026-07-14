@@ -87,6 +87,10 @@ type APIClient struct {
 
 	MachineAPI *MachineAPIService
 
+	MeasuredBootTrustedMachineAPI *MeasuredBootTrustedMachineAPIService
+
+	MeasuredBootTrustedProfileAPI *MeasuredBootTrustedProfileAPIService
+
 	MetadataAPI *MetadataAPIService
 
 	NVLinkLogicalPartitionAPI *NVLinkLogicalPartitionAPIService
@@ -166,6 +170,8 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.InstanceAPI = (*InstanceAPIService)(&c.common)
 	c.InstanceTypeAPI = (*InstanceTypeAPIService)(&c.common)
 	c.MachineAPI = (*MachineAPIService)(&c.common)
+	c.MeasuredBootTrustedMachineAPI = (*MeasuredBootTrustedMachineAPIService)(&c.common)
+	c.MeasuredBootTrustedProfileAPI = (*MeasuredBootTrustedProfileAPIService)(&c.common)
 	c.MetadataAPI = (*MetadataAPIService)(&c.common)
 	c.NVLinkLogicalPartitionAPI = (*NVLinkLogicalPartitionAPIService)(&c.common)
 	c.NetworkSecurityGroupAPI = (*NetworkSecurityGroupAPIService)(&c.common)

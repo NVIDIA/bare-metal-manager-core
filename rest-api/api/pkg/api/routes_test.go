@@ -36,6 +36,7 @@ func TestNewAPIRoutes(t *testing.T) {
 	routeCount := map[string]int{
 		"metadata":                  1,
 		"credential":                2,
+		"measured-boot":             6,
 		"service-account":           1,
 		"infrastructure-provider":   4,
 		"tenant":                    4,
@@ -114,6 +115,13 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPut, bmcCredentialPath)
 			uefiCredentialPath := "/org/:orgName/" + cfg.GetAPIName() + "/credential/uefi"
 			assertRouteExists(t, got, http.MethodPost, uefiCredentialPath)
+			measurementTrustPath := "/org/:orgName/" + cfg.GetAPIName() + "/measured-boot"
+			assertRouteExists(t, got, http.MethodPost, measurementTrustPath+"/trusted-machine")
+			assertRouteExists(t, got, http.MethodGet, measurementTrustPath+"/trusted-machine")
+			assertRouteExists(t, got, http.MethodDelete, measurementTrustPath+"/trusted-machine/:id")
+			assertRouteExists(t, got, http.MethodPost, measurementTrustPath+"/trusted-profile")
+			assertRouteExists(t, got, http.MethodGet, measurementTrustPath+"/trusted-profile")
+			assertRouteExists(t, got, http.MethodDelete, measurementTrustPath+"/trusted-profile/:id")
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/bmc/reset")
