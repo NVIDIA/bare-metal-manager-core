@@ -209,7 +209,7 @@ What it collects, per entity type discovered on the BMC:
 | `DriveMetrics` | Correctable/uncorrectable read and write I/O errors, bad blocks, power-on hours, read/write volume. |
 | `PowerSupplyMetrics` | Input voltage/current/power, output power, energy, frequency, temperature, fan speed. |
 
-Values that are sensor-backed (carrying a Redfish `DataSourceUri`) are skipped:
+Sensor-backed values (carrying a Redfish `DataSourceUri`) are skipped:
 the sensor collector already publishes them as `hw_sensor` series, so nothing
 is double-reported.
 
