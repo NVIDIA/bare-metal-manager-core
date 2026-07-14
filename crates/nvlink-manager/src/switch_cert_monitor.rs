@@ -854,7 +854,7 @@ impl SwitchCertificateMonitor {
                 &self.db_pool,
                 &target.rack_id,
                 scope,
-                RackMaintenanceEligibility::ReadyOnly,
+                RackMaintenanceEligibility::RequireReady,
                 None,
             ) => outcome.map_err(|error| {
                 format!(

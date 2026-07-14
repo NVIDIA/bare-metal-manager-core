@@ -58,23 +58,15 @@ where
         .map_err(|e| DatabaseError::new(query.sql(), e))
 }
 
-/// Load one active rack while holding a row lock until the caller's transaction
-/// completes.
-///
-/// Callers that make a read/check/write decision about rack state or config
-/// must use this instead of [`find_by`]. In particular, it prevents two
-/// concurrent maintenance schedulers from both observing an empty
-/// `maintenance_requested` field and then overwriting each other.
-pub async fn find_by_id_for_update(
-    txn: &mut PgConnection,
-    rack_id: &RackId,
-) -> DatabaseResult<Option<Rack>> {
-    let query = "SELECT * FROM racks WHERE id = $1 AND deleted IS NULL FOR UPDATE";
-    sqlx::query_as(query)
+/// Lock one active rack until the caller's transaction completes.
+pub async fn lock_for_update(txn: &mut PgConnection, rack_id: &RackId) -> DatabaseResult<bool> {
+    let query = "SELECT id FROM racks WHERE id = $1 AND deleted IS NULL FOR UPDATE";
+    sqlx::query_as::<_, (RackId,)>(query)
         .bind(rack_id)
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new(query, e))
+        .map(|row| row.is_some())
 }
 
 pub async fn find_ids(

@@ -780,7 +780,7 @@ pub(crate) async fn on_demand_rack_maintenance(
         &api.database_connection,
         &rack_id,
         scope,
-        RackMaintenanceEligibility::ReadyOrError,
+        RackMaintenanceEligibility::AllowErrorRecovery,
         maintenance_access_token,
     )
     .await;
