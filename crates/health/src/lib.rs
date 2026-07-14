@@ -101,7 +101,7 @@ pub enum HealthError {
     NmxcStatus(tonic::Status),
 
     /// Client TLS material could not be read, validated, or applied.
-    #[error("mTLS profile error: {0}")]
+    #[error("TLS profile error: {0}")]
     Tls(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -312,9 +312,26 @@ impl discovery::DiscoveryIteration for ServiceDiscoveryIteration {
     }
 }
 
+/// Runs the hardware-health service after validating configured TLS profiles.
+///
+/// Switch and OTLP TLS material is preflighted before listeners and background
+/// tasks start, so invalid certificate configuration fails startup.
+///
+/// # Errors
+///
+/// Returns an error when startup validation or initialization fails, or when a
+/// long-running service task exits with an error.
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
     if let Some(tls_config) = &config.tls.switch {
         tls::preflight(tls_config).await?;
+    }
+
+    if let Configurable::Enabled(otlp) = &config.sinks.otlp {
+        for target in &otlp.targets {
+            if let Some(tls_config) = &target.tls {
+                tls::otlp_preflight(tls_config).await?;
+            }
+        }
     }
 
     let tls_config = config.tls.switch.clone();

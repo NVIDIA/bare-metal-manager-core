@@ -15,15 +15,17 @@
  * limitations under the License.
  */
 
-//! TLS helpers for outbound health collector connections.
+//! TLS helpers for outbound health connections.
 //!
-//! The current profile is used by switch collectors through `[tls.switch]`.
-//! This module owns HTTP and gRPC TLS construction inside the health crate so
-//! collector transport security does not depend on NICo API certificate
+//! Switch collectors use `[tls.switch]`; OTLP targets use their own `tls`
+//! tables. This module owns HTTP and gRPC TLS construction inside the health
+//! crate so outbound transport security does not depend on NICo API certificate
 //! settings. Periodic HTTP collectors share one cached mTLS client per profile;
 //! the cache refreshes on the configured reload cadence so certificate changes
 //! are adopted without rebuilding a client for every switch target. Streaming
-//! collectors build a new TLS config when they reconnect.
+//! collectors build a new TLS config when they reconnect. OTLP drains reload
+//! their target profile periodically and adopt it only after a replacement
+//! connection succeeds.
 
 use std::fmt;
 use std::io::BufReader;
@@ -49,11 +51,11 @@ use tonic::transport::{
 use url::Url;
 use x509_parser::prelude::*;
 
-use crate::config::MtlsProfileConfig;
+use crate::config::{MtlsProfileConfig, OtlpTlsConfig};
 
 type HyperMtlsClient = HyperClient<HttpsConnector<HttpConnector>, Empty<Bytes>>;
 
-/// Role for one mTLS profile material file.
+/// Role for one TLS profile material file.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TlsMaterialKind {
     CaBundle,
@@ -73,7 +75,7 @@ impl fmt::Display for TlsMaterialKind {
 
 #[derive(Debug, Error)]
 pub(crate) enum TlsError {
-    #[error("failed to read mTLS profile {kind} at {path}: {source}")]
+    #[error("failed to read TLS profile {kind} at {path}: {source}")]
     Read {
         kind: TlsMaterialKind,
         path: PathBuf,
@@ -81,13 +83,13 @@ pub(crate) enum TlsError {
         source: std::io::Error,
     },
 
-    #[error("mTLS profile {kind} at {path} is empty")]
+    #[error("TLS profile {kind} at {path} is empty")]
     Empty {
         kind: TlsMaterialKind,
         path: PathBuf,
     },
 
-    #[error("failed to parse mTLS profile {kind} at {path}: {message}")]
+    #[error("failed to parse TLS profile {kind} at {path}: {message}")]
     Parse {
         kind: TlsMaterialKind,
         path: PathBuf,
@@ -95,7 +97,7 @@ pub(crate) enum TlsError {
     },
 
     #[error(
-        "mTLS profile {kind} certificate at {path} is not valid before unix timestamp {not_before}"
+        "TLS profile {kind} certificate at {path} is not valid before unix timestamp {not_before}"
     )]
     NotYetValid {
         kind: TlsMaterialKind,
@@ -103,31 +105,60 @@ pub(crate) enum TlsError {
         not_before: i64,
     },
 
-    #[error("mTLS profile {kind} certificate at {path} expired at unix timestamp {not_after}")]
+    #[error("TLS profile {kind} certificate at {path} expired at unix timestamp {not_after}")]
     Expired {
         kind: TlsMaterialKind,
         path: PathBuf,
         not_after: i64,
     },
 
-    #[error("mTLS profile CA bundle at {path} contains no usable trust anchors")]
+    #[error("TLS profile CA bundle at {path} contains no usable trust anchors")]
     NoTrustedCa { path: PathBuf },
 
-    #[error("mTLS profile client certificate and key are invalid or do not match: {source}")]
+    #[error("TLS profile client certificate and key are invalid or do not match: {source}")]
     InvalidIdentity {
         #[source]
         source: rustls::Error,
     },
+
+    /// Expected client identity material was absent while constructing mTLS.
+    #[error("TLS profile requires a client certificate and key")]
+    MissingClientIdentity,
+
+    /// An OTLP TLS profile configured only one client identity path.
+    #[error("TLS profile client certificate and key must be configured together")]
+    IncompleteClientIdentity,
 }
 
 struct TlsMaterial {
     ca_pem: Vec<u8>,
+    client_identity: Option<ClientIdentityMaterial>,
+}
+
+struct ClientIdentityMaterial {
     client_cert_pem: Vec<u8>,
     client_key_pem: Vec<u8>,
 }
 
 pub(crate) async fn preflight(config: &MtlsProfileConfig) -> Result<(), TlsError> {
-    read_validated_material(config).await.map(|_| ())
+    read_validated_material(
+        &config.ca_cert_path,
+        Some((&config.client_cert_path, &config.client_key_path)),
+    )
+    .await
+    .map(|_| ())
+}
+
+/// Reads and validates the CA and optional client identity for one OTLP target.
+///
+/// # Errors
+///
+/// Returns an error when identity paths are incomplete or configured material
+/// cannot be read or validated.
+pub(crate) async fn otlp_preflight(config: &OtlpTlsConfig) -> Result<(), TlsError> {
+    read_validated_material(&config.ca_cert_path, otlp_client_identity_paths(config)?)
+        .await
+        .map(|_| ())
 }
 
 /// Cloneable HTTP client built from one validated mTLS profile.
@@ -312,7 +343,12 @@ impl MtlsHttpClientProvider {
 /// `[tls.switch].tls_server_name` is set, hyper-rustls uses that value only for
 /// SNI and certificate verification.
 pub(crate) async fn http_client(config: &MtlsProfileConfig) -> Result<MtlsHttpClient, TlsError> {
-    let material = read_validated_material(config).await?;
+    let material = read_validated_material(
+        &config.ca_cert_path,
+        Some((&config.client_cert_path, &config.client_key_path)),
+    )
+    .await?;
+
     let tls_config = http_tls_config(config, &material)?;
     let mut http_connector = HttpConnector::new();
 
@@ -376,13 +412,18 @@ fn http_tls_config(
         });
     }
 
+    let client_identity = material
+        .client_identity
+        .as_ref()
+        .ok_or(TlsError::MissingClientIdentity)?;
+
     let client_certs = parse_certificates(
         TlsMaterialKind::ClientCertificate,
         &config.client_cert_path,
-        &material.client_cert_pem,
+        &client_identity.client_cert_pem,
     )?;
 
-    let client_key = parse_private_key(&config.client_key_path, &material.client_key_pem)?;
+    let client_key = parse_private_key(&config.client_key_path, &client_identity.client_key_pem)?;
 
     rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::aws_lc_rs::default_provider(),
@@ -401,65 +442,130 @@ fn http_tls_config(
 pub(crate) async fn tonic_tls_config(
     config: &MtlsProfileConfig,
 ) -> Result<ClientTlsConfig, TlsError> {
-    let material = read_validated_material(config).await?;
+    let material = read_validated_material(
+        &config.ca_cert_path,
+        Some((&config.client_cert_path, &config.client_key_path)),
+    )
+    .await?;
 
-    let mut tls_config = ClientTlsConfig::new()
-        .ca_certificate(TonicCertificate::from_pem(&material.ca_pem))
-        .identity(TonicIdentity::from_pem(
-            &material.client_cert_pem,
-            &material.client_key_pem,
+    Ok(tonic_tls_config_from_material(
+        &material,
+        &config.tls_server_name,
+    ))
+}
+
+/// Builds a Tonic TLS configuration for one OTLP target.
+///
+/// # Errors
+///
+/// Returns an error when identity paths are incomplete or configured material
+/// cannot be read or validated.
+pub(crate) async fn otlp_tonic_tls_config(
+    config: &OtlpTlsConfig,
+) -> Result<ClientTlsConfig, TlsError> {
+    let material =
+        read_validated_material(&config.ca_cert_path, otlp_client_identity_paths(config)?).await?;
+
+    Ok(tonic_tls_config_from_material(
+        &material,
+        &config.tls_server_name,
+    ))
+}
+
+fn otlp_client_identity_paths(config: &OtlpTlsConfig) -> Result<Option<(&Path, &Path)>, TlsError> {
+    match (&config.client_cert_path, &config.client_key_path) {
+        (Some(client_cert_path), Some(client_key_path)) => {
+            Ok(Some((client_cert_path, client_key_path)))
+        }
+        (None, None) => Ok(None),
+        _ => Err(TlsError::IncompleteClientIdentity),
+    }
+}
+
+fn tonic_tls_config_from_material(
+    material: &TlsMaterial,
+    tls_server_name: &Option<String>,
+) -> ClientTlsConfig {
+    let mut tls_config =
+        ClientTlsConfig::new().ca_certificate(TonicCertificate::from_pem(&material.ca_pem));
+
+    if let Some(client_identity) = &material.client_identity {
+        tls_config = tls_config.identity(TonicIdentity::from_pem(
+            &client_identity.client_cert_pem,
+            &client_identity.client_key_pem,
         ));
+    }
 
-    if let Some(tls_server_name) = &config.tls_server_name {
-        // gRPC endpoints still use the discovered switch IP in their URI. This
-        // override changes only TLS SNI and certificate name verification.
+    if let Some(tls_server_name) = tls_server_name {
+        // This override changes only TLS SNI and certificate verification. The
+        // connection still uses the configured endpoint URI.
         tls_config = tls_config.domain_name(tls_server_name.clone());
     }
 
-    Ok(tls_config)
+    tls_config
 }
 
-async fn read_validated_material(config: &MtlsProfileConfig) -> Result<TlsMaterial, TlsError> {
+async fn read_validated_material(
+    ca_cert_path: &Path,
+    client_identity_paths: Option<(&Path, &Path)>,
+) -> Result<TlsMaterial, TlsError> {
     ensure_rustls_provider();
 
-    let (ca_pem, client_cert_pem, client_key_pem) = tokio::try_join!(
-        read_material(TlsMaterialKind::CaBundle, &config.ca_cert_path),
-        read_material(TlsMaterialKind::ClientCertificate, &config.client_cert_path,),
-        read_material(TlsMaterialKind::ClientKey, &config.client_key_path),
-    )?;
+    let ca_pem = read_material(TlsMaterialKind::CaBundle, ca_cert_path).await?;
 
-    let ca_certs = parse_certificates(TlsMaterialKind::CaBundle, &config.ca_cert_path, &ca_pem)?;
+    let client_identity = match client_identity_paths {
+        Some((client_cert_path, client_key_path)) => {
+            let (client_cert_pem, client_key_pem) = tokio::try_join!(
+                read_material(TlsMaterialKind::ClientCertificate, client_cert_path),
+                read_material(TlsMaterialKind::ClientKey, client_key_path),
+            )?;
 
-    let client_certs = parse_certificates(
-        TlsMaterialKind::ClientCertificate,
-        &config.client_cert_path,
-        &client_cert_pem,
-    )?;
+            Some((
+                client_cert_path,
+                client_key_path,
+                client_cert_pem,
+                client_key_pem,
+            ))
+        }
+        None => None,
+    };
 
-    let client_key = parse_private_key(&config.client_key_path, &client_key_pem)?;
+    let ca_certs = parse_certificates(TlsMaterialKind::CaBundle, ca_cert_path, &ca_pem)?;
     let now = unix_timestamp_now();
 
-    validate_certificate_times(
-        TlsMaterialKind::CaBundle,
-        &config.ca_cert_path,
-        &ca_certs,
-        now,
-    )?;
+    validate_certificate_times(TlsMaterialKind::CaBundle, ca_cert_path, &ca_certs, now)?;
+    validate_root_store(ca_cert_path, ca_certs)?;
 
-    validate_certificate_times(
-        TlsMaterialKind::ClientCertificate,
-        &config.client_cert_path,
-        &client_certs,
-        now,
-    )?;
+    let client_identity = match client_identity {
+        Some((client_cert_path, client_key_path, client_cert_pem, client_key_pem)) => {
+            let client_certs = parse_certificates(
+                TlsMaterialKind::ClientCertificate,
+                client_cert_path,
+                &client_cert_pem,
+            )?;
 
-    validate_root_store(&config.ca_cert_path, ca_certs)?;
-    validate_client_identity(client_certs, client_key)?;
+            let client_key = parse_private_key(client_key_path, &client_key_pem)?;
+
+            validate_certificate_times(
+                TlsMaterialKind::ClientCertificate,
+                client_cert_path,
+                &client_certs,
+                now,
+            )?;
+
+            validate_client_identity(client_certs, client_key)?;
+
+            Some(ClientIdentityMaterial {
+                client_cert_pem,
+                client_key_pem,
+            })
+        }
+        None => None,
+    };
 
     Ok(TlsMaterial {
         ca_pem,
-        client_cert_pem,
-        client_key_pem,
+        client_identity,
     })
 }
 
@@ -772,6 +878,70 @@ mod tests {
         let _http_client = http_client(&config).await?;
 
         let _grpc_tls = tonic_tls_config(&config).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn otlp_tls_material_builds_tls_and_mtls_grpc_clients()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = TempDir::new()?;
+        let material = valid_material();
+        let switch_config = write_material(&dir, &material).await?;
+
+        let tls_config = OtlpTlsConfig {
+            ca_cert_path: switch_config.ca_cert_path.clone(),
+            client_cert_path: None,
+            client_key_path: None,
+            tls_server_name: Some("telemetry.example.com".to_string()),
+            reload_interval: OtlpTlsConfig::DEFAULT_RELOAD_INTERVAL,
+        };
+
+        otlp_preflight(&tls_config).await?;
+        let _tls = otlp_tonic_tls_config(&tls_config).await?;
+
+        let mtls_config = OtlpTlsConfig {
+            ca_cert_path: switch_config.ca_cert_path,
+            client_cert_path: Some(switch_config.client_cert_path),
+            client_key_path: Some(switch_config.client_key_path),
+            tls_server_name: None,
+            reload_interval: OtlpTlsConfig::DEFAULT_RELOAD_INTERVAL,
+        };
+
+        otlp_preflight(&mtls_config).await?;
+        let _mtls = otlp_tonic_tls_config(&mtls_config).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn otlp_tls_config_detects_invalid_rotated_material()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = TempDir::new()?;
+        let material = valid_material();
+        let switch_config = write_material(&dir, &material).await?;
+
+        let config = OtlpTlsConfig {
+            ca_cert_path: switch_config.ca_cert_path,
+            client_cert_path: Some(switch_config.client_cert_path),
+            client_key_path: Some(switch_config.client_key_path),
+            tls_server_name: None,
+            reload_interval: OtlpTlsConfig::DEFAULT_RELOAD_INTERVAL,
+        };
+
+        otlp_preflight(&config).await?;
+        let _tls = otlp_tonic_tls_config(&config).await?;
+
+        let client_key_path = config
+            .client_key_path
+            .as_ref()
+            .expect("test config must contain a client key path");
+
+        tokio::fs::write(client_key_path, &material.alternate_client_key_pem).await?;
+
+        let result = otlp_tonic_tls_config(&config).await;
+
+        assert!(matches!(result, Err(TlsError::InvalidIdentity { .. })));
 
         Ok(())
     }

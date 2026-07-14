@@ -371,6 +371,13 @@ pub struct OtlpTargetConfig {
     /// Endpoint URI that receives both logs and metrics over OTLP/gRPC.
     pub endpoint: String,
 
+    /// Optional TLS or mTLS configuration for this endpoint.
+    ///
+    /// Omit this table for HTTPS endpoints that use platform trust roots. A
+    /// configured profile supplies a private CA, and supplying a client
+    /// certificate and key additionally enables mTLS.
+    pub tls: Option<OtlpTlsConfig>,
+
     /// Maximum number of events or samples exported per request. Defaults to
     /// 512.
     #[serde(default = "OtlpTargetConfig::default_batch_size")]
@@ -415,8 +422,107 @@ impl OtlpTargetConfig {
             return Err(format!("{path}.flush_interval must be greater than 0"));
         }
 
-        tonic::transport::Channel::from_shared(self.endpoint.clone())
+        let endpoint = tonic::transport::Channel::from_shared(self.endpoint.clone())
             .map_err(|_| format!("invalid {path}.endpoint: {}", self.endpoint))?;
+
+        if let Some(tls) = &self.tls {
+            if endpoint.uri().scheme_str() != Some("https") {
+                return Err(format!("{path}.tls requires an https endpoint"));
+            }
+
+            tls.validate(&path)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// TLS policy for one OTLP/gRPC target.
+///
+/// The CA bundle verifies the server certificate. Supplying both client paths
+/// adds a client identity and enables mTLS. Each signal drain periodically
+/// reloads the certificate files and adopts them only after a replacement
+/// connection succeeds. A failed reload leaves the current connection active.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OtlpTlsConfig {
+    /// Path to the CA bundle used to verify the OTLP server certificate.
+    pub ca_cert_path: PathBuf,
+
+    /// Optional path to the client certificate chain for mTLS.
+    pub client_cert_path: Option<PathBuf>,
+
+    /// Optional path to the client private key for mTLS.
+    pub client_key_path: Option<PathBuf>,
+
+    /// Optional DNS name used for TLS SNI and server certificate verification.
+    pub tls_server_name: Option<String>,
+
+    /// Interval between reloads of this target's TLS files. Defaults to five
+    /// minutes.
+    #[serde(
+        default = "OtlpTlsConfig::default_reload_interval",
+        with = "humantime_serde"
+    )]
+    pub reload_interval: Duration,
+}
+
+impl OtlpTlsConfig {
+    /// Default interval between attempts to reload an OTLP target's TLS files.
+    pub(crate) const DEFAULT_RELOAD_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+    fn default_reload_interval() -> Duration {
+        Self::DEFAULT_RELOAD_INTERVAL
+    }
+
+    fn validate(&self, target_path: &str) -> Result<(), String> {
+        let path = format!("{target_path}.tls");
+
+        if self.ca_cert_path.as_os_str().is_empty() {
+            return Err(format!("{path}.ca_cert_path must not be empty"));
+        }
+
+        match (&self.client_cert_path, &self.client_key_path) {
+            (Some(client_cert_path), Some(client_key_path)) => {
+                if client_cert_path.as_os_str().is_empty() {
+                    return Err(format!("{path}.client_cert_path must not be empty"));
+                }
+
+                if client_key_path.as_os_str().is_empty() {
+                    return Err(format!("{path}.client_key_path must not be empty"));
+                }
+            }
+            (Some(_), None) => {
+                return Err(format!(
+                    "{path}.client_key_path must be set when {path}.client_cert_path is set"
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(format!(
+                    "{path}.client_cert_path must be set when {path}.client_key_path is set"
+                ));
+            }
+            (None, None) => {}
+        }
+
+        if let Some(tls_server_name) = self.tls_server_name.as_deref() {
+            if tls_server_name.trim().is_empty() {
+                return Err(format!("{path}.tls_server_name must not be empty"));
+            }
+
+            if tls_server_name.trim() != tls_server_name {
+                return Err(format!(
+                    "{path}.tls_server_name must not contain leading or trailing whitespace"
+                ));
+            }
+
+            DnsName::try_from(tls_server_name)
+                .map_err(|_| format!("{path}.tls_server_name must be a valid DNS name"))?;
+        }
+
+        if self.reload_interval.is_zero() {
+            return Err(format!("{path}.reload_interval must be greater than 0"));
+        }
 
         Ok(())
     }
@@ -1943,6 +2049,7 @@ username = "root"
                 batch_size: 512,
                 flush_interval: Duration::from_secs(2),
                 include_diagnostics: false,
+                tls: None,
             }],
         });
 
@@ -1958,6 +2065,7 @@ username = "root"
                 batch_size: 512,
                 flush_interval: Duration::from_secs(2),
                 include_diagnostics: false,
+                tls: None,
             }],
         });
 
@@ -2000,13 +2108,20 @@ include_diagnostics = true
             .merge(Toml::string(
                 r#"
 [[targets]]
-endpoint = "http://site.example:4317"
+endpoint = "https://site.example:4317"
 
 [[targets]]
 endpoint = "https://central.example:4317"
 batch_size = 1024
 flush_interval = "5s"
 include_diagnostics = true
+
+[targets.tls]
+ca_cert_path = "/central/ca.crt"
+client_cert_path = "/central/tls.crt"
+client_key_path = "/central/tls.key"
+tls_server_name = "central.example"
+reload_interval = "30s"
 "#,
             ))
             .extract()
@@ -2015,11 +2130,32 @@ include_diagnostics = true
         let targets = &otlp.targets;
 
         assert_eq!(targets.len(), 2);
+        assert!(targets[0].tls.is_none());
         assert_eq!(targets[0].batch_size, 512);
         assert_eq!(targets[0].flush_interval, Duration::from_secs(2));
         assert_eq!(targets[1].batch_size, 1024);
         assert_eq!(targets[1].flush_interval, Duration::from_secs(5));
         assert!(targets[1].include_diagnostics);
+
+        let tls = targets[1]
+            .tls
+            .as_ref()
+            .expect("central target should use TLS");
+
+        assert_eq!(tls.ca_cert_path, PathBuf::from("/central/ca.crt"));
+
+        assert_eq!(
+            tls.client_cert_path.as_deref(),
+            Some(Path::new("/central/tls.crt"))
+        );
+
+        assert_eq!(
+            tls.client_key_path.as_deref(),
+            Some(Path::new("/central/tls.key"))
+        );
+
+        assert_eq!(tls.tls_server_name.as_deref(), Some("central.example"));
+        assert_eq!(tls.reload_interval, Duration::from_secs(30));
 
         let mut config = Config::default();
 
@@ -2028,6 +2164,16 @@ include_diagnostics = true
         config
             .validate()
             .expect("multi-target OTLP config should validate");
+    }
+
+    #[test]
+    fn otlp_tls_reload_interval_defaults_to_five_minutes() {
+        let tls: OtlpTlsConfig = Figment::new()
+            .merge(Toml::string("ca_cert_path = \"/site/ca.crt\""))
+            .extract()
+            .expect("OTLP TLS config should parse without a reload interval");
+
+        assert_eq!(tls.reload_interval, OtlpTlsConfig::DEFAULT_RELOAD_INTERVAL);
     }
 
     #[test]
@@ -2064,6 +2210,41 @@ endpoint = "http://site.example:4317"
 "#,
                 expected: "sinks.otlp.targets[1].endpoint must be unique: http://site.example:4317",
             },
+            TestCase {
+                name: "TLS with plaintext endpoint",
+                toml: r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+"#,
+                expected: "sinks.otlp.targets[0].tls requires an https endpoint",
+            },
+            TestCase {
+                name: "incomplete mTLS identity",
+                toml: r#"
+[[targets]]
+endpoint = "https://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+client_cert_path = "/site/tls.crt"
+"#,
+                expected: "sinks.otlp.targets[0].tls.client_key_path must be set when sinks.otlp.targets[0].tls.client_cert_path is set",
+            },
+            TestCase {
+                name: "zero TLS reload interval",
+                toml: r#"
+[[targets]]
+endpoint = "https://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+reload_interval = "0s"
+"#,
+                expected: "sinks.otlp.targets[0].tls.reload_interval must be greater than 0",
+            },
         ];
 
         for case in cases {
@@ -2097,6 +2278,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()
@@ -2133,6 +2315,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: true,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()
@@ -2149,12 +2332,14 @@ endpoint = "http://site.example:4317"
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: false,
+                                tls: None,
                             },
                             OtlpTargetConfig {
                                 endpoint: "http://central.example:4317".to_string(),
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: true,
+                                tls: None,
                             },
                         ],
                     }),
@@ -2199,6 +2384,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()

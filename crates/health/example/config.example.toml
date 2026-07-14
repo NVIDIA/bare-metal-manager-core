@@ -99,7 +99,8 @@ max_backups = 5
 [sinks.otlp]
 enabled = false
 
-# Each target owns its endpoint, queues, batching policy, and diagnostics policy.
+# Each target owns its endpoint, queues, batching policy, diagnostics policy,
+# and optional TLS policy. This active target uses plaintext HTTP.
 # Add more target tables for fan-out.
 [[sinks.otlp.targets]]
 endpoint = "http://localhost:4317"
@@ -112,11 +113,32 @@ flush_interval = "2s"
 # latest-wins per endpoint while the drain is backed up.
 include_diagnostics = false
 #
+# TLS-only target with an explicit CA bundle.
+# The reload interval is optional and defaults to five minutes.
 # [[sinks.otlp.targets]]
-# endpoint = "http://telemetry.example.com:4317"
+# endpoint = "https://telemetry.example.com:4317"
 # batch_size = 1024
 # flush_interval = "5s"
 # include_diagnostics = true
+#
+# [sinks.otlp.targets.tls]
+# ca_cert_path = "/var/run/secrets/central-otlp/ca.crt"
+# tls_server_name = "telemetry.example.com"
+# reload_interval = "5m"
+#
+# mTLS target with an explicit CA bundle and client identity.
+# [[sinks.otlp.targets]]
+# endpoint = "https://telemetry.example.com:4317"
+# batch_size = 1024
+# flush_interval = "5s"
+# include_diagnostics = true
+#
+# [sinks.otlp.targets.tls]
+# ca_cert_path = "/var/run/secrets/central-otlp/ca.crt"
+# client_cert_path = "/var/run/secrets/central-otlp/tls.crt"
+# client_key_path = "/var/run/secrets/central-otlp/tls.key"
+# tls_server_name = "telemetry.example.com"
+# reload_interval = "5m"
 
 [sinks.health_report]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"

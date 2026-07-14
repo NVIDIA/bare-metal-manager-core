@@ -23,9 +23,9 @@ use tonic::transport::Channel;
 
 use super::collector_metrics::metrics_service_client::MetricsServiceClient;
 use super::convert::build_metrics_export_request;
-use super::{OtlpExportFailed, OtlpSignal};
+use super::{OtlpExportFailed, OtlpSignal, connect_replacement_target, target_endpoint};
 use crate::collectors::{BackoffConfig, ExponentialBackoff};
-use crate::config::OtlpTargetConfig;
+use crate::config::{OtlpTargetConfig, OtlpTlsConfig};
 use crate::sink::otlp::OtlpMetricsQueue;
 use crate::sink::{EventContext, MetricSample};
 
@@ -60,13 +60,29 @@ impl OtlpMetricsDrainTask {
     }
 
     pub async fn run(self) {
-        let mut client = match self.connect().await {
-            Some(c) => c,
-            None => return,
-        };
+        let mut client = self.connect().await;
 
         let mut batch = Vec::with_capacity(self.target.batch_size);
         let mut interval = tokio::time::interval(self.target.flush_interval);
+
+        // Non-TLS targets use the default only to construct a dormant interval;
+        // the select guard below disables reloads for them. Start after one full
+        // period and delay missed ticks so stalled drains do not initiate a
+        // burst of replacement connections when they resume.
+        let tls_reload_period = self
+            .target
+            .tls
+            .as_ref()
+            .map_or(OtlpTlsConfig::DEFAULT_RELOAD_INTERVAL, |tls| {
+                tls.reload_interval
+            });
+
+        let mut tls_reload_interval = tokio::time::interval_at(
+            tokio::time::Instant::now() + tls_reload_period,
+            tls_reload_period,
+        );
+
+        tls_reload_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         loop {
             tokio::select! {
@@ -84,30 +100,53 @@ impl OtlpMetricsDrainTask {
                         self.flush(&mut client, &mut batch).await;
                     }
                 }
+                _ = tls_reload_interval.tick(), if self.target.tls.is_some() => {
+                    match connect_replacement_target(&self.target).await {
+                        Ok(channel) => {
+                            client = MetricsServiceClient::new(channel);
+
+                            tracing::debug!(
+                                endpoint = %self.target.endpoint,
+                                "refreshed otlp metrics TLS material"
+                            );
+                        }
+                        Err(error) => {
+                            tracing::warn!(
+                                ?error,
+                                endpoint = %self.target.endpoint,
+                                "failed to reload otlp metrics TLS material, keeping current client"
+                            );
+                        }
+                    }
+                }
             }
         }
     }
 
-    async fn connect(&self) -> Option<MetricsServiceClient<Channel>> {
-        let endpoint = match Channel::from_shared(self.target.endpoint.clone()) {
-            Ok(endpoint) => endpoint,
-            Err(error) => {
-                tracing::error!(
-                    ?error,
-                    endpoint = %self.target.endpoint,
-                    "invalid otlp metrics endpoint uri, stopping drain"
-                );
-
-                return None;
-            }
-        };
-
+    async fn connect(&self) -> MetricsServiceClient<Channel> {
         let mut backoff = ExponentialBackoff::new(&BackoffConfig {
             initial: Duration::from_secs(1),
             max: Duration::from_secs(30),
         });
 
         loop {
+            let endpoint = match target_endpoint(&self.target).await {
+                Ok(endpoint) => endpoint,
+                Err(error) => {
+                    let delay = backoff.next_delay();
+
+                    tracing::warn!(
+                        ?error,
+                        endpoint = %self.target.endpoint,
+                        retry_in = ?delay,
+                        "failed to configure otlp metrics connection"
+                    );
+
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+            };
+
             match endpoint.connect().await {
                 Ok(channel) => {
                     tracing::info!(
@@ -115,7 +154,7 @@ impl OtlpMetricsDrainTask {
                         "connected to otlp metrics collector"
                     );
 
-                    return Some(MetricsServiceClient::new(channel));
+                    return MetricsServiceClient::new(channel);
                 }
                 Err(error) => {
                     let delay = backoff.next_delay();
