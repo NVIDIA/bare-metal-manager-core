@@ -952,13 +952,30 @@ func (x *PciDeviceProperties) GetSlot() string {
 }
 
 type LldpSwitchData struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
-	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	LocalPort     string                 `protobuf:"bytes,4,opt,name=local_port,json=localPort,proto3" json:"local_port,omitempty"`
-	IpAddress     []string               `protobuf:"bytes,5,rep,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
-	RemotePort    string                 `protobuf:"bytes,6,opt,name=remote_port,json=remotePort,proto3" json:"remote_port,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Deprecated: chassis id rendered as "<id_type>=<id_value>". Use id_type/id_value.
+	//
+	// Deprecated: Marked as deprecated in machine_discovery_nico.proto.
+	Id          string   `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Description string   `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	LocalPort   string   `protobuf:"bytes,4,opt,name=local_port,json=localPort,proto3" json:"local_port,omitempty"`
+	IpAddress   []string `protobuf:"bytes,5,rep,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
+	// Deprecated: remote port rendered as "<remote_port_type>=<remote_port_value>".
+	// Use remote_port_type/remote_port_value.
+	//
+	// Deprecated: Marked as deprecated in machine_discovery_nico.proto.
+	RemotePort string `protobuf:"bytes,6,opt,name=remote_port,json=remotePort,proto3" json:"remote_port,omitempty"`
+	// Chassis id split into its LLDP subtype (e.g. "mac", "local") and value.
+	IdType  string `protobuf:"bytes,7,opt,name=id_type,json=idType,proto3" json:"id_type,omitempty"`
+	IdValue string `protobuf:"bytes,8,opt,name=id_value,json=idValue,proto3" json:"id_value,omitempty"`
+	// Remote port id split into its LLDP subtype (e.g. "ifname") and value.
+	RemotePortType  string `protobuf:"bytes,9,opt,name=remote_port_type,json=remotePortType,proto3" json:"remote_port_type,omitempty"`
+	RemotePortValue string `protobuf:"bytes,10,opt,name=remote_port_value,json=remotePortValue,proto3" json:"remote_port_value,omitempty"`
+	// LLDP-MED inventory fields, when the neighbor advertises them.
+	Serial        *string `protobuf:"bytes,11,opt,name=serial,proto3,oneof" json:"serial,omitempty"`
+	Manufacturer  *string `protobuf:"bytes,12,opt,name=manufacturer,proto3,oneof" json:"manufacturer,omitempty"`
+	Model         *string `protobuf:"bytes,13,opt,name=model,proto3,oneof" json:"model,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1000,6 +1017,7 @@ func (x *LldpSwitchData) GetName() string {
 	return ""
 }
 
+// Deprecated: Marked as deprecated in machine_discovery_nico.proto.
 func (x *LldpSwitchData) GetId() string {
 	if x != nil {
 		return x.Id
@@ -1028,9 +1046,59 @@ func (x *LldpSwitchData) GetIpAddress() []string {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in machine_discovery_nico.proto.
 func (x *LldpSwitchData) GetRemotePort() string {
 	if x != nil {
 		return x.RemotePort
+	}
+	return ""
+}
+
+func (x *LldpSwitchData) GetIdType() string {
+	if x != nil {
+		return x.IdType
+	}
+	return ""
+}
+
+func (x *LldpSwitchData) GetIdValue() string {
+	if x != nil {
+		return x.IdValue
+	}
+	return ""
+}
+
+func (x *LldpSwitchData) GetRemotePortType() string {
+	if x != nil {
+		return x.RemotePortType
+	}
+	return ""
+}
+
+func (x *LldpSwitchData) GetRemotePortValue() string {
+	if x != nil {
+		return x.RemotePortValue
+	}
+	return ""
+}
+
+func (x *LldpSwitchData) GetSerial() string {
+	if x != nil && x.Serial != nil {
+		return *x.Serial
+	}
+	return ""
+}
+
+func (x *LldpSwitchData) GetManufacturer() string {
+	if x != nil && x.Manufacturer != nil {
+		return *x.Manufacturer
+	}
+	return ""
+}
+
+func (x *LldpSwitchData) GetModel() string {
+	if x != nil && x.Model != nil {
+		return *x.Model
 	}
 	return ""
 }
@@ -1456,17 +1524,28 @@ const file_machine_discovery_nico_proto_rawDesc = "" +
 	"\vdescription\x18\x05 \x01(\tH\x00R\vdescription\x88\x01\x01\x12\x17\n" +
 	"\x04slot\x18\x06 \x01(\tH\x01R\x04slot\x88\x01\x01B\x0e\n" +
 	"\f_descriptionB\a\n" +
-	"\x05_slot\"\xb5\x01\n" +
+	"\x05_slot\"\xce\x03\n" +
 	"\x0eLldpSwitchData\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id\x12 \n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x02id\x18\x02 \x01(\tB\x02\x18\x01R\x02id\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1d\n" +
 	"\n" +
 	"local_port\x18\x04 \x01(\tR\tlocalPort\x12\x1d\n" +
 	"\n" +
-	"ip_address\x18\x05 \x03(\tR\tipAddress\x12\x1f\n" +
-	"\vremote_port\x18\x06 \x01(\tR\n" +
-	"remotePort\"\xbd\x02\n" +
+	"ip_address\x18\x05 \x03(\tR\tipAddress\x12#\n" +
+	"\vremote_port\x18\x06 \x01(\tB\x02\x18\x01R\n" +
+	"remotePort\x12\x17\n" +
+	"\aid_type\x18\a \x01(\tR\x06idType\x12\x19\n" +
+	"\bid_value\x18\b \x01(\tR\aidValue\x12(\n" +
+	"\x10remote_port_type\x18\t \x01(\tR\x0eremotePortType\x12*\n" +
+	"\x11remote_port_value\x18\n" +
+	" \x01(\tR\x0fremotePortValue\x12\x1b\n" +
+	"\x06serial\x18\v \x01(\tH\x00R\x06serial\x88\x01\x01\x12'\n" +
+	"\fmanufacturer\x18\f \x01(\tH\x01R\fmanufacturer\x88\x01\x01\x12\x19\n" +
+	"\x05model\x18\r \x01(\tH\x02R\x05model\x88\x01\x01B\t\n" +
+	"\a_serialB\x0f\n" +
+	"\r_manufacturerB\b\n" +
+	"\x06_model\"\xbd\x02\n" +
 	"\aDpuData\x12\x1f\n" +
 	"\vpart_number\x18\x01 \x01(\tR\n" +
 	"partNumber\x12)\n" +
@@ -1573,6 +1652,7 @@ func file_machine_discovery_nico_proto_init() {
 	}
 	file_machine_discovery_nico_proto_msgTypes[0].OneofWrappers = []any{}
 	file_machine_discovery_nico_proto_msgTypes[10].OneofWrappers = []any{}
+	file_machine_discovery_nico_proto_msgTypes[11].OneofWrappers = []any{}
 	file_machine_discovery_nico_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
