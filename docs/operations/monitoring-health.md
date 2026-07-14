@@ -612,8 +612,7 @@ automatically when the object becomes healthy, loses the classification, or
 is deleted — entries are retained for the registry's hold period, which is
 configured slightly longer than the state controllers' `metric_hold_time`.
 
-Example: list hosts blocked from allocations by a hardware problem, or alert
-when hardware-unhealthy machines accumulate fleet-wide:
+For example, use the following PromQL query to list hosts blocked from allocations by a hardware problem, or alert when hardware-unhealthy machines accumulate fleet-wide:
 
 ```promql
 carbide_object_unhealthy_by_classification_count{object_type="machine",classification="Hardware",in_use="false"}
