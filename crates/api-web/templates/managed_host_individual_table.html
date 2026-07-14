@@ -22,6 +22,9 @@
 		<tr/>
 	</thead>
 	<tbody>
+	{% if hosts.is_empty() %}
+    	<tr><td colspan="15">No machines match the selected filters.</td></tr>
+	{% endif %}
 	{% for host in hosts %}
 		<tr>
 			<td>{{ host.machine_id|machine_id_link|safe }}</td>
