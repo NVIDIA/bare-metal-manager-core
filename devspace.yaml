@@ -294,10 +294,15 @@ hooks:
             "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}"
           ;;
         k3s-*)
-          echo "Loading images into k3s cluster..."
-          docker save "${runtime.images.nico-api.image}:${runtime.images.nico-api.tag}" | sudo k3s ctr images import -
-          docker save "${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag}" | sudo k3s ctr images import -
-          docker save "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}" | sudo k3s ctr images import -
+          # k3s in uses 'default' context by default.
+          # Rename it to match this pattern:
+          #  sudo kubectl config rename-context default k3s-nico
+          if command -v k3s &> /dev/null; then
+            echo "Loading images into k3s cluster..."
+            docker save "${runtime.images.nico-api.image}:${runtime.images.nico-api.tag}" | sudo k3s ctr images import -
+            docker save "${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag}" | sudo k3s ctr images import -
+            docker save "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}" | sudo k3s ctr images import -
+          fi
           ;;
         # Add new local K8s tools here
       esac
