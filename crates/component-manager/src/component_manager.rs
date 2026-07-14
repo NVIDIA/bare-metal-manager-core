@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use carbide_rack::firmware_object::rack_maintenance_access_token_key;
 use carbide_redfish::libredfish::RedfishClientPool;
@@ -85,8 +84,8 @@ pub enum RackMaintenanceRequestOutcome {
 }
 
 /// Credential to persist if this call wins the rack-maintenance scheduling
-/// race. The write happens while the rack row is locked so a losing concurrent
-/// request cannot replace or delete the winning request's token.
+/// race. It is written only after the scheduling transaction commits, so no
+/// database lock is held during the external credential-store operation.
 pub struct RackMaintenanceAccessToken<'a> {
     pub credential_manager: &'a dyn CredentialManager,
     pub token: String,
@@ -110,22 +109,19 @@ pub async fn request_rack_maintenance_via_state_controller(
     maintenance_access_token: Option<RackMaintenanceAccessToken<'_>>,
 ) -> Result<RackMaintenanceRequestOutcome, ComponentManagerError> {
     let rack_id = rack_id.clone();
-    let cleanup_rack_id = rack_id.clone();
-    let credential_manager = maintenance_access_token
-        .as_ref()
-        .map(|credential| credential.credential_manager);
-    let access_token = maintenance_access_token.map(|credential| credential.token);
-    let token_stored = Arc::new(AtomicBool::new(false));
-    let token_stored_in_txn = token_stored.clone();
+    let scheduled_scope = scope.clone();
+    let transaction_rack_id = rack_id.clone();
 
     let result = db_pool
         .with_txn(|txn| {
             Box::pin(async move {
-                let rack = db::rack::find_by_id_for_update(txn.as_mut(), &rack_id)
+                let rack = db::rack::find_by_id_for_update(txn.as_mut(), &transaction_rack_id)
                     .await
                     .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
                     .ok_or_else(|| {
-                        ComponentManagerError::NotFound(format!("rack {rack_id} not found"))
+                        ComponentManagerError::NotFound(format!(
+                            "rack {transaction_rack_id} not found"
+                        ))
                     })?;
 
                 if let Some(existing_scope) = rack.config.maintenance_requested.as_ref() {
@@ -147,26 +143,6 @@ pub async fn request_rack_maintenance_via_state_controller(
                     return Ok(RackMaintenanceRequestOutcome::Deferred { state });
                 }
 
-                if let Some(access_token) = access_token {
-                    let credential_manager = credential_manager
-                        .expect("an access token always carries its credential manager");
-                    credential_manager
-                        .set_credentials(
-                            &rack_maintenance_access_token_key(&rack_id),
-                            &Credentials::UsernamePassword {
-                                username: "access_token".into(),
-                                password: access_token,
-                            },
-                        )
-                        .await
-                        .map_err(|error| {
-                            ComponentManagerError::Internal(format!(
-                                "failed to store rack maintenance access token: {error}"
-                            ))
-                        })?;
-                    token_stored_in_txn.store(true, Ordering::Release);
-                }
-
                 let reset_firmware_upgrade_job =
                     scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
                         firmware_version: None,
@@ -175,14 +151,14 @@ pub async fn request_rack_maintenance_via_state_controller(
                     });
                 let mut config = rack.config;
                 config.maintenance_requested = Some(scope);
-                db::rack::update(txn.as_mut(), &rack_id, &config)
+                db::rack::update(txn.as_mut(), &transaction_rack_id, &config)
                     .await
                     .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
 
                 // Preserve the operator API's existing behavior, and keep this
                 // reset atomic with accepting the maintenance request.
                 if reset_firmware_upgrade_job {
-                    db::rack::update_firmware_upgrade_job(txn.as_mut(), &rack_id, None)
+                    db::rack::update_firmware_upgrade_job(txn.as_mut(), &transaction_rack_id, None)
                         .await
                         .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
                 }
@@ -192,45 +168,98 @@ pub async fn request_rack_maintenance_via_state_controller(
         })
         .await;
 
-    match result {
-        Ok(Ok(outcome)) => Ok(outcome),
-        Ok(Err(error)) => {
-            cleanup_rack_maintenance_access_token(
-                credential_manager,
-                token_stored.load(Ordering::Acquire),
-                &cleanup_rack_id,
-            )
-            .await;
-            Err(error)
-        }
-        Err(error) => {
-            cleanup_rack_maintenance_access_token(
-                credential_manager,
-                token_stored.load(Ordering::Acquire),
-                &cleanup_rack_id,
-            )
-            .await;
-            Err(ComponentManagerError::Internal(error.to_string()))
-        }
-    }
-}
+    let outcome = match result {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(error)) => return Err(error),
+        Err(error) => return Err(ComponentManagerError::Internal(error.to_string())),
+    };
 
-async fn cleanup_rack_maintenance_access_token(
-    credential_manager: Option<&dyn CredentialManager>,
-    token_stored: bool,
-    rack_id: &RackId,
-) {
-    if token_stored
-        && let Some(credential_manager) = credential_manager
+    if outcome == RackMaintenanceRequestOutcome::Scheduled
+        && let Some(RackMaintenanceAccessToken {
+            credential_manager,
+            token,
+        }) = maintenance_access_token
         && let Err(error) = credential_manager
-            .delete_credentials(&rack_maintenance_access_token_key(rack_id))
+            .set_credentials(
+                &rack_maintenance_access_token_key(&rack_id),
+                &Credentials::UsernamePassword {
+                    username: "access_token".into(),
+                    password: token,
+                },
+            )
             .await
     {
-        tracing::warn!(
-            rack_id = %rack_id,
-            error = %error,
-            "failed to delete rack maintenance access token after scheduling failure",
-        );
+        let recovery =
+            recover_rack_maintenance_after_credential_failure(db_pool, &rack_id, &scheduled_scope)
+                .await;
+        return Err(ComponentManagerError::Internal(match recovery {
+            Ok(recovery) => format!(
+                "failed to store rack maintenance access token: {error}; recovery: {recovery:?}"
+            ),
+            Err(recovery_error) => format!(
+                "failed to store rack maintenance access token: {error}; failed to recover maintenance request: {recovery_error}"
+            ),
+        }));
+    }
+
+    Ok(outcome)
+}
+
+#[derive(Debug)]
+enum RackMaintenanceCredentialRecovery {
+    Cleared,
+    RequestChanged,
+    ExecutionStarted,
+    RackNotFound,
+}
+
+async fn recover_rack_maintenance_after_credential_failure(
+    db_pool: &PgPool,
+    rack_id: &RackId,
+    scheduled_scope: &MaintenanceScope,
+) -> Result<RackMaintenanceCredentialRecovery, ComponentManagerError> {
+    let rack_id = rack_id.clone();
+    let scheduled_scope = scheduled_scope.clone();
+    let result = db_pool
+        .with_txn(|txn| {
+            Box::pin(async move {
+                let Some(mut rack) = db::rack::find_by_id_for_update(txn.as_mut(), &rack_id)
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                else {
+                    return Ok(RackMaintenanceCredentialRecovery::RackNotFound);
+                };
+
+                if rack.config.maintenance_requested.as_ref() != Some(&scheduled_scope) {
+                    return Ok(RackMaintenanceCredentialRecovery::RequestChanged);
+                }
+
+                let state = rack.controller_state.value.clone();
+                if !matches!(&state, RackState::Ready | RackState::Error { .. }) {
+                    // Once execution starts, clearing the scope would make the rack controller
+                    // interpret the default scope as "run all activities". Leave recovery to
+                    // its established missing-credential error path instead.
+                    tracing::warn!(
+                        rack_id = %rack_id,
+                        ?state,
+                        "rack maintenance started before credential storage failed; leaving cleanup to the rack state controller",
+                    );
+                    return Ok(RackMaintenanceCredentialRecovery::ExecutionStarted);
+                }
+
+                rack.config.maintenance_requested = None;
+                db::rack::update(txn.as_mut(), &rack_id, &rack.config)
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+                Ok(RackMaintenanceCredentialRecovery::Cleared)
+            })
+        })
+        .await;
+
+    match result {
+        Ok(Ok(recovery)) => Ok(recovery),
+        Ok(Err(error)) => Err(error),
+        Err(error) => Err(ComponentManagerError::Internal(error.to_string())),
     }
 }
 
@@ -475,7 +504,9 @@ pub async fn build_component_manager(
 
 #[cfg(test)]
 mod tests {
-    use carbide_secrets::credentials::{CredentialKey, CredentialReader};
+    use async_trait::async_trait;
+    use carbide_secrets::SecretsError;
+    use carbide_secrets::credentials::{CredentialKey, CredentialReader, CredentialWriter};
     use carbide_secrets::test_support::credentials::TestCredentialManager;
     use carbide_uuid::rack::RackId;
     use db::ObjectColumnFilter;
@@ -489,6 +520,45 @@ mod tests {
 
     use super::*;
     use crate::config::ComponentManagerConfig;
+
+    struct FailingCredentialManager;
+
+    #[async_trait]
+    impl CredentialReader for FailingCredentialManager {
+        async fn get_credentials(
+            &self,
+            _key: &CredentialKey,
+        ) -> Result<Option<Credentials>, SecretsError> {
+            Ok(None)
+        }
+    }
+
+    #[async_trait]
+    impl CredentialWriter for FailingCredentialManager {
+        async fn set_credentials(
+            &self,
+            _key: &CredentialKey,
+            _credentials: &Credentials,
+        ) -> Result<(), SecretsError> {
+            Err(SecretsError::GenericError(
+                std::io::Error::other("test credential write failure").into(),
+            ))
+        }
+
+        async fn create_credentials(
+            &self,
+            _key: &CredentialKey,
+            _credentials: &Credentials,
+        ) -> Result<(), SecretsError> {
+            unreachable!("test only exercises set_credentials")
+        }
+
+        async fn delete_credentials(&self, _key: &CredentialKey) -> Result<(), SecretsError> {
+            Ok(())
+        }
+    }
+
+    impl CredentialManager for FailingCredentialManager {}
 
     async fn create_rack_in_state(pool: &PgPool, state: RackState) -> RackId {
         let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
@@ -748,6 +818,60 @@ mod tests {
             load_rack(&pool, &firmware_rack)
                 .await
                 .firmware_upgrade_job
+                .is_none()
+        );
+
+        // Soft-deleted racks cannot accept new maintenance work.
+        let deleted_rack = create_rack_in_state(&pool, RackState::Ready).await;
+        let mut txn = pool.begin().await.unwrap();
+        db::rack::mark_as_deleted(&deleted_rack, txn.as_mut())
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+        assert!(matches!(
+            request_rack_maintenance_via_state_controller(
+                &pool,
+                &deleted_rack,
+                nmx_scope(),
+                RackMaintenanceEligibility::ReadyOnly,
+                None,
+            )
+            .await,
+            Err(ComponentManagerError::NotFound(_)),
+        ));
+
+        // Credential storage happens after commit. If it fails before the rack controller
+        // starts the request, the compensating transaction removes that exact request.
+        let credential_failure_rack = create_rack_in_state(&pool, RackState::Ready).await;
+        let credential_failure_scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: Some("{}".into()),
+                components: vec![],
+                force_update: false,
+            }],
+            ..Default::default()
+        };
+        let error = request_rack_maintenance_via_state_controller(
+            &pool,
+            &credential_failure_rack,
+            credential_failure_scope,
+            RackMaintenanceEligibility::ReadyOnly,
+            Some(RackMaintenanceAccessToken {
+                credential_manager: &FailingCredentialManager,
+                token: "test-token".into(),
+            }),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("recovery: Cleared"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            load_rack(&pool, &credential_failure_rack)
+                .await
+                .config
+                .maintenance_requested
                 .is_none()
         );
     }

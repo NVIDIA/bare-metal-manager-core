@@ -58,7 +58,7 @@ where
         .map_err(|e| DatabaseError::new(query.sql(), e))
 }
 
-/// Load one rack while holding a row lock until the caller's transaction
+/// Load one active rack while holding a row lock until the caller's transaction
 /// completes.
 ///
 /// Callers that make a read/check/write decision about rack state or config
@@ -69,7 +69,7 @@ pub async fn find_by_id_for_update(
     txn: &mut PgConnection,
     rack_id: &RackId,
 ) -> DatabaseResult<Option<Rack>> {
-    let query = "SELECT * FROM racks WHERE id = $1 FOR UPDATE";
+    let query = "SELECT * FROM racks WHERE id = $1 AND deleted IS NULL FOR UPDATE";
     sqlx::query_as(query)
         .bind(rack_id)
         .fetch_optional(txn)
