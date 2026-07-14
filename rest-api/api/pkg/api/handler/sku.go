@@ -75,7 +75,7 @@ func (gash GetAllSkuHandler) Handle(c echo.Context) error {
 	}
 
 	// Validate role, only Provider Admins/Viewers or Tenant Admins with TargetedInstanceCreation capability are allowed to retrieve SKUs
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -103,7 +103,7 @@ func (gash GetAllSkuHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request data is does not belong to current org", nil)
 		}
 	} else if tenant != nil {
-		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gash.dbSession, tenant, site)
+		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gash.dbSession, tenant, common.SiteScope(site))
 		if err != nil {
 			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)
@@ -221,7 +221,7 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 	}
 
 	// Validate role, only Provider Admins/Viewers or Tenant Admins with TargetedInstanceCreation capability are allowed to retrieve SKUs
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -260,7 +260,7 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "SKU does not belong to a Site owned by current org", nil)
 		}
 	} else if tenant != nil {
-		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, site)
+		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, common.SiteScope(site))
 		if err != nil {
 			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)

@@ -204,8 +204,8 @@ func testMachineEnableTenantAccountTargetedInstanceCreation(t *testing.T, dbSess
 
 	_, err = taDAO.Update(context.Background(), nil, cdbm.TenantAccountUpdateInput{
 		TenantAccountID: tas[0].ID,
-		Config: &cdbm.TenantAccountConfigUpdateInput{
-			TargetedInstanceCreation: cutil.GetPtr(true),
+		Config: &cdbm.TenantAccountConfig{
+			TargetedInstanceCreation: true,
 		},
 	})
 	assert.Nil(t, err)
@@ -3477,7 +3477,7 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 			expectedStatus: http.StatusForbidden,
 		},
 		{
-			name:           "non-privileged tenant is rejected (requirePrivilegedTenant=true)",
+			name:           "non-privileged tenant is rejected (requirePrivilegedScope set)",
 			reqOrgName:     tnOrgRegular,
 			user:           tnuRegular,
 			mID:            mWithDpu.ID,

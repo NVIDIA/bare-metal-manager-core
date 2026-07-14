@@ -626,7 +626,7 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 	type args struct {
 		id                  uuid.UUID
 		enableSerialConsole *bool
-		config              *TenantSiteConfigUpdateInput
+		config              *TenantSiteConfig
 	}
 
 	// OTEL Spanner configuration
@@ -661,7 +661,7 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 			},
 			args: args{
 				id:     ts.ID,
-				config: &TenantSiteConfigUpdateInput{TargetedInstanceCreation: cutil.GetPtr(true)},
+				config: &TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)},
 			},
 			want: &TenantSite{
 				ID:     ts.ID,
@@ -705,24 +705,13 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 
 		tssd := TenantSiteSQLDAO{dbSession: dbSession}
 		got, err := tssd.Update(ctx, nil, TenantSiteUpdateInput{
-			TenantSiteID:                   tsWithOverride.ID,
-			RemoveTargetedInstanceCreation: true,
+			TenantSiteID: tsWithOverride.ID,
+			Config:       &TenantSiteConfig{},
 		})
 		assert.NoError(t, err)
 		assert.Nil(t, got.Config.TargetedInstanceCreation)
 	})
 
-	t.Run("reject config merge with removal", func(t *testing.T) {
-		tssd := TenantSiteSQLDAO{dbSession: dbSession}
-		_, err := tssd.Update(ctx, nil, TenantSiteUpdateInput{
-			TenantSiteID: ts.ID,
-			Config: &TenantSiteConfigUpdateInput{
-				TargetedInstanceCreation: cutil.GetPtr(true),
-			},
-			RemoveTargetedInstanceCreation: true,
-		})
-		assert.ErrorIs(t, err, db.ErrInvalidParams)
-	})
 }
 
 func TestTenantSiteSQLDAO_Delete(t *testing.T) {

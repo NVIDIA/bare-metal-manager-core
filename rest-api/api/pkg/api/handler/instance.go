@@ -1103,7 +1103,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 		// Begin validating Machine ID
 		if apiRequest.MachineID != nil {
-			privilegedAccess, derr := common.TenantHasTargetedInstanceCreation(ctx, tx, cih.dbSession, tenant, site)
+			privilegedAccess, derr := common.TenantHasTargetedInstanceCreation(ctx, tx, cih.dbSession, tenant, common.SiteScope(site))
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Site")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to verify capability for Site", nil)
@@ -5227,9 +5227,9 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 		// capability. By the time `ToProto` runs the request is safe
 		// to trust.
 		if apiRequest.IsRepairTenant != nil && *apiRequest.IsRepairTenant {
-			enabledForSite, derr := common.TenantHasTargetedInstanceCreation(ctx, tx, dih.dbSession, instance.Tenant, &cdbm.Site{
-				ID:                       instance.SiteID,
-				InfrastructureProviderID: instance.InfrastructureProviderID,
+			enabledForSite, derr := common.TenantHasTargetedInstanceCreation(ctx, tx, dih.dbSession, instance.Tenant, &common.TenantPrivilegeScope{
+				SiteID:                   &instance.SiteID,
+				InfrastructureProviderID: &instance.InfrastructureProviderID,
 			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Instance's Site")

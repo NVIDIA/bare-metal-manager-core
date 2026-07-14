@@ -161,8 +161,8 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 	} else if !tas[0].Config.TargetedInstanceCreation {
 		_, serr = taDAO.Update(ctx, nil, cdbm.TenantAccountUpdateInput{
 			TenantAccountID: tas[0].ID,
-			Config: &cdbm.TenantAccountConfigUpdateInput{
-				TargetedInstanceCreation: cutil.GetPtr(true),
+			Config: &cdbm.TenantAccountConfig{
+				TargetedInstanceCreation: true,
 			},
 		})
 		if serr != nil {

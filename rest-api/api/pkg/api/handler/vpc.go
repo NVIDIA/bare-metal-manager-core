@@ -238,7 +238,7 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	if apiRequest.RoutingProfile != nil {
 		// For now, we gate on TargetedInstanceCreation permission,
 		// which must be effective for the VPC's Site.
-		enabledForSite, derr := common.TenantHasTargetedInstanceCreation(ctx, nil, cvh.dbSession, tenant, site)
+		enabledForSite, derr := common.TenantHasTargetedInstanceCreation(ctx, nil, cvh.dbSession, tenant, common.SiteScope(site))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Site")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify privileges for Site", nil)

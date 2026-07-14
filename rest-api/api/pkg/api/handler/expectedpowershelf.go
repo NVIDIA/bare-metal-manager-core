@@ -71,7 +71,7 @@ func (cepsh CreateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cepsh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cepsh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -248,7 +248,7 @@ func (gaepsh GetAllExpectedPowerShelfHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaepsh.dbSession, org, dbUser, true, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaepsh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -405,7 +405,7 @@ func (gepsh GetExpectedPowerShelfHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gepsh.dbSession, org, dbUser, true, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gepsh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -513,7 +513,7 @@ func (uepsh UpdateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uepsh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uepsh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -683,7 +683,7 @@ func (depsh DeleteExpectedPowerShelfHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, depsh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, depsh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

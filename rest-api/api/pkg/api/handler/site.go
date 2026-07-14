@@ -324,7 +324,7 @@ func (ush UpdateSiteHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, ush.dbSession, org, dbUser, false, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, ush.dbSession, org, dbUser, false, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -593,7 +593,7 @@ func (gsh GetSiteHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -651,7 +651,7 @@ func (gsh GetSiteHandler) Handle(c echo.Context) error {
 		}
 
 		if !isAssociated {
-			enabled, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, st)
+			enabled, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, common.SiteScope(st))
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site, DB error", nil)
@@ -748,7 +748,7 @@ func (gash GetAllSiteHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, errMsg, nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -1155,7 +1155,7 @@ func (gssdh GetSiteStatusDetailsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gssdh.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gssdh.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return c.JSON(apiErr.Code, apiErr)
 	}
@@ -1199,7 +1199,7 @@ func (gssdh GetSiteStatusDetailsHandler) Handle(c echo.Context) error {
 		}
 
 		if !isAssociated {
-			enabled, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gssdh.dbSession, tenant, st)
+			enabled, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gssdh.dbSession, tenant, common.SiteScope(st))
 			if serr != nil {
 				logger.Error().Err(serr).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site, DB error", nil)

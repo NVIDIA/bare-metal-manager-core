@@ -111,14 +111,7 @@ var (
 // TenantAccountConfig holds provider-scoped configuration for a TenantAccount.
 // Fields must stay flat so jsonb partial merge works.
 type TenantAccountConfig struct {
-	EnableSSHAccess          bool `json:"enableSshAccess"`
 	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
-}
-
-// TenantAccountConfigUpdateInput carries partial updates for tenant_account.config.
-type TenantAccountConfigUpdateInput struct {
-	EnableSSHAccess          *bool `json:"enableSshAccess,omitempty"`
-	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
 }
 
 // TenantAccount represents a tenant account - the relationship between a Tenant and an Infrastructure Provider
@@ -167,7 +160,7 @@ type TenantAccountUpdateInput struct {
 	SubscriptionTier *string
 	TenantContactID  *uuid.UUID
 	Status           *string
-	Config           *TenantAccountConfigUpdateInput
+	Config           *TenantAccountConfig
 }
 
 // TenantAccountFilterInput filtering options for GetAll and GetCount method, including SearchQuery for filtering by account or tenant org

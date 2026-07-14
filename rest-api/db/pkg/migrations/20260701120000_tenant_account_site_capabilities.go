@@ -19,40 +19,10 @@ type legacyTenantSiteConfigRow struct {
 	Config        map[string]interface{} `bun:"config,type:jsonb"`
 }
 
-func tenantSiteConfigFromLegacy(raw map[string]interface{}) model.TenantSiteConfig {
-	cfg := model.TenantSiteConfig{}
-	if raw == nil {
-		return cfg
-	}
-
-	if v, ok := raw["targetedInstanceCreation"]; ok {
-		if enabled, ok := v.(bool); ok {
-			cfg.TargetedInstanceCreation = &enabled
-		}
-	}
-
-	return cfg
-}
-
-func normalizeTenantSiteConfigUpMigration(ctx context.Context, tx bun.Tx) error {
-	legacyRows := []legacyTenantSiteConfigRow{}
-	err := tx.NewSelect().Model(&legacyRows).Scan(ctx)
-	if err != nil {
-		return err
-	}
-
-	for _, row := range legacyRows {
-		normalized := tenantSiteConfigFromLegacy(row.Config)
-		_, err = tx.NewUpdate().Model(&model.TenantSite{
-			ID:     row.ID,
-			Config: normalized,
-		}).Column("config").WherePK().Exec(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+type legacyTenantConfigRow struct {
+	bun.BaseModel `bun:"table:tenant,alias:t"`
+	ID            uuid.UUID              `bun:"id,pk,type:uuid"`
+	Config        map[string]interface{} `bun:"config,type:jsonb"`
 }
 
 func init() {
@@ -66,37 +36,67 @@ func init() {
 			ColumnExpr("config JSONB NOT NULL DEFAULT '{}'::jsonb").Exec(ctx)
 		handleError(tx, err)
 
-		_, err = tx.Exec(`
-			UPDATE tenant_account ta
-			SET config = jsonb_set(COALESCE(ta.config, '{}'::jsonb), '{targetedInstanceCreation}', 'true'::jsonb, true)
-			FROM tenant t
-			WHERE ta.tenant_id = t.id
-			  AND COALESCE(t.config->>'targetedInstanceCreation', 'false') = 'true'
-		`)
+		// Backfill tenant_account.config from each Tenant's legacy tenant.config.
+		// Only Ready accounts inherit the flag; Tenants without an explicit
+		// targetedInstanceCreation value leave their accounts at the '{}' default.
+		tenantRows := []legacyTenantConfigRow{}
+		err = tx.NewSelect().Model(&tenantRows).Scan(ctx)
 		handleError(tx, err)
 
-		_, err = tx.Exec(`
-			UPDATE tenant_account ta
-			SET config = jsonb_set(COALESCE(ta.config, '{}'::jsonb), '{enableSshAccess}', 'true'::jsonb, true)
-			FROM tenant t
-			WHERE ta.tenant_id = t.id
-			  AND COALESCE(t.config->>'enableSshAccess', 'false') = 'true'
-			  AND COALESCE(ta.config->>'enableSshAccess', 'false') != 'true'
-		`)
+		for _, row := range tenantRows {
+			rawVal, ok := row.Config["targetedInstanceCreation"]
+			if !ok {
+				continue
+			}
+			enabled, ok := rawVal.(bool)
+			if !ok {
+				continue
+			}
+
+			_, err = tx.NewUpdate().
+				Model((*model.TenantAccount)(nil)).
+				Set("config = jsonb_set(COALESCE(config, '{}'::jsonb), '{targetedInstanceCreation}', to_jsonb(?::boolean), true)", enabled).
+				Where("tenant_id = ?", row.ID).
+				Where("status = ?", model.TenantAccountStatusReady).
+				Exec(ctx)
+			handleError(tx, err)
+		}
+
+		// Normalize tenant_site.config to the current TenantSiteConfig shape.
+		legacyRows := []legacyTenantSiteConfigRow{}
+		err = tx.NewSelect().Model(&legacyRows).Scan(ctx)
 		handleError(tx, err)
 
-		err = normalizeTenantSiteConfigUpMigration(ctx, tx)
-		handleError(tx, err)
+		for _, row := range legacyRows {
+			normalized := model.TenantSiteConfig{}
+			if row.Config != nil {
+				if v, ok := row.Config["targetedInstanceCreation"]; ok {
+					if enabled, ok := v.(bool); ok {
+						normalized.TargetedInstanceCreation = &enabled
+					}
+				}
+			}
 
-		_, err = tx.NewDropColumn().Model((*model.Tenant)(nil)).Column("config").Exec(ctx)
-		handleError(tx, err)
+			_, err = tx.NewUpdate().Model(&model.TenantSite{
+				ID:     row.ID,
+				Config: normalized,
+			}).Column("config").WherePK().Exec(ctx)
+			handleError(tx, err)
+		}
+
+		// Intentionally NOT dropping tenant.config here. During a rolling
+		// deployment the migration lands before all API pods are updated, and
+		// previous-release pods still SELECT tenant.config. Dropping it now
+		// would break those in-flight pods. The column is left in place
+		// (Tenant.Config is scanonly/deprecated) and a later release removes it
+		// once no supported API version reads it.
 
 		terr = tx.Commit()
 		if terr != nil {
 			handlePanic(terr, "failed to commit transaction")
 		}
 
-		fmt.Print(" [up migration] Moved tenant capabilities to tenant_account.config, normalized tenant_site.config, and dropped tenant.config")
+		fmt.Print(" [up migration] Moved tenant capabilities to Ready tenant_account.config and normalized tenant_site.config (tenant.config retained for rolling-deploy compatibility)")
 		return nil
 	}, func(ctx context.Context, db *bun.DB) error {
 		fmt.Print(" [down migration] tenant_account.config")

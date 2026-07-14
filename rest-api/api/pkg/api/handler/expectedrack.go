@@ -71,7 +71,7 @@ func (cerh CreateExpectedRackHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cerh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cerh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -247,7 +247,7 @@ func (gaerh GetAllExpectedRackHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaerh.dbSession, org, dbUser, true, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaerh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -404,7 +404,7 @@ func (gerh GetExpectedRackHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gerh.dbSession, org, dbUser, true, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gerh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -510,7 +510,7 @@ func (uerh UpdateExpectedRackHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uerh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uerh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -693,7 +693,7 @@ func (derh DeleteExpectedRackHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, derh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, derh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -821,7 +821,7 @@ func (raerh ReplaceAllExpectedRacksHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, raerh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, raerh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -986,7 +986,7 @@ func (daerh DeleteAllExpectedRacksHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, daerh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, daerh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

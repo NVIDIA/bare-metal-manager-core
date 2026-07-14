@@ -93,7 +93,7 @@ func (h MachinePowerControlHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
-	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, true)
+	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

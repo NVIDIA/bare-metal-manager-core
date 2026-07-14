@@ -84,7 +84,7 @@ func (h ResetMachineBMCHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}
 
-	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, true)
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

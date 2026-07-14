@@ -71,7 +71,7 @@ func (cesh CreateExpectedSwitchHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cesh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cesh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -275,7 +275,7 @@ func (gaesh GetAllExpectedSwitchHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaesh.dbSession, org, dbUser, true, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaesh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -432,7 +432,7 @@ func (gesh GetExpectedSwitchHandler) Handle(c echo.Context) error {
 	}
 
 	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gesh.dbSession, org, dbUser, true, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gesh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -540,7 +540,7 @@ func (uesh UpdateExpectedSwitchHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uesh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uesh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -739,7 +739,7 @@ func (desh DeleteExpectedSwitchHandler) Handle(c echo.Context) error {
 	}
 
 	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, desh.dbSession, org, dbUser, false, true)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, desh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

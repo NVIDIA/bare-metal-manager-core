@@ -12,7 +12,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/uptrace/bun"
 )
 
@@ -34,11 +33,6 @@ var (
 // TenantSiteConfig holds per-tenant-site configuration. Fields must stay flat so
 // jsonb partial merge works.
 type TenantSiteConfig struct {
-	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
-}
-
-// TenantSiteConfigUpdateInput carries partial updates for tenant_site.config.
-type TenantSiteConfigUpdateInput struct {
 	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
 }
 
@@ -71,10 +65,9 @@ type TenantSiteCreateInput struct {
 
 // TenantSiteUpdateInput input parameters for Update method
 type TenantSiteUpdateInput struct {
-	TenantSiteID                   uuid.UUID
-	EnableSerialConsole            *bool
-	Config                         *TenantSiteConfigUpdateInput
-	RemoveTargetedInstanceCreation bool
+	TenantSiteID        uuid.UUID
+	EnableSerialConsole *bool
+	Config              *TenantSiteConfig
 }
 
 type TenantSiteFilterInput struct {
@@ -297,10 +290,6 @@ func (tssd TenantSiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input Tenant
 
 	// Validate mutually exclusive inputs before applying any write so a
 	// rejected request cannot leave the row partially updated.
-	if input.Config != nil && input.RemoveTargetedInstanceCreation {
-		return nil, errors.Wrap(db.ErrInvalidParams, "Config and RemoveTargetedInstanceCreation are mutually exclusive")
-	}
-
 	updatedFields := []string{}
 
 	if input.EnableSerialConsole != nil {
@@ -318,24 +307,25 @@ func (tssd TenantSiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input Tenant
 		}
 	}
 
-	switch {
-	case input.Config != nil:
-		_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().
-			Model(ts).
-			Set("config = config || ?::jsonb, updated = current_timestamp", input.Config).
-			Where("id = ?", input.TenantSiteID).
-			Exec(ctx)
-		if err != nil {
-			return nil, err
-		}
-	case input.RemoveTargetedInstanceCreation:
-		_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().
-			Model(ts).
-			Set("config = config - 'targetedInstanceCreation', updated = current_timestamp").
-			Where("id = ?", input.TenantSiteID).
-			Exec(ctx)
-		if err != nil {
-			return nil, err
+	if input.Config != nil {
+		if input.Config.TargetedInstanceCreation != nil {
+			_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().
+				Model(ts).
+				Set("config = config || ?::jsonb, updated = current_timestamp", input.Config).
+				Where("id = ?", input.TenantSiteID).
+				Exec(ctx)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			_, err := db.GetIDB(tx, tssd.dbSession).NewUpdate().
+				Model(ts).
+				Set("config = config - 'targetedInstanceCreation', updated = current_timestamp").
+				Where("id = ?", input.TenantSiteID).
+				Exec(ctx)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

@@ -52,6 +52,19 @@ type TenantUpdateInput struct {
 	OrgDisplayName *string
 }
 
+// TenantConfig captures legacy per-Tenant capability flags.
+//
+// Deprecated: Tenant capabilities now live on TenantAccount.config
+// (provider-scoped) and TenantSite.config (per-site overrides). This type and
+// the Tenant.Config column it maps are retained only so that, during a rolling
+// deployment, API pods still running the previous release can keep reading the
+// column after the capability migration has run. Do not add new readers or
+// writers; remove once no supported release reads tenant.config.
+type TenantConfig struct {
+	EnableSSHAccess          bool `json:"enableSshAccess"`
+	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
+}
+
 // Tenant represents entries in the tenant table
 type Tenant struct {
 	bun.BaseModel `bun:"table:tenant,alias:tn"`
@@ -61,10 +74,14 @@ type Tenant struct {
 	DisplayName    *string    `bun:"display_name"`
 	Org            string     `bun:"org,notnull"`
 	OrgDisplayName *string    `bun:"org_display_name"`
-	Created        time.Time  `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated        time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted        *time.Time `bun:"deleted,soft_delete"`
-	CreatedBy      uuid.UUID  `bun:"type:uuid,notnull"`
+	// Deprecated: superseded by TenantAccount.config and TenantSite.config.
+	// Kept as scanonly so new code never writes it (the DB DEFAULT applies on
+	// insert) while the column survives for older API pods mid-deployment.
+	Config    *TenantConfig `bun:"config,type:jsonb,scanonly"`
+	Created   time.Time     `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated   time.Time     `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted   *time.Time    `bun:"deleted,soft_delete"`
+	CreatedBy uuid.UUID     `bun:"type:uuid,notnull"`
 }
 
 // ToCreateRequestProto builds a CreateTenantRequest proto for sending this Tenant

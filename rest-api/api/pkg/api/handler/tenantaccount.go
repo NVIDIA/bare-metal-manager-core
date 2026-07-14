@@ -324,7 +324,7 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 		filterTenantIDs = []uuid.UUID{id}
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gatah.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gatah.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
@@ -537,7 +537,7 @@ func (gtah GetTenantAccountHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not retrieve Tenant Account to update", nil)
 	}
 
-	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gtah.dbSession, org, dbUser, true, false)
+	provider, tenant, apiErr := common.IsProviderOrTenant(ctx, logger, gtah.dbSession, org, dbUser, true, nil)
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
@@ -830,8 +830,8 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 
 		_, derr = taDAO.Update(ctx, tx, cdbm.TenantAccountUpdateInput{
 			TenantAccountID: taID,
-			Config: &cdbm.TenantAccountConfigUpdateInput{
-				TargetedInstanceCreation: globalVal,
+			Config: &cdbm.TenantAccountConfig{
+				TargetedInstanceCreation: *globalVal,
 			},
 		})
 		if derr != nil {
@@ -872,7 +872,7 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 
 			_, derr = tsDAO.Update(ctx, tx, cdbm.TenantSiteUpdateInput{
 				TenantSiteID: ts.ID,
-				Config: &cdbm.TenantSiteConfigUpdateInput{
+				Config: &cdbm.TenantSiteConfig{
 					TargetedInstanceCreation: cutil.GetPtr(limitedUpdates[siteID]),
 				},
 			})
@@ -901,8 +901,8 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 				continue
 			}
 			_, derr = tsDAO.Update(ctx, tx, cdbm.TenantSiteUpdateInput{
-				TenantSiteID:                   ts.ID,
-				RemoveTargetedInstanceCreation: true,
+				TenantSiteID: ts.ID,
+				Config:       &cdbm.TenantSiteConfig{},
 			})
 			if derr != nil {
 				logger.Error().Err(derr).Msg("error clearing stale TenantSite capability override")
