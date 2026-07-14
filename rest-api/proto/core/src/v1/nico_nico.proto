@@ -2784,8 +2784,8 @@ message IpxeTemplateArtifact {
   optional string cached_url = 7;           // Local cached URL, set by nico-core on successful download. If present overrides 'url' at boot time.
 }
 
-// Scope for iPXE script templates.
-enum IpxeTemplateScope {
+// Visibility for iPXE script templates.
+enum IpxeTemplateVisibility {
   INTERNAL = 0;  // NICo-core usage only
   PUBLIC = 1;    // Usable by tenant
 }
@@ -2798,8 +2798,10 @@ message IpxeTemplate {
   string description = 4;
   repeated string reserved_params = 5;  // Reserved for nico-core to provide at render time
   repeated string required_artifacts = 6;  // Error if these artifacts are not provided or empty
-  IpxeTemplateScope scope = 7;  // INTERNAL = nico-core only, PUBLIC = tenant-usable
+  reserved 7;  // formerly `IpxeTemplateScope scope`; renamed to `visibility` and moved to 9
+  reserved "scope";  // old field name; do not reuse
   common.IpxeTemplateId id = 8;  // Stable UUID, hardcoded in templates.yaml; consistent across all sites
+  IpxeTemplateVisibility visibility = 9;  // INTERNAL = nico-core only, PUBLIC = tenant-usable
 }
 
 // Tenant related configuration that is set once the instance is allocated
