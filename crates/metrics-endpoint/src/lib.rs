@@ -30,6 +30,7 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions as semconv;
+use prometheus::proto::MetricFamily;
 use prometheus::{Encoder, TextEncoder};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -86,6 +87,16 @@ pub struct MetricsSetup {
 struct MetricsHandlerState {
     registry: prometheus::Registry,
     health_controller: HealthController,
+    additional_prefix: Option<PrefixMigration>,
+}
+
+/// An old/new prefix pair: metric families whose name starts with `old` are
+/// re-exposed under `new` as well, so scrapers on either name keep working
+/// through a rename migration.
+#[derive(Debug, Clone)]
+pub struct PrefixMigration {
+    pub old: String,
+    pub new: String,
 }
 
 /// Configuration for the metrics endpoint
@@ -93,6 +104,13 @@ pub struct MetricsEndpointConfig {
     pub address: SocketAddr,
     pub registry: prometheus::Registry,
     pub health_controller: Option<HealthController>,
+    /// When set, the `/metrics` exposition additionally emits every metric family
+    /// whose name starts with `.old` under a copy renamed to use `.new` in place of
+    /// that prefix, so the same series appear under both names. This supports a
+    /// gradual metric-rename migration where series are published under both an old
+    /// and a new prefix for a time. Defaults to `None`, in which case the exposition
+    /// is unchanged.
+    pub additional_prefix: Option<PrefixMigration>,
 }
 
 pub fn new_metrics_setup(
@@ -156,8 +174,23 @@ fn create_metric_view_for_retry_histograms(
     )
 }
 
-/// Start a HTTP endpoint which exposes metrics using the provided configuration
+/// Start a HTTP endpoint which exposes metrics using the provided configuration.
+///
+/// The endpoint runs until the process exits. Callers that need to stop it (for
+/// example on graceful shutdown) should use [`run_metrics_endpoint_with_cancellation`].
 pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), std::io::Error> {
+    run_metrics_endpoint_with_cancellation(config, CancellationToken::new()).await
+}
+
+/// Start a HTTP endpoint which exposes metrics and runs until `cancel_token` is
+/// cancelled.
+///
+/// This binds `config.address`; callers that have already bound a listener can use
+/// [`run_metrics_endpoint_with_listener`] directly.
+pub async fn run_metrics_endpoint_with_cancellation(
+    config: &MetricsEndpointConfig,
+    cancel_token: CancellationToken,
+) -> Result<(), std::io::Error> {
     let listener = TcpListener::bind(&config.address).await?;
 
     tracing::info!(
@@ -165,7 +198,7 @@ pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), 
         "Starting metrics listener"
     );
 
-    run_metrics_endpoint_with_listener(config, CancellationToken::new(), listener).await;
+    run_metrics_endpoint_with_listener(config, cancel_token, listener).await;
     Ok(())
 }
 
@@ -178,6 +211,7 @@ pub async fn run_metrics_endpoint_with_listener(
     let handler_state = Arc::new(MetricsHandlerState {
         registry: config.registry.clone(),
         health_controller: config.health_controller.clone().unwrap_or_default(),
+        additional_prefix: config.additional_prefix.clone(),
     });
 
     while let Some(result) = cancel_token.run_until_cancelled(listener.accept()).await {
@@ -210,6 +244,43 @@ pub async fn run_metrics_endpoint_with_listener(
     }
 }
 
+/// Encode the registry's metric families in the Prometheus text exposition format.
+///
+/// When `additional_prefix` is `Some(PrefixMigration { old, new })`, every gathered
+/// family whose name starts with `old` is additionally emitted under a copy whose name
+/// has that prefix replaced by `new`, so the same series appear under both names. When
+/// `None`, the output is exactly `TextEncoder` over `registry.gather()`.
+fn encode_metrics(
+    registry: &prometheus::Registry,
+    additional_prefix: Option<&PrefixMigration>,
+) -> Vec<u8> {
+    let mut buffer = vec![];
+    let encoder = TextEncoder::new();
+    let mut metric_families = registry.gather();
+
+    if let Some(PrefixMigration { old, new }) = additional_prefix {
+        let alt_name_families: Vec<MetricFamily> = metric_families
+            .iter()
+            .filter_map(|family| {
+                if !family.name().starts_with(old) {
+                    return None;
+                }
+
+                let mut alt_name_family = family.clone();
+                alt_name_family.set_name(family.name().replacen(old, new, 1));
+                Some(alt_name_family)
+            })
+            .collect();
+
+        if !alt_name_families.is_empty() {
+            metric_families.extend(alt_name_families);
+        }
+    }
+
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+    buffer
+}
+
 /// Metrics request handler
 fn handle_metrics_request(
     req: Request<body::Incoming>,
@@ -217,14 +288,11 @@ fn handle_metrics_request(
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
-            let mut buffer = vec![];
-            let encoder = TextEncoder::new();
-            let metric_families = state.registry.gather();
-            encoder.encode(&metric_families, &mut buffer).unwrap();
+            let buffer = encode_metrics(&state.registry, state.additional_prefix.as_ref());
 
             Response::builder()
                 .status(200)
-                .header(CONTENT_TYPE, encoder.format_type())
+                .header(CONTENT_TYPE, TextEncoder::new().format_type())
                 .header(CONTENT_LENGTH, buffer.len())
                 .body(Full::new(Bytes::from(buffer)))
                 .unwrap()
@@ -355,5 +423,125 @@ mod tests {
         controller.set_healthy(true);
         assert!(controller.is_ready());
         assert!(controller.is_healthy());
+    }
+
+    /// Builds a deterministic registry with two `carbide_`-prefixed families plus
+    /// one unprefixed family, for exercising the `/metrics` exposition.
+    fn sample_registry() -> prometheus::Registry {
+        let registry = prometheus::Registry::new();
+
+        let requests = prometheus::Counter::with_opts(prometheus::Opts::new(
+            "carbide_requests_total",
+            "Total number of requests",
+        ))
+        .unwrap();
+        requests.inc_by(3.0);
+        registry.register(Box::new(requests)).unwrap();
+
+        let queue_depth = prometheus::Gauge::with_opts(prometheus::Opts::new(
+            "carbide_queue_depth",
+            "Current queue depth",
+        ))
+        .unwrap();
+        queue_depth.set(7.0);
+        registry.register(Box::new(queue_depth)).unwrap();
+
+        let other = prometheus::Counter::with_opts(prometheus::Opts::new(
+            "other_events_total",
+            "Other events",
+        ))
+        .unwrap();
+        other.inc();
+        registry.register(Box::new(other)).unwrap();
+
+        registry
+    }
+
+    /// With `additional_prefix` unset, the exposition must be byte-for-byte what
+    /// the pre-change handler produced: a plain `TextEncoder` over `gather()`.
+    #[test]
+    fn test_additional_prefix_none_is_byte_identical() {
+        let registry = sample_registry();
+
+        let mut expected = vec![];
+        TextEncoder::new()
+            .encode(&registry.gather(), &mut expected)
+            .unwrap();
+
+        let actual = encode_metrics(&registry, None);
+
+        assert_eq!(
+            actual, expected,
+            "None must reproduce the pre-change exposition exactly"
+        );
+    }
+
+    /// With `additional_prefix` set, each matching family is emitted under both the
+    /// original and the alternate prefix; non-matching families are left untouched.
+    #[test]
+    fn test_additional_prefix_duplicates_matching_families() {
+        let registry = sample_registry();
+        let prefixes = PrefixMigration {
+            old: "carbide_".to_string(),
+            new: "nico_".to_string(),
+        };
+
+        let out = String::from_utf8(encode_metrics(&registry, Some(&prefixes))).unwrap();
+
+        // Original families remain, unchanged.
+        assert!(out.contains("# HELP carbide_requests_total Total number of requests"));
+        assert!(out.contains("# TYPE carbide_requests_total counter"));
+        assert!(out.contains("\ncarbide_requests_total 3"));
+        assert!(out.contains("# TYPE carbide_queue_depth gauge"));
+        assert!(out.contains("\ncarbide_queue_depth 7"));
+
+        // Alternate-prefixed copies carry identical HELP/TYPE/value.
+        assert!(out.contains("# HELP nico_requests_total Total number of requests"));
+        assert!(out.contains("# TYPE nico_requests_total counter"));
+        assert!(out.contains("\nnico_requests_total 3"));
+        assert!(out.contains("# TYPE nico_queue_depth gauge"));
+        assert!(out.contains("\nnico_queue_depth 7"));
+
+        // A family that does not match the old prefix is not duplicated.
+        assert!(!out.contains("nico_other_events_total"));
+        assert_eq!(out.matches("other_events_total 1").count(), 1);
+
+        // Two matching families -> two extra HELP lines (3 original + 2 alternate).
+        assert_eq!(out.matches("# HELP ").count(), 5);
+
+        // The alternate copies are appended after the originals.
+        assert!(
+            out.find("carbide_requests_total 3").unwrap()
+                < out.find("nico_requests_total 3").unwrap()
+        );
+    }
+
+    /// The cancel-token entry point binds, serves, and then returns promptly once
+    /// the token is cancelled.
+    #[tokio::test]
+    async fn test_cancellation_shuts_down_server() {
+        let config = MetricsEndpointConfig {
+            address: "127.0.0.1:0".parse().unwrap(),
+            registry: prometheus::Registry::new(),
+            health_controller: None,
+            additional_prefix: None,
+        };
+
+        let cancel_token = CancellationToken::new();
+        let server_token = cancel_token.clone();
+        let server = tokio::spawn(async move {
+            run_metrics_endpoint_with_cancellation(&config, server_token).await
+        });
+
+        // Let the server bind and start accepting before we cancel it.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        cancel_token.cancel();
+
+        let joined = tokio::time::timeout(std::time::Duration::from_secs(5), server).await;
+        let result = joined.expect("server did not shut down within timeout");
+        assert!(
+            result.expect("server task panicked").is_ok(),
+            "cancelled server should return Ok"
+        );
     }
 }
