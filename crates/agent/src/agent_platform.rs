@@ -115,7 +115,7 @@ impl ManagedFile {
 fn safe_copy(destination_path: &Path, source_path: &Path) -> eyre::Result<()> {
     let destination_dirname = destination_path.parent().ok_or_else(|| {
         eyre!(
-            "Couldn't determine directory name of destination file {d}",
+            "couldn't determine directory name of destination file {d}",
             d = destination_path.display()
         )
     })?;
@@ -157,7 +157,7 @@ fn safe_copy(destination_path: &Path, source_path: &Path) -> eyre::Result<()> {
 fn safe_write(destination_path: &Path, contents: &[u8]) -> eyre::Result<()> {
     let destination_dirname = destination_path.parent().ok_or_else(|| {
         eyre!(
-            "Couldn't determine directory name of destination file {d}",
+            "couldn't determine directory name of destination file {d}",
             d = destination_path.display()
         )
     })?;
@@ -238,7 +238,7 @@ pub mod containerd {
             let c = self
                 .get_connection_channel()
                 .await
-                .context("Can't connect to containerd socket")?;
+                .context("can't connect to containerd socket")?;
 
             let mut images_client = ImagesClient::new(c);
 
@@ -252,7 +252,7 @@ pub mod containerd {
             let response = images_client
                 .list(request)
                 .await
-                .context("Can't list images")?
+                .context("can't list images")?
                 .into_inner();
             Ok(response.images)
         }

@@ -175,7 +175,7 @@ pub(crate) async fn batch_allocate(
 
     if batch_request.instance_requests.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "Batch request must contain at least one instance".to_string(),
+            "batch request must contain at least one instance".to_string(),
         )
         .into());
     }
@@ -1035,7 +1035,7 @@ pub(crate) async fn invoke_power(
 
                     // TODO: What does this error actually mean
                     CarbideError::internal(
-                        "Internal Failure. Try again after some time.".to_string(),
+                        "internal failure. try again after some time".to_string(),
                     )
                 })?;
         }
@@ -1053,7 +1053,7 @@ pub(crate) async fn invoke_power(
                     );
 
                     CarbideError::internal(
-                        "Internal Failure. Try again after some time.".to_string(),
+                        "internal failure. try again after some time".to_string(),
                     )
                 })?;
         }
@@ -1146,7 +1146,7 @@ pub(crate) async fn update_operating_system(
 
     if instance.deleted.is_some() {
         return Err(CarbideError::InvalidArgument(
-            "Configuration for a terminating instance can not be changed".to_string(),
+            "configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
     }
@@ -1251,7 +1251,7 @@ pub(crate) async fn update_instance_config(
         .unwrap_or(true)
     {
         return Err(CarbideError::InvalidArgument(
-            "Configuration for a terminating instance can not be changed".to_string(),
+            "configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
     }
@@ -1313,7 +1313,7 @@ pub(crate) async fn update_instance_config(
 
         if service_ids.len() != unique_service_ids.len() {
             return Err(CarbideError::InvalidArgument(
-                "Duplicate extension services in configuration. Only one version of each service is allowed.".to_string()
+                "duplicate extension services in configuration. only one version of each service is allowed".to_string()
             )
                 .into());
         }

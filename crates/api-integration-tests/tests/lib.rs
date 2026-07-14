@@ -1004,7 +1004,7 @@ async fn assert_auto_instance_network(
     );
     eyre::ensure!(
         network["autoConfig"]["vpcId"]["value"] == flat_vpc_id,
-        "instance {instance_id} did not retain Flat VPC {flat_vpc_id}: {network}"
+        "instance {instance_id} did not retain flat VPC {flat_vpc_id}: {network}"
     );
 
     let status_interfaces = instance["status"]["network"]["interfaces"]
@@ -1027,7 +1027,7 @@ async fn assert_auto_instance_network(
                         .as_array()
                         .is_some_and(|values| !values.is_empty())
             }),
-        "instance {instance_id} status does not contain resolved Flat VPC networking: {status_interfaces:?}"
+        "instance {instance_id} status does not contain resolved flat VPC networking: {status_interfaces:?}"
     );
     eyre::ensure!(
         instance["status"]["network"]["configsSynced"] == "SYNCED",
@@ -1432,7 +1432,7 @@ where
         .carbide_api_addrs
         .first()
         .copied()
-        .context("No carbide API addresses configured")?;
+        .context("no carbide API addresses configured")?;
     let additional_api_urls = test_env.carbide_api_addrs[1..]
         .iter()
         .map(|a| format!("https://{}:{}", a.ip(), a.port()))

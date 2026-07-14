@@ -33,7 +33,7 @@ mod test_find_by_address;
 /// Returned by allocation paths with `AddressSelectionStrategy::StaticAddress`
 /// when the target IP is already held by some other interface.
 #[derive(thiserror::Error, Debug)]
-#[error("Address already in use: {0} by {1} in network segment {2} (Interface: {3})")]
+#[error("address already in use: {0} by {1} in network segment {2} (interface: {3})")]
 pub struct AddressAlreadyInUseError(
     pub IpAddr,
     pub MacAddress,

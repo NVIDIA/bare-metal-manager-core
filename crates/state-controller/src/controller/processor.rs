@@ -583,13 +583,13 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum IterationError {
-    #[error("Unable to perform database transaction: {0}")]
+    #[error("unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
-    #[error("Unable to perform database transaction: {0}")]
+    #[error("unable to perform database transaction: {0}")]
     DatabaseError(#[from] DatabaseError),
     #[error("A task panicked: {0}")]
     Panic(#[from] tokio::task::JoinError),
-    #[error("State handler error: {0}")]
+    #[error("state handler error: {0}")]
     StateHandlerError(#[from] StateHandlerError),
 }
 

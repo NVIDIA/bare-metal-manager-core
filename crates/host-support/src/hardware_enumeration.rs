@@ -56,15 +56,15 @@ const NVIDIA_VENDOR_DRIVER: &str = "nvidia";
 
 #[derive(thiserror::Error, Debug)]
 pub enum HardwareEnumerationError {
-    #[error("Hardware enumeration error: {0}")]
+    #[error("hardware enumeration error: {0}")]
     GenericError(String),
-    #[error("Udev failed with error: {0}")]
+    #[error("udev failed with error: {0}")]
     UdevError(#[from] libudev::Error),
-    #[error("Udev string {0} is not a valid MAC address")]
+    #[error("udev string {0} is not a valid MAC address")]
     InvalidMacAddress(String),
     #[error("{0}")]
     UnsupportedCpuArchitecture(String),
-    #[error("Command error {0}")]
+    #[error("command error {0}")]
     CmdError(#[from] CmdError),
 }
 

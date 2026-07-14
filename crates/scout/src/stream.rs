@@ -34,17 +34,17 @@ use crate::{client, mlx_device};
 pub enum ScoutStreamError {
     #[error("gRPC error: {0}")]
     Grpc(#[from] tonic::Status),
-    #[error("Transport error: {0}")]
+    #[error("transport error: {0}")]
     Transport(#[from] tonic::transport::Error),
-    #[error("Profile error: {0}")]
+    #[error("profile error: {0}")]
     Profile(#[from] MlxProfileError),
-    #[error("Connection lost")]
+    #[error("connection lost")]
     ConnectionLost,
-    #[error("Invalid request: {0}")]
+    #[error("invalid request: {0}")]
     InvalidRequest(String),
-    #[error("Invalid URI: {0}")]
+    #[error("invalid URI: {0}")]
     InvalidUri(#[from] http::uri::InvalidUri),
-    #[error("Client initialization error: {0}")]
+    #[error("client initialization error: {0}")]
     ClientError(String),
 }
 

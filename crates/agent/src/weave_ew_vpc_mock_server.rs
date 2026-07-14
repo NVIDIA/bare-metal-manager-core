@@ -306,7 +306,7 @@ pub async fn serve(socket_path: &Path) -> eyre::Result<()> {
         ))
         .serve_with_incoming(stream)
         .await
-        .map_err(|e| eyre::eyre!("Weave EW VPC mock server error: {e}"))?;
+        .map_err(|e| eyre::eyre!("weave EW VPC mock server error: {e}"))?;
 
     Ok(())
 }

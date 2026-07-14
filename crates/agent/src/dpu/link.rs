@@ -55,7 +55,7 @@ impl IpLink {
 
             std::fs::read_to_string(test_data_dir.join("iplink.json")).map_err(|e| {
                 error!(error = %e, "Could not read iplink.json");
-                eyre::eyre!("Could not read iplink.json: {}", e)
+                eyre::eyre!("could not read iplink.json: {}", e)
             })
         } else {
             let mut cmd = tokio::process::Command::new("bash");

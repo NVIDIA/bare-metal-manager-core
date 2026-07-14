@@ -23,7 +23,7 @@ pub type OtelView = Box<dyn Fn(&Instrument) -> Option<Stream> + Send + Sync + 's
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Error building opentelemetry View: {0}")]
+    #[error("error building opentelemetry view: {0}")]
     ViewBuilding(#[from] NewViewError),
 }
 
@@ -81,7 +81,7 @@ pub fn new_view(
 
 #[derive(thiserror::Error, Debug)]
 pub enum NewViewError {
-    #[error("Metrics view name {name:?} is an invalid glob: {error}")]
+    #[error("metrics view name {name:?} is an invalid glob: {error}")]
     Glob {
         name: &'static str,
         error: glob::PatternError,

@@ -45,11 +45,11 @@ pub enum PxeResponse {
 
 #[derive(thiserror::Error, Debug)]
 pub enum PxeError {
-    #[error("API Client error running PXE request: {0}")]
+    #[error("API client error running PXE request: {0}")]
     ClientApi(#[from] ClientApiError),
-    #[error("PXE Request failed with status: {0}")]
+    #[error("PXE request failed with status: {0}")]
     PxeRequest(#[from] tonic::Status),
-    #[error("Error sending PXE request: {0}")]
+    #[error("error sending PXE request: {0}")]
     Reqwest(#[from] reqwest::Error),
 }
 

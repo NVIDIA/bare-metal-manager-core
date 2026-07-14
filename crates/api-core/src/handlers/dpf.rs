@@ -38,7 +38,7 @@ pub(crate) async fn modify_dpf_state(
     log_machine_id(&machine_id);
 
     if machine_id.machine_type().is_dpu() {
-        return Err(CarbideError::InvalidArgument("Only host id is expected!!".to_string()).into());
+        return Err(CarbideError::InvalidArgument("only host id is expected!!".to_string()).into());
     }
 
     let mut txn = api.txn_begin().await?;
@@ -79,7 +79,7 @@ pub(crate) async fn get_dpf_state(
     for machine_id in &request.machine_ids {
         if machine_id.machine_type().is_dpu() {
             return Err(
-                CarbideError::InvalidArgument("Only host id is expected!!".to_string()).into(),
+                CarbideError::InvalidArgument("only host id is expected!!".to_string()).into(),
             );
         }
     }
@@ -112,7 +112,7 @@ pub(crate) async fn get_dpf_host_snapshot(
     log_machine_id(&machine_id);
 
     if machine_id.machine_type().is_dpu() {
-        return Err(CarbideError::InvalidArgument("Only host id is expected".to_string()).into());
+        return Err(CarbideError::InvalidArgument("only host id is expected".to_string()).into());
     }
 
     let Some(ops) = api.dpf_sdk.as_ref() else {

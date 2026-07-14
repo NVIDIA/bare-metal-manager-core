@@ -270,7 +270,7 @@ impl PrefixAllocator {
 
         loop {
             let Some(next_address) = allocator_itr.next() else {
-                return Err(CarbideError::internal("Prefix exhausted.".to_string()));
+                return Err(CarbideError::internal("prefix exhausted".to_string()));
             };
 
             if !used_prefixes

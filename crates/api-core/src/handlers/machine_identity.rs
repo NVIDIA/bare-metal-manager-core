@@ -44,7 +44,7 @@ use crate::machine_identity::{
 pub(crate) fn require_machine_identity_site_enabled(api: &Api) -> Result<(), Status> {
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::InvalidArgument(
-            "Machine identity must be enabled in site config".to_string(),
+            "machine identity must be enabled in site config".to_string(),
         )
         .into());
     }
@@ -147,7 +147,7 @@ pub(crate) async fn sign_machine_identity(
 
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::UnavailableError(
-            "Machine identity is disabled in site config".into(),
+            "machine identity is disabled in site config".into(),
         )
         .into());
     }
@@ -155,11 +155,11 @@ pub(crate) async fn sign_machine_identity(
     let auth_context = request
         .extensions()
         .get::<AuthContext>()
-        .ok_or_else(|| Status::unauthenticated("No authentication context found"))?;
+        .ok_or_else(|| Status::unauthenticated("no authentication context found"))?;
 
     let machine_id_str = auth_context
         .get_spiffe_machine_id()
-        .ok_or_else(|| Status::unauthenticated("No machine identity in client certificate"))?;
+        .ok_or_else(|| Status::unauthenticated("no machine identity in client certificate"))?;
 
     tracing::info!(machine_id = %machine_id_str, "Processing machine identity request");
 

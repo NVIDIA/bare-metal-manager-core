@@ -1194,7 +1194,7 @@ impl MachineStateHandler {
                                     .clone()
                                     .ok_or_else(|| {
                                         StateHandlerError::GenericError(eyre::eyre!(
-                                            "could not find job ID in the Create BOSS Volume Context"
+                                            "could not find job ID in the create BOSS volume context"
                                         ))
                                     })?;
 
@@ -2324,7 +2324,7 @@ impl StateHandler for MachineStateHandler {
         {
             tracing::error!(machine_id = %host_machine_id, "No DPU snapshot found for host");
             return Err(StateHandlerError::GenericError(eyre!(
-                "No DPU snapshot found."
+                "no DPU snapshot found"
             )));
         }
 
@@ -3317,7 +3317,7 @@ async fn handle_dpu_reprovision(
                         );
 
                         return Err(StateHandlerError::GenericError(eyre!(
-                            "Failed to reset BMC for {}; redfish error: {redfish_error}; ipmitool error: {ipmitool_error}",
+                            "failed to reset BMC for {}; redfish error: {redfish_error}; ipmitool error: {ipmitool_error}",
                             &state.host_snapshot.id
                         )));
                     };
@@ -3608,7 +3608,7 @@ async fn check_fw_component_version(
             .iter()
             .find(|i| i.contains(component_name))
             .ok_or(StateHandlerError::FirmwareUpdateError(eyre!(
-                "No inventory found that matches redfish component name: {component_name}; inventory list: {inventories:#?}",
+                "no inventory found that matches redfish component name: {component_name}; inventory list: {inventories:#?}",
             )))?;
 
         let inventory = match redfish_client.get_firmware(inventory_id).await {
@@ -4764,7 +4764,7 @@ fn get_reboot_cycle(
 ) -> Result<i64, StateHandlerError> {
     if next_potential_reboot_time <= entered_state_at {
         return Err(StateHandlerError::GenericError(eyre::eyre!(
-            "Poorly configured paramters: next_potential_reboot_time: {}, entered_state_at: {}, wait_period: {}",
+            "poorly configured paramters: next_potential_reboot_time: {}, entered_state_at: {}, wait_period: {}",
             next_potential_reboot_time,
             entered_state_at,
             wait_period.num_minutes()
@@ -4841,7 +4841,7 @@ fn map_boot_interface_resolution<W>(
             "Waiting for zero-DPU host {host_id} to discover its boot NIC before {activity}."
         )))),
         BootInterfaceResolution::Missing => Err(StateHandlerError::GenericError(eyre::eyre!(
-            "Missing boot interface for host: {host_id}"
+            "missing boot interface for host: {host_id}"
         ))),
     }
 }
@@ -6047,7 +6047,7 @@ impl StateHandler for HostMachineStateHandler {
 
                                     // TODO: power the host back on as a workaround. Lets wait and see if we can root cause why a host was powere off here.
                                     return Err(StateHandlerError::GenericError(eyre!(
-                                        "Host {} is powered off while waiting for DPU to report UP",
+                                        "host {} is powered off while waiting for DPU to report UP",
                                         mh_snapshot.host_snapshot.id
                                     )));
                                 }
@@ -6205,7 +6205,7 @@ impl StateHandler for InstanceStateHandler {
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
         let Some(ref instance) = mh_snapshot.instance else {
             return Err(StateHandlerError::GenericError(eyre!(
-                "Instance is empty at this point. Cleanup is needed for host: {}.",
+                "instance is empty at this point. cleanup is needed for host: {}",
                 host_machine_id
             )));
         };
@@ -7351,7 +7351,7 @@ async fn handle_instance_network_config_update_request(
 
             let Some(update_request) = &instance.update_network_config_request else {
                 return Err(StateHandlerError::GenericError(eyre::eyre!(
-                    "Network config update request is missing from db. instance: {}",
+                    "network config update request is missing from db. instance: {}",
                     instance.id
                 )));
             };
@@ -7430,7 +7430,7 @@ async fn handle_instance_network_config_update_request(
             // Free the update_network_config_request field.
             let Some(update_request) = &instance.update_network_config_request else {
                 return Err(StateHandlerError::GenericError(eyre::eyre!(
-                    "Network config update request is missing from db. instance: {}",
+                    "network config update request is missing from db. instance: {}",
                     instance.id
                 )));
             };
@@ -7539,7 +7539,7 @@ fn check_instance_network_synced_and_dpu_healthy(
     let dpu_machine_ids: Vec<MachineId> = if use_primary_dpu_only {
         if legacy_physical_interface_count != 1 {
             return Err(StateHandlerError::GenericError(eyre!(
-                "More than one interface configured when only the primary dpu is allowed"
+                "more than one interface configured when only the primary dpu is allowed"
             )));
         }
         // allow primary dpu to be used when using one config with no device_locators
@@ -7553,14 +7553,14 @@ fn check_instance_network_synced_and_dpu_healthy(
             Some(primary_dpu_id) => vec![primary_dpu_id],
             None => {
                 return Err(StateHandlerError::GenericError(eyre!(
-                    "Could not find primary dpu id"
+                    "could not find primary dpu id"
                 )));
             }
         }
     } else {
         if maps.0.is_empty() || maps.1.is_empty() {
             return Err(StateHandlerError::GenericError(eyre!(
-                "No interface device locators for when using multiple interfaces"
+                "no interface device locators for when using multiple interfaces"
             )));
         }
 
@@ -8341,7 +8341,7 @@ impl HostUpgradeState {
                 } => (*firmware_type, firmware_number.unwrap_or(0)),
                 _ => {
                     return Err(StateHandlerError::GenericError(eyre!(
-                        "Wrong enum in host_checking_fw_noclear"
+                        "wrong enum in host_checking_fw_noclear"
                     )));
                 }
             };
@@ -8390,7 +8390,7 @@ impl HostUpgradeState {
                 )
                 .map_err(|error| {
                     StateHandlerError::GenericError(eyre!(
-                        "failed to resolve Scout firmware script for vendor={}, model={}, component={}: {error}",
+                        "failed to resolve scout firmware script for vendor={}, model={}, component={}: {error}",
                         fw_info.vendor,
                         fw_info.model,
                         firmware_type
@@ -8601,12 +8601,12 @@ impl HostUpgradeState {
                 },
                 Ok(None) => {
                     return Err(StateHandlerError::GenericError(eyre!(
-                        "No BMC credentials exists"
+                        "no BMC credentials exists"
                     )));
                 }
                 Err(e) => {
                     return Err(StateHandlerError::GenericError(eyre!(
-                        "Unable to get BMC credentials: {e}"
+                        "unable to get BMC credentials: {e}"
                     )));
                 }
             }
@@ -8813,7 +8813,7 @@ impl HostUpgradeState {
                 let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::Off {
                     return Err(StateHandlerError::GenericError(eyre!(
-                        "Host {} did not turn off when requested",
+                        "host {} did not turn off when requested",
                         state.host_snapshot.id
                     )));
                 }
@@ -8842,7 +8842,7 @@ impl HostUpgradeState {
                 let status = get_power_state(redfish_client.as_ref()).await?;
                 if status != PowerState::On {
                     return Err(StateHandlerError::GenericError(eyre!(
-                        "Host {} did not turn on when requested",
+                        "host {} did not turn on when requested",
                         state.host_snapshot.id
                     )));
                 }
@@ -9033,7 +9033,7 @@ impl HostUpgradeState {
             ),
             _ => {
                 return Err(StateHandlerError::GenericError(eyre!(
-                    "Wrong enum in waiting_for_upload"
+                    "wrong enum in waiting_for_upload"
                 )));
             }
         };
@@ -9148,7 +9148,7 @@ impl HostUpgradeState {
             ),
             _ => {
                 return Err(StateHandlerError::GenericError(eyre!(
-                    "Wrong enum in host_waiting_fw"
+                    "wrong enum in host_waiting_fw"
                 )));
             }
         };
@@ -9417,7 +9417,7 @@ impl HostUpgradeState {
             ),
             _ => {
                 return Err(StateHandlerError::GenericError(eyre!(
-                    "Wrong enum in host_reset_for_new_firmware"
+                    "wrong enum in host_reset_for_new_firmware"
                 )));
             }
         };
@@ -9614,7 +9614,7 @@ impl HostUpgradeState {
                 ),
                 _ => {
                     return Err(StateHandlerError::GenericError(eyre!(
-                        "Wrong enum in host_new_firmware_reported_wait"
+                        "wrong enum in host_new_firmware_reported_wait"
                     )));
                 }
             };
@@ -10095,7 +10095,7 @@ fn handle_boss_controller_job_error(
         };
 
         return Err(StateHandlerError::GenericError(eyre::eyre!(
-            "We have gone through {} iterations of trying to {action} the BOSS controller; Waiting for manual intervention: {err}",
+            "we have gone through {} iterations of trying to {action} the BOSS controller; waiting for manual intervention: {err}",
             iterations
         )));
     }
@@ -10633,7 +10633,7 @@ pub async fn find_explored_refreshed_endpoint(
         .into_iter()
         .next()
         .ok_or(StateHandlerError::GenericError(
-            eyre! {"Unable to find explored_endpoint for {machine_id}"},
+            eyre! {"unable to find explored_endpoint for {machine_id}"},
         ))?;
 
     if endpoint.waiting_for_explorer_refresh {
@@ -11756,7 +11756,7 @@ async fn set_host_boot_order(
 
             if time_since_state_change.num_minutes() < CHECK_BOOT_ORDER_TIMEOUT_MINUTES {
                 return Err(StateHandlerError::GenericError(eyre::eyre!(
-                    "Boot order is not configured properly for host {} after SetBootOrder completed (retry_count: {}, max_retries: {}, time_in_state: {} minutes)",
+                    "boot order is not configured properly for host {} after SetBootOrder completed (retry_count: {}, max_retries: {}, time_in_state: {} minutes)",
                     mh_snapshot.host_snapshot.id,
                     retry_count,
                     max_retries,

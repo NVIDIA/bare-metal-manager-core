@@ -217,7 +217,7 @@ pub async fn search(
     tenant_prefix_id
         .map(|_| -> Result<(), CarbideError> {
             Err(CarbideError::InvalidArgument(
-                "Searching on tenant_prefix_id is currently unsupported".to_owned(),
+                "searching on tenant_prefix_id is currently unsupported".to_owned(),
             ))
         })
         .transpose()?;

@@ -88,7 +88,7 @@ fn find_scout_script_in(
 
     if !root.is_dir() {
         bail!(
-            "Scout firmware script root is not a directory: {}",
+            "scout firmware script root is not a directory: {}",
             root.display()
         );
     }
@@ -102,12 +102,12 @@ fn find_scout_script_in(
     }
 
     if !script_path.is_file() {
-        bail!("missing Scout firmware script {}", script_path.display());
+        bail!("missing scout firmware script {}", script_path.display());
     }
 
     if !metadata_path.is_file() {
         bail!(
-            "missing Scout firmware script metadata {}",
+            "missing scout firmware script metadata {}",
             metadata_path.display()
         );
     }
@@ -122,7 +122,7 @@ fn find_scout_script_in(
     })?;
 
     if script.is_empty() {
-        bail!("Scout firmware script is empty: {}", script_path.display());
+        bail!("scout firmware script is empty: {}", script_path.display());
     }
 
     Ok(Some(ScoutFirmwareScript {
@@ -433,7 +433,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("missing Scout firmware script metadata")
+                .contains("missing scout firmware script metadata")
         );
     }
 

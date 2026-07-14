@@ -371,7 +371,7 @@ pub(crate) async fn create_admin_vpc(
 ) -> Result<(), CarbideError> {
     let Some(vpc_vni) = vpc_vni else {
         return Err(CarbideError::internal(
-            "No VNI is configured for admin VPC.".to_string(),
+            "no VNI is configured for admin VPC".to_string(),
         ));
     };
 

@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 
     let crd_paths = discover_yaml_files(&crd_dir)?;
     if crd_paths.is_empty() {
-        bail!("No CRD YAML files found in {}", crd_dir.display());
+        bail!("no CRD YAML files found in {}", crd_dir.display());
     }
 
     let generator = kopium::TypeGenerator::builder()
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
         let module_name = format!("{}_generated", crd.spec.names.plural.to_lowercase());
         if !generated_modules.insert(module_name.clone()) {
             bail!(
-                "Duplicate generated module name '{}' while processing {}",
+                "duplicate generated module name '{}' while processing {}",
                 module_name,
                 crd_path.display()
             );

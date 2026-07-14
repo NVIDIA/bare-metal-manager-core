@@ -98,7 +98,7 @@ async fn main() -> Result<(), eyre::Report> {
 
             DnsServer::run(config)
                 .await
-                .wrap_err("Failed to start DNS service")?;
+                .wrap_err("failed to start DNS service")?;
         }
     }
 
@@ -164,13 +164,13 @@ pub struct RunCommand {
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
-    #[error("Invalid listening address {addr}: {error}")]
+    #[error("invalid listening address {addr}: {error}")]
     InvalidListeningAddress { addr: String, error: AddrParseError },
-    #[error("Invalid metrics address {addr}: {error}")]
+    #[error("invalid metrics address {addr}: {error}")]
     InvalidMetricsAddress { addr: String, error: AddrParseError },
-    #[error("Invalid URI: {uri}: {error}")]
+    #[error("invalid URI: {uri}: {error}")]
     InvalidUri { uri: String, error: InvalidUri },
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     Config(#[from] ConfigError),
 }
 

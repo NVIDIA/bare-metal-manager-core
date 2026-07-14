@@ -1201,7 +1201,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
         }
 
         _ => Err(CarbideError::InvalidArgument(
-            "Provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
+            "provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
         )),
     }
 }

@@ -112,7 +112,7 @@ async fn handle_rotate_os_password(
         .await
         .map_err(|e| {
             StateHandlerError::GenericError(eyre::eyre!(
-                "Switch {:?}: failed to record nvos rotation convergence: {}",
+                "switch {:?}: failed to record nvos rotation convergence: {}",
                 switch_id,
                 e
             ))
@@ -160,7 +160,7 @@ async fn handle_rotate_os_password(
             .await
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Switch {:?}: failed to store NVOS credentials in vault: {}",
+                    "switch {:?}: failed to store NVOS credentials in vault: {}",
                     switch_id,
                     e
                 ))

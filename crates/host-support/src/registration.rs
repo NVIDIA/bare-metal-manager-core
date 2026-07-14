@@ -28,17 +28,17 @@ use tryhard::RetryFutureConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RegistrationError {
-    #[error("Transport error {0}")]
+    #[error("transport error {0}")]
     TransportError(String),
-    #[error("Tonic status error {0}")]
+    #[error("tonic status error {0}")]
     TonicStatusError(#[from] tonic::Status),
-    #[error("Missing machine id in API server response. Should be impossible")]
+    #[error("missing machine id in API server response. should be impossible")]
     MissingMachineId,
-    #[error("Attestation failed")]
+    #[error("attestation failed")]
     AttestationFailed,
-    #[error("Failed to retrieve or write client certificate: {0}")]
+    #[error("failed to retrieve or write client certificate: {0}")]
     ClientCertificateError(eyre::Report),
-    #[error("Missing certificate in DiscoverMachine reply")]
+    #[error("missing certificate in DiscoverMachine reply")]
     MissingCertificate,
 }
 

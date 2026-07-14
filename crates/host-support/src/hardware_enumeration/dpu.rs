@@ -31,11 +31,11 @@ const LLDP_PORTS: &[&str] = &["p0", "p1", "oob_net0"];
 
 #[derive(thiserror::Error, Debug)]
 pub enum DpuEnumerationError {
-    #[error("Failed reading basic DPU info: {0}")]
+    #[error("failed reading basic DPU info: {0}")]
     BasicInfo(String),
-    #[error("Regex error {0}")]
+    #[error("regex error {0}")]
     Regex(#[from] regex::Error),
-    #[error("Command error {0}")]
+    #[error("command error {0}")]
     Cmd(#[from] CmdError),
     #[error("DPU enumeration failed reading '{0}': {1}")]
     Read(&'static str, String),

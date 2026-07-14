@@ -91,9 +91,9 @@ pub async fn request_ip(
 
 #[derive(thiserror::Error, Debug)]
 pub enum DhcpRelayError {
-    #[error("Client API error: {0}")]
+    #[error("client API error: {0}")]
     ClientApiError(#[from] ClientApiError),
-    #[error("Invalid DHCP record: {0}")]
+    #[error("invalid DHCP record: {0}")]
     InvalidDhcpRecord(String),
 }
 

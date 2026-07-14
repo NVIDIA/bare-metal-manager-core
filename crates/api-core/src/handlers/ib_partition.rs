@@ -79,7 +79,7 @@ pub(crate) async fn create(
             // The 'RowNotFound' error means that the number of existing partitions exceeded the limit
             // and no insert was performed.
             CarbideError::InvalidArgument(
-                "Maximum Limit of Infiniband partitions had been reached".into(),
+                "maximum limit of infiniband partitions had been reached".into(),
             )
         } else {
             CarbideError::from(e)
@@ -140,7 +140,7 @@ pub(crate) async fn update(
 
     if config.tenant_organization_id != partition.config.tenant_organization_id.to_string() {
         return Err(CarbideError::InvalidArgument(
-            "Tenant organization ID should not be updated".to_string(),
+            "tenant organization ID should not be updated".to_string(),
         )
         .into());
     }
@@ -154,7 +154,7 @@ pub(crate) async fn update(
         let cur_pkey = partition.status.as_ref().and_then(|s| s.pkey);
         if req_pkey != cur_pkey {
             return Err(CarbideError::InvalidArgument(
-                "Partition key cannot be updated".to_string(),
+                "partition key cannot be updated".to_string(),
             )
             .into());
         }

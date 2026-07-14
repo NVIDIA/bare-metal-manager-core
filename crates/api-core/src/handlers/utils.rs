@@ -26,7 +26,7 @@ pub fn convert_and_log_machine_id(id: Option<&MachineId>) -> Result<MachineId, C
     let machine_id = match id {
         Some(id) => *id,
         None => {
-            return Err(CarbideError::MissingArgument("Machine ID"));
+            return Err(CarbideError::MissingArgument("machine ID"));
         }
     };
     log_machine_id(&machine_id);

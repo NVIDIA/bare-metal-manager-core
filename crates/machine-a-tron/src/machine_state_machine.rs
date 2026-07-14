@@ -1151,40 +1151,40 @@ impl Display for MaybeOsImage {
 #[derive(thiserror::Error, Debug)]
 pub enum MachineStateError {
     #[error(
-        "Invalid Machine state: Missing interface_id for this machine in machine discovery results"
+        "invalid machine state: missing interface_id for this machine in machine discovery results"
     )]
     MissingInterfaceId,
     #[error(
-        "Invalid Machine state: Missing machine_id for this machine in machine discovery results"
+        "invalid machine state: missing machine_id for this machine in machine discovery results"
     )]
     MissingMachineId,
-    #[error("No mac addresses specified for machine")]
+    #[error("no mac addresses specified for machine")]
     NoMachineMacAddress,
-    #[error("No DHCP info for BMC. This is bug.")]
+    #[error("no DHCP info for BMC. this is bug")]
     NoBmcDhcpInfo,
-    #[error("No DHCP info for machine. This is bug.")]
+    #[error("no DHCP info for machine. this is bug")]
     NoMachineDhcpInfo,
-    #[error("Error configuring listening address: {0}")]
+    #[error("error configuring listening address: {0}")]
     ListenAddressConfigError(#[from] AddressConfigError),
-    #[error("Could not find certificates at {0}")]
+    #[error("could not find certificates at {0}")]
     MissingCertificates(String),
-    #[error("Error calling forge API: {0}")]
+    #[error("error calling forge API: {0}")]
     ClientApi(#[from] ClientApiError),
-    #[error("Failed to get DHCP address: {0:?}")]
+    #[error("failed to get DHCP address: {0:?}")]
     DhcpError(#[from] DhcpRelayError),
     #[error("DPU DHCP relay is unavailable")]
     DpuDhcpRelayUnavailable,
-    #[error("Failed to get PXE response: {0}")]
+    #[error("failed to get PXE response: {0}")]
     PxeError(#[from] PxeError),
     #[error("BMC mock TLS error: {0}")]
     BmcMockTls(#[from] bmc_mock::tls::Error),
     #[error("failed to start IPMI simulator: {0}")]
     IpmiSim(#[from] bmc_mock::ipmi_sim::Error),
-    #[error("Mock SSH server error: {0}")]
+    #[error("mock SSH server error: {0}")]
     MockSshServer(String),
     #[error("{0}")]
     WrongOsForMachine(String),
-    #[error("Machine not found: {0}")]
+    #[error("machine not found: {0}")]
     MachineNotFound(MachineId),
 }
 impl From<tonic::Status> for MachineStateError {
@@ -1194,9 +1194,9 @@ impl From<tonic::Status> for MachineStateError {
 }
 #[derive(thiserror::Error, Debug)]
 pub enum AddressConfigError {
-    #[error("Error running ip command: {0}")]
+    #[error("error running ip command: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Error running ip command: {0:?}, output: {1:?}")]
+    #[error("error running ip command: {0:?}, output: {1:?}")]
     CommandFailure(Box<tokio::process::Command>, std::process::Output),
 }
 

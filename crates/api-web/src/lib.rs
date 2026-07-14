@@ -415,7 +415,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
         }
         "basic" => {
             return Err(eyre::eyre!(
-                "{AUTH_TYPE_ENV}=basic is not supported. Use \"none\" (default; secure the UI with network controls or an auth proxy) or \"oauth2\" (SSO via Entra)."
+                "{AUTH_TYPE_ENV}=basic is not supported. use \"none\" (default; secure the UI with network controls or an auth proxy) or \"oauth2\" (SSO via entra)"
             ));
         }
         other => {

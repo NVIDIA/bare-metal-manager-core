@@ -324,7 +324,7 @@ pub mod tests {
         )
         .await?
         .pop()
-        .ok_or_else(|| eyre::eyre!("Machine not found: {}", machine_id))
+        .ok_or_else(|| eyre::eyre!("machine not found: {}", machine_id))
     }
 
     /// Helper: Clear the SKU status/timestamp on a machine to allow re-matching
@@ -423,7 +423,7 @@ pub mod tests {
         assert_eq!(
             error.to_string(),
             format!(
-                "Argument is invalid: Specified SKU matches SKU with ID: {}",
+                "argument is invalid: Specified SKU matches SKU with ID: {}",
                 expected_sku.id
             )
         );
@@ -443,7 +443,7 @@ pub mod tests {
 
         assert_eq!(
             error.to_string(),
-            "Argument is invalid: SKU ID must not be empty"
+            "argument is invalid: SKU ID must not be empty"
         );
         Ok(())
     }

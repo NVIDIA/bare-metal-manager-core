@@ -837,8 +837,8 @@ async fn test_reject_create_with_invalid_metadata(
         .expect_err("expected create create vpc prefix to fail")
         .to_string();
     assert!(
-        error.contains("Invalid value"),
-        "Error message should contain 'Invalid value', but is {error}"
+        error.contains("invalid value"),
+        "error message should contain 'invalid value', but is {error}"
     );
 
     Ok(())

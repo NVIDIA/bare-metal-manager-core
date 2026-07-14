@@ -40,16 +40,16 @@ pub enum DsxConsumerError {
     #[error("API call failed: {0}")]
     Api(#[from] tonic::Status),
 
-    #[error("Configuration invalid: {0}")]
+    #[error("configuration invalid: {0}")]
     Config(String),
 
     #[error("MQTT operation failed: {0}")]
     Mqtt(String),
 
-    #[error("Metrics setup failed: {0}")]
+    #[error("metrics setup failed: {0}")]
     Metrics(String),
 
-    #[error("Secrets error: {0}")]
+    #[error("secrets error: {0}")]
     Secrets(String),
 }
 

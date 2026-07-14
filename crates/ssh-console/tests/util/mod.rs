@@ -135,7 +135,7 @@ pub async fn run_baseline_test_environment(
         .await
         .into_iter()
         .collect::<Result<_, _>>()
-        .context("Error spawning mock SSH server")?;
+        .context("error spawning mock SSH server")?;
 
     let mock_hosts: Arc<Vec<MockHost>> = Arc::new(
         mock_bmc_handles
@@ -279,7 +279,7 @@ impl BaselineTestEnvironment {
 
                         if result_as_tenant.is_ok() {
                             return Err(eyre::format_err!(
-                                "Connection directly to machine_id succeeded as tenant, it should have failed"
+                                "connection directly to machine_id succeeded as tenant, it should have failed"
                             ));
                         }
                     }
@@ -331,7 +331,7 @@ impl BaselineTestEnvironment {
         if let Some(metrics_fut) = get_metrics() {
             let metrics = Box::pin(metrics_fut)
                 .await
-                .context("Error getting metrics")?;
+                .context("error getting metrics")?;
             assert_metrics(metrics, self.mock_hosts.as_slice()).await?;
         }
 

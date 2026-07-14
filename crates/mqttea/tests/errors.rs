@@ -206,7 +206,7 @@ fn error_display_debug_and_source() {
         RenderCase {
             scenario: "protobuf deserialization has a source",
             error: MqtteaClientError::ProtobufDeserializationError(create_test_decode_error()),
-            display_contains: &["Protobuf deserialization error"],
+            display_contains: &["protobuf deserialization error"],
             has_source: true,
         },
         RenderCase {
@@ -236,37 +236,37 @@ fn error_display_debug_and_source() {
         RenderCase {
             scenario: "unknown message type echoes the topic",
             error: MqtteaClientError::unknown_message_type("/pets/parrot/songs"),
-            display_contains: &["Unknown message type", "/pets/parrot/songs"],
+            display_contains: &["unknown message type", "/pets/parrot/songs"],
             has_source: false,
         },
         RenderCase {
             scenario: "topic parsing echoes the message",
-            error: MqtteaClientError::topic_parsing_error("Topic must start with /"),
-            display_contains: &["Topic parsing error", "Topic must start with /"],
+            error: MqtteaClientError::topic_parsing_error("topic must start with /"),
+            display_contains: &["topic parsing error", "topic must start with /"],
             has_source: false,
         },
         RenderCase {
             scenario: "raw message echoes the message",
             error: MqtteaClientError::raw_message_error("Failed to decode turtle sensor data"),
-            display_contains: &["Raw message error", "turtle sensor data"],
+            display_contains: &["raw message error", "turtle sensor data"],
             has_source: false,
         },
         RenderCase {
             scenario: "unregistered type echoes the type name",
             error: MqtteaClientError::unregistered_type("FishMessage"),
-            display_contains: &["Type not registered", "FishMessage"],
+            display_contains: &["type not registered", "FishMessage"],
             has_source: false,
         },
         RenderCase {
             scenario: "invalid utf8 echoes the message",
             error: MqtteaClientError::invalid_utf8("Contains invalid UTF-8 bytes"),
-            display_contains: &["Invalid UTF-8", "invalid UTF-8 bytes"],
+            display_contains: &["invalid UTF-8", "invalid UTF-8 bytes"],
             has_source: false,
         },
         RenderCase {
             scenario: "pattern compilation echoes the message",
             error: MqtteaClientError::pattern_compilation_error("Missing closing bracket in regex"),
-            display_contains: &["Pattern compilation error", "closing bracket"],
+            display_contains: &["pattern compilation error", "closing bracket"],
             has_source: false,
         },
         RenderCase {

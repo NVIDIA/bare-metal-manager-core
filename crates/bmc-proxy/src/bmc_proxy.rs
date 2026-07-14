@@ -61,17 +61,17 @@ const MAX_BODY_SIZE: usize = 8 * 1024 * 1024; // 8MiB body size limit (matches n
 
 #[derive(thiserror::Error, Debug)]
 pub enum BmcProxyError {
-    #[error("Error resolving BMC information through Carbide API: {0}")]
+    #[error("error resolving BMC information through carbide API: {0}")]
     Api(String),
-    #[error("Invalid configuration: {0}")]
+    #[error("invalid configuration: {0}")]
     InvalidConfiguration(String),
-    #[error("Internal error proxying request: {0}")]
+    #[error("internal error proxying request: {0}")]
     InternalProxying(String),
-    #[error("No credentials found for BMC IP address: {0}")]
+    #[error("no credentials found for BMC IP address: {0}")]
     NoCredentials(IpAddr),
-    #[error("Error spawning listener: {0}")]
+    #[error("error spawning listener: {0}")]
     Listen(std::io::Error),
-    #[error("Error loading TLS config: {0}")]
+    #[error("error loading TLS config: {0}")]
     TlsConfig(String),
 }
 
@@ -101,9 +101,9 @@ enum ForwardedTarget<'a> {
 
 #[derive(thiserror::Error, Debug)]
 enum ForwardedHeaderParseError {
-    #[error("Invalid IP in Forwarded host header: {0}")]
+    #[error("invalid IP in forwarded host header: {0}")]
     Ip(#[from] AddrParseError),
-    #[error("Invalid MAC address in Forwarded host header: {0}")]
+    #[error("invalid MAC address in forwarded host header: {0}")]
     Mac(#[from] MacParseError),
 }
 
