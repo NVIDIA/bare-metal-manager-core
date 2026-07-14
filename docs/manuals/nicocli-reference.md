@@ -473,7 +473,7 @@ a hostname or fully qualified domain name followed by a port.
 The server has these properties:
 
 - Only OpenAPI `GET` operations are exposed. `POST`, `PATCH`, `PUT`, and `DELETE` operations are excluded.
-- Tool names use `nico_<snake_case(operationId)>`, such as `nico_get_all_site`.
+- Tool names are generated directly from each OpenAPI `operationId` as `nico_<snake_case(operationId)>` without changing its singular or plural form. For example, `get-all-site` becomes `nico_get_all_site`.
 - The streamable HTTP handler is stateless and returns one `application/json` response for each request. It does not retain MCP session state or emit server-sent events.
 - An inbound `Authorization: Bearer <token>` header is forwarded to NICo REST. NICo REST remains responsible for authentication and authorization.
 
@@ -492,7 +492,7 @@ The `nico-mcp` command takes the following flags:
 | `--token` | `NICO_TOKEN` | Default bearer token. |
 | `--debug` | None | Log full HTTP requests and responses. |
 
-`--shutdown-timeout` uses Go duration syntax: nanoseconds (`ns`), microseconds
+`--shutdown-timeout` uses [Go duration syntax](https://pkg.go.dev/time#ParseDuration): nanoseconds (`ns`), microseconds
 (`us`), milliseconds (`ms`), seconds (`s`), minutes (`m`), and hours (`h`).
 Combined and fractional values such as `2h45m` and `300ms` are accepted; days
 are not. There is no application-level minimum or maximum. Zero or negative
