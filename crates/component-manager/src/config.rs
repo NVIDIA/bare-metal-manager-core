@@ -200,15 +200,13 @@ mod tests {
     }
 
     #[test]
-    fn rms_nvos_password_rotation_can_be_enabled() {
-        let cfg: ComponentManagerConfig = toml::from_str(
-            r#"
-            nvos_password_rotation_enabled = true
-            "#,
-        )
-        .expect("NVOS password rotation setting should deserialize");
+    fn nvos_password_rotation_deserializes() {
+        for (toml, expected) in [("", false), ("nvos_password_rotation_enabled = true", true)] {
+            let cfg: ComponentManagerConfig =
+                toml::from_str(toml).expect("component-manager configuration should deserialize");
 
-        assert!(cfg.nvos_password_rotation_enabled);
+            assert_eq!(cfg.nvos_password_rotation_enabled, expected);
+        }
     }
 
     /// One `BackendTlsConfig` worth of path inputs for a resolver table.
