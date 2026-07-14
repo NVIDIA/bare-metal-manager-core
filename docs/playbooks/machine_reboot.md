@@ -17,7 +17,7 @@ The following steps can be used to reboot a machine:
 
 ### 1. Obtain access to `nicocli`
 
-Configure `nicocli` for the target REST API and verify that the caller has the `PROVIDER_ADMIN` role.
+Configure `nicocli` for the target REST API. The caller's organization must have an Infrastructure Provider that owns the Site containing the Machine, and the caller must have the `PROVIDER_ADMIN` role.
 
 ### 2. Execute the Machine power control operation
 
