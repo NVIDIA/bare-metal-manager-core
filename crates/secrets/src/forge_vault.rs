@@ -504,8 +504,13 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
             duration_ms: elapsed_request_duration,
         });
 
-        let credentials = match vault_response {
-            Ok(creds) => Ok(Some(creds)),
+        match vault_response {
+            Ok(creds) => {
+                emit(VaultRequestSucceeded {
+                    request_type: VaultRequestType::GetCredentials,
+                });
+                Ok(Some(creds))
+            }
             Err(ce) => {
                 let status_code = record_vault_client_error(&ce, VaultRequestType::GetCredentials);
                 match status_code {
@@ -526,12 +531,7 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
                     }
                 }
             }
-        };
-
-        emit(VaultRequestSucceeded {
-            request_type: VaultRequestType::GetCredentials,
-        });
-        credentials
+        }
     }
 }
 
@@ -1312,5 +1312,142 @@ mod tests {
             ],
             |status| status.label_value().to_string(),
         );
+    }
+
+    /// Builds a `VaultClient` pointed at a plaintext `mockito` server, so the
+    /// get-credentials helper's real `kv2::read` round-trips through a response
+    /// we control. An `http://` address skips TLS, so no CA wiring is needed.
+    fn mock_backed_vault_client(
+        server: &mockito::ServerGuard,
+    ) -> std::sync::Arc<vaultrs::client::VaultClient> {
+        use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+
+        let settings = VaultClientSettingsBuilder::default()
+            .address(server.url())
+            .token("test-token")
+            .verify(false)
+            .build()
+            .expect("vault client settings for mock server");
+        std::sync::Arc::new(VaultClient::new(settings).expect("vault client for mock server"))
+    }
+
+    /// A failed `get_credentials` read counts the attempt, times it once, and
+    /// moves ONLY the failed counter (carrying the HTTP status code) -- never
+    /// the succeeded counter -- while a successful read moves the succeeded
+    /// counter and leaves the failed one alone. Regression: the helper used to
+    /// emit `VaultRequestSucceeded` unconditionally after the response match, so
+    /// a failed read double-counted as both failed and succeeded, corrupting the
+    /// success/error split for `request_type="get_credentials"`.
+    #[tokio::test]
+    async fn get_credentials_failed_read_counts_failed_not_succeeded() {
+        use carbide_instrument::testing::MetricsCapture;
+
+        use super::{GetCredentialsHelper, VaultTask};
+        use crate::credentials::CredentialKey;
+
+        let mount = "secret".to_string();
+        let key = CredentialKey::UfmAuth {
+            fabric: "regression".to_string(),
+        };
+        let get = &[("request_type", "get_credentials")][..];
+        let failed_403 = &[
+            ("request_type", "get_credentials"),
+            ("http_response_status_code", "403"),
+        ][..];
+
+        // A non-404 error (here 403) must surface as an error and move the
+        // failed counter with its status code -- and must NOT move succeeded.
+        {
+            let mut server = mockito::Server::new_async().await;
+            let _mock = server
+                .mock("GET", mockito::Matcher::Any)
+                .with_status(403)
+                .with_header("content-type", "application/json")
+                .with_body(r#"{"errors":["permission denied"]}"#)
+                .create_async()
+                .await;
+
+            let helper = GetCredentialsHelper {
+                kv_mount_location: &mount,
+                key: &key,
+            };
+
+            let metrics = MetricsCapture::start();
+            let result = helper.execute(mock_backed_vault_client(&server)).await;
+
+            assert!(result.is_err(), "a 403 read must surface as an error");
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_failed_total", failed_403),
+                1.0,
+                "a failed read must move the failed counter once with its status code; exposition:\n{}",
+                metrics.render()
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_succeeded_total", get),
+                0.0,
+                "a failed read must not move the succeeded counter",
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_attempted_total", get),
+                1.0,
+                "every read counts exactly one attempt",
+            );
+            assert_eq!(
+                metrics
+                    .histogram_count_delta("carbide_api_vault_request_duration_milliseconds", get),
+                1,
+                "every read records exactly one duration observation",
+            );
+        }
+
+        // A successful read moves the succeeded counter and leaves the failed
+        // series untouched.
+        {
+            let mut server = mockito::Server::new_async().await;
+            let _mock = server
+                .mock("GET", mockito::Matcher::Any)
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    r#"{"request_id":"test","lease_id":"","lease_duration":0,"renewable":false,"data":{"data":{"UsernamePassword":{"username":"u","password":"p"}},"metadata":{"created_time":"2024-01-01T00:00:00Z","deletion_time":"","custom_metadata":null,"destroyed":false,"version":1}}}"#,
+                )
+                .create_async()
+                .await;
+
+            let helper = GetCredentialsHelper {
+                kv_mount_location: &mount,
+                key: &key,
+            };
+
+            let metrics = MetricsCapture::start();
+            let result = helper.execute(mock_backed_vault_client(&server)).await;
+
+            assert!(
+                matches!(&result, Ok(Some(_))),
+                "a 200 read with a valid body must succeed, got {result:?}"
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_succeeded_total", get),
+                1.0,
+                "a successful read must move the succeeded counter once; exposition:\n{}",
+                metrics.render()
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_failed_total", failed_403),
+                0.0,
+                "a successful read must not move the failed counter",
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_attempted_total", get),
+                1.0,
+                "every read counts exactly one attempt",
+            );
+            assert_eq!(
+                metrics
+                    .histogram_count_delta("carbide_api_vault_request_duration_milliseconds", get),
+                1,
+                "every read records exactly one duration observation",
+            );
+        }
     }
 }

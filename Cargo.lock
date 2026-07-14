@@ -2937,6 +2937,7 @@ dependencies = [
  "figment",
  "hex",
  "mac_address",
+ "mockito",
  "notify",
  "opentelemetry 0.32.0",
  "p256 0.14.0-rc.9",
