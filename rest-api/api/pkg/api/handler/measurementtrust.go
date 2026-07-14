@@ -117,8 +117,8 @@ func (h DeleteMeasurementTrustedMachineHandler) Handle(c echo.Context) error {
 		defer handlerSpan.End()
 	}
 
-	coreReq, err := model.MeasurementTrustedMachineRemoveProto(c.QueryParam("selector"), c.Param("id"))
-	if err != nil {
+	apiReq := model.APIMeasurementTrustedMachineDeleteRequest{Selector: c.QueryParam("selector"), ID: c.Param("id")}
+	if err := apiReq.Validate(); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
@@ -130,7 +130,7 @@ func (h DeleteMeasurementTrustedMachineHandler) Handle(c echo.Context) error {
 	}
 
 	coreResp := &corev1.RemoveMeasurementTrustedMachineResponse{}
-	apiErr = common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_RemoveMeasurementTrustedMachine_FullMethodName, coreReq, coreResp, siteID)
+	apiErr = common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_RemoveMeasurementTrustedMachine_FullMethodName, apiReq.ToProto(), coreResp, siteID)
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "failed to delete machine trust approval")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -225,8 +225,8 @@ func (h DeleteMeasurementTrustedProfileHandler) Handle(c echo.Context) error {
 		defer handlerSpan.End()
 	}
 
-	coreReq, err := model.MeasurementTrustedProfileRemoveProto(c.QueryParam("selector"), c.Param("id"))
-	if err != nil {
+	apiReq := model.APIMeasurementTrustedProfileDeleteRequest{Selector: c.QueryParam("selector"), ID: c.Param("id")}
+	if err := apiReq.Validate(); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
 
@@ -238,7 +238,7 @@ func (h DeleteMeasurementTrustedProfileHandler) Handle(c echo.Context) error {
 	}
 
 	coreResp := &corev1.RemoveMeasurementTrustedProfileResponse{}
-	apiErr = common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_RemoveMeasurementTrustedProfile_FullMethodName, coreReq, coreResp, siteID)
+	apiErr = common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_RemoveMeasurementTrustedProfile_FullMethodName, apiReq.ToProto(), coreResp, siteID)
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "failed to delete profile trust approval")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)

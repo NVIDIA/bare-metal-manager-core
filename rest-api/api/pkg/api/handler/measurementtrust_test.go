@@ -155,9 +155,16 @@ func TestMeasurementTrustHandlersRejectInvalidInput(t *testing.T) {
 
 func TestMeasurementTrustHandlerRequiresProviderAdmin(t *testing.T) {
 	fixture := newMeasurementTrustHandlerFixture(t, nil, []string{authz.TenantAdminRole})
-	handler := NewListMeasurementTrustedMachinesHandler(fixture.dbSession, fixture.scp)
+	listHandler := NewListMeasurementTrustedMachinesHandler(fixture.dbSession, fixture.scp)
 
-	rec := fixture.request(t, handler.Handle, http.MethodGet, "/?siteId="+fixture.siteID, "", nil)
+	rec := fixture.request(t, listHandler.Handle, http.MethodGet, "/?siteId="+fixture.siteID, "", nil)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+
+	deleteHandler := NewDeleteMeasurementTrustedMachineHandler(fixture.dbSession, fixture.scp)
+	rec = fixture.request(t, deleteHandler.Handle, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector=invalid", "invalid", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	rec = fixture.request(t, deleteHandler.Handle, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector="+model.MeasurementTrustedMachineSelectorMachineID, "00000000-0000-0000-0000-000000000011", nil)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
 

@@ -49,6 +49,18 @@ type APIMeasurementTrustedProfileCreateRequest struct {
 	Comments     string `json:"comments,omitempty"`
 }
 
+// APIMeasurementTrustedMachineDeleteRequest deletes a machine trust approval.
+type APIMeasurementTrustedMachineDeleteRequest struct {
+	Selector string `json:"-"`
+	ID       string `json:"-"`
+}
+
+// APIMeasurementTrustedProfileDeleteRequest deletes a profile trust approval.
+type APIMeasurementTrustedProfileDeleteRequest struct {
+	Selector string `json:"-"`
+	ID       string `json:"-"`
+}
+
 // APIMeasurementTrustedMachine is a machine trust approval.
 type APIMeasurementTrustedMachine struct {
 	ApprovalID   string     `json:"approvalId"`
@@ -98,6 +110,41 @@ func (r *APIMeasurementTrustedProfileCreateRequest) Validate() error {
 	return validateMeasurementTrustApprovalType(r.ApprovalType)
 }
 
+// Validate checks a machine trust approval deletion request.
+func (r *APIMeasurementTrustedMachineDeleteRequest) Validate() error {
+	if err := validation.ValidateStruct(r,
+		validation.Field(&r.Selector,
+			validation.Required.Error(validationErrorValueRequired),
+			validation.In(MeasurementTrustedMachineSelectorApprovalID, MeasurementTrustedMachineSelectorMachineID).
+				Error(fmt.Sprintf("invalid selector %q (expected %q or %q)", r.Selector, MeasurementTrustedMachineSelectorApprovalID, MeasurementTrustedMachineSelectorMachineID)),
+		),
+		validation.Field(&r.ID, validation.Required.Error(validationErrorValueRequired)),
+	); err != nil {
+		return err
+	}
+	if r.Selector == MeasurementTrustedMachineSelectorApprovalID || r.ID != "*" {
+		if err := validation.Validate(r.ID, validationis.UUID.Error(validationErrorInvalidUUID)); err != nil {
+			return fmt.Errorf("id: %w", err)
+		}
+	}
+	return nil
+}
+
+// Validate checks a profile trust approval deletion request.
+func (r *APIMeasurementTrustedProfileDeleteRequest) Validate() error {
+	return validation.ValidateStruct(r,
+		validation.Field(&r.Selector,
+			validation.Required.Error(validationErrorValueRequired),
+			validation.In(MeasurementTrustedProfileSelectorApprovalID, MeasurementTrustedProfileSelectorProfileID).
+				Error(fmt.Sprintf("invalid selector %q (expected %q or %q)", r.Selector, MeasurementTrustedProfileSelectorApprovalID, MeasurementTrustedProfileSelectorProfileID)),
+		),
+		validation.Field(&r.ID,
+			validation.Required.Error(validationErrorValueRequired),
+			validationis.UUID.Error(validationErrorInvalidUUID),
+		),
+	)
+}
+
 // ToProto converts a validated machine trust approval request to its Core message.
 func (r *APIMeasurementTrustedMachineCreateRequest) ToProto() *corev1.AddMeasurementTrustedMachineRequest {
 	return &corev1.AddMeasurementTrustedMachineRequest{
@@ -121,6 +168,36 @@ func (r *APIMeasurementTrustedProfileCreateRequest) ToProto() *corev1.AddMeasure
 		req.Comments = &r.Comments
 	}
 	return req
+}
+
+// ToProto converts a validated machine trust approval deletion request to its Core message.
+func (r *APIMeasurementTrustedMachineDeleteRequest) ToProto() *corev1.RemoveMeasurementTrustedMachineRequest {
+	if r.Selector == MeasurementTrustedMachineSelectorApprovalID {
+		return &corev1.RemoveMeasurementTrustedMachineRequest{
+			Selector: &corev1.RemoveMeasurementTrustedMachineRequest_ApprovalId{
+				ApprovalId: &corev1.MeasurementApprovedMachineId{Value: r.ID},
+			},
+		}
+	}
+	return &corev1.RemoveMeasurementTrustedMachineRequest{
+		Selector: &corev1.RemoveMeasurementTrustedMachineRequest_MachineId{MachineId: r.ID},
+	}
+}
+
+// ToProto converts a validated profile trust approval deletion request to its Core message.
+func (r *APIMeasurementTrustedProfileDeleteRequest) ToProto() *corev1.RemoveMeasurementTrustedProfileRequest {
+	if r.Selector == MeasurementTrustedProfileSelectorApprovalID {
+		return &corev1.RemoveMeasurementTrustedProfileRequest{
+			Selector: &corev1.RemoveMeasurementTrustedProfileRequest_ApprovalId{
+				ApprovalId: &corev1.MeasurementApprovedProfileId{Value: r.ID},
+			},
+		}
+	}
+	return &corev1.RemoveMeasurementTrustedProfileRequest{
+		Selector: &corev1.RemoveMeasurementTrustedProfileRequest_ProfileId{
+			ProfileId: &corev1.MeasurementSystemProfileId{Value: r.ID},
+		},
+	}
 }
 
 // NewAPIMeasurementTrustedMachine creates an API model from a Core machine trust record.
@@ -201,55 +278,6 @@ func (r *APIMeasurementTrustedProfiles) FromProto(records []*corev1.MeasurementA
 		result = append(result, NewAPIMeasurementTrustedProfile(record))
 	}
 	*r = result
-}
-
-// MeasurementTrustedMachineRemoveProto builds and validates a Core machine removal request.
-func MeasurementTrustedMachineRemoveProto(selector, id string) (*corev1.RemoveMeasurementTrustedMachineRequest, error) {
-	switch selector {
-	case MeasurementTrustedMachineSelectorApprovalID:
-		if err := validation.Validate(id, validation.Required, validationis.UUID); err != nil {
-			return nil, fmt.Errorf("id: %w", err)
-		}
-		return &corev1.RemoveMeasurementTrustedMachineRequest{
-			Selector: &corev1.RemoveMeasurementTrustedMachineRequest_ApprovalId{
-				ApprovalId: &corev1.MeasurementApprovedMachineId{Value: id},
-			},
-		}, nil
-	case MeasurementTrustedMachineSelectorMachineID:
-		if id != "*" {
-			if err := validation.Validate(id, validation.Required, validationis.UUID); err != nil {
-				return nil, fmt.Errorf("id: %w", err)
-			}
-		}
-		return &corev1.RemoveMeasurementTrustedMachineRequest{
-			Selector: &corev1.RemoveMeasurementTrustedMachineRequest_MachineId{MachineId: id},
-		}, nil
-	default:
-		return nil, fmt.Errorf("invalid selector %q (expected %q or %q)", selector, MeasurementTrustedMachineSelectorApprovalID, MeasurementTrustedMachineSelectorMachineID)
-	}
-}
-
-// MeasurementTrustedProfileRemoveProto builds and validates a Core profile removal request.
-func MeasurementTrustedProfileRemoveProto(selector, id string) (*corev1.RemoveMeasurementTrustedProfileRequest, error) {
-	if err := validation.Validate(id, validation.Required, validationis.UUID); err != nil {
-		return nil, fmt.Errorf("id: %w", err)
-	}
-	switch selector {
-	case MeasurementTrustedProfileSelectorApprovalID:
-		return &corev1.RemoveMeasurementTrustedProfileRequest{
-			Selector: &corev1.RemoveMeasurementTrustedProfileRequest_ApprovalId{
-				ApprovalId: &corev1.MeasurementApprovedProfileId{Value: id},
-			},
-		}, nil
-	case MeasurementTrustedProfileSelectorProfileID:
-		return &corev1.RemoveMeasurementTrustedProfileRequest{
-			Selector: &corev1.RemoveMeasurementTrustedProfileRequest_ProfileId{
-				ProfileId: &corev1.MeasurementSystemProfileId{Value: id},
-			},
-		}, nil
-	default:
-		return nil, fmt.Errorf("invalid selector %q (expected %q or %q)", selector, MeasurementTrustedProfileSelectorApprovalID, MeasurementTrustedProfileSelectorProfileID)
-	}
 }
 
 func validateMeasurementTrustApprovalType(approvalType string) error {

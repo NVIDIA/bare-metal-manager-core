@@ -64,27 +64,41 @@ func TestMeasurementTrustCreateRequestRejectsInvalidApprovalType(t *testing.T) {
 	assert.ErrorContains(t, req.Validate(), "approvalType")
 }
 
-func TestMeasurementTrustRemoveProtoSelectors(t *testing.T) {
+func TestMeasurementTrustDeleteRequestSelectors(t *testing.T) {
 	id := "00000000-0000-0000-0000-000000000001"
 
-	machineByApproval, err := MeasurementTrustedMachineRemoveProto(MeasurementTrustedMachineSelectorApprovalID, id)
-	require.NoError(t, err)
+	machineRequest := APIMeasurementTrustedMachineDeleteRequest{Selector: MeasurementTrustedMachineSelectorApprovalID, ID: id}
+	require.NoError(t, machineRequest.Validate())
+	machineByApproval := machineRequest.ToProto()
 	assert.Equal(t, id, machineByApproval.GetApprovalId().GetValue())
 
-	machineByMachine, err := MeasurementTrustedMachineRemoveProto(MeasurementTrustedMachineSelectorMachineID, id)
-	require.NoError(t, err)
+	machineRequest = APIMeasurementTrustedMachineDeleteRequest{Selector: MeasurementTrustedMachineSelectorMachineID, ID: id}
+	require.NoError(t, machineRequest.Validate())
+	machineByMachine := machineRequest.ToProto()
 	assert.Equal(t, id, machineByMachine.GetMachineId())
 
-	profileByApproval, err := MeasurementTrustedProfileRemoveProto(MeasurementTrustedProfileSelectorApprovalID, id)
-	require.NoError(t, err)
+	profileRequest := APIMeasurementTrustedProfileDeleteRequest{Selector: MeasurementTrustedProfileSelectorApprovalID, ID: id}
+	require.NoError(t, profileRequest.Validate())
+	profileByApproval := profileRequest.ToProto()
 	assert.Equal(t, id, profileByApproval.GetApprovalId().GetValue())
 
-	profileByProfile, err := MeasurementTrustedProfileRemoveProto(MeasurementTrustedProfileSelectorProfileID, id)
-	require.NoError(t, err)
+	profileRequest = APIMeasurementTrustedProfileDeleteRequest{Selector: MeasurementTrustedProfileSelectorProfileID, ID: id}
+	require.NoError(t, profileRequest.Validate())
+	profileByProfile := profileRequest.ToProto()
 	assert.Equal(t, id, profileByProfile.GetProfileId().GetValue())
 
-	_, err = MeasurementTrustedMachineRemoveProto("invalid", id)
-	assert.ErrorContains(t, err, "invalid selector")
+	machineRequest = APIMeasurementTrustedMachineDeleteRequest{Selector: MeasurementTrustedMachineSelectorMachineID, ID: "*"}
+	require.NoError(t, machineRequest.Validate())
+	assert.Equal(t, "*", machineRequest.ToProto().GetMachineId())
+
+	machineRequest = APIMeasurementTrustedMachineDeleteRequest{Selector: MeasurementTrustedMachineSelectorApprovalID, ID: "*"}
+	assert.Error(t, machineRequest.Validate())
+
+	profileRequest = APIMeasurementTrustedProfileDeleteRequest{Selector: MeasurementTrustedProfileSelectorProfileID, ID: "*"}
+	assert.Error(t, profileRequest.Validate())
+
+	machineRequest = APIMeasurementTrustedMachineDeleteRequest{Selector: "invalid", ID: id}
+	assert.ErrorContains(t, machineRequest.Validate(), "invalid selector")
 }
 
 func TestMeasurementTrustResponsesFromProto(t *testing.T) {
