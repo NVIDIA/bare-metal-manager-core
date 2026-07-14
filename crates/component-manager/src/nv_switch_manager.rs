@@ -64,7 +64,7 @@ pub enum SwitchPasswordRotationFailure {
     Unknown,
 }
 
-/// Backend observation of an asynchronous switch OS password-rotation job.
+/// Backend observation of a switch OS password-rotation job.
 ///
 /// This describes the backend job, not the credential state observed on the
 /// switch. In particular, `NotFound` does not prove that the password mutation
@@ -165,8 +165,8 @@ pub struct ConfigureSwitchCertificateJobStatus {
 pub trait NvSwitchManager: Send + Sync + Debug + 'static {
     fn name(&self) -> &str;
 
-    /// Reports whether this backend is configured to support asynchronous OS
-    /// password rotation.
+    /// Reports whether this backend is configured to support OS password
+    /// rotation.
     ///
     /// `false` means callers must not submit rotation work. `true` reports
     /// configured capability, not current backend or switch health. The default
@@ -221,8 +221,8 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         job_id: &str,
     ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError>;
 
-    /// Starts an asynchronous rotation from the endpoint's current NVOS
-    /// credential to `next_password`.
+    /// Starts a rotation from the endpoint's current NVOS credential to
+    /// `next_password`.
     ///
     /// On accepted submission, returns a backend job ID that can be passed to
     /// [`Self::get_password_rotation_job_status`].

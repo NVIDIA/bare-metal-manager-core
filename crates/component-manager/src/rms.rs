@@ -1971,7 +1971,7 @@ impl NvSwitchManager for RmsBackend {
     ) -> Result<String, ComponentManagerError> {
         if !self.supports_password_rotation() {
             return Err(ComponentManagerError::Unsupported(
-                "RMS switch password rotation is disabled; enable the asynchronous contract only after every RMS server has been upgraded"
+                "RMS switch password rotation is disabled; enable it only after every RMS server has been upgraded"
                     .to_string(),
             ));
         }
@@ -2065,7 +2065,7 @@ async fn rms_start_switch_password_rotation(
             if status.code() == tonic::Code::Unimplemented =>
         {
             ComponentManagerError::Unsupported(
-                "RMS does not support asynchronous switch password rotation".to_string(),
+                "RMS does not support switch password rotation".to_string(),
             )
         }
         _ => ComponentManagerError::OperationOutcomeUnknown(
@@ -2216,7 +2216,7 @@ async fn rms_get_switch_password_rotation_job_status(
             if status.code() == tonic::Code::Unimplemented =>
         {
             Err(ComponentManagerError::Unsupported(
-                "RMS does not support asynchronous switch password-rotation job status".to_string(),
+                "RMS does not support switch password-rotation job status".to_string(),
             ))
         }
         Err(RackManagerError::ApiInvocationError(status))
