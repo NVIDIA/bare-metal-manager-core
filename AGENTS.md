@@ -209,49 +209,68 @@ lives in [`docs/observability/instrumentation.md`](docs/observability/instrument
 
 ## Documentation review
 
-- Write for the intended reader and task. Put the primary workflow before
-  background material, define unfamiliar terms on first use, and state
-  prerequisites and constraints before the steps that depend on them.
-- Verify documented names, commands, flags, values, defaults, ranges,
-  interactions, fallbacks, exceptions, errors, unsupported paths, outputs,
-  side effects, and required order against the current code, schema, generated
-  reference, or real command output. Check every affected page and source
-  description for the same facts.
-- Use official product and component terminology consistently. Keep
-  capitalization and punctuation consistent within repeated labels, and
-  distinguish similar services, states, and protocols explicitly. Describe
-  present behavior precisely; avoid vague, promotional, and time-relative
-  wording. Keep draft or experimental labels aligned with the actual state.
-  Do not leave review-history notes in user documentation, mention future
-  behavior only with a descriptive link to tracked work, and ask the owner
-  rather than presenting an unresolved policy question as fact.
-- Make command examples realistic, safe, and internally consistent. Use values
-  that satisfy the documented formats, reuse identifiers throughout a task,
-  split long commands across lines, keep flag order consistent, tag every code
-  fence with a language, and show only verified output.
-- Use ordered lists only when sequence matters, and use `1.` for every ordered
-  item so edits do not require renumbering. Use paragraphs or unordered lists
-  when order does not matter.
-- Use descriptive link text and stable repository-relative or canonical
-  targets. Include enough context for each link to stand alone, verify anchors
-  after heading changes, and do not use a bare issue number. Link to the
-  authoritative release page instead of hardcoding a version unless the
-  procedure depends on that exact version.
-- Treat generated reference pages as outputs: update their source descriptions
-  and regenerate them instead of editing generated files alone. Verify the
-  generated reference and hand-written documentation agree.
-- Treat user-visible log messages, metric HELP text, and code doc comments as
-  documentation. Name the exact entity, state or condition, scope, direction
-  or protocol, and label dimension; verify the implementation before rewriting
-  the description.
-- In Fern pages, use headings for hierarchy and components for their documented
-  semantics, not only for visual styling. Inspect the page in its actual target
-  renderer for navigation, layout, wrapping, links, and readability.
-- Before requesting documentation review, run
-  `rumdl check --config docs/.rumdl.toml <changed-markdown-files>`. For
-  Fern-published pages, run `fern check` and inspect the PR preview. If the
-  preview is unavailable, run `fern docs dev` and inspect the pages locally.
-  Lint success does not replace rendered inspection.
+These are release gates, not style guidance. Apply every gate touched by the
+change before requesting review.
+
+- **Interface contract gate:** For every documented command, flag, environment
+  variable, config key, API field, mode, or state, verify from code, schema, or
+  exercised output: exact spelling and case; required or optional condition;
+  default; accepted values, units, formats, and bounds; mutual exclusions and
+  interactions; global versus subcommand position and required order;
+  omission or fallback behavior; and observable output, side effects, errors,
+  and unsupported paths. Exercise each changed example at the PR revision on
+  an authorized local or test target and compare it with real `--help` output.
+  If any answer is unknown, stop and ask the owner; another documentation page
+  is not evidence.
+- **Generated interface gate:** Never edit a generated reference alone.
+  For `nico-admin-cli`, change the Clap declarations under
+  `crates/admin-cli/src/`, verify the affected command with
+  `cargo run -q -p nico-admin-cli -- <command-path> --help`, then run
+  `cargo make gen-cli-docs` and `cargo make check-cli-docs`; see
+  `crates/admin-cli/AGENTS.md` for the generated and hand-authored boundaries.
+  For REST, use `rest-api/openapi/spec.yaml` for the contract and inspect the
+  handler or model for conditional behavior the schema cannot express. When
+  the spec changes, run `make rest-api/lint-openapi`,
+  `make rest-api/generate-sdk`, `make rest-api/publish-openapi`, and
+  `make openapi-breaking`; do not edit `rest-api/sdk/standard/` or
+  `rest-api/docs/index.html` alone.
+- **Workflow parity gate:** For setup documentation,
+  `helm-prereqs/setup.sh` is the source of truth for phases, skip flags,
+  environment requirements, and component order. Run
+  `bash -n helm-prereqs/setup.sh` and cross-check `helm-prereqs/README.md` and
+  `docs/getting-started/quick-start.md`. For state-machine documentation, trace
+  every success, skip, retry, poll, restart, deletion, maintenance, and error
+  transition to its enum and handler. Narrative, Mermaid, and transition tables
+  must contain the same states and edges, including persisted resume state.
+- **Metric catalogue gate:** Treat metric HELP text and
+  `docs/observability/core_metrics.md` as generated API documentation. Verify
+  what causes the observation, its counter/gauge/histogram type, the exact
+  entity and condition measured, direction or protocol, and every label
+  dimension. New metrics need non-empty `describe` text and must be exercised
+  by `test_integration` so catalogue generation includes their exposed name,
+  type, and description. Do not patch the generated table alone.
+- **Cross-surface drift gate:** Search every changed literal or behavior with
+  `rg -n --fixed-strings '<literal>' README.md crates/ rest-api/ docs/ book/ helm/ helm-prereqs/ deploy/`;
+  reconcile every conflicting hit or establish one canonical explanation and
+  link the others to it. New or moved public pages must be present in
+  `docs/index.yml`, and changed public paths need redirects in `fern/docs.yml`.
+  `docs/release-notes.md` owns current unified releases;
+  `rest-api/CHANGELOG.md` is legacy history whose published entry order must be
+  preserved.
+- **Temporary claim and version gate:** Search changed prose for `currently`,
+  `today`, `for now`, `temporarily`, and `draft`. Each match must name a release,
+  deliberate support boundary, or full tracking URL; a bare issue number or
+  review-history note is insufficient. Hard-code a tool or dependency version
+  only when it is a tested minimum, maximum, or pinned compatibility boundary;
+  otherwise link the authoritative release page.
+- **Renderer gate:** Run
+  `rumdl check --config docs/.rumdl.toml <changed-markdown-files>` and fail on
+  every finding. For Fern-published pages, run `fern check` and inspect the PR
+  preview; if it is unavailable, use `(cd fern && fern docs dev)`. Inspect
+  generated `nico-admin-cli` pages in GitHub's renderer and OpenAPI output with
+  `make rest-api/preview-openapi`. Check navigation, anchors, wide tables,
+  Mermaid layout, and component rendering in the actual target; lint success
+  is not rendered verification.
 
 ## Further Reading
 
