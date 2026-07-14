@@ -214,13 +214,15 @@ check before requesting review.
 
 - **Interface contracts:** Document the complete contract, not just the name or happy path.
 
-  - For every documented command, flag, environment variable, config key, API
-    field, mode, or state, verify from code, schema, or exercised output: exact
-    spelling and case; required or optional condition; default; accepted
-    values, units, formats, and bounds; mutual exclusions and interactions;
-    global versus subcommand position and required order; omission or fallback
-    behavior; and observable output, side effects, errors, and unsupported
-    paths.
+  - For every documented command, flag, environment variable, config key, API field, mode, or state, verify the following from code, schema, or exercised output:
+    - exact spelling and case
+    - required or optional condition
+    - default
+    - accepted values, units, formats, and bounds
+    - mutual exclusions and interactions
+    - global versus subcommand position and required order
+    - omission or fallback behavior
+    - observable output, side effects, errors, and unsupported paths
   - Exercise each changed example at the PR revision on an authorized local or
     test target and compare it with real `--help` output.
   - If any answer is unknown, stop and ask the owner; another documentation page
@@ -228,7 +230,7 @@ check before requesting review.
 
 - **Generated interfaces:** Change the source, regenerate every output, and prove they stay in sync.
 
-  - Never edit a generated reference alone.
+  - Never edit a generated reference.
   - For `nico-admin-cli`, change the Clap declarations under
     `crates/admin-cli/src/`, verify the affected command with
     `cargo run -q -p nico-admin-cli -- <command-path> --help`, then run
@@ -239,7 +241,7 @@ check before requesting review.
     the spec changes, run `make rest-api/lint-openapi`,
     `make rest-api/generate-sdk`, `make rest-api/publish-openapi`, and
     `make openapi-breaking`; do not edit `rest-api/sdk/standard/` or
-    `rest-api/docs/index.html` alone.
+    `rest-api/docs/index.html`.
 
 - **Workflow parity:** Make the documentation match the workflow that actually runs.
 
@@ -261,9 +263,9 @@ check before requesting review.
     dimension.
   - New metrics need non-empty `describe` text and must be exercised by
     `test_integration` so catalogue generation includes their exposed name,
-    type, and description. Do not patch the generated table alone.
+    type, and description. Do not patch the generated table.
 
-- **Cross-surface drift:** Change a fact everywhere it appears or make one page canonical and link the rest.
+- **Cross-surface drift:** Change a fact everywhere it appears or make one page canonical and link to the canonical page from the others.
 
   - Search every changed literal or behavior with
     `rg -n --fixed-strings '<literal>' README.md crates/ rest-api/ docs/ book/ helm/ helm-prereqs/ deploy/`;
@@ -272,8 +274,8 @@ check before requesting review.
   - New or moved public pages must be present in `docs/index.yml`, and changed
     public paths need redirects in `fern/docs.yml`.
   - `docs/release-notes.md` owns current unified releases;
-    `rest-api/CHANGELOG.md` is legacy history whose published entry order must
-    be preserved.
+    do not modify `rest-api/CHANGELOG.md`, as it is legacy history whose
+    published entry order must be preserved.
 
 - **Temporary claims and versions:** Tie temporary claims and pinned versions to a real support boundary.
 
