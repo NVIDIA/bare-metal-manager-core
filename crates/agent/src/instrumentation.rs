@@ -264,7 +264,11 @@ impl WithTracingLayer for Router {
         let layer = tower_http::trace::TraceLayer::new_for_http()
             .on_request(move |request: &Request<AxumBody>, _span: &Span| {
                 metrics.http_counter.add(1, &[]);
-                tracing::info!("started {} {}", request.method(), request.uri().path())
+                tracing::info!(
+                    method = %request.method(),
+                    request_path = %request.uri().path(),
+                    "HTTP request started"
+                )
             })
             .on_response(
                 move |_response: &Response<AxumBody>, latency: Duration, _span: &Span| {
@@ -273,7 +277,10 @@ impl WithTracingLayer for Router {
                         .http_req_latency_histogram
                         .record(latency.as_secs_f64() * 1000.0, &[]);
 
-                    tracing::info!("response generated in {:?}", latency)
+                    tracing::info!(
+                        latency_milliseconds = latency.as_secs_f64() * 1000.0,
+                        "HTTP response generated"
+                    )
                 },
             );
 

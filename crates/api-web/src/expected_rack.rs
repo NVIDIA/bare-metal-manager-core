@@ -67,7 +67,7 @@ async fn fetch_expected_racks(
     let expected_response = match api.get_all_expected_racks(tonic::Request::new(())).await {
         Ok(response) => response.into_inner(),
         Err(err) => {
-            tracing::error!(%err, "get_all_expected_racks");
+            tracing::error!(error = %err, "get_all_expected_racks");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to list expected racks".to_string(),

@@ -98,7 +98,11 @@ async fn main() -> Result<(), eyre::Report> {
 
     carbide_host_support::init_logging("nico-scout")?;
 
-    tracing::info!("Running as {}...{}", config.mode, config.version);
+    tracing::info!(
+        mode = %config.mode,
+        version_requested = config.version,
+        "Running scout",
+    );
 
     match config.mode {
         Mode::Service => run_as_service(&config).await?,
@@ -129,12 +133,12 @@ async fn initial_setup(config: &Options) -> Result<(uuid::Uuid, MachineId), eyre
     .custom_backoff(|_attempt, error: &CarbideClientError| {
         // we only want to retry if attestation has failed. In all other cases
         // just preserve the old behaviour by breaking from the retry loop
-        tracing::error!("Failed to register machine with error {}", error);
+        tracing::error!(error = %error, "Failed to register machine");
         if !error.to_string().contains("Attestation failed") {
             tracing::info!("Not retrying registration as it is not an attestation error");
             RetryPolicy::Break
         } else {
-            tracing::info!("Retrying registration again in {} seconds", retry.secs);
+            tracing::info!(retry_delay_seconds = retry.secs, "Retrying registration",);
             RetryPolicy::Delay(Duration::from_secs(retry.secs))
         }
     })
@@ -185,17 +189,26 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
     // initial_setup (and after registration is complete).
     match mlx_device::create_device_report_request(machine_id) {
         Ok(request) => match mlx_device::publish_mlx_device_report(config, request).await {
-            Ok(response) => tracing::info!("recevied PublishMlxDeviceReportResponse: {response:?}"),
-            Err(e) => tracing::warn!("failed to publish PublishMlxDeviceReportRequest: {e:?}"),
+            Ok(response) => tracing::info!(?response, "received PublishMlxDeviceReportResponse",),
+            Err(e) => tracing::warn!(
+                error = ?e,
+                "failed to publish PublishMlxDeviceReportRequest",
+            ),
         },
-        Err(e) => tracing::warn!("failed to create PublishMlxDeviceReportRequest: {e:?}"),
+        Err(e) => tracing::warn!(
+            error = ?e,
+            "failed to create PublishMlxDeviceReportRequest",
+        ),
     };
 
     let mut scout_stream_started = false;
     loop {
         if is_time_to_check_certs_expiry(next_certs_check_time) {
             next_certs_check_time = get_next_certs_check_datetime()?;
-            tracing::info!("Renewed next certs check time to {}", next_certs_check_time);
+            tracing::info!(
+                %next_certs_check_time,
+                "Renewed next certificate check time",
+            );
 
             if check_certs_validity(&client_cert)? {
                 initial_setup(config).await?;
@@ -211,8 +224,12 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
         if let Some(action) = controller_response.action {
             let action_str = action.as_str_name().to_owned();
             match handle_action(action, &machine_id, machine_interface_id, config).await {
-                Ok(_) => tracing::info!("Successfully served {}", action_str),
-                Err(e) => tracing::info!("Failed to serve {}: Err {}", action_str, e),
+                Ok(_) => tracing::info!(action = %action_str, "Successfully served action"),
+                Err(e) => tracing::info!(
+                    action = %action_str,
+                    error = %e,
+                    "Failed to serve action",
+                ),
             };
         } else {
             tracing::warn!("API response did not contain an action, skipping.");
@@ -350,7 +367,10 @@ async fn handle_action(
         fac::Action::Noop(_) => {}
         fac::Action::LogError(_) => match logerror_to_carbide(config, machine_interface_id).await {
             Ok(()) => (),
-            Err(e) => tracing::info!("Forge Scout logerror_to_carbide error: {}", e),
+            Err(e) => tracing::info!(
+                error = %e,
+                "Failed to report Scout error to Carbide",
+            ),
         },
         fac::Action::Retry(_) => {
             panic!(
@@ -424,19 +444,19 @@ async fn handle_firmware_upgrade_action(
     })?;
 
     tracing::info!(
-        "[firmware_upgrade] received upgrade task for component={} version={}",
-        task.component_type,
-        task.target_version,
+        component_type = %task.component_type,
+        target_version = %task.target_version,
+        "[firmware_upgrade] received upgrade task",
     );
 
     let result = firmware_upgrade::handle_firmware_upgrade(&http_client, &task).await;
 
     tracing::info!(
-        "[firmware_upgrade] upgrade finished: success={} component={} version={} exit_code={}",
-        result.success,
-        task.component_type,
-        task.target_version,
-        result.exit_code,
+        success = result.success,
+        component_type = %task.component_type,
+        target_version = %task.target_version,
+        exit_code = result.exit_code,
+        "[firmware_upgrade] upgrade finished",
     );
 
     report_firmware_upgrade_status(config, machine_id, task.upgrade_task_id, &result).await?;
@@ -510,8 +530,9 @@ async fn handle_mlxreport_action(
             Ok(command) => Some((device_action.pci_name.clone(), command)),
             Err(e) => {
                 tracing::error!(
-                    "handle_mlxreport_action error decoding command {e} for dev: {:#?}",
-                    device_action.pci_name
+                    error = %e,
+                    pci_name = %device_action.pci_name,
+                    "handle_mlxreport_action error decoding command",
                 );
                 None
             }
@@ -542,8 +563,9 @@ async fn handle_mlxreport_commands(
             Ok(d) => d,
             Err(s) => {
                 tracing::error!(
-                    "handle_mlxreport_action Error from discover_device::from_str {s} for dev: {:#?}",
-                    dev_pci_name
+                    error = %s,
+                    pci_name = %dev_pci_name,
+                    "handle_mlxreport_action error from discover_device::from_str",
                 );
                 continue;
             }
@@ -564,8 +586,9 @@ async fn handle_mlxreport_commands(
                 }
                 Err(e) => {
                     tracing::info!(
-                        "handle_mlxreport_action Error from lock_device: {e} for dev: {:#?}",
-                        dev_pci_name
+                        error = %e,
+                        pci_name = %dev_pci_name,
+                        "handle_mlxreport_action error from lock_device",
                     );
                 }
             },
@@ -640,8 +663,9 @@ async fn handle_mlxreport_commands(
                 }
                 Err(e) => {
                     tracing::info!(
-                        "handle_mlxreport_action Error from unlock_device: {e} for dev: {:#?}",
-                        dev_pci_name
+                        error = %e,
+                        pci_name = %dev_pci_name,
+                        "handle_mlxreport_action error from unlock_device",
                     );
                 }
             },
@@ -656,7 +680,10 @@ async fn handle_mlxreport_commands(
     match mlx_device::publish_mlx_observation_report(config, req).await {
         Ok(_resp) => (),
         Err(e) => {
-            tracing::error!("Error from publish_mlx_observation_report {e}");
+            tracing::error!(
+                error = %e,
+                "Error from publish_mlx_observation_report",
+            );
         }
     }
 }
@@ -724,9 +751,9 @@ async fn query_api(
     query_attempt: u64,
 ) -> CarbideClientResult<rpc_forge::ForgeAgentControlResponse> {
     tracing::info!(
-        "Sending ForgeAgentControlRequest (attempt:{}.{})",
         action_attempt,
         query_attempt,
+        "Sending ForgeAgentControlRequest",
     );
     let query = rpc_forge::ForgeAgentControlRequest {
         machine_id: Some(*machine_id),
@@ -741,10 +768,10 @@ async fn query_api(
         .unwrap_or_default();
 
     tracing::info!(
-        "Received ForgeAgentControlResponse (attempt:{}.{}, action:{})",
         action_attempt,
         query_attempt,
-        action_str,
+        action = %action_str,
+        "Received ForgeAgentControlResponse",
     );
     Ok(response)
 }
@@ -768,7 +795,7 @@ async fn query_api_with_retries(
         .on_retry(|_attempt, _next_delay, error: &CarbideClientError| {
             // We can't move the error, but CarbideClientError contains some results that are not clonable, so just do the format here
             let error = format!("{error}");
-            async move { tracing::info!("ForgeAgentControlRequest failed: {error}") }
+            async move { tracing::info!(error = %error, "ForgeAgentControlRequest failed") }
         });
 
     // State machine handler needs 1-2 cycles to update host_adminIP to leaf.
@@ -825,9 +852,9 @@ fn is_time_to_check_certs_expiry(next_check_time: DateTime<Utc>) -> bool {
     let diff = next_check_time - now;
     if diff < TimeDelta::minutes(2) {
         tracing::info!(
-            "Time to check certs expiry: time now is {}, certs check time is {}",
-            now,
-            next_check_time
+            %now,
+            %next_check_time,
+            "Time to check certificate expiry",
         );
         return true;
     }
@@ -876,16 +903,16 @@ fn check_certs_validity(client_cert_path: &str) -> CarbideClientResult<bool> {
         let diff = not_after_datetime - now;
         if diff < TimeDelta::days(2) {
             tracing::info!(
-                "Now timestamp is {}, NotAfter is {}, triggering certs regen",
-                now,
-                not_after_datetime
+                %now,
+                %not_after_datetime,
+                "Certificate expires soon; triggering regeneration",
             );
             Ok(true)
         } else {
             tracing::info!(
-                "Now timestamp is {}, NotAfter is {}, NOT triggering certs regen",
-                now,
-                not_after_datetime
+                %now,
+                %not_after_datetime,
+                "Certificate does not expire soon; skipping regeneration",
             );
             Ok(false)
         }

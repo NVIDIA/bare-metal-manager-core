@@ -37,7 +37,7 @@ pub async fn start(
     join_set: &mut JoinSet<()>,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(&address).await?;
-    tracing::info!(%address, "Starting metrics listener");
+    tracing::info!(metrics_address = %address, "Starting metrics listener");
 
     join_set
         .build_task()

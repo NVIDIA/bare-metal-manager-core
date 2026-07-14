@@ -314,7 +314,7 @@ impl ApiEndpointSource {
 
         self.prune_bmc_client_cache(&endpoints);
 
-        tracing::info!("Prepared total {} endpoints", endpoints.len());
+        tracing::info!(endpoint_count = endpoints.len(), "Prepared endpoints");
 
         Ok(endpoints)
     }
@@ -327,8 +327,8 @@ impl ApiEndpointSource {
         let removed = before - cache.len();
         if removed > 0 {
             tracing::info!(
-                removed,
-                remaining = cache.len(),
+                removed_bmc_client_count = removed,
+                remaining_bmc_client_count = cache.len(),
                 "Pruned stale BmcClient cache entries"
             );
         }
@@ -345,7 +345,10 @@ impl ApiEndpointSource {
             .await
             .map_err(HealthError::ApiInvocationError)?;
 
-        tracing::info!("Found {} machines", machine_ids.machine_ids.len(),);
+        tracing::info!(
+            machine_count = machine_ids.machine_ids.len(),
+            "Found machines"
+        );
 
         let mut endpoints = Vec::new();
 
@@ -361,8 +364,9 @@ impl ApiEndpointSource {
                 .await
                 .map_err(HealthError::ApiInvocationError)?;
             tracing::debug!(
-                "Fetched details for {} machines with chunk size of 100",
-                machines.machines.len(),
+                machine_count = machines.machines.len(),
+                requested_machine_count = ids_chunk.len(),
+                "Fetched machine details"
             );
 
             for machine in machines.machines {
@@ -411,7 +415,10 @@ impl ApiEndpointSource {
                     }
                 }
 
-                tracing::debug!(count = endpoints.len(), "Fetched switch endpoints");
+                tracing::debug!(
+                    switch_endpoint_count = endpoints.len(),
+                    "Fetched switch endpoints"
+                );
                 endpoints
             }
             Err(error) => {
@@ -442,7 +449,10 @@ impl ApiEndpointSource {
                     }
                 }
 
-                tracing::debug!(count = endpoints.len(), "Fetched power shelf endpoints");
+                tracing::debug!(
+                    power_shelf_endpoint_count = endpoints.len(),
+                    "Fetched power shelf endpoints"
+                );
                 endpoints
             }
             Err(error) => {

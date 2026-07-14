@@ -106,7 +106,12 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
             Ok(value) => Some(value),
             Err(error) => {
                 fetch_failures.fetch_add(1, Ordering::Relaxed);
-                tracing::warn!(?error, context, bmc_addr = ?self.endpoint.addr, "Discovery fetch failed");
+                tracing::warn!(
+                    ?error,
+                    context,
+                    bmc_address = ?self.endpoint.addr,
+                    "Discovery fetch failed"
+                );
                 None
             }
         }
@@ -326,7 +331,11 @@ impl<B: Bmc + 'static> EntityDiscoveryCollector<B> {
             Ok(None) => Vec::new(),
             Err(error) => {
                 fetch_failures.fetch_add(1, Ordering::Relaxed);
-                tracing::warn!(?error, bmc_addr = ?self.endpoint.addr, "Failed to get chassis sensors");
+                tracing::warn!(
+                    ?error,
+                    bmc_address = ?self.endpoint.addr,
+                    "Failed to get chassis sensors"
+                );
                 Vec::new()
             }
         };

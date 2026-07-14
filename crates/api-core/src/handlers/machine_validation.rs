@@ -82,13 +82,13 @@ pub(crate) async fn mark_machine_validation_complete(
     let machine = match db::machine::find_by_validation_id(&mut txn, validation_id).await? {
         Some(machine) => machine,
         None => {
-            tracing::error!(%validation_id, "validation id not found");
+            tracing::error!(machine_validation_id = %validation_id, "validation id not found");
             return Err(CarbideError::InvalidArgument("wrong validation ID".to_string()).into());
         }
     };
 
     if machine.id != machine_id {
-        tracing::error!(validation_id = %validation_id, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
+        tracing::error!(machine_validation_id = %validation_id, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
         return Err(CarbideError::InvalidArgument(
             "Validation ID does not belong to provided Machine ID".to_string(),
         )
@@ -121,7 +121,7 @@ pub(crate) async fn mark_machine_validation_complete(
     if !completed {
         tracing::info!(
             %machine_id,
-            %validation_id,
+            machine_validation_id = %validation_id,
             "machine validation completion ignored because run is no longer active"
         );
         txn.commit().await?;
@@ -252,26 +252,30 @@ pub(crate) async fn persist_validation_result(
 
     let validation_result: MachineValidationResult = result.try_into()?;
 
-    tracing::trace!(validation_id = %validation_result.validation_id);
+    tracing::trace!(
+        machine_validation_id = %validation_result.validation_id,
+        "Received machine validation result"
+    );
 
     let mut txn = api.txn_begin().await?;
 
-    let machine =
-        match db::machine::find_by_validation_id(&mut txn, &validation_result.validation_id).await?
-        {
-            Some(machine) => machine,
-            None => {
-                tracing::error!(%validation_result.validation_id, "validation id not found");
-                return Err(
-                    CarbideError::InvalidArgument("wrong validation ID".to_string()).into(),
-                );
-            }
-        };
+    let machine = match db::machine::find_by_validation_id(
+        &mut txn,
+        &validation_result.validation_id,
+    )
+    .await?
+    {
+        Some(machine) => machine,
+        None => {
+            tracing::error!(machine_validation_id = %validation_result.validation_id, "validation id not found");
+            return Err(CarbideError::InvalidArgument("wrong validation ID".to_string()).into());
+        }
+    };
     let machine_validation =
         db::machine_validation::find_by_id(&mut txn, &validation_result.validation_id).await?;
     if !db::machine_validation::is_active(&machine_validation) {
         tracing::info!(
-            validation_id = %validation_result.validation_id,
+            machine_validation_id = %validation_result.validation_id,
             machine_id = %machine.id,
             "machine validation result ignored because run is no longer active"
         );
@@ -284,13 +288,19 @@ pub(crate) async fn persist_validation_result(
         ManagedHostState::Validation { validation_state } => {
             match validation_state {
                 ValidationState::MachineValidation { .. } => {
-                    tracing::info!("machine state is  {}", machine.current_state());
+                    tracing::info!(
+                        machine_state = %machine.current_state(),
+                        "Machine is in validation state",
+                    );
                     //Continue to persist data
                 }
             }
         }
         _ => {
-            tracing::error!("invalid host machine state {}", machine.current_state());
+            tracing::error!(
+                machine_state = %machine.current_state(),
+                "invalid host machine state",
+            );
             return Err(
                 CarbideError::InvalidArgument("wrong host machine state".to_string()).into(),
             );
@@ -303,7 +313,7 @@ pub(crate) async fn persist_validation_result(
         db::machine_validation_execution::record_result(&mut txn, &validation_result).await?;
     if !first_terminal_report {
         tracing::info!(
-            validation_id = %validation_result.validation_id,
+            machine_validation_id = %validation_result.validation_id,
             machine_id = %machine.id,
             test_id = ?validation_result.test_id,
             "machine validation result ignored because attempt was already terminal"
@@ -666,7 +676,10 @@ pub(crate) async fn on_demand_machine_validation(
             {
                 let msg =
                     format!("On demand machine validation for {machine_id} is already scheduled.");
-                tracing::error!(msg);
+                tracing::error!(
+                    %machine_id,
+                    "On-demand machine validation is already scheduled"
+                );
                 return Err(CarbideError::InvalidArgument(msg).into());
             }
             // Check state
@@ -680,7 +693,10 @@ pub(crate) async fn on_demand_machine_validation(
                         let msg = format!(
                             "On demand machine validation for {machine_id} is already scheduled."
                         );
-                        tracing::error!(msg);
+                        tracing::error!(
+                            %machine_id,
+                            "On-demand machine validation is already scheduled"
+                        );
                         return Err(CarbideError::InvalidArgument(msg).into());
                     }
                     let allowed_tests: Vec<String> = req
@@ -700,7 +716,10 @@ pub(crate) async fn on_demand_machine_validation(
                         },
                     )
                     .await?;
-                    tracing::trace!(validation_id = %validation_id);
+                    tracing::trace!(
+                        machine_validation_id = %validation_id,
+                        "Created on-demand machine validation run"
+                    );
 
                     // Update machine_validation_request.
                     db::machine::set_machine_validation_request(&mut txn, &machine_id, true)
@@ -720,7 +739,12 @@ pub(crate) async fn on_demand_machine_validation(
                         ManagedHostState::Ready,
                         machine.current_state()
                     );
-                    tracing::warn!(msg);
+                    tracing::warn!(
+                        %machine_id,
+                        required_state = %ManagedHostState::Ready,
+                        machine_state = %machine.current_state(),
+                        "On-demand machine validation requires a different machine state"
+                    );
                     Err(CarbideError::InvalidArgument(msg).into())
                 }
             }
@@ -1030,9 +1054,9 @@ pub async fn apply_config_on_startup(
             for test_config in &config.tests {
                 if let Some(test) = tests.iter().find(|t| t.test_id == test_config.id) {
                     tracing::info!(
-                        "Updating test '{}' to state {} from config",
-                        test.test_id,
-                        test_config.enable
+                        test_id = %test.test_id,
+                        enable = test_config.enable,
+                        "Updating test to state from config",
                     );
 
                     machine_validation_suites::enable_disable(
@@ -1065,9 +1089,9 @@ pub async fn apply_config_on_startup(
                 };
 
                 tracing::info!(
-                    "Setting test '{}' to state {} (EnableAll mode)",
-                    test.test_id,
-                    enable_state
+                    test_id = %test.test_id,
+                    test_enable_state = enable_state,
+                    "Setting test to state (EnableAll mode)",
                 );
 
                 machine_validation_suites::enable_disable(
@@ -1099,9 +1123,9 @@ pub async fn apply_config_on_startup(
                 };
 
                 tracing::info!(
-                    "Setting test '{}' to state {} (DisableAll mode)",
-                    test.test_id,
-                    enable_state
+                    test_id = %test.test_id,
+                    test_enable_state = enable_state,
+                    "Setting test to state (DisableAll mode)",
                 );
 
                 machine_validation_suites::enable_disable(

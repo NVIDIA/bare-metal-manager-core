@@ -50,7 +50,11 @@ pub async fn wait_for_state(
     let data = serde_json::json!({
         "machine_ids": [{"id": machine_id}],
     });
-    tracing::info!("Waiting for Machine {machine_id} state {target_state}");
+    tracing::info!(
+        machine_id = %machine_id,
+        target_state,
+        "Waiting for Machine state",
+    );
     let mut i = 0;
     while i < MAX_RETRY {
         let response = grpcurl(addrs, "FindMachinesByIds", Some(&data)).await?;
@@ -59,7 +63,7 @@ pub async fn wait_for_state(
         if state.contains(target_state) {
             break;
         }
-        tracing::info!("\tCurrent: {state}");
+        tracing::info!(machine_state = state, "\tCurrent",);
         thread::sleep(time::Duration::from_millis(500));
         i += 1;
     }

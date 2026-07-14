@@ -119,8 +119,8 @@ impl GnmiOnChangeProcessor {
             Some(proto::subscribe_response::Response::Error(e)) => {
                 stream_metrics.stream_errors_total.inc();
                 tracing::warn!(
-                    code = e.code,
-                    message = %e.message,
+                    grpc_status_code = e.code,
+                    error = %e.message,
                     stream = %self.collector_name,
                     "nvue_gnmi ON_CHANGE: server error in stream"
                 );

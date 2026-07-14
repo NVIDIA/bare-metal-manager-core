@@ -402,7 +402,7 @@ pub async fn allocate(
 
         if segment.prefixes.is_empty() {
             tracing::error!(
-                segment_id = %segment.id,
+                network_segment_id = %segment.id,
                 "No prefix is attached to segment.",
             );
             return Err(DatabaseError::FindOneReturnedNoResultsError(
@@ -425,7 +425,7 @@ pub async fn allocate(
                         ConfigValidationError::NetworkSegmentUnavailableOnHost,
                     )) => {
                         tracing::debug!(
-                            segment_id = %segment.id,
+                            network_segment_id = %segment.id,
                             prefix = %prefix.prefix,
                             "Host has no address in this prefix, skipping.",
                         );

@@ -188,8 +188,8 @@ impl KubernetesPodServicesHandler {
     /// Restart a systemd service and apply changes to the service configuration.
     async fn systemctl_restart(&self, service: &str) -> Result<()> {
         tracing::debug!(
-            "systemctl daemon-reload and restart {} to apply changes",
-            service
+            service,
+            "systemctl daemon-reload and restart to apply changes"
         );
 
         // Run systemctl daemon-reload
@@ -201,7 +201,7 @@ impl KubernetesPodServicesHandler {
 
         if !daemon_reload.status.success() {
             let stderr = String::from_utf8_lossy(&daemon_reload.stderr);
-            tracing::warn!("systemctl daemon-reload failed: {}", stderr);
+            tracing::warn!(%stderr, "systemctl daemon-reload failed");
         }
 
         // Run systemctl restart <service>
@@ -216,7 +216,7 @@ impl KubernetesPodServicesHandler {
             return Err(eyre::eyre!("Failed to restart {}: {}", service, stderr));
         }
 
-        tracing::debug!("Successfully restarted {}", service);
+        tracing::debug!(%service, "Successfully restarted");
 
         Ok(())
     }
@@ -294,10 +294,10 @@ impl KubernetesPodServicesHandler {
             })?;
 
         tracing::debug!(
-            "Pod spec for service {} V{} written successfully at {}",
-            service.id,
-            service.version,
-            pod_spec_path.display()
+            extension_service_id = %service.id,
+            service_version = %service.version,
+            pod_spec_path = %pod_spec_path.display(),
+            "Pod spec written successfully"
         );
 
         Ok(())
@@ -310,18 +310,18 @@ impl KubernetesPodServicesHandler {
         match fs::remove_file(&pod_spec_path).await {
             Ok(()) => {
                 tracing::debug!(
-                    "Pod spec for service {} V{} removed successfully at {}",
-                    service_id,
+                    extension_service_id = service_id,
                     service_version,
-                    pod_spec_path.display()
+                    pod_spec_path = %pod_spec_path.display(),
+                    "Pod spec removed successfully"
                 );
             }
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 tracing::debug!(
-                    "Pod spec for service {} V{} already gone (nothing to remove) at {}",
-                    service_id,
+                    extension_service_id = service_id,
                     service_version,
-                    pod_spec_path.display()
+                    pod_spec_path = %pod_spec_path.display(),
+                    "Pod spec already gone (nothing to remove)"
                 );
             }
             Err(e) => {
@@ -478,9 +478,9 @@ impl KubernetesPodServicesHandler {
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             tracing::debug!(
-                "go-template inspect failed for container {}: {}",
                 container_id,
-                stderr
+                %stderr,
+                "go-template inspect failed"
             );
         }
 
@@ -960,13 +960,13 @@ JSON
             std::fs::write(KUBELET_SYSTEMD_OVERRIDE_FILE, override_content)
                 .wrap_err("Failed to write kubelet systemd override file")?;
             tracing::debug!(
-                "Written kubelet systemd override to {}",
-                KUBELET_SYSTEMD_OVERRIDE_FILE
+                kubelet_systemd_override_path = KUBELET_SYSTEMD_OVERRIDE_FILE,
+                "Written kubelet systemd override"
             );
         } else {
             tracing::debug!(
-                "Kubelet systemd override already up to date at {}",
-                KUBELET_SYSTEMD_OVERRIDE_FILE
+                kubelet_systemd_override_path = KUBELET_SYSTEMD_OVERRIDE_FILE,
+                "Kubelet systemd override already up to date"
             );
         }
 
@@ -1131,17 +1131,17 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
                 KUBELET_SYSTEMD_OVERRIDE_FILE,
             ] {
                 match std::fs::remove_file(path) {
-                    Ok(_) => tracing::debug!("Removed {}", path),
+                    Ok(_) => tracing::debug!(path, "Removed"),
                     Err(e) if e.kind() == ErrorKind::NotFound => {
-                        tracing::debug!("{} already absent", path);
+                        tracing::debug!(path, "already absent");
                     }
                     Err(e) => return Err(eyre::eyre!("Failed to remove {}: {}", path, e)),
                 }
             }
         } else {
             tracing::debug!(
-                "Configuring credential provider for {} registries or organizations",
-                credential_list.len()
+                registry_count = credential_list.len(),
+                "Configuring credential provider for registries or organizations"
             );
 
             // Create credential directory structure
@@ -1162,8 +1162,8 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
                 .wrap_err("Failed to write credential provider config")?;
 
             tracing::debug!(
-                "Written credential provider config to {}",
-                KUBELET_POD_IMAGE_CRED_CONFIG_FILE
+                credential_provider_config_path = KUBELET_POD_IMAGE_CRED_CONFIG_FILE,
+                "Written credential provider config"
             );
 
             // Write kubelet systemd override to configure image credential provider
@@ -1185,8 +1185,8 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
             }
 
             tracing::debug!(
-                "Written credential provider script to {}",
-                KUBELET_POD_IMAGE_CRED_PROVIDER_FILE
+                credential_provider_script_path = KUBELET_POD_IMAGE_CRED_PROVIDER_FILE,
+                "Written credential provider script"
             );
         }
 
@@ -1222,8 +1222,9 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
                     }
                 } else if observability.configs.len() > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
                     tracing::error!(
-                        "number of observability configs for service `{}` exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
-                        service.id
+                        extension_service_id = %service.id,
+                        limit = MAX_OBSERVABILITY_CONFIG_PER_SERVICE,
+                        "Number of observability configs exceeds the limit"
                     );
 
                     // We protect against this case in the API layer, so this case,
@@ -1348,7 +1349,7 @@ impl ExtensionServiceHandler for KubernetesPodServicesHandler {
     /// This reconciles the /etc/kubelet.d directory with the desired services
     async fn update_active_services(&mut self, services: &[ServiceConfig]) -> Result<()> {
         if let Err(e) = self.update_services(services).await {
-            tracing::error!("Failed to update active services: {}", e);
+            tracing::error!(error = %e, "Failed to update active services");
         }
         Ok(())
     }

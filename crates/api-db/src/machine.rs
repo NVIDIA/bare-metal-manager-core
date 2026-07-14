@@ -109,7 +109,7 @@ pub async fn get_or_create(
         if existing_machine.is_none() {
             tracing::warn!(
                 %machine_id,
-                interface_id = %interface.id,
+                machine_interface_id = %interface.id,
                 "Interface ID refers to missing machine",
             );
             return Err(DatabaseError::NotFoundError {
@@ -1033,8 +1033,8 @@ pub async fn update_spx_status_observation(
     observation: &MachineSpxStatusObservation,
 ) -> Result<(), DatabaseError> {
     tracing::debug!(
-        "update_spx_status_observation: observation {:#?}",
-        observation
+        observation = ?observation,
+        "updating SPX status observation",
     );
     let query = "UPDATE machines SET spx_status_observation = $1::json WHERE id = $2 AND
                 (spx_status_observation->>'observed_at' IS NULL OR spx_status_observation->>'observed_at' <= $3) RETURNING id";
@@ -1058,7 +1058,12 @@ async fn debug_failed_machine_status_update(
 ) {
     let serialized_data =
         serde_json::to_string_pretty(column_data).unwrap_or_else(|_| "Invalid".to_string());
-    tracing::error!(machine_id=%machine_id, column_name, "Failed to update column. New column data: {serialized_data}");
+    tracing::error!(
+        machine_id=%machine_id,
+        column_name,
+        serialized_data = %serialized_data,
+        "Failed to update column. New column data",
+    );
     // Dump the raw Machine state for debugging purposes
     let query = "SELECT * from machines WHERE id = $1";
     match sqlx::query(query)
@@ -1067,13 +1072,19 @@ async fn debug_failed_machine_status_update(
         .await
     {
         Ok(Some(row)) => {
-            tracing::error!("Machine Data: {:?}", row);
+            tracing::error!(
+                row = ?row,
+                "Machine Data",
+            );
         }
         Ok(None) => {
             tracing::error!("No Machine Data");
         }
         Err(e) => {
-            tracing::error!("Failed to load Machine Data. Error: {e}");
+            tracing::error!(
+                error = %e,
+                "Failed to load machine data",
+            );
         }
     }
 }
@@ -1564,7 +1575,11 @@ pub async fn create(
             {
                 Ok(asn) => Some(asn as i64),
                 Err(e) => {
-                    tracing::info!("Failed to allocate asn for dpu {stable_machine_id}: {e}");
+                    tracing::info!(
+                        stable_machine_id = %stable_machine_id,
+                        error = %e,
+                        "Failed to allocate asn for dpu",
+                    );
                     None
                 }
             }
@@ -2096,7 +2111,7 @@ pub async fn update_state(
     .ok_or_else(|| DatabaseError::new("crate::machine::find_one", sqlx::Error::RowNotFound))?;
 
     let version = host.current_version().increment();
-    tracing::info!(machine_id = %host.id, ?new_state, "Updating host state");
+    tracing::info!(machine_id = %host.id, next_state = ?new_state, "Updating host state");
     advance(&host, txn, new_state, Some(version)).await?;
 
     // Keep both host and dpu's states in sync.

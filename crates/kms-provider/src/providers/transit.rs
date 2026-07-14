@@ -85,7 +85,10 @@ impl TransitKmsProvider {
                 match vaultrs::token::lookup_self(client.as_ref()).await {
                     Ok(info) => break info,
                     Err(e) => {
-                        tracing::warn!("failed to look up Transit KMS token, retrying: {e}");
+                        tracing::warn!(
+                            error = %e,
+                            "failed to look up Transit KMS token; retrying"
+                        );
                         tokio::select! {
                             _ = cancel.cancelled() => return,
                             _ = tokio::time::sleep(Duration::from_secs(30)) => {}
@@ -102,7 +105,7 @@ impl TransitKmsProvider {
             let mut next_renewal = Duration::from_secs((info.ttl as f64 * 0.9).max(30.0) as u64);
             loop {
                 tracing::debug!(
-                    sleep_secs = next_renewal.as_secs(),
+                    sleep_seconds = next_renewal.as_secs(),
                     "scheduling Transit KMS token renewal"
                 );
                 tokio::select! {
@@ -116,12 +119,12 @@ impl TransitKmsProvider {
                             (renewed.lease_duration as f64 * 0.9).max(30.0) as u64,
                         );
                         tracing::info!(
-                            new_lease_duration = renewed.lease_duration,
+                            new_lease_duration_seconds = renewed.lease_duration,
                             "renewed Transit KMS vault token"
                         );
                     }
                     Err(e) => {
-                        tracing::warn!("failed to renew Transit KMS vault token: {e}");
+                        tracing::warn!(error = %e, "failed to renew Transit KMS vault token");
                         next_renewal = Duration::from_secs(30);
                     }
                 }

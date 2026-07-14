@@ -77,7 +77,7 @@ pub async fn query(
     {
         Ok(results) => results.into_inner().actions,
         Err(err) => {
-            tracing::error!(%err, "fetch_action_requests");
+            tracing::error!(error = %err, "fetch_action_requests");
             browser.error = Some(format!("Failed to look up action requests {err}",));
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }

@@ -1514,7 +1514,7 @@ async fn test_reboot_no_retry_during_firmware_update(pool: sqlx::PgPool) {
     let dpu = mh.dpu().db_machine(&mut txn).await;
     let last_reboot_requested = host.last_reboot_requested.as_ref().unwrap();
 
-    tracing::info!("power request: {:?}", last_reboot_requested);
+    tracing::info!(?last_reboot_requested, "power request",);
     assert!(matches!(
         host.last_reboot_requested.as_ref().unwrap().mode,
         MachineLastRebootRequestedMode::Reboot
@@ -2113,7 +2113,11 @@ async fn test_instance_reprov_restart_failed_impl(pool: sqlx::PgPool) {
 
     let dpu = mh.dpu().db_machine(&mut txn).await;
 
-    tracing::info!(machine_id = %dpu.id, "{} {}", dpu.current_state(), "curr state:");
+    tracing::info!(
+        machine_id = %dpu.id,
+        dpu_state = %dpu.current_state(),
+        "current DPU state",
+    );
 
     assert!(matches!(
         dpu.current_state(),

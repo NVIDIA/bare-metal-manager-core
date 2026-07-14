@@ -254,9 +254,10 @@ impl ExploredEndpoint {
                 .find(|&x| fw_info.matching_version_id(&x.id, firmware_type))
             {
                 tracing::debug!(
-                    "find_version {}: For {firmware_type:?} found {:?}",
-                    self.address,
-                    matching_inventory.version
+                    bmc_ip_address = %self.address,
+                    firmware_type = ?firmware_type,
+                    version = ?matching_inventory.version,
+                    "Found matching firmware version",
                 );
                 return matching_inventory.version.as_ref();
             };
@@ -283,10 +284,11 @@ impl ExploredEndpoint {
         }
 
         tracing::debug!(
-            "find_all_versions {}: Found {} versions for {firmware_type:?}: {:?}",
-            self.address,
-            versions.len(),
-            versions
+            bmc_ip_address = %self.address,
+            version_count = versions.len(),
+            firmware_type = ?firmware_type,
+            versions = ?versions,
+            "Found firmware versions",
         );
 
         versions

@@ -75,8 +75,8 @@ pub async fn run_local(
         .entries;
 
     tracing::info!(
-        "Got desired firmware versions from the server: {:?}",
-        desired_firmware
+        ?desired_firmware,
+        "Got desired firmware versions from the server",
     );
 
     let app_context = Arc::new(MachineATronContext {

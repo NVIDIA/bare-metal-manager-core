@@ -194,7 +194,7 @@ pub async fn run_metrics_endpoint_with_cancellation(
     let listener = TcpListener::bind(&config.address).await?;
 
     tracing::info!(
-        address = config.address.to_string(),
+        metrics_address = config.address.to_string(),
         "Starting metrics listener"
     );
 
@@ -218,7 +218,7 @@ pub async fn run_metrics_endpoint_with_listener(
         let stream = match result {
             Ok((stream, _addr)) => stream,
             Err(e) => {
-                tracing::error!("error accepting TCP connection: {e}");
+                tracing::error!(error = %e, "error accepting TCP connection");
                 continue;
             }
         };

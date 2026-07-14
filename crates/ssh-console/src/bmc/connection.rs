@@ -120,7 +120,10 @@ pub async fn lookup(
             })),
         };
         tracing::info!(
-            "Overriding bmc connection to {machine_or_instance_id} with {connection_details:?}"
+            %machine_or_instance_id,
+            bmc_address = %connection_details.addr(),
+            bmc_machine_id = %connection_details.machine_id(),
+            "Overriding BMC connection"
         );
         return Ok(connection_details);
     }
@@ -203,7 +206,9 @@ pub async fn lookup(
 
     let addr = if let Some(override_ssh_addr) = config.override_bmc_ssh_addr(port).await? {
         tracing::info!(
-            "Overriding bmc connection to {ip} with {override_ssh_addr} per configuration"
+            bmc_ip_address = %ip,
+            override_bmc_ssh_address = %override_ssh_addr,
+            "Overriding BMC connection per configuration"
         );
         override_ssh_addr
     } else {

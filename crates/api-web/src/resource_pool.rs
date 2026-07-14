@@ -54,7 +54,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let pools = match fetch_resource_pools(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "admin_list_resource_pools");
+            tracing::error!(error = %err, "admin_list_resource_pools");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed loading resource pools",
@@ -70,7 +70,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_resource_pools(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "admin_list_resource_pools");
+            tracing::error!(error = %err, "admin_list_resource_pools");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed loading resource pools",

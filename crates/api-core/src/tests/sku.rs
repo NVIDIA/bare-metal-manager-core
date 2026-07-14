@@ -236,7 +236,10 @@ pub mod tests {
             &mh.host().id,
             3,
             |machine| {
-                tracing::info!("waiting for inventory update: {}", machine.current_state());
+                tracing::info!(
+                    machine_state = %machine.current_state(),
+                    "waiting for inventory update",
+                );
                 matches!(
                     machine.current_state(),
                     ManagedHostState::BomValidating {
@@ -484,9 +487,15 @@ pub mod tests {
         actual_sku.created = expected_sku.created;
 
         let actual_sku_json: String = serde_json::ser::to_string_pretty(&actual_sku)?;
-        tracing::info!("actual_sku_json: {}", actual_sku_json);
+        tracing::info!(
+            actual_sku_json = %actual_sku_json,
+            "Serialized actual SKU",
+        );
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
-        tracing::info!("expected_sku_json: {}", expected_sku_json);
+        tracing::info!(
+            expected_sku_json = %expected_sku_json,
+            "Serialized expected SKU",
+        );
 
         assert_eq!(actual_sku_json, expected_sku_json);
 
@@ -1288,7 +1297,10 @@ pub mod tests {
             .pop()
             .unwrap();
 
-        tracing::info!("SKU1: {:?}", original_sku);
+        tracing::info!(
+            original_sku = ?original_sku,
+            "Original SKU before mismatch",
+        );
 
         let mut broken_sku = original_sku.clone();
         broken_sku.id = "Broken SKU".to_string();
@@ -1296,7 +1308,10 @@ pub mod tests {
 
         db::sku::create(&mut txn, &broken_sku).await?;
 
-        tracing::info!("SKU2: {:?}", broken_sku);
+        tracing::info!(
+            broken_sku = ?broken_sku,
+            "Broken SKU after mismatch",
+        );
 
         db::machine::unassign_sku(&mut txn, &machine_id).await?;
         db::machine::assign_sku(&mut txn, &machine_id, &broken_sku.id).await?;

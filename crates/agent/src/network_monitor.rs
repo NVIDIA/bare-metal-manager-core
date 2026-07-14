@@ -131,7 +131,10 @@ impl NetworkMonitor {
                 loopback_ip = Some(dpu_info.ip);
             }
             Err(e) => {
-                tracing::debug!("Network monitor failed to get dpu info list from API {}", e);
+                tracing::debug!(
+                    error = %e,
+                    "Network monitor failed to get dpu info list from API"
+                );
             }
         }
 
@@ -152,7 +155,10 @@ impl NetworkMonitor {
                             loopback_ip = Some(dpu_info.ip);
                         }
                         Err(e) => {
-                            tracing::debug!("Network monitor failed to get dpu info list from API {}", e);
+                            tracing::debug!(
+                                error = %e,
+                                "Network monitor failed to get dpu info list from API"
+                            );
                             peer_dpus = Vec::new();
                             loopback_ip = None;
                         }
@@ -201,7 +207,7 @@ impl NetworkMonitor {
                         metrics.update_network_reachable_map(reachable_map);
                     }
                 }
-                Err(e) => tracing::error!("Failed to run network check: {}", e),
+                Err(e) => tracing::error!(error = %e, "Failed to run network check"),
             }
             elapsed_time = start_time.elapsed();
         }
@@ -223,14 +229,17 @@ impl NetworkMonitor {
         {
             Ok((dpu_info, new_peer_dpus)) => (dpu_info.ip, new_peer_dpus),
             Err(e) => {
-                tracing::error!("Network monitor failed to get dpu info list from API {}", e);
+                tracing::error!(
+                    error = %e,
+                    "Network monitor failed to get dpu info list from API"
+                );
                 return;
             }
         };
 
         match self.monitor_concurrent(&peer_dpus, loopback_ip).await {
             Ok(results) => self.format_results(&results, loopback_ip.to_string()),
-            Err(e) => tracing::error!("Failed to run network check: {}", e),
+            Err(e) => tracing::error!(error = %e, "Failed to run network check"),
         }
     }
 
@@ -284,8 +293,8 @@ impl NetworkMonitor {
         let results = recv_task.await.map_err(|err| {
             self.record_error_metrics(NetworkMonitorError::TaskJoinError, None);
             tracing::error!(
-                "Failed to join task spawned for collecting ping result: {}",
-                err
+                error = %err,
+                "Failed to join task spawned for collecting ping result"
             );
             err
         })?;
@@ -327,7 +336,7 @@ impl NetworkMonitor {
 
         match serde_json::to_string_pretty(&final_result) {
             Ok(json) => println!("{json}"),
-            Err(e) => tracing::error!("Failed to serialize results to JSON: {}", e),
+            Err(e) => tracing::error!(error = %e, "Failed to serialize results to JSON"),
         }
     }
 
