@@ -60,6 +60,24 @@ pub struct LldpPort {
     pub ttl: Vec<LldpValue>,
 }
 
+/// LLDP-MED inventory (`lldp-med[].inventory[]`), advertised by some neighbors
+/// (e.g. BlueField DPUs). Every field is optional.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct LldpInventory {
+    #[serde(default)]
+    pub serial: Vec<LldpValue>,
+    #[serde(default)]
+    pub manufacturer: Vec<LldpValue>,
+    #[serde(default)]
+    pub model: Vec<LldpValue>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct LldpMed {
+    #[serde(default)]
+    pub inventory: Vec<LldpInventory>,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LldpInterfaceEntry {
     pub name: String, // local interface name (host side)
@@ -67,6 +85,8 @@ pub struct LldpInterfaceEntry {
     pub chassis: Vec<LldpChassis>,
     #[serde(default)]
     pub port: Vec<LldpPort>,
+    #[serde(rename = "lldp-med", default)]
+    pub lldp_med: Vec<LldpMed>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -230,7 +250,15 @@ fn lldp_for_device(device: &Device) -> Vec<rpc_discovery::LldpSwitchData> {
 /// Get raw `lldpcli -f json0` output for a port.
 pub fn get_lldp_port_info(port: &str) -> LldpCollectorResult<String> {
     Cmd::new("lldpcli")
-        .args(vec!["-f", "json0", "show", "neighbors", "ports", port])
+        .args(vec![
+            "-f",
+            "json0",
+            "show",
+            "neighbors",
+            "ports",
+            port,
+            "details",
+        ])
         .output()
         .map_err(|e| {
             warn!("Could not discover LLDP peer for {port}, {e}");
@@ -274,6 +302,11 @@ fn parse_port_lldp(lldp_json: &str) -> LldpCollectorResult<Vec<rpc_discovery::Ll
             .map(|id| (id.id_type.clone(), id.value.clone()))
             .unwrap_or_default();
 
+        let inventory = entry.lldp_med.first().and_then(|med| med.inventory.first());
+        let inv_field = |select: fn(&LldpInventory) -> &Vec<LldpValue>| {
+            inventory.and_then(|inv| select(inv).first().map(|v| v.value.clone()))
+        };
+
         // The `deprecated` allow keeps the legacy combined `id`/`remote_port`
         // strings populated for backward compatibility until consumers migrate
         // to the split *_type/*_value fields.
@@ -297,6 +330,9 @@ fn parse_port_lldp(lldp_json: &str) -> LldpCollectorResult<Vec<rpc_discovery::Ll
             id_value,
             remote_port_type,
             remote_port_value,
+            serial: inv_field(|inv| &inv.serial),
+            manufacturer: inv_field(|inv| &inv.manufacturer),
+            model: inv_field(|inv| &inv.model),
         });
     }
 
@@ -377,6 +413,43 @@ mod tests {
         assert_eq!(n.remote_port, "ifname=swp2");
         assert_eq!(n.ip_address, vec!["192.0.2.10", "2001:db8::10"]);
         assert!(n.description.contains("Cumulus Linux"));
+    }
+
+    // Neighbor advertising LLDP-MED inventory (a BlueField DPU). serial /
+    // manufacturer / model live under `lldp-med[].inventory[]`.
+    const INVENTORY_NEIGHBOR: &str = r#"{
+      "lldp": [
+        { "interface": [
+          { "name": "enp1s0np0", "chassis": [
+              { "id": [{"type":"mac","value":"00:11:22:33:44:55"}],
+                "name": [{"value":"example-dpu-01"}] }],
+            "port": [{ "id": [{"type":"mac","value":"00:11:22:33:44:66"}], "ttl": [{"value":"120"}] }],
+            "lldp-med": [{ "inventory": [{
+                "serial": [{"value":"SN0123456789"}],
+                "manufacturer": [{"value":"https://example.com"}],
+                "model": [{"value":"BlueField-3 DPU"}] }] }] }
+        ] }
+      ]
+    }"#;
+
+    #[test]
+    fn parses_lldp_med_inventory() {
+        let neighbors = parse_port_lldp(INVENTORY_NEIGHBOR).expect("parse");
+        assert_eq!(neighbors.len(), 1);
+        let n = &neighbors[0];
+        assert_eq!(n.serial.as_deref(), Some("SN0123456789"));
+        assert_eq!(n.manufacturer.as_deref(), Some("https://example.com"));
+        assert_eq!(n.model.as_deref(), Some("BlueField-3 DPU"));
+    }
+
+    #[test]
+    fn parses_missing_inventory_as_none() {
+        let neighbors = parse_port_lldp(SINGLE_NEIGHBOR).expect("parse");
+        assert_eq!(neighbors.len(), 1);
+        let n = &neighbors[0];
+        assert!(n.serial.is_none());
+        assert!(n.manufacturer.is_none());
+        assert!(n.model.is_none());
     }
 
     #[test]

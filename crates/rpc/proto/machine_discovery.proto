@@ -150,6 +150,10 @@ message LldpSwitchData {
   // Remote port id split into its LLDP subtype (e.g. "ifname") and value.
   string remote_port_type = 9;
   string remote_port_value = 10;
+  // LLDP-MED inventory fields, when the neighbor advertises them.
+  optional string serial = 11;
+  optional string manufacturer = 12;
+  optional string model = 13;
 }
 
 message DpuData {
