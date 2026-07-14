@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use kube::core::ObjectMeta;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -738,11 +739,7 @@ pub fn build_service_configuration(
         },
         spec: DpuServiceConfigurationSpec {
             deployment_service_name: svc.name.clone(),
-            interfaces: if interfaces.is_empty() {
-                None
-            } else {
-                Some(interfaces)
-            },
+            interfaces: interfaces.none_if_empty(),
             service_configuration,
             upgrade_policy: DpuServiceConfigurationUpgradePolicy {
                 apply_node_effect: Some(false),

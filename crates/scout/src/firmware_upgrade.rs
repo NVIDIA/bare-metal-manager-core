@@ -18,6 +18,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use futures_util::TryStreamExt;
 use rpc::scout_firmware_upgrade::ScoutFirmwareUpgradeTask as FirmwareUpgradeTask;
 use sha2::{Digest, Sha256};
@@ -223,7 +224,7 @@ async fn download_file(
     let segment = parsed
         .path_segments()
         .and_then(|mut s| s.next_back())
-        .filter(|s| !s.is_empty())
+        .none_if_empty()
         .ok_or_else(|| format!("cannot extract filename from URL: {url}"))?;
 
     let filename = Path::new(segment)

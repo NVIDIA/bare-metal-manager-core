@@ -24,6 +24,7 @@ use carbide_rack::firmware_object::rms_access_token_or_noauth;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -976,7 +977,7 @@ async fn resolve_switch_endpoints(
             nvos_mac,
             bmc_credentials,
             nvos_credentials,
-            nvos_host_name: row.nvos_hostname.filter(|hostname| !hostname.is_empty()),
+            nvos_host_name: row.nvos_hostname.none_if_empty(),
         });
     }
 

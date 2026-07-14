@@ -16,6 +16,7 @@
  */
 
 use carbide_network::virtualization::DEFAULT_NETWORK_VIRTUALIZATION_TYPE;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::network_security_group::NetworkSecurityGroupIdParseError;
 use config_version::ConfigVersion;
 use model::metadata::{LabelFilter, Metadata};
@@ -56,11 +57,7 @@ impl From<Vpc> for rpc::forge::Vpc {
                 .iter()
                 .map(|(key, value)| rpc::forge::Label {
                     key: key.clone(),
-                    value: if value.clone().is_empty() {
-                        None
-                    } else {
-                        Some(value.clone())
-                    },
+                    value: value.clone().none_if_empty(),
                 })
                 .collect(),
         });

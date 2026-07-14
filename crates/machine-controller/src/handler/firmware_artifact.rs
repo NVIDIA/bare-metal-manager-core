@@ -19,6 +19,7 @@ use std::path::{Component, Path};
 
 use carbide_firmware::resolve_files_firmware_artifact;
 pub(crate) use carbide_firmware::{ResolvedFirmwareArtifact, ResolvedFirmwareArtifactSource};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use eyre::eyre;
 use model::firmware::{FirmwareEntry, FirmwareFileArtifact};
 use state_controller::state_handler::StateHandlerError;
@@ -46,17 +47,9 @@ pub(crate) fn resolve_scout_file_artifact(
     firmware_directory: &Path,
     artifact: &FirmwareFileArtifact,
 ) -> Result<FileArtifact, StateHandlerError> {
-    let url = artifact
-        .url
-        .as_deref()
-        .map(str::trim)
-        .filter(|url| !url.is_empty());
+    let url = artifact.url.as_deref().map(str::trim).none_if_empty();
 
-    let filename = artifact
-        .filename
-        .as_deref()
-        .map(str::trim)
-        .filter(|filename| !filename.is_empty());
+    let filename = artifact.filename.as_deref().map(str::trim).none_if_empty();
 
     let url = if let Some(url) = url {
         url.to_owned()

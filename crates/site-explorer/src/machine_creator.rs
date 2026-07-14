@@ -21,6 +21,7 @@ use carbide_rack::rms_node_type::compute_node_type_for_profile;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineId;
 use db::{ObjectColumnFilter, Transaction};
 use itertools::Itertools;
@@ -1062,7 +1063,7 @@ fn host_mac_addresses_for_predicted_machine(
         [] => machine_data
             .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
             .map(|data| data.host_nics.as_slice())
-            .filter(|host_nics| !host_nics.is_empty())
+            .none_if_empty()
             .map(|host_nics| {
                 tracing::info!(
                     host_nic_count = host_nics.len(),

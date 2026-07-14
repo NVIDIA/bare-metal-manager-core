@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use carbide_network::BaseMac;
 use carbide_utils::arch::CpuArchitecture;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
@@ -171,7 +172,7 @@ impl EndpointExplorationReport {
             .iter()
             .flat_map(|s| s.ethernet_interfaces.iter())
             .find(|e| e.mac_address == Some(mac))
-            .and_then(|e| e.id.as_deref().filter(|id| !id.is_empty()))
+            .and_then(|e| e.id.as_deref().none_if_empty())
     }
 
     /// Yields a [`MachineBootInterface`] for every host ethernet interface that
@@ -944,7 +945,7 @@ impl EndpointExplorationReport {
         self.systems
             .first()
             .and_then(|system| system.serial_number.as_deref().map(str::trim))
-            .filter(|sn| !sn.is_empty())
+            .none_if_empty()
             .or_else(|| {
                 self.is_dpu().then(|| {
                     // BF4 reports no system serial in Redfish. The stable product serial is
@@ -958,7 +959,7 @@ impl EndpointExplorationReport {
                                 .serial_number
                                 .as_deref()
                                 .map(str::trim)
-                                .filter(|serial| !serial.is_empty())
+                                .none_if_empty()
                         })
                 })?
             })
@@ -1798,15 +1799,11 @@ fn chassis_part_number(chassis: &Chassis) -> Option<&str> {
         .part_number
         .as_deref()
         .map(str::trim)
-        .filter(|part_number| !part_number.is_empty())
+        .none_if_empty()
 }
 
 fn chassis_model(chassis: &Chassis) -> Option<&str> {
-    chassis
-        .model
-        .as_deref()
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
+    chassis.model.as_deref().map(str::trim).none_if_empty()
 }
 
 // returns true if the passed in string is a BlueField part number
@@ -1996,7 +1993,7 @@ impl EndpointExplorationReport {
             .first()
             .and_then(|system| system.serial_number.as_deref())
             .map(str::trim)
-            .filter(|serial| !serial.is_empty())
+            .none_if_empty()
             .or_else(|| {
                 // BF4 Redfish does not currently expose the product serial or
                 // DPU/NIC mode on the system object. The stable product serial
@@ -2010,7 +2007,7 @@ impl EndpointExplorationReport {
                             .serial_number
                             .as_deref()
                             .map(str::trim)
-                            .filter(|serial| !serial.is_empty())
+                            .none_if_empty()
                     })
             })
     }
@@ -2054,7 +2051,7 @@ pub fn collect_explored_mlx_devices(endpoints: &[ExploredEndpoint]) -> Vec<Explo
                 .serial_number
                 .as_deref()
                 .map(str::trim)
-                .filter(|serial| !serial.is_empty())
+                .none_if_empty()
                 .and_then(|serial| dpu_by_serial.get(serial))
             {
                 device.dpu_bmc_ip = Some(dpu_ep.address);
