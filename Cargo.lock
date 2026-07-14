@@ -2310,6 +2310,8 @@ dependencies = [
  "carbide-redfish",
  "carbide-secrets",
  "carbide-state-controller-common",
+ "carbide-test-harness",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
