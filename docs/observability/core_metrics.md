@@ -63,6 +63,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_ib_partitions_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_ib_partitions</td></tr>
 <tr><td>carbide_ib_partitions_object_tasks_enqueued_total</td><td>counter</td><td>Number of object handling tasks freshly enqueued for objects of type carbide_ib_partitions</td></tr>
 <tr><td>carbide_ib_partitions_total</td><td>gauge</td><td>Number of carbide_ib_partitions in the system</td></tr>
+<tr><td>carbide_ipmi_commands_total</td><td>counter</td><td>Number of IPMI command executions, by command and outcome.</td></tr>
 <tr><td>carbide_log_events_total</td><td>counter</td><td>Number of log events emitted, by level and component. The always-on log-volume and error-rate signal for every binary.</td></tr>
 <tr><td>carbide_machine_reboot_duration_seconds</td><td>histogram</td><td>Time taken for machine/host to reboot in seconds</td></tr>
 <tr><td>carbide_machine_updates_started_count</td><td>gauge</td><td>Number of machines in the system in the process of updating</td></tr>

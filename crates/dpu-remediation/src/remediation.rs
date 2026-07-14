@@ -21,6 +21,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
 use rand::RngExt;
@@ -154,9 +155,7 @@ impl RemediationExecutor {
             }
         };
 
-        let metadata = if results.is_empty() {
-            None
-        } else {
+        let metadata = results.none_if_empty().map(|results| {
             let labels = results
                 .into_iter()
                 .map(|(k, v)| rpc::forge::Label {
@@ -164,12 +163,12 @@ impl RemediationExecutor {
                     value: Some(v),
                 })
                 .collect();
-            Some(Metadata {
+            Metadata {
                 name: "".to_string(),
                 description: "".to_string(),
                 labels,
-            })
-        };
+            }
+        });
 
         let application_status = RemediationApplicationStatus {
             succeeded,

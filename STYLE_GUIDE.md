@@ -695,3 +695,74 @@ fn prefer() {
     fails().ok();
 }
 ```
+
+### Avoid stringly-typed values
+
+When a value has a known, finite set of possibilities, model it with an enum
+(or a struct of enums) and implement traits `Display` and `FromStr` — do not
+pass it around as a bare `String` or `&str` literal. Stringly-typed values are
+easy to misspell (`NICO-` vs `NICOO-`), silently break log filters and alerts,
+and can't be exhaustively checked by the compiler. See
+[`ErrorCode`](crates/api-model/src/errors.rs) for the pattern: typed
+`ErrorSystem`/`ErrorSubsystem` parts plus a `code`, rendered to the wire string
+in one place. Reserve raw strings for genuinely open-ended values.
+
+### Prefer methods over free functions
+
+When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads more naturally at the call site.
+
+```rust
+// Avoid — free function that operates on a specific type
+fn machine_display_name(machine: &Machine) -> String {
+    format!("{} ({})", machine.hostname, machine.id)
+}
+
+fn is_machine_ready(machine: &Machine) -> bool {
+    machine.state == MachineState::Ready && machine.health.is_ok()
+}
+
+// Prefer — methods on the type itself
+impl Machine {
+    fn display_name(&self) -> String {
+        format!("{} ({})", self.hostname, self.id)
+    }
+
+    fn is_ready(&self) -> bool {
+        self.state == MachineState::Ready && self.health.is_ok()
+    }
+}
+```
+
+This applies to enums as well:
+
+```rust
+// Avoid
+fn is_terminal_state(state: &MachineState) -> bool {
+    matches!(state, MachineState::Failed | MachineState::Decommissioned)
+}
+
+fn state_label(state: &MachineState) -> &'static str {
+    match state {
+        MachineState::Ready => "ready",
+        MachineState::Failed => "failed",
+        MachineState::Decommissioned => "decommissioned",
+    }
+}
+
+// Prefer
+impl MachineState {
+    fn is_terminal(&self) -> bool {
+        matches!(self, Self::Failed | Self::Decommissioned)
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Failed => "failed",
+            Self::Decommissioned => "decommissioned",
+        }
+    }
+}
+```
+
+Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather than a single type, or is a utility with no natural owner.

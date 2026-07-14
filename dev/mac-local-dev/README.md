@@ -1,12 +1,24 @@
-# Mac Local Development — NICo API
+# Mac Local Development — NICo API (core) and NICo REST API (rest)
 
-Runs `nico-api` natively on macOS (no Docker for the binary itself).
-Docker Desktop is used only for Vault and Postgres.
-This NICo API instance is usable by NICo REST stack.
+## Summary
+
+For local development on macOS, this setup runs the full stack (core+rest) on macOS:
+- core: dependencies in docker but `nico-api` runs natively on macOS
+- rest: everything runs in docker
+
+**Usage:**
+- start NICo API (core) with `dev/mac-local-dev/run-nico-api.sh`<br>
+  You can access `nico-api` admin at https://localhost:1079/admin
+- start NICo REST API (rest) with `cd rest-api && make kind-reset LOCAL_CORE=true`<br>
+  `make` will display all relevant URLs and credentials for the REST API, Temporal, and Keycloak.
+- you can test the full-stack integration (REST API client -> REST API -> NICo API) by running `dev/mac-local-dev/check-rest-core-integration.sh`.
 
 > **Limitations**
 > - TPM / attestation features require Linux and a physical TPM — they are disabled in this setup.
-> - `machine-a-tron` relies on Linux-specific features and is unusable on macOS.
+> - `machine-a-tron` relies on Linux-specific features and is unusable on macOS (can build).
+
+**Evolution:**<br>
+Having `nico-api` run into a Linux VM alongside with machine-a-tron would provide more value (fully functional core, virtual TPM available).
 
 ## Prerequisites
 

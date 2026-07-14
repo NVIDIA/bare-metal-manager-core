@@ -107,6 +107,7 @@ impl HostMachine {
             nvos_mac_addresses: persisted_host_machine.nvos_mac_addresses.clone(),
             switch_serial_number: persisted_host_machine.switch_serial_number.clone(),
             hw_mac_addr_pool,
+            delta_psu_power: None,
         };
         let dpus = dpu_machines
             .into_iter()

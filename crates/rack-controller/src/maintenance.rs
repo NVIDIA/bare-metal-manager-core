@@ -36,6 +36,7 @@ use carbide_rack_controller::fabric_manager::{
 };
 use carbide_rack_controller::validating::strip_rv_labels;
 use carbide_secrets::credentials::{CredentialManager, Credentials};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
@@ -629,10 +630,7 @@ fn build_switch_device_info_request(
 const NMX_CONFIGURE_RMS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn build_nmx_configure_rms_client(rms_config: &RmsConfig) -> Option<librms::RackManagerApi> {
-    let url = rms_config
-        .api_url
-        .as_deref()
-        .filter(|url| !url.is_empty())?;
+    let url = rms_config.api_url.as_deref().none_if_empty()?;
     let mut rms_client_config = librms::client_config::RmsClientConfig::new(
         rms_config.root_ca_path.clone(),
         rms_config.client_cert.clone(),

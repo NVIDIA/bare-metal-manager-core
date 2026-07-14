@@ -62,20 +62,15 @@ where
         .build();
 }
 
-// The four message counters are `carbide-instrument` events. Their exposed
-// names are grandfathered, and `name_unchecked` keeps them byte-identical:
-// the pre-framework counters registered names that already ended in `_total`,
-// and the OpenTelemetry Prometheus exporter appends its own `_total` to every
-// counter -- so `/metrics` has always shown a doubled `_total_total` suffix.
-// The framework strips one `_total` before registering and the exporter
-// re-appends it, reproducing the exact name every existing dashboard and alert
-// already selects on.
+// The four message counters are `carbide-instrument` events. Each declares a
+// name ending in a single `_total`: the framework strips one `_total` before
+// registering the instrument and the OpenTelemetry Prometheus exporter appends
+// its own `_total`, so `/metrics` exposes the name exactly as declared here.
 
 /// An MQTT message reached a subscription handler, before any queueing.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_received_total_total",
-    name_unchecked,
+    name = "carbide_dsx_exchange_consumer_messages_received_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -87,8 +82,7 @@ pub struct MessageReceived;
 /// applied (or its alert cleared).
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_processed_total_total",
-    name_unchecked,
+    name = "carbide_dsx_exchange_consumer_messages_processed_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -102,8 +96,7 @@ pub struct MessageProcessed;
 /// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_dropped_total_total",
-    name_unchecked,
+    name = "carbide_dsx_exchange_consumer_messages_dropped_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -118,8 +111,7 @@ pub struct MessageDropped;
 /// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_dedup_skipped_total_total",
-    name_unchecked,
+    name = "carbide_dsx_exchange_consumer_dedup_skipped_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -144,8 +136,11 @@ pub struct ConsumerMetrics {
 impl ConsumerMetrics {
     pub fn new(meter: &Meter) -> Self {
         Self {
+            // The Prometheus exporter appends `_total`, so the registered name
+            // omits it; that yields the single-`_total` exposed name, matching
+            // the framework counters above (not a doubled `_total_total`).
             alerts_detected: meter
-                .u64_counter(format!("{METRICS_PREFIX}_alerts_detected_total"))
+                .u64_counter(format!("{METRICS_PREFIX}_alerts_detected"))
                 .with_description("Number of leak alerts detected")
                 .build(),
         }

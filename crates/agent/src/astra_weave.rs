@@ -21,6 +21,7 @@ use ::rpc::forge::{
     AstraAttachmentStatus, AstraConfig, AstraConfigStatus, AstraPhase, AstraStatus,
     SpxAttachmentType,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use eyre::WrapErr;
 
 use crate::weave_ew_vpc_client::proto::state::Phase;
@@ -164,7 +165,7 @@ async fn create_weave_ew_vpc_virtual_networks(
                 .metadata
                 .as_ref()
                 .and_then(|metadata| metadata.id.clone())
-                .filter(|id| !id.is_empty());
+                .none_if_empty();
             let state = virtual_network
                 .status
                 .as_ref()
@@ -323,7 +324,7 @@ async fn delete_stale_weave_ew_vpc_virtual_networks(
             .metadata
             .as_ref()
             .and_then(|metadata| metadata.id.clone())
-            .filter(|id| !id.is_empty())
+            .none_if_empty()
         else {
             tracing::error!(
                 ?virtual_network,
@@ -602,7 +603,7 @@ async fn delete_stale_weave_ew_vpc_astra_attachments(
             .metadata
             .as_ref()
             .and_then(|metadata| metadata.id.clone())
-            .filter(|id| !id.is_empty())
+            .none_if_empty()
         else {
             tracing::error!(
                 ?virtual_network_attachment,
@@ -668,7 +669,7 @@ pub async fn delete_match_attachment_with_vni_changed(
     let Some(delete_attachment_id) = match_attachment
         .and_then(|attachment| attachment.metadata.as_ref())
         .and_then(|metadata| metadata.id.clone())
-        .filter(|id| !id.is_empty())
+        .none_if_empty()
     else {
         tracing::error!(
             ?match_attachment,

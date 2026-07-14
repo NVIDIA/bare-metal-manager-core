@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub use ::rpc::forge as rpc;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineIdSource;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
@@ -433,7 +434,7 @@ pub(crate) async fn discover_machine(
         && let Some(scout_version) = machine_discovery_info
             .discovery_reporter_version
             .as_deref()
-            .filter(|v| !v.is_empty())
+            .none_if_empty()
     {
         db::machine::update_last_scout_observed_version(
             &stable_machine_id,

@@ -155,7 +155,7 @@ impl MachineATron {
                     .expect("machine was constructed from a configured machine group");
                 let rack_id = machine_config.rack_id.clone();
                 let result = match host_info.hw_type {
-                    HostHardwareType::LiteOnPowerShelf => {
+                    HostHardwareType::LiteOnPowerShelf | HostHardwareType::DeltaPowerShelf => {
                         self.app_context
                             .api_client()
                             .add_expected_power_shelf(

@@ -29,6 +29,7 @@ use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_network::{is_locally_administered_mac, sanitized_mac};
 use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_secrets::credentials::CredentialManager;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
@@ -3733,7 +3734,7 @@ fn duplicate_bluefield_serial<'a>(
         return None;
     }
 
-    let serial_number = serial_number.map(str::trim).filter(|s| !s.is_empty())?;
+    let serial_number = serial_number.map(str::trim).none_if_empty()?;
     (!seen.insert(serial_number)).then_some(serial_number)
 }
 

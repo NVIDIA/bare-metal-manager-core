@@ -1937,6 +1937,7 @@ mod tests {
     use ::rpc::{common as rpc_common, forge as rpc};
     use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use carbide_rpc_utils::dhcp::{DhcpConfig, HostConfig};
+    use carbide_utils::none_if_empty::NoneIfEmpty;
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
 
@@ -3863,26 +3864,26 @@ mod tests {
         let interface_prefix_v6 = Some("2001:db8::/127".to_string());
 
         let addresses: Vec<String> = std::iter::once(ip.clone())
-            .chain(ip6.filter(|s| !s.is_empty()))
+            .chain(ip6.none_if_empty())
             .collect();
         assert_eq!(addresses, vec!["10.0.0.1", "2001:db8::1"]);
 
         let prefixes: Vec<String> = std::iter::once(interface_prefix)
-            .chain(interface_prefix_v6.filter(|s| !s.is_empty()))
+            .chain(interface_prefix_v6.none_if_empty())
             .collect();
         assert_eq!(prefixes, vec!["10.0.0.0/31", "2001:db8::/127"]);
 
         // Verify empty ip6 is not included.
         let empty_ip6: Option<String> = Some("".to_string());
         let addresses2: Vec<String> = std::iter::once(ip)
-            .chain(empty_ip6.filter(|s| !s.is_empty()))
+            .chain(empty_ip6.none_if_empty())
             .collect();
         assert_eq!(addresses2, vec!["10.0.0.1"]);
 
         // Verify None ip6 is not included.
         let none_ip6: Option<String> = None;
         let addresses3: Vec<String> = std::iter::once("10.0.0.1".to_string())
-            .chain(none_ip6.filter(|s| !s.is_empty()))
+            .chain(none_ip6.none_if_empty())
             .collect();
         assert_eq!(addresses3, vec!["10.0.0.1"]);
     }

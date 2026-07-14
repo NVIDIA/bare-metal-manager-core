@@ -24,6 +24,7 @@ authors.workspace = true
 [dependencies]
 carbide-rpc = { path = "../rpc" }
 carbide-health-report = { path = "../health-report" }
+carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 config-version = { path = "../config-version" }
 
