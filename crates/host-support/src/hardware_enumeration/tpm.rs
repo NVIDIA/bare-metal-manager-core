@@ -156,9 +156,9 @@ fn get_ek_certificate_with_runner(runner: &impl CommandRunner) -> Result<Vec<u8>
                 match get_ek_certificate_from_nv_index(runner, nv_index.index) {
                     Ok(cert) => {
                         tracing::info!(
-                            "Read TPM EK certificate {} from NV index {}",
-                            nv_index.name,
-                            nv_index.index
+                            name = nv_index.name,
+                            index = nv_index.index,
+                            "Read TPM EK certificate from NV index"
                         );
                         certs.push((*nv_index, cert));
                     }
@@ -367,6 +367,7 @@ mod tests {
         let first_cert = test_ek_cert_der("first");
         let second_cert = test_ek_cert_der("second");
         let ecc_cert = test_ek_cert_der("ecc");
+        let second_ecc_cert = test_ek_cert_der("second-ecc");
         let rsa_cert = test_ek_cert_der("rsa");
 
         // Input is a (runner, expected-bytes-if-any) pair; the closure runs the
@@ -474,6 +475,28 @@ mod tests {
                         ),
                     ];
                     calls.extend(failing_nv_tail(3));
+                    FakeRunner::new(calls)
+                } => Yields(ecc_cert.clone()),
+            }
+
+            "multiple readable ECC certs select the first ECC cert when no RSA cert is readable" {
+                {
+                    let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
+                    let second_ecc_nv = cert_with_trailing_nv_bytes(&second_ecc_cert);
+                    let mut calls = vec![
+                        primary_tool_failed_call(),
+                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[0].index),
+                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[1].index),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[2].index,
+                            Ok(successful_output(&ecc_nv)),
+                        ),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[3].index,
+                            Ok(successful_output(&second_ecc_nv)),
+                        ),
+                    ];
+                    calls.extend(failing_nv_tail(4));
                     FakeRunner::new(calls)
                 } => Yields(ecc_cert.clone()),
             }
