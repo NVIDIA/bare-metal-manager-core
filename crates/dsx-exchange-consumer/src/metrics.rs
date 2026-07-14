@@ -169,6 +169,33 @@ pub struct MessageAge {
     pub age: std::time::Duration,
 }
 
+/// A rack health report could not be persisted to the Carbide API -- either a
+/// coolant-leak override insert or its clearing removal failed. The value
+/// re-arrives on the next message, so processing still retries, but a rising
+/// rate is safety-relevant: leak state is not reaching the API. Logs the
+/// failure and moves the counter from one `emit`.
+///
+/// Unlike the grandfathered counters above, this is a new metric, so it uses
+/// the standard checked name: the exporter appends the single `_total` that
+/// `/metrics` shows.
+#[derive(Event)]
+#[event(
+    name = "carbide_dsx_exchange_consumer_health_report_persist_failures_total",
+    component = "nico-dsx-exchange-consumer",
+    log = warn,
+    metric = counter,
+    message = "Failed to persist rack health report",
+    describe = "Number of rack health report persist failures against the Carbide API"
+)]
+pub struct HealthReportPersistFailed {
+    /// The rack whose health report could not be persisted.
+    #[context]
+    pub rack_id: String,
+    /// The API error that prevented the persist.
+    #[context]
+    pub error: String,
+}
+
 /// Consumer metrics that remain hand-rolled OpenTelemetry counters.
 ///
 /// Only `alerts_detected` stays here: its `point_type` label is a

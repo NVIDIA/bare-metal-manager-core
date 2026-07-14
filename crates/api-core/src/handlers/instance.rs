@@ -278,7 +278,8 @@ pub(crate) async fn find_by_ids(
     for snapshot in snapshots.into_iter() {
         instances.push(snapshot_to_instance(snapshot)?);
     }
-    let _ = txn.rollback().await;
+    txn.rollback_or_log("read-only load of instances by id")
+        .await;
 
     Ok(Response::new(rpc::InstanceList { instances }))
 }

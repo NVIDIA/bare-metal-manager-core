@@ -673,7 +673,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_site_explorer_bmc_reset_count")
-                .with_description("Number of BMC resets initiated in the last SiteExplorer run")
+                .with_description("Number of successful BMC resets in the last SiteExplorer run")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.bmc_reset_count as u64, attrs);

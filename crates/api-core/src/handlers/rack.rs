@@ -125,7 +125,7 @@ pub async fn find_by_ids(
         result.push(rack.into());
     }
 
-    let _ = txn.rollback().await;
+    txn.rollback_or_log("read-only load of racks by id").await;
 
     Ok(Response::new(rpc::RackList { racks: result }))
 }

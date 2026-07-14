@@ -147,7 +147,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_site_exploration_expected_machines_sku_count</td><td>gauge</td><td>Number of expected machines by SKU ID and device type</td></tr>
 <tr><td>carbide_site_exploration_identified_managed_hosts_count</td><td>gauge</td><td>Number of Host+DPU pairs identified in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_bmc_password_rotations_total</td><td>counter</td><td>Number of BMC root password rotations onto the site-wide credential, by outcome</td></tr>
-<tr><td>carbide_site_explorer_bmc_reset_count</td><td>gauge</td><td>Number of BMC resets initiated in the last SiteExplorer run</td></tr>
+<tr><td>carbide_site_explorer_bmc_reset_count</td><td>gauge</td><td>Number of successful BMC resets in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_create_machines</td><td>gauge</td><td>Whether site-explorer machine creation is enabled (1) or disabled (0)</td></tr>
 <tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it took to perform create_machines inside site-explorer</td></tr>
 <tr><td>carbide_site_explorer_created_machines_count</td><td>gauge</td><td>Number of machine pairs created by Site Explorer after identification</td></tr>

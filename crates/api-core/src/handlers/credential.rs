@@ -526,7 +526,8 @@ pub(crate) async fn get_switch_nvos_credentials(
             db::ObjectColumnFilter::One(db::switch::IdColumn, &switch_id),
         )
         .await?;
-        let _ = txn.rollback().await;
+        txn.rollback_or_log("read-only load of switch for credential lookup")
+            .await;
 
         let switch = switches
             .first()

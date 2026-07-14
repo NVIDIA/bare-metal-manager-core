@@ -351,6 +351,23 @@ pub struct SiteExplorer {
     // rms_client: Option<Arc<dyn RmsApi>>,
 }
 
+/// Which transport a BMC reset was issued through, rendered as the `method` log
+/// field on [`SiteExplorer::record_bmc_reset_outcome`].
+#[derive(Debug, Clone, Copy)]
+enum BmcResetMethod {
+    Ipmitool,
+    Redfish,
+}
+
+impl std::fmt::Display for BmcResetMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            BmcResetMethod::Ipmitool => "ipmitool",
+            BmcResetMethod::Redfish => "redfish",
+        })
+    }
+}
+
 impl SiteExplorer {
     const ITERATION_WORK_KEY: &'static str = "SiteExplorer::run_single_iteration";
     const SITE_EXPLORER_HEALTH_REPORT_WRITE_BATCH_SIZE: usize = 500;
@@ -2615,6 +2632,27 @@ impl SiteExplorer {
         Ok(index)
     }
 
+    /// Record the outcome of a BMC-reset attempt: count only a reset that
+    /// actually happened (so `bmc_reset_count` tracks successes, not attempts)
+    /// and log the failure otherwise. Returns whether the reset succeeded.
+    fn record_bmc_reset_outcome(
+        outcome: SiteExplorerResult<()>,
+        via: BmcResetMethod,
+        address: IpAddr,
+        metrics: &mut SiteExplorationMetrics,
+    ) -> bool {
+        match outcome {
+            Ok(()) => {
+                metrics.bmc_reset_count += 1;
+                true
+            }
+            Err(err) => {
+                tracing::error!(%address, method = %via, error = %err, "Site Explorer failed to reset BMC");
+                false
+            }
+        }
+    }
+
     pub async fn handle_redfish_error(
         &self,
         endpoint: &Endpoint<'_>,
@@ -2800,36 +2838,23 @@ impl SiteExplorer {
         }
 
         if time_since_redfish_bmc_reset > reset_rate_limit
-            && self
-                .redfish_reset_bmc(endpoint)
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        bmc_ip_address = %endpoint.address,
-                        error = %err,
-                        "Site Explorer failed to reset BMC through redfish"
-                    )
-                })
-                .is_ok()
+            && Self::record_bmc_reset_outcome(
+                self.redfish_reset_bmc(endpoint).await,
+                BmcResetMethod::Redfish,
+                endpoint.address,
+                metrics,
+            )
         {
-            metrics.bmc_reset_count += 1;
             return;
         }
 
-        if time_since_ipmitool_bmc_reset > reset_rate_limit
-            && self
-                .ipmitool_reset_bmc(endpoint)
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        bmc_ip_address = %endpoint.address,
-                        error = %err,
-                        "Site Explorer failed to reset BMC through ipmitool"
-                    )
-                })
-                .is_ok()
-        {
-            metrics.bmc_reset_count += 1;
+        if time_since_ipmitool_bmc_reset > reset_rate_limit {
+            Self::record_bmc_reset_outcome(
+                self.ipmitool_reset_bmc(endpoint).await,
+                BmcResetMethod::Ipmitool,
+                endpoint.address,
+                metrics,
+            );
         }
     }
 
@@ -4156,6 +4181,113 @@ mod tests {
         let mac: MacAddress = "a0:88:c2:46:0c:68".parse().unwrap();
         assert_eq!(mac_to_u64(mac), 0x0000_a088_c246_0c68);
         assert_eq!(u64_to_mac(mac_to_u64(mac)), mac);
+    }
+
+    /// The BMC-reset counter tracks resets that happened: a successful reset
+    /// moves `bmc_reset_count`, a failed reset leaves it and logs the failure
+    /// instead. This pins that semantics -- the one the ipmitool path used to
+    /// get wrong, counting every attempt -- across both transports, and checks
+    /// the failure log carries the transport, address, and error.
+    #[test]
+    fn bmc_reset_counter_counts_successes_not_attempts() {
+        use carbide_instrument::testing::{CapturedLog, capture_logs};
+
+        /// One reset outcome to record. A success moves `bmc_reset_count` and
+        /// logs nothing; a failure leaves the counter and emits the ERROR line,
+        /// whose `error` field is `expect_error` (`None` on the success rows).
+        struct Case {
+            name: &'static str,
+            method: BmcResetMethod,
+            outcome: SiteExplorerResult<()>,
+            expect_succeeded: bool,
+            expect_count: usize,
+            expect_error: Option<&'static str>,
+        }
+
+        let addr: IpAddr = "127.0.0.1".parse().unwrap();
+
+        let cases = [
+            Case {
+                name: "ipmitool success counts, logs nothing",
+                method: BmcResetMethod::Ipmitool,
+                outcome: Ok(()),
+                expect_succeeded: true,
+                expect_count: 1,
+                expect_error: None,
+            },
+            Case {
+                name: "ipmitool failure logs, does not count",
+                method: BmcResetMethod::Ipmitool,
+                outcome: Err(SiteExplorerError::internal(
+                    "simulated ipmitool failure".to_string(),
+                )),
+                expect_succeeded: false,
+                expect_count: 0,
+                expect_error: Some("internal error: simulated ipmitool failure"),
+            },
+            Case {
+                name: "redfish success counts, logs nothing",
+                method: BmcResetMethod::Redfish,
+                outcome: Ok(()),
+                expect_succeeded: true,
+                expect_count: 1,
+                expect_error: None,
+            },
+            Case {
+                name: "redfish failure logs, does not count",
+                method: BmcResetMethod::Redfish,
+                outcome: Err(SiteExplorerError::internal(
+                    "simulated redfish failure".to_string(),
+                )),
+                expect_succeeded: false,
+                expect_count: 0,
+                expect_error: Some("internal error: simulated redfish failure"),
+            },
+        ];
+
+        fn field<'a>(log: &'a CapturedLog, name: &str) -> Option<&'a str> {
+            log.fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        }
+
+        for case in cases {
+            let Case {
+                name,
+                method,
+                outcome,
+                expect_succeeded,
+                expect_count,
+                expect_error,
+            } = case;
+
+            // Fresh metrics per case so the counter reads as this outcome alone.
+            let mut metrics = SiteExplorationMetrics::new();
+            let mut succeeded = false;
+            let logs = capture_logs(|| {
+                succeeded =
+                    SiteExplorer::record_bmc_reset_outcome(outcome, method, addr, &mut metrics);
+            });
+
+            assert_eq!(succeeded, expect_succeeded, "{name}");
+            assert_eq!(metrics.bmc_reset_count, expect_count, "{name}");
+
+            match expect_error {
+                None => assert!(logs.is_empty(), "{name}: a success must not log: {logs:?}"),
+                Some(expect_error) => {
+                    assert_eq!(logs.len(), 1, "{name}");
+                    let log = &logs[0];
+                    let method = method.to_string();
+                    let address = addr.to_string();
+                    assert_eq!(log.level, tracing::Level::ERROR, "{name}");
+                    assert_eq!(log.message, "Site Explorer failed to reset BMC", "{name}");
+                    assert_eq!(field(log, "method"), Some(method.as_str()), "{name}");
+                    assert_eq!(field(log, "address"), Some(address.as_str()), "{name}");
+                    assert_eq!(field(log, "error"), Some(expect_error), "{name}");
+                }
+            }
+        }
     }
 
     #[test]
