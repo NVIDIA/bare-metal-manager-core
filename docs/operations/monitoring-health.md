@@ -191,8 +191,8 @@ error counters, throttle durations, bandwidth utilization, power figures — tha
 have no sensor backing. The entity metrics collector polls these and exports
 them as Prometheus series.
 
-The collector is **disabled by default**. Adding the `[collectors.metrics]`
-section to the hardware health service config enables it:
+The entity metrics collector is **disabled by default**. Add the `[collectors.metrics]`
+section to the hardware health service config to enable it:
 
 ```toml
 [collectors.metrics]
