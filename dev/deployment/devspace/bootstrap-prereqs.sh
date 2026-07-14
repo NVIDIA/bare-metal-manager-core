@@ -68,23 +68,6 @@ require_bin() {
   }
 }
 
-require_kind_context_for_rest() {
-  if [[ "${INSTALL_REST_PREREQS}" != "1" ]]; then
-    return
-  fi
-
-  local current_context
-  current_context="$(kubectl config current-context 2>/dev/null || true)"
-  case "${current_context}" in
-    kind-*) ;;
-    *)
-      printf 'REST prerequisites require a kind context; current context is %s\n' \
-        "${current_context:-unset}" >&2
-      exit 1
-      ;;
-  esac
-}
-
 rest_postgres_sql() {
   local rest_postgres_db_b64
   local rest_postgres_password_b64
@@ -666,7 +649,6 @@ main() {
   require_bin kubectl
   require_bin helm
   require_bin base64
-  require_kind_context_for_rest
 
   install_cert_manager
   apply_core_objects

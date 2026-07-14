@@ -32,7 +32,15 @@ vars:
 
 pipelines:
   purge: |-
-    LOCAL_DEV_NAMESPACE=${DEVSPACE_NAMESPACE} dev/deployment/devspace/reset-kind-cluster.sh
+    CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+    case "$CONTEXT" in
+      kind-*)
+        LOCAL_DEV_NAMESPACE=${DEVSPACE_NAMESPACE} dev/deployment/devspace/reset-kind-cluster.sh
+        ;;
+      *)
+        run_default_pipeline purge
+        ;;
+    esac
 
 images:
   nico-api:

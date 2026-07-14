@@ -14,7 +14,7 @@ The intent is that the app deploy path stays the same whether the prerequisites 
 
 ## Prerequisites Bootstrap
 
-The full-stack path requires kind with a current kube context named `kind-<cluster>`. The bootstrap and deploy steps stop before applying the REST stack when another context is selected.
+The bootstrap script operates on the current Kubernetes context and does not require a particular Kubernetes distribution. The provided full-stack deploy path uses kind-specific hooks to load locally built images into contexts named `kind-<cluster>`.
 
 Run:
 
@@ -175,7 +175,9 @@ Reset the complete local environment by running:
 devspace purge -n nico-system
 ```
 
-The purge pipeline only runs when the current context is `kind-<cluster>`. It deletes and recreates that kind cluster with the same node image, then bootstraps clean prerequisites. This removes all Kubernetes state, including the Core and REST databases, Temporal namespaces and history, Vault data, Keycloak data, certificates, site registration, Helm releases, CRDs, and persistent volumes.
+When the current context is `kind-<cluster>`, the purge pipeline deletes and recreates that kind cluster with the same node image, then bootstraps clean prerequisites. This removes all Kubernetes state, including the Core and REST databases, Temporal namespaces and history, Vault data, Keycloak data, certificates, site registration, Helm releases, CRDs, and persistent volumes.
+
+On any other Kubernetes context, the pipeline delegates to DevSpace's default purge behavior. It removes the deployments managed by this project without replacing the cluster or reinstalling separately managed prerequisites.
 
 The host Docker images, BuildKit cache, and `.devspace` image metadata are outside the kind node and remain available. Redeploy the last built images without rebuilding them:
 
