@@ -68,12 +68,33 @@ impl AgentMetricsState {
             })
             .build();
     }
+
+    // Export the expiry of the TLS client certificate the agent presents to
+    // the Forge API, as a Unix timestamp. `expiry` runs on every metrics
+    // collection, so the exported value follows certificate renewals; a
+    // collection that finds no readable certificate observes nothing. This
+    // only needs to be called once per lifetime of the Meter (which is
+    // probably the same as the process lifetime).
+    pub fn record_client_cert_expiry_time(
+        &self,
+        expiry: impl Fn() -> Option<i64> + Send + Sync + 'static,
+    ) {
+        self.meter
+            .i64_observable_gauge("client_cert_expiry_time_seconds")
+            .with_description("Timestamp when the agent's TLS client certificate expires")
+            .with_callback(move |cert_expiry_time| {
+                if let Some(timestamp) = expiry() {
+                    cert_expiry_time.observe(timestamp, &[]);
+                }
+            })
+            .build();
+    }
 }
 
 pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
     let http_counter = meter
         .u64_counter("http_requests")
-        .with_description("Total number of HTTP requests made.")
+        .with_description("Number of HTTP requests made.")
         .build();
     let http_req_latency_histogram: Histogram<f64> = meter
         .f64_histogram("request_latency")
@@ -141,7 +162,7 @@ impl NetworkMonitorMetricsState {
             .build();
         let network_monitor_error = meter
             .u64_counter("forge_dpu_agent_network_monitor_error")
-            .with_description("Network monitor errors which are unrelated to network connectivity")
+            .with_description("Network monitor errors unrelated to network connectivity")
             .build();
         let network_communication_error = meter
             .u64_counter("forge_dpu_agent_network_communication_error")

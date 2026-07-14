@@ -74,7 +74,7 @@ impl DnsMetrics {
                 .build(),
             _negative_cache_size: meter
                 .u64_observable_gauge("carbide_dns_negative_cache_size")
-                .with_description("Current number of entries in the negative DNS cache")
+                .with_description("Number of entries in the negative DNS cache")
                 .with_callback(move |observer| {
                     observer.observe(negative_cache.entry_count() as u64, &[]);
                 })
@@ -229,7 +229,7 @@ impl From<ResponseCode> for Rcode {
     component = "carbide-dns",
     log = off,
     metric = counter,
-    describe = "The number of DNS queries received, by query type"
+    describe = "Number of DNS queries received, by query type"
 )]
 struct DnsQueryReceived {
     #[label]
@@ -246,7 +246,7 @@ struct DnsQueryReceived {
     component = "carbide-dns",
     log = off,
     metric = counter,
-    describe = "The number of DNS responses sent, by response code"
+    describe = "Number of DNS responses sent, by response code"
 )]
 struct DnsResponseSent {
     #[label]

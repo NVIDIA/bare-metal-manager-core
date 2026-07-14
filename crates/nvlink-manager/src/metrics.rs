@@ -203,7 +203,7 @@ impl NvlPartitionMonitorInstruments {
                 .u64_observable_gauge(
                     "carbide_nvlink_partition_monitor_machine_status_updates_count",
                 )
-                .with_description("Number of machines nvlink_status_observation got updated")
+                .with_description("Number of machines whose NVLink status observation was updated")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_machine_nvl_status_updates as u64, attrs);
@@ -216,7 +216,7 @@ impl NvlPartitionMonitorInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_nvlink_partition_monitor_num_logical_partitions")
-                .with_description("Number of logical partitions that were monitored")
+                .with_description("Number of monitored logical partitions")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_logical_partitions as u64, attrs);
@@ -229,7 +229,7 @@ impl NvlPartitionMonitorInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_nvlink_partition_monitor_num_physical_partitions")
-                .with_description("Number of physical partitions that were monitored")
+                .with_description("Number of monitored physical partitions")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_physical_partitions as u64, attrs);

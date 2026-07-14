@@ -46,6 +46,7 @@ mod async_write;
 mod attestation;
 mod bmc_machine;
 mod bmc_role;
+mod boot_interface;
 mod boot_override;
 mod browse;
 mod cfg;
@@ -227,6 +228,7 @@ async fn main() -> color_eyre::Result<()> {
     match command {
         CliCommand::Attestation(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::BmcMachine(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::BootInterface(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::BootOverride(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Credential(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::ComponentManager(cmd) => cmd.dispatch(ctx).await?,

@@ -30,6 +30,26 @@ pub(crate) mod metrics;
 use carbide_uuid::measured_boot::MeasurementBundleId;
 use metrics::MeasuredBootMetricsCollectorMetrics;
 
+/// One full pass of the measured-boot metrics collector over profiles,
+/// bundles, and machines. Never logged -- the collector has always been
+/// silent about routine iterations -- but the histogram's per-outcome
+/// `_count` is the iteration and error rate, and the distribution is what a
+/// pass costs as the site's measured-boot data grows.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_measured_boot_collector_iteration_latency_milliseconds",
+    component = "nico-api",
+    log = off,
+    metric = histogram,
+    describe = "Number of milliseconds a full measured boot metrics collector iteration took, by outcome"
+)]
+struct MeasuredBootCollectorIteration {
+    #[label]
+    outcome: carbide_instrument::Outcome,
+    #[observation]
+    took: std::time::Duration,
+}
+
 /// `MeasuredBootMetricsCollector` monitors the state of all measured boot data.
 pub struct MeasuredBootMetricsCollector {
     database_connection: sqlx::PgPool,
@@ -94,6 +114,16 @@ impl MeasuredBootMetricsCollector {
     }
 
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
+        let started = std::time::Instant::now();
+        let result = self.collect_metrics().await;
+        carbide_instrument::emit(MeasuredBootCollectorIteration {
+            outcome: carbide_instrument::Outcome::from(&result),
+            took: started.elapsed(),
+        });
+        result
+    }
+
+    async fn collect_metrics(&self) -> CarbideResult<()> {
         let mut metrics = MeasuredBootMetricsCollectorMetrics::new();
 
         let mut txn = db::Transaction::begin(&self.database_connection).await?;
@@ -183,5 +213,54 @@ fn get_bundle_state(
         }
     } else {
         MeasurementBundleState::Pending
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+
+    use super::*;
+
+    /// The iteration event is metric-only: each outcome records its duration
+    /// in milliseconds under the shared outcome label, and no log line is
+    /// constructed at all. (Nothing else in this test binary drives the
+    /// collector, so the exact per-label deltas are race-free.)
+    #[test]
+    fn collector_iteration_records_latency_without_logging() {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            carbide_instrument::emit(MeasuredBootCollectorIteration {
+                outcome: carbide_instrument::Outcome::Ok,
+                took: std::time::Duration::from_millis(1500),
+            });
+            carbide_instrument::emit(MeasuredBootCollectorIteration {
+                outcome: carbide_instrument::Outcome::Error,
+                took: std::time::Duration::from_millis(250),
+            });
+        });
+
+        assert!(
+            logs.is_empty(),
+            "log = off must build no log line: {logs:?}"
+        );
+        for (outcome, milliseconds) in [("ok", 1500.0), ("error", 250.0)] {
+            assert_eq!(
+                metrics.histogram_count_delta(
+                    "carbide_measured_boot_collector_iteration_latency_milliseconds",
+                    &[("outcome", outcome)],
+                ),
+                1,
+                "observation count for outcome={outcome}"
+            );
+            assert_eq!(
+                metrics.histogram_sum_delta(
+                    "carbide_measured_boot_collector_iteration_latency_milliseconds",
+                    &[("outcome", outcome)],
+                ),
+                milliseconds,
+                "recorded milliseconds for outcome={outcome}"
+            );
+        }
     }
 }

@@ -34,6 +34,7 @@ use crate::config::{MachineATronContext, PersistedDpuMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay, DpuDhcpRelayServer};
 use crate::host_machine::HandleMessageResult;
 use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, PersistedMachine};
+use crate::status::{BmcStatus, EndpointStatus, MachineStatus, MachineStatusConfig};
 use crate::tui::HostDetails;
 use crate::{MachineConfig, saturating_add_duration_to_instant};
 
@@ -284,7 +285,8 @@ impl DpuMachine {
                 HandleMessageResult::ProcessStateNow
             }
             DpuMachineMessage::SetApiState(api_state) => {
-                self.api_state = api_state;
+                self.api_state = api_state.clone();
+                self.live_state.write().unwrap().api_state = api_state;
                 HandleMessageResult::ContinuePolling
             }
             DpuMachineMessage::WaitUntilMachineUpWithApiState(state, reply) => {
@@ -404,6 +406,27 @@ impl DpuMachineHandle {
             booted_os: guard.booted_os.to_string(),
             next_boot_kind: guard.ui_next_boot_kind().into(),
             power_state: guard.power_state,
+        }
+    }
+
+    pub fn status(&self, config: &MachineStatusConfig) -> MachineStatus {
+        let live_state = self.0.live_state.read().unwrap();
+        MachineStatus {
+            mat_id: self.0.mat_id.to_string(),
+            machine_id: live_state
+                .observed_machine_id
+                .as_ref()
+                .map(ToString::to_string),
+            hardware_type: None,
+            mat_state: live_state.state_string.map(ToOwned::to_owned),
+            api_state: live_state.api_state.clone(),
+            power_state: live_state.power_state.to_string(),
+            machine_ip: live_state.machine_ip.map(|ip| ip.to_string()),
+            bmc: BmcStatus {
+                ip: live_state.bmc_ip.map(|ip| ip.to_string()),
+                redfish: EndpointStatus::redfish(config),
+            },
+            dpus: Vec::new(),
         }
     }
 

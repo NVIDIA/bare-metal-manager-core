@@ -16,7 +16,8 @@
  */
 
 //! This module collects metrics from NMX-T telemetry endpoints on NVLink switches if the service is enabled.
-//! Scrapes HTTP on 9352 (default for NMX-T)
+//! Scrapes HTTP on 9352 by default. When an mTLS profile is configured, scrapes
+//! HTTPS on the same port.
 //!
 //! Mapping is an EXPLICIT, catalog-row allowlist over the live NMX-T Prometheus scrape (see
 //! `NMXT_METRIC_MAP` and `NMXT_LABEL_MAP`). Each NMX-T source name is either:
@@ -31,12 +32,14 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use nv_redfish::core::Bmc;
+use url::Url;
 
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
 use crate::config::NmxtCollectorConfig as NmxtCollectorOptions;
 use crate::endpoint::BmcEndpoint;
 use crate::sink::{CollectorEvent, DataSink, EventContext, MetricSample};
+use crate::tls::MtlsHttpClientProvider;
 
 /// default NMX-T port
 const NMXT_PORT: u16 = 9352;
@@ -424,8 +427,9 @@ fn parse_prometheus_line(line: &str) -> Option<NmxtMetricSample> {
 async fn scrape_switch_nmxt_metrics(
     http_client: &reqwest::Client,
     switch_ip: &str,
+    tls_enabled: bool,
 ) -> Result<Vec<NmxtMetricSample>, HealthError> {
-    let url = format!("http://{}:{}{}", switch_ip, NMXT_PORT, NMXT_ENDPOINT);
+    let url = nmxt_endpoint_url(switch_ip, tls_enabled);
 
     let response = http_client.get(&url).send().await.map_err(|e| {
         HealthError::GenericError(format!("HTTP request failed for {}: {}", switch_ip, e))
@@ -449,16 +453,65 @@ async fn scrape_switch_nmxt_metrics(
     Ok(parse_prometheus_metrics(&body))
 }
 
+async fn scrape_switch_nmxt_metrics_tls(
+    http_client: &crate::tls::MtlsHttpClient,
+    switch_ip: &str,
+    request_timeout: std::time::Duration,
+) -> Result<Vec<NmxtMetricSample>, HealthError> {
+    let url = nmxt_endpoint_url(switch_ip, true);
+    let url = Url::parse(&url)
+        .map_err(|e| HealthError::GenericError(format!("{url}: invalid NMX-T URL: {e}")))?;
+
+    let response = http_client
+        .get(&url, [], request_timeout)
+        .await
+        .map_err(|e| HealthError::GenericError(format!("HTTP request failed for {url}: {e}")))?;
+
+    if !response.status.is_success() {
+        return Err(HealthError::GenericError(format!(
+            "HTTP request to {} returned status {}",
+            url, response.status
+        )));
+    }
+
+    let body = std::str::from_utf8(&response.body).map_err(|e| {
+        HealthError::GenericError(format!("Failed to read response body from {}: {}", url, e))
+    })?;
+
+    Ok(parse_prometheus_metrics(body))
+}
+
+fn nmxt_endpoint_url(switch_ip: &str, tls_enabled: bool) -> String {
+    let scheme = if tls_enabled { "https" } else { "http" };
+    format!("{scheme}://{}:{}{}", switch_ip, NMXT_PORT, NMXT_ENDPOINT)
+}
+
 pub struct NmxtCollectorConfig {
+    /// User-facing NMX-T collector settings from the health service configuration.
     pub nmxt_config: NmxtCollectorOptions,
+
+    /// Optional sink that receives NMX-T metric events.
     pub data_sink: Option<Arc<dyn DataSink>>,
+
+    /// Shared mTLS HTTP client provider used for HTTPS scrapes when configured.
+    pub(crate) tls_http_client_provider: Option<MtlsHttpClientProvider>,
 }
 
 pub struct NmxtCollector {
     endpoint: Arc<BmcEndpoint>,
-    http_client: reqwest::Client,
+    http_client: NmxtHttpClient,
+    request_timeout: std::time::Duration,
     event_context: EventContext,
     data_sink: Option<Arc<dyn DataSink>>,
+}
+
+enum NmxtHttpClient {
+    Legacy(reqwest::Client),
+
+    // The shared provider owns mTLS reload and client reuse. Target identity
+    // stays on the request URL, so switch inventory changes only clone or drop
+    // this provider.
+    Tls { provider: MtlsHttpClientProvider },
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
@@ -472,17 +525,27 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for NmxtCollector {
         let event_context = EventContext::from_endpoint(endpoint.as_ref(), "nmxt");
         let request_timeout = config.nmxt_config.request_timeout;
 
-        let mut http_client_builder = reqwest::Client::builder().timeout(request_timeout);
-        if config.nmxt_config.dangerously_skip_tls_verification {
-            http_client_builder = http_client_builder.danger_accept_invalid_certs(true);
-        }
-        let http_client = http_client_builder.build().map_err(|e| {
-            HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
-        })?;
+        let http_client = match config.tls_http_client_provider {
+            Some(provider) => NmxtHttpClient::Tls { provider },
+            None => {
+                let mut http_client_builder = reqwest::Client::builder().timeout(request_timeout);
+
+                if config.nmxt_config.dangerously_skip_tls_verification {
+                    http_client_builder = http_client_builder.danger_accept_invalid_certs(true);
+                }
+
+                let http_client = http_client_builder.build().map_err(|e| {
+                    HealthError::GenericError(format!("Failed to create HTTP client: {}", e))
+                })?;
+
+                NmxtHttpClient::Legacy(http_client)
+            }
+        };
 
         Ok(Self {
             endpoint,
             http_client,
+            request_timeout,
             event_context,
             data_sink: config.data_sink,
         })
@@ -529,10 +592,20 @@ impl NmxtCollector {
         labels
     }
 
-    async fn scrape_iteration(&self) -> Result<(), HealthError> {
-        let switch_ip = self.endpoint.addr.ip.to_string();
+    async fn scrape_iteration(&mut self) -> Result<(), HealthError> {
+        let switch_connect_host = self.endpoint.switch_connect_host_for_uri().to_string();
 
-        let metrics = scrape_switch_nmxt_metrics(&self.http_client, &switch_ip).await?;
+        let metrics = match &mut self.http_client {
+            NmxtHttpClient::Legacy(client) => {
+                scrape_switch_nmxt_metrics(client, &switch_connect_host, false).await?
+            }
+            NmxtHttpClient::Tls { provider } => {
+                let client = provider.client().await?;
+
+                scrape_switch_nmxt_metrics_tls(&client, &switch_connect_host, self.request_timeout)
+                    .await?
+            }
+        };
 
         self.emit_event(CollectorEvent::MetricCollectionStart);
 
@@ -641,6 +714,34 @@ impl NmxtCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_nmxt_endpoint_url_switches_scheme_when_tls_enabled() {
+        struct TestCase {
+            name: &'static str,
+            tls_enabled: bool,
+            expected: &'static str,
+        }
+
+        let cases = [
+            TestCase {
+                name: "legacy HTTP",
+                tls_enabled: false,
+                expected: "http://10.0.0.9:9352/xcset/nvlink_domain_telemetry",
+            },
+            TestCase {
+                name: "mTLS HTTPS",
+                tls_enabled: true,
+                expected: "https://10.0.0.9:9352/xcset/nvlink_domain_telemetry",
+            },
+        ];
+
+        for case in cases {
+            let actual = nmxt_endpoint_url("10.0.0.9", case.tls_enabled);
+
+            assert_eq!(actual, case.expected, "{}", case.name);
+        }
+    }
 
     #[test]
     fn test_parse_prometheus_line_with_labels() {
@@ -943,10 +1044,15 @@ Link_Down{Port_Number="1"} 5
                 "capturing_sink"
             }
 
-            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            fn try_handle_event(
+                &self,
+                _context: &EventContext,
+                event: &CollectorEvent,
+            ) -> Result<(), crate::HealthError> {
                 if let CollectorEvent::Metric(sample) = event {
                     self.samples.lock().unwrap().push((**sample).clone());
                 }
+                Ok(())
             }
         }
 
@@ -956,7 +1062,8 @@ Link_Down{Port_Number="1"} 5
         });
         let collector = NmxtCollector {
             endpoint: endpoint.clone(),
-            http_client: reqwest::Client::new(),
+            http_client: NmxtHttpClient::Legacy(reqwest::Client::new()),
+            request_timeout: std::time::Duration::from_secs(30),
             event_context: EventContext::from_endpoint(endpoint.as_ref(), "nmxt"),
             data_sink: Some(sink.clone()),
         };
@@ -1052,10 +1159,15 @@ Link_Down{Port_Number="1"} 5
                 "capturing_sink"
             }
 
-            fn handle_event(&self, _context: &EventContext, event: &CollectorEvent) {
+            fn try_handle_event(
+                &self,
+                _context: &EventContext,
+                event: &CollectorEvent,
+            ) -> Result<(), crate::HealthError> {
                 if let CollectorEvent::Metric(sample) = event {
                     self.samples.lock().unwrap().push((**sample).clone());
                 }
+                Ok(())
             }
         }
 
@@ -1065,7 +1177,8 @@ Link_Down{Port_Number="1"} 5
         });
         let collector = NmxtCollector {
             endpoint: endpoint.clone(),
-            http_client: reqwest::Client::new(),
+            http_client: NmxtHttpClient::Legacy(reqwest::Client::new()),
+            request_timeout: std::time::Duration::from_secs(30),
             event_context: EventContext::from_endpoint(endpoint.as_ref(), "nmxt"),
             data_sink: Some(sink.clone()),
         };

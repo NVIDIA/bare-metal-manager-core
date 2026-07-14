@@ -555,6 +555,8 @@ type MachineCapabilityDAO interface {
 		name *string, frequency *string, capacity *string, vendor *string,
 		count *int, deviceType *string, inactiveDevices []int, includeRelations []string, offset *int, limit *int, orderBy *paginator.OrderBy) ([]MachineCapability, int, error)
 	//
+	GetGPUStatsBySite(ctx context.Context, tx *db.Tx, infrastructureProviderID *uuid.UUID, siteID *uuid.UUID) ([]GPUSiteStat, error)
+	//
 	GetAllDistinct(ctx context.Context, tx *db.Tx, machineIDs []string, instanceTypeID *uuid.UUID, capabilityType *string,
 		name *string, frequency *string, capacity *string, vendor *string,
 		count *int, deviceType *string, inactiveDevices []int, offset *int, limit *int, orderBy *paginator.OrderBy) ([]MachineCapability, int, error)
@@ -786,6 +788,62 @@ func (mcd MachineCapabilitySQLDAO) GetAll(
 	}
 
 	return mcs, paginator.Total, nil
+}
+
+// GPUSiteStat is a per-site, per-GPU-name aggregation row produced by
+// GetGPUStatsBySite. GPUs is the summed GPU count (a NULL capability count is
+// treated as 1) and Machines is the number of distinct machines that report the
+// GPU at the site.
+type GPUSiteStat struct {
+	SiteID   uuid.UUID `bun:"site_id"`
+	Name     string    `bun:"name"`
+	GPUs     int       `bun:"gpus"`
+	Machines int       `bun:"machines"`
+}
+
+// GetGPUStatsBySite aggregates GPU capabilities in the database, grouped by site
+// and GPU name, instead of loading every machine and capability row into the
+// application. It mirrors the aggregation approach of MachineSQLDAO.GetCountByStatus.
+func (mcd MachineCapabilitySQLDAO) GetGPUStatsBySite(ctx context.Context, tx *db.Tx, infrastructureProviderID *uuid.UUID, siteID *uuid.UUID) ([]GPUSiteStat, error) {
+	// Create a child span and set the attributes for current request
+	ctx, MachineCapabilityDAOSpan := mcd.tracerSpan.CreateChildInCurrentContext(ctx, "MachineCapabilityDAO.GetGPUStatsBySite")
+	if MachineCapabilityDAOSpan != nil {
+		defer MachineCapabilityDAOSpan.End()
+	}
+
+	stats := []GPUSiteStat{}
+
+	query := db.GetIDB(tx, mcd.dbSession).NewSelect().Model((*MachineCapability)(nil)).
+		Join("JOIN machine AS m ON m.id = mc.machine_id AND m.deleted IS NULL").
+		Where("mc.deleted IS NULL").
+		Where("mc.type = ?", MachineCapabilityTypeGPU).
+		ColumnExpr("m.site_id AS site_id").
+		ColumnExpr("mc.name AS name").
+		ColumnExpr("SUM(COALESCE(mc.count, 1)) AS gpus").
+		ColumnExpr("COUNT(DISTINCT mc.machine_id) AS machines").
+		GroupExpr("m.site_id, mc.name")
+
+	if infrastructureProviderID != nil {
+		query = query.Where("m.infrastructure_provider_id = ?", *infrastructureProviderID)
+
+		if MachineCapabilityDAOSpan != nil {
+			mcd.tracerSpan.SetAttribute(MachineCapabilityDAOSpan, "infrastructure_provider_id", infrastructureProviderID.String())
+		}
+	}
+	if siteID != nil {
+		query = query.Where("m.site_id = ?", *siteID)
+
+		if MachineCapabilityDAOSpan != nil {
+			mcd.tracerSpan.SetAttribute(MachineCapabilityDAOSpan, "site_id", siteID.String())
+		}
+	}
+
+	err := query.Scan(ctx, &stats)
+	if err != nil {
+		return nil, err
+	}
+
+	return stats, nil
 }
 
 // GetAllDistinct returns all MachineCapabilities that have distinct type, name, frequency, capacity, vendor, count, and device_type filtered by the given parameters

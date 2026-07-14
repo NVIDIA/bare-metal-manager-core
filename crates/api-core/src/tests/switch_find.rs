@@ -95,6 +95,7 @@ async fn test_find_switches_by_ids_includes_resolved_nvos_info(
     let _: &rpc::forge::SwitchNvosInfo = nvos_info;
     assert_eq!(nvos_info.mac, Some(host_mac.to_string()));
     assert_eq!(nvos_info.ip, Some(host_ip.to_string()));
+    assert!(nvos_info.port.is_none());
 
     Ok(())
 }
@@ -125,6 +126,7 @@ async fn test_find_switches_includes_resolved_nvos_info(
     let _: &rpc::forge::SwitchNvosInfo = nvos_info;
     assert_eq!(nvos_info.mac, Some(host_mac.to_string()));
     assert_eq!(nvos_info.ip, Some(host_ip.to_string()));
+    assert!(nvos_info.port.is_none());
 
     Ok(())
 }

@@ -39,11 +39,13 @@ pub struct RestIBFabric {
 const DEFAULT_INDEX0: bool = true;
 const DEFAULT_MEMBERSHIP: PortMembership = PortMembership::Full;
 
-pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, IbError> {
-    // Detect authentification method
-    // 'user token' or 'client authentification'
-    // 'client authentification' method is choosen in case empty 'auth' string or valid path in 'auth'
-    let (token, cert) = if auth.trim().is_empty() {
+/// Detects the authentication method `auth` selects: a bearer token, or
+/// client-certificate files on disk. Certificate authentication is chosen for
+/// an empty `auth` string (the SPIFFE default paths) or one naming an existing
+/// path. The returned [`UFMCert`] paths are exactly what a client built from
+/// `auth` loads, so callers can also watch them for rotation.
+pub(super) fn auth_method(auth: &str) -> (Option<String>, Option<UFMCert>) {
+    if auth.trim().is_empty() {
         (
             None,
             Some(UFMCert {
@@ -63,7 +65,11 @@ pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, IbError> 
         )
     } else {
         (Some(auth.to_string()), None)
-    };
+    }
+}
+
+pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, IbError> {
+    let (token, cert) = auth_method(auth);
 
     let conf = UFMConfig {
         address: addr.to_string(),

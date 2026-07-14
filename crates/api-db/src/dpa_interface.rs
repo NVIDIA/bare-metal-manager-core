@@ -278,17 +278,23 @@ pub async fn update_card_state(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// The `only_svpc` and `only_astra` filters are mutually exclusive.
+fn validate_search_config(search_config: &DpaSearchConfig) -> Result<(), DatabaseError> {
+    if search_config.only_svpc && search_config.only_astra {
+        return Err(DatabaseError::Internal {
+            message: "only_svpc and only_astra cannot be true at the same time".to_string(),
+        });
+    }
+    Ok(())
+}
+
 // Used by the machine statemachine controller to find all DPAs associated with a given machine
 pub async fn find_by_machine_id(
     txn: impl DbReader<'_>,
     machine_id: MachineId,
     search_config: DpaSearchConfig,
 ) -> Result<Vec<DpaInterface>, DatabaseError> {
-    if search_config.only_svpc && search_config.only_astra {
-        return Err(DatabaseError::Internal {
-            message: "only_svpc and only_astra cannot be true at the same time".to_string(),
-        });
-    }
+    validate_search_config(&search_config)?;
 
     let mut builder = sqlx::QueryBuilder::new(
         "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = $1",
@@ -314,6 +320,59 @@ pub async fn find_by_machine_id(
     };
 
     Ok(results)
+}
+
+/// Batch-load DPA interfaces for many machines in a single query.
+///
+/// This is the set-oriented counterpart to [`find_by_machine_id`]: callers that
+/// have already batch-loaded a group of hosts can attach every host's DPA
+/// interfaces with one round trip instead of one query per machine. The returned
+/// map is keyed by machine id; a machine with no interfaces simply has no entry
+/// (callers default such machines to an empty list).
+pub async fn find_by_machine_ids(
+    txn: impl DbReader<'_>,
+    machine_ids: &[MachineId],
+    search_config: DpaSearchConfig,
+) -> Result<std::collections::HashMap<MachineId, Vec<DpaInterface>>, DatabaseError> {
+    validate_search_config(&search_config)?;
+
+    // No machines means no interfaces; skip the round trip entirely.
+    if machine_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let mut builder = sqlx::QueryBuilder::new(
+        "SELECT row_to_json(m.*) from (select * from dpa_interfaces WHERE deleted is NULL AND machine_id = ANY(",
+    );
+    builder.push_bind(machine_ids);
+    builder.push(")");
+
+    if search_config.only_svpc {
+        builder.push(" AND interface_type = 'Svpc'");
+    }
+
+    if search_config.only_astra {
+        builder.push(" AND interface_type = 'Astra'");
+    }
+
+    builder.push(") m");
+
+    let interfaces: Vec<DpaInterface> = builder
+        .build_query_as()
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
+
+    Ok(interfaces.into_iter().fold(
+        std::collections::HashMap::<MachineId, Vec<DpaInterface>>::new(),
+        |mut by_machine, interface| {
+            by_machine
+                .entry(interface.machine_id)
+                .or_default()
+                .push(interface);
+            by_machine
+        },
+    ))
 }
 
 pub async fn find_by_ids(
@@ -509,7 +568,8 @@ mod test {
     use std::str::FromStr;
 
     use carbide_libmlx_model::device::info::MlxDeviceInfo;
-    use carbide_uuid::machine::MachineId;
+    use carbide_test_support::query_counter::count_queries;
+    use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
     use mac_address::MacAddress;
     use model::dpa_interface::{
         DpaInterfaceControllerState, DpaInterfaceType, DpaSearchConfig, NewDpaInterface,
@@ -517,6 +577,199 @@ mod test {
     use model::machine::ManagedHostState;
 
     use crate::machine;
+
+    /// Query-count regression guard for the batched DPA-interface loader.
+    ///
+    /// This test is the deliverable of the N+1 fix: it seeds several machines,
+    /// each with one interface, and asserts that loading them via the
+    /// per-machine [`find_by_machine_id`] loop issues one query *per machine*
+    /// (the N+1), while the batched [`find_by_machine_ids`] issues exactly one
+    /// query regardless of how many machines are involved. The per-machine
+    /// count is asserted to equal N so that a future regression that quietly
+    /// reintroduces per-row queries fails loudly.
+    #[crate::sqlx_test]
+    async fn find_by_machine_ids_issues_one_query(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Seed helper: create `n` distinct machines, each with exactly one
+        // dpa_interface, and return their ids. Each MachineId is minted from a
+        // per-index hardware hash (the same shape as the `test_machine_id`
+        // helpers elsewhere in the tree), so every id is distinct and valid.
+        async fn seed(
+            pool: &sqlx::PgPool,
+            offset: usize,
+            n: usize,
+        ) -> Result<Vec<MachineId>, Box<dyn std::error::Error>> {
+            let mut ids = Vec::with_capacity(n);
+            let mut txn = pool.begin().await?;
+            for i in offset..(offset + n) {
+                let mut hash = [0u8; 32];
+                hash[..8].copy_from_slice(&(i as u64).to_be_bytes());
+                let id = MachineId::new(
+                    MachineIdSource::ProductBoardChassisSerial,
+                    hash,
+                    MachineType::Host,
+                );
+                machine::create(&mut txn, None, &id, ManagedHostState::Ready, None, 2).await?;
+                crate::dpa_interface::persist(
+                    NewDpaInterface {
+                        machine_id: id,
+                        mac_address: MacAddress::from([
+                            0x00,
+                            0x11,
+                            0x22,
+                            0x33,
+                            (i >> 8) as u8,
+                            i as u8,
+                        ]),
+                        device_type: "Bluefield 3".to_string(),
+                        pci_name: format!("{i:02x}:00.0"),
+                        device_description: None,
+                        interface_type: DpaInterfaceType::Svpc,
+                    },
+                    &mut txn,
+                )
+                .await?;
+                ids.push(id);
+            }
+            txn.commit().await?;
+            Ok(ids)
+        }
+
+        // ---- Scenario 1: N = 5 ----
+        const N: usize = 5;
+        let ids = seed(&pool, 0, N).await?;
+
+        // BEFORE: the per-machine loop (the N+1 pattern).
+        let (per_machine, before): (std::collections::HashMap<MachineId, Vec<_>>, usize) = {
+            let pool = &pool;
+            let ids = &ids;
+            count_queries(async move {
+                let mut out = std::collections::HashMap::new();
+                for id in ids {
+                    let v = crate::dpa_interface::find_by_machine_id(
+                        pool,
+                        *id,
+                        DpaSearchConfig::default(),
+                    )
+                    .await
+                    .unwrap();
+                    out.insert(*id, v);
+                }
+                out
+            })
+            .await
+        };
+        println!("BEFORE (per-machine loop, N={N}): {before} queries");
+
+        // BITE-CHECK: the per-machine loop MUST issue one query per machine.
+        // If this reads 0, the counter is not observing sqlx events; if it
+        // reads 1, the counter is under-counting. Either way, fail loudly.
+        assert_eq!(
+            before, N,
+            "per-machine loop should issue exactly N={N} queries (the N+1 pattern being fixed); \
+             a count of 0 means the query counter isn't seeing sqlx::query events"
+        );
+
+        // AFTER: the batched loader.
+        let (batched, after) = {
+            let pool = &pool;
+            let ids = &ids;
+            count_queries(async move {
+                crate::dpa_interface::find_by_machine_ids(pool, ids, DpaSearchConfig::default())
+                    .await
+                    .unwrap()
+            })
+            .await
+        };
+        println!("AFTER (batched find_by_machine_ids, N={N}): {after} queries");
+        assert_eq!(after, 1, "batched loader must issue exactly one query");
+
+        // Correctness: the batched map holds the same interfaces (by id) as the
+        // per-machine loop produced, for every machine.
+        for id in &ids {
+            let mut expected: Vec<_> = per_machine[id].iter().map(|i| i.id).collect();
+            let mut got: Vec<_> = batched
+                .get(id)
+                .map(|v| v.iter().map(|i| i.id).collect())
+                .unwrap_or_default();
+            expected.sort();
+            got.sort();
+            assert_eq!(
+                got, expected,
+                "batched result for machine {id} must match the per-machine loop"
+            );
+        }
+
+        // ---- Scenario 2: N = 10, batched count STILL 1 (constant, not linear) ----
+        const N2: usize = 10;
+        let ids2 = seed(&pool, 100, N2).await?;
+
+        // Re-confirm the per-machine loop scales linearly at N2 as well, so the
+        // "constant vs linear" contrast is anchored on both sides.
+        let ((), before2) = {
+            let pool = &pool;
+            let ids2 = &ids2;
+            count_queries(async move {
+                for id in ids2 {
+                    crate::dpa_interface::find_by_machine_id(pool, *id, DpaSearchConfig::default())
+                        .await
+                        .unwrap();
+                }
+            })
+            .await
+        };
+        println!("BEFORE (per-machine loop, N={N2}): {before2} queries");
+        assert_eq!(
+            before2, N2,
+            "per-machine loop should issue exactly N={N2} queries"
+        );
+
+        let (batched2, after2) = {
+            let pool = &pool;
+            let ids2 = &ids2;
+            count_queries(async move {
+                crate::dpa_interface::find_by_machine_ids(pool, ids2, DpaSearchConfig::default())
+                    .await
+                    .unwrap()
+            })
+            .await
+        };
+        println!("AFTER (batched find_by_machine_ids, N={N2}): {after2} queries");
+        assert_eq!(
+            after2, 1,
+            "batched loader must issue exactly one query regardless of N"
+        );
+        assert_eq!(
+            batched2.len(),
+            N2,
+            "every seeded machine should appear in the batched result"
+        );
+
+        // ---- Scenario 3: N = 0, no query at all ----
+        // An empty id slice short-circuits before building the query, matching
+        // the sibling batch helpers.
+        let (batched_empty, empty_count) = {
+            let pool = &pool;
+            count_queries(async move {
+                crate::dpa_interface::find_by_machine_ids(pool, &[], DpaSearchConfig::default())
+                    .await
+                    .unwrap()
+            })
+            .await
+        };
+        println!("EMPTY (batched find_by_machine_ids, N=0): {empty_count} queries");
+        assert_eq!(
+            empty_count, 0,
+            "empty input must return without issuing any query"
+        );
+        assert!(
+            batched_empty.is_empty(),
+            "empty input must produce an empty map"
+        );
+
+        Ok(())
+    }
 
     #[crate::sqlx_test]
     async fn test_find_interfaces(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

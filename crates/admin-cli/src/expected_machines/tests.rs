@@ -819,3 +819,28 @@ fn validate_patch_with_bmc_ip_allocation_only() {
         _ => panic!("expected Patch variant"),
     }
 }
+
+// `patch --host_nics '[...]'` alone (no other patchable fields) must satisfy
+// clap's ArgGroup and `Args::validate()`'s "at least one field" check.
+#[test]
+fn validate_patch_with_host_nics_only() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "patch",
+        "--bmc-mac-address",
+        "00:00:00:00:00:00",
+        "--host_nics",
+        r#"[{"mac_address":"00:11:22:33:44:55","primary":true}]"#,
+    ])
+    .expect("patch --host_nics alone should parse (ArgGroup)");
+
+    match cmd {
+        Cmd::Patch(args) => {
+            assert!(
+                args.validate().is_ok(),
+                "patch --host_nics alone should validate"
+            );
+        }
+        _ => panic!("expected Patch variant"),
+    }
+}

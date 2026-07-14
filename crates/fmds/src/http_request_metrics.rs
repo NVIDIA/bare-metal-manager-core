@@ -47,7 +47,7 @@ impl HttpRequestMetrics {
     fn new(meter: &Meter) -> Self {
         let http_counter = meter
             .u64_counter("http_requests")
-            .with_description("Total number of HTTP requests made.")
+            .with_description("Number of HTTP requests made.")
             .build();
         let http_req_latency_histogram = meter
             .f64_histogram("request_latency")

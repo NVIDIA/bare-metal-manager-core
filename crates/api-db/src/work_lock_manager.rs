@@ -17,7 +17,7 @@
 use std::time::Duration;
 
 use sqlx::pool::PoolConnection;
-use sqlx::{Connection, PgConnection, PgPool, Postgres};
+use sqlx::{PgConnection, PgPool, Postgres};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
@@ -120,29 +120,35 @@ pub async fn start(
 #[allow(txn_held_across_await)]
 async fn run_loop(
     pool: PgPool,
-    mut db: PoolConnection<Postgres>,
+    db: PoolConnection<Postgres>,
     mut cmd_rx: mpsc::Receiver<WorkLockManagerCommand>,
     keepalive_timeout: Duration,
 ) {
+    let mut reserved_connection = ReservedConnection(Some(db));
+
     while let Some(command) = cmd_rx.recv().await {
-        if let Err(e) = db.ping().await {
-            tracing::warn!("WorkLockManager database connection closed, trying to re-acquire: {e}");
-            db = match pool.acquire().await {
-                Ok(db) => db,
-                Err(e) => {
-                    tracing::error!("WorkLockManager could not reacquire database connection: {e}");
-                    // Any reply channel for this command will now drop, and readers will get an error
+        let db = match reserved_connection.get_if_healthy().await {
+            Some(db) => db,
+            None => {
+                tracing::info!("WorkLockManager reacquiring database connection");
+                let Some(db) = reserved_connection.reacquire(&pool).await else {
+                    // Any reply channel for this command will now drop, and readers will get an
+                    // error. Calls to ReleaseLock will fail as well, but we can rely on the timeout
+                    // behavior with the last_keepalive column to consider the lock released once
+                    // we do have a healthy connection.
                     continue;
-                }
+                };
+                db
             }
         };
+
         match command {
             WorkLockManagerCommand::AcquireLock { work_key, reply_tx } => {
                 if reply_tx.is_closed() {
                     tracing::info!("Skipping AcquireLock command: caller already timed out");
                     continue;
                 }
-                match try_acquire_lock(&mut db, &work_key, keepalive_timeout).await {
+                match try_acquire_lock(db, &work_key, keepalive_timeout).await {
                     Ok(Some(worker_id)) => {
                         reply_tx.send(Ok(worker_id)).ok();
                         tracing::debug!("Acquired work lock {work_key}");
@@ -162,7 +168,7 @@ async fn run_loop(
                 work_key,
                 worker_id,
             } => {
-                release_lock(&mut db, &work_key, worker_id)
+                release_lock(db, &work_key, worker_id)
                     .await
                     .inspect_err(|e| {
                         tracing::error!(%work_key, "Could not release work lock: {e}");
@@ -175,7 +181,7 @@ async fn run_loop(
                 work_key,
                 worker_id,
                 reply_tx,
-            } => match keep_lock_alive(&mut db, &work_key, worker_id).await {
+            } => match keep_lock_alive(db, &work_key, worker_id).await {
                 Ok(()) => {
                     reply_tx.send(Ok(())).ok();
                 }
@@ -189,6 +195,69 @@ async fn run_loop(
         }
     }
     tracing::info!("WorkLockManager: all handles dropped, shutting down");
+}
+
+/// A long-running connection WorkLockManager uses to manage locks, held open as long as
+/// WorkLockManager is running so that we don't hit connection limit issues.
+struct ReservedConnection(Option<PoolConnection<Postgres>>);
+
+impl ReservedConnection {
+    /// Use the current connection if it exists and is healthy for use by WorkLockManager, else
+    /// close it.
+    async fn get_if_healthy(&mut self) -> Option<&mut PgConnection> {
+        let mut db = self.0.take()?;
+        if !Self::connection_is_healthy(&mut db).await {
+            // Do not return a live, read-only connection to the pool: it may be handed straight
+            // back to us on the next acquire. Closing it also releases its pool slot before the
+            // replacement is acquired, which is necessary when the pool is at its limit.
+            db.close().await.ok();
+            return None;
+        }
+        Some(self.0.insert(db))
+    }
+
+    /// Acquires a connection from the pool, checking if it's healthy and writable.
+    async fn reacquire(&mut self, pool: &PgPool) -> Option<&mut PgConnection> {
+        let mut db = match pool.acquire().await {
+            Ok(db) => db,
+            Err(e) => {
+                tracing::error!(error = %e, "WorkLockManager could not reacquire database connection");
+                return None;
+            }
+        };
+
+        if !Self::connection_is_healthy(&mut db).await {
+            tracing::warn!(
+                "WorkLockManager database connection still unhealthy after reconnecting"
+            );
+            db.close().await.ok();
+            return None;
+        }
+
+        Some(self.0.insert(db))
+    }
+
+    /// Check if the connection is healthy for use by WorkLockManager.
+    ///
+    /// Healthiness is determined by the connection being available and not inside a read-only
+    /// transaction. This is in case the connection becomes a read-only standby, in which case we have
+    /// to reconnect.
+    async fn connection_is_healthy(db: &mut PgConnection) -> bool {
+        match sqlx::query_scalar("SELECT current_setting('transaction_read_only')::bool")
+            .fetch_one(db.as_mut())
+            .await
+        {
+            Ok(false) => true,
+            Ok(true) => {
+                tracing::warn!("WorkLockManager database connection is read-only");
+                false
+            }
+            Err(error) => {
+                tracing::warn!(%error, "WorkLockManager database connection closed");
+                false
+            }
+        }
+    }
 }
 
 /// A lock representing exclusive ownership of a logical, named unit of work. Upon drop, the lock
@@ -477,6 +546,8 @@ pub enum KeepAliveError {
 mod tests {
     use std::time::Instant;
 
+    use sqlx::postgres::PgPoolOptions;
+
     use super::*;
 
     #[crate::sqlx_test]
@@ -569,6 +640,33 @@ WHERE datname = $1 AND pid <> pg_backend_pid()"#,
             manager.try_acquire_lock("work_key_1".into()).await.is_err(),
             "New locks should not be acquired even if the database connection died (it should have reconnected)"
         );
+    }
+
+    #[crate::sqlx_test]
+    async fn test_read_only_connection_is_replaced(pool: PgPool) {
+        // Use a one-connection pool so start() is guaranteed to reserve the session configured
+        // below. Reconnection must close that session before another can be opened.
+        let work_lock_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(pool.connect_options().as_ref().clone())
+            .await
+            .unwrap();
+        let mut db = work_lock_pool.acquire().await.unwrap();
+        sqlx::query("SET default_transaction_read_only = on")
+            .execute(&mut *db)
+            .await
+            .unwrap();
+        drop(db);
+
+        let mut join_set = JoinSet::new();
+        let manager = start(&mut join_set, work_lock_pool, Default::default())
+            .await
+            .unwrap();
+
+        manager
+            .try_acquire_lock("work_key_1".into())
+            .await
+            .expect("Lock should be acquired after replacing the read-only connection");
     }
 
     #[crate::sqlx_test]

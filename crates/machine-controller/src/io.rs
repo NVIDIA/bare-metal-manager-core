@@ -264,6 +264,10 @@ impl StateControllerIO for MachineStateControllerIO {
             match validation_state {
                 MachineValidatingState::MachineValidating { .. } => "machinevalidating",
                 MachineValidatingState::RebootHost { .. } => "reboothost",
+                MachineValidatingState::PrepareBootRepair { .. } => "preparebootrepair",
+                MachineValidatingState::UnlockForBootRepair { .. } => "unlockforbootrepair",
+                MachineValidatingState::RepairBootConfig { .. } => "repairbootconfig",
+                MachineValidatingState::LockAfterBootRepair { .. } => "lockafterbootrepair",
             }
         }
         match state {

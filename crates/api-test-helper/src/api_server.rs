@@ -245,6 +245,20 @@ pub async fn start(
 
         [host_models]
 
+        [rack_profiles.NVL72]
+        product_family = "gb200"
+
+        [rack_profiles.NVL72.rack_capabilities.compute]
+        name = "GB200"
+        count = 18
+        vendor = "NVIDIA"
+
+        [rack_profiles.NVL72.rack_capabilities.switch]
+        count = 0
+
+        [rack_profiles.NVL72.rack_capabilities.power_shelf]
+        count = 0
+
         [firmware_global]
         autoupdate = true
         host_enable_autoupdate = []

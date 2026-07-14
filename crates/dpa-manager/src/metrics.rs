@@ -116,20 +116,20 @@ impl DpaMonitorInstruments {
             .build();
         let heartbeats_sent = meter
             .u64_counter("carbide_dpa_monitor_heartbeats_sent")
-            .with_description("The number of heartbeats sent to DPA interfaces")
+            .with_description("Number of heartbeats sent to DPA interfaces")
             .build();
         let creates = meter
             .u64_counter("carbide_dpa_monitor_creates")
-            .with_description("The number of DPA interfaces created")
+            .with_description("Number of DPA interfaces created")
             .build();
         let deletes = meter
             .u64_counter("carbide_dpa_monitor_deletes")
-            .with_description("The number of DPA interfaces deleted")
+            .with_description("Number of DPA interfaces deleted")
             .build();
 
         meter
             .u64_observable_gauge("carbide_dpa_monitor_interfaces_scanned_count")
-            .with_description("The number of DPA interfaces scanned in the last monitor iteration")
+            .with_description("Number of DPA interfaces scanned in the last monitor iteration")
             .with_callback(move |o| {
                 shared_metrics.if_available(|metrics, attrs| {
                     o.observe(metrics.num_dpa_interfaces_scanned as u64, attrs);

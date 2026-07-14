@@ -103,6 +103,7 @@ serde = { features = ["derive"], workspace = true }
 carbide-version = { path = "../version" }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 
 [lints]

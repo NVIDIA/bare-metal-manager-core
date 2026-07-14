@@ -45,8 +45,9 @@ use crate::cfg::file::{
     NetworkSegmentStateControllerConfig, PowerShelfStateControllerConfig,
     RackStateControllerConfig, SecretsConfig, SpdmConfig, SpdmStateControllerConfig,
     SwitchStateControllerConfig, TracingConfig, VmaasConfig, VpcPeeringPolicy,
-    VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold, default_max_find_by_ids,
-    default_pxe_public_base_url,
+    VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
+    default_database_pool_acquire_timeout, default_database_pool_idle_timeout,
+    default_database_pool_max_lifetime, default_max_find_by_ids, default_pxe_public_base_url,
 };
 
 /// [`get`] with every `Option` config section populated. Used by tests that
@@ -104,6 +105,9 @@ pub fn get() -> CarbideConfig {
         alt_metric_prefix: None,
         database_url: "pgsql:://localhost".to_string(),
         max_database_connections: 1000,
+        database_pool_acquire_timeout: default_database_pool_acquire_timeout(),
+        database_pool_idle_timeout: default_database_pool_idle_timeout(),
+        database_pool_max_lifetime: default_database_pool_max_lifetime(),
         compute_allocation_enforcement: Default::default(),
         asn: 0,
         datacenter_asn: 0,

@@ -50,6 +50,15 @@ type Task struct {
 	// After this time the Promoter terminates the task automatically.
 	// Nil for non-waiting tasks.
 	QueueExpiresAt *time.Time
+
+	// IdempotencyKey is an optional stable submission key. When set, retries
+	// return the existing task instead of creating another row.
+	IdempotencyKey string
+}
+
+// IsScheduled reports whether the task has been submitted to an executor.
+func (t *Task) IsScheduled() bool {
+	return t != nil && t.ExecutionID != ""
 }
 
 // WorkflowComponent holds the minimal component data needed to execute

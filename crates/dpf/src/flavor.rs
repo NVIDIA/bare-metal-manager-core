@@ -176,6 +176,9 @@ pub fn flavor_bf4(
             }),
             sysctl: None,
             system_reserved_resources: None,
+            ew_nic_configurations: None,
+            packages: None,
+            systemd_services: None,
         },
     })
 }
@@ -238,6 +241,9 @@ pub fn default_flavor(
             }),
             sysctl: None,
             system_reserved_resources: None,
+            ew_nic_configurations: None,
+            packages: None,
+            systemd_services: None,
         },
     })
 }
@@ -248,7 +254,7 @@ fn get_config_files(
 ) -> Result<Vec<DpuFlavorConfigFiles>, crate::error::DpfError> {
     let mut config_files = vec![
         DpuFlavorConfigFiles {
-            path: Some("/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string()),
+            path: "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(
@@ -262,15 +268,19 @@ fn get_config_files(
                 )
                 .to_string(),
             ),
+            content_from: None,
+            r#type: None,
         },
         DpuFlavorConfigFiles {
-            path: Some("/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string()),
+            path: "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(dhcp_acl_rules()),
+            content_from: None,
+            r#type: None,
         },
         DpuFlavorConfigFiles {
-            path: Some("/etc/mellanox/mlnx-bf.conf".to_string()),
+            path: "/etc/mellanox/mlnx-bf.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(
@@ -281,18 +291,24 @@ fn get_config_files(
                 )
                 .to_string(),
             ),
+            content_from: None,
+            r#type: None,
         },
         DpuFlavorConfigFiles {
-            path: Some("/etc/mellanox/mlnx-ovs.conf".to_string()),
+            path: "/etc/mellanox/mlnx-ovs.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(concat!("CREATE_OVS_BRIDGES=\"no\"\n", "OVS_DOCA=\"yes\"\n").to_string()),
+            content_from: None,
+            r#type: None,
         },
         DpuFlavorConfigFiles {
-            path: Some("/etc/mellanox/mlnx-sf.conf".to_string()),
+            path: "/etc/mellanox/mlnx-sf.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some("".to_string()),
+            content_from: None,
+            r#type: None,
         },
     ];
 
@@ -322,10 +338,12 @@ fn get_config_files(
             ));
         }
         config_files.push(DpuFlavorConfigFiles {
-            path: Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf".to_string()),
+            path: "/etc/systemd/system/containerd.service.d/socks-proxy.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
             raw: Some(raw),
+            content_from: None,
+            r#type: None,
         });
     }
 
@@ -655,9 +673,7 @@ mod tests {
         value_scenarios!(
             run = |ok| ok;
             "path" {
-                f.path.is_some()
-                && f.path.as_deref()
-                    == Some("/etc/systemd/system/containerd.service.d/socks-proxy.conf") => true,
+                f.path == "/etc/systemd/system/containerd.service.d/socks-proxy.conf" => true,
             }
 
             "permissions 0644" {
@@ -678,9 +694,9 @@ mod tests {
             .spec
             .config_files
             .unwrap();
-        let paths: Vec<&str> = files.iter().filter_map(|f| f.path.as_deref()).collect();
+        let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
         value_scenarios!(
-            run = |path| paths.contains(&path);
+            run = |path| paths.contains(&path.to_string());
             "acltool.conf" {
                 "/var/lib/hbn/etc/supervisor/conf.d/acltool.conf" => true,
             }

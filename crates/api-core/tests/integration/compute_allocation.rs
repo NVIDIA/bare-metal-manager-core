@@ -15,25 +15,209 @@
  * limitations under the License.
  */
 
-use carbide_uuid::network::NetworkSegmentId;
-use rpc::forge::forge_server::Forge;
-use tonic::{Code, Request};
-use uuid::Uuid;
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::cfg::file::ComputeAllocationEnforcement;
-use crate::tests::common::api_fixtures::instance::{
-    default_os_config, single_interface_network_config,
-};
-use crate::tests::common::api_fixtures::{
-    TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host, create_test_env,
-    create_test_env_with_overrides, get_instance_type_fixture_id,
-};
-use crate::tests::common::rpc_builder::{
+use carbide_api_core::cfg::file::ComputeAllocationEnforcement;
+use carbide_site_explorer::config::SiteExplorerConfig;
+use carbide_test_harness::TestNetworkSegment;
+use carbide_test_harness::dns::TestDomain;
+use carbide_test_harness::prelude::*;
+use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
+use carbide_uuid::instance_type::InstanceTypeId;
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
+use model::instance_type::InstanceTypeMachineCapabilityFilter;
+use model::machine::ManagedHostState;
+use model::machine::capabilities::MachineCapabilityType;
+use model::metadata::Metadata as DbMetadata;
+use model::test_support::ManagedHostConfig;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::instance_interface_config::NetworkDetails;
+use rpc::forge::{
     ComputeAllocationAttributes, CreateComputeAllocationRequest, DeleteComputeAllocationRequest,
     UpdateComputeAllocationRequest,
 };
+use tonic::{Code, Request};
+use uuid::Uuid;
 
 const TENANT_ORG: &str = "2829bbe3-c169-4cd9-8b2a-19a8b1618a93";
+
+struct TestEnv {
+    api: Arc<Api>,
+    harness: TestHarness,
+    domain: TestDomain,
+    admin_segment: TestNetworkSegment,
+    underlay_segment: TestNetworkSegment,
+    site_explorer: TestSiteExplorer,
+}
+
+impl TestEnv {
+    async fn create_vpc_and_tenant_segment(&self) -> NetworkSegmentId {
+        let network_controller = self.harness.network_controller();
+        let vpc_id = network_controller.create_vpc("test vpc 1").await;
+        network_controller
+            .create_tenant_segment(&self.domain, vpc_id)
+            .await
+            .id
+    }
+}
+
+#[derive(Default)]
+struct TestEnvOverrides {
+    compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
+}
+
+impl TestEnvOverrides {
+    fn with_compute_allocation_enforcement(
+        self,
+        enforcement: ComputeAllocationEnforcement,
+    ) -> Self {
+        Self {
+            compute_allocation_enforcement: Some(enforcement),
+        }
+    }
+}
+
+struct TestManagedHost {
+    id: MachineId,
+}
+
+async fn create_test_env(pool: PgPool) -> TestEnv {
+    create_test_env_with_overrides(pool, TestEnvOverrides::default()).await
+}
+
+async fn create_test_env_with_overrides(pool: PgPool, overrides: TestEnvOverrides) -> TestEnv {
+    let mut runtime_config = carbide_test_harness::test_support::default_config::get();
+    if let Some(enforcement) = overrides.compute_allocation_enforcement {
+        runtime_config.compute_allocation_enforcement = enforcement;
+    }
+    let runtime_config = Arc::new(runtime_config);
+    let resource_pools = ResourcePoolBuilder::default()
+        .with_secondary_vtep_ip("172.30.0.0/24")
+        .with_vlan_ids(1, 5)
+        .with_vnis(10_001, 10_005)
+        .build();
+    let harness = TestHarness::builder(pool)
+        .with_resource_pools(resource_pools)
+        .with_api_builder_fn(move |builder| builder.with_runtime_config(runtime_config))
+        .build()
+        .await;
+
+    let mut txn = harness.db_txn().await;
+    for _ in 0..3 {
+        let uid = Uuid::new_v4();
+        let desired_capabilities = vec![InstanceTypeMachineCapabilityFilter {
+            capability_type: MachineCapabilityType::Cpu,
+            ..Default::default()
+        }];
+        let metadata = DbMetadata {
+            name: format!("the best type {uid}"),
+            description: String::new(),
+            labels: HashMap::new(),
+        };
+        db::instance_type::create(
+            &mut txn,
+            &InstanceTypeId::from(uid),
+            &metadata,
+            &desired_capabilities,
+        )
+        .await
+        .unwrap();
+    }
+    txn.commit().await.unwrap();
+
+    let domain = harness.test_domain().await;
+    let network_controller = harness.network_controller();
+    let admin_segment = network_controller.create_admin_segment(&domain).await;
+    let underlay_segment = network_controller.create_underlay_segment(&domain).await;
+    let site_explorer = harness.test_site_explorer(SiteExplorerConfig {
+        allocate_secondary_vtep_ip: true,
+        ..SiteExplorerConfig::default()
+    });
+    let api = harness.api_arc();
+
+    TestEnv {
+        api,
+        harness,
+        domain,
+        admin_segment,
+        underlay_segment,
+        site_explorer,
+    }
+}
+
+async fn get_instance_type_fixture_id(env: &TestEnv) -> String {
+    let existing_instance_type_ids = env
+        .api
+        .find_instance_type_ids(Request::new(rpc::forge::FindInstanceTypeIdsRequest {}))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_type_ids;
+
+    env.api
+        .find_instance_types_by_ids(Request::new(rpc::forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: existing_instance_type_ids,
+            include_allocation_stats: false,
+            tenant_organization_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_types
+        .pop()
+        .unwrap()
+        .id
+}
+
+async fn create_managed_host(env: &TestEnv) -> TestManagedHost {
+    let mut mh = env
+        .harness
+        .managed_host_builder(&env.site_explorer, env.underlay_segment)
+        .with_config(ManagedHostConfig::default())
+        .with_dpu_network_status_reported()
+        .build()
+        .await
+        .0;
+    mh.host.discover_primary_iface(env.admin_segment).await;
+    mh.advance_state(ManagedHostState::Ready).await;
+    TestManagedHost { id: mh.host.id }
+}
+
+fn single_interface_network_config(
+    segment_id: NetworkSegmentId,
+) -> rpc::forge::InstanceNetworkConfig {
+    rpc::forge::InstanceNetworkConfig {
+        interfaces: vec![rpc::forge::InstanceInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(segment_id),
+            network_details: Some(NetworkDetails::SegmentId(segment_id)),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: None,
+            ip_address: None,
+            ipv6_interface_config: None,
+            routing_profile: None,
+        }],
+        #[allow(deprecated)]
+        auto: false,
+        auto_config: None,
+    }
+}
+
+fn default_os_config() -> rpc::forge::InstanceOperatingSystemConfig {
+    rpc::forge::InstanceOperatingSystemConfig {
+        phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("SomeRandomData".to_string()),
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
+            rpc::forge::InlineIpxe {
+                ipxe_script: "SomeRandomiPxe".to_string(),
+            },
+        )),
+    }
+}
 
 fn metadata(name: impl Into<String>) -> rpc::forge::Metadata {
     rpc::forge::Metadata {
@@ -125,9 +309,9 @@ async fn update_compute_allocation(
         .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_compute_allocation_basic_actions(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let instance_type_id = get_instance_type_fixture_id(&env).await;
@@ -232,7 +416,7 @@ async fn test_compute_allocation_basic_actions(
 }
 
 async fn test_create_instance_no_allocations(
-    pool: sqlx::PgPool,
+    pool: PgPool,
     enforcement: ComputeAllocationEnforcement,
     should_pass: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -286,30 +470,30 @@ async fn test_create_instance_no_allocations(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_no_allocations_warn_only(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_no_allocations(pool, ComputeAllocationEnforcement::WarnOnly, true).await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_no_allocations_enforce_if_present(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_no_allocations(pool, ComputeAllocationEnforcement::EnforceIfPresent, true)
         .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_no_allocations_always(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_no_allocations(pool, ComputeAllocationEnforcement::Always, false).await
 }
 
 async fn test_create_instance_without_instance_type_id_no_allocations(
-    pool: sqlx::PgPool,
+    pool: PgPool,
     enforcement: ComputeAllocationEnforcement,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Build env with selected enforcement mode.
@@ -378,9 +562,9 @@ async fn test_create_instance_without_instance_type_id_no_allocations(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_no_allocations_without_instance_type_id_enforce_if_present(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_without_instance_type_id_no_allocations(
         pool,
@@ -389,9 +573,9 @@ async fn test_create_instance_no_allocations_without_instance_type_id_enforce_if
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_no_allocations_without_instance_type_id_always(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_without_instance_type_id_no_allocations(
         pool,
@@ -401,7 +585,7 @@ async fn test_create_instance_no_allocations_without_instance_type_id_always(
 }
 
 async fn test_create_instance_with_enough_allocations(
-    pool: sqlx::PgPool,
+    pool: PgPool,
     enforcement: ComputeAllocationEnforcement,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Build env with selected enforcement mode.
@@ -455,16 +639,16 @@ async fn test_create_instance_with_enough_allocations(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_enough_allocations_warn_only(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_with_enough_allocations(pool, ComputeAllocationEnforcement::WarnOnly).await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_enough_allocations_enforce_if_present(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_with_enough_allocations(
         pool,
@@ -473,15 +657,15 @@ async fn test_create_instance_enough_allocations_enforce_if_present(
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_enough_allocations_always(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_with_enough_allocations(pool, ComputeAllocationEnforcement::Always).await
 }
 
 async fn test_create_instance_with_insufficient_allocations(
-    pool: sqlx::PgPool,
+    pool: PgPool,
     enforcement: ComputeAllocationEnforcement,
     second_should_pass: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -559,9 +743,9 @@ async fn test_create_instance_with_insufficient_allocations(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_insufficient_allocations_warn_only(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_with_insufficient_allocations(
         pool,
@@ -571,9 +755,9 @@ async fn test_create_instance_insufficient_allocations_warn_only(
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_insufficient_allocations_enforce_if_present(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_with_insufficient_allocations(
         pool,
@@ -583,9 +767,9 @@ async fn test_create_instance_insufficient_allocations_enforce_if_present(
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_insufficient_allocations_always(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_with_insufficient_allocations(
         pool,
@@ -596,7 +780,7 @@ async fn test_create_instance_insufficient_allocations_always(
 }
 
 async fn test_create_instance_without_instance_type_id_skips_insufficient_allocations(
-    pool: sqlx::PgPool,
+    pool: PgPool,
     enforcement: ComputeAllocationEnforcement,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Build env with selected enforcement mode.
@@ -677,9 +861,9 @@ async fn test_create_instance_without_instance_type_id_skips_insufficient_alloca
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_insufficient_allocations_without_instance_type_id_enforce_if_present(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_without_instance_type_id_skips_insufficient_allocations(
         pool,
@@ -688,9 +872,9 @@ async fn test_create_instance_insufficient_allocations_without_instance_type_id_
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_create_instance_insufficient_allocations_without_instance_type_id_always(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_without_instance_type_id_skips_insufficient_allocations(
         pool,
@@ -699,9 +883,9 @@ async fn test_create_instance_insufficient_allocations_without_instance_type_id_
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_delete_allocation_when_instances_not_present_passes(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let instance_type_id = get_instance_type_fixture_id(&env).await;
@@ -748,9 +932,9 @@ async fn test_delete_allocation_when_instances_not_present_passes(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_delete_allocation_when_instances_present_and_sufficient_remain_passes(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let instance_type_id = get_instance_type_fixture_id(&env).await;
@@ -830,9 +1014,9 @@ async fn test_delete_allocation_when_instances_present_and_sufficient_remain_pas
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_delete_allocation_when_instances_present_and_insufficient_remain_fails(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let instance_type_id = get_instance_type_fixture_id(&env).await;
@@ -893,9 +1077,9 @@ async fn test_delete_allocation_when_instances_present_and_insufficient_remain_f
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_update_allocation_reduce_when_sufficient_remains_passes(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let instance_type_id = get_instance_type_fixture_id(&env).await;
@@ -971,9 +1155,9 @@ async fn test_update_allocation_reduce_when_sufficient_remains_passes(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_update_allocation_reduce_when_insufficient_remains_fails(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let instance_type_id = get_instance_type_fixture_id(&env).await;
@@ -1034,9 +1218,9 @@ async fn test_update_allocation_reduce_when_insufficient_remains_fails(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_update_allocation_increase_when_sufficient_machines_remain_passes(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let instance_type_id = get_instance_type_fixture_id(&env).await;
@@ -1105,9 +1289,9 @@ async fn test_update_allocation_increase_when_sufficient_machines_remain_passes(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_update_allocation_increase_when_insufficient_machines_remain_fails(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let instance_type_id = get_instance_type_fixture_id(&env).await;
@@ -1162,7 +1346,7 @@ async fn test_update_allocation_increase_when_insufficient_machines_remain_fails
 }
 
 async fn test_remove_machine_association(
-    pool: sqlx::PgPool,
+    pool: PgPool,
     enforcement: ComputeAllocationEnforcement,
     associated_machine_count: usize,
     allocation_count: Option<u32>,
@@ -1240,17 +1424,17 @@ async fn test_remove_machine_association(
     Ok(())
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_no_allocations_warn_only(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(pool, ComputeAllocationEnforcement::WarnOnly, 1, None, true)
         .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_no_allocations_enforce_if_present(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(
         pool,
@@ -1262,16 +1446,16 @@ async fn test_remove_machine_association_no_allocations_enforce_if_present(
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_no_allocations_always(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(pool, ComputeAllocationEnforcement::Always, 2, None, true).await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_allocations_less_than_remaining_warn_only(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(
         pool,
@@ -1283,9 +1467,9 @@ async fn test_remove_machine_association_allocations_less_than_remaining_warn_on
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_allocations_less_than_remaining_enforce_if_present(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(
         pool,
@@ -1297,17 +1481,17 @@ async fn test_remove_machine_association_allocations_less_than_remaining_enforce
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_allocations_less_than_remaining_always(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(pool, ComputeAllocationEnforcement::Always, 3, Some(1), true)
         .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_allocations_greater_than_remaining_warn_only(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(
         pool,
@@ -1319,9 +1503,9 @@ async fn test_remove_machine_association_allocations_greater_than_remaining_warn
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_allocations_greater_than_remaining_enforce_if_present(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(
         pool,
@@ -1333,9 +1517,9 @@ async fn test_remove_machine_association_allocations_greater_than_remaining_enfo
     .await
 }
 
-#[crate::sqlx_test]
+#[sqlx_test]
 async fn test_remove_machine_association_allocations_greater_than_remaining_always(
-    pool: sqlx::PgPool,
+    pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_remove_machine_association(
         pool,

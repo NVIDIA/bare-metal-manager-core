@@ -132,7 +132,7 @@ impl IbFabricMonitorInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_ib_monitor_fabrics_count")
-                .with_description("The amount of InfiniBand fabrics that are monitored")
+                .with_description("Number of monitored InfiniBand fabrics")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_fabrics as u64, attrs);
@@ -146,7 +146,7 @@ impl IbFabricMonitorInstruments {
             meter
                 .u64_observable_gauge("carbide_ib_monitor_machine_ib_status_updates_count")
                 .with_description(
-                    "The amount of Machines where the infiniband_status_observation got updated",
+                    "Number of Machines whose InfiniBand status observation was updated",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -158,7 +158,7 @@ impl IbFabricMonitorInstruments {
 
         let ufm_changes_applied = meter
             .u64_counter("carbide_ib_monitor_ufm_changes_applied")
-            .with_description("The amount of changes that have been performed at UFM")
+            .with_description("Number of changes performed at UFM")
             .build();
 
         {
@@ -166,7 +166,7 @@ impl IbFabricMonitorInstruments {
             meter
                 .u64_observable_gauge("carbide_ib_monitor_machines_by_port_state_count")
                 .with_description(
-                    "The amount of Machines where the amount of total and active ports matches the values in attributes",
+                    "Number of machines whose total and active port counts match the attribute values",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -193,7 +193,7 @@ impl IbFabricMonitorInstruments {
             meter
                 .u64_observable_gauge("carbide_ib_monitor_machines_by_ports_with_partitions_count")
                 .with_description(
-                    "The amount of Machines where a certain amount of ports is associated with at least one partition",
+                    "Number of machines where a certain number of ports is associated with at least one partition",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -219,7 +219,7 @@ impl IbFabricMonitorInstruments {
             meter
                 .u64_observable_gauge("carbide_ib_monitor_machines_with_missing_pkeys_count")
                 .with_description(
-                    "The amount of machines where at least one port is not assigned to the expected pkey on UFM",
+                    "Number of machines where at least one port is not assigned to the expected pkey on UFM",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -234,7 +234,7 @@ impl IbFabricMonitorInstruments {
             meter
                 .u64_observable_gauge("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
                 .with_description(
-                    "The amount of machines where at least one port is assigned to an unexpected pkey on UFM",
+                    "Number of machines where at least one port is assigned to an unexpected pkey on UFM",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -249,7 +249,7 @@ impl IbFabricMonitorInstruments {
             meter
                 .u64_observable_gauge("carbide_ib_monitor_machines_with_unknown_pkeys_count")
                 .with_description(
-                    "The amount of machines where at least one port is assigned to a pkey value that is not associated with any partition ID",
+                    "Number of machines where at least one port is assigned to a pkey value not associated with any partition ID",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -263,7 +263,7 @@ impl IbFabricMonitorInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_ib_monitor_ufm_version_count")
-                .with_description("The amount of UFM deployments per version")
+                .with_description("Number of UFM deployments per version")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         for (fabric, metrics) in metrics.fabrics.iter() {
@@ -324,9 +324,7 @@ impl IbFabricMonitorInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_ib_monitor_insecure_fabric_configuration_count")
-                .with_description(
-                    "The amount of InfiniBand fabrics that are not configured securely",
-                )
+                .with_description("Number of InfiniBand fabrics not configured securely")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         for (fabric, metrics) in metrics.fabrics.iter() {
@@ -351,7 +349,7 @@ impl IbFabricMonitorInstruments {
                     "carbide_ib_monitor_allow_insecure_fabric_configuration_count",
                 )
                 .with_description(
-                    "The amount of InfiniBand fabrics that are not configured securely",
+                    "Number of InfiniBand fabrics allowed to use insecure configuration",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -375,7 +373,7 @@ impl IbFabricMonitorInstruments {
             meter
                 .u64_observable_gauge("carbide_ib_monitor_ufm_partitions_count")
                 .with_description(
-                    "The amount partitions registered at UFM in total (incl non Forge partitions)",
+                    "Number of partitions registered at UFM per fabric (including non-Forge partitions)",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
@@ -398,7 +396,7 @@ impl IbFabricMonitorInstruments {
             meter
                 .u64_observable_gauge("carbide_ib_monitor_ufm_ports_by_state_count")
                 .with_description(
-                    "Total number of ports reported by UFM (incl non Forge managed ports)",
+                    "Number of ports reported by UFM in each port state (including non-Forge-managed ports)",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {

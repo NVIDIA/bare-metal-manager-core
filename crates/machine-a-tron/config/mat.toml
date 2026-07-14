@@ -64,7 +64,14 @@ bmc_mock_port = 2000
 # host_bmc_password = "vault-password"
 # dpu_bmc_password = "vault-password"
 
+# Optional rack declarations. Machine groups can reference these declarations
+# with rack_id to register rack-aware expected inventory.
+#
+# [racks.rack-001]
+# rack_profile_id = "NVL72"
+
 [machines.config]
+# rack_id = "rack-001"
 host_count = 3
 vpc_count = 10
 dpu_per_host_count = 1

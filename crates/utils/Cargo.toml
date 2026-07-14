@@ -34,6 +34,7 @@ test-support = [
 ]
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
 carbide-network = { path = "../network" }
 
 byte-unit = { workspace = true }
@@ -50,8 +51,10 @@ serde = { workspace = true, features = ["derive"] }
 sqlx = { workspace = true, features = ["postgres"], optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 
 [lints]

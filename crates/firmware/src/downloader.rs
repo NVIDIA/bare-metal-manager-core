@@ -20,13 +20,94 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use carbide_instrument::{DynamicLog, Event, LabelValue, LogAt, emit};
 use eyre::{Report, WrapErr, eyre};
 use futures_util::StreamExt;
 use reqwest_middleware::ClientWithMiddleware as Client;
 use sha2::{Digest, Sha256};
 use tokio::fs::File;
+
+/// How a background firmware download attempt ended, as a bounded metric
+/// label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum DownloadOutcome {
+    /// Downloaded, verified, and renamed into place.
+    Ok,
+    /// The request never produced a response: connection, DNS, or TLS
+    /// trouble (or, for `file://` sources, a source that cannot be opened).
+    Fetch,
+    /// The server answered, but with a non-success HTTP status.
+    Status,
+    /// The response body broke off mid-transfer.
+    Transfer,
+    /// The downloaded artifact failed SHA-256 verification.
+    Checksum,
+    /// Local filesystem trouble: creating the cache directory or staging
+    /// file, writing downloaded bytes, or renaming the artifact into place.
+    Io,
+}
+
+/// A background firmware download attempt ran to completion. The event owns
+/// the completion log line (INFO on success, ERROR on any failure) and
+/// records the attempt's duration.
+#[derive(Event)]
+#[event(
+    name = "carbide_firmware_download_duration_seconds",
+    component = "carbide-firmware",
+    log = dynamic,
+    metric = histogram,
+    message = "Firmware download finished",
+    describe = "Duration of background firmware artifact downloads, by outcome; an ok attempt \
+                spans fetch, checksum verification, and publish, and the _count series, split \
+                by outcome, is the download and failure rate."
+)]
+pub(crate) struct DownloadFinished {
+    #[label]
+    pub outcome: DownloadOutcome,
+    #[observation]
+    pub took: Duration,
+    #[context]
+    pub url: String,
+    #[context]
+    pub filename: String,
+    /// The failure's error chain; empty on success.
+    #[context]
+    pub error: String,
+}
+
+/// The URL as it may be logged: everything after `?` is dropped, so a
+/// presigned or tokenized artifact URL never lands its credentials in the
+/// log line while the location stays identifiable.
+pub(crate) fn loggable_url(url: &str) -> String {
+    url.split('?').next().unwrap_or(url).to_string()
+}
+
+impl DynamicLog for DownloadFinished {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            DownloadOutcome::Ok => LogAt::Level(tracing::Level::INFO),
+            DownloadOutcome::Fetch
+            | DownloadOutcome::Status
+            | DownloadOutcome::Transfer
+            | DownloadOutcome::Checksum
+            | DownloadOutcome::Io => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
+
+/// A failed download attempt: the bounded cause for the metric label, plus
+/// the detailed report for the log line.
+struct DownloadError {
+    outcome: DownloadOutcome,
+    report: Report,
+}
+
+/// Tags a failure report with its bounded cause, for `map_err`.
+fn fail(outcome: DownloadOutcome) -> impl FnOnce(Report) -> DownloadError {
+    move |report| DownloadError { outcome, report }
+}
 
 #[derive(Clone, Debug)]
 pub struct FirmwareDownloader {
@@ -114,46 +195,59 @@ impl FirmwareDownloader {
         let client = state.client.clone().unwrap();
         let actual = self.actual.clone();
         tokio::spawn(async move {
+            let started = Instant::now();
             let dst_filename = format!("{filename_string}.download");
-            match download(&filename, &url, &dst_filename, client, fake_sleep).await {
-                Err(e) => {
-                    tracing::error!("FirmwareDownloader failed: {e}");
-                    let _ = std::fs::remove_file(dst_filename);
-                    actual
-                        .lock()
-                        .unwrap()
-                        .clear_download_state(&filename_string);
-                }
-                Ok(_) => {
-                    tracing::info!("Completed download of {url} to {filename_string}");
-                    if let Err(e) = verify_sha256(&dst_filename, &sha256) {
-                        tracing::error!("FirmwareDownloader checksum for {url} failed: {e}");
-                        let _ = std::fs::remove_file(dst_filename);
-                        actual
-                            .lock()
-                            .unwrap()
-                            .clear_download_state(&filename_string);
-                        return;
-                    }
-                    if let Err(e) = std::fs::rename(&dst_filename, &filename) {
-                        tracing::error!("FirmwareDownloader rename failed: {e}");
-                        let _ = std::fs::remove_file(dst_filename);
-                        actual
-                            .lock()
-                            .unwrap()
-                            .clear_download_state(&filename_string);
-                        return;
-                    }
-
-                    actual
-                        .lock()
-                        .unwrap()
-                        .clear_download_state(&filename_string);
-                }
+            let result =
+                download_and_publish(&filename, &url, &dst_filename, client, fake_sleep, &sha256)
+                    .await;
+            if result.is_err() {
+                std::fs::remove_file(&dst_filename).ok();
+            }
+            let (outcome, error) = match result {
+                Ok(()) => (DownloadOutcome::Ok, String::new()),
+                Err(failure) => (failure.outcome, format!("{:#}", failure.report)),
             };
+            emit(DownloadFinished {
+                outcome,
+                took: started.elapsed(),
+                url: loggable_url(&url),
+                filename: filename_string.clone(),
+                error,
+            });
+            actual
+                .lock()
+                .unwrap()
+                .clear_download_state(&filename_string);
         });
         false
     }
+}
+
+/// Downloads to the staging file, verifies the artifact against the expected
+/// checksum, and renames it into place. Failures come back tagged with the
+/// bounded cause the metric label uses.
+async fn download_and_publish(
+    filename: &Path,
+    url: &String,
+    dst_filename: &String,
+    client: Client,
+    fake_sleep: Option<Duration>,
+    sha256: &str,
+) -> Result<(), DownloadError> {
+    download(filename, url, dst_filename, client, fake_sleep).await?;
+    verify_sha256(dst_filename, sha256)
+        .wrap_err(format!(
+            "Downloaded artifact from {} failed verification",
+            loggable_url(url)
+        ))
+        .map_err(fail(DownloadOutcome::Checksum))?;
+    std::fs::rename(dst_filename, filename)
+        .wrap_err(format!(
+            "Unable to rename {dst_filename} to {}",
+            filename.display()
+        ))
+        .map_err(fail(DownloadOutcome::Io))?;
+    Ok(())
 }
 
 impl FirmwareDownloaderActual {
@@ -202,23 +296,25 @@ async fn download(
     dst_filename: &String,
     client: Client,
     fake_sleep: Option<Duration>,
-) -> Result<(), Report> {
+) -> Result<(), DownloadError> {
     // Actual downloader.  We aren't able to return errors to callers here, we just print to the log, and will retry on the next request.
     let dirname = match Path::parent(filename) {
         Some(x) => x,
         None => {
-            return Err(eyre!(
+            return Err(fail(DownloadOutcome::Io)(eyre!(
                 "Could not find dirname of {}",
                 filename.to_string_lossy()
-            ));
+            )));
         }
     };
 
     std::fs::create_dir_all(dirname)
-        .wrap_err(format!("Unable to create directory {}", dirname.display()))?;
-    let mut dst_file = File::create(&dst_filename)
+        .wrap_err(format!("Unable to create directory {}", dirname.display()))
+        .map_err(fail(DownloadOutcome::Io))?;
+    let mut dst_file = File::create(dst_filename)
         .await
-        .wrap_err(format!("Unable to create file {dst_filename}"))?;
+        .wrap_err(format!("Unable to create file {dst_filename}"))
+        .map_err(fail(DownloadOutcome::Io))?;
 
     if let Some(duration) = fake_sleep {
         // For testing only, wait a given amount of time then write an empty file
@@ -231,36 +327,55 @@ async fn download(
         let src_filename = url.strip_prefix("file:/").unwrap(); // Leave the second / for the root
         let mut src_file = File::open(src_filename)
             .await
-            .wrap_err(format!("FirmwareDownloader could not open source {url}"))?;
+            .wrap_err(format!(
+                "FirmwareDownloader could not open source {}",
+                loggable_url(url)
+            ))
+            .map_err(fail(DownloadOutcome::Fetch))?;
         return tokio::io::copy(&mut src_file, &mut dst_file)
             .await
             .map(|_| ())
-            .map_err(|e| eyre!("FirmwareDownloader had problems saving file from {url}: {e}"));
+            .map_err(|e| {
+                fail(DownloadOutcome::Transfer)(eyre!(
+                    "FirmwareDownloader had problems saving file from {}: {e}",
+                    loggable_url(url)
+                ))
+            });
     }
 
-    let res = client.get(url).send().await.wrap_err(format!(
-        "FirmwareDownloader got error trying to download {url}"
-    ))?;
+    let res = client
+        .get(url)
+        .send()
+        .await
+        .wrap_err(format!(
+            "FirmwareDownloader got error trying to download {}",
+            loggable_url(url)
+        ))
+        .map_err(fail(DownloadOutcome::Fetch))?;
     if !res.status().is_success() {
-        return Err(eyre!(
-            "FirmwareDownloader got non-success status trying to download {url}: {}",
+        return Err(fail(DownloadOutcome::Status)(eyre!(
+            "FirmwareDownloader got non-success status trying to download {}: {}",
+            loggable_url(url),
             res.status()
-        ));
+        )));
     }
     let mut body = res.bytes_stream();
     while let Some(segment) = body.next().await {
         match segment {
             Err(e) => {
-                return Err(eyre!(
-                    "FirmwareDownloader had problems downloading {url}: {e}"
-                ));
+                return Err(fail(DownloadOutcome::Transfer)(eyre!(
+                    "FirmwareDownloader had problems downloading {}: {e}",
+                    loggable_url(url)
+                )));
             }
             Ok(segment) => {
                 tokio::io::copy(&mut segment.as_ref(), &mut dst_file)
                     .await
                     .wrap_err(format!(
-                        "FirmwareDownloader had problems saving file from {url}"
-                    ))?;
+                        "FirmwareDownloader had problems saving file from {}",
+                        loggable_url(url)
+                    ))
+                    .map_err(fail(DownloadOutcome::Io))?;
             }
         }
     }

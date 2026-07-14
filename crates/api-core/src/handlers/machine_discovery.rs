@@ -116,6 +116,15 @@ pub(crate) async fn discover_machine(
     };
 
     let mut txn = api.txn_begin().await?;
+
+    // Advisory-lock the admin segments before any machine-interface row
+    // writes in this transaction (`associate_interface_with_dpu_machine`,
+    // the proactive host-interface create, `set_primary_interface`), so the
+    // whole transaction holds locks in the allocator order (segment advisory
+    // lock first, then interface rows) all the way to the reconcile pass --
+    // which re-acquires the same locks as a no-op.
+    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
+
     tracing::debug!(
         ?remote_ip,
         ?interface_id,

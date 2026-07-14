@@ -65,6 +65,14 @@ type ExpectedSwitch struct {
 	CreatedBy          uuid.UUID `bun:"type:uuid,notnull"`
 }
 
+// NormalizeMacAddress lowercases a MAC address and converts hyphen separators
+// to colons so equivalent spellings compare equal. It is the one home for the
+// canonical-spelling rule shared by request validation and the DAO's
+// NvosMacAddresses conflict filter.
+func NormalizeMacAddress(mac string) string {
+	return strings.ToLower(strings.ReplaceAll(mac, "-", ":"))
+}
+
 // ExpectedSwitchCredentials carries the BMC and NVOS credentials for one
 // ExpectedSwitch. They live in their own type because they aren't stored
 // in the DB record and have to be threaded through to ToProto separately.
@@ -242,9 +250,15 @@ type ExpectedSwitchClearInput struct {
 
 // ExpectedSwitchFilterInput filtering options for GetAll method
 type ExpectedSwitchFilterInput struct {
-	ExpectedSwitchIDs   []uuid.UUID
-	SiteIDs             []uuid.UUID
-	BmcMacAddresses     []string
+	ExpectedSwitchIDs []uuid.UUID
+	// ExcludeExpectedSwitchIDs drops the given switches from the result set
+	ExcludeExpectedSwitchIDs []uuid.UUID
+	SiteIDs                  []uuid.UUID
+	BmcMacAddresses          []string
+	// NvosMacAddresses matches switches whose NVOS MAC list contains any of the
+	// given addresses. Comparison ignores case and separator style since those
+	// spellings refer to the same interface.
+	NvosMacAddresses    []string
 	SwitchSerialNumbers []string
 	SearchQuery         *string
 }
@@ -396,10 +410,28 @@ func (essd ExpectedSwitchSQLDAO) setQueryWithFilter(filter ExpectedSwitchFilterI
 		}
 	}
 
+	if len(filter.ExcludeExpectedSwitchIDs) > 0 {
+		query = query.Where("es.id NOT IN (?)", bun.In(filter.ExcludeExpectedSwitchIDs))
+		if expectedSwitchDAOSpan != nil {
+			essd.tracerSpan.SetAttribute(expectedSwitchDAOSpan, "exclude_expected_switch_ids", filter.ExcludeExpectedSwitchIDs)
+		}
+	}
+
 	if filter.BmcMacAddresses != nil {
 		query = query.Where("es.bmc_mac_address IN (?)", bun.In(filter.BmcMacAddresses))
 		if expectedSwitchDAOSpan != nil {
 			essd.tracerSpan.SetAttribute(expectedSwitchDAOSpan, "bmc_mac_addresses", filter.BmcMacAddresses)
+		}
+	}
+
+	if len(filter.NvosMacAddresses) > 0 {
+		normalized := make([]string, 0, len(filter.NvosMacAddresses))
+		for _, mac := range filter.NvosMacAddresses {
+			normalized = append(normalized, NormalizeMacAddress(mac))
+		}
+		query = query.Where("EXISTS (SELECT 1 FROM unnest(es.nvos_mac_addresses) AS m(mac) WHERE lower(replace(m.mac, '-', ':')) IN (?))", bun.In(normalized))
+		if expectedSwitchDAOSpan != nil {
+			essd.tracerSpan.SetAttribute(expectedSwitchDAOSpan, "nvos_mac_addresses", filter.NvosMacAddresses)
 		}
 	}
 

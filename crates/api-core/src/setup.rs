@@ -273,6 +273,25 @@ pub fn create_ipmi_tool(
 pub(crate) async fn create_and_connect_postgres_pool(
     config: &CarbideConfig,
 ) -> eyre::Result<PgPool> {
+    for (name, value) in [
+        (
+            "database_pool_acquire_timeout",
+            config.database_pool_acquire_timeout,
+        ),
+        (
+            "database_pool_idle_timeout",
+            config.database_pool_idle_timeout,
+        ),
+        (
+            "database_pool_max_lifetime",
+            config.database_pool_max_lifetime,
+        ),
+    ] {
+        if value.is_zero() {
+            eyre::bail!("{name} must be greater than zero");
+        }
+    }
+
     // We need logs to be enabled at least at `INFO` level. Otherwise
     // our global logging filter would reject the logs before they get injected
     // into the `SqlxQueryTracing` layer.
@@ -291,6 +310,12 @@ pub(crate) async fn create_and_connect_postgres_pool(
     }
     Ok(sqlx::pool::PoolOptions::new()
         .max_connections(config.max_database_connections)
+        // Lifecycle settings are operator-configurable; each `database_pool_*`
+        // config field documents what it bounds. The defaults are sqlx's own,
+        // so exposing them changes no behavior -- tuning belongs to the site.
+        .acquire_timeout(config.database_pool_acquire_timeout)
+        .idle_timeout(Some(config.database_pool_idle_timeout))
+        .max_lifetime(Some(config.database_pool_max_lifetime))
         .connect_with(database_connect_options)
         .await?)
 }
@@ -667,7 +692,11 @@ async fn initialize_dpf_sdk(
         .validate_unique_identifiers()
         .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
 
-    let mandatory_services = carbide_config.dpf.resolved_mandatory_services();
+    carbide_config
+        .dpf
+        .deployments
+        .validate_provisioning_sources()
+        .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
 
     // This is just temporary code until we make v2 only option. (just 2 weeks)
     // Soon v2 flag will be removed and will become only mode for dpf handling.
@@ -684,29 +713,51 @@ async fn initialize_dpf_sdk(
         .await
         .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
 
-    let make_init_config = |deployment: &crate::cfg::file::DpfDeploymentConfig,
-                            deployment_type: DpuDeploymentType| {
-        carbide_dpf::InitDpfResourcesConfig {
-            bfb_url: deployment.bfb_url.clone(),
-            flavor_name: deployment.flavor_name.clone(),
-            deployment_name: deployment.deployment_name.clone(),
-            services: crate::dpf_services::mandatory_services(&mandatory_services),
-            proxy: carbide_config.dpf.proxy.clone(),
-            deployment_type,
-        }
-    };
+    // Builds the SDK init config for one DPUDeployment. BF4 uses a single
+    // `BlueFieldSoftware` source (the CR itself carries the PSID→PLDM mapping);
+    // config validation guarantees exactly one PSID entry.
+    let make_init_config =
+        |deployment: &crate::cfg::file::DpfDeploymentConfig,
+         deployment_type: DpuDeploymentType,
+         bluefield_software: Option<carbide_dpf::BlueFieldSoftwareParams>| {
+            let services = carbide_config.dpf.resolved_services_for(deployment);
+            carbide_dpf::InitDpfResourcesConfig {
+                bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
+                bluefield_software,
+                flavor_name: deployment.flavor_name.clone(),
+                deployment_name: deployment.deployment_name.clone(),
+                services: crate::dpf_services::mandatory_services(&services),
+                proxy: carbide_config.dpf.proxy.clone(),
+                deployment_type,
+            }
+        };
 
-    sdk.create_initialization_objects(&make_init_config(
-        &carbide_config.dpf.deployments.bf3,
-        DpuDeploymentType::Bf3,
-    ))
-    .await
-    .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
+    let bf3 = &carbide_config.dpf.deployments.bf3;
+    sdk.create_initialization_objects(&make_init_config(bf3, DpuDeploymentType::Bf3, None))
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
 
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
-        sdk.create_initialization_objects(&make_init_config(bf4, DpuDeploymentType::Bf4Generic))
-            .await
-            .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
+        // Validation guarantees `bluefield_software` is set with exactly one PSID
+        // entry for a BF4 deployment.
+        let bfs = bf4.bluefield_software.as_ref().ok_or_else(|| {
+            eyre::eyre!("bf4_generic DPF deployment is missing bluefield_software")
+        })?;
+        let pldm_url =
+            bfs.pldm_fw_bundle.values().next().ok_or_else(|| {
+                eyre::eyre!("bf4_generic DPF deployment has an empty pldm_fw_bundle")
+            })?;
+        let params = carbide_dpf::BlueFieldSoftwareParams {
+            os_iso: bfs.os_iso.clone(),
+            pldm_fw_bundle: Some(pldm_url.clone()),
+        };
+        sdk.create_initialization_objects(&make_init_config(
+            bf4,
+            DpuDeploymentType::Bf4Generic,
+            Some(params),
+        ))
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
     }
 
     Ok(Some(Arc::new(DpfSdkOps::new(
@@ -1140,6 +1191,7 @@ async fn initialize_and_start_controllers<'a>(
             client.connect().await.map_err(|e| {
                 eyre::eyre!("Failed to connect DSX Exchange Event Bus MQTT client: {e}")
             })?;
+            client.register_metrics(&meter, "dsx_event_bus");
 
             tracing::info!(
                 "DSX Exchange Event Bus enabled, publishing to {}:{}",
@@ -1175,7 +1227,6 @@ async fn initialize_and_start_controllers<'a>(
                     config: config.periodic_state_republish.clone(),
                     host_health_config: carbide_config.host_health,
                 },
-                &meter,
             )
             .start(join_set, cancel_token.clone())?;
 
@@ -1504,8 +1555,10 @@ async fn initialize_and_start_controllers<'a>(
     .start(join_set, cancel_token.clone())?;
 
     if carbide_config.is_dpa_enabled() {
-        let mqtt_client =
-            Some(start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?);
+        let dpa_mqtt_client =
+            start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?;
+        dpa_mqtt_client.register_metrics(&meter, "dpa");
+        let mqtt_client = Some(dpa_mqtt_client);
 
         let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
 
@@ -2212,5 +2265,34 @@ mod tests {
 
         assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
         assert!(msg.contains("beta"), "expected `beta` in {msg}");
+    }
+
+    /// The pool builder rejects zero-valued lifecycle settings before it
+    /// touches the database, naming the offending field.
+    #[tokio::test]
+    async fn zero_database_pool_durations_are_rejected_at_startup() {
+        type ZeroOut = fn(&mut CarbideConfig);
+        let cases: [(&str, ZeroOut); 3] = [
+            ("database_pool_acquire_timeout", |config| {
+                config.database_pool_acquire_timeout = std::time::Duration::ZERO
+            }),
+            ("database_pool_idle_timeout", |config| {
+                config.database_pool_idle_timeout = std::time::Duration::ZERO
+            }),
+            ("database_pool_max_lifetime", |config| {
+                config.database_pool_max_lifetime = std::time::Duration::ZERO
+            }),
+        ];
+        for (field, zero_out) in cases {
+            let mut config = crate::test_support::default_config::get();
+            zero_out(&mut config);
+            let err = create_and_connect_postgres_pool(&config)
+                .await
+                .expect_err("a zero-valued pool duration must be rejected");
+            assert!(
+                err.to_string().contains(field),
+                "error must name `{field}`, got: {err}"
+            );
+        }
     }
 }

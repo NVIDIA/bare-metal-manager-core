@@ -123,13 +123,14 @@ func (mdes *ManageDpuExtensionService) CreateDpuExtensionServiceOnSite(ctx conte
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	createdDpuExtensionService, err := grpcServiceClient.CreateDpuExtensionService(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create DPU Extension Service using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create DPU Extension Service using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return createdDpuExtensionService, nil
 }
@@ -160,13 +161,14 @@ func (mdes *ManageDpuExtensionService) UpdateDpuExtensionServiceOnSite(ctx conte
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	updatedDpuExtensionService, err := grpcServiceClient.UpdateDpuExtensionService(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update DPU Extension Service using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update DPU Extension Service using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return updatedDpuExtensionService, nil
 }
@@ -197,13 +199,14 @@ func (mdes *ManageDpuExtensionService) DeleteDpuExtensionServiceOnSite(ctx conte
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.DeleteDpuExtensionService(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete DPU Extension Service using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete DPU Extension Service using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

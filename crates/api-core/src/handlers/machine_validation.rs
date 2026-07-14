@@ -38,6 +38,9 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
+use crate::machine_validation::{
+    MachineValidationCompleted, MachineValidationFailureCause, MachineValidationOutcome,
+};
 
 /// Temporary: when `true`, MV mutation handlers return `FailedPrecondition` and do not write to the DB.
 ///
@@ -95,29 +98,15 @@ pub(crate) async fn mark_machine_validation_complete(
     let mut state = MachineValidationState::Success;
 
     let machine_validation_error = req.machine_validation_error;
-    let machine_validation_results = match machine_validation_error.as_ref() {
-        Some(machine_validation_error) => {
-            state = MachineValidationState::Failed;
-            machine_validation_error.clone()
-        }
-        None => "Success".to_owned(),
-    };
+    if machine_validation_error.is_some() {
+        state = MachineValidationState::Failed;
+    }
 
-    let validation_result_error;
-    let result =
-        match db::machine_validation_result::validate_current_context(&mut txn, validation_id)
-            .await?
-        {
-            Some(error_message) => {
-                state = MachineValidationState::Failed;
-                validation_result_error = Some(error_message.clone());
-                error_message
-            }
-            None => {
-                validation_result_error = None;
-                "Success".to_owned()
-            }
-        };
+    let validation_result_error =
+        db::machine_validation_result::validate_current_context(&mut txn, validation_id).await?;
+    if validation_result_error.is_some() {
+        state = MachineValidationState::Failed;
+    }
 
     let completed = db::machine_validation::mark_machine_validation_complete(
         &mut txn,
@@ -138,6 +127,15 @@ pub(crate) async fn mark_machine_validation_complete(
         txn.commit().await?;
         return Ok(Response::new(rpc::MachineValidationCompletedResponse {}));
     }
+
+    // This call owns the run's active-to-terminal transition (checked above),
+    // so it emits the run's one completion event -- after the commit below.
+    let completion = completion_event(
+        machine_id,
+        *validation_id,
+        machine_validation_error.as_deref(),
+        validation_result_error.as_deref(),
+    );
 
     if let Some(machine_validation_error) = machine_validation_error {
         db::machine::update_failure_details_by_machine_id(
@@ -160,7 +158,13 @@ pub(crate) async fn mark_machine_validation_complete(
         updated_validation_health_report
             .alerts
             .push(health_report::HealthProbeAlert {
-                id: "FailedValidationTestCompletion".parse().unwrap(),
+                // The shared cause vocabulary names this alert, so the label
+                // and the alert id cannot drift apart.
+                id: MachineValidationFailureCause::FailedValidationTestCompletion
+                    .health_alert_id()
+                    .expect("a failure cause always names its alert")
+                    .parse()
+                    .unwrap(),
                 target: None,
                 in_alert_since: Some(chrono::Utc::now()),
                 message: format!(
@@ -195,15 +199,47 @@ pub(crate) async fn mark_machine_validation_complete(
 
     txn.commit().await?;
 
-    tracing::info!(
-        %machine_id,
-        result, "machine_validation_completed:machine_validation_results",
-    );
-    tracing::info!(
-        %machine_id,
-        machine_validation_results, "machine_validation_completed",
-    );
+    carbide_instrument::emit(completion);
     Ok(Response::new(rpc::MachineValidationCompletedResponse {}))
+}
+
+/// The completion event for a run, from the two failure channels the handler
+/// sees: a scout-reported run error means the run never completed its tests,
+/// which takes precedence over a failed test found in the recorded results; a
+/// run with neither passed. Both errors ride the log line when both are
+/// present.
+fn completion_event(
+    machine_id: carbide_uuid::machine::MachineId,
+    validation_id: carbide_uuid::machine_validation::MachineValidationId,
+    machine_validation_error: Option<&str>,
+    validation_result_error: Option<&str>,
+) -> MachineValidationCompleted {
+    let (outcome, cause) = match (machine_validation_error, validation_result_error) {
+        (None, None) => (
+            MachineValidationOutcome::Passed,
+            MachineValidationFailureCause::None,
+        ),
+        (Some(_), _) => (
+            MachineValidationOutcome::Failed,
+            MachineValidationFailureCause::FailedValidationTestCompletion,
+        ),
+        (None, Some(_)) => (
+            MachineValidationOutcome::Failed,
+            MachineValidationFailureCause::FailedValidationTest,
+        ),
+    };
+    let error = match (machine_validation_error, validation_result_error) {
+        (Some(run_error), Some(test_error)) => format!("{run_error}; {test_error}"),
+        (Some(error), None) | (None, Some(error)) => error.to_string(),
+        (None, None) => String::new(),
+    };
+    MachineValidationCompleted {
+        outcome,
+        cause,
+        machine_id,
+        validation_id,
+        error,
+    }
 }
 
 pub(crate) async fn persist_validation_result(
@@ -1083,4 +1119,82 @@ pub async fn apply_config_on_startup(
     txn.commit().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr as _;
+
+    use super::*;
+
+    /// The handler's two failure channels map onto the bounded cause
+    /// vocabulary: the scout-reported run error outranks a failed test found
+    /// in the recorded results, and the error context keeps both texts when
+    /// both are present.
+    #[test]
+    fn completion_event_maps_error_channels_to_outcome_and_cause() {
+        struct Case {
+            scenario: &'static str,
+            machine_validation_error: Option<&'static str>,
+            validation_result_error: Option<&'static str>,
+            expect_outcome: MachineValidationOutcome,
+            expect_cause: MachineValidationFailureCause,
+            expect_error: &'static str,
+        }
+
+        let cases = [
+            Case {
+                scenario: "no errors passes",
+                machine_validation_error: None,
+                validation_result_error: None,
+                expect_outcome: MachineValidationOutcome::Passed,
+                expect_cause: MachineValidationFailureCause::None,
+                expect_error: "",
+            },
+            Case {
+                scenario: "scout-reported run error",
+                machine_validation_error: Some("scout died"),
+                validation_result_error: None,
+                expect_outcome: MachineValidationOutcome::Failed,
+                expect_cause: MachineValidationFailureCause::FailedValidationTestCompletion,
+                expect_error: "scout died",
+            },
+            Case {
+                scenario: "failed test in the recorded results",
+                machine_validation_error: None,
+                validation_result_error: Some("test exited 1"),
+                expect_outcome: MachineValidationOutcome::Failed,
+                expect_cause: MachineValidationFailureCause::FailedValidationTest,
+                expect_error: "test exited 1",
+            },
+            Case {
+                scenario: "run error outranks a failed test; both errors kept",
+                machine_validation_error: Some("scout died"),
+                validation_result_error: Some("test exited 1"),
+                expect_outcome: MachineValidationOutcome::Failed,
+                expect_cause: MachineValidationFailureCause::FailedValidationTestCompletion,
+                expect_error: "scout died; test exited 1",
+            },
+        ];
+
+        let machine_id = carbide_uuid::machine::MachineId::from_str(
+            "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30",
+        )
+        .expect("a valid machine id");
+        let validation_id = carbide_uuid::machine_validation::MachineValidationId::new();
+
+        for case in cases {
+            let event = completion_event(
+                machine_id,
+                validation_id,
+                case.machine_validation_error,
+                case.validation_result_error,
+            );
+            assert_eq!(event.outcome, case.expect_outcome, "{}", case.scenario);
+            assert_eq!(event.cause, case.expect_cause, "{}", case.scenario);
+            assert_eq!(event.machine_id, machine_id, "{}", case.scenario);
+            assert_eq!(event.validation_id, validation_id, "{}", case.scenario);
+            assert_eq!(event.error, case.expect_error, "{}", case.scenario);
+        }
+    }
 }

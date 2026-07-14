@@ -17,6 +17,9 @@ applicable.
 | `alt_metric_prefix` | `Option<String>` | — | `integrations` | Alternative metric prefix emitted alongside `nico_` for dashboard migration. |
 | `database_url` | `String` | **required** | `server` | Postgres connection string for all persistent state. |
 | `max_database_connections` | `u32` | `1000` | `server` | Maximum database connection pool size. |
+| `database_pool_acquire_timeout` | `Duration` | `30s` | `server` | How long a caller may wait for a connection from the pool before the attempt fails (sqlx's own default); trips on a stalled database or a saturated pool alike. Must be greater than zero (startup rejects `0`). |
+| `database_pool_idle_timeout` | `Duration` | `10m` | `server` | Idle time after which the pool closes a connection, keeping the pool's own reaping well inside the Postgres server's 60-minute idle-session reaper. Must be greater than zero (startup rejects `0`). |
+| `database_pool_max_lifetime` | `Duration` | `30m` | `server` | Maximum age of a pooled connection before it is recycled, so the pool re-balances onto the current primary after a database failover. Must be greater than zero (startup rejects `0`). |
 | `ib_config` | `Option<IBFabricConfig>` | — | `hardware` | InfiniBand fabric configuration (see [IBFabricConfig](#ibfabricconfig)). |
 | `asn` | `u32` | **required** | `networking` | Autonomous System Number, fixed per environment. Used by nico-dpu-agent for `frr.conf` BGP routing. |
 | `dhcp_servers` | `Vec<Ipv4Addr>` | `[]` | `networking` | DHCP server addresses announced to DPUs during network provisioning. |
@@ -302,12 +305,11 @@ flows.
 | `reset_rate_limit` | `Duration` | `1h` | Minimum time between SiteExplorer-initiated BMC resets. |
 | `admin_segment_type_non_dpu` | `bool` | `false` | Non-DPU hosts use `HostInband` admin segment type. |
 | `allocate_secondary_vtep_ip` | `bool` | `false` | Allocate secondary VTEP IP for GENEVE traffic intercept. |
-| `create_power_shelves` | `bool` | `false` | Auto-create Power Shelf state machines. |
-| `explore_power_shelves_from_static_ip` | `bool` | `false` | Discover power shelves via static IP. |
+| `create_power_shelves` | `bool` | `true` | Auto-create Power Shelf state machines for explored shelves with a matching `expected_power_shelves` record. Shelves are discovered at their `expected_power_shelves` static IP even without a DHCP lease. |
 | `power_shelves_created_per_run` | `u64` | `1` | Max power shelves created per run. |
-| `create_switches` | `bool` | `false` | Auto-create Switch state machines. |
+| `create_switches` | `bool` | `true` | Auto-create Switch state machines for explored switches with a matching `expected_switches` record. |
 | `switches_created_per_run` | `u64` | `9` | Max switches created per run. |
-| `explore_mode` | `SiteExplorerExploreMode` | `LibRedfish` | Redfish backend: `libredfish`, `nv-redfish`, or `compare-result`. |
+| `explore_mode` | `SiteExplorerExploreMode` | `NvRedfish` | Redfish backend: `libredfish`, `nv-redfish`, or `compare-result`. |
 | `dpu_mode` | `Option<DpuMode>` | — | Site-wide DPU operating mode. When set, applies to every host that doesn't declare a per-host `ExpectedMachine.dpu_mode` override. |
 
 ### `StateControllerConfig`

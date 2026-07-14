@@ -243,6 +243,7 @@ mod expected_rack;
 mod expected_switch;
 mod explored_endpoint;
 mod filters;
+mod firmware;
 mod health;
 mod health_history;
 mod ib_fabric;
@@ -510,6 +511,8 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/explored-endpoint/{endpoint_ip}/enable-lockdown",
                 post(explored_endpoint::enable_lockdown),
             )
+            .route("/firmware", get(firmware::show_html))
+            .route("/firmware.json", get(firmware::show_json))
             .route("/host", get(machine::show_hosts_html))
             .route("/host.json", get(machine::show_hosts_json))
             .route("/ib-partition", get(ib_partition::show_html))
