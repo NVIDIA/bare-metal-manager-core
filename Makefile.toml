@@ -247,6 +247,7 @@ docker run --rm \
   -e SCCACHE_DIR=/sccache \
   -e SA_ENABLEMENT=1 \
   -e PKG_VERSION="${PKG_VERSION}" \
+  -e VERSION="${VERSION}" \
   -e HOST_UID="${HOST_UID}" \
   -e HOST_GID="${HOST_GID}" \
   carbide-pxe-builder \
