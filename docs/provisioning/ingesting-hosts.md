@@ -2,13 +2,15 @@
 
 Once you have NVIDIA Infra Controller (NICo) up and running, you can begin ingesting machines.
 
+The preferred operator workflow uses the REST API and `nicocli`. Follow [Ingesting Hosts (REST API)](ingesting-hosts-rest-api.md) for credential setup, Expected Machine registration, ingestion verification, and table maintenance. The direct Core workflow below remains available for operations that do not yet have REST parity; see [Site Setup API Parity](site-setup-api-parity.md) for the current status and tracked gaps.
+
 ## Prerequisites
 
 Ensure you have the following prerequisites met before ingesting machines:
 
-1. You have the `nico-admin-cli` command available: You can compile it from sources or you can use the pre-compiled binary. Another choice is to use a containerized version. You can also download it from the cluster; see next section for details.
+1. You have `nicocli` installed and configured for the target REST API. See the [Quick Start Guide](../getting-started/quick-start.md).
 
-2. You can access the NICo site using the `nico-admin-cli`.
+2. For the remaining REST parity gaps, you have `nico-admin-cli` and direct access to the NICo site. See the next section for details.
 
 3. The NICo API service is running at IP address `NICo_API_EXTERNAL`. It is recommended that you add this IP address to your trusted list.
    
@@ -116,89 +118,55 @@ https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --nico-root-ca-path <NICO_ROOT
 Run this command to update the desired Host and DPU BMC password:
 
 ```bash
-nico-admin-cli -a <api-url> credential add-bmc --kind=site-wide-root --password='x'
+nicocli bmc-credential create \
+  --site-id <site-uuid> \
+  --kind SiteWideRoot \
+  --password '<password>'
 ```
 
 ### Update Host UEFI Password
 
-Run this command to generate the desired host UEFI password:
+Run this command to store the desired host UEFI password:
 
 ```bash
-nico-admin-cli -a <api-url> host generate-host-uefi-password
+nicocli uefi-credential create \
+  --site-id <site-uuid> \
+  --kind Host \
+  --password '<password>'
 ```
 
-
-Run this command to update host uefi password:
-
+Run this command to store the desired DPU UEFI password:
 ```bash
-nico-admin-cli -a <api-url> credential add-uefi --kind=host --password='<password-gemerated-in-previous-step>'
-```
-
-Run this command to update DPU uefi password:
-```bash
-nico-admin-cli -a <api-url> credential add-uefi --kind=dpu --password='x'
+nicocli uefi-credential create \
+  --site-id <site-uuid> \
+  --kind DPU \
+  --password '<password>'
 ```
 
 ## Add Expected Machines Table
 
 NICo needs to know the factory default credentials for each BMC, which is expressed as a JSON table of "Expected Machines".  The serial number is used to verify the BMC MAC matches the actual serial number of the chassis.
 
-Prepare an `expected_machines.json` file as follows:
-
-```json
-{
-  "expected_machines": [
-    {
-      "bmc_mac_address": "C4:5A:B1:C8:38:0D",
-      "bmc_username": "root",
-      "bmc_password": "default-password1",
-      "chassis_serial_number": "SERIAL-1"
-    },
-    {
-      "bmc_mac_address": "C4:5A:FF:FF:FF:FF",
-      "bmc_username": "root",
-      "bmc_password": "default-password2",
-      "chassis_serial_number": "SERIAL-2"
-    }
-  ]
-}
-```
-
-Only servers listed in this table will be ingested, so you must include all servers in this file.
-
-### Optional Per-Host Fields
-
-Each entry supports additional optional fields:
-
-- **`host_lifecycle_profile`** (object): Per-host profile for settings that affect
-  state-machine progression. Future per-host knobs should be added here.
-  - **`disable_lockdown`** (bool, default `false`): When `true`, the state machine
-    does not lockdown the host during lifecycle management. This is useful for automation
-    workflows that need lockdown persistently disabled.
-
-  ```json
-  {
-    "bmc_mac_address": "C4:5A:B1:C8:38:0D",
-    "bmc_username": "root",
-    "bmc_password": "default-password1",
-    "chassis_serial_number": "SERIAL-1",
-    "host_lifecycle_profile": {
-      "disable_lockdown": true
-    }
-  }
-  ```
-
-- **`dpf_enabled`** (bool): Enable/disable DPF for this host.
-- **`dpu_mode`** (`"dpu_mode"` | `"nic_mode"` | `"no_dpu"`): Per-host DPU operating mode.
-- **`bmc_retain_credentials`** (bool): Skip BMC password rotation.
-- **`default_pause_ingestion_and_poweron`** (bool): Pause ingestion and power-on for this host.
-- **`bmc_ip_address`** (string): Static BMC IP (pre-allocates a machine interface).
-
-When the file is ready, upload it to the site with the following command:
+Register a single Expected Machine with `nicocli`:
 
 ```bash
-nico-admin-cli -a <api-url> em replace-all --filename expected_machines.json
+nicocli expected-machine create \
+  --site-id <site-uuid> \
+  --bmc-mac-address <mac> \
+  --chassis-serial-number <chassis-serial> \
+  --default-bmc-username <bmc-user> \
+  --default-bmc-password <bmc-password>
 ```
+
+For more than one machine, prepare the JSON array documented in [Ingesting Hosts (REST API)](ingesting-hosts-rest-api.md#batch-recommended-for-full-rack-onboarding), then run:
+
+```bash
+nicocli expected-machine batch-create --data-file expected-machines.json
+```
+
+Only registered Expected Machines will be ingested.
+
+For optional REST fields and batch JSON examples, use [Ingesting Hosts (REST API)](ingesting-hosts-rest-api.md#registering-expected-machines).
 
 ## Approve all Machines for Ingestion
 
@@ -234,8 +202,8 @@ When a machine is not being created or is stuck in a pre-`Ready` state, `nico-ap
 You can check the current detailed state of any managed host using:
 
 ```bash
-nico-admin-cli -a <api-url> managed-host show --all
-nico-admin-cli -a <api-url> managed-host show <machine-id>
+nicocli machine list --output table
+nicocli machine get <machine-id>
 ```
 
 For a full guide on diagnosing stuck objects, including how to use the NICo Grafana dashboard and how to read state handler error logs, see [Stuck Objects Runbook](../playbooks/stuck_objects/stuck_objects.md).
@@ -299,26 +267,27 @@ The expected machines table in the nico-api database holds the following fields 
 
 ### Individual operations
 
-Use `nico-admin-cli` to operate on individual entries:
+Use `nicocli` to operate on individual entries:
 
 ```bash
-nico-admin-cli -a <api-url> em update ...
-nico-admin-cli -a <api-url> em add ...
-nico-admin-cli -a <api-url> em delete ...
+nicocli expected-machine update <expected-machine-id> ...
+nicocli expected-machine create ...
+nicocli expected-machine delete <expected-machine-id>
 ```
 
 ### Bulk operations
 
-Replace all entries from a JSON file:
+Create or update entries from a JSON file:
 
 ```bash
-nico-admin-cli -a <api-url> em replace-all --filename expected_machines.json
+nicocli expected-machine batch-create --data-file expected-machines.json
+nicocli expected-machine batch-update --data-file expected-machine-updates.json
 ```
 
-Erase all entries:
+Delete an entry by ID:
 
 ```bash
-nico-admin-cli -a <api-url> em erase
+nicocli expected-machine delete <expected-machine-id>
 ```
 
 ### Export
@@ -326,5 +295,5 @@ nico-admin-cli -a <api-url> em erase
 Export the current table as JSON:
 
 ```bash
-nico-admin-cli -a <api-url> -f json em show
+nicocli expected-machine list --all --output json
 ```

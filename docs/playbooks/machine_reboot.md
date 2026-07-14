@@ -15,31 +15,27 @@ instance lifecycle.**
 
 The following steps can be used to reboot a machine:
 
-### 1. Obtain access to `nico-admin-cli`
+### 1. Obtain access to `nicocli`
 
-See [nico-admin-cli access on a NICo deployment](nico_admin_cli.md).
+Configure `nicocli` for the target REST API and verify that the caller has the `PROVIDER_ADMIN` role.
 
-### 2. Execute the `nico-admin-cli machine reboot` command
+### 2. Execute the Machine power control operation
 
-`nico-admin-cli machine reboot` can be used to restart a machine.
-It always will require the machine's BMC IP and port to be specified.
-
-BMC credentials can either be explicitly passed, or the `--machine-id` parameter
-can be used to let the NICo site controller read the last known credentials
-for the machine.
-
-Rebooting a machine will also always reset its boot order. The machine
-will PXE boot, and thereby will be able to retrieve new boot instructions from
-the NICo site controller.
-
-**Example:**
+Use `GracefulRestart` when the operating system can shut down cleanly. Use `ForceRestart` only when a graceful restart is not possible.
 
 ```bash
-/opt/nico/nico-admin-cli -a https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --machine-id="60cef902-9779-4666-8362-c9bb4b37184f"
+nicocli machine power-control-machine machine-power-control-machine \
+  <machine-id> \
+  --action GracefulRestart
 ```
 
-or using username and password:
+If the Machine has an attached Instance, acknowledge the workload disruption explicitly:
 
 ```bash
-/opt/nico/nico-admin-cli -a https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --username myhost --password mypassword
+nicocli machine power-control-machine machine-power-control-machine \
+  <machine-id> \
+  --action GracefulRestart \
+  --acknowledge-attached-instance true
 ```
+
+A successful request returns HTTP 202. Retrieve the Machine afterward with `nicocli machine get <machine-id>` and confirm that it returns to the expected lifecycle state.
