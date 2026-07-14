@@ -218,7 +218,7 @@ target/debug/bmc-explorer-cli \
   <bmc-ip>
 ```
 
-`--boot-mac` is the MAC address of the interface from which the host is expected to boot. For the common managed-DPU configuration, use the host-facing `pf0` MAC of the primary DPU; for an integrated-NIC configuration, use the NIC selected as the primary boot interface. Use the same MAC for exploration, machine setup, setup status, and boot-order tests. Omit it only when the platform does not require a selected boot interface. See [Boot Interfaces and DPU Modes](../provisioning/boot-interfaces-and-dpu-modes.md) for how NICo selects and persists this value.
+`--boot-mac` is the MAC address of the interface from which the host is expected to boot. For the common managed-DPU configuration, use the host-facing `pf0` MAC of the primary DPU; for an integrated-NIC configuration, use the NIC selected as the primary boot interface. Use the same MAC for exploration, machine setup, setup status, and boot-order tests. Omit it only when the platform does not require a selected boot interface. See [Boot Interfaces and DPU Policies](../provisioning/boot-interfaces-and-dpu-modes.md) for how NICo selects and persists this value.
 
 `--bmc-port` is the (optional) port on which the BMC listens. HTTPS port 443 is the default; use `--bmc-port <port>` for a BMC listening elsewhere.
 
@@ -386,4 +386,3 @@ To add one:
 1. Wire the variant through `crates/bmc-mock/src/machine_info.rs`: DPU count and type, vendor and product identity, Redfish version, manager, system, chassis, discovery, firmware inventory, and OEM behavior should match the live BMC responses relevant to the test.
 
 1. Add focused tests for the behavior the hardware contribution changes, such as vendor detection, inventory, NIC-mode detection, or provisioning.
-

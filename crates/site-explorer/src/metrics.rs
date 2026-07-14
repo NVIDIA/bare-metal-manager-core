@@ -875,8 +875,8 @@ impl SiteExplorerInstruments {
                 .u64_observable_gauge("carbide_site_explorer_dpu_migration_signals_count")
                 .with_description(
                     "Number of DPU NIC-mode migration signals by signal type -- mode-mismatch found, \
-                     set_nic_mode issued, reset requested, and zero-DPU registered for a NicMode \
-                     host.",
+                     set_nic_mode issued, reset requested, and zero-DPU registered for a host \
+                     whose DPU policy is nic.",
                 )
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {

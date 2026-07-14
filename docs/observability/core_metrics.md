@@ -224,7 +224,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it took to perform create_machines inside site-explorer</td></tr>
 <tr><td>carbide_site_explorer_created_machines_count</td><td>gauge</td><td>Number of machine pairs created by Site Explorer after identification</td></tr>
 <tr><td>carbide_site_explorer_created_power_shelves_count</td><td>gauge</td><td>Number of power shelves created by Site Explorer after identification</td></tr>
-<tr><td>carbide_site_explorer_dpu_migration_signals_count</td><td>gauge</td><td>Number of DPU NIC-mode migration signals by signal type -- mode-mismatch found, set_nic_mode issued, reset requested, and zero-DPU registered for a NicMode host.</td></tr>
+<tr><td>carbide_site_explorer_dpu_migration_signals_count</td><td>gauge</td><td>Number of DPU NIC-mode migration signals by signal type -- mode-mismatch found, set_nic_mode issued, reset requested, and zero-DPU registered for a host whose DPU policy is nic.</td></tr>
 <tr><td>carbide_site_explorer_enabled</td><td>gauge</td><td>Whether site-explorer is enabled (1) or paused (0)</td></tr>
 <tr><td>carbide_site_explorer_iteration_latency_milliseconds</td><td>histogram</td><td>The time it took to perform one site explorer iteration</td></tr>
 <tr><td>carbide_site_explorer_last_run_status</td><td>gauge</td><td>The status of the latest Site Explorer run</td></tr>

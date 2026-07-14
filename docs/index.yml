@@ -114,7 +114,7 @@ navigation:
           path: provisioning/ingesting-hosts-rest-api.md
         - page: Site Setup API Parity
           path: provisioning/site-setup-api-parity.md
-        - page: Boot Interfaces and DPU Modes
+        - page: Boot Interfaces and DPU Policies
           path: provisioning/boot-interfaces-and-dpu-modes.md
         - page: Machine Validation
           path: provisioning/machine-validation.md
