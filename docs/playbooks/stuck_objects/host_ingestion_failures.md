@@ -105,7 +105,7 @@ nico-admin-cli -a <api-url> -f json machine show <host-machine-id> \
 The `last_scout_observed_version` value is updated whenever Scout registers the
 host during discovery and remains associated with the machine after assignment.
 It identifies the last discovery image, not necessarily a currently running agent.
-The value is `null` for machines that have not completed discovery with a Scout 
+The value is `null` for machines that have not completed discovery with a Scout
 version that reports it, and a later Scout discovery replaces the stored value.
 
 ## Validation and SKU
