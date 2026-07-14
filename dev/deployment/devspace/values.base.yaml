@@ -1,4 +1,7 @@
 nico-api:
+  # Disable legacy forge-system namespace alias for local dev
+  legacyAlias:
+    enabled: false
   resources:
     limits:
       cpu: "16"
