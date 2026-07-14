@@ -97,7 +97,7 @@ func ipxeTemplateFindFallback(ctx context.Context, grpcClient *cClient.CoreGrpcC
 	var ids []*corev1.IpxeTemplateId
 	var templates []*corev1.IpxeTemplate
 	for _, t := range result.GetTemplates() {
-		if t.GetScope() == corev1.IpxeTemplateScope_PUBLIC {
+		if t.GetVisibility() == corev1.IpxeTemplateVisibility_PUBLIC {
 			templates = append(templates, t)
 			ids = append(ids, t.GetId())
 		}

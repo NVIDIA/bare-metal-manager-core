@@ -66,8 +66,8 @@ func TestManageIpxeTemplate_Reconcile_CreateUpdateDelete(t *testing.T) {
 	inv1 := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: kernelInitrdID.String()}, Name: "kernel-initrd", Scope: corev1.IpxeTemplateScope_PUBLIC, RequiredParams: []string{"p1"}, ReservedParams: []string{"r1"}, RequiredArtifacts: []string{"kernel"}},
-			{Id: &corev1.IpxeTemplateId{Value: ubuntuAutoinstallID.String()}, Name: "ubuntu-autoinstall", Scope: corev1.IpxeTemplateScope_PUBLIC, RequiredParams: []string{}, ReservedParams: []string{}, RequiredArtifacts: []string{"iso"}},
+			{Id: &corev1.IpxeTemplateId{Value: kernelInitrdID.String()}, Name: "kernel-initrd", Visibility: corev1.IpxeTemplateVisibility_PUBLIC, RequiredParams: []string{"p1"}, ReservedParams: []string{"r1"}, RequiredArtifacts: []string{"kernel"}},
+			{Id: &corev1.IpxeTemplateId{Value: ubuntuAutoinstallID.String()}, Name: "ubuntu-autoinstall", Visibility: corev1.IpxeTemplateVisibility_PUBLIC, RequiredParams: []string{}, ReservedParams: []string{}, RequiredArtifacts: []string{"iso"}},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, inv1))
@@ -85,8 +85,8 @@ func TestManageIpxeTemplate_Reconcile_CreateUpdateDelete(t *testing.T) {
 	inv2 := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: kernelInitrdID.String()}, Name: "kernel-initrd", Scope: corev1.IpxeTemplateScope_PUBLIC, RequiredParams: []string{"p1"}, ReservedParams: []string{"r1"}, RequiredArtifacts: []string{"kernel"}},
-			{Id: &corev1.IpxeTemplateId{Value: ubuntuAutoinstallID.String()}, Name: "ubuntu-autoinstall", Scope: corev1.IpxeTemplateScope_PUBLIC, RequiredParams: []string{"new-param"}, ReservedParams: []string{}, RequiredArtifacts: []string{"iso"}},
+			{Id: &corev1.IpxeTemplateId{Value: kernelInitrdID.String()}, Name: "kernel-initrd", Visibility: corev1.IpxeTemplateVisibility_PUBLIC, RequiredParams: []string{"p1"}, ReservedParams: []string{"r1"}, RequiredArtifacts: []string{"kernel"}},
+			{Id: &corev1.IpxeTemplateId{Value: ubuntuAutoinstallID.String()}, Name: "ubuntu-autoinstall", Visibility: corev1.IpxeTemplateVisibility_PUBLIC, RequiredParams: []string{"new-param"}, ReservedParams: []string{}, RequiredArtifacts: []string{"iso"}},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, inv2))
@@ -99,7 +99,7 @@ func TestManageIpxeTemplate_Reconcile_CreateUpdateDelete(t *testing.T) {
 	inv3 := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: kernelInitrdID.String()}, Name: "kernel-initrd", Scope: corev1.IpxeTemplateScope_PUBLIC, RequiredParams: []string{"p1"}, ReservedParams: []string{"r1"}, RequiredArtifacts: []string{"kernel"}},
+			{Id: &corev1.IpxeTemplateId{Value: kernelInitrdID.String()}, Name: "kernel-initrd", Visibility: corev1.IpxeTemplateVisibility_PUBLIC, RequiredParams: []string{"p1"}, ReservedParams: []string{"r1"}, RequiredArtifacts: []string{"kernel"}},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, inv3))
@@ -147,7 +147,7 @@ func TestManageIpxeTemplate_PagedInventory(t *testing.T) {
 	idA := uuid.New()
 	idB := uuid.New()
 	tmpl := func(id uuid.UUID, name string) *corev1.IpxeTemplate {
-		return &corev1.IpxeTemplate{Id: &corev1.IpxeTemplateId{Value: id.String()}, Name: name, Scope: corev1.IpxeTemplateScope_PUBLIC}
+		return &corev1.IpxeTemplate{Id: &corev1.IpxeTemplateId{Value: id.String()}, Name: name, Visibility: corev1.IpxeTemplateVisibility_PUBLIC}
 	}
 
 	// The full reported set (spanning both pages) travels in every page's ItemIds.
@@ -209,8 +209,8 @@ func TestManageIpxeTemplate_InternalVisibilityFiltered(t *testing.T) {
 	inv := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: publicID.String()}, Name: "public-tmpl", Scope: corev1.IpxeTemplateScope_PUBLIC},
-			{Id: &corev1.IpxeTemplateId{Value: internalID.String()}, Name: "internal-tmpl", Scope: corev1.IpxeTemplateScope_INTERNAL},
+			{Id: &corev1.IpxeTemplateId{Value: publicID.String()}, Name: "public-tmpl", Visibility: corev1.IpxeTemplateVisibility_PUBLIC},
+			{Id: &corev1.IpxeTemplateId{Value: internalID.String()}, Name: "internal-tmpl", Visibility: corev1.IpxeTemplateVisibility_INTERNAL},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, inv))
@@ -249,7 +249,7 @@ func TestManageIpxeTemplate_InternalVisibilityDeletesExistingPublic(t *testing.T
 	inv1 := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: templateID.String()}, Name: "my-template", Scope: corev1.IpxeTemplateScope_PUBLIC},
+			{Id: &corev1.IpxeTemplateId{Value: templateID.String()}, Name: "my-template", Visibility: corev1.IpxeTemplateVisibility_PUBLIC},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, inv1))
@@ -260,7 +260,7 @@ func TestManageIpxeTemplate_InternalVisibilityDeletesExistingPublic(t *testing.T
 	inv2 := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: templateID.String()}, Name: "my-template", Scope: corev1.IpxeTemplateScope_INTERNAL},
+			{Id: &corev1.IpxeTemplateId{Value: templateID.String()}, Name: "my-template", Visibility: corev1.IpxeTemplateVisibility_INTERNAL},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, inv2))
@@ -295,7 +295,7 @@ func TestManageIpxeTemplate_CrossSiteNameConflict(t *testing.T) {
 	inv1 := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: sharedTemplateID.String()}, Name: "kernel-initrd", Scope: corev1.IpxeTemplateScope_PUBLIC},
+			{Id: &corev1.IpxeTemplateId{Value: sharedTemplateID.String()}, Name: "kernel-initrd", Visibility: corev1.IpxeTemplateVisibility_PUBLIC},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site1.ID, inv1))
@@ -305,7 +305,7 @@ func TestManageIpxeTemplate_CrossSiteNameConflict(t *testing.T) {
 	inv2 := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: sharedTemplateID.String()}, Name: "wrong-name", Scope: corev1.IpxeTemplateScope_PUBLIC},
+			{Id: &corev1.IpxeTemplateId{Value: sharedTemplateID.String()}, Name: "wrong-name", Visibility: corev1.IpxeTemplateVisibility_PUBLIC},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site2.ID, inv2))
@@ -321,7 +321,7 @@ func TestManageIpxeTemplate_CrossSiteNameConflict(t *testing.T) {
 	inv3 := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: sharedTemplateID.String()}, Name: "kernel-initrd", Scope: corev1.IpxeTemplateScope_PUBLIC},
+			{Id: &corev1.IpxeTemplateId{Value: sharedTemplateID.String()}, Name: "kernel-initrd", Visibility: corev1.IpxeTemplateVisibility_PUBLIC},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site2.ID, inv3))
@@ -361,7 +361,7 @@ func TestManageIpxeTemplate_InventoryStatusFailed_Skip(t *testing.T) {
 	// Send a failed inventory — nothing should change
 	inv := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_FAILED,
-		Templates:       []*corev1.IpxeTemplate{{Id: &corev1.IpxeTemplateId{Value: uuid.NewString()}, Name: "other-template", Scope: corev1.IpxeTemplateScope_PUBLIC}},
+		Templates:       []*corev1.IpxeTemplate{{Id: &corev1.IpxeTemplateId{Value: uuid.NewString()}, Name: "other-template", Visibility: corev1.IpxeTemplateVisibility_PUBLIC}},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site.ID, inv))
 
@@ -436,7 +436,7 @@ func TestManageIpxeTemplate_UnknownSite(t *testing.T) {
 
 	inv := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-		Templates:       []*corev1.IpxeTemplate{{Id: &corev1.IpxeTemplateId{Value: uuid.NewString()}, Name: "kernel-initrd", Scope: corev1.IpxeTemplateScope_PUBLIC}},
+		Templates:       []*corev1.IpxeTemplate{{Id: &corev1.IpxeTemplateId{Value: uuid.NewString()}, Name: "kernel-initrd", Visibility: corev1.IpxeTemplateVisibility_PUBLIC}},
 	}
 	err := mit.UpdateIpxeTemplatesInDB(ctx, uuid.New(), inv)
 	assert.Error(t, err)
@@ -470,7 +470,7 @@ func TestManageIpxeTemplate_GlobalRowSurvivesWhileOtherSiteRefs(t *testing.T) {
 	inv := &corev1.IpxeTemplateInventory{
 		InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 		Templates: []*corev1.IpxeTemplate{
-			{Id: &corev1.IpxeTemplateId{Value: templateID.String()}, Name: "shared", Scope: corev1.IpxeTemplateScope_PUBLIC},
+			{Id: &corev1.IpxeTemplateId{Value: templateID.String()}, Name: "shared", Visibility: corev1.IpxeTemplateVisibility_PUBLIC},
 		},
 	}
 	assert.NoError(t, mit.UpdateIpxeTemplatesInDB(ctx, site1.ID, inv))

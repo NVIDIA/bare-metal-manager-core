@@ -115,13 +115,13 @@ func (mit ManageIpxeTemplate) UpdateIpxeTemplatesInDB(ctx context.Context, siteI
 		}
 
 		// Only propagate PUBLIC templates into REST.
-		if reported.Scope != corev1.IpxeTemplateScope_PUBLIC {
-			logger.Debug().Str("Name", reported.Name).Str("Visibility", reported.Scope.String()).Msg("Skipping non-public iPXE template")
+		if reported.Visibility != corev1.IpxeTemplateVisibility_PUBLIC {
+			logger.Debug().Str("Name", reported.Name).Str("Visibility", reported.Visibility.String()).Msg("Skipping non-public iPXE template")
 			continue
 		}
 
 		reportedTemplateIDs[templateID] = true
-		reportedVisibility := ipxeVisibilityToString(reported.Scope)
+		reportedVisibility := ipxeVisibilityToString(reported.Visibility)
 
 		// Look up the global template row (if any).
 		globalTmpl, getErr := templateDAO.Get(ctx, nil, templateID)
@@ -240,10 +240,10 @@ func NewManageIpxeTemplate(dbSession *cdb.Session, siteClientPool *sc.ClientPool
 	}
 }
 
-// ipxeVisibilityToString converts the IpxeTemplateScope enum from the gRPC proto
-// to the visibility string representation stored in the database.
-func ipxeVisibilityToString(scope corev1.IpxeTemplateScope) string {
-	if scope == corev1.IpxeTemplateScope_PUBLIC {
+// ipxeVisibilityToString converts the IpxeTemplateVisibility enum from the gRPC
+// proto to the visibility string representation stored in the database.
+func ipxeVisibilityToString(visibility corev1.IpxeTemplateVisibility) string {
+	if visibility == corev1.IpxeTemplateVisibility_PUBLIC {
 		return cdbm.IpxeTemplateVisibilityPublic
 	}
 	return cdbm.IpxeTemplateVisibilityInternal
