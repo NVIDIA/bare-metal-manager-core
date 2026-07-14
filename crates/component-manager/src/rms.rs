@@ -2016,6 +2016,11 @@ impl NvSwitchManager for RmsBackend {
     }
 }
 
+/// Submits a password rotation and preserves ambiguous dispatch outcomes.
+///
+/// A returned job ID is the handle for later reconciliation. If submission may
+/// have reached the backend without one, this returns an unknown outcome rather
+/// than allowing a blind retry.
 async fn rms_start_switch_password_rotation(
     client: &dyn RmsApi,
     device: rms::NodeInfo,
@@ -2086,6 +2091,7 @@ async fn rms_start_switch_password_rotation(
     )))
 }
 
+/// Maps a backend terminal failure code to the backend-neutral failure class.
 fn map_rms_password_rotation_failure(error: i32) -> SwitchPasswordRotationFailure {
     match rms::JobError::try_from(error) {
         Ok(rms::JobError::Unauthenticated) => SwitchPasswordRotationFailure::Unauthenticated,
@@ -2103,6 +2109,7 @@ fn map_rms_password_rotation_failure(error: i32) -> SwitchPasswordRotationFailur
     }
 }
 
+/// Maps a backend job record to the backend-neutral rotation state.
 fn map_rms_password_rotation_state(job: &rms::JobStatus) -> SwitchPasswordRotationState {
     match rms::JobExecutionState::try_from(job.execution_state) {
         Ok(rms::JobExecutionState::Queued | rms::JobExecutionState::Running) => {
@@ -2116,6 +2123,10 @@ fn map_rms_password_rotation_state(job: &rms::JobStatus) -> SwitchPasswordRotati
     }
 }
 
+/// Summarizes parent and child job observations for one password rotation.
+///
+/// Child failures are preferred because they describe the individual switch,
+/// while an absent job remains an observation rather than proof of no mutation.
 fn summarize_password_rotation_jobs(
     job_id: &str,
     jobs: &[rms::JobStatus],
@@ -2168,6 +2179,7 @@ fn summarize_password_rotation_jobs(
     }
 }
 
+/// Reads and classifies the latest password-rotation job observation.
 async fn rms_get_switch_password_rotation_job_status(
     client: &dyn RmsApi,
     job_id: &str,
