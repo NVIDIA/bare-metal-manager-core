@@ -29,11 +29,14 @@ path = "src/main.rs"
 [dependencies]
 # [begin-local-dependencies]
 carbide-host-support = { path = "../host-support", default-features = false }
+carbide-instrument = { path = "../instrument" }
 carbide-tls = { path = "../tls" }
 carbide-utils = { path = "../utils", default-features = false }
 carbide-version = { path = "../version" }
 carbide-rpc = { path = "../rpc" }
 carbide-uuid = { path = "../uuid" }
+logfmt = { path = "../logfmt" }
+metrics-endpoint = { path = "../metrics-endpoint" }
 # [end-local-dependencies]
 
 axum = { workspace = true }
@@ -47,6 +50,8 @@ metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 mime = { workspace = true }
 pin-project-lite = { workspace = true }
+prometheus = { workspace = true }
+rand = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 tera = { workspace = true }
 tokio = { workspace = true }
@@ -56,12 +61,15 @@ tower = { workspace = true }
 tower-http = { features = ["fs"], workspace = true }
 tower-layer = { workspace = true }
 tower-service = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { features = ["v4", "serde"], workspace = true }
 
 [build-dependencies]
 carbide-version = { path = "../version" }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 tempfile = { workspace = true }
 

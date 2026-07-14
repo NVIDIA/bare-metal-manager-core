@@ -25,6 +25,7 @@ use dashmap::DashMap;
 use kube::Resource;
 
 use crate::crds::bfbs_generated::BFB;
+use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpuflavors_generated::DPUFlavor;
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
@@ -33,9 +34,10 @@ use crate::crds::dpuservicenads_generated::DPUServiceNAD;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
-    BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuFlavorRepository,
-    DpuServiceConfigurationRepository, DpuServiceInterfaceRepository, DpuServiceNADRepository,
-    DpuServiceTemplateRepository, K8sConfigRepository,
+    BfbRepository, BlueFieldSoftwareRepository, DpfOperatorConfigRepository,
+    DpuDeploymentRepository, DpuFlavorRepository, DpuServiceConfigurationRepository,
+    DpuServiceInterfaceRepository, DpuServiceNADRepository, DpuServiceTemplateRepository,
+    K8sConfigRepository,
 };
 use crate::types::*;
 
@@ -56,6 +58,7 @@ fn resource_key<T: Resource>(r: &T) -> String {
 #[derive(Clone, Default)]
 struct InitializationMock {
     bfbs: Arc<DashMap<String, BFB>>,
+    bluefield_softwares: Arc<DashMap<String, BlueFieldSoftware>>,
     flavors: Arc<DashMap<String, DPUFlavor>>,
     deployments: Arc<DashMap<String, DPUDeployment>>,
     service_templates: Arc<DashMap<String, DPUServiceTemplate>>,
@@ -101,6 +104,34 @@ impl BfbRepository for InitializationMock {
 }
 
 #[async_trait]
+impl BlueFieldSoftwareRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<BlueFieldSoftware>, DpfError> {
+        Ok(self
+            .bluefield_softwares
+            .get(&ns_key(ns, name))
+            .map(|r| r.clone()))
+    }
+    async fn list(&self, ns: &str) -> Result<Vec<BlueFieldSoftware>, DpfError> {
+        let prefix = format!("{}/", ns);
+        Ok(self
+            .bluefield_softwares
+            .iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .map(|entry| entry.value().clone())
+            .collect())
+    }
+    async fn create(&self, bfs: &BlueFieldSoftware) -> Result<BlueFieldSoftware, DpfError> {
+        self.bluefield_softwares
+            .insert(resource_key(bfs), bfs.clone());
+        Ok(bfs.clone())
+    }
+    async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
+        self.bluefield_softwares.remove(&ns_key(ns, name));
+        Ok(())
+    }
+}
+
+#[async_trait]
 impl DpuFlavorRepository for InitializationMock {
     async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUFlavor>, DpfError> {
         Ok(self.flavors.get(&ns_key(ns, name)).map(|r| r.clone()))
@@ -133,7 +164,7 @@ impl DpuDeploymentRepository for InitializationMock {
         if let Some(mut dep) = self.deployments.get_mut(&ns_key(ns, name))
             && let Some(bfb) = patch.pointer("/spec/dpus/bfb").and_then(|v| v.as_str())
         {
-            dep.spec.dpus.bfb = bfb.to_string();
+            dep.spec.dpus.bfb = Some(bfb.to_string());
         }
         Ok(())
     }
@@ -315,6 +346,55 @@ async fn test_create_initialization_objects() {
         .await
         .unwrap();
     assert!(secret.is_some());
+
+    drop(sdk);
+}
+
+#[tokio::test]
+async fn test_create_initialization_objects_bluefield_software() {
+    let mock = InitializationMock::default();
+
+    let config = InitDpfResourcesConfig {
+        bluefield_software: Some(BlueFieldSoftwareParams {
+            os_iso: "http://example.com/os.iso".to_string(),
+            pldm_fw_bundle: Some("http://example.com/fw.pldm".to_string()),
+        }),
+        deployment_name: "bf4-dep".to_string(),
+        deployment_type: DpuDeploymentType::Bf4Generic,
+        ..Default::default()
+    };
+
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .initialize(&config)
+        .await
+        .unwrap();
+
+    // A BlueFieldSoftware CR is created; no BFB is.
+    let bfbs = BfbRepository::list(&mock, TEST_NS).await.unwrap();
+    assert!(
+        bfbs.is_empty(),
+        "no BFB should be created for a BF4 deployment"
+    );
+    let bfsw = BlueFieldSoftwareRepository::list(&mock, TEST_NS)
+        .await
+        .unwrap();
+    assert_eq!(bfsw.len(), 1);
+    assert_eq!(bfsw[0].spec.os_iso, "http://example.com/os.iso");
+    assert_eq!(
+        bfsw[0].spec.pldm_fw_bundle.as_deref(),
+        Some("http://example.com/fw.pldm")
+    );
+
+    // The DPUDeployment references the BlueFieldSoftware CR, not a BFB.
+    let deployment = DpuDeploymentRepository::get(&mock, "bf4-dep", TEST_NS)
+        .await
+        .unwrap()
+        .expect("bf4 deployment created");
+    assert_eq!(
+        deployment.spec.dpus.blue_field_software.as_deref(),
+        Some(bfsw[0].metadata.name.as_deref().unwrap())
+    );
+    assert!(deployment.spec.dpus.bfb.is_none());
 
     drop(sdk);
 }

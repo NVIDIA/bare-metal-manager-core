@@ -20,6 +20,7 @@
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::switch::SwitchId;
 use component_manager::nv_switch_manager::{SwitchComponentResult, SwitchEndpoint};
 use db::switch as db_switch;
@@ -374,9 +375,7 @@ pub(super) async fn build_switch_endpoint(
         nvos_mac,
         bmc_credentials,
         nvos_credentials,
-        nvos_host_name: endpoint
-            .nvos_hostname
-            .filter(|hostname| !hostname.is_empty()),
+        nvos_host_name: endpoint.nvos_hostname.none_if_empty(),
     })
 }
 

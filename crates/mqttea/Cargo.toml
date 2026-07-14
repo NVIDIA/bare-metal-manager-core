@@ -26,7 +26,9 @@ name = "mqttea"
 path = "src/lib.rs"
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
 trace-propagation = { path = "../trace-propagation" }
+opentelemetry = { workspace = true }
 tokio = { features = ["full"], workspace = true }
 rumqttc = { workspace = true }
 prost = { workspace = true }
@@ -48,7 +50,11 @@ oauth2 = { workspace = true }
 reqwest = { workspace = true }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-prometheus = { workspace = true }
+prometheus = { workspace = true }
 prost-build = { workspace = true }
 tokio-test = { workspace = true }
 

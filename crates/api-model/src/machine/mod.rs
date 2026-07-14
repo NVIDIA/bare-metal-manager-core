@@ -286,6 +286,18 @@ pub fn pick_boot_interface(
         return Some(primary);
     }
     // ..no primary, so lets try to find *some* interface.
+    pick_default_boot_interface(interfaces)
+}
+
+/// What [`pick_boot_interface`] falls back to when no row is flagged primary:
+/// the lowest-MAC non-underlay interface (ordering rationale in its docs).
+///
+/// Public so the admin boot-interface view can report this pick alongside the
+/// effective one: comparing the two shows whether a primary designation is
+/// overriding what the automation would have chosen, or merely confirming it.
+pub fn pick_default_boot_interface(
+    interfaces: &[MachineInterfaceSnapshot],
+) -> Option<&MachineInterfaceSnapshot> {
     interfaces
         .iter()
         .filter(|x| x.network_segment_type != Some(NetworkSegmentType::Underlay))
@@ -309,7 +321,7 @@ fn pick_boot_interface_pair(
 
 /// Pick the predicted interface a host should boot from in the window before
 /// its first DHCP lease creates a real `machine_interfaces` row. Mirrors
-/// `pick_boot_interface`'s precedence, one rung down -- predictions, not rows:
+/// `pick_boot_interface`'s precedence, one step down -- predictions, not rows:
 ///
 /// 1. A prediction flagged `primary_interface` wins -- the declared
 ///    `ExpectedHostNic.primary`, recorded onto the prediction at minting.
@@ -1284,6 +1296,42 @@ pub enum MachineValidatingState {
         #[serde(default = "default_true")]
         is_enabled: bool,
     },
+    /// Machine validation ensures the host's boot device config is in place.
+    /// When it reads reverted -- however it drifted (changed externally, a
+    /// BIOS quirk, or the boot NIC dropping off the BMC's inventory during a
+    /// reboot's POST) -- these states correct it, mirroring host boot repair:
+    /// unlock the BMC, drive the boot-order flow, re-lock, resume validation.
+    PrepareBootRepair {
+        validation_id: MachineValidationId,
+    },
+    UnlockForBootRepair {
+        validation_id: MachineValidationId,
+        unlock_host_state: UnlockHostState,
+    },
+    CheckBootConfigForRepair {
+        validation_id: MachineValidationId,
+    },
+    ConfigureBootBios {
+        validation_id: MachineValidationId,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    WaitingForBootBiosJob {
+        validation_id: MachineValidationId,
+        bios_config_info: BiosConfigInfo,
+    },
+    PollingBootBiosSetup {
+        validation_id: MachineValidationId,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    RepairBootConfig {
+        validation_id: MachineValidationId,
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    LockAfterBootRepair {
+        validation_id: MachineValidationId,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "validation_type", rename_all = "lowercase")]
@@ -1302,6 +1350,11 @@ impl std::fmt::Display for ValidationState {
         write!(f, "{self:?}")
     }
 }
+
+/// The retry budget for a failed host firmware upgrade: once
+/// [`ManagedHostState::HostReprovision`] has consumed this many retries, the
+/// machine stays in its failure state until an operator intervenes.
+pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
 
 impl ManagedHostState {
     pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
@@ -1328,6 +1381,17 @@ impl ManagedHostState {
             ManagedHostState::HostReprovision { retry_count, .. } => *retry_count,
             _ => 0,
         }
+    }
+
+    /// True when this machine is in host reprovisioning with no
+    /// firmware-upgrade retry budget left (see
+    /// [`MAX_FIRMWARE_UPGRADE_RETRIES`]).
+    pub fn host_repro_retries_exhausted(&self) -> bool {
+        matches!(
+            self,
+            ManagedHostState::HostReprovision { retry_count, .. }
+                if *retry_count >= MAX_FIRMWARE_UPGRADE_RETRIES
+        )
     }
 }
 
@@ -1860,7 +1924,8 @@ pub struct BiosConfigInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bios_job_id: Option<String>,
     pub bios_config_state: BiosConfigState,
-    /// Full configure_host_bios retry count across HandleBiosJobFailure recovery cycles.
+    /// Shared host boot-configuration convergence retry count, including BIOS
+    /// job-failure recovery cycles.
     #[serde(default)]
     pub retry_count: u32,
 }
@@ -1886,7 +1951,8 @@ pub struct SetBootOrderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_boot_order_jid: Option<String>,
     pub set_boot_order_state: SetBootOrderState,
-    /// Retry counter for SetBootOrder state machine. Defaults to 0 for backwards compatibility.
+    /// Shared host boot-configuration convergence retry count. Defaults to 0
+    /// for backwards compatibility.
     #[serde(default)]
     pub retry_count: u32,
 }
@@ -1896,9 +1962,9 @@ pub struct SetBootOrderInfo {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
-    /// A reverted HTTP-boot device was re-asserted (`machine_setup`) and the
-    /// host restarted to apply it; polls the device across that reboot, then
-    /// returns to `SetBootOrder` to set the boot order.
+    /// Legacy persisted state from the former inline HTTP-device repair flow.
+    /// It polls the device across the already-started reboot, then either
+    /// resumes `SetBootOrder` or migrates to the shared BIOS repair stages.
     WaitForHttpBootDeviceApplied,
     WaitForSetBootOrderJobScheduled,
     RebootHost,
@@ -2644,6 +2710,16 @@ pub fn state_sla(
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
                 }
                 MachineValidatingState::RebootHost { .. } => {
+                    StateSla::with_sla(slas::VALIDATION, time_in_state)
+                }
+                MachineValidatingState::PrepareBootRepair { .. }
+                | MachineValidatingState::UnlockForBootRepair { .. }
+                | MachineValidatingState::CheckBootConfigForRepair { .. }
+                | MachineValidatingState::ConfigureBootBios { .. }
+                | MachineValidatingState::WaitingForBootBiosJob { .. }
+                | MachineValidatingState::PollingBootBiosSetup { .. }
+                | MachineValidatingState::RepairBootConfig { .. }
+                | MachineValidatingState::LockAfterBootRepair { .. } => {
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
                 }
             },
@@ -3454,6 +3530,44 @@ mod tests {
             pick_boot_interface_mac(&interfaces),
             Some(onboard_mac_lo.parse().unwrap())
         );
+    }
+
+    // The default pick deliberately ignores the primary flag: it answers "what
+    // would the automation choose if nothing were declared?", so a primary on a
+    // higher MAC must not win here even though `pick_boot_interface` returns it.
+    #[test]
+    fn pick_default_boot_interface_ignores_the_primary_flag() {
+        let primary_mac = "10:00:00:00:00:01";
+        let lower_mac = "05:00:00:00:00:01";
+        let interfaces = vec![
+            build_mock_interface(lower_mac, false, Some(NetworkSegmentType::HostInband)),
+            build_mock_interface(primary_mac, true, Some(NetworkSegmentType::Admin)),
+        ];
+
+        assert_eq!(
+            pick_boot_interface(&interfaces).map(|i| i.mac_address),
+            Some(primary_mac.parse().unwrap()),
+            "the effective pick honors the primary flag"
+        );
+        assert_eq!(
+            pick_default_boot_interface(&interfaces).map(|i| i.mac_address),
+            Some(lower_mac.parse().unwrap()),
+            "the default pick masks the primary flag and takes the lowest non-underlay MAC"
+        );
+    }
+
+    // Underlay rows are never default-pick candidates, and an all-underlay set
+    // yields no default at all.
+    #[test]
+    fn pick_default_boot_interface_excludes_underlay_rows() {
+        let underlay_mac = "01:00:00:00:00:01";
+        let interfaces = vec![build_mock_interface(
+            underlay_mac,
+            false,
+            Some(NetworkSegmentType::Underlay),
+        )];
+
+        assert!(pick_default_boot_interface(&interfaces).is_none());
     }
 
     // boot_interface() derives the full pair from the SAME primary row that the

@@ -449,7 +449,7 @@ func GetCountOfMachinesForInstanceType(ctx context.Context, tx *cdb.Tx, dbSessio
 func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, logger zerolog.Logger, infrastructureProviderID *uuid.UUID, siteID *uuid.UUID) (map[uuid.UUID]*cam.APISiteMachineStats, error) {
 	mDAO := cdbm.NewMachineDAO(dbSession)
 
-	filterInput := cdbm.MachineFilterInput{}
+	filterInput := cdbm.MachineFilterInput{ExcludeMetadata: true}
 	if infrastructureProviderID != nil {
 		filterInput.InfrastructureProviderIDs = []uuid.UUID{*infrastructureProviderID}
 	}
@@ -571,6 +571,37 @@ func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Se
 
 		stats[siteID].TotalByAllocation[cam.MachineStatsAllocatedNotInUse] = totalAllocation - stats[siteID].TotalByAllocation[cam.MachineStatsAllocatedInUse]
 		stats[siteID].TotalByAllocation[cam.MachineStatsUnallocated] = stats[siteID].Total - totalAllocation
+	}
+
+	return stats, nil
+}
+
+// GetSiteGPUStats returns per-site GPU summary stats (grouped by GPU name),
+// optionally scoped to an infrastructure provider and/or a single site. The
+// aggregation is performed in the database; each site's slice is sorted by GPU
+// name for deterministic output.
+func GetSiteGPUStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, logger zerolog.Logger, infrastructureProviderID *uuid.UUID, siteID *uuid.UUID) (map[uuid.UUID][]cam.APIMachineGPUStats, error) {
+	mcDAO := cdbm.NewMachineCapabilityDAO(dbSession)
+
+	rows, err := mcDAO.GetGPUStatsBySite(ctx, tx, infrastructureProviderID, siteID)
+	if err != nil {
+		logger.Error().Err(err).Msg("error aggregating GPU stats by site")
+		return nil, err
+	}
+
+	stats := map[uuid.UUID][]cam.APIMachineGPUStats{}
+	for _, row := range rows {
+		stats[row.SiteID] = append(stats[row.SiteID], cam.APIMachineGPUStats{
+			Name:     row.Name,
+			GPUs:     row.GPUs,
+			Machines: row.Machines,
+		})
+	}
+
+	for siteID := range stats {
+		slices.SortFunc(stats[siteID], func(a, b cam.APIMachineGPUStats) int {
+			return strings.Compare(a.Name, b.Name)
+		})
 	}
 
 	return stats, nil
@@ -765,9 +796,8 @@ func GetAllInstanceTypeAllocationStats(ctx context.Context, dbSession *cdb.Sessi
 		}
 	}
 
-	// Get all Machines for the Instance Type IDs
 	machineDAO := cdbm.NewMachineDAO(dbSession)
-	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{InstanceTypeIDs: instanceTypeIDs}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	machines, _, err := machineDAO.GetAll(ctx, nil, cdbm.MachineFilterInput{InstanceTypeIDs: instanceTypeIDs, ExcludeMetadata: true}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Machines from DB")
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Error retrieving Machines assigned to the Instance Type, DB error", nil)

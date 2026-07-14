@@ -661,6 +661,21 @@ pub mod test_support {
         ) -> Result<rms::UpdateSwitchSystemPasswordResponse, RackManagerError> {
             Ok(rms::UpdateSwitchSystemPasswordResponse::default())
         }
+
+        async fn batch_reset_switch_sdn_factory_default(
+            &self,
+            _cmd: rms::BatchResetSwitchSdnFactoryDefaultRequest,
+        ) -> Result<rms::BatchResetSwitchSdnFactoryDefaultResponse, RackManagerError> {
+            Ok(rms::BatchResetSwitchSdnFactoryDefaultResponse::default())
+        }
+
+        async fn get_job_status(
+            &self,
+            _cmd: rms::GetJobStatusRequest,
+        ) -> Result<rms::GetJobStatusResponse, RackManagerError> {
+            Ok(rms::GetJobStatusResponse::default())
+        }
+
         async fn set_power_state(
             &self,
             _cmd: rms::SetPowerStateRequest,

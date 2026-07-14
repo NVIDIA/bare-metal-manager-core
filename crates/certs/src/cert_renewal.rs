@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use carbide_host_support::registration;
+use carbide_instrument::{DynamicLog, Event, LogAt, Outcome, emit};
 use eyre::Context;
 use forge_tls::client_config::ClientCert;
 use rand::RngExt;
@@ -32,6 +33,42 @@ const MAX_CERT_RENEWAL_TIME_SECS: u64 = 7 * 24 * 60 * 60; // 7 days
 
 const MIN_CERT_RENEWAL_FAILURE_TIME_SECS: u64 = 60; // 1 min
 const MAX_CERT_RENEWAL_FAILURE_TIME_SECS: u64 = 5 * 60; // 5min
+
+/// A client-certificate renewal ran to completion, successfully or not. A
+/// call that finds the renewal window still closed neither counts nor logs.
+///
+/// The event owns the completion log line: a success logs at INFO, a failure
+/// logs at ERROR with the error chain as context, and both report when the
+/// next attempt is due (the next regular renewal window on success, the
+/// short retry window on failure).
+#[derive(Event)]
+#[event(
+    name = "carbide_certs_renewals_total",
+    component = "carbide-certs",
+    log = dynamic,
+    metric = counter,
+    message = "Client certificate renewal completed",
+    describe = "Number of client certificate renewal attempts, by outcome"
+)]
+struct CertRenewalCompleted {
+    #[label]
+    outcome: Outcome,
+    /// The failure's error chain; empty on success.
+    #[context]
+    error: String,
+    /// Seconds until the next renewal attempt.
+    #[context]
+    next_attempt_in_secs: u64,
+}
+
+impl DynamicLog for CertRenewalCompleted {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            Outcome::Ok => LogAt::Level(tracing::Level::INFO),
+            Outcome::Error => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
 
 pub struct ClientCertRenewer {
     cert_renewal_time: std::time::Instant,
@@ -59,22 +96,23 @@ impl ClientCertRenewer {
     ) {
         let now = std::time::Instant::now();
         if now > self.cert_renewal_time {
-            let cert_renewal_period = match self.renew_certificates(override_client_cert).await {
+            let result = self.renew_certificates(override_client_cert).await;
+            let cert_renewal_period = match &result {
                 Ok(()) => {
                     rand::rng().random_range(MIN_CERT_RENEWAL_TIME_SECS..MAX_CERT_RENEWAL_TIME_SECS)
                 }
-                Err(err) => {
-                    let cert_renewal_period = rand::rng().random_range(
-                        MIN_CERT_RENEWAL_FAILURE_TIME_SECS..MAX_CERT_RENEWAL_FAILURE_TIME_SECS,
-                    );
-                    tracing::error!(
-                        error = format!("{err:#}"),
-                        "Failed to renew client certificates. Will retry in {cert_renewal_period}s"
-                    );
-
-                    cert_renewal_period
-                }
+                Err(_) => rand::rng().random_range(
+                    MIN_CERT_RENEWAL_FAILURE_TIME_SECS..MAX_CERT_RENEWAL_FAILURE_TIME_SECS,
+                ),
             };
+            emit(CertRenewalCompleted {
+                outcome: Outcome::from(&result),
+                error: result
+                    .err()
+                    .map(|err| format!("{err:#}"))
+                    .unwrap_or_default(),
+                next_attempt_in_secs: cert_renewal_period,
+            });
             self.cert_renewal_time = now.add(Duration::from_secs(cert_renewal_period));
         }
     }
@@ -112,5 +150,108 @@ impl ClientCertRenewer {
         .wrap_err("renew_certificates: Failed to write certs to disk")?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
+
+    use super::*;
+
+    fn field<'a>(log: &'a CapturedLog, name: &str) -> Option<&'a str> {
+        log.fields
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// A completed renewal logs the completion at INFO -- with the next
+    /// renewal window as context -- and moves only the `outcome="ok"` series.
+    #[test]
+    fn successful_renewal_logs_info_and_counts_ok() {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            emit(CertRenewalCompleted {
+                outcome: Outcome::Ok,
+                error: String::new(),
+                next_attempt_in_secs: 432_000,
+            });
+        });
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, tracing::Level::INFO);
+        assert_eq!(logs[0].message, "Client certificate renewal completed");
+        assert_eq!(field(&logs[0], "outcome"), Some("ok"));
+        assert_eq!(field(&logs[0], "next_attempt_in_secs"), Some("432000"));
+        assert_eq!(
+            metrics.counter_delta("carbide_certs_renewals_total", &[("outcome", "ok")]),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta("carbide_certs_renewals_total", &[("outcome", "error")]),
+            0.0
+        );
+    }
+
+    /// A failed renewal logs the completion at ERROR -- with the error chain
+    /// and the retry window as context -- and moves only the
+    /// `outcome="error"` series.
+    #[test]
+    fn failed_renewal_logs_error_and_counts_error() {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            emit(CertRenewalCompleted {
+                outcome: Outcome::Error,
+                error: "renew_certificates: deadline exceeded".to_string(),
+                next_attempt_in_secs: 90,
+            });
+        });
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, tracing::Level::ERROR);
+        assert_eq!(logs[0].message, "Client certificate renewal completed");
+        assert_eq!(field(&logs[0], "outcome"), Some("error"));
+        assert_eq!(
+            field(&logs[0], "error"),
+            Some("renew_certificates: deadline exceeded")
+        );
+        assert_eq!(field(&logs[0], "next_attempt_in_secs"), Some("90"));
+        assert_eq!(
+            metrics.counter_delta("carbide_certs_renewals_total", &[("outcome", "error")]),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta("carbide_certs_renewals_total", &[("outcome", "ok")]),
+            0.0
+        );
+    }
+
+    /// A call inside the renewal window skips: no renewal is attempted, so
+    /// nothing counts and nothing logs.
+    #[test]
+    fn skipped_renewal_neither_counts_nor_logs() {
+        let metrics = MetricsCapture::start();
+        // A fresh renewer's first renewal is days away, so this call skips.
+        let mut renewer = ClientCertRenewer::new(
+            "https://localhost:1".to_string(),
+            Arc::new(ForgeClientConfig::new(String::new(), None)),
+        );
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("current-thread runtime");
+        let logs = capture_logs(|| {
+            runtime.block_on(renewer.renew_certificates_if_necessary(None));
+        });
+
+        assert!(logs.is_empty(), "a skipped renewal must not log: {logs:?}");
+        assert_eq!(
+            metrics.counter_delta("carbide_certs_renewals_total", &[("outcome", "ok")]),
+            0.0
+        );
+        assert_eq!(
+            metrics.counter_delta("carbide_certs_renewals_total", &[("outcome", "error")]),
+            0.0
+        );
     }
 }

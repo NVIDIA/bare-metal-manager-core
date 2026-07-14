@@ -297,7 +297,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             let metrics = shared_metrics_holder.clone();
             meter
                 .u64_observable_gauge(format!("{object_type}_total"))
-                .with_description(format!("The total number of {object_type} in the system"))
+                .with_description(format!("Number of {object_type} in the system"))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         let num_objects = metrics
@@ -316,7 +316,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             meter
                 .u64_observable_gauge(format!("{object_type}_per_state"))
                 .with_description(format!(
-                    "The number of {object_type} in the system with a given state"
+                    "Number of {object_type} in the system with a given state"
                 ))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -343,7 +343,7 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
             meter
                 .u64_observable_gauge(format!("{object_type}_per_state_above_sla"))
                 .with_description(format!(
-                    "The number of {object_type} in the system which had been longer in a state than allowed per SLA"
+                    "Number of {object_type} currently in a state longer than the SLA allows"
                 ))
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -357,7 +357,8 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                                         KeyValue::new("substate", full_state.substate.to_string()),
                                     ],
                                 ]
-                                    .concat().as_slice(),
+                                .concat()
+                                .as_slice(),
                             );
                         }
                     })
@@ -372,10 +373,10 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                     "{object_type}_with_state_handling_errors_per_state"
                 ))
                 .with_description(format!(
-                    "The number of {object_type} in the system with a given state that failed state handling"
+                    "Number of state-handling errors for {object_type} in a given state"
                 ))
                 .with_callback(move |observer| {
-                                        metrics.if_available(|metrics, attrs| {
+                    metrics.if_available(|metrics, attrs| {
                         for (full_state, state_metrics) in metrics.state_metrics.iter() {
                             let mut total_errs = 0;
                             for (error, &count) in state_metrics.handling_errors_per_type.iter() {
@@ -386,7 +387,10 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
                                         attrs,
                                         &[
                                             KeyValue::new("state", full_state.state.to_string()),
-                                            KeyValue::new("substate", full_state.substate.to_string()),
+                                            KeyValue::new(
+                                                "substate",
+                                                full_state.substate.to_string(),
+                                            ),
                                             KeyValue::new("error", error.to_string()),
                                         ],
                                     ]
@@ -415,13 +419,13 @@ impl<IO: StateControllerIO> MetricsEmitter for CommonMetricsEmitter<IO> {
         let state_entered_counter = meter
             .u64_counter(format!("{object_type}_state_entered"))
             .with_description(format!(
-                "The amount of types that objects of type {object_type} have entered a certain state"
+                "Number of times objects of type {object_type} have entered a certain state"
             ))
             .build();
         let state_exited_counter = meter
             .u64_counter(format!("{object_type}_state_exited"))
             .with_description(format!(
-                "The amount of types that objects of type {object_type} have exited a certain state"
+                "Number of times objects of type {object_type} have exited a certain state"
             ))
             .build();
         let time_in_state_histogram = meter

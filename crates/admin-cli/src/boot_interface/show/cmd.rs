@@ -17,7 +17,7 @@
 
 //! Render one machine's boot-interface view (the `GetMachineBootInterfaces`
 //! RPC) as an ASCII table, JSON, or YAML. The view gathers the four stores a
-//! host's boot interface can live in -- owned interface rows, predictions, the
+//! host's boot interface can live in -- managed interface rows, predictions, the
 //! explored endpoint default, and the retained post-deletion pairs -- plus the
 //! effective boot interface the system would select and a divergence flag.
 
@@ -40,12 +40,12 @@ use crate::rpc::ApiClient;
 #[derive(Debug, Serialize)]
 struct BootInterfacesReport {
     machine_id: Option<MachineId>,
-    machine_interfaces: Vec<OwnedRow>,
+    machine_interfaces: Vec<ManagedRow>,
     predicted_interfaces: Vec<PredictedRow>,
     explored_endpoints: Vec<ExploredRow>,
     retained_interfaces: Vec<RetainedRow>,
-    /// MAC the system would boot from now (`pick_boot_interface` over the owned
-    /// rows). `None` when there is no owned candidate yet.
+    /// MAC the system would boot from now (`pick_boot_interface` over the managed
+    /// rows). `None` when there is no managed candidate yet.
     effective_boot_interface_mac: Option<String>,
     /// The fully-populated effective boot interface id, when captured.
     effective_boot_interface_id: Option<String>,
@@ -54,7 +54,7 @@ struct BootInterfacesReport {
 }
 
 #[derive(Debug, Serialize)]
-struct OwnedRow {
+struct ManagedRow {
     mac_address: String,
     primary_interface: bool,
     boot_interface_id: Option<String>,
@@ -90,7 +90,7 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for BootInterfacesReport {
             machine_interfaces: r
                 .machine_interfaces
                 .into_iter()
-                .map(|i| OwnedRow {
+                .map(|i| ManagedRow {
                     mac_address: i.mac_address,
                     primary_interface: i.primary_interface,
                     boot_interface_id: i.boot_interface_id,
@@ -168,10 +168,10 @@ fn render_tables(report: &BootInterfacesReport) -> String {
         .unwrap_or_default();
     let _ = writeln!(out, "Boot interfaces for machine {machine_id}");
 
-    // Store 1: owned interface rows (authoritative for an owned machine).
-    let _ = writeln!(out, "\nmachine_interfaces (owned rows):");
-    let mut owned = Table::new();
-    owned.set_titles(Row::new(
+    // Store 1: managed interface rows (authoritative for a managed machine).
+    let _ = writeln!(out, "\nmachine_interfaces (managed rows):");
+    let mut managed = Table::new();
+    managed.set_titles(Row::new(
         [
             "MAC Address",
             "Primary",
@@ -183,10 +183,10 @@ fn render_tables(report: &BootInterfacesReport) -> String {
         .collect(),
     ));
     if report.machine_interfaces.is_empty() {
-        owned.add_row(Row::new(vec![Cell::new("(none)")]));
+        managed.add_row(Row::new(vec![Cell::new("(none)")]));
     } else {
         for i in &report.machine_interfaces {
-            owned.add_row(Row::new(vec![
+            managed.add_row(Row::new(vec![
                 Cell::new(&i.mac_address),
                 Cell::new(&i.primary_interface.to_string()),
                 Cell::new(&dash(&i.boot_interface_id)),
@@ -194,7 +194,7 @@ fn render_tables(report: &BootInterfacesReport) -> String {
             ]));
         }
     }
-    let _ = write!(out, "{owned}");
+    let _ = write!(out, "{managed}");
 
     // Store 2: predictions (pre-first-lease candidates).
     let _ = writeln!(out, "\npredicted_machine_interfaces:");
@@ -226,7 +226,10 @@ fn render_tables(report: &BootInterfacesReport) -> String {
 
     // Store 3: explored endpoint default (machine-less default; shown for the
     // machine's BMC endpoints).
-    let _ = writeln!(out, "\nexplored_endpoints (default for unowned endpoints):");
+    let _ = writeln!(
+        out,
+        "\nexplored_endpoints (default for endpoints without a machine):"
+    );
     let mut explored = Table::new();
     explored.set_titles(Row::new(
         [
@@ -301,7 +304,7 @@ mod tests {
     fn sample_report() -> BootInterfacesReport {
         BootInterfacesReport {
             machine_id: None,
-            machine_interfaces: vec![OwnedRow {
+            machine_interfaces: vec![ManagedRow {
                 mac_address: "aa:bb:cc:00:00:01".to_string(),
                 primary_interface: true,
                 boot_interface_id: Some("NIC.Slot.1-1-1".to_string()),
@@ -315,7 +318,7 @@ mod tests {
             }],
             explored_endpoints: vec![ExploredRow {
                 address: "10.0.0.5".to_string(),
-                // A different NIC than the effective owned pick -> divergence.
+                // A different NIC than the effective managed pick -> divergence.
                 boot_interface_mac: Some("aa:bb:cc:00:00:09".to_string()),
                 boot_interface_id: Some("NIC.Slot.9-1-1".to_string()),
             }],
@@ -335,12 +338,12 @@ mod tests {
         let table = render_tables(&sample_report());
 
         // Section labels.
-        assert!(table.contains("machine_interfaces (owned rows):"));
+        assert!(table.contains("machine_interfaces (managed rows):"));
         assert!(table.contains("predicted_machine_interfaces:"));
         assert!(table.contains("explored_endpoints"));
         assert!(table.contains("retained_boot_interfaces"));
 
-        // The boot_interface_id of the owned row.
+        // The boot_interface_id of the managed row.
         assert!(table.contains("NIC.Slot.1-1-1"));
         // The primary flag.
         assert!(table.contains("true"));
@@ -409,6 +412,7 @@ mod tests {
                 primary_interface: true,
                 boot_interface_id: Some("NIC.Slot.1-1-1".to_string()),
                 network_segment_type: Some("HostInband".to_string()),
+                interface_id: None,
             }],
             predicted_interfaces: vec![],
             explored_endpoints: vec![forgerpc::ExploredBootInterface {
@@ -427,6 +431,8 @@ mod tests {
             // Absent -> `None`.
             effective_boot_interface_id: None,
             divergent: false,
+            default_boot_interface: None,
+            predicted_boot_interface: None,
         };
 
         let report = BootInterfacesReport::from(response);

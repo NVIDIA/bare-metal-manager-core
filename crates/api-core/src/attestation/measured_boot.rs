@@ -45,6 +45,41 @@ pub enum VerifyQuoteState {
     CompleteFailure,
 }
 
+/// Which check (or both) of a measured-boot quote failed verification.
+/// `VerificationError` covers a quote whose checks could not even run --
+/// malformed AK, signature, or attestation bytes, or an unsupported
+/// signature type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+pub(crate) enum MeasuredBootVerificationFailureCause {
+    SignatureInvalid,
+    HashMismatch,
+    SignatureAndHashMismatch,
+    VerificationError,
+}
+
+/// A measured-boot quote failed verification: the PCR signature, the PCR
+/// hash, or both did not check out -- or the checks themselves errored --
+/// and the attestation was rejected. The full TPM event log rides the log
+/// line as context, as these warn lines always included it; `error` holds
+/// the underlying reason when the checks errored.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_measured_boot_verification_failures_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = "measured boot quote verification failed",
+    describe = "Number of measured boot verification failures, across quote verification and attestation handling, by cause"
+)]
+pub(crate) struct MeasuredBootVerificationFailed {
+    #[label]
+    pub(crate) cause: MeasuredBootVerificationFailureCause,
+    #[context]
+    pub(crate) event_log: String,
+    #[context]
+    pub(crate) error: String,
+}
+
 impl VerifyQuoteState {
     pub fn from_results(signature_valid: bool, pcr_hash_matches: bool) -> Self {
         match (signature_valid, pcr_hash_matches) {
@@ -69,28 +104,31 @@ pub fn verify_quote_state(
     match quote_state {
         VerifyQuoteState::Success => Ok(()),
         VerifyQuoteState::SignatureInvalid => {
-            tracing::warn!(
-                "PCR signature invalid (event log: {}",
-                event_log_to_string(event_log)
-            );
+            carbide_instrument::emit(MeasuredBootVerificationFailed {
+                cause: MeasuredBootVerificationFailureCause::SignatureInvalid,
+                event_log: event_log_to_string(event_log),
+                error: String::new(),
+            });
             Err(CarbideError::AttestQuoteError(
                 "PCR signature invalid (see logs for full event log)".to_string(),
             ))
         }
         VerifyQuoteState::VerifyHashNoMatch => {
-            tracing::warn!(
-                "PCR hash mismatch (event log: {}",
-                event_log_to_string(event_log)
-            );
+            carbide_instrument::emit(MeasuredBootVerificationFailed {
+                cause: MeasuredBootVerificationFailureCause::HashMismatch,
+                event_log: event_log_to_string(event_log),
+                error: String::new(),
+            });
             Err(CarbideError::AttestQuoteError(
                 "PCR hash does not match (see logs for full event log)".to_string(),
             ))
         }
         VerifyQuoteState::CompleteFailure => {
-            tracing::warn!(
-                "PCR signature invalid and PCR hash mismatch (event log: {}",
-                event_log_to_string(event_log)
-            );
+            carbide_instrument::emit(MeasuredBootVerificationFailed {
+                cause: MeasuredBootVerificationFailureCause::SignatureAndHashMismatch,
+                event_log: event_log_to_string(event_log),
+                error: String::new(),
+            });
             Err(CarbideError::AttestQuoteError(
                 "PCR signature invalid and PCR hash mismatch (see logs for full event log)"
                     .to_string(),
@@ -480,6 +518,8 @@ pub mod linux_build {
 }
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+
     use super::*;
 
     #[test]
@@ -493,6 +533,65 @@ mod tests {
                 e.to_string(),
                 "Attest Bind Key Error: Creds file is too short: 3 bytes"
             ),
+        }
+    }
+
+    /// Every failing verification writes one WARN line (the event log as a
+    /// field) AND moves the failure counter under its cause label; a passing
+    /// verification emits nothing. The `verification_error` cause -- the
+    /// checks themselves erroring in `attest_quote` -- rides the same event
+    /// with the underlying reason as the `error` field.
+    #[test]
+    fn verification_failure_logs_and_counts_by_cause() {
+        let event_log = Some(b"tpm event log".to_vec());
+
+        // The quote-failure DB tests each drive one cause once, from
+        // seconds-long flows that do not hold the capture lock -- the odds of
+        // one landing inside this capture window are negligible.
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            assert!(verify_quote_state(true, true, &event_log).is_ok());
+            assert!(verify_quote_state(false, true, &event_log).is_err());
+            assert!(verify_quote_state(true, false, &event_log).is_err());
+            assert!(verify_quote_state(false, false, &event_log).is_err());
+            carbide_instrument::emit(MeasuredBootVerificationFailed {
+                cause: MeasuredBootVerificationFailureCause::VerificationError,
+                event_log: event_log_to_string(&event_log),
+                error: "PCR signature verification failed: bad AK".to_string(),
+            });
+        });
+
+        assert_eq!(logs.len(), 4, "the success case must not log");
+        let field = |log: &carbide_instrument::testing::CapturedLog, name: &str| {
+            log.fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        };
+        for (log, cause_label, error) in [
+            (&logs[0], "signature_invalid", ""),
+            (&logs[1], "hash_mismatch", ""),
+            (&logs[2], "signature_and_hash_mismatch", ""),
+            (
+                &logs[3],
+                "verification_error",
+                "PCR signature verification failed: bad AK",
+            ),
+        ] {
+            assert_eq!(log.level, tracing::Level::WARN, "cause {cause_label}");
+            assert_eq!(log.message, "measured boot quote verification failed");
+            assert_eq!(field(log, "cause"), Some(cause_label.to_string()));
+            assert_eq!(field(log, "event_log"), Some("tpm event log".to_string()));
+            assert_eq!(field(log, "error"), Some(error.to_string()));
+
+            assert_eq!(
+                metrics.counter_delta(
+                    "carbide_measured_boot_verification_failures_total",
+                    &[("cause", cause_label)],
+                ),
+                1.0,
+                "counter for cause={cause_label}"
+            );
         }
     }
 }

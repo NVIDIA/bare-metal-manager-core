@@ -221,6 +221,9 @@ carbide-version = { path = "../version" }
 
 [dev-dependencies]
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
+carbide-api-db = { path = "../api-db", default-features = false, features = [
+  "test-support",
+] }
 carbide-api-model = { path = "../api-model", default-features = false, features = [
   "test-support",
 ] }

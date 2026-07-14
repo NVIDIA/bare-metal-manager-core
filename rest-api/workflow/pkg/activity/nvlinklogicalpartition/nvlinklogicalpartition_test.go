@@ -224,14 +224,15 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 	}
 
 	tests := []struct {
-		name                           string
-		fields                         fields
-		args                           args
-		updatedNVLinkLogicalPartitions []*cdbm.NVLinkLogicalPartition
-		readyNVLinkLogicalPartitions   []*cdbm.NVLinkLogicalPartition
-		deletedNVLinkLogicalPartitions []*cdbm.NVLinkLogicalPartition
-		missingNVLinkLogicalPartitions []*cdbm.NVLinkLogicalPartition
-		restoredNVLinkLogicalPartition *cdbm.NVLinkLogicalPartition
+		name                            string
+		fields                          fields
+		args                            args
+		updatedNVLinkLogicalPartitions  []*cdbm.NVLinkLogicalPartition
+		readyNVLinkLogicalPartitions    []*cdbm.NVLinkLogicalPartition
+		deletedNVLinkLogicalPartitions  []*cdbm.NVLinkLogicalPartition
+		missingNVLinkLogicalPartitions  []*cdbm.NVLinkLogicalPartition
+		deletingNVLinkLogicalPartitions []*cdbm.NVLinkLogicalPartition
+		restoredNVLinkLogicalPartition  *cdbm.NVLinkLogicalPartition
 
 		wantErr bool
 	}{
@@ -331,11 +332,12 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 					},
 				},
 			},
-			updatedNVLinkLogicalPartitions: []*cdbm.NVLinkLogicalPartition{nvllp1, nvllp3},
-			deletedNVLinkLogicalPartitions: []*cdbm.NVLinkLogicalPartition{nvllp5, nvllp6},
-			missingNVLinkLogicalPartitions: []*cdbm.NVLinkLogicalPartition{nvllp7, nvllp11},
-			restoredNVLinkLogicalPartition: nvllp8,
-			wantErr:                        false,
+			updatedNVLinkLogicalPartitions:  []*cdbm.NVLinkLogicalPartition{nvllp1},
+			deletedNVLinkLogicalPartitions:  []*cdbm.NVLinkLogicalPartition{nvllp5, nvllp6},
+			missingNVLinkLogicalPartitions:  []*cdbm.NVLinkLogicalPartition{nvllp7, nvllp11},
+			deletingNVLinkLogicalPartitions: []*cdbm.NVLinkLogicalPartition{nvllp3},
+			restoredNVLinkLogicalPartition:  nvllp8,
+			wantErr:                         false,
 		},
 		{
 			name: "test paged NVLinkLogicalPartition inventory processing, empty inventory",
@@ -453,6 +455,11 @@ func TestManageNVLinkLogicalPartition_UpdateNVLinkLogicalPartitionsInDB(t *testi
 				uv, _ := nvllpDAO.GetByID(ctx, nil, nvllp.ID, nil)
 				assert.True(t, uv.IsMissingOnSite)
 				assert.Equal(t, cdbm.NVLinkLogicalPartitionStatusError, uv.Status)
+			}
+
+			for _, nvllp := range tt.deletingNVLinkLogicalPartitions {
+				uv, _ := nvllpDAO.GetByID(ctx, nil, nvllp.ID, nil)
+				assert.Equal(t, cdbm.NVLinkLogicalPartitionStatusDeleting, uv.Status, "Deleting status should not be overwritten by inventory")
 			}
 
 			if tt.restoredNVLinkLogicalPartition != nil {

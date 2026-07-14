@@ -75,6 +75,26 @@ pub const DEFAULT_NMX_M_NAME: &str = "default";
 /// to the nearest multiple of 4.
 const NMX_C_PARTITION_MULTICAST_GROUPS_LIMIT: u32 = 16;
 
+fn managed_host_chassis_serial(snapshot: &ManagedHostStateSnapshot) -> Option<String> {
+    snapshot
+        .host_snapshot
+        .nvlink_info
+        .as_ref()
+        .map(|info| info.chassis_serial.trim())
+        .filter(|serial| !serial.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            snapshot
+                .host_snapshot
+                .hardware_info
+                .as_ref()
+                .and_then(HardwareInfo::first_gpu_platform_chassis_serial)
+                .map(str::trim)
+                .filter(|serial| !serial.is_empty())
+                .map(str::to_string)
+        })
+}
+
 fn rack_id_from_chassis_snapshots(
     chassis_snapshots: &[&ManagedHostStateSnapshot],
 ) -> Option<RackId> {
@@ -1118,11 +1138,8 @@ impl NvlPartitionMonitor {
         > = managed_host_snapshots.iter().fold(
             HashMap::new(),
             |mut acc, (_machine_id, snapshot)| {
-                if let Some(nvlink_info) = snapshot.host_snapshot.nvlink_info.as_ref() {
-                    let serial = nvlink_info.chassis_serial.trim();
-                    if !serial.is_empty() {
-                        acc.entry(serial.to_string()).or_default().push(snapshot);
-                    }
+                if let Some(serial) = managed_host_chassis_serial(snapshot) {
+                    acc.entry(serial).or_default().push(snapshot);
                 }
                 acc
             },

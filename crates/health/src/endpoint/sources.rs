@@ -18,6 +18,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
@@ -135,7 +136,7 @@ impl StaticEndpointSource {
                     .driver_version
                     .as_deref()
                     .map(str::trim)
-                    .filter(|driver_version| !driver_version.is_empty())
+                    .none_if_empty()
                     .map(str::to_string);
 
                 match machine_id.parse() {

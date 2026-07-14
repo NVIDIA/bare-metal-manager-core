@@ -20,6 +20,7 @@ use std::net::SocketAddr;
 use ::rpc::forge as rpc;
 use ::rpc::model::machine::machine_id::try_parse_machine_id;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineId;
 use db::WithTransaction;
 use db::machine_interface::find_by_ip;
@@ -438,7 +439,7 @@ pub(crate) async fn machine_setup(
         .boot_interface_mac
         .as_deref()
         .map(str::trim)
-        .filter(|m| !m.is_empty())
+        .none_if_empty()
         .map(|m| m.parse::<MacAddress>())
         .transpose()
         .map_err(|e| CarbideError::InvalidArgument(format!("invalid boot_interface_mac: {e}")))?;
@@ -494,7 +495,7 @@ pub(crate) async fn set_dpu_first_boot_order(
         .boot_interface_mac
         .as_deref()
         .map(str::trim)
-        .filter(|m| !m.is_empty())
+        .none_if_empty()
         .map(|m| m.parse::<MacAddress>())
         .transpose()
         .map_err(|e| CarbideError::InvalidArgument(format!("invalid boot_interface_mac: {e}")))?;

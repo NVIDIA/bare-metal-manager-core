@@ -23,6 +23,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 
 use super::{CollectorEvent, DataSink, EventContext, LogRecord};
+use crate::HealthError;
 use crate::config::LogFileSinkConfig;
 
 /// Durable JSONL log sink. Writes CollectorEvent::Log records to rotating
@@ -51,9 +52,13 @@ impl DataSink for LogFileSink {
         "log_file_sink"
     }
 
-    fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
+    fn try_handle_event(
+        &self,
+        context: &EventContext,
+        event: &CollectorEvent,
+    ) -> Result<(), HealthError> {
         let CollectorEvent::Log(record) = event else {
-            return;
+            return Ok(());
         };
 
         // Diagnostics are opt-in for log files. When enabled, fold the
@@ -66,18 +71,23 @@ impl DataSink for LogFileSink {
             Ok(json) => json,
             Err(e) => {
                 tracing::error!(error = ?e, "failed to serialize log record");
-                return;
+                return Err(e.into());
             }
         };
 
         let Ok(mut writer) = self.writer.lock() else {
             tracing::error!("log file writer lock poisoned");
-            return;
+            return Err(HealthError::GenericError(
+                "log file writer lock poisoned".to_string(),
+            ));
         };
 
         if let Err(e) = writer.write_line(&line) {
             tracing::error!(error = ?e, "failed to write log record to file");
+            return Err(HealthError::GenericError(e));
         }
+
+        Ok(())
     }
 }
 

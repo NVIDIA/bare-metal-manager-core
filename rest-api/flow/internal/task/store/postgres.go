@@ -71,6 +71,57 @@ func (s *PostgresStore) CreateTask(
 	return nil
 }
 
+// LockRack takes a transaction-scoped advisory lock for rack-level task
+// admission. The lock is released automatically when the transaction ends.
+func (s *PostgresStore) LockRack(ctx context.Context, rackID uuid.UUID) error {
+	if rackID == uuid.Nil {
+		return errors.GRPCErrorInvalidArgument("rack ID is required")
+	}
+	return s.lockAdvisoryKey(ctx, rackID.String())
+}
+
+// LockIdempotencyKey takes a transaction-scoped advisory lock for stable
+// submission lookup and resume. The lock is released automatically when the
+// transaction ends.
+func (s *PostgresStore) LockIdempotencyKey(ctx context.Context, key string) error {
+	if key == "" {
+		return errors.GRPCErrorInvalidArgument("idempotency key is required")
+	}
+	return s.lockAdvisoryKey(ctx, key)
+}
+
+func (s *PostgresStore) lockAdvisoryKey(ctx context.Context, key string) error {
+	tx, ok := ctx.Value(txKey).(bun.Tx)
+	if !ok {
+		return errors.GRPCErrorInternal("advisory lock requires an active transaction")
+	}
+
+	if _, err := tx.
+		NewSelect().
+		ColumnExpr("pg_advisory_xact_lock(hashtextextended(?, 0))", key).
+		Exec(ctx); err != nil {
+		return errors.GRPCErrorInternal(err.Error())
+	}
+	return nil
+}
+
+// GetTaskByIdempotencyKey retrieves the existing task for a stable submission
+// key. A missing key returns nil so callers can continue normal creation.
+func (s *PostgresStore) GetTaskByIdempotencyKey(
+	ctx context.Context,
+	key string,
+) (*taskdef.Task, error) {
+	taskDao, err := model.GetTaskByIdempotencyKey(ctx, s.idb(ctx), key)
+	if err != nil {
+		if s.pg.GetErrorChecker().IsErrNoRows(err) {
+			return nil, nil
+		}
+		return nil, errors.GRPCErrorInternal(err.Error())
+	}
+
+	return dao.TaskFrom(taskDao), nil
+}
+
 // GetTask retrieves a single task by its ID.
 func (s *PostgresStore) GetTask(
 	ctx context.Context,
@@ -131,7 +182,7 @@ func (s *PostgresStore) UpdateScheduledTask(
 	task *taskdef.Task,
 ) error {
 	taskDao := dao.TaskTo(task)
-	if err := taskDao.UpdateScheduledTask(ctx, s.pg.DB); err != nil {
+	if err := taskDao.UpdateScheduledTask(ctx, s.idb(ctx)); err != nil {
 		return errors.GRPCErrorInternal(err.Error())
 	}
 

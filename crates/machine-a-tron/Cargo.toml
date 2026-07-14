@@ -44,6 +44,7 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 axum = { workspace = true }
+tower = { workspace = true }
 crossterm = { features = ["event-stream"], workspace = true }
 ratatui = { workspace = true }
 mac_address = { workspace = true }
@@ -72,6 +73,7 @@ carbide-network = { path = "../network" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 toml = { workspace = true }
 
 [build-dependencies]

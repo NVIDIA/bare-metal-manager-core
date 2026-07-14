@@ -325,18 +325,18 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 		}
 	}
 
-	// verify if os created with ipxe script, if yes reject the update if imageURL provided
-	if existingOS.Type == cdbm.OperatingSystemTypeIPXE && osur.ImageURL != nil {
+	isImageBased := existingOS.Type == cdbm.OperatingSystemTypeImage
+
+	// verify if os was not created as image-based, reject the update if imageURL provided
+	if !isImageBased && osur.ImageURL != nil {
 		return validation.Errors{
-			"imageURL": errors.New("unable to set image URL for iPXE based Operating System"),
+			"imageURL": errors.New("unable to set image URL for non-image based Operating System"),
 		}
-	} else if existingOS.Type == cdbm.OperatingSystemTypeImage && osur.IpxeScript != nil {
+	} else if isImageBased && osur.IpxeScript != nil {
 		return validation.Errors{
 			"ipxeScript": errors.New("unable to set iPXE script for image based Operating System"),
 		}
 	}
-
-	isImageBased := existingOS.Type == cdbm.OperatingSystemTypeImage
 
 	if !util.IsNilOrEmptyStrPtr(osur.RootFsID) && osur.RootFsLabel == nil && !util.IsNilOrEmptyStrPtr(existingOS.RootFsLabel) {
 		return validation.Errors{
@@ -356,11 +356,40 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 		}
 	}
 
-	if osur.ImageURL != nil {
+	// imageUrl and imageSha identify the underlying image content and are
+	// immutable after creation. The Site treats source_url/digest as
+	// read-only and rejects any change during sync with
+	// "os_image update read-only attributes changed" (see api-core
+	// update_os_image); rejecting the change here gives the caller a clear,
+	// actionable error up front instead of a cryptic site-sync failure.
+	// Re-sending the current value is accepted as a no-op so clients that
+	// echo back the full resource still succeed.
+	if osur.ImageURL != nil && !util.IsNilOrEmptyStrPtr(existingOS.ImageURL) && *osur.ImageURL != *existingOS.ImageURL {
+		return validation.Errors{
+			"imageUrl": errors.New("imageUrl cannot be changed after creation; create a new Operating System to use a different image"),
+		}
+	}
+	if osur.ImageSHA != nil && !util.IsNilOrEmptyStrPtr(existingOS.ImageSHA) && *osur.ImageSHA != *existingOS.ImageSHA {
+		return validation.Errors{
+			"imageSha": errors.New("imageSha cannot be changed after creation; create a new Operating System to use a different image"),
+		}
+	}
+
+	if isImageBased {
+		// Image auth credentials can be updated on their own — the caller
+		// does not have to re-send the immutable imageUrl/imageSha to
+		// rotate a token. Those fields, when present, are validated for
+		// format only; the immutability guard above has already rejected
+		// any attempt to change them.
+		//
+		// TODO: rootFsId/rootFsLabel are also read-only on the Site (see
+		// api-core update_os_image), so changing them still fails at sync.
+		// Left as-is to keep this fix scoped to the reported
+		// imageUrl/imageSha/imageAuthToken behavior.
 		err = validation.ValidateStruct(osur,
-			validation.Field(&osur.ImageURL, is.URL),
+			validation.Field(&osur.ImageURL,
+				validation.When(osur.ImageURL != nil, is.URL)),
 			validation.Field(&osur.ImageSHA,
-				validation.Required.Error(validationErrorValueRequired),
 				validation.When(osur.ImageSHA != nil, validation.Match(util.ShaHashRegex).Error(errMsgInvalidImageSHA))),
 			validation.Field(&osur.ImageAuthType,
 				validation.When(!(util.IsNilOrEmptyStrPtr(osur.ImageAuthType)) && util.IsNilOrEmptyStrPtr(osur.ImageAuthToken), validation.Required.Error("imageAuthType cannot be specified if imageAuthToken is not specified")),

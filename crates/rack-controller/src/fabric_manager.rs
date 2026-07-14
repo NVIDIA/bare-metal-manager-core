@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 
 use carbide_rack::firmware_update::build_new_node_info;
 use carbide_rack_controller::config::RmsConfig;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
@@ -74,7 +75,7 @@ pub(super) async fn batch_get_scale_up_fabric_service_status(
     switches: &[FirmwareUpgradeDeviceInfo],
     node_type: rms::NodeType,
 ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, String> {
-    let Some(url) = rms_config.api_url.as_deref().filter(|url| !url.is_empty()) else {
+    let Some(url) = rms_config.api_url.as_deref().none_if_empty() else {
         return Err("RMS client not configured".to_string());
     };
 

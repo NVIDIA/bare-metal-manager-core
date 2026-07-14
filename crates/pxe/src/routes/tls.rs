@@ -40,7 +40,7 @@ async fn root_ca(headers: HeaderMap, state: State<AppState>) -> impl IntoRespons
     {
         Ok(response) => response.into_response(),
         Err(err) => {
-            eprintln!("Error reading root ca cert file: {err}");
+            tracing::error!(error = %err, "error reading root ca cert file");
             let response = Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from("error reading root ca cert file?"))

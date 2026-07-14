@@ -15,22 +15,25 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use clap::Parser;
+use carbide_test_harness::TestHarness;
+use carbide_uuid::power_shelf::PowerShelfId;
 
-#[derive(Parser, Debug)]
-#[command(after_long_help = "\
-EXAMPLES:
+/// Creates a power shelf through api-db test support for API integration tests.
+pub(crate) async fn create_custom_power_shelf(
+    env: &TestHarness,
+    name: &str,
+    capacity: Option<u32>,
+    voltage: Option<u32>,
+) -> Result<PowerShelfId, Box<dyn std::error::Error>> {
+    let mut txn = env.db_txn().await;
+    let power_shelf = db::test_support::power_shelf::create_random_with_config(
+        &mut txn,
+        name,
+        capacity.or(Some(100)),
+        voltage.or(Some(240)),
+    )
+    .await?;
+    txn.commit().await?;
 
-Show one machine's boot interfaces across every store:
-    $ nico-admin-cli machine boot-interfaces 12345678-1234-5678-90ab-cdef01234567
-
-As JSON or YAML (uses the global --output/--format flag):
-    $ nico-admin-cli --output json machine boot-interfaces 12345678-1234-5678-90ab-cdef01234567
-    $ nico-admin-cli --output yaml machine boot-interfaces 12345678-1234-5678-90ab-cdef01234567
-
-")]
-pub struct Args {
-    #[clap(help = "The machine ID whose boot interfaces to gather")]
-    pub machine: MachineId,
+    Ok(power_shelf.id)
 }

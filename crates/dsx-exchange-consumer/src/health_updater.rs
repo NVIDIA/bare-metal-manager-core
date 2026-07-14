@@ -19,6 +19,7 @@
 
 use std::sync::Arc;
 
+use carbide_instrument::emit;
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport};
 use moka::future::Cache;
 use moka::ops::compute::Op;
@@ -29,6 +30,7 @@ use crate::ConsumerMetrics;
 use crate::api_client::{HEALTH_REPORT_SOURCE, RackHealthReportSink};
 use crate::config::CacheConfig;
 use crate::messages::{FaultValue, LeakMetadata, LeakPointType, ValueMessage};
+use crate::metrics::{MessageDeduplicated, MessageProcessed};
 use crate::mqtt_consumer::MqttMessage;
 
 /// Health status updater that processes MQTT messages and updates the API.
@@ -160,7 +162,7 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
                     if let Some(entry) = &maybe_entry
                         && *entry.value() == value
                     {
-                        metrics.record_dedup_skipped();
+                        emit(MessageDeduplicated);
                         tracing::trace!(
                             point_path = %point_path,
                             point_type = %metadata.point_type,
@@ -208,7 +210,7 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
 
         match result {
             Ok(_) => {
-                self.metrics.record_message_processed();
+                emit(MessageProcessed);
             }
             Err(_) => {
                 // API call failed - will retry on next message

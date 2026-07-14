@@ -46,6 +46,7 @@ pub mod dpu;
 
 mod acl_rules;
 pub mod agent_platform;
+mod astra_weave;
 mod command_line;
 pub mod containerd;
 mod dhcp;
@@ -79,6 +80,9 @@ mod tests;
 pub mod traffic_intercept_bridging;
 pub mod upgrade;
 pub mod util;
+pub mod weave_ew_vpc_client;
+#[cfg(test)]
+pub mod weave_ew_vpc_mock_server;
 
 /// The minimum version of HBN that FMDS supports
 pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";

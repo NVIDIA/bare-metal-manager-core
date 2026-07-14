@@ -102,7 +102,6 @@ async fn main() -> Result<(), Error> {
     bmc_proxy::start(
         BmcProxyParams {
             config: Arc::new(config),
-            meter,
         },
         cancel_token.clone(),
         &mut join_set,

@@ -231,13 +231,14 @@ func (mer *ManageExpectedRack) CreateExpectedRackOnSite(ctx context.Context, req
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.AddExpectedRack(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Expected Rack using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to create Expected Rack using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -270,13 +271,14 @@ func (mer *ManageExpectedRack) UpdateExpectedRackOnSite(ctx context.Context, req
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.UpdateExpectedRack(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Expected Rack using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update Expected Rack using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -307,13 +309,14 @@ func (mer *ManageExpectedRack) DeleteExpectedRackOnSite(ctx context.Context, req
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.DeleteExpectedRack(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete Expected Rack using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete Expected Rack using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -351,13 +354,14 @@ func (mer *ManageExpectedRack) ReplaceAllExpectedRacksOnSite(ctx context.Context
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err := grpcServiceClient.ReplaceAllExpectedRacks(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to replace all Expected Racks using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to replace all Expected Racks using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }
@@ -375,13 +379,14 @@ func (mer *ManageExpectedRack) DeleteAllExpectedRacksOnSite(ctx context.Context)
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err := grpcServiceClient.DeleteAllExpectedRacks(ctx, &emptypb.Empty{})
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete all Expected Racks using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to delete all Expected Racks using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return nil
 }

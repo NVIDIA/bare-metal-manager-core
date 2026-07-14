@@ -16,7 +16,7 @@
  */
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -29,6 +29,7 @@ use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_network::{is_locally_administered_mac, sanitized_mac};
 use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_secrets::credentials::CredentialManager;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
@@ -887,6 +888,12 @@ impl SiteExplorer {
             metrics.create_power_shelves_latency = Some(create_power_shelves_latency);
             metrics.record_phase_latency("create_power_shelves", create_power_shelves_latency);
             create_power_shelves_res?;
+        } else if !explored_power_shelves.is_empty() {
+            tracing::info!(
+                num_power_shelves = explored_power_shelves.len(),
+                "Identified power shelves during exploration but create_power_shelves=false; skipping PowerShelf creation. \
+                 Set [site_explorer] create_power_shelves=true and declare matching expected_power_shelves records to ingest them."
+            );
         }
 
         // Identify and create switches
@@ -907,6 +914,12 @@ impl SiteExplorer {
             metrics.create_switches_latency = Some(create_switches_latency);
             metrics.record_phase_latency("create_switches", create_switches_latency);
             create_switches_res?;
+        } else if !explored_switches.is_empty() {
+            tracing::info!(
+                num_switches = explored_switches.len(),
+                "Identified switches during exploration but create_switches=false; skipping Switch creation. \
+                 Set [site_explorer] create_switches=true and declare matching expected_switches records to ingest them."
+            );
         }
 
         // Audit after everything has been explored, identified, and created.
@@ -1293,8 +1306,22 @@ impl SiteExplorer {
             // per-device logic -- counting, `set_nic_mode` auto-correction, NIC-mode
             // stripping -- lives once in `record_host_dpu_device` / `classify_matched_dpu`.
             let mut dpu_exploration = DpuExplorationState::new();
+            let mut seen_bluefield_serials = HashSet::new();
             for system in ep.report.systems.iter() {
                 for pcie_device in system.pcie_devices.iter() {
+                    if let Some(serial_number) = duplicate_bluefield_serial(
+                        pcie_device.part_number.as_deref(),
+                        pcie_device.serial_number.as_deref(),
+                        &mut seen_bluefield_serials,
+                    ) {
+                        tracing::warn!(
+                            host_bmc_ip = %ep.address,
+                            %serial_number,
+                            pcie_device_id = ?pcie_device.id,
+                            "duplicate BlueField serial in host PCIe inventory; skipping duplicate record",
+                        );
+                        continue;
+                    }
                     self.record_host_dpu_device(
                         pcie_device.part_number.as_deref(),
                         pcie_device.serial_number.as_deref(),
@@ -1841,11 +1868,6 @@ impl SiteExplorer {
         let expected_machines = db::expected_machine::find_all(&mut txn).await?;
         let expected_power_shelves = db::expected_power_shelf::find_all(&mut txn).await?;
 
-        let explore_power_shelves_from_static_ip = self
-            .config
-            .explore_power_shelves_from_static_ip
-            .load(Ordering::Relaxed);
-
         // Load SKU information for expected machines to record metrics
         let sku_ids: Vec<&str> = expected_machines
             .iter()
@@ -2062,8 +2084,8 @@ impl SiteExplorer {
                     }
                 }
                 None => {
-                    if endpoint.report.is_power_shelf() && explore_power_shelves_from_static_ip {
-                        tracing::info!(%address, "Not deleting power shelf endpoint from database, as we are sourcing power shelves from static IP's")
+                    if endpoint.report.is_power_shelf() {
+                        tracing::info!(%address, "Retaining power shelf endpoint with no underlay interface; power shelves are sourced from their expected static IP")
                     } else {
                         delete_endpoints.push(*address)
                     }
@@ -2470,8 +2492,7 @@ impl SiteExplorer {
 
                     let power_shelf_manual_ingestion = endpoint
                         .expected
-                        .is_some_and(|v| matches!(v, ExpectedEntity::PowerShelf(_)))
-                        && explore_power_shelves_from_static_ip;
+                        .is_some_and(|v| matches!(v, ExpectedEntity::PowerShelf(_)));
 
                     if !self.config.create_machines.load(Ordering::Relaxed)
                         || power_shelf_manual_ingestion
@@ -3699,6 +3720,24 @@ fn get_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Option<MacAddress> {
     }
 }
 
+/// Returns the normalized serial when a host PCIe record repeats a BlueField
+/// serial already seen during this host's ingestion pass.
+fn duplicate_bluefield_serial<'a>(
+    part_number: Option<&str>,
+    serial_number: Option<&'a str>,
+    seen: &mut HashSet<&'a str>,
+) -> Option<&'a str> {
+    if !part_number
+        .map(str::trim)
+        .is_some_and(is_bluefield_part_number)
+    {
+        return None;
+    }
+
+    let serial_number = serial_number.map(str::trim).none_if_empty()?;
+    (!seen.insert(serial_number)).then_some(serial_number)
+}
+
 /// State from exploring a host's DPUs and pairing them with DPU BMCs.
 ///
 /// The two counts are only ever incremented (monotonic), so the
@@ -4130,6 +4169,71 @@ mod tests {
         exploration.reported_total = 5;
         exploration.running_as_nic_total = 2;
         assert_eq!(exploration.expected_managed_total(), 3);
+    }
+
+    #[test]
+    fn duplicate_bluefield_serial_only_flags_repeated_bluefield_serials() {
+        struct Case {
+            name: &'static str,
+            devices: &'static [(Option<&'static str>, Option<&'static str>)],
+            expected: &'static [bool],
+        }
+
+        let cases = [
+            Case {
+                name: "duplicate BlueField serial",
+                devices: &[
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                ],
+                expected: &[false, true],
+            },
+            Case {
+                name: "trimmed duplicate BlueField serial",
+                devices: &[
+                    (Some("900-9D3B6-00SV-AA0"), Some(" DPU-SERIAL-1 ")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                ],
+                expected: &[false, true],
+            },
+            Case {
+                name: "distinct BlueField serials",
+                devices: &[
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-2")),
+                ],
+                expected: &[false, false],
+            },
+            Case {
+                name: "non-BlueField does not reserve serial",
+                devices: &[
+                    (Some("0JKJDC"), Some("DPU-SERIAL-1")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("DPU-SERIAL-1")),
+                ],
+                expected: &[false, false],
+            },
+            Case {
+                name: "missing and empty serials are not duplicates",
+                devices: &[
+                    (Some("900-9D3B6-00SV-AA0"), None),
+                    (Some("900-9D3B6-00SV-AA0"), Some("")),
+                    (Some("900-9D3B6-00SV-AA0"), Some("   ")),
+                ],
+                expected: &[false, false, false],
+            },
+        ];
+
+        for case in cases {
+            let mut seen = HashSet::new();
+            let actual: Vec<bool> = case
+                .devices
+                .iter()
+                .map(|(part_number, serial_number)| {
+                    duplicate_bluefield_serial(*part_number, *serial_number, &mut seen).is_some()
+                })
+                .collect();
+            assert_eq!(actual, case.expected, "{}", case.name);
+        }
     }
 
     #[test]

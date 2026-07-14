@@ -46,6 +46,7 @@ rand = { workspace = true }
 sha2 = { workspace = true }
 
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
+carbide-utils = { path = "../utils" }
 
 # Optional dependencies for carbide-dpf-api-harness binary
 clap = { workspace = true, features = ["derive"], optional = true }

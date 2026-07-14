@@ -32,8 +32,15 @@ tracing = { workspace = true }
 
 # [local-dependencies]
 carbide-host-support = { path = "../host-support", default-features = false }
+carbide-instrument = { path = "../instrument" }
 carbide-tls = { path = "../tls" }
 carbide-rpc = { path = "../rpc" }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+# [local-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 
 [lints]
 workspace = true

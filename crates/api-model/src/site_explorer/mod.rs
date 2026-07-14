@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use carbide_network::BaseMac;
 use carbide_utils::arch::CpuArchitecture;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
@@ -171,7 +172,7 @@ impl EndpointExplorationReport {
             .iter()
             .flat_map(|s| s.ethernet_interfaces.iter())
             .find(|e| e.mac_address == Some(mac))
-            .and_then(|e| e.id.as_deref().filter(|id| !id.is_empty()))
+            .and_then(|e| e.id.as_deref().none_if_empty())
     }
 
     /// Yields a [`MachineBootInterface`] for every host ethernet interface that
@@ -944,7 +945,7 @@ impl EndpointExplorationReport {
         self.systems
             .first()
             .and_then(|system| system.serial_number.as_deref().map(str::trim))
-            .filter(|sn| !sn.is_empty())
+            .none_if_empty()
             .or_else(|| {
                 self.is_dpu().then(|| {
                     // BF4 reports no system serial in Redfish. The stable product serial is
@@ -958,7 +959,7 @@ impl EndpointExplorationReport {
                                 .serial_number
                                 .as_deref()
                                 .map(str::trim)
-                                .filter(|serial| !serial.is_empty())
+                                .none_if_empty()
                         })
                 })?
             })
@@ -1100,11 +1101,18 @@ impl EndpointExplorationReport {
         Some(
             self.get_inventory_map()
                 .iter()
-                .find(|s| s.0.contains("BMC_Firmware"))
+                // BF3 exposes BMC firmware as inventory id "BMC_Firmware"; BF4
+                // uses exactly "BlueField_FW_BMC_0". Matching the full BF4 id
+                // (via `ends_with`) excludes unrelated components — including
+                // "FW_BMC_0_x" / "FW_BMC_01" and any other id merely ending in
+                // "FW_BMC_0". Both ids are unique per report, so `find` selects
+                // the single BMC firmware entry unambiguously.
+                .find(|s| s.0.contains("BMC_Firmware") || s.0.ends_with("BlueField_FW_BMC_0"))
                 .and_then(|value| value.1.version.as_ref())
                 .unwrap_or(&"0".to_string())
                 .to_lowercase()
-                .replace("bf-", ""),
+                .replace("bf-", "")
+                .replace("bf4-", ""),
         )
     }
 
@@ -1378,15 +1386,17 @@ impl OperatorError for EndpointExplorationError {
             | EndpointExplorationError::SecretsEngineError { .. }
             | EndpointExplorationError::SetCredentials { .. }
             | EndpointExplorationError::AvoidLockout => Some(
-                "Set or correct this endpoint's BMC credentials with the Admin CLI \
-                 (`nico-admin-cli credential add-bmc`), then re-explore it with \
+                "Set or correct this endpoint's BMC credentials with \
+                 `PUT /v2/org/{org}/nico/credential/bmc` or \
+                 `nicocli bmc-credential create`, then re-explore it with \
                  `nico-admin-cli site-explorer refresh <bmc-ip>`.",
             ),
             EndpointExplorationError::IntermittentUnauthorized { .. } => Some(
                 "Transient: site explorer retries automatically on its next run (~2 min), or \
                  force one now with `nico-admin-cli site-explorer refresh <bmc-ip>`. If \
                  unauthorized responses persist across runs, correct the BMC credentials with \
-                 `nico-admin-cli credential add-bmc`.",
+                 `PUT /v2/org/{org}/nico/credential/bmc` or \
+                 `nicocli bmc-credential create`.",
             ),
             EndpointExplorationError::InvalidDpuRedfishBiosResponse { .. } => {
                 Some(Self::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
@@ -1789,15 +1799,11 @@ fn chassis_part_number(chassis: &Chassis) -> Option<&str> {
         .part_number
         .as_deref()
         .map(str::trim)
-        .filter(|part_number| !part_number.is_empty())
+        .none_if_empty()
 }
 
 fn chassis_model(chassis: &Chassis) -> Option<&str> {
-    chassis
-        .model
-        .as_deref()
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
+    chassis.model.as_deref().map(str::trim).none_if_empty()
 }
 
 // returns true if the passed in string is a BlueField part number
@@ -1815,16 +1821,22 @@ pub fn is_bluefield_part_number(part_number: &str) -> bool {
 
 /// The kind of BlueField/Mellanox device, classified from its Redfish part number.
 ///
-/// A BlueField-3's part number records the mode it is currently operating in:
-/// `900-9D3B4` is a card running as a NIC, `900-9D3B6` is the same generation
-/// running as a DPU, and `900-9D3D4` is a dedicated SuperNIC. That split is what
-/// lets us pick out a DPU operating in NIC mode -- whose NIC firmware is
-/// otherwise invisible while its Arm OS is down -- apart from a native SuperNIC.
+/// The part number identifies the card's factory SKU, not the mode it is
+/// operating in: `900-9D3B6` is a BlueField-3 DPU product, while `900-9D3B4`
+/// and `900-9D3D4` are BlueField-3 SuperNIC products that ship running as
+/// NICs. Reconfiguring a card between DPU and NIC mode (the DPU BMC's
+/// `Mode.Set` action) does not change its part number -- a flipped `900-9D3B6`
+/// still classifies as [`MlxDeviceKind::Bf3DpuMode`] here. For the mode a
+/// device is actually operating in, read [`ExploredMlxDevice::nic_mode`],
+/// which comes from the DPU's own BMC.
+///
+/// The `*Mode` variant names are frozen: they mirror the wire enum from when
+/// this classification was believed to track the operating mode.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum MlxDeviceKind {
-    /// BlueField-3 operating as a NIC (part number `900-9D3B4...`).
+    /// BlueField-3 SuperNIC (part number `900-9D3B4...`).
     Bf3NicMode,
-    /// BlueField-3 operating as a DPU (part number `900-9D3B6...`).
+    /// BlueField-3 DPU (part number `900-9D3B6...`).
     Bf3DpuMode,
     /// BlueField-3 SuperNIC (part number `900-9D3D4...`).
     Bf3SuperNic,
@@ -1843,9 +1855,9 @@ impl MlxDeviceKind {
             return Self::Unknown;
         };
         let part_number = part_number.trim().to_lowercase();
-        // `is_bf3_supernic_part_number` deliberately groups `900-9d3b4` and `900-9d3d4`; here
-        // we split them, because a NIC-mode DPU (`b4`) and a native SuperNIC
-        // (`d4`) are exactly what an operator needs told apart.
+        // `is_bf3_supernic_part_number` deliberately groups `900-9d3b4` and
+        // `900-9d3d4`; here we keep them apart because the wire enum
+        // distinguishes the two SuperNIC SKU families.
         if part_number.starts_with("900-9d3b6") || part_number == "sn37b36732" {
             Self::Bf3DpuMode
         } else if part_number.starts_with("900-9d3b4") {
@@ -1858,20 +1870,15 @@ impl MlxDeviceKind {
             Self::Unknown
         }
     }
-
-    /// Whether this is a BlueField-3 operating in NIC mode -- the devices whose
-    /// NIC firmware most needs auditing, since their Arm OS can't report it.
-    pub fn is_nic_mode(&self) -> bool {
-        matches!(self, Self::Bf3NicMode)
-    }
 }
 
 impl Display for MlxDeviceKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let label = match self {
-            Self::Bf3NicMode => "BlueField-3 (NIC mode)",
-            Self::Bf3DpuMode => "BlueField-3 (DPU mode)",
-            Self::Bf3SuperNic => "BlueField-3 SuperNIC",
+            // Both SuperNIC SKU families render under NVIDIA's product name;
+            // the part number alongside is the discriminator.
+            Self::Bf3NicMode | Self::Bf3SuperNic => "BlueField-3 SuperNIC",
+            Self::Bf3DpuMode => "BlueField-3 DPU",
             Self::Bf2Dpu => "BlueField-2 DPU",
             Self::Unknown => "Unknown",
         };
@@ -1919,7 +1926,9 @@ pub struct ExploredMlxDevice {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dpu_bmc_ip: Option<IpAddr>,
     /// The DPU's authoritative operating mode, read from its own Redfish endpoint
-    /// when matched -- corroborates the part-number-derived `device_kind`.
+    /// when matched. This is the mode the card is running in right now;
+    /// `device_kind` is its factory SKU, and the two legitimately differ for a
+    /// DPU reconfigured to run as a NIC.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nic_mode: Option<NicMode>,
 }
@@ -1984,7 +1993,7 @@ impl EndpointExplorationReport {
             .first()
             .and_then(|system| system.serial_number.as_deref())
             .map(str::trim)
-            .filter(|serial| !serial.is_empty())
+            .none_if_empty()
             .or_else(|| {
                 // BF4 Redfish does not currently expose the product serial or
                 // DPU/NIC mode on the system object. The stable product serial
@@ -1998,7 +2007,7 @@ impl EndpointExplorationReport {
                             .serial_number
                             .as_deref()
                             .map(str::trim)
-                            .filter(|serial| !serial.is_empty())
+                            .none_if_empty()
                     })
             })
     }
@@ -2042,7 +2051,7 @@ pub fn collect_explored_mlx_devices(endpoints: &[ExploredEndpoint]) -> Vec<Explo
                 .serial_number
                 .as_deref()
                 .map(str::trim)
-                .filter(|serial| !serial.is_empty())
+                .none_if_empty()
                 .and_then(|serial| dpu_by_serial.get(serial))
             {
                 device.dpu_bmc_ip = Some(dpu_ep.address);
@@ -2581,6 +2590,45 @@ mod tests {
     }
 
     #[test]
+    fn credential_error_schemas_use_rest_first_mitigation() {
+        value_scenarios!(
+            run = |error: EndpointExplorationError| error
+                .operator_error_schema()
+                .mitigation
+                .is_some_and(|mitigation| {
+                    mitigation.contains("PUT /v2/org/{org}/nico/credential/bmc")
+                        && mitigation.contains("nicocli bmc-credential create")
+                        && !mitigation.contains("nico-admin-cli credential add-bmc")
+                });
+            "credential errors" {
+                EndpointExplorationError::Unauthorized {
+                    details: "unauthorized".to_string(),
+                    response_body: None,
+                    response_code: Some(401),
+                } => true,
+                EndpointExplorationError::MissingCredentials {
+                    key: "bmc".to_string(),
+                    cause: "missing".to_string(),
+                } => true,
+                EndpointExplorationError::SecretsEngineError {
+                    cause: "unavailable".to_string(),
+                } => true,
+                EndpointExplorationError::SetCredentials {
+                    key: "bmc".to_string(),
+                    cause: "failed".to_string(),
+                } => true,
+                EndpointExplorationError::AvoidLockout => true,
+                EndpointExplorationError::IntermittentUnauthorized {
+                    details: "temporary unauthorized response".to_string(),
+                    response_body: None,
+                    response_code: Some(401),
+                    consecutive_count: 1,
+                } => true,
+            }
+        );
+    }
+
+    #[test]
     fn intermittent_unauthorized_error_schema_describes_retryable_action() {
         let error = EndpointExplorationError::IntermittentUnauthorized {
             details: "temporary unauthorized response".to_string(),
@@ -2597,10 +2645,11 @@ mod tests {
         );
         assert_eq!(schema.error_code.to_string(), "NICO-SITEEXPLORER-145");
         // The mitigation answers "how do I retry?" and "what does escalate mean?"
-        // with concrete Admin CLI commands.
+        // with concrete Site Explorer and credential operations.
         let mitigation = schema.mitigation.as_deref().expect("has a mitigation");
         assert!(mitigation.contains("nico-admin-cli site-explorer refresh"));
-        assert!(mitigation.contains("nico-admin-cli credential add-bmc"));
+        assert!(mitigation.contains("PUT /v2/org/{org}/nico/credential/bmc"));
+        assert!(mitigation.contains("nicocli bmc-credential create"));
     }
 
     #[test]

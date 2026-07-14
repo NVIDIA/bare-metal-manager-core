@@ -16,7 +16,6 @@
  */
 
 pub mod auto_update;
-pub mod boot_interfaces;
 pub mod common;
 pub mod force_delete;
 pub mod hardware_info;
@@ -46,16 +45,14 @@ use crate::cfg::dispatch::Dispatch;
 pub enum Cmd {
     #[clap(about = "Display Machine information")]
     Show(show::Args),
+    // Hidden: the view moved to the top-level `boot-interface show`. This
+    // variant keeps `machine boot-interfaces` parsing for existing scripts and
+    // runs the exact same handler (the payload type is the new command's Args).
     #[clap(
-        about = "Show a machine's boot interfaces from every store (troubleshooting)",
-        long_about = "Gather one machine's boot-interface view from all four stores and print \
-            them together: the owned `machine_interfaces` rows (authoritative for an owned \
-            machine), `predicted_machine_interfaces` (pre-first-lease candidates), the \
-            `explored_endpoints` default (for unowned endpoints), and the retained \
-            post-deletion pairs (including stale records). Also reports the effective boot \
-            interface the system would select and flags when the stores disagree. Read-only."
+        hide = true,
+        about = "Moved: use `boot-interface show` (kept as a hidden alias)"
     )]
-    BootInterfaces(boot_interfaces::Args),
+    BootInterfaces(crate::boot_interface::show::Args),
     #[clap(subcommand, about = "Networking information")]
     Network(network::Args),
     #[clap(

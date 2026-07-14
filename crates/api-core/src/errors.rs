@@ -107,6 +107,9 @@ pub enum CarbideError {
     #[error("Duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
 
+    #[error("NVOS MAC address is already claimed by another expected switch: {0}")]
+    ExpectedSwitchDuplicateNvosMacAddress(MacAddress),
+
     #[error("Admin network is not configured.")]
     AdminNetworkNotConfigured,
 
@@ -287,6 +290,9 @@ impl From<DatabaseError> for CarbideError {
             }
             DatabaseError::DhcpError(e) => DhcpError(e),
             DatabaseError::ExpectedHostDuplicateMacAddress(e) => ExpectedHostDuplicateMacAddress(e),
+            DatabaseError::ExpectedSwitchDuplicateNvosMacAddress(e) => {
+                ExpectedSwitchDuplicateNvosMacAddress(e)
+            }
             DatabaseError::FailedPrecondition(e) => FailedPrecondition(e),
             DatabaseError::FindOneReturnedManyResultsError(e) => FindOneReturnedManyResultsError(e),
             DatabaseError::FindOneReturnedNoResultsError(e) => FindOneReturnedNoResultsError(e),
@@ -368,6 +374,7 @@ impl OperatorError for CarbideError {
             | CarbideError::UnhealthyHost
             | CarbideError::ConcurrentModificationError(_, _)
             | CarbideError::FailedPrecondition(_)
+            | CarbideError::ExpectedSwitchDuplicateNvosMacAddress(_)
             | CarbideError::AddressAlreadyInUse(_) => ErrorCode::nico(Api, 412),
             CarbideError::ResourceExhausted(_) | CarbideError::DhcpError(_) => {
                 ErrorCode::nico(Api, 429)
@@ -524,6 +531,9 @@ fn status_from_carbide_error(error: &CarbideError) -> Status {
             Status::failed_precondition(error.to_string())
         }
         error @ CarbideError::FailedPrecondition(_) => {
+            Status::failed_precondition(error.to_string())
+        }
+        error @ CarbideError::ExpectedSwitchDuplicateNvosMacAddress(_) => {
             Status::failed_precondition(error.to_string())
         }
         error @ CarbideError::AddressAlreadyInUse(_) => {

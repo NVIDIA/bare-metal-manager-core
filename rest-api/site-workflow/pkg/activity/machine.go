@@ -54,13 +54,14 @@ func (mm *ManageMachine) SetMachineMaintenanceOnSite(ctx context.Context, reques
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.SetMaintenance(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to set Maintenance mode for Machine using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to set Maintenance mode for Machine using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return err
 }
@@ -91,13 +92,14 @@ func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, reques
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err = grpcServiceClient.UpdateMachineMetadata(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Machine metadata using Core gRPC API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to update Machine metadata using Core gRPC API")
 		return swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
 	return err
 }
@@ -117,13 +119,15 @@ func (mm *ManageMachine) CreateMachineHealthReportOnSite(ctx context.Context, re
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err := grpcServiceClient.InsertMachineHealthReport(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to insert health report using Site Controller API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to insert Machine health report using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
-	logger.Info().Msg("Completed activity")
 	return nil
 }
 
@@ -142,13 +146,15 @@ func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, re
 	}
 	grpcServiceClient := grpcClient.GrpcServiceClient()
 
+	start := time.Now()
 	_, err := grpcServiceClient.RemoveMachineHealthReport(ctx, request)
+	duration := time.Since(start)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to remove health report using Site Controller API")
+		logger.Warn().Err(err).Dur("grpc_duration", duration).Msg("Failed to remove Machine health report using Core gRPC API")
 		return swe.WrapErr(err)
 	}
+	logger.Info().Dur("grpc_duration", duration).Msg("Completed activity")
 
-	logger.Info().Msg("Completed activity")
 	return nil
 }
 

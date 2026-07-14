@@ -200,7 +200,6 @@ async fn test_register_devices_node_and_force_delete() {
             serial_number: format!("SN-{}", i),
             dpu_machine_id: format!("dpu-{}-id", i),
             is_primary: true,
-            deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_device(info).await.unwrap();
     }

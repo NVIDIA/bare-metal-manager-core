@@ -119,7 +119,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           MERGE_BASE="$(git merge-base HEAD origin/main)"
 
           echo "merge_base=${MERGE_BASE}" >> "${GITHUB_OUTPUT}"

@@ -50,6 +50,7 @@ use crate::errors::CarbideCliError;
 "dpu_mode",
 "bmc_ip_allocation",
 "dpf_enabled",
+"host_nics",
 ])))]
 #[command(after_long_help = "\
 EXAMPLES:
@@ -202,6 +203,14 @@ pub struct Args {
     pub bmc_ip_allocation: Option<BmcIpAllocationType>,
 
     #[clap(
+        long = "host_nics",
+        value_name = "HOST_NICS",
+        group = "group",
+        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Replaces the machine's full host NIC list."
+    )]
+    pub host_nics: Option<String>,
+
+    #[clap(
         long = "disable-lockdown",
         value_name = "DISABLE_LOCKDOWN",
         help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
@@ -234,8 +243,9 @@ impl Args {
             && self.bmc_ip_address.is_none()
             && self.dpu_mode.is_none()
             && self.bmc_ip_allocation.is_none()
+            && self.host_nics.is_none()
         {
-            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode or bmc-ip-allocation or dpf-enabled".to_string()));
+            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode or bmc-ip-allocation or dpf-enabled or host_nics".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers

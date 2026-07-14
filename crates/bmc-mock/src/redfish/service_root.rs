@@ -54,7 +54,7 @@ pub fn builder(resource: &redfish::Resource) -> ServiceRootBuilder {
 }
 
 async fn get_service_root(State(state): State<BmcState>) -> Response {
-    builder(&resource())
+    let builder = builder(&resource())
         .redfish_version(state.bmc_redfish_version)
         .maybe_with(
             ServiceRootBuilder::vendor,
@@ -63,8 +63,14 @@ async fn get_service_root(State(state): State<BmcState>) -> Response {
         .maybe_with(ServiceRootBuilder::product, &state.bmc_product)
         .account_service(&redfish::account_service::resource())
         .session_service(&redfish::session_service::service_resource())
-        .chassis_collection(&redfish::chassis::collection())
-        .system_collection(&redfish::computer_system::collection())
+        .chassis_collection(&redfish::chassis::collection());
+    // Delta power shelves advertise no `Systems` collection (see `BmcState`).
+    let builder = if state.exposes_computer_systems {
+        builder.system_collection(&redfish::computer_system::collection())
+    } else {
+        builder
+    };
+    builder
         .manager_collection(&redfish::manager::collection())
         .update_service(&redfish::update_service::resource())
         .telemetry_service(&redfish::telemetry_service::resource())

@@ -15,6 +15,8 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 )
 
+const idempotencyKeyPrefix = "operation-run-target:"
+
 func (d *Dispatcher) execute(
 	prep *preparedDispatch,
 	decision dispatchDecision,
@@ -61,16 +63,13 @@ func claim(
 	for _, target := range summary.candidates {
 		req, err := operationRequestForTarget(decision.op, target)
 		if err != nil {
-			failTarget(target, err.Error())
+			target.Fail(err.Error())
 			prep.changed[target.ID] = target
 			continue
 		}
 
 		leaseExpiresAt := now.Add(claimLease)
-		target.Status = operationrun.OperationRunTargetStatusClaimed
-		target.Message = "claimed for submission"
-		target.RetryAfter = &leaseExpiresAt
-		target.RetryState = nil
+		target.Claim(leaseExpiresAt, "claimed for submission")
 		prep.changed[target.ID] = target
 
 		claimed.add(target, req)
@@ -212,27 +211,17 @@ func (d *Dispatcher) submit(
 			return false, d.updateTargetAfterSubmit(ctx, target)
 		}
 
-		failTarget(target, err.Error())
+		target.Fail(err.Error())
 		return false, d.updateTargetAfterSubmit(ctx, target)
 	}
 
 	if len(taskIDs) != 1 || taskIDs[0] == uuid.Nil {
-		failTarget(target, "task submission did not return exactly one task")
+		target.Fail("task submission did not return exactly one task")
 		return false, d.updateTargetAfterSubmit(ctx, target)
 	}
 
 	taskID := taskIDs[0]
-	target.TaskID = &taskID
-	target.Status = operationrun.OperationRunTargetStatusSubmitted
-	target.Message = "submitted"
-	target.RetryAfter = nil
-	target.RetryState = nil
-
-	// TODO: Make operation-run submissions fully idempotent by passing a
-	// stable task ID or idempotency key through TaskManager.SubmitTask. The
-	// claim lease prevents permanent quota starvation, but a crash after
-	// task creation and before this state update can still leave an orphan
-	// task that the dispatcher cannot associate back to this target.
+	target.Submit(taskID, "submitted")
 	return true, d.updateTargetAfterSubmit(ctx, target)
 }
 
@@ -286,7 +275,12 @@ func operationRequestForTarget(
 		ConflictStrategy: operation.ConflictStrategyReject,
 		RuleID:           operations.ExtractRuleID(info),
 		RequiredRackID:   target.RackID,
+		IdempotencyKey:   targetIdempotencyKey(target.ID),
 	}, nil
+}
+
+func targetIdempotencyKey(targetID uuid.UUID) string {
+	return idempotencyKeyPrefix + targetID.String()
 }
 
 // targetReadyForSubmission identifies targets that can be claimed now,
@@ -307,12 +301,4 @@ func targetReadyForSubmission(
 	default:
 		return false
 	}
-}
-
-// failTarget records a non-retryable target failure and clears retry metadata.
-func failTarget(target *operationrun.OperationRunTarget, message string) {
-	target.Status = operationrun.OperationRunTargetStatusFailed
-	target.Message = message
-	target.RetryAfter = nil
-	target.RetryState = nil
 }

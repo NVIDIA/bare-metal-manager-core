@@ -202,7 +202,6 @@ async fn create_and_register_dpudevices_and_dpunode(
             serial_number: serial_number.to_string(),
             dpu_machine_id: dpu.id.to_string(),
             is_primary: dpu.id == primary_dpu_id,
-            deployment_type: dpf_sdk.deployment_type_for_dpu(dpu).map_err(dpf_error)?,
         };
         dpf_sdk
             .register_dpu_device(device_info)

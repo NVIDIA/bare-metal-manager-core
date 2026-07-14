@@ -113,7 +113,7 @@ spec:
               maxNodes:
                 default: 1000
                 description: MaxNodes is the max amount of node in the cluster
-                maximum: 1000
+                maximum: 3000
                 minimum: 1
                 type: integer
               type:

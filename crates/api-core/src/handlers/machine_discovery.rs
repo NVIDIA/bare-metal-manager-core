@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub use ::rpc::forge as rpc;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineIdSource;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
@@ -116,6 +117,15 @@ pub(crate) async fn discover_machine(
     };
 
     let mut txn = api.txn_begin().await?;
+
+    // Advisory-lock the admin segments before any machine-interface row
+    // writes in this transaction (`associate_interface_with_dpu_machine`,
+    // the proactive host-interface create, `set_primary_interface`), so the
+    // whole transaction holds locks in the allocator order (segment advisory
+    // lock first, then interface rows) all the way to the reconcile pass --
+    // which re-acquires the same locks as a no-op.
+    db::machine_interface::lock_all_admin_segments(&mut txn).await?;
+
     tracing::debug!(
         ?remote_ip,
         ?interface_id,
@@ -424,7 +434,7 @@ pub(crate) async fn discover_machine(
         && let Some(scout_version) = machine_discovery_info
             .discovery_reporter_version
             .as_deref()
-            .filter(|v| !v.is_empty())
+            .none_if_empty()
     {
         db::machine::update_last_scout_observed_version(
             &stable_machine_id,

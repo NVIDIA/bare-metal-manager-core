@@ -20,6 +20,7 @@ hardware:
   - dpf
   - dpa
   - bmc-machine
+  - boot-interface
   - boot-override
   - credential
   - power-shelf

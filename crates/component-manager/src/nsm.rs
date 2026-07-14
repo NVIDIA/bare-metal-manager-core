@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use carbide_instrument::red;
 use mac_address::MacAddress;
 use model::component_manager::{
     ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent, PowerAction,
@@ -113,12 +114,15 @@ async fn register_and_map(
 
     for ep in endpoints {
         let req = build_registration(ep);
-        let response = client
-            .register_nv_switches(nsm::RegisterNvSwitchesRequest {
+        let response = red::instrumented(
+            "nsm",
+            "register_nv_switches",
+            client.register_nv_switches(nsm::RegisterNvSwitchesRequest {
                 registration_requests: vec![req],
-            })
-            .await?
-            .into_inner();
+            }),
+        )
+        .await?
+        .into_inner();
 
         let Some(reg_resp) = response.responses.into_iter().next() else {
             tracing::warn!(bmc_mac = %ep.bmc_mac, "NSM returned empty response for switch");
@@ -191,12 +195,13 @@ impl NvSwitchManager for NsmSwitchBackend {
                 action: nsm_action as i32,
             };
 
-            let response = self
-                .client
-                .clone()
-                .power_control(request)
-                .await?
-                .into_inner();
+            let response = red::instrumented(
+                "nsm",
+                "power_control",
+                self.client.clone().power_control(request),
+            )
+            .await?
+            .into_inner();
 
             for r in response.responses {
                 let bmc_mac = uuid_to_mac
@@ -256,12 +261,13 @@ impl NvSwitchManager for NsmSwitchBackend {
                 components: nsm_components,
             };
 
-            let response = self
-                .client
-                .clone()
-                .queue_updates(request)
-                .await?
-                .into_inner();
+            let response = red::instrumented(
+                "nsm",
+                "queue_updates",
+                self.client.clone().queue_updates(request),
+            )
+            .await?
+            .into_inner();
 
             for r in response.results {
                 let bmc_mac = uuid_to_mac
@@ -308,12 +314,13 @@ impl NvSwitchManager for NsmSwitchBackend {
             let request = nsm::GetUpdatesForSwitchRequest {
                 switch_uuid: uuid.clone(),
             };
-            let response = self
-                .client
-                .clone()
-                .get_updates_for_switch(request)
-                .await?
-                .into_inner();
+            let response = red::instrumented(
+                "nsm",
+                "get_updates_for_switch",
+                self.client.clone().get_updates_for_switch(request),
+            )
+            .await?
+            .into_inner();
 
             for update in response.updates {
                 let bmc_mac = uuid_to_mac
@@ -337,7 +344,10 @@ impl NvSwitchManager for NsmSwitchBackend {
 
     #[instrument(skip(self), fields(backend = "nsm"))]
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
-        let response = self.client.clone().list_bundles(()).await?.into_inner();
+        let response =
+            red::instrumented("nsm", "list_bundles", self.client.clone().list_bundles(()))
+                .await?
+                .into_inner();
 
         Ok(response.bundles.into_iter().map(|b| b.version).collect())
     }
@@ -501,5 +511,45 @@ mod tests {
         let nvos_creds = nvos.credentials.as_ref().unwrap();
         assert_eq!(nvos_creds.username, "nvadmin");
         assert_eq!(nvos_creds.password, "nvos_pass");
+    }
+
+    #[tokio::test]
+    async fn nsm_call_failure_records_the_external_call_histogram() {
+        use carbide_instrument::testing::MetricsCapture;
+
+        // A lazy channel to an unroutable endpoint makes the wrapped call
+        // itself fail, exercising the RED wrap without a live NSM.
+        // A port that was just bound and released: connecting to it is refused
+        // deterministically, unlike a fixed low port something might occupy.
+        let refused_addr = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+            listener.local_addr().expect("local addr")
+        };
+        let channel = Channel::from_shared(format!("http://{refused_addr}"))
+            .expect("endpoint")
+            .connect_lazy();
+        let backend = NsmSwitchBackend {
+            client: nsm::nv_switch_manager_client::NvSwitchManagerClient::new(
+                TraceInjectService::new(channel),
+            ),
+        };
+
+        let metrics = MetricsCapture::start();
+        backend
+            .list_firmware_bundles()
+            .await
+            .expect_err("unroutable NSM endpoint must fail");
+
+        assert_eq!(
+            metrics.histogram_count_delta(
+                "carbide_external_call_duration_milliseconds",
+                &[
+                    ("backend", "nsm"),
+                    ("operation", "list_bundles"),
+                    ("outcome", "error"),
+                ],
+            ),
+            1,
+        );
     }
 }

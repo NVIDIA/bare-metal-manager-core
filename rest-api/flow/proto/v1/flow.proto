@@ -90,6 +90,7 @@ service Flow {
     rpc ListOperationRunTargets(ListOperationRunTargetsRequest) returns (ListOperationRunTargetsResponse);
     rpc PauseOperationRun(PauseOperationRunRequest) returns (OperationRun);
     rpc ResumeOperationRun(ResumeOperationRunRequest) returns (OperationRun);
+    rpc AdvanceOperationRunPhase(AdvanceOperationRunPhaseRequest) returns (OperationRun);
     rpc CancelOperationRun(CancelOperationRunRequest) returns (OperationRun);
 }
 
@@ -1220,6 +1221,13 @@ message ResumeOperationRunRequest {
     UUID id = 1;
 }
 
+message AdvanceOperationRunPhaseRequest {
+    UUID id = 1;
+
+    // Optional guard. When set, the phase that would be opened must match.
+    optional int32 expected_phase_index = 2;
+}
+
 message CancelOperationRunRequest {
     UUID id = 1;
     string reason = 2;
@@ -1361,8 +1369,8 @@ message OperationRunCountPhase {
 
 message OperationRunPhaseAdvancePolicy {
     // When false, a completed phase pauses with PHASE_GATE and waits for
-    // ResumeOperationRun. When true, the dispatcher advances to the next phase
-    // automatically as long as global safety gates are not tripped.
+    // AdvanceOperationRunPhase. When true, the dispatcher advances to the next
+    // phase automatically as long as global safety gates are not tripped.
     bool auto_advance = 1;
 }
 

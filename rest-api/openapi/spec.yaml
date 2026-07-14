@@ -121,6 +121,9 @@ tags:
   - name: BMC Credential
     description: |-
       BMC Credential endpoints allow creating and updating BMC credentials across all Machines of a Site
+  - name: UEFI Credential
+    description: |-
+      UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
   - name: Allocation
     description: |-
       Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
@@ -312,7 +315,8 @@ tags:
 
       Active Deprecations:
 
-      - Currently there are no active deprecations
+      Instance:
+      - `infrastructureProviderId` query parameter on the list Instances endpoint was deprecated and will be removed on October 10th, 2026 0:00 UTC. Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the `siteId` parameter to scope results to a specific Infrastructure Provider's Sites.
 
       Recent Deprecations:
 
@@ -859,13 +863,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter Sites by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter Sites by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter Sites by Tenant ID
+          deprecated: true
+          description: "Filter Sites by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: string
           in: query
@@ -896,6 +902,11 @@ paths:
           in: query
           name: includeMachineStats
           description: Include a breakdown of Machine counts by lifecycle status and health. Requires Provider Admin role.
+        - schema:
+            type: boolean
+          in: query
+          name: includeGpuStats
+          description: Include a per-Site breakdown of GPU counts grouped by GPU type. Requires Provider Admin role.
         - schema:
             type: string
           in: query
@@ -1195,6 +1206,47 @@ paths:
       description: |-
         Create or update a site-wide or per-BMC root credential. Equivalent
         to `carbide-admin-cli credential add-bmc`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/credential/uefi':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create UEFI Credential
+      tags:
+        - UEFI Credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UEFICredentialRequest'
+      responses:
+        '201':
+          description: UEFI credential was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UEFICredential'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: The selected site-default UEFI credential already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: create-uefi-credential
+      description: |-
+        Create a site-default host or DPU UEFI credential. The request fails
+        if the selected site-default credential already exists.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/allocation':
@@ -1751,13 +1803,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter IP Blocks by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter IP Blocks by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter IP Blocks by Tenant ID
+          deprecated: true
+          description: "Filter IP Blocks by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
@@ -1946,13 +2000,15 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter IP Blocks by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter IP Blocks by Infrastructure Provider ID. Deprecated: Infrastructure Provider is now inferred from the org's membership."
         - schema:
             type: string
             format: uuid
           in: query
           name: tenantId
-          description: Filter IP Blocks by Tenant ID
+          deprecated: true
+          description: "Filter IP Blocks by Tenant ID. Deprecated: Tenant is now inferred from the org's membership."
         - schema:
             type: boolean
           in: query
@@ -6306,7 +6362,8 @@ paths:
             format: uuid
           in: query
           name: infrastructureProviderId
-          description: Filter by Infrastructure Provider ID
+          deprecated: true
+          description: "Filter by Infrastructure Provider ID. Deprecated: Instances will no longer be filtered by Infrastructure Provider; results are scoped to the org's Tenant. Use the siteId parameter to scope results to a specific Infrastructure Provider's Sites."
         - schema:
             type: string
             format: uuid
@@ -13546,6 +13603,47 @@ components:
         macAddress:
           type: string
           description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
+    UEFICredentialRequest:
+      type: object
+      title: UEFICredentialRequest
+      description: Request to create a site-default UEFI credential.
+      required:
+        - siteId
+        - kind
+        - password
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the credential is stored.
+        kind:
+          type: string
+          description: Which site-default UEFI credential to create.
+          enum:
+            - Host
+            - DPU
+        password:
+          type: string
+          minLength: 1
+          description: Credential password.
+    UEFICredential:
+      type: object
+      title: UEFICredential
+      description: UEFI credential metadata returned after creation. The password is never returned.
+      required:
+        - siteId
+        - kind
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the credential is stored.
+        kind:
+          type: string
+          description: Which site-default UEFI credential was created.
+          enum:
+            - Host
+            - DPU
     BMCResetRequest:
       type: object
       title: BMCResetRequest
@@ -14533,6 +14631,10 @@ components:
               allocatedInUse: 3
               allocatedNotInUse: 3
               unallocated: 5
+          gpuStats:
+            - name: NVIDIA GB200
+              gpus: 64
+              machines: 16
           capabilities:
             nativeNetworking: true
             networkSecurityGroup: true
@@ -14653,6 +14755,11 @@ components:
         machineStats:
           $ref: '#/components/schemas/SiteMachineStats'
           description: 'Machine counts by status for the Site'
+        gpuStats:
+          type: array
+          items:
+            $ref: '#/components/schemas/MachineGPUStats'
+          description: 'GPU counts grouped by GPU type for the Site. Populated when includeGpuStats is set'
     SiteSummary:
       title: SiteSummary
       type: object
@@ -16949,8 +17056,6 @@ components:
           allowOverride: false
         - name: debian-12-amd64
           description: Official Debian 12 for AMD/Intel
-          imageUrl: 'https://saimei.ftp.acc.umu.se/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2'
-          imageSha: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
           imageDisk: /dev/sda
@@ -16959,7 +17064,7 @@ components:
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
-      description: Request data to update an Operating System. Only image-related attributes can be updated for image-based OS, and only iPXE attributes can be updated for iPXE-based OS
+      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS'
       properties:
         name:
           type:
@@ -16983,22 +17088,22 @@ components:
             - string
             - 'null'
           format: uri
-          description: 'Original URL from which the Operating System image can be retrieved; required for image-based OS'
+          description: 'Original URL from which the Operating System image can be retrieved. Immutable after creation: it may be re-sent unchanged, but changing it is rejected. Create a new Operating System to use a different image.'
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, required for image-based OS'
+          description: 'SHA hash of the image file. Immutable after creation: it may be re-sent unchanged, but changing it is rejected.'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified'
+          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified. Can be updated independently without re-sending imageUrl/imageSha.'
         imageAuthToken:
           type:
             - string
             - 'null'
-          description: 'Auth token to retrieve the image from image URL, required if imageAuthType is specified'
+          description: 'Auth token to retrieve the image from image URL, required if imageAuthType is specified. Can be updated independently without re-sending imageUrl/imageSha.'
         imageDisk:
           type:
             - string
@@ -24171,6 +24276,13 @@ components:
         machines:
           type: integer
           description: Number of machines that have this GPU capability
+      examples:
+        - name: NVIDIA GB200
+          gpus: 64
+          machines: 16
+        - name: NVIDIA H100
+          gpus: 8
+          machines: 1
     MachineStatusBreakdown:
       title: MachineStatusBreakdown
       description: Machine counts broken down by status

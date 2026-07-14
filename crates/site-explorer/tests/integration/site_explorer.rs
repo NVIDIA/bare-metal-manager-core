@@ -20,6 +20,8 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use bmc_explorer::test_support::generate_managed_host_reports;
+use bmc_mock::HostHardwareType;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
@@ -138,7 +140,6 @@ fn last_run_test_config() -> SiteExplorerConfig {
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(false.into()),
         create_power_shelves: Arc::new(false.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         create_switches: Arc::new(false.into()),
         ..Default::default()
     }
@@ -657,7 +658,6 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
         create_machines: Arc::new(true.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -857,7 +857,6 @@ async fn test_expected_machine_device_type_metrics(
         create_machines: Arc::new(false.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -1235,7 +1234,6 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -1639,7 +1637,6 @@ async fn test_site_explorer_audit_exploration_results(
         admin_segment_type_non_dpu: Arc::new(false.into()),
         allocate_secondary_vtep_ip: false,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -1952,7 +1949,6 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(false.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -2232,7 +2228,6 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         create_machines: Arc::new(true.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -2537,7 +2532,6 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
         create_machines: Arc::new(true.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -3195,6 +3189,114 @@ async fn test_site_explorer_pairs_dpu_from_chassis_serial(
         1,
         "the chassis-matched DPU should be attached to the host"
     );
+
+    Ok(())
+}
+
+/// Vera Rubin host BMCs report the attached BF4 as its own `BlueField_0`
+/// chassis, with the usable pairing serial on that chassis object and no DPU
+/// under `Systems[].PCIeDevices`. This is the shape from the real VR Redfish
+/// dump, and it must pair without falling through to the zero-DPU gate.
+#[sqlx_test]
+async fn test_site_explorer_pairs_vr_bf4_from_bluefield_chassis(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+
+    let reports = generate_managed_host_reports(HostHardwareType::NvidiaDgxVr).await?;
+    let dpu = reports
+        .dpus
+        .first()
+        .expect("NvidiaDgxVr should generate one DPU");
+    let host_bmc_mac = reports.host.machine_info.bmc_mac_address;
+    let dpu_bmc_mac = dpu.machine_info.bmc_mac_address;
+    let host_serial = reports
+        .host
+        .report
+        .systems
+        .first()
+        .and_then(|system| system.serial_number.clone())
+        .expect("VR host report should include a system serial");
+    let host_pf_mac = dpu
+        .report
+        .systems
+        .first()
+        .and_then(|system| system.base_mac)
+        .expect("DPU report should include host PF base MAC")
+        .to_mac();
+
+    let mut host_bmc = env.new_machine(&host_bmc_mac.to_string(), "NVIDIA");
+    let mut dpu_bmc = env.new_machine(&dpu_bmc_mac.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+    let host_bmc_ip: IpAddr = host_bmc.ip.parse()?;
+    let dpu_bmc_ip: IpAddr = dpu_bmc.ip.parse()?;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".to_string(),
+                bmc_password: "PASS".to_string(),
+                serial_number: host_serial,
+                metadata: Metadata::new_with_default_name(),
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let explorer = env.test_site_explorer(explorer_config);
+    explorer.insert_endpoint_results(vec![
+        (dpu_bmc_ip, Ok(dpu.report.clone())),
+        (host_bmc_ip, Ok(reports.host.report.clone())),
+    ]);
+
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    for ip in [host_bmc_ip, dpu_bmc_ip] {
+        db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+    }
+    txn.commit().await?;
+    explorer.run_single_iteration().await.unwrap();
+
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert_eq!(
+        explored_managed_hosts.len(),
+        1,
+        "VR host should pair via BlueField_0 chassis serial"
+    );
+    let managed_host = &explored_managed_hosts[0];
+    assert_eq!(managed_host.dpus.len(), 1);
+    assert_eq!(managed_host.dpus[0].bmc_ip, dpu_bmc_ip);
+    assert_eq!(
+        managed_host.dpus[0].host_pf_mac_address,
+        Some(host_pf_mac),
+        "BF4 host-PF MAC should come from the DPU report base_mac"
+    );
+    if let Some(blocker_metric) = env
+        .test_harness
+        .test_meter
+        .formatted_metric("carbide_host_dpu_pairing_blockers_count")
+    {
+        assert!(
+            !blocker_metric.contains("no_dpu_reported_by_host"),
+            "VR BF4 chassis pairing should not hit the zero-DPU blocker: {blocker_metric}"
+        );
+    }
 
     Ok(())
 }

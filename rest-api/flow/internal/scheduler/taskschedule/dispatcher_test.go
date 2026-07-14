@@ -159,6 +159,18 @@ func (m *mockTaskStore) CreateTask(_ context.Context, _ *taskdef.Task) error {
 	panic("mockTaskStore.CreateTask: not implemented")
 }
 
+func (m *mockTaskStore) LockRack(_ context.Context, _ uuid.UUID) error {
+	panic("mockTaskStore.LockRack: not implemented")
+}
+
+func (m *mockTaskStore) LockIdempotencyKey(_ context.Context, _ string) error {
+	panic("mockTaskStore.LockIdempotencyKey: not implemented")
+}
+
+func (m *mockTaskStore) GetTaskByIdempotencyKey(_ context.Context, _ string) (*taskdef.Task, error) {
+	panic("mockTaskStore.GetTaskByIdempotencyKey: not implemented")
+}
+
 func (m *mockTaskStore) GetTasks(_ context.Context, _ []uuid.UUID) ([]*taskdef.Task, error) {
 	panic("mockTaskStore.GetTasks: not implemented")
 }

@@ -190,6 +190,33 @@ pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
     .await
 }
 
+pub async fn delta_powershelf_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        &host_info(HostHardwareType::DeltaPowerShelf),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
+/// Delta power shelf whose PSUs report the given per-bay on/off states under
+/// `Oem.deltaenergysystems.Power`. Lets tests exercise off and mixed shelves
+/// (the default [`delta_powershelf_bmc`] is an all-on six-bay shelf).
+pub async fn delta_powershelf_bmc_with_psu_power(states: Vec<bool>) -> TestBmcHandle {
+    let machine_info = match host_info(HostHardwareType::DeltaPowerShelf) {
+        MachineInfo::Host(host) => MachineInfo::Host(host.with_delta_psu_power(states)),
+        MachineInfo::Dpu(_) => unreachable!("Delta power shelf must be a host"),
+    };
+    test_bmc(machine_router(
+        &machine_info,
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
 pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HostHardwareType::NvidiaSwitchNd5200Ld),

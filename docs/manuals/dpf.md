@@ -170,7 +170,7 @@ how Argo CD discovers Helm repositories.
 Important: the `url` field must not end with a `/`, as any difference in the `url` (including an extra slash) will prevent Argo CD from matching the repository to the correct Secret.
 
 | Secret name | Repo URL | Type | Used by |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `ngc-doca-oci-helm` | `nvcr.io/nvstaging/doca` | OCI helm | DPF operator chart pulls |
 | `ngc-doca-https-helm` | `https://helm.ngc.nvidia.com/nvstaging/doca` | HTTPS helm | Some DPUService charts |
 | `ngc-carbide-https-helm` | `https://helm.ngc.nvidia.com/0837451325059433/carbide-dev` | HTTPS helm | Carbide-private DPUService charts |
@@ -424,7 +424,7 @@ spec:
 Field-by-field:
 
 | Field | Meaning |
-|---|---|
+| --- | --- |
 | `dpuDetector.disable: true` | DPF normally polls hosts to discover new DPUs. NICo disables auto-discovery because DPUs are fed in via `DPUSet` CRs from the orchestrator. |
 | `provisioningController.osInstallTimeout: "60m"` | Total budget for the OS install flow per DPU. |
 | `provisioningController.installViaRedfish` | Provision DPUs by talking Redfish to the host BMC (vs. PXE-based). |
@@ -466,7 +466,7 @@ spec:
 Field-by-field:
 
 | Field | Meaning |
-|---|---|
+| --- | --- |
 | `type: kamaji` | Use the Kamaji cluster manager; the DPU control plane runs as a Kamaji `TenantControlPlane` in the host cluster. |
 | `maxNodes: 1000` | Hard cap on DPU nodes that can join. |
 | `clusterEndpoint.keepalived.interface` | Host network interface on which keepalived advertises the VIP. |
@@ -551,6 +551,67 @@ docker_image_tag        = "<image tag>"            # empty → CI default
 docker_image_pull_secret = "dpf-pull-secret"
 ```
 
+#### Per-deployment configuration (`[dpf.deployments.*]`)
+
+Each DPU generation is provisioned by its own `DPUDeployment`, configured under
+`[dpf.deployments.<name>]`. **BF3** is always present with built-in defaults;
+**BF4 (generic)** is opt-in and is activated only when a
+`[dpf.deployments.bf4_generic]` table is present. Both deployments run
+side-by-side, each with its own BFB, `DPUFlavor`, and `DPUDeployment`.
+
+Every active deployment must have a **unique** `deployment_name`, `flavor_name`,
+and `node_label_key`; carbide-api validates this at startup and refuses to start
+if any deployments collide.
+
+```toml
+# BF3 is present by default. Override only if any change is needed.
+[dpf.deployments.bf3]
+bfb_url         = "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.2-125_26.02_ubuntu-24.04_64k_prod.bfb"
+flavor_name     = "carbide-dpu-flavor"
+deployment_name = "nico-deployment-v2"
+node_label_key  = "carbide.nvidia.com/controlled.node.v2"
+
+# BF4 generic is opt-in. Add this table to provision BF4 DPUs via a second
+# DPUDeployment alongside BF3. All identifiers must differ from BF3's.
+[dpf.deployments.bf4_generic]
+bfb_url         = "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-<bf4-version>.bfb"
+flavor_name     = "carbide-dpu-flavor-bf4"
+deployment_name = "nico-deployment-bf4"
+node_label_key  = "carbide.nvidia.com/controlled.node.bf4"
+```
+
+Per-deployment field reference:
+
+| TOML key | Required | Default (bf3) | Meaning |
+| --- | :---: | --- | --- |
+| `bfb_url` | no | BF3 bf-bundle URL | BlueField firmware bundle (BFB) used to provision the DPU. |
+| `flavor_name` | yes | `carbide-dpu-flavor` | `DPUFlavor` CR name for this deployment. |
+| `deployment_name` | yes | `nico-deployment-v2` | `DPUDeployment` CR name. |
+| `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
+| `services` | no | inherit `[dpf.services]` | Optional per-deployment mandatory-services override (see below). |
+
+**Per-deployment services override.** By default every deployment inherits the
+top-level `[dpf.services]` mandatory services. A deployment can pin its own
+versions by adding a `[dpf.deployments.<name>.services]` block with the same six
+sub-tables as `[dpf.services]` (`dts`, `doca_hbn`, `dpu_agent`, `dhcp_server`,
+`fmds`, `otel`). This override **replaces** the inherited set for that
+deployment; any service sub-table you omit falls back to its **built-in
+default**, *not* to the top-level `[dpf.services]` value, so specify all six
+when using it. The top-level `docker_image_pull_secret` still applies on top of
+the resolved set (every service except `dts` and `doca_hbn`).
+
+```toml
+# Pin a BF4-specific HBN chart/image while keeping the other services on defaults.
+[dpf.deployments.bf4_generic.services.doca_hbn]
+name                     = "doca-hbn"
+helm_repo_url            = "https://helm.ngc.nvidia.com/nvidia/doca"
+helm_chart               = "doca-hbn"
+helm_version             = "3.4.0"
+docker_repo_url          = "nvcr.io/nvidia/doca/doca_hbn"
+docker_image_tag         = "3.4.0-doca3.4.0"
+# ...plus dts, dpu_agent, dhcp_server, fmds, and otel sub-tables.
+```
+
 If your environment routes DPU image pulls through an HTTPS forward proxy (Option B
 from section 1.3), add a `[dpf.proxy]` table:
 
@@ -570,9 +631,13 @@ the first NICo startup with DPF enabled if possible.
 Field reference (all under `[dpf]`):
 
 | TOML key | Type | Default | Meaning |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
+| `docker_image_pull_secret` | string | `dpf-pull-secret` | Pull Secret applied to every mandatory service except `dts` and `doca_hbn`. |
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
+| `deployments.bf3` | table | BF3 defaults | BF3 DPUDeployment config; always active. |
+| `deployments.bf4_generic` | table | — | BF4 (generic) DPUDeployment config; opt-in, active only when present. |
+| `deployments.<name>.services.<svc>` | table | inherit `[dpf.services]` | Optional per-deployment mandatory-service override. |
 | `proxy.https_proxy` | string | — | HTTPS proxy URL for DPU image pulls (see section 3.5). |
 | `proxy.no_proxy` | list of strings | `[]` | Hosts/CIDRs that must bypass the proxy. |
 
@@ -681,7 +746,7 @@ nico-admin-cli expected-machine replace-all --filename em-all.json
 #### 3.6.e. Quick reference
 
 | Goal | Path |
-|---|---|
+| --- | --- |
 | Add a new host with DPF enabled | `nico-admin-cli expected-machine add … --dpf-enabled true` |
 | Flip DPF on an existing entry, preserving everything else | `nico-admin-cli expected-machine update --filename em.json` |
 | Flip DPF inline with one or more other fields | `nico-admin-cli expected-machine patch … --dpf-enabled true` |
@@ -710,25 +775,33 @@ read once when the process comes up, and that is the only point at which the
 DPF initialization objects are created in the host cluster.
 
 On startup with `[dpf].enabled = true`, carbide-api creates the following
-objects in the `dpf-operator-system` namespace:
+objects in the `dpf-operator-system` namespace. It does this **once for each active
+deployment** in `[dpf.deployments.*]` (BF3 always, plus `bf4_generic` when
+that table is present), using that deployment's own `bfb_url`, `flavor_name`,
+and `deployment_name`:
 
-- a `Secret` (`bmc-shared-password`) holding the shared BMC password,
-- a `BFB` CR named `bf-bundle-<sha256([dpf].bfb_url)>`,
-- a `DPUFlavor` CR named `[dpf].flavor_name-<spec-hash>` (the 16-character hex suffix is a SHA-256 digest of the spec, so any change to the flavor — including adding or changing `[dpf.proxy]` — produces a new name and triggers reprovisioning of all DPUs),
-- a set of `DPUServiceInterface`, `DPUServiceTemplate`,
-  `DPUServiceConfiguration`, and `DPUServiceNAD` CRs — one per mandatory
+- A `Secret` (`bmc-shared-password`) holding the shared BMC password (shared
+  across deployments)
+- A `BFB` CR named `bf-bundle-<sha256(bfb_url)>`, from the deployment's `bfb_url`
+- A `DPUFlavor` CR named `<flavor_name>-<spec-hash>`. (The 16-character hex suffix is a SHA-256 digest of the spec. Any change to the flavor, including adding or changing `[dpf.proxy]`, produces a new name and triggers reprovisioning of that deployment's DPUs.)
+- A set of `DPUServiceInterface`, `DPUServiceTemplate`,
+  `DPUServiceConfiguration`, and `DPUServiceNAD` CRs, one per mandatory
   DPUService (`dts`, `doca-hbn`, `carbide-dpu-agent`, `carbide-dhcp-server`,
-  `carbide-fmds`, `carbide-otelcol`),
-- a `DPUDeployment` CR named after `[dpf].deployment_name`, which references
-  the BFB, the DPUFlavor, and the service templates above, and which the DPF
-  operator then reconciles into actual `DPUService` and per-DPU resources, and
-  `spec.provisioningController.bfCFGTemplateConfigMap`).
+  `carbide-fmds`, and `carbide-otelcol`). The set is built from the deployment's
+  resolved services -- either its `[dpf.deployments.<name>.services]` override if
+  set, otherwise the top-level `[dpf.services]`.
+- A `DPUDeployment` CR named after the deployment's `deployment_name`, which
+  references the BFB, the DPUFlavor, and the service templates above, and which
+  the DPF operator then reconciles into actual `DPUService` and per-DPU
+  resources.
 
 Because this path runs only at process start, **any change to `[dpf]`** —
-enabling DPF for the first time, changing the BFB URL, renaming the
-`DPUDeployment`/`DPUFlavor`, pinning a different chart/image version under
-`[dpf.services.*]`, or adding/changing `[dpf.proxy]` — **requires a carbide-api
-restart** for the new configuration to take effect.
+enabling DPF for the first time, changing a deployment's BFB URL, renaming a
+`DPUDeployment`/`DPUFlavor`, adding or removing `[dpf.deployments.bf4_generic]`,
+pinning a different chart/image version under `[dpf.services.*]` or a
+deployment's `[dpf.deployments.<name>.services]`, or adding/changing
+`[dpf.proxy]` — **requires a carbide-api restart** for the new configuration to
+take effect.
 
 ---
 
@@ -804,7 +877,7 @@ the compile time version) against what is actually deployed
 in the cluster:
 
 | Column | Meaning |
-|---|---|
+| --- | --- |
 | `Service` | Logical service name (`dts`, `doca-hbn`, ...). |
 | `Config Helm Version` | Helm chart version used by NICo. |
 | `Live Helm Version` | Helm chart version currently deployed; suffixed with `(match)` or `(DIFFERS)`, or `n/a` if not deployed. |
@@ -818,7 +891,7 @@ configured versions onto the cluster.
 ### Quick reference
 
 | Goal | Command |
-|---|---|
+| --- | --- |
 | Turn DPF on for an already-discovered host (transient) | `nico-admin-cli dpf enable <host-id>` |
 | Show DPF state for one host | `nico-admin-cli dpf show <host-id>` |
 | List DPF state for all hosts | `nico-admin-cli dpf show` |
