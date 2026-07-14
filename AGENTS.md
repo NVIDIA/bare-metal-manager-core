@@ -212,65 +212,89 @@ lives in [`docs/observability/instrumentation.md`](docs/observability/instrument
 These are release gates, not style guidance. Apply every gate touched by the
 change before requesting review.
 
-- **Interface contract gate:** For every documented command, flag, environment
-  variable, config key, API field, mode, or state, verify from code, schema, or
-  exercised output: exact spelling and case; required or optional condition;
-  default; accepted values, units, formats, and bounds; mutual exclusions and
-  interactions; global versus subcommand position and required order;
-  omission or fallback behavior; and observable output, side effects, errors,
-  and unsupported paths. Exercise each changed example at the PR revision on
-  an authorized local or test target and compare it with real `--help` output.
-  If any answer is unknown, stop and ask the owner; another documentation page
-  is not evidence.
-- **Generated interface gate:** Never edit a generated reference alone.
-  For `nico-admin-cli`, change the Clap declarations under
-  `crates/admin-cli/src/`, verify the affected command with
-  `cargo run -q -p nico-admin-cli -- <command-path> --help`, then run
-  `cargo make gen-cli-docs` and `cargo make check-cli-docs`; see
-  `crates/admin-cli/AGENTS.md` for the generated and hand-authored boundaries.
-  For REST, use `rest-api/openapi/spec.yaml` for the contract and inspect the
-  handler or model for conditional behavior the schema cannot express. When
-  the spec changes, run `make rest-api/lint-openapi`,
-  `make rest-api/generate-sdk`, `make rest-api/publish-openapi`, and
-  `make openapi-breaking`; do not edit `rest-api/sdk/standard/` or
-  `rest-api/docs/index.html` alone.
-- **Workflow parity gate:** For setup documentation,
-  `helm-prereqs/setup.sh` is the source of truth for phases, skip flags,
-  environment requirements, and component order. Run
-  `bash -n helm-prereqs/setup.sh` and cross-check `helm-prereqs/README.md` and
-  `docs/getting-started/quick-start.md`. For state-machine documentation, trace
-  every success, skip, retry, poll, restart, deletion, maintenance, and error
-  transition to its enum and handler. Narrative, Mermaid, and transition tables
-  must contain the same states and edges, including persisted resume state.
-- **Metric catalogue gate:** Treat metric HELP text and
-  `docs/observability/core_metrics.md` as generated API documentation. Verify
-  what causes the observation, its counter/gauge/histogram type, the exact
-  entity and condition measured, direction or protocol, and every label
-  dimension. New metrics need non-empty `describe` text and must be exercised
-  by `test_integration` so catalogue generation includes their exposed name,
-  type, and description. Do not patch the generated table alone.
-- **Cross-surface drift gate:** Search every changed literal or behavior with
-  `rg -n --fixed-strings '<literal>' README.md crates/ rest-api/ docs/ book/ helm/ helm-prereqs/ deploy/`;
-  reconcile every conflicting hit or establish one canonical explanation and
-  link the others to it. New or moved public pages must be present in
-  `docs/index.yml`, and changed public paths need redirects in `fern/docs.yml`.
-  `docs/release-notes.md` owns current unified releases;
-  `rest-api/CHANGELOG.md` is legacy history whose published entry order must be
-  preserved.
-- **Temporary claim and version gate:** Search changed prose for `currently`,
-  `today`, `for now`, `temporarily`, and `draft`. Each match must name a release,
-  deliberate support boundary, or full tracking URL; a bare issue number or
-  review-history note is insufficient. Hard-code a tool or dependency version
-  only when it is a tested minimum, maximum, or pinned compatibility boundary;
-  otherwise link the authoritative release page.
-- **Renderer gate:** Run
-  `rumdl check --config docs/.rumdl.toml <changed-markdown-files>` and fail on
-  every finding. For Fern-published pages, run `fern check` and inspect the PR
-  preview; if it is unavailable, use `(cd fern && fern docs dev)`. Inspect
-  generated `nico-admin-cli` pages in GitHub's renderer and OpenAPI output with
-  `make rest-api/preview-openapi`. Check navigation, anchors, wide tables,
-  Mermaid layout, and component rendering in the actual target; lint success
-  is not rendered verification.
+- **Interface contract gate:** Document the complete contract, not just the name or happy path.
+
+  - For every documented command, flag, environment variable, config key, API
+    field, mode, or state, verify from code, schema, or exercised output: exact
+    spelling and case; required or optional condition; default; accepted
+    values, units, formats, and bounds; mutual exclusions and interactions;
+    global versus subcommand position and required order; omission or fallback
+    behavior; and observable output, side effects, errors, and unsupported
+    paths.
+  - Exercise each changed example at the PR revision on an authorized local or
+    test target and compare it with real `--help` output.
+  - If any answer is unknown, stop and ask the owner; another documentation page
+    is not evidence.
+
+- **Generated interface gate:** Change the source, regenerate every output, and prove they stay in sync.
+
+  - Never edit a generated reference alone.
+  - For `nico-admin-cli`, change the Clap declarations under
+    `crates/admin-cli/src/`, verify the affected command with
+    `cargo run -q -p nico-admin-cli -- <command-path> --help`, then run
+    `cargo make gen-cli-docs` and `cargo make check-cli-docs`. See
+    `crates/admin-cli/AGENTS.md` for the generated and hand-authored boundaries.
+  - For REST, use `rest-api/openapi/spec.yaml` for the contract and inspect the
+    handler or model for conditional behavior the schema cannot express. When
+    the spec changes, run `make rest-api/lint-openapi`,
+    `make rest-api/generate-sdk`, `make rest-api/publish-openapi`, and
+    `make openapi-breaking`; do not edit `rest-api/sdk/standard/` or
+    `rest-api/docs/index.html` alone.
+
+- **Workflow parity gate:** Make the documentation match the workflow that actually runs.
+
+  - For setup documentation, `helm-prereqs/setup.sh` is the source of truth for
+    phases, skip flags, environment requirements, and component order. Run
+    `bash -n helm-prereqs/setup.sh` and cross-check `helm-prereqs/README.md` and
+    `docs/getting-started/quick-start.md`.
+  - For state-machine documentation, trace every success, skip, retry, poll,
+    restart, deletion, maintenance, and error transition to its enum and
+    handler. Narrative, Mermaid, and transition tables must contain the same
+    states and edges, including persisted resume state.
+
+- **Metric catalogue gate:** A metric is not documented until its HELP text, emitted series, and generated catalogue agree.
+
+  - Treat metric HELP text and `docs/observability/core_metrics.md` as generated
+    API documentation.
+  - Verify what causes the observation, its counter/gauge/histogram type, the
+    exact entity and condition measured, direction or protocol, and every label
+    dimension.
+  - New metrics need non-empty `describe` text and must be exercised by
+    `test_integration` so catalogue generation includes their exposed name,
+    type, and description. Do not patch the generated table alone.
+
+- **Cross-surface drift gate:** Change a fact everywhere it appears or make one page canonical and link the rest.
+
+  - Search every changed literal or behavior with
+    `rg -n --fixed-strings '<literal>' README.md crates/ rest-api/ docs/ book/ helm/ helm-prereqs/ deploy/`;
+    reconcile every conflicting hit or establish one canonical explanation and
+    link the others to it.
+  - New or moved public pages must be present in `docs/index.yml`, and changed
+    public paths need redirects in `fern/docs.yml`.
+  - `docs/release-notes.md` owns current unified releases;
+    `rest-api/CHANGELOG.md` is legacy history whose published entry order must
+    be preserved.
+
+- **Temporary claim and version gate:** Tie temporary claims and pinned versions to a real support boundary.
+
+  - Search changed prose for `currently`, `today`, `for now`, `temporarily`, and
+    `draft`. Each match must name a release, deliberate support boundary, or
+    full tracking URL; a bare issue number or review-history note is
+    insufficient.
+  - Hard-code a tool or dependency version only when it is a tested minimum,
+    maximum, or pinned compatibility boundary; otherwise link the authoritative
+    release page.
+
+- **Renderer gate:** Review each artifact in the renderer its readers actually use.
+
+  - Run `rumdl check --config docs/.rumdl.toml <changed-markdown-files>` and fail
+    on every finding.
+  - For Fern-published pages, run `fern check` and inspect the PR preview; if it
+    is unavailable, use `(cd fern && fern docs dev)`.
+  - Inspect generated `nico-admin-cli` pages in GitHub's renderer and OpenAPI
+    output with `make rest-api/preview-openapi`. Check navigation, anchors, wide
+    tables, Mermaid layout, and component rendering in the actual target; lint
+    success is not rendered verification.
 
 ## Further Reading
 
