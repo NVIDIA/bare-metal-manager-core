@@ -68,6 +68,30 @@ func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 			},
 		},
 		{
+			name: "configured_base_url_accepts_matching_scheme_and_host_case",
+			in: map[string]any{
+				"base_url": "https://OPTS.example.com/v2/",
+			},
+			req:  requestWithBearer("from-header"),
+			opts: Options{BaseURL: "HTTPS://opts.example.com/v2", Org: "opts-org", APIName: "nico"},
+			expected: expect{
+				baseURL: "https://OPTS.example.com/v2",
+				org:     "opts-org",
+				apiName: "nico",
+				token:   "from-header",
+			},
+		},
+		{
+			name: "configured_base_url_rejects_different_path_case",
+			in: map[string]any{
+				"base_url": "https://opts.example.com/V2",
+			},
+			opts: Options{BaseURL: "https://opts.example.com/v2", Org: "opts-org", APIName: "nico"},
+			expected: expect{
+				errContains: "does not match the configured server base URL",
+			},
+		},
+		{
 			name: "dynamic_destination_rejects_inbound_bearer_without_call_token",
 			in: map[string]any{
 				"base_url": "https://from-arg.example.com",

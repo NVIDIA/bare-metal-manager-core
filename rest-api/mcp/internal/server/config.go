@@ -86,7 +86,7 @@ type resolvedConfig struct {
 func (cfg *resolvedConfig) FromCallConfig(in map[string]any, req *mcp.CallToolRequest, opts Options) error {
 	callBaseURL := normalizeBaseURL(stringArg(in, "base_url"))
 	configuredBaseURL := normalizeBaseURL(opts.BaseURL)
-	if configuredBaseURL != "" && callBaseURL != "" && callBaseURL != configuredBaseURL {
+	if configuredBaseURL != "" && callBaseURL != "" && !sameBaseURL(callBaseURL, configuredBaseURL) {
 		return fmt.Errorf("per-call base_url does not match the configured server base URL")
 	}
 
