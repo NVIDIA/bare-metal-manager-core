@@ -398,6 +398,12 @@ async fn test_managed_host_health_alert_exact_filter(pool: sqlx::PgPool) -> eyre
     assert!(body_str.contains(&mh_alerting.host.id.to_string()));
     assert!(!body_str.contains(&mh_healthy.host.id.to_string()));
 
+    // The dynamic dropdown should include this alert ID as the selected option.
+    assert!(
+        body_str.contains(r#"<option value="IntrusionSensorTriggered" selected>"#),
+        "expected the alert ID to appear as a selected dropdown option"
+    );
+
     Ok(())
 }
 
