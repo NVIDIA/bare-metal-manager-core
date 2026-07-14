@@ -74,7 +74,8 @@ DOF
   ilog "Found the following number of certs in the certdb - $num_certs"
   if ((num_certs == 0)); then
     # Only run the call if there are no existing certs, otherwise it could cause subsequent installs of the DPU to fail
-    $CURL_CMD -d @data.json https://"$BMC_IP"/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates
+    # Use --retry 0 to avoid duplicate certificate POSTs on transient failures
+    $CURL_CMD --retry 0 -d @data.json https://"$BMC_IP"/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates
   fi
 }
 
@@ -93,8 +94,8 @@ bmc_custom_action4() {
 
     while ((tries_ok < 2 && tries < max_tries)); do
       http_code=$($CURL_CMD -s --retry 0 --max-time 5 -w "%{http_code}" https://"$BMC_IP"/redfish/v1/ -o /dev/null)
-      [[ "$http_code" == "200" ]] && ((tries_ok++))
-      ((tries++))
+      [[ "$http_code" == "200" ]] && ((++tries_ok))
+      ((++tries))
       sleep 5
     done
 
