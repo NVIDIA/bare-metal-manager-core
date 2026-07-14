@@ -113,9 +113,9 @@ The required credentials include the following:
 https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --nico-root-ca-path <NICO_ROOT_CA_PATH> --client-cert-path <CLIENT_CERT_PATH>  --client-key-path <CLIENT_KEY_PATH>
 ```
 
-### Update Host and DPU BMC Password
+### Store Host and DPU BMC Password
 
-Run this command to update the desired Host and DPU BMC password:
+Run this command to store the desired Host and DPU BMC password:
 
 ```bash
 nicocli bmc-credential create \
@@ -124,7 +124,7 @@ nicocli bmc-credential create \
   --password '<password>'
 ```
 
-### Update Host UEFI Password
+### Store Host and DPU UEFI Passwords
 
 Run this command to store the desired host UEFI password:
 
@@ -270,8 +270,15 @@ The expected machines table in the nico-api database holds the following fields 
 Use `nicocli` to operate on individual entries:
 
 ```bash
-nicocli expected-machine update <expected-machine-id> ...
-nicocli expected-machine create ...
+nicocli expected-machine update \
+  --description '<description>' \
+  <expected-machine-id>
+nicocli expected-machine create \
+  --site-id <site-uuid> \
+  --bmc-mac-address <mac> \
+  --chassis-serial-number <chassis-serial> \
+  --default-bmc-username <bmc-username> \
+  --default-bmc-password <bmc-password>
 nicocli expected-machine delete <expected-machine-id>
 ```
 
@@ -283,6 +290,8 @@ Create or update entries from a JSON file:
 nicocli expected-machine batch-create --data-file expected-machines.json
 nicocli expected-machine batch-update --data-file expected-machine-updates.json
 ```
+
+See [Ingesting Hosts (REST API)](ingesting-hosts-rest-api.md#batch-update) for the batch update JSON shape.
 
 Delete an entry by ID:
 
