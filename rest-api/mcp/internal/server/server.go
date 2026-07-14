@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -32,9 +33,9 @@ import (
 // BuildServer constructs an *mcp.Server with one tool registered for
 // every GET operation in the supplied OpenAPI spec. Tool names follow
 // the SDD: nico_<snake_case(operationId)>. Each tool handler builds a
-// fresh appcli.Client per call from resolvedConfig.FromCallConfig and
-// forwards the bearer token from the inbound MCP request to NICo REST
-// unchanged.
+// fresh appcli.Client per call from resolvedConfig.FromCallConfig. Inbound
+// bearer tokens are forwarded unchanged only to the configured NICo REST
+// base URL.
 //
 // BuildServer does not start a listener; callers wrap the result with
 // NewHandler to get an *http.Handler ready for ListenAndServe.
@@ -123,7 +124,7 @@ func ServeFlags() []urfave.Flag {
 		},
 		&urfave.StringFlag{
 			Name:    "base-url",
-			Usage:   "default NICo REST base URL (a per-call base_url argument overrides this)",
+			Usage:   "trusted NICo REST base URL (a per-call base_url must match when this is set)",
 			EnvVars: []string{"NICO_BASE_URL"},
 		},
 		&urfave.StringFlag{
@@ -139,7 +140,7 @@ func ServeFlags() []urfave.Flag {
 		},
 		&urfave.StringFlag{
 			Name:    "token",
-			Usage:   "default bearer token (a per-call token argument or inbound Authorization header overrides this)",
+			Usage:   "default bearer token for the configured base URL (a per-call token or inbound Authorization header overrides this)",
 			EnvVars: []string{"NICO_TOKEN"},
 		},
 		&urfave.BoolFlag{
@@ -237,6 +238,7 @@ func registerGET(server *mcp.Server, path string, item *openapi3.PathItem, opts 
 			return errorResult(err), nil, nil
 		}
 		client := appcli.NewClient(cfg.BaseURL, cfg.Org, cfg.Token, opts.Log, opts.Debug)
+		client.HTTPClient.CheckRedirect = sameOriginRedirectPolicy
 		client.APIName = cfg.APIName
 
 		pathParams, queryParams, err := splitArgs(in, allParams)
@@ -249,6 +251,38 @@ func registerGET(server *mcp.Server, path string, item *openapi3.PathItem, opts 
 		}
 		return jsonResult(body, respHeader), nil, nil
 	})
+}
+
+// sameOriginRedirectPolicy preserves net/http's redirect limit while refusing
+// to send an MCP request to a different origin.
+func sameOriginRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if len(via) == 0 || sameOrigin(via[0].URL, req.URL) {
+		return nil
+	}
+	return errors.New("refusing cross-origin redirect")
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		effectivePort(a) == effectivePort(b)
+}
+
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
 }
 
 // toolName converts an operationId to the SDD's canonical MCP tool name
@@ -366,9 +400,10 @@ func registerHandler(mux *http.ServeMux, path string, handler http.Handler) (err
 // process flags (each of which also reads its NICO_* environment
 // variable). Unlike the dynamically-generated CLI commands, nico-mcp does
 // NOT read ~/.nico/config.yaml: the server is stateless and entirely
-// parameter-driven, so every connection detail is supplied per tool call
-// via resolvedConfig.FromCallConfig, with these flag values as the only
-// fallback. This lets nico-mcp start cleanly with no config file present.
+// parameter-driven, so connection details are resolved per tool call via
+// resolvedConfig.FromCallConfig, with these flag values as fallbacks. A
+// configured base URL binds requests and inherited credentials to that
+// destination. This lets nico-mcp start cleanly with no config file present.
 func buildServeOptions(c *urfave.Context) Options {
 	log := logrus.NewEntry(logrus.StandardLogger())
 	if c.Bool("debug") {
