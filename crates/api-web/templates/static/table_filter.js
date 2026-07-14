@@ -55,6 +55,10 @@
 
 		const count = document.createElement("span");
 		count.className = "table-filter-count";
+		// Announce filter results (e.g. "Showing 12 of 500", "No matching rows")
+		// to screen readers as the user types.
+		count.setAttribute("aria-live", "polite");
+		count.setAttribute("aria-atomic", "true");
 
 		wrapper.appendChild(input);
 		wrapper.appendChild(count);

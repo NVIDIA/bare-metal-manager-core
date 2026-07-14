@@ -234,8 +234,10 @@ async fn fetch_instance_types(
 
         // Just handles the other case of someone messing around with the
         // query params and suddenly setting a limit that makes
-        // current_record_cnt_seen no longer make sense.
-        if current_record_cnt_seen > all_ids.len() {
+        // current_record_cnt_seen no longer make sense. `>=` (not `>`) so the
+        // first out-of-range page returns early instead of issuing a lookup with
+        // no IDs when the count is an exact multiple of limit.
+        if current_record_cnt_seen >= all_ids.len() {
             return Ok((pages, vec![]));
         }
 

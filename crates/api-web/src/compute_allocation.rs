@@ -175,7 +175,9 @@ async fn fetch_compute_allocations(
         let pages = all_ids.len().div_ceil(limit);
         let current_record_cnt_seen = current_page.saturating_mul(limit);
 
-        if current_record_cnt_seen > all_ids.len() {
+        // `>=` (not `>`) so the first out-of-range page returns early instead of
+        // issuing a lookup with no IDs when the count is an exact multiple of limit.
+        if current_record_cnt_seen >= all_ids.len() {
             return Ok((pages, vec![]));
         }
 
