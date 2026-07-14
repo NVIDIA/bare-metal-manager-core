@@ -13907,6 +13907,7 @@ components:
         updateFirmware:
           type: boolean
           default: false
+          deprecated: true
           description: Deprecated compatibility field. Firmware is always verified and updated during reprovisioning.
         acknowledgeAttachedInstance:
           type: boolean
