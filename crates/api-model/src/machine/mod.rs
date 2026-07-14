@@ -286,6 +286,18 @@ pub fn pick_boot_interface(
         return Some(primary);
     }
     // ..no primary, so lets try to find *some* interface.
+    pick_default_boot_interface(interfaces)
+}
+
+/// What [`pick_boot_interface`] falls back to when no row is flagged primary:
+/// the lowest-MAC non-underlay interface (ordering rationale in its docs).
+///
+/// Public so the admin boot-interface view can report this pick alongside the
+/// effective one: comparing the two shows whether a primary designation is
+/// overriding what the automation would have chosen, or merely confirming it.
+pub fn pick_default_boot_interface(
+    interfaces: &[MachineInterfaceSnapshot],
+) -> Option<&MachineInterfaceSnapshot> {
     interfaces
         .iter()
         .filter(|x| x.network_segment_type != Some(NetworkSegmentType::Underlay))
@@ -309,7 +321,7 @@ fn pick_boot_interface_pair(
 
 /// Pick the predicted interface a host should boot from in the window before
 /// its first DHCP lease creates a real `machine_interfaces` row. Mirrors
-/// `pick_boot_interface`'s precedence, one rung down -- predictions, not rows:
+/// `pick_boot_interface`'s precedence, one step down -- predictions, not rows:
 ///
 /// 1. A prediction flagged `primary_interface` wins -- the declared
 ///    `ExpectedHostNic.primary`, recorded onto the prediction at minting.
@@ -3495,6 +3507,44 @@ mod tests {
             pick_boot_interface_mac(&interfaces),
             Some(onboard_mac_lo.parse().unwrap())
         );
+    }
+
+    // The default pick deliberately ignores the primary flag: it answers "what
+    // would the automation choose if nothing were declared?", so a primary on a
+    // higher MAC must not win here even though `pick_boot_interface` returns it.
+    #[test]
+    fn pick_default_boot_interface_ignores_the_primary_flag() {
+        let primary_mac = "10:00:00:00:00:01";
+        let lower_mac = "05:00:00:00:00:01";
+        let interfaces = vec![
+            build_mock_interface(lower_mac, false, Some(NetworkSegmentType::HostInband)),
+            build_mock_interface(primary_mac, true, Some(NetworkSegmentType::Admin)),
+        ];
+
+        assert_eq!(
+            pick_boot_interface(&interfaces).map(|i| i.mac_address),
+            Some(primary_mac.parse().unwrap()),
+            "the effective pick honors the primary flag"
+        );
+        assert_eq!(
+            pick_default_boot_interface(&interfaces).map(|i| i.mac_address),
+            Some(lower_mac.parse().unwrap()),
+            "the default pick masks the primary flag and takes the lowest non-underlay MAC"
+        );
+    }
+
+    // Underlay rows are never default-pick candidates, and an all-underlay set
+    // yields no default at all.
+    #[test]
+    fn pick_default_boot_interface_excludes_underlay_rows() {
+        let underlay_mac = "01:00:00:00:00:01";
+        let interfaces = vec![build_mock_interface(
+            underlay_mac,
+            false,
+            Some(NetworkSegmentType::Underlay),
+        )];
+
+        assert!(pick_default_boot_interface(&interfaces).is_none());
     }
 
     // boot_interface() derives the full pair from the SAME primary row that the

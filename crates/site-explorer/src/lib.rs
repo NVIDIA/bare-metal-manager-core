@@ -1867,11 +1867,6 @@ impl SiteExplorer {
         let expected_machines = db::expected_machine::find_all(&mut txn).await?;
         let expected_power_shelves = db::expected_power_shelf::find_all(&mut txn).await?;
 
-        let explore_power_shelves_from_static_ip = self
-            .config
-            .explore_power_shelves_from_static_ip
-            .load(Ordering::Relaxed);
-
         // Load SKU information for expected machines to record metrics
         let sku_ids: Vec<&str> = expected_machines
             .iter()
@@ -2088,8 +2083,8 @@ impl SiteExplorer {
                     }
                 }
                 None => {
-                    if endpoint.report.is_power_shelf() && explore_power_shelves_from_static_ip {
-                        tracing::info!(%address, "Not deleting power shelf endpoint from database, as we are sourcing power shelves from static IP's")
+                    if endpoint.report.is_power_shelf() {
+                        tracing::info!(%address, "Retaining power shelf endpoint with no underlay interface; power shelves are sourced from their expected static IP")
                     } else {
                         delete_endpoints.push(*address)
                     }
@@ -2496,8 +2491,7 @@ impl SiteExplorer {
 
                     let power_shelf_manual_ingestion = endpoint
                         .expected
-                        .is_some_and(|v| matches!(v, ExpectedEntity::PowerShelf(_)))
-                        && explore_power_shelves_from_static_ip;
+                        .is_some_and(|v| matches!(v, ExpectedEntity::PowerShelf(_)));
 
                     if !self.config.create_machines.load(Ordering::Relaxed)
                         || power_shelf_manual_ingestion

@@ -87,13 +87,7 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     // Connect to MQTT and get message receiver. mqttea tracks subscriptions
     // and replays them after reconnect when the broker reports that the
     // previous session was not resumed.
-    let rx = mqtt_consumer::connect(
-        &config.mqtt,
-        consumer_metrics.clone(),
-        &meter,
-        credential_manager.clone(),
-    )
-    .await?;
+    let rx = mqtt_consumer::connect(&config.mqtt, &meter, credential_manager.clone()).await?;
 
     // Set up API client and create health updater
     let join_updater = if let Some(api_config) = config.carbide_api {

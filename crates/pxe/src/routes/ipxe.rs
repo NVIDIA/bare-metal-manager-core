@@ -166,7 +166,7 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
             let instructions = pxe_response
                 .map(|resp| resp.pxe_script)
                 .unwrap_or_else(|err| {
-                    eprintln!("{err}");
+                    tracing::error!(error = %err, "failed to fetch custom ipxe script");
                     format!(
                         r#"
 echo Failed to fetch custom_ipxe: {err} ||

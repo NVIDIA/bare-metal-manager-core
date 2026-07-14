@@ -75,7 +75,7 @@ impl ComponentMetrics {
         let failures_total = IntCounterVec::new(
             prometheus::Opts::new(
                 format!("{prefix}_component_failures_total"),
-                "Count of component operation failures",
+                "Number of component operation failures",
             ),
             &["component_kind", "component_name"],
         )?;

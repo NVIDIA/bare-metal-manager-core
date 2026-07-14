@@ -25,7 +25,12 @@ authors.workspace = true
 mqttea = { path = "../mqttea", default-features = false }
 
 async-trait = { workspace = true }
+carbide-instrument = { path = "../instrument" }
 opentelemetry = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
+carbide-test-support = { path = "../test-support" }

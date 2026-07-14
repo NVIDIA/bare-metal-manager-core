@@ -87,6 +87,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     let fig = Figment::new().merge(Toml::file(config_path));
     let app_config: MachineATronConfig = fig.extract()?;
+    app_config.validate()?;
     let tui_host_logs = if app_config.tui_enabled {
         Some(TuiHostLogs::start_new(100))
     } else {

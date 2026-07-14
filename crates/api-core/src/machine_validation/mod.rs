@@ -22,6 +22,7 @@ use std::io;
 use std::sync::Arc;
 
 use carbide_machine_controller::config::machine_validation::MachineValidationConfig;
+use carbide_utils::managed_loop::{self, LoopManager};
 use carbide_utils::periodic_timer::PeriodicTimer;
 use db::ObjectColumnFilter;
 use db::machine_validation::StateColumn;
@@ -171,9 +172,8 @@ impl MachineValidationManager {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
             let tick = timer.tick();
-            if let Err(e) = self.run_single_iteration().await {
-                tracing::warn!("MachineValidationManager error: {}", e);
-            }
+            let result = self.run_single_iteration().await;
+            managed_loop::record_iteration(LoopManager::MachineValidationManager, &result);
 
             tokio::select! {
                 _ = tick.sleep() => {},

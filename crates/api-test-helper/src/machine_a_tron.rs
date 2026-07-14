@@ -44,6 +44,8 @@ pub async fn run_local(
     bmc_address_registry: Option<BmcMockRegistry>,
     mac_address_pool: Arc<Mutex<MacAddressPool>>,
 ) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
+    app_config.validate()?;
+
     let forge_root_ca_path = get_root_ca_path(None, None); // Will get it from the local repo
     let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
 

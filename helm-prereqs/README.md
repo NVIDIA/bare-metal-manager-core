@@ -182,6 +182,7 @@ It supports these common deployment modes:
 | `-y` | Non-interactive mode; accept setup prompts automatically. |
 | `--skip-core` | Install prerequisites and REST, but skip the NICo Core Helm release. |
 | `--skip-rest` | Install prerequisites and Core, but skip all REST phases and REST repo checks. |
+| `--skip-flow` | Skip NICo Flow in Phase 7h. You can also set `flow.enabled=false` in `values.yaml` to omit Flow prerequisites. |
 | `--skip-core --skip-rest` | Infrastructure-only run; image tags, image registry, and REST repo are not required. |
 | `--core-values <file>` | Use site-specific Core values instead of `helm-prereqs/values/nico-core.yaml`. |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest file or kustomize directory. |
@@ -194,15 +195,15 @@ existing imagePullSecrets in values.
 
 ## What gets deployed
 
-```
+```text
 local-path-provisioner     (raw manifest - StorageClasses for Vault + PostgreSQL PVCs)
 metallb                    (metallb/metallb 0.14.5 - LoadBalancer IPs via BGP or L2)
 postgres-operator          (zalando/postgres-operator 1.10.1 - manages nico-pg-cluster)
 cert-manager               (jetstack/cert-manager v1.17.1)
 vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
-nico-prereqs            (this Helm chart - nico-system namespace)
-NICo Core      (../helm - nico-core.yaml values)
+nico-prereqs               (this Helm chart - nico-system namespace)
+NICo Core                  (../helm - nico-core.yaml values)
   ├── nico-api              (Deployment - gRPC/REST API, requires PostgreSQL + Vault)
   ├── nico-bmc-proxy        (Deployment - authenticating Redfish proxy)
   ├── nico-dhcp             (Deployment - Kea DHCP, advertises hook params to DPUs)
@@ -212,13 +213,14 @@ NICo Core      (../helm - nico-core.yaml values)
   ├── nico-pxe              (Deployment - HTTP PXE boot)
   ├── nico-ssh-console-rs   (Deployment - SSH console proxy)
   └── unbound               (Deployment - .forge zone DNS, opt-in)
-NICo REST      (rest-api/helm/charts/nico-rest)
-  ├── nico-rest-ca-issuer ClusterIssuer (cert-manager.io)
+NICo REST                  (../helm/rest/nico-rest)
+  ├── nico-rest-ca-issuer   (ClusterIssuer - cert-manager.io)
   ├── postgres StatefulSet  (temporal + keycloak + NICo databases)
   ├── keycloak              (dev OIDC IdP, nico-dev realm)
   ├── temporal              (temporal-helm/temporal, mTLS)
-  ├── nico-rest          (API, cert-manager, workflow, site-manager)
-  └── nico-rest-site-agent (StatefulSet, bootstrap via site-manager)
+  └── nico-rest             (API, cert-manager, workflow, site-manager)
+NICo Flow                  (../helm/charts/nico-flow - Flow, PSM, and NSM)
+NICo REST site-agent       (../helm/rest/nico-rest-site-agent - StatefulSet, bootstrap via site-manager)
 ```
 
 ## DPU compatibility DNS (`.forge` zone) — REQUIRED for DPU bring-up

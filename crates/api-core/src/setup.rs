@@ -1227,7 +1227,6 @@ async fn initialize_and_start_controllers<'a>(
                     config: config.periodic_state_republish.clone(),
                     host_health_config: carbide_config.host_health,
                 },
-                &meter,
             )
             .start(join_set, cancel_token.clone())?;
 

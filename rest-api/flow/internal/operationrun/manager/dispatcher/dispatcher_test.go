@@ -132,6 +132,11 @@ func TestDispatchRunSubmitsPendingTargetsUpToConcurrency(t *testing.T) {
 
 	require.Len(t, taskManager.requests, 1)
 	require.Equal(t, firstRackID, taskManager.requests[0].RequiredRackID)
+	require.Equal(
+		t,
+		targetIdempotencyKey(store.targets[0].ID),
+		taskManager.requests[0].IdempotencyKey,
+	)
 	require.Equal(t, operation.ConflictStrategyReject, taskManager.requests[0].ConflictStrategy)
 	require.Equal(
 		t,
@@ -145,6 +150,43 @@ func TestDispatchRunSubmitsPendingTargetsUpToConcurrency(t *testing.T) {
 	require.Equal(t, operationrun.OperationRunTargetStatusSubmitted, store.targets[0].Status)
 	require.Equal(t, &taskID, store.targets[0].TaskID)
 	require.Equal(t, operationrun.OperationRunTargetStatusPending, store.targets[1].Status)
+}
+
+func TestDispatchRunRetriesClaimedTargetWithStableIdempotencyKey(t *testing.T) {
+	runID := uuid.New()
+	rackID := uuid.New()
+	taskID := uuid.New()
+	now := time.Date(2026, 6, 26, 10, 2, 0, 0, time.UTC)
+	target := testTarget(runID, rackID, uuid.New(), 0, 0)
+	target.Status = operationrun.OperationRunTargetStatusClaimed
+	expired := now.Add(-time.Second)
+	target.RetryAfter = &expired
+
+	store := newFakeStore(
+		testRun(t, runID, 1, operationrun.PhasePolicy{}),
+		[]*operationrun.OperationRunTarget{target},
+	)
+	store.run.Status = operationrun.OperationRunStatusRunning
+	taskManager := &fakeTaskManager{
+		results: map[uuid.UUID]submitResult{
+			rackID: {ids: []uuid.UUID{taskID}},
+		},
+	}
+	dispatcher := newTestDispatcherAt(t, Dependencies{
+		Store:       store,
+		TaskManager: taskManager,
+		TaskStore:   &fakeTaskStore{},
+	}, Config{
+		FetchBatch: 10,
+	}, now)
+
+	err := dispatcher.dispatchRun(context.Background(), runID)
+	require.NoError(t, err)
+
+	require.Len(t, taskManager.requests, 1)
+	require.Equal(t, targetIdempotencyKey(target.ID), taskManager.requests[0].IdempotencyKey)
+	require.Equal(t, operationrun.OperationRunTargetStatusSubmitted, store.targets[0].Status)
+	require.Equal(t, &taskID, store.targets[0].TaskID)
 }
 
 func TestDispatchRunReconcilesCompletedTaskAndCompletesRun(t *testing.T) {

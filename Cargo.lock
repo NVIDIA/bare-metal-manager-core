@@ -1102,6 +1102,7 @@ dependencies = [
  "opentelemetry_sdk",
  "prometheus",
  "prost",
+ "prost-types",
  "rand 0.10.1",
  "regex",
  "reqwest 0.13.4",
@@ -1118,6 +1119,7 @@ dependencies = [
  "surge-ping",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
@@ -1361,6 +1363,7 @@ dependencies = [
  "carbide-machine-a-tron",
  "carbide-secrets",
  "carbide-utils",
+ "carbide-uuid",
  "ctor",
  "eyre",
  "futures",
@@ -2325,6 +2328,7 @@ dependencies = [
  "bmc-mock",
  "carbide-network",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -2486,6 +2490,8 @@ name = "carbide-mqtt-common"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-instrument",
+ "carbide-test-support",
  "mqttea",
  "opentelemetry 0.32.0",
  "tokio",
@@ -2600,6 +2606,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-firmware",
+ "carbide-instrument",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-ssh",
@@ -2650,12 +2657,14 @@ dependencies = [
  "carbide-version",
  "clap",
  "http-body",
+ "logfmt",
  "metrics",
  "metrics-endpoint",
  "metrics-exporter-prometheus",
  "mime",
  "pin-project-lite",
  "prometheus",
+ "rand 0.10.1",
  "serde",
  "tempfile",
  "tera",
@@ -2666,6 +2675,8 @@ dependencies = [
  "tower-http",
  "tower-layer",
  "tower-service",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -2919,12 +2930,14 @@ dependencies = [
  "async-trait",
  "base64",
  "bmc-vendor",
+ "carbide-instrument",
  "carbide-test-support",
  "carbide-uuid",
  "eyre",
  "figment",
  "hex",
  "mac_address",
+ "mockito",
  "notify",
  "opentelemetry 0.32.0",
  "p256 0.14.0-rc.9",
@@ -3205,6 +3218,7 @@ name = "carbide-utils"
 version = "0.0.0"
 dependencies = [
  "byte-unit",
+ "carbide-instrument",
  "carbide-network",
  "carbide-test-support",
  "chrono",
@@ -3220,6 +3234,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6680,7 +6695,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.18#855c57dc567301f36801ac39c3a00432b17de08f"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.19#b52345f45212c674245dffb6053b34dec53ac57b"
 dependencies = [
  "chrono",
  "clap",

@@ -62,11 +62,11 @@ fn generate_forge_agent_config(
 /// missing, the client receives the same generic error template, and the
 /// caller says which missing data it was -- the reason label carries the
 /// per-site truth while the response stays generic.
-fn print_and_generate_generic_error(
+fn log_and_generate_generic_error(
     error: String,
     reason: OutcomeReason,
 ) -> (String, HashMap<String, String>) {
-    eprintln!("{error}");
+    tracing::error!(error = %error, "cloud-init request could not be served");
     emit(PxeBootOutcome {
         endpoint: BootEndpoint::CloudInit,
         reason,
@@ -248,12 +248,12 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                             state.clone(),
                         )
                     }
-                    None => print_and_generate_generic_error(
+                    None => log_and_generate_generic_error(
                         format!("The interface ID should not be null: {interface:?}"),
                         OutcomeReason::InterfaceNotFound,
                     ),
                 },
-                (interface, domain) => print_and_generate_generic_error(
+                (interface, domain) => log_and_generate_generic_error(
                     format!("The interface and domain were not found: {interface:?}, {domain:?}"),
                     OutcomeReason::InterfaceNotFound,
                 ),
@@ -279,7 +279,7 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
 
 pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let (template_key, template_data) = match machine.instructions.metadata {
-        None => print_and_generate_generic_error(
+        None => log_and_generate_generic_error(
             format!("No metadata was found for machine {machine:?}"),
             OutcomeReason::MetadataNotFound,
         ),

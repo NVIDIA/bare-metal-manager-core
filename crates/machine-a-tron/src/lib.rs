@@ -39,7 +39,7 @@ use std::time::{Duration, Instant};
 pub use bmc_mock_wrapper::BmcMockRegistry;
 pub use config::{
     MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig, PersistedDpuMachine,
-    PersistedHostMachine,
+    PersistedHostMachine, RackConfig,
 };
 pub use control_router::{ControlState, append as append_control_routes};
 pub use dpu_machine::DpuMachineHandle;

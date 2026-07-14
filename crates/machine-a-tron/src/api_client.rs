@@ -21,13 +21,14 @@ use bmc_mock::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, MachineInfo};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use mac_address::MacAddress;
 use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, ExpectedPowerShelf, ExpectedSwitch, InlineIpxe,
-    InstanceOperatingSystemConfig, MachinesByIdsRequest, SetDynamicConfigRequest,
-    VpcVirtualizationType,
+    ConfigSetting, ExpectedMachine, ExpectedPowerShelf, ExpectedRack, ExpectedRackRequest,
+    ExpectedSwitch, InlineIpxe, InstanceOperatingSystemConfig, MachinesByIdsRequest,
+    SetDynamicConfigRequest, VpcVirtualizationType,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 
@@ -498,6 +499,7 @@ impl ApiClient {
         &self,
         bmc_mac_address: String,
         chassis_serial_number: String,
+        rack_id: Option<RackId>,
         dpu_mode: Option<rpc::forge::DpuMode>,
     ) -> ClientApiResult<()> {
         self.0
@@ -511,7 +513,7 @@ impl ApiClient {
                 sku_id: None,
                 id: None,
                 host_nics: vec![],
-                rack_id: None,
+                rack_id,
                 default_pause_ingestion_and_poweron: None,
                 #[allow(deprecated)]
                 dpf_enabled: true,
@@ -531,6 +533,7 @@ impl ApiClient {
         &self,
         bmc_mac_address: String,
         shelf_serial_number: String,
+        rack_id: Option<RackId>,
     ) -> ClientApiResult<()> {
         self.0
             .add_expected_power_shelf(ExpectedPowerShelf {
@@ -541,7 +544,7 @@ impl ApiClient {
                 shelf_serial_number,
                 bmc_ip_address: String::new(),
                 metadata: None,
-                rack_id: None,
+                rack_id,
                 bmc_retain_credentials: Some(true),
             })
             .await
@@ -554,6 +557,7 @@ impl ApiClient {
         bmc_mac_address: String,
         switch_serial_number: String,
         nvos_mac_addresses: Vec<String>,
+        rack_id: Option<RackId>,
     ) -> ClientApiResult<()> {
         self.0
             .add_expected_switch(ExpectedSwitch {
@@ -568,10 +572,48 @@ impl ApiClient {
                 bmc_ip_address: String::new(),
                 nvos_ip_address: None,
                 metadata: None,
-                rack_id: None,
+                rack_id,
                 bmc_retain_credentials: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)
+    }
+
+    pub async fn ensure_expected_rack(
+        &self,
+        rack_id: RackId,
+        rack_profile_id: RackProfileId,
+    ) -> ClientApiResult<()> {
+        let expected_rack = ExpectedRack {
+            rack_id: Some(rack_id.clone()),
+            rack_profile_id: Some(rack_profile_id.clone()),
+            metadata: None,
+        };
+
+        match self.0.add_expected_rack(expected_rack).await {
+            Ok(()) => Ok(()),
+            Err(status) if status.code() == tonic::Code::AlreadyExists => {
+                let existing = self
+                    .0
+                    .get_expected_rack(ExpectedRackRequest {
+                        rack_id: rack_id.to_string(),
+                    })
+                    .await
+                    .map_err(ClientApiError::InvocationError)?;
+                if existing.rack_profile_id.as_ref() == Some(&rack_profile_id) {
+                    Ok(())
+                } else {
+                    let existing_profile_id = existing
+                        .rack_profile_id
+                        .as_ref()
+                        .map(RackProfileId::as_str)
+                        .unwrap_or("<missing>");
+                    Err(ClientApiError::ConfigError(format!(
+                        "Expected rack {rack_id} already exists with rack_profile_id {existing_profile_id}, not {rack_profile_id}"
+                    )))
+                }
+            }
+            Err(status) => Err(ClientApiError::InvocationError(status)),
+        }
     }
 }

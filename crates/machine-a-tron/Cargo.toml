@@ -73,6 +73,7 @@ carbide-network = { path = "../network" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 
 [dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 toml = { workspace = true }
 
 [build-dependencies]

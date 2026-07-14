@@ -811,28 +811,28 @@ impl ProcessorMetricsEmitter {
         let dispatched_tasks_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_dispatched"))
             .with_description(format!(
-                "The amount of types that object handling tasks that have been dequeued and dispatched for processing for objects of type {object_type}"
+                "Number of object handling tasks dequeued and dispatched for processing for objects of type {object_type}"
             ))
             .build();
 
         let completed_tasks_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_completed"))
             .with_description(format!(
-                "The amount of object handling tasks that have been completed for objects of type {object_type}"
+                "Number of object handling tasks completed for objects of type {object_type}"
             ))
             .build();
 
         let requeued_tasks_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_requeued"))
             .with_description(format!(
-                "The amount of object handling tasks that have been requeued for objects of type {object_type}"
+                "Number of object handling tasks requeued for objects of type {object_type}"
             ))
             .build();
 
         let errored_tasks_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_errored"))
             .with_description(format!(
-                "Number of object handling tasks that have completed with an error for objects of type {object_type}"
+                "Number of object handling tasks completed with an error for objects of type {object_type}"
             ))
             .build();
 

@@ -23,6 +23,7 @@ use std::time::Duration;
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType};
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use clap::Parser;
 use duration_str::deserialize_duration;
 use mac_address::MacAddress;
@@ -68,6 +69,8 @@ pub struct MachineATronArgs {
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineConfig {
+    #[serde(default)]
+    pub rack_id: Option<RackId>,
     #[serde(default = "default_host_hardware_type")]
     pub hw_type: HostHardwareType,
     pub host_count: u32,
@@ -125,6 +128,11 @@ pub struct MachineConfig {
     pub dpu_agent_version: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct RackConfig {
+    pub rack_profile_id: RackProfileId,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct DpuFirmwareVersions {
     pub bmc: Option<String>,
@@ -177,6 +185,8 @@ impl DpuFirmwareVersions {
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct MachineATronConfig {
+    #[serde(default)]
+    pub racks: BTreeMap<RackId, RackConfig>,
     // note that order is important in machines so that mac addresses are assigned the same way between runs
     #[serde(
         deserialize_with = "deserialize_machine_config",
@@ -264,6 +274,27 @@ pub struct MachineATronConfig {
 }
 
 impl MachineATronConfig {
+    pub fn validate(&self) -> eyre::Result<()> {
+        for (rack_id, rack) in &self.racks {
+            eyre::ensure!(!rack_id.as_str().is_empty(), "rack ID cannot be empty");
+            eyre::ensure!(
+                !rack.rack_profile_id.as_str().is_empty(),
+                "rack {rack_id} has an empty rack_profile_id"
+            );
+        }
+
+        for (machine_group, machine) in &self.machines {
+            if let Some(rack_id) = machine.rack_id.as_ref() {
+                eyre::ensure!(
+                    self.racks.contains_key(rack_id),
+                    "machines.{machine_group}.rack_id references undeclared rack {rack_id}"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn read_persisted_machines(
         &self,
     ) -> eyre::Result<Option<HashMap<String, Vec<PersistedHostMachine>>>> {
@@ -509,11 +540,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
-    #[test]
-    fn test_serialize_config() {
-        let cfg_str = r#"
+    fn rack_config() -> MachineATronConfig {
+        toml::from_str(
+            r#"
 carbide_api_url = "https://carbide-api.forge:443"
 log_file = "mat.log"
 interface = "br-77cbb29de011"
@@ -526,7 +560,11 @@ mat_api_server_listen_port = 2112
 use_single_bmc_mock = true
 configure_carbide_bmc_proxy_host = "192.168.1.20"
 
+[racks.rack-001]
+rack_profile_id = "NVL72"
+
 [machines.config]
+rack_id = "rack-001"
 host_count = 10
 dpu_per_host_count = 2
 dpu_reboot_delay = 1 # in units of seconds
@@ -539,12 +577,77 @@ run_interval_working = "100ms"
 run_interval_idle = "1s"
 network_status_run_interval = "5s"
 scout_run_interval = "5s"
-    "#;
+    "#,
+        )
+        .expect("Could not parse config")
+    }
 
-        let cfg = toml::from_str::<MachineATronConfig>(cfg_str).expect("Could not parse config");
+    #[test]
+    fn test_serialize_config() {
+        let cfg = rack_config();
+        cfg.validate().expect("Could not validate config");
         let serialized = toml::to_string(&cfg).expect("Could not serialize config");
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
             .expect("Could not deserialize serialized config");
         assert_eq!(round_tripped, cfg);
+    }
+
+    #[test]
+    fn rack_references_are_validated() {
+        let valid = rack_config();
+
+        let mut rackless = valid.clone();
+        rackless.racks.clear();
+        Arc::make_mut(rackless.machines.get_mut("config").unwrap()).rack_id = None;
+
+        let mut undeclared = valid.clone();
+        undeclared.racks.clear();
+
+        let mut empty_rack_id = valid.clone();
+        let rack = empty_rack_id
+            .racks
+            .remove(&RackId::new("rack-001"))
+            .unwrap();
+        empty_rack_id.racks.insert(RackId::new(""), rack);
+        Arc::make_mut(empty_rack_id.machines.get_mut("config").unwrap()).rack_id =
+            Some(RackId::new(""));
+
+        let mut empty_profile_id = valid.clone();
+        empty_profile_id
+            .racks
+            .get_mut(&RackId::new("rack-001"))
+            .unwrap()
+            .rack_profile_id = RackProfileId::new("");
+
+        check_cases(
+            [
+                Case {
+                    scenario: "declared rack",
+                    input: valid,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "legacy rackless config",
+                    input: rackless,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "undeclared rack reference",
+                    input: undeclared,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty rack ID",
+                    input: empty_rack_id,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty rack profile ID",
+                    input: empty_profile_id,
+                    expect: Fails,
+                },
+            ],
+            |config| config.validate().map_err(drop),
+        );
     }
 }

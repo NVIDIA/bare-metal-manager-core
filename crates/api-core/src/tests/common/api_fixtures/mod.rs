@@ -1724,7 +1724,6 @@ pub async fn create_test_env_with_overrides(
             admin_segment_type_non_dpu: Arc::new(false.into()),
             allocate_secondary_vtep_ip: true,
             create_power_shelves: Arc::new(true.into()),
-            explore_power_shelves_from_static_ip: Arc::new(true.into()),
             power_shelves_created_per_run: 1,
             create_switches: Arc::new(true.into()),
             switches_created_per_run: 1,

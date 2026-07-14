@@ -23,6 +23,7 @@ pub mod arch;
 pub mod cmd;
 pub mod config;
 mod host_port_pair;
+pub mod managed_loop;
 pub mod metrics;
 pub mod periodic_timer;
 pub mod redfish;
