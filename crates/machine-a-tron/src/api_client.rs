@@ -26,9 +26,9 @@ use mac_address::MacAddress;
 use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, ExpectedPowerShelf, ExpectedRack, ExpectedRackRequest,
-    ExpectedSwitch, InlineIpxe, InstanceOperatingSystemConfig, MachinesByIdsRequest,
-    SetDynamicConfigRequest, VpcVirtualizationType,
+    ConfigSetting, ExpectedHostNic, ExpectedMachine, ExpectedPowerShelf, ExpectedRack,
+    ExpectedRackRequest, ExpectedSwitch, InlineIpxe, InstanceOperatingSystemConfig,
+    MachinesByIdsRequest, SetDynamicConfigRequest, VpcVirtualizationType,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 
@@ -501,6 +501,7 @@ impl ApiClient {
         chassis_serial_number: String,
         rack_id: Option<RackId>,
         dpu_mode: Option<rpc::forge::DpuMode>,
+        host_nics: Vec<ExpectedHostNic>,
     ) -> ClientApiResult<()> {
         self.0
             .add_expected_machine(ExpectedMachine {
@@ -512,7 +513,7 @@ impl ApiClient {
                 metadata: None,
                 sku_id: None,
                 id: None,
-                host_nics: vec![],
+                host_nics,
                 rack_id,
                 default_pause_ingestion_and_poweron: None,
                 #[allow(deprecated)]

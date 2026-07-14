@@ -17,10 +17,10 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use bmc_mock::HostHardwareType;
 use bmc_mock::mac_address_pool::PoolConfig as MacAddressPoolConfig;
+use bmc_mock::{HostHardwareType, HostMachineInfo};
 use futures::future::try_join_all;
-use rpc::forge::{DpuMode, VpcVirtualizationType};
+use rpc::forge::{DpuMode, ExpectedHostNic, NetworkSegmentType, VpcVirtualizationType};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -42,6 +42,35 @@ pub struct MachineATron {
     app_context: Arc<MachineATronContext>,
 }
 
+fn expected_host_nics(
+    host_info: &HostMachineInfo,
+    dpu_mode: Option<DpuMode>,
+) -> Vec<ExpectedHostNic> {
+    let mac_addresses = match dpu_mode {
+        Some(DpuMode::NicMode) => host_info
+            .dpus
+            .iter()
+            .map(|dpu| dpu.host_mac_address)
+            .collect::<Vec<_>>(),
+        Some(DpuMode::NoDpu) => host_info.non_dpu_mac_address.into_iter().collect(),
+        _ => Vec::new(),
+    };
+
+    mac_addresses
+        .into_iter()
+        .enumerate()
+        .map(|(index, mac_address)| ExpectedHostNic {
+            mac_address: mac_address.to_string(),
+            nic_type: None,
+            fixed_ip: None,
+            fixed_mask: None,
+            fixed_gateway: None,
+            primary: Some(index == 0),
+            network_segment_type: Some(NetworkSegmentType::HostInband as i32),
+        })
+        .collect()
+}
+
 impl MachineATron {
     pub fn new(app_context: Arc<MachineATronContext>) -> Self {
         Self { app_context }
@@ -49,6 +78,18 @@ impl MachineATron {
 
     pub async fn make_machines(&self, paused: bool) -> eyre::Result<Vec<HostMachineHandle>> {
         self.app_context.app_config.validate()?;
+
+        for (machine_group, machine) in &self.app_context.app_config.machines {
+            if machine.missing_host_inband_relay_for_direct_host_dhcp() {
+                tracing::warn!(
+                    machine_group,
+                    dpu_per_host_count = machine.dpu_per_host_count,
+                    dpus_in_nic_mode = machine.dpus_in_nic_mode,
+                    admin_dhcp_relay_address = %machine.admin_dhcp_relay_address,
+                    "host_inband_dhcp_relay_address is not configured for a zero-DPU or NIC-mode host; direct host DHCP will fall back to admin_dhcp_relay_address"
+                );
+            }
+        }
 
         let mut persisted_machines = self
             .app_context
@@ -197,6 +238,7 @@ impl MachineATron {
                         } else {
                             None
                         };
+                        let host_nics = expected_host_nics(host_info, dpu_mode);
                         self.app_context
                             .api_client()
                             .add_expected_machine(
@@ -204,6 +246,7 @@ impl MachineATron {
                                 host_info.serial.clone(),
                                 rack_id,
                                 dpu_mode,
+                                host_nics,
                             )
                             .await
                     }
@@ -428,5 +471,91 @@ fn parse_network_virtualization_type(s: Option<&str>) -> Option<VpcVirtualizatio
             None
         }
         None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use bmc_mock::{DpuMachineInfo, DpuSettings};
+    use carbide_test_support::{Check, check_values};
+    use mac_address::MacAddress;
+
+    use super::*;
+
+    fn mac(value: &str) -> MacAddress {
+        MacAddress::from_str(value).unwrap()
+    }
+
+    fn host_info(dpu_host_macs: &[MacAddress], non_dpu_mac: Option<MacAddress>) -> HostMachineInfo {
+        HostMachineInfo {
+            hw_type: HostHardwareType::WiwynnGB200Nvl,
+            bmc_mac_address: mac("02:00:00:00:00:f0"),
+            serial: "test-host".to_string(),
+            dpus: dpu_host_macs
+                .iter()
+                .enumerate()
+                .map(|(index, host_mac_address)| DpuMachineInfo {
+                    hw_type: HostHardwareType::WiwynnGB200Nvl,
+                    bmc_mac_address: mac(&format!("02:00:00:00:10:{index:02x}")),
+                    host_mac_address: *host_mac_address,
+                    oob_mac_address: mac(&format!("02:00:00:00:20:{index:02x}")),
+                    serial: format!("test-dpu-{index}"),
+                    settings: DpuSettings::default(),
+                })
+                .collect(),
+            non_dpu_mac_address: non_dpu_mac,
+            nvos_mac_addresses: Vec::new(),
+            switch_serial_number: None,
+            hw_mac_addr_pool: MacAddressPoolConfig::new(mac("0a:00:00:00:00:00"), 24).unwrap(),
+            delta_psu_power: None,
+        }
+    }
+
+    fn expected_nic(mac_address: MacAddress, primary: bool) -> ExpectedHostNic {
+        ExpectedHostNic {
+            mac_address: mac_address.to_string(),
+            nic_type: None,
+            fixed_ip: None,
+            fixed_mask: None,
+            fixed_gateway: None,
+            primary: Some(primary),
+            network_segment_type: Some(NetworkSegmentType::HostInband as i32),
+        }
+    }
+
+    #[test]
+    fn expected_host_nic_derivation() {
+        let first_dpu_mac = mac("02:00:00:00:00:01");
+        let second_dpu_mac = mac("02:00:00:00:00:02");
+        let integrated_mac = mac("02:00:00:00:00:03");
+
+        check_values(
+            [
+                Check {
+                    scenario: "NIC-mode host declares every host-facing DPU PF",
+                    input: (
+                        host_info(&[first_dpu_mac, second_dpu_mac], None),
+                        Some(DpuMode::NicMode),
+                    ),
+                    expect: vec![
+                        expected_nic(first_dpu_mac, true),
+                        expected_nic(second_dpu_mac, false),
+                    ],
+                },
+                Check {
+                    scenario: "zero-DPU host declares its integrated NIC",
+                    input: (host_info(&[], Some(integrated_mac)), Some(DpuMode::NoDpu)),
+                    expect: vec![expected_nic(integrated_mac, true)],
+                },
+                Check {
+                    scenario: "managed-DPU host relies on automatic DPU discovery",
+                    input: (host_info(&[first_dpu_mac], None), None),
+                    expect: Vec::new(),
+                },
+            ],
+            |(host_info, dpu_mode)| expected_host_nics(&host_info, dpu_mode),
+        );
     }
 }

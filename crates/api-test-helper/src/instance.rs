@@ -25,17 +25,66 @@ use super::machine::wait_for_state;
 pub async fn create(
     addrs: &[SocketAddr],
     host_machine_id: &MachineId,
-    segment_id: Option<&str>,
+    segment_id: &str,
     hostname: Option<&str>,
     phone_home_enable: bool,
     wait_until_ready: bool,
     keyset_ids: &[&str],
 ) -> eyre::Result<String> {
     tracing::info!(
-        "Creating instance with machine: {host_machine_id}, with network segment: {}",
-        segment_id.unwrap_or("<none>")
+        "Creating instance with machine: {host_machine_id}, with network segment: {segment_id}"
     );
 
+    let network = serde_json::json!({
+        "interfaces": [{
+            "function_type": "PHYSICAL",
+            "network_segment_id": {"value": segment_id}
+        }]
+    });
+
+    create_with_network(
+        addrs,
+        host_machine_id,
+        network,
+        hostname,
+        phone_home_enable,
+        wait_until_ready,
+        keyset_ids,
+    )
+    .await
+}
+
+/// Creates an instance whose HostInband interfaces are resolved automatically
+/// within the requested Flat VPC.
+pub async fn create_with_auto_host_inband_networking(
+    addrs: &[SocketAddr],
+    host_machine_id: &MachineId,
+    flat_vpc_id: &str,
+) -> eyre::Result<String> {
+    tracing::info!(
+        "Creating automatically-networked instance with machine: {host_machine_id}, with Flat VPC: {flat_vpc_id}"
+    );
+
+    let network = serde_json::json!({
+        "interfaces": [],
+        "auto": true,
+        "auto_config": {
+            "vpc_id": {"value": flat_vpc_id}
+        }
+    });
+
+    create_with_network(addrs, host_machine_id, network, None, false, false, &[]).await
+}
+
+async fn create_with_network(
+    addrs: &[SocketAddr],
+    host_machine_id: &MachineId,
+    network: serde_json::Value,
+    hostname: Option<&str>,
+    phone_home_enable: bool,
+    wait_until_ready: bool,
+    keyset_ids: &[&str],
+) -> eyre::Result<String> {
     let mut tenant = serde_json::json!({
         "tenant_organization_id": "tenant_organization",
         "tenantKeysetIds": keyset_ids,
@@ -56,31 +105,11 @@ pub async fn create(
         "user_data": "hello",
     });
 
-    let instance_config = match segment_id {
-        Some(segment_id) => serde_json::json!({
-            "tenant": tenant,
-            "network": {
-                "interfaces": [{
-                    "function_type": "PHYSICAL",
-                    "network_segment_id": {"value": segment_id}
-                }]
-            },
-            "os": os,
-        }),
-        // segment_id is None, i.e. this is the zero-DPU path.
-        // The allocator requires `auto: true` and an empty `interfaces`
-        // list, and will resolve the host's HostInband segments into
-        // the stored config (status reflects the resolved per-interface
-        // details).
-        None => serde_json::json!({
-            "tenant": tenant,
-            "network": {
-                "interfaces": [],
-                "auto": true,
-            },
-            "os": os,
-        }),
-    };
+    let instance_config = serde_json::json!({
+        "tenant": tenant,
+        "network": network,
+        "os": os,
+    });
 
     let data = serde_json::json!({
         "machine_id": {"id": host_machine_id},
@@ -269,6 +298,22 @@ pub async fn get_instance_json_by_machine_id(
     let data = serde_json::json!({ "id": machine_id });
     let response = grpcurl(addrs, "FindInstanceByMachineID", Some(&data)).await?;
     Ok(serde_json::from_str(&response)?)
+}
+
+pub async fn get_instance_json_by_id(
+    addrs: &[SocketAddr],
+    instance_id: &str,
+) -> eyre::Result<serde_json::Value> {
+    let data = serde_json::json!({
+        "instance_ids": [{"value": instance_id}]
+    });
+    let response = grpcurl(addrs, "FindInstancesByIds", Some(&data)).await?;
+    let response: serde_json::Value = serde_json::from_str(&response)?;
+    response["instances"]
+        .as_array()
+        .and_then(|instances| instances.first())
+        .cloned()
+        .ok_or_else(|| eyre::eyre!("instance {instance_id} was not returned by FindInstancesByIds"))
 }
 
 /// Waits for an instance to reach a certain state

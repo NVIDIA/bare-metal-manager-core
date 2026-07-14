@@ -50,6 +50,18 @@ use crate::{PersistedDpuMachine, PersistedHostMachine, dhcp_wrapper};
 
 pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
 
+fn direct_dhcp_relay_address(
+    is_host: bool,
+    admin_relay_address: Ipv4Addr,
+    host_inband_relay_address: Option<Ipv4Addr>,
+) -> Ipv4Addr {
+    if is_host {
+        host_inband_relay_address.unwrap_or(admin_relay_address)
+    } else {
+        admin_relay_address
+    }
+}
+
 /// MachineStateMachine (yo dawg) models the state machine of a machine endpoint
 ///
 /// This code is in common between DPUs and Hosts.(ie. anything that has a BMC, boots via DHCP, can
@@ -531,54 +543,59 @@ impl MachineStateMachine {
             return Err(MachineStateError::NoMachineMacAddress);
         };
 
-        tracing::debug!("Sending Admin DHCP Request for {}", primary_mac);
         let start = Instant::now();
-        // Bound the relay wait so a vanished DPU (one mid-flip to NIC mode, its
-        // relay server gone) can't block the host actor indefinitely.
-        const DPU_DHCP_RELAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+        // Bound the relay wait so an unavailable DPU cannot block the host actor
+        // indefinitely. Returning to the actor lets it confirm a NIC-mode flip
+        // before detaching the relay, or retry the managed relay otherwise.
+        const DPU_DHCP_RELAY_TIMEOUT: Duration = Duration::from_secs(10);
         let machine_dhcp_info_result = if let Some(DpuDhcpRelay::HostEnd(relay_tx)) =
             &self.dpu_dhcp_relay
         {
-            // Relay this host's data-plane DHCP through its managed DPU, but fall
-            // back to a direct request on the host's own MAC if the relay does not
-            // answer promptly -- e.g. the DPU just flipped to NIC mode, so its relay
-            // server is gone. The same MAC is used either way, so a retained boot
-            // interface still matches on re-ingestion.
+            tracing::debug!(%primary_mac, "requesting machine DHCP through DPU relay");
             let (reply_tx, reply_rx) = oneshot::channel();
-            let relayed = match relay_tx.send(reply_tx) {
-                Ok(()) => match tokio::time::timeout(DPU_DHCP_RELAY_TIMEOUT, reply_rx).await {
-                    // The relay answered -- use its result (success OR a real
-                    // DHCP/API error). Only fall back to a direct request when the
-                    // relay is genuinely gone: send failed, channel canceled, or
-                    // timed out.
-                    Ok(Ok(result)) => Some(result),
-                    Ok(Err(_)) | Err(_) => None,
-                },
-                Err(_) => None,
-            };
-            match relayed {
-                Some(result) => result,
-                None => {
+            if relay_tx.send(reply_tx).is_err() {
+                tracing::warn!(
+                    %primary_mac,
+                    "DPU DHCP relay request channel is closed; retrying after relay state reconciliation"
+                );
+                return Err(MachineStateError::DpuDhcpRelayUnavailable);
+            }
+            match tokio::time::timeout(DPU_DHCP_RELAY_TIMEOUT, reply_rx).await {
+                // The relay answered. Preserve either its successful response or
+                // the actual DHCP/API error it returned.
+                Ok(Ok(result)) => result,
+                Ok(Err(_)) => {
                     tracing::warn!(
-                        "DPU DHCP relay did not answer for {primary_mac}; falling back to a direct request (the DPU likely flipped to NIC mode)"
+                        %primary_mac,
+                        "DPU DHCP relay response was canceled; retrying after relay state reconciliation"
                     );
-                    dhcp_wrapper::request_ip(
-                        self.app_context.api_client(),
-                        DhcpRequestInfo {
-                            mac_address: primary_mac,
-                            relay_address: self.config.admin_dhcp_relay_address,
-                            template_dir: self.config.template_dir.clone(),
-                        },
-                    )
-                    .await
+                    return Err(MachineStateError::DpuDhcpRelayUnavailable);
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        %primary_mac,
+                        timeout_ms = DPU_DHCP_RELAY_TIMEOUT.as_millis(),
+                        "DPU DHCP relay response timed out; retrying after relay state reconciliation"
+                    );
+                    return Err(MachineStateError::DpuDhcpRelayUnavailable);
                 }
             }
         } else {
+            let direct_relay_address = direct_dhcp_relay_address(
+                matches!(&self.machine_info, MachineInfo::Host(_)),
+                self.config.admin_dhcp_relay_address,
+                self.config.host_inband_dhcp_relay_address,
+            );
+            tracing::debug!(
+                %primary_mac,
+                %direct_relay_address,
+                "requesting machine DHCP directly"
+            );
             dhcp_wrapper::request_ip(
                 self.app_context.api_client(),
                 DhcpRequestInfo {
                     mac_address: primary_mac,
-                    relay_address: self.config.admin_dhcp_relay_address,
+                    relay_address: direct_relay_address,
                     template_dir: self.config.template_dir.clone(),
                 },
             )
@@ -587,16 +604,16 @@ impl MachineStateMachine {
         machine_dhcp_info_result
             .inspect(|_| {
                 tracing::debug!(
-                    "Admin DHCP Request for {} took {}ms",
-                    primary_mac,
-                    start.elapsed().as_millis()
+                    %primary_mac,
+                    elapsed_ms = start.elapsed().as_millis(),
+                    "machine DHCP request completed"
                 );
             })
             .map_err(|err| {
                 tracing::debug!(
-                    "Admin DHCP Request for {} failed after {}ms: {err}",
-                    primary_mac,
-                    start.elapsed().as_millis()
+                    %primary_mac,
+                    elapsed_ms = start.elapsed().as_millis(),
+                    "machine DHCP request failed: {err}"
                 );
                 err.into()
             })
@@ -1144,6 +1161,8 @@ pub enum MachineStateError {
     ClientApi(#[from] ClientApiError),
     #[error("Failed to get DHCP address: {0:?}")]
     DhcpError(#[from] DhcpRelayError),
+    #[error("DPU DHCP relay is unavailable")]
+    DpuDhcpRelayUnavailable,
     #[error("Failed to get PXE response: {0}")]
     PxeError(#[from] PxeError),
     #[error("BMC mock TLS error: {0}")]
@@ -1166,4 +1185,38 @@ pub enum AddressConfigError {
     Io(#[from] std::io::Error),
     #[error("Error running ip command: {0:?}, output: {1:?}")]
     CommandFailure(Box<tokio::process::Command>, std::process::Output),
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    #[test]
+    fn direct_dhcp_relay_selection() {
+        let admin = Ipv4Addr::new(172, 21, 0, 1);
+        let host_inband = Ipv4Addr::new(172, 22, 0, 1);
+
+        check_values(
+            [
+                Check {
+                    scenario: "NIC-mode or zero-DPU host",
+                    input: (true, Some(host_inband)),
+                    expect: host_inband,
+                },
+                Check {
+                    scenario: "legacy host without HostInband configuration",
+                    input: (true, None),
+                    expect: admin,
+                },
+                Check {
+                    scenario: "DPU ignores HostInband configuration",
+                    input: (false, Some(host_inband)),
+                    expect: admin,
+                },
+            ],
+            |(is_host, host_inband)| direct_dhcp_relay_address(is_host, admin, host_inband),
+        );
+    }
 }
