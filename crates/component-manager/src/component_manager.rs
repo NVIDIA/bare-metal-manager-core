@@ -129,7 +129,7 @@ pub async fn build_component_manager(
                 rms_switch_system_image_client.clone(),
                 db,
                 rack_profiles.clone(),
-                config.rms.nvos_password_rotation_enabled,
+                config.nvos_password_rotation_enabled,
             ))
         }
         NvSwitchBackend::Mock => Arc::new(crate::mock::MockNvSwitchManager::default()),
@@ -164,7 +164,7 @@ pub async fn build_component_manager(
                 rms_switch_system_image_client.clone(),
                 db,
                 rack_profiles.clone(),
-                config.rms.nvos_password_rotation_enabled,
+                config.nvos_password_rotation_enabled,
             ))
         }
         PowerShelfBackend::Mock => Arc::new(crate::mock::MockPowerShelfManager),
@@ -187,7 +187,7 @@ pub async fn build_component_manager(
                 rms_switch_system_image_client.clone(),
                 db,
                 rack_profiles.clone(),
-                config.rms.nvos_password_rotation_enabled,
+                config.nvos_password_rotation_enabled,
             ))
         }
         ComputeBackend::Core => {

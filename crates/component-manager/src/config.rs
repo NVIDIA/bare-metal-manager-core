@@ -18,9 +18,6 @@ pub struct ComponentManagerConfig {
     pub compute_tray_backend: ComputeBackend,
 
     #[serde(default)]
-    pub rms: RmsBackendConfig,
-
-    #[serde(default)]
     pub nsm: Option<BackendEndpointConfig>,
     #[serde(default)]
     pub psm: Option<BackendEndpointConfig>,
@@ -51,10 +48,7 @@ pub struct ComponentManagerConfig {
     /// Defaults to `false`.
     #[serde(default)]
     pub compute_tray_use_state_controller: bool,
-}
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-pub struct RmsBackendConfig {
     /// Enables the NVOS password-rotation backend capability.
     ///
     /// End-to-end rotation remains unavailable until orchestration is implemented.
@@ -202,20 +196,19 @@ mod tests {
         assert_eq!(cfg.nv_switch_backend, NvSwitchBackend::Rms);
         assert_eq!(cfg.power_shelf_backend, PowerShelfBackend::Rms);
         assert_eq!(cfg.compute_tray_backend, ComputeBackend::Rms);
-        assert!(!cfg.rms.nvos_password_rotation_enabled);
+        assert!(!cfg.nvos_password_rotation_enabled);
     }
 
     #[test]
     fn rms_nvos_password_rotation_can_be_enabled() {
         let cfg: ComponentManagerConfig = toml::from_str(
             r#"
-            [rms]
             nvos_password_rotation_enabled = true
             "#,
         )
         .expect("NVOS password rotation setting should deserialize");
 
-        assert!(cfg.rms.nvos_password_rotation_enabled);
+        assert!(cfg.nvos_password_rotation_enabled);
     }
 
     /// One `BackendTlsConfig` worth of path inputs for a resolver table.
