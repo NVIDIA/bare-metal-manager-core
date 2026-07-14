@@ -228,6 +228,7 @@ On the Prometheus endpoint, series carry entity labels (`processor_id`,
 `memory_id`, `drive_id`, `powersupply_id`, `system_id`, `model`, ...) plus the
 standard identity labels added by the sink (`machine_id`, `endpoint_ip`,
 `serial_number`, `rack_id`, ...), with `collector_type="metrics_collector"`.
+
 The OTLP sink (`[sinks.otlp]`) emits the same metric *names*, but places the
 identity context on OTLP resource attributes rather than datapoint labels;
 whether those appear as query labels depends on the backend (VictoriaMetrics,
