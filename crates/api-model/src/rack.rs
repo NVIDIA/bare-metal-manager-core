@@ -79,6 +79,59 @@ pub struct Rack {
     pub version: ConfigVersion,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(
+    type_name = "rack_maintenance_request_status",
+    rename_all = "snake_case"
+)]
+pub enum RackMaintenanceRequestStatus {
+    Preparing,
+    Ready,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl RackMaintenanceRequestStatus {
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RackMaintenanceRequest {
+    pub id: uuid::Uuid,
+    pub rack_id: RackId,
+    pub scope: MaintenanceScope,
+    pub status: RackMaintenanceRequestStatus,
+    pub requires_access_token: bool,
+    pub error_message: Option<String>,
+    pub created: DateTime<Utc>,
+    pub updated: DateTime<Utc>,
+    pub started: Option<DateTime<Utc>>,
+    pub completed: Option<DateTime<Utc>>,
+}
+
+impl<'r> FromRow<'r, PgRow> for RackMaintenanceRequest {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        let scope: sqlx::types::Json<MaintenanceScope> = row.try_get("scope")?;
+        Ok(Self {
+            id: row.try_get("id")?,
+            rack_id: row.try_get("rack_id")?,
+            scope: scope.0,
+            status: row.try_get("status")?,
+            requires_access_token: row.try_get("requires_access_token")?,
+            error_message: row.try_get("error_message")?,
+            created: row.try_get("created")?,
+            updated: row.try_get("updated")?,
+            started: row.try_get("started")?,
+            completed: row.try_get("completed")?,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FirmwareUpgradeJob {
     pub job_id: Option<String>,
@@ -745,7 +798,7 @@ impl std::fmt::Display for MaintenanceActivity {
 /// Specifies which devices in the rack should be included in an on-demand
 /// maintenance cycle. When all three device-id lists are empty, the full rack
 /// is maintained.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MaintenanceScope {
     #[serde(default)]
     pub machine_ids: Vec<MachineId>,
@@ -787,6 +840,12 @@ pub struct RackConfig {
     /// selects full-rack vs partial-rack and which activities to run.
     #[serde(default)]
     pub maintenance_requested: Option<MaintenanceScope>,
+
+    /// Identity of the first-class request backing `maintenance_requested`.
+    /// `None` preserves compatibility with maintenance queued before request
+    /// lifecycle tracking was introduced.
+    #[serde(default)]
+    pub maintenance_request_id: Option<uuid::Uuid>,
 }
 
 /// Reason a rack will not accept a new on-demand maintenance request.

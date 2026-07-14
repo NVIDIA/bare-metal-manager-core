@@ -80,6 +80,7 @@ pub mod power_shelf;
 pub mod predicted_machine_interface;
 pub mod queries;
 pub mod rack;
+pub mod rack_maintenance_request;
 pub mod redfish_actions;
 pub mod resource_pool;
 pub mod retained_boot_interface;

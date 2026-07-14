@@ -37,9 +37,18 @@ pub fn rms_access_token_or_noauth(access_token: Option<&str>) -> String {
         .to_string()
 }
 
-pub fn rack_maintenance_access_token_key(rack_id: &RackId) -> CredentialKey {
-    CredentialKey::RackMaintenanceAccessToken {
-        rack_id: rack_id.clone(),
+pub fn rack_maintenance_access_token_key(
+    rack_id: &RackId,
+    request_id: Option<uuid::Uuid>,
+) -> CredentialKey {
+    match request_id {
+        Some(request_id) => CredentialKey::RackMaintenanceRequestAccessToken {
+            rack_id: rack_id.clone(),
+            request_id,
+        },
+        None => CredentialKey::RackMaintenanceAccessToken {
+            rack_id: rack_id.clone(),
+        },
     }
 }
 

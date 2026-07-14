@@ -169,8 +169,10 @@ async fn transition_to_rack_error(
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
     let cause = cause.into();
     tracing::warn!(rack_id = %rack_id, %cause, "Rack firmware upgrade failed before polling started");
-    let outcome = StateHandlerOutcome::transition(RackState::Error { cause });
-    clear_maintenance_requested_on_error(rack_id, state, outcome, ctx).await
+    let outcome = StateHandlerOutcome::transition(RackState::Error {
+        cause: cause.clone(),
+    });
+    clear_maintenance_requested_on_error(rack_id, state, &cause, outcome, ctx).await
 }
 
 async fn transition_to_rack_error_with_firmware_job(
@@ -192,9 +194,13 @@ async fn transition_to_rack_error_with_firmware_job(
         ..Default::default()
     };
     state.firmware_upgrade_job = Some(job.clone());
+    let maintenance_request_id = state.config.maintenance_request_id.take();
     state.config.maintenance_requested = None;
 
     let mut txn = ctx.services.db_pool.begin().await?;
+    if let Some(request_id) = maintenance_request_id {
+        mark_maintenance_request_failed(txn.as_mut(), request_id, &cause).await?;
+    }
     db_rack::update_firmware_upgrade_job(txn.as_mut(), rack_id, Some(&job)).await?;
     db_rack::update(txn.as_mut(), rack_id, &state.config).await?;
 
@@ -207,16 +213,47 @@ async fn transition_to_rack_error_with_firmware_job(
 async fn clear_maintenance_requested_on_error(
     rack_id: &RackId,
     state: &mut Rack,
+    cause: &str,
     outcome: StateHandlerOutcome<RackState>,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
-    if state.config.maintenance_requested.is_none() {
+    if state.config.maintenance_requested.is_none() && state.config.maintenance_request_id.is_none()
+    {
         return Ok(outcome);
     }
+    let maintenance_request_id = state.config.maintenance_request_id.take();
     state.config.maintenance_requested = None;
     let mut txn = ctx.services.db_pool.begin().await?;
+    if let Some(request_id) = maintenance_request_id {
+        mark_maintenance_request_failed(txn.as_mut(), request_id, cause).await?;
+    }
     db_rack::update(txn.as_mut(), rack_id, &state.config).await?;
     Ok(outcome.with_txn(txn))
+}
+
+async fn mark_maintenance_request_failed(
+    txn: &mut sqlx::PgConnection,
+    request_id: uuid::Uuid,
+    cause: &str,
+) -> Result<(), StateHandlerError> {
+    if !db::rack_maintenance_request::mark_failed(txn, request_id, cause).await? {
+        return Err(StateHandlerError::GenericError(eyre::eyre!(
+            "rack maintenance request {request_id} is not active"
+        )));
+    }
+    Ok(())
+}
+
+async fn mark_maintenance_request_completed(
+    txn: &mut sqlx::PgConnection,
+    request_id: uuid::Uuid,
+) -> Result<(), StateHandlerError> {
+    if !db::rack_maintenance_request::mark_completed(txn, request_id).await? {
+        return Err(StateHandlerError::GenericError(eyre::eyre!(
+            "rack maintenance request {request_id} is not running"
+        )));
+    }
+    Ok(())
 }
 
 fn nvos_update_requested(scope: &MaintenanceScope) -> bool {
@@ -265,8 +302,9 @@ fn requested_firmware_object_json_upgrade(
 async fn load_rack_maintenance_access_token(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
+    request_id: Option<uuid::Uuid>,
 ) -> Result<String, StateHandlerError> {
-    let key = rack_maintenance_access_token_key(rack_id);
+    let key = rack_maintenance_access_token_key(rack_id, request_id);
     let credentials = credential_manager
         .get_credentials(&key)
         .await
@@ -289,9 +327,10 @@ async fn load_rack_maintenance_access_token(
 async fn delete_rack_maintenance_access_token(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
+    request_id: Option<uuid::Uuid>,
 ) {
     if let Err(error) = credential_manager
-        .delete_credentials(&rack_maintenance_access_token_key(rack_id))
+        .delete_credentials(&rack_maintenance_access_token_key(rack_id, request_id))
         .await
     {
         tracing::warn!(
@@ -1362,6 +1401,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        state.config.maintenance_request_id,
                     )
                     .await;
                     return transition_to_rack_error(id, state, "RMS client not configured", ctx)
@@ -1370,6 +1410,7 @@ pub async fn handle_maintenance(
                 let access_token = match load_rack_maintenance_access_token(
                     ctx.services.credential_manager.as_ref(),
                     id,
+                    state.config.maintenance_request_id,
                 )
                 .await
                 {
@@ -1404,6 +1445,7 @@ pub async fn handle_maintenance(
                         delete_rack_maintenance_access_token(
                             ctx.services.credential_manager.as_ref(),
                             id,
+                            state.config.maintenance_request_id,
                         )
                         .await;
                     }
@@ -1421,6 +1463,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        state.config.maintenance_request_id,
                     )
                     .await;
                     return transition_to_rack_error(
@@ -1462,6 +1505,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        state.config.maintenance_request_id,
                     )
                     .await;
                 }
@@ -1518,6 +1562,7 @@ pub async fn handle_maintenance(
                         delete_rack_maintenance_access_token(
                             ctx.services.credential_manager.as_ref(),
                             id,
+                            state.config.maintenance_request_id,
                         )
                         .await;
                     }
@@ -1537,6 +1582,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        state.config.maintenance_request_id,
                     )
                     .await;
                 }
@@ -1639,23 +1685,30 @@ pub async fn handle_maintenance(
 
                 if failed > 0 {
                     let now = chrono::Utc::now();
+                    let cause = format!(
+                        "firmware upgrade failed: {}/{} devices failed",
+                        failed, total
+                    );
                     job.status = Some("failed".into());
                     if job.completed_at.is_none() {
                         job.completed_at = Some(now);
                     }
                     db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
                     state.firmware_upgrade_job = Some(job);
-                    if state.config.maintenance_requested.is_some() {
+                    if state.config.maintenance_requested.is_some()
+                        || state.config.maintenance_request_id.is_some()
+                    {
+                        let maintenance_request_id = state.config.maintenance_request_id.take();
                         state.config.maintenance_requested = None;
+                        if let Some(request_id) = maintenance_request_id {
+                            mark_maintenance_request_failed(txn.as_mut(), request_id, &cause)
+                                .await?;
+                        }
                         db_rack::update(txn.as_mut(), id, &state.config).await?;
                     }
-                    return Ok(StateHandlerOutcome::transition(RackState::Error {
-                        cause: format!(
-                            "firmware upgrade failed: {}/{} devices failed",
-                            failed, total
-                        ),
-                    })
-                    .with_txn(txn));
+                    return Ok(
+                        StateHandlerOutcome::transition(RackState::Error { cause }).with_txn(txn)
+                    );
                 }
 
                 let now = chrono::Utc::now();
@@ -1710,6 +1763,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        state.config.maintenance_request_id,
                     )
                     .await;
                     return transition_to_rack_error(id, state, "RMS client not configured", ctx)
@@ -1718,6 +1772,7 @@ pub async fn handle_maintenance(
                 let access_token = match load_rack_maintenance_access_token(
                     ctx.services.credential_manager.as_ref(),
                     id,
+                    state.config.maintenance_request_id,
                 )
                 .await
                 {
@@ -1749,6 +1804,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        state.config.maintenance_request_id,
                     )
                     .await;
                     let next = next_state_after_nvos(scope);
@@ -1765,6 +1821,7 @@ pub async fn handle_maintenance(
                     delete_rack_maintenance_access_token(
                         ctx.services.credential_manager.as_ref(),
                         id,
+                        state.config.maintenance_request_id,
                     )
                     .await;
                     return transition_to_rack_error(
@@ -1781,6 +1838,7 @@ pub async fn handle_maintenance(
                         delete_rack_maintenance_access_token(
                             ctx.services.credential_manager.as_ref(),
                             id,
+                            state.config.maintenance_request_id,
                         )
                         .await;
                         return transition_to_rack_error(id, state, error.to_string(), ctx).await;
@@ -1830,8 +1888,12 @@ pub async fn handle_maintenance(
                     switch_inventory.switches,
                 )
                 .await;
-                delete_rack_maintenance_access_token(ctx.services.credential_manager.as_ref(), id)
-                    .await;
+                delete_rack_maintenance_access_token(
+                    ctx.services.credential_manager.as_ref(),
+                    id,
+                    state.config.maintenance_request_id,
+                )
+                .await;
 
                 let job = match submit_result {
                     Ok(job) => job,
@@ -1948,16 +2010,23 @@ pub async fn handle_maintenance(
                     .count();
 
                 if failed > 0 {
+                    let cause = format!("NVOS update failed: {}/{} switches failed", failed, total);
                     db_rack::update_nvos_update_job(txn.as_mut(), id, Some(&job)).await?;
                     state.nvos_update_job = Some(job);
-                    if state.config.maintenance_requested.is_some() {
+                    if state.config.maintenance_requested.is_some()
+                        || state.config.maintenance_request_id.is_some()
+                    {
+                        let maintenance_request_id = state.config.maintenance_request_id.take();
                         state.config.maintenance_requested = None;
+                        if let Some(request_id) = maintenance_request_id {
+                            mark_maintenance_request_failed(txn.as_mut(), request_id, &cause)
+                                .await?;
+                        }
                         db_rack::update(txn.as_mut(), id, &state.config).await?;
                     }
-                    return Ok(StateHandlerOutcome::transition(RackState::Error {
-                        cause: format!("NVOS update failed: {}/{} switches failed", failed, total),
-                    })
-                    .with_txn(txn));
+                    return Ok(
+                        StateHandlerOutcome::transition(RackState::Error { cause }).with_txn(txn)
+                    );
                 }
 
                 if completed < total {
@@ -2456,9 +2525,15 @@ pub async fn handle_maintenance(
                 validating_state: RackValidationState::Pending,
             });
 
-            if state.config.maintenance_requested.is_some() {
+            if state.config.maintenance_requested.is_some()
+                || state.config.maintenance_request_id.is_some()
+            {
+                let maintenance_request_id = state.config.maintenance_request_id.take();
                 state.config.maintenance_requested = None;
                 let mut txn = ctx.services.db_pool.begin().await?;
+                if let Some(request_id) = maintenance_request_id {
+                    mark_maintenance_request_completed(txn.as_mut(), request_id).await?;
+                }
                 db_rack::update(txn.as_mut(), id, &state.config).await?;
                 outcome = outcome.with_txn(txn);
             }

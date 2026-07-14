@@ -62,7 +62,20 @@ pub async fn handle_ready(
         );
         state.config.reprovision_requested = false;
         state.config.maintenance_requested = None;
+        let maintenance_request_id = state.config.maintenance_request_id.take();
         let mut txn = ctx.services.db_pool.begin().await?;
+        if let Some(request_id) = maintenance_request_id
+            && !db::rack_maintenance_request::mark_cancelled(
+                txn.as_mut(),
+                request_id,
+                "rack reprovisioning superseded on-demand maintenance",
+            )
+            .await?
+        {
+            return Err(StateHandlerError::GenericError(eyre::eyre!(
+                "rack maintenance request {request_id} could not be cancelled"
+            )));
+        }
         db_rack::update(txn.as_mut(), id, &state.config).await?;
         return Ok(StateHandlerOutcome::transition(RackState::Maintenance {
             maintenance_state: RackMaintenanceState::FirmwareUpgrade {
@@ -101,7 +114,14 @@ pub async fn handle_ready(
         }
         // Leave maintenance_requested set; the maintenance handler reads the
         // scope to decide which activities to run and clears it on Completed.
-        let txn = ctx.services.db_pool.begin().await?;
+        let mut txn = ctx.services.db_pool.begin().await?;
+        if let Some(request_id) = config.maintenance_request_id
+            && !db::rack_maintenance_request::mark_running(txn.as_mut(), request_id).await?
+        {
+            return Err(StateHandlerError::GenericError(eyre::eyre!(
+                "rack maintenance request {request_id} is not ready to run"
+            )));
+        }
         return Ok(StateHandlerOutcome::transition(RackState::Maintenance {
             maintenance_state: first_maintenance_state(scope),
         })

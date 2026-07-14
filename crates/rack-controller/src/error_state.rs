@@ -62,7 +62,14 @@ pub async fn handle_error(
                 activities_desc,
             );
         }
-        let txn = ctx.services.db_pool.begin().await?;
+        let mut txn = ctx.services.db_pool.begin().await?;
+        if let Some(request_id) = config.maintenance_request_id
+            && !db::rack_maintenance_request::mark_running(txn.as_mut(), request_id).await?
+        {
+            return Err(StateHandlerError::GenericError(eyre::eyre!(
+                "rack maintenance request {request_id} is not ready to run"
+            )));
+        }
         return Ok(StateHandlerOutcome::transition(RackState::Maintenance {
             maintenance_state: first_maintenance_state(scope),
         })

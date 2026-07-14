@@ -2711,6 +2711,7 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2740,6 +2741,7 @@ dependencies = [
  "state-controller",
  "tonic",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2957,6 +2959,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uuid",
  "vaultrs",
 ]
 

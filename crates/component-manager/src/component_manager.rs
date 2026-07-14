@@ -3,8 +3,13 @@
 
 use std::sync::Arc;
 
+use carbide_rack::firmware_object::rack_maintenance_access_token_key;
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_secrets::credentials::{CredentialManager, Credentials};
+use carbide_uuid::rack::RackId;
+use db::WithTransaction;
 use librms::RmsApi;
+use model::rack::{MaintenanceActivity, MaintenanceScope, RackMaintenanceRequestStatus, RackState};
 use model::rack_type::RackProfileConfig;
 use sqlx::PgPool;
 
@@ -39,6 +44,437 @@ pub struct ComponentManager {
     // the expectation is that the state controller will then call the configured HAL for compute tray
     // if false, the component management interface will directly dispatch to the configured HAL for compute trays, bypassing the state controller
     pub compute_tray_use_state_controller: bool,
+}
+
+/// Which rack states a maintenance caller is willing to schedule from.
+///
+/// Automatic maintenance uses [`RequireReady`](Self::RequireReady), while the
+/// operator-facing API retains its existing ability to recover racks in
+/// `Error` via [`AllowError`](Self::AllowError).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RackMaintenanceEligibility {
+    RequireReady,
+    AllowError,
+}
+
+/// The complete, non-error result of attempting to schedule rack maintenance.
+///
+/// Keeping contention and eligibility as outcomes (rather than string errors)
+/// lets periodic callers retry without marking certificate rotation failed,
+/// while operator-facing callers can map the same result to their public API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RackMaintenanceRequestOutcome {
+    /// This call persisted the requested scope.
+    Scheduled { request_id: uuid::Uuid },
+    /// The exact same scope is already pending. This is an idempotent retry.
+    AlreadyPending { request_id: Option<uuid::Uuid> },
+    /// A different maintenance request is pending and was left untouched.
+    Busy,
+    /// No request is pending, but the rack's current state is not eligible.
+    Deferred { state: RackState },
+}
+
+/// Credential to stage for a rack-maintenance request before it is published
+/// to the rack state controller.
+pub struct RackMaintenanceAccessToken<'a> {
+    pub credential_manager: &'a dyn CredentialManager,
+    pub token: String,
+}
+
+/// Atomically request rack maintenance through the rack state controller.
+///
+/// The request is first reserved as `Preparing` under the rack row lock. Any
+/// access token is then staged at a request-specific credential path without a
+/// database transaction. A second transaction atomically publishes the scope
+/// in the rack config and marks the request `Ready`. The rack controller never
+/// observes a request whose credential failed to stage.
+///
+/// This is a free function because the API supports rack maintenance even when
+/// no `ComponentManager` backend is configured.
+pub async fn request_rack_maintenance_via_state_controller(
+    db_pool: &PgPool,
+    rack_id: &RackId,
+    scope: MaintenanceScope,
+    eligibility: RackMaintenanceEligibility,
+    maintenance_access_token: Option<RackMaintenanceAccessToken<'_>>,
+) -> Result<RackMaintenanceRequestOutcome, ComponentManagerError> {
+    enum Preparation {
+        Prepared { request_id: uuid::Uuid },
+        Complete(RackMaintenanceRequestOutcome),
+    }
+
+    let credential_manager = maintenance_access_token
+        .as_ref()
+        .map(|credential| credential.credential_manager);
+    let access_token = maintenance_access_token.map(|credential| credential.token);
+    let requires_access_token = access_token.is_some();
+    let prepare_rack_id = rack_id.clone();
+    let prepare_scope = scope.clone();
+    let preparation = db_pool
+        .with_txn(|txn| {
+            Box::pin(async move {
+                let rack = db::rack::find_by_id_for_update(txn.as_mut(), &prepare_rack_id)
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                    .ok_or_else(|| {
+                        ComponentManagerError::NotFound(format!("rack {prepare_rack_id} not found"))
+                    })?;
+
+                if let Some(existing_scope) = rack.config.maintenance_requested.as_ref() {
+                    return Ok(Preparation::Complete(if existing_scope == &prepare_scope {
+                        RackMaintenanceRequestOutcome::AlreadyPending {
+                            request_id: rack.config.maintenance_request_id,
+                        }
+                    } else {
+                        RackMaintenanceRequestOutcome::Busy
+                    }));
+                }
+
+                if let Some(existing) =
+                    db::rack_maintenance_request::find_active_for_rack_for_update(
+                        txn.as_mut(),
+                        &prepare_rack_id,
+                    )
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                {
+                    if existing.status != RackMaintenanceRequestStatus::Preparing {
+                        return Ok(Preparation::Complete(if existing.scope == prepare_scope {
+                            RackMaintenanceRequestOutcome::AlreadyPending {
+                                request_id: Some(existing.id),
+                            }
+                        } else {
+                            RackMaintenanceRequestOutcome::Busy
+                        }));
+                    }
+
+                    let preparation_age =
+                        chrono::Utc::now().signed_duration_since(existing.updated);
+                    if preparation_age < chrono::Duration::minutes(5) {
+                        return Ok(Preparation::Complete(if existing.scope == prepare_scope {
+                            RackMaintenanceRequestOutcome::AlreadyPending {
+                                request_id: Some(existing.id),
+                            }
+                        } else {
+                            RackMaintenanceRequestOutcome::Busy
+                        }));
+                    }
+
+                    if !db::rack_maintenance_request::mark_preparing_failed(
+                        txn.as_mut(),
+                        existing.id,
+                        "rack maintenance request preparation timed out",
+                    )
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                    {
+                        return Err(ComponentManagerError::Internal(format!(
+                            "stale rack maintenance request {} could not be failed",
+                            existing.id
+                        )));
+                    }
+                    tracing::warn!(
+                        rack_id = %prepare_rack_id,
+                        request_id = %existing.id,
+                        "Superseding stale rack maintenance request preparation"
+                    );
+                }
+
+                let state = rack.controller_state.value.clone();
+                let eligible = match eligibility {
+                    RackMaintenanceEligibility::RequireReady => state == RackState::Ready,
+                    RackMaintenanceEligibility::AllowError => {
+                        matches!(&state, RackState::Ready | RackState::Error { .. })
+                    }
+                };
+                if !eligible {
+                    return Ok(Preparation::Complete(
+                        RackMaintenanceRequestOutcome::Deferred { state },
+                    ));
+                }
+
+                let request_id = uuid::Uuid::new_v4();
+                db::rack_maintenance_request::insert_preparing(
+                    txn.as_mut(),
+                    request_id,
+                    &prepare_rack_id,
+                    &prepare_scope,
+                    requires_access_token,
+                )
+                .await
+                .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+                Ok(Preparation::Prepared { request_id })
+            })
+        })
+        .await;
+
+    let request_id = match preparation {
+        Ok(Ok(Preparation::Prepared { request_id })) => request_id,
+        Ok(Ok(Preparation::Complete(outcome))) => return Ok(outcome),
+        Ok(Err(error)) => return Err(error),
+        Err(error) => return Err(ComponentManagerError::Internal(error.to_string())),
+    };
+
+    if let (Some(credential_manager), Some(token)) = (credential_manager, access_token) {
+        let staging_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            ensure_rack_maintenance_access_token(credential_manager, rack_id, request_id, token),
+        )
+        .await
+        .map_err(|_| "credential store operation timed out".to_string())
+        .and_then(|result| result);
+        if let Err(error) = staging_result {
+            if fail_preparing_rack_maintenance_request(
+                db_pool,
+                request_id,
+                "failed to stage rack maintenance access token",
+            )
+            .await
+            {
+                cleanup_rack_maintenance_access_token(credential_manager, rack_id, request_id)
+                    .await;
+            }
+            return Err(ComponentManagerError::Internal(format!(
+                "failed to stage rack maintenance access token: {error}"
+            )));
+        }
+    }
+
+    let finalize_rack_id = rack_id.clone();
+    let finalize_scope = scope.clone();
+    let finalization = db_pool
+        .with_txn(|txn| {
+            Box::pin(async move {
+                let rack = db::rack::find_by_id_for_update(txn.as_mut(), &finalize_rack_id)
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                    .ok_or_else(|| {
+                        ComponentManagerError::NotFound(format!(
+                            "rack {finalize_rack_id} not found"
+                        ))
+                    })?;
+
+                let Some(active) = db::rack_maintenance_request::find_active_for_rack_for_update(
+                    txn.as_mut(),
+                    &finalize_rack_id,
+                )
+                .await
+                .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                else {
+                    return Err(ComponentManagerError::Internal(format!(
+                        "prepared rack maintenance request {request_id} disappeared"
+                    )));
+                };
+
+                if active.id != request_id {
+                    return Ok((RackMaintenanceRequestOutcome::Busy, true));
+                }
+                if active.status != RackMaintenanceRequestStatus::Preparing {
+                    return Ok((
+                        RackMaintenanceRequestOutcome::AlreadyPending {
+                            request_id: Some(request_id),
+                        },
+                        false,
+                    ));
+                }
+
+                if rack.config.maintenance_requested.is_some() {
+                    if !db::rack_maintenance_request::mark_cancelled(
+                        txn.as_mut(),
+                        request_id,
+                        "another maintenance request was published first",
+                    )
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                    {
+                        return Err(ComponentManagerError::Internal(format!(
+                            "rack maintenance request {request_id} could not be cancelled"
+                        )));
+                    }
+                    return Ok((RackMaintenanceRequestOutcome::Busy, true));
+                }
+
+                let state = rack.controller_state.value.clone();
+                let eligible = match eligibility {
+                    RackMaintenanceEligibility::RequireReady => state == RackState::Ready,
+                    RackMaintenanceEligibility::AllowError => {
+                        matches!(&state, RackState::Ready | RackState::Error { .. })
+                    }
+                };
+                if !eligible {
+                    if !db::rack_maintenance_request::mark_cancelled(
+                        txn.as_mut(),
+                        request_id,
+                        "rack became ineligible before request publication",
+                    )
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                    {
+                        return Err(ComponentManagerError::Internal(format!(
+                            "rack maintenance request {request_id} could not be cancelled"
+                        )));
+                    }
+                    return Ok((RackMaintenanceRequestOutcome::Deferred { state }, true));
+                }
+
+                if !db::rack_maintenance_request::mark_ready(txn.as_mut(), request_id)
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+                {
+                    return Err(ComponentManagerError::Internal(format!(
+                        "rack maintenance request {request_id} could not transition to ready"
+                    )));
+                }
+
+                let reset_firmware_upgrade_job =
+                    finalize_scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
+                        firmware_version: None,
+                        components: vec![],
+                        force_update: false,
+                    });
+                let mut config = rack.config;
+                config.maintenance_requested = Some(finalize_scope);
+                config.maintenance_request_id = Some(request_id);
+                db::rack::update(txn.as_mut(), &finalize_rack_id, &config)
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+
+                if reset_firmware_upgrade_job {
+                    db::rack::update_firmware_upgrade_job(txn.as_mut(), &finalize_rack_id, None)
+                        .await
+                        .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+                }
+
+                Ok((
+                    RackMaintenanceRequestOutcome::Scheduled { request_id },
+                    false,
+                ))
+            })
+        })
+        .await;
+
+    let (outcome, cleanup_credential) = match finalization {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => {
+            let failed = fail_preparing_rack_maintenance_request(
+                db_pool,
+                request_id,
+                "failed to publish rack maintenance request",
+            )
+            .await;
+            if failed && let Some(credential_manager) = credential_manager {
+                cleanup_rack_maintenance_access_token(credential_manager, rack_id, request_id)
+                    .await;
+            }
+            return Err(error);
+        }
+        Err(error) => {
+            let failed = fail_preparing_rack_maintenance_request(
+                db_pool,
+                request_id,
+                "failed to commit rack maintenance request",
+            )
+            .await;
+            if failed && let Some(credential_manager) = credential_manager {
+                cleanup_rack_maintenance_access_token(credential_manager, rack_id, request_id)
+                    .await;
+            }
+            return Err(ComponentManagerError::Internal(error.to_string()));
+        }
+    };
+
+    if cleanup_credential && let Some(credential_manager) = credential_manager {
+        cleanup_rack_maintenance_access_token(credential_manager, rack_id, request_id).await;
+    }
+
+    Ok(outcome)
+}
+
+async fn ensure_rack_maintenance_access_token(
+    credential_manager: &dyn CredentialManager,
+    rack_id: &RackId,
+    request_id: uuid::Uuid,
+    token: String,
+) -> Result<(), String> {
+    let key = rack_maintenance_access_token_key(rack_id, Some(request_id));
+    let credentials = Credentials::UsernamePassword {
+        username: "access_token".into(),
+        password: token,
+    };
+    match credential_manager
+        .create_credentials(&key, &credentials)
+        .await
+    {
+        Ok(()) => Ok(()),
+        Err(create_error) => match credential_manager.get_credentials(&key).await {
+            Ok(Some(existing)) if existing == credentials => {
+                tracing::debug!(
+                    rack_id = %rack_id,
+                    %request_id,
+                    "Adopting access token staged by an earlier attempt"
+                );
+                Ok(())
+            }
+            Ok(Some(_)) => Err(format!(
+                "{create_error}; request-scoped credential already contains a different token"
+            )),
+            Ok(None) => Err(create_error.to_string()),
+            Err(read_error) => Err(format!(
+                "{create_error}; failed to check for an existing staged token: {read_error}"
+            )),
+        },
+    }
+}
+
+async fn fail_preparing_rack_maintenance_request(
+    db_pool: &PgPool,
+    request_id: uuid::Uuid,
+    error_message: &'static str,
+) -> bool {
+    let result = db_pool
+        .with_txn(|txn| {
+            Box::pin(async move {
+                db::rack_maintenance_request::mark_preparing_failed(
+                    txn.as_mut(),
+                    request_id,
+                    error_message,
+                )
+                .await
+            })
+        })
+        .await;
+    match result {
+        Ok(Ok(updated)) => updated,
+        Err(error) | Ok(Err(error)) => {
+            tracing::warn!(
+                %request_id,
+                error = %error,
+                "Failed to mark rack maintenance request preparation as failed"
+            );
+            false
+        }
+    }
+}
+
+async fn cleanup_rack_maintenance_access_token(
+    credential_manager: &dyn CredentialManager,
+    rack_id: &RackId,
+    request_id: uuid::Uuid,
+) {
+    if let Err(error) = credential_manager
+        .delete_credentials(&rack_maintenance_access_token_key(
+            rack_id,
+            Some(request_id),
+        ))
+        .await
+    {
+        tracing::warn!(
+            rack_id = %rack_id,
+            %request_id,
+            error = %error,
+            "failed to delete request-scoped rack maintenance access token",
+        );
+    }
 }
 
 impl ComponentManager {
@@ -213,6 +649,13 @@ pub async fn build_component_manager(
 
 #[cfg(test)]
 mod tests {
+    use carbide_secrets::credentials::{CredentialKey, CredentialReader};
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
+    use carbide_uuid::rack::RackId;
+    use db::ObjectColumnFilter;
+    use model::rack::{
+        FirmwareUpgradeJob, MaintenanceActivity, MaintenanceScope, RackConfig, RackState,
+    };
     use model::rack_type::{
         RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
         RackHardwareTopology, RackProductFamily, RackProfile,
@@ -220,6 +663,277 @@ mod tests {
 
     use super::*;
     use crate::config::ComponentManagerConfig;
+
+    async fn create_rack_in_state(pool: &PgPool, state: RackState) -> RackId {
+        let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
+        let mut txn = pool.begin().await.unwrap();
+        let rack = db::rack::create(txn.as_mut(), &rack_id, None, &RackConfig::default(), None)
+            .await
+            .unwrap();
+        if state != RackState::Created {
+            assert!(
+                db::rack::try_update_controller_state(
+                    txn.as_mut(),
+                    &rack_id,
+                    rack.controller_state.version,
+                    rack.controller_state.version.increment(),
+                    &state,
+                )
+                .await
+                .unwrap()
+            );
+        }
+        txn.commit().await.unwrap();
+        rack_id
+    }
+
+    async fn load_rack(pool: &PgPool, rack_id: &RackId) -> model::rack::Rack {
+        let mut conn = pool.acquire().await.unwrap();
+        db::rack::find_by(
+            conn.as_mut(),
+            ObjectColumnFilter::One(db::rack::IdColumn, rack_id),
+        )
+        .await
+        .unwrap()
+        .pop()
+        .unwrap()
+    }
+
+    fn nmx_scope() -> MaintenanceScope {
+        MaintenanceScope {
+            activities: vec![MaintenanceActivity::ConfigureNmxCluster],
+            ..Default::default()
+        }
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn rack_maintenance_scheduler_is_atomic_and_idempotent(pool: PgPool) {
+        let ready_rack = create_rack_in_state(&pool, RackState::Ready).await;
+        let scope = nmx_scope();
+
+        let request_id = match request_rack_maintenance_via_state_controller(
+            &pool,
+            &ready_rack,
+            scope.clone(),
+            RackMaintenanceEligibility::RequireReady,
+            None,
+        )
+        .await
+        .unwrap()
+        {
+            RackMaintenanceRequestOutcome::Scheduled { request_id } => request_id,
+            outcome => panic!("expected Scheduled, got {outcome:?}"),
+        };
+        let rack = load_rack(&pool, &ready_rack).await;
+        assert_eq!(rack.config.maintenance_requested, Some(scope.clone()));
+        assert_eq!(rack.config.maintenance_request_id, Some(request_id));
+        let mut conn = pool.acquire().await.unwrap();
+        let request = db::rack_maintenance_request::find_by_id(conn.as_mut(), request_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(request.status, RackMaintenanceRequestStatus::Ready);
+        drop(conn);
+
+        // Exact retries are idempotent, including after the rack state has
+        // moved on. A different request is busy and cannot replace it.
+        let rack = load_rack(&pool, &ready_rack).await;
+        let mut txn = pool.begin().await.unwrap();
+        assert!(
+            db::rack::try_update_controller_state(
+                txn.as_mut(),
+                &ready_rack,
+                rack.controller_state.version,
+                rack.controller_state.version.increment(),
+                &RackState::Discovering,
+            )
+            .await
+            .unwrap()
+        );
+        txn.commit().await.unwrap();
+        assert_eq!(
+            request_rack_maintenance_via_state_controller(
+                &pool,
+                &ready_rack,
+                scope.clone(),
+                RackMaintenanceEligibility::RequireReady,
+                None,
+            )
+            .await
+            .unwrap(),
+            RackMaintenanceRequestOutcome::AlreadyPending {
+                request_id: Some(request_id),
+            },
+        );
+
+        let unrelated_scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::PowerSequence],
+            ..Default::default()
+        };
+        assert_eq!(
+            request_rack_maintenance_via_state_controller(
+                &pool,
+                &ready_rack,
+                unrelated_scope,
+                RackMaintenanceEligibility::RequireReady,
+                None,
+            )
+            .await
+            .unwrap(),
+            RackMaintenanceRequestOutcome::Busy,
+        );
+        assert_eq!(
+            load_rack(&pool, &ready_rack)
+                .await
+                .config
+                .maintenance_requested,
+            Some(scope),
+        );
+
+        // Automatic callers defer non-Ready racks; operator callers may
+        // explicitly opt into recovering a rack from Error.
+        let error_state = RackState::Error {
+            cause: "test".into(),
+        };
+        let error_rack = create_rack_in_state(&pool, error_state.clone()).await;
+        assert_eq!(
+            request_rack_maintenance_via_state_controller(
+                &pool,
+                &error_rack,
+                nmx_scope(),
+                RackMaintenanceEligibility::RequireReady,
+                None,
+            )
+            .await
+            .unwrap(),
+            RackMaintenanceRequestOutcome::Deferred { state: error_state },
+        );
+        assert!(matches!(
+            request_rack_maintenance_via_state_controller(
+                &pool,
+                &error_rack,
+                nmx_scope(),
+                RackMaintenanceEligibility::AllowError,
+                None,
+            )
+            .await
+            .unwrap(),
+            RackMaintenanceRequestOutcome::Scheduled { .. },
+        ));
+
+        // Two different requests racing for an empty slot serialize on the
+        // rack row: one wins and the other observes Busy.
+        let race_rack = create_rack_in_state(&pool, RackState::Ready).await;
+        let first_scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: Some(r#"{"Id":"first"}"#.into()),
+                components: vec![],
+                force_update: false,
+            }],
+            ..Default::default()
+        };
+        let second_scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: Some(r#"{"Id":"second"}"#.into()),
+                components: vec![],
+                force_update: false,
+            }],
+            ..Default::default()
+        };
+        let credential_manager = TestCredentialManager::default();
+        let (first, second) = tokio::join!(
+            request_rack_maintenance_via_state_controller(
+                &pool,
+                &race_rack,
+                first_scope,
+                RackMaintenanceEligibility::RequireReady,
+                Some(RackMaintenanceAccessToken {
+                    credential_manager: &credential_manager,
+                    token: "first-token".into(),
+                }),
+            ),
+            request_rack_maintenance_via_state_controller(
+                &pool,
+                &race_rack,
+                second_scope,
+                RackMaintenanceEligibility::RequireReady,
+                Some(RackMaintenanceAccessToken {
+                    credential_manager: &credential_manager,
+                    token: "second-token".into(),
+                }),
+            ),
+        );
+        let first = first.unwrap();
+        let second = second.unwrap();
+        let (winning_token, request_id) = match (&first, &second) {
+            (
+                RackMaintenanceRequestOutcome::Scheduled { request_id },
+                RackMaintenanceRequestOutcome::Busy,
+            ) => ("first-token", *request_id),
+            (
+                RackMaintenanceRequestOutcome::Busy,
+                RackMaintenanceRequestOutcome::Scheduled { request_id },
+            ) => ("second-token", *request_id),
+            unexpected => panic!("expected one Scheduled and one Busy outcome, got {unexpected:?}"),
+        };
+        let stored_credentials = credential_manager
+            .get_credentials(&CredentialKey::RackMaintenanceRequestAccessToken {
+                rack_id: race_rack.clone(),
+                request_id,
+            })
+            .await
+            .unwrap()
+            .expect("the winning request should persist its token");
+        assert_eq!(
+            stored_credentials,
+            Credentials::UsernamePassword {
+                username: "access_token".into(),
+                password: winning_token.into(),
+            }
+        );
+
+        // Firmware bookkeeping is cleared in the same transaction that
+        // accepts a firmware maintenance request.
+        let firmware_rack = create_rack_in_state(&pool, RackState::Ready).await;
+        let mut txn = pool.begin().await.unwrap();
+        db::rack::update_firmware_upgrade_job(
+            txn.as_mut(),
+            &firmware_rack,
+            Some(&FirmwareUpgradeJob {
+                job_id: Some("stale-job".into()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+        let firmware_scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: Some("{}".into()),
+                components: vec![],
+                force_update: false,
+            }],
+            ..Default::default()
+        };
+        assert!(matches!(
+            request_rack_maintenance_via_state_controller(
+                &pool,
+                &firmware_rack,
+                firmware_scope,
+                RackMaintenanceEligibility::RequireReady,
+                None,
+            )
+            .await
+            .unwrap(),
+            RackMaintenanceRequestOutcome::Scheduled { .. },
+        ));
+        assert!(
+            load_rack(&pool, &firmware_rack)
+                .await
+                .firmware_upgrade_job
+                .is_none()
+        );
+    }
 
     fn rms_rack_profiles(profile: RackProfile) -> RackProfileConfig {
         RackProfileConfig {

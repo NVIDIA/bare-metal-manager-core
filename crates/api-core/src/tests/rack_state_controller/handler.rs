@@ -36,7 +36,8 @@ use model::rack::{
     ConfigureNmxClusterCertificateState, ConfigureNmxClusterState, FirmwareUpgradeDeviceStatus,
     FirmwareUpgradeJob, FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope,
     NvosUpdateState, NvosUpdateSwitchStatus, Rack, RackConfig, RackFirmwareUpgradeState,
-    RackMaintenanceState, RackPowerState, RackState, RackValidationState,
+    RackMaintenanceRequestStatus, RackMaintenanceState, RackPowerState, RackState,
+    RackValidationState,
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
@@ -339,6 +340,49 @@ async fn attach_switch_with_nvos_credentials(
 
 pub(crate) fn new_rack_id() -> RackId {
     RackId::new(uuid::Uuid::new_v4().to_string())
+}
+
+async fn create_ready_rack_with_maintenance_request(
+    pool: &sqlx::PgPool,
+    scope: MaintenanceScope,
+) -> Result<(RackId, uuid::Uuid), Box<dyn std::error::Error>> {
+    let rack_id = new_rack_id();
+    let request_id = uuid::Uuid::new_v4();
+    let config = RackConfig {
+        maintenance_requested: Some(scope.clone()),
+        maintenance_request_id: Some(request_id),
+        ..Default::default()
+    };
+    let mut txn = pool.begin().await?;
+    let rack = db_rack::create(
+        txn.as_mut(),
+        &rack_id,
+        Some(&RackProfileId::new("Empty")),
+        &config,
+        None,
+    )
+    .await?;
+    db::rack_maintenance_request::insert_preparing(
+        txn.as_mut(),
+        request_id,
+        &rack_id,
+        &scope,
+        false,
+    )
+    .await?;
+    assert!(db::rack_maintenance_request::mark_ready(txn.as_mut(), request_id).await?);
+    assert!(
+        db_rack::try_update_controller_state(
+            txn.as_mut(),
+            &rack_id,
+            rack.controller_state.version,
+            rack.controller_state.version.increment(),
+            &RackState::Ready,
+        )
+        .await?
+    );
+    txn.commit().await?;
+    Ok((rack_id, request_id))
 }
 
 async fn create_ready_rack_with_switch(
@@ -1177,6 +1221,147 @@ async fn test_error_state_does_nothing(
         matches!(outcome, StateHandlerOutcome::Wait { .. }),
         "Error state should wait"
     );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_first_class_maintenance_request_runs_and_completes(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let scope = MaintenanceScope {
+        activities: vec![MaintenanceActivity::ConfigureNmxCluster],
+        ..Default::default()
+    };
+    let (rack_id, request_id) = create_ready_rack_with_maintenance_request(&pool, scope).await?;
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+
+    let handler = RackStateHandler::default();
+    let mut services = env.rack_state_handler_services();
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let mut outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &RackState::Ready, &mut ctx)
+        .await?;
+    assert!(matches!(
+        &outcome,
+        StateHandlerOutcome::Transition {
+            next_state: RackState::Maintenance { .. },
+            ..
+        }
+    ));
+    if let Some(txn) = outcome.take_transaction() {
+        txn.commit().await?;
+    }
+
+    let mut conn = pool.acquire().await?;
+    let request = db::rack_maintenance_request::find_by_id(conn.as_mut(), request_id)
+        .await?
+        .unwrap();
+    assert_eq!(request.status, RackMaintenanceRequestStatus::Running);
+    assert!(request.started.is_some());
+    drop(conn);
+
+    let completed_state = RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::Completed,
+    };
+    let mut outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &completed_state, &mut ctx)
+        .await?;
+    assert!(matches!(
+        &outcome,
+        StateHandlerOutcome::Transition {
+            next_state: RackState::Validating {
+                validating_state: RackValidationState::Pending,
+            },
+            ..
+        }
+    ));
+    if let Some(txn) = outcome.take_transaction() {
+        txn.commit().await?;
+    }
+
+    let mut conn = pool.acquire().await?;
+    let request = db::rack_maintenance_request::find_by_id(conn.as_mut(), request_id)
+        .await?
+        .unwrap();
+    assert_eq!(request.status, RackMaintenanceRequestStatus::Completed);
+    assert!(request.completed.is_some());
+    let rack = get_db_rack(conn.as_mut(), &rack_id).await;
+    assert!(rack.config.maintenance_requested.is_none());
+    assert!(rack.config.maintenance_request_id.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_first_class_maintenance_request_fails_with_maintenance(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
+    let scope = MaintenanceScope {
+        activities: vec![MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: None,
+            components: vec![],
+            force_update: false,
+        }],
+        ..Default::default()
+    };
+    let (rack_id, request_id) = create_ready_rack_with_maintenance_request(&pool, scope).await?;
+    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
+
+    let handler = RackStateHandler::default();
+    let mut services = env.rack_state_handler_services();
+    let mut metrics = RackMetrics::default();
+    let mut db_writes = DbWriteBatch::default();
+    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
+        services: &mut services,
+        metrics: &mut metrics,
+        pending_db_writes: &mut db_writes,
+    };
+
+    let mut outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &RackState::Ready, &mut ctx)
+        .await?;
+    if let Some(txn) = outcome.take_transaction() {
+        txn.commit().await?;
+    }
+
+    let firmware_state = RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::FirmwareUpgrade {
+            rack_firmware_upgrade: FirmwareUpgradeState::Start,
+        },
+    };
+    let mut outcome = handler
+        .handle_object_state(&rack_id, &mut rack, &firmware_state, &mut ctx)
+        .await?;
+    assert!(matches!(
+        &outcome,
+        StateHandlerOutcome::Transition {
+            next_state: RackState::Error { .. },
+            ..
+        }
+    ));
+    if let Some(txn) = outcome.take_transaction() {
+        txn.commit().await?;
+    }
+
+    let mut conn = pool.acquire().await?;
+    let request = db::rack_maintenance_request::find_by_id(conn.as_mut(), request_id)
+        .await?
+        .unwrap();
+    assert_eq!(request.status, RackMaintenanceRequestStatus::Failed);
+    assert!(request.error_message.is_some());
+    let rack = get_db_rack(conn.as_mut(), &rack_id).await;
+    assert!(rack.config.maintenance_requested.is_none());
+    assert!(rack.config.maintenance_request_id.is_none());
 
     Ok(())
 }

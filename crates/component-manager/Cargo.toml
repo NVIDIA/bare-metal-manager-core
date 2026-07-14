@@ -44,15 +44,16 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 tracing = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 carbide-api-test-helper = { path = "../api-test-helper" }
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-macros = { path = "../macros" }
+carbide-secrets = { path = "../secrets", features = ["test-support"] }
 carbide-sqlx-testing = { path = "../sqlx-testing" }
 carbide-test-support = { path = "../test-support" }
 toml = { workspace = true }
-uuid = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

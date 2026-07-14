@@ -428,6 +428,10 @@ pub enum CredentialKey {
     RackMaintenanceAccessToken {
         rack_id: RackId,
     },
+    RackMaintenanceRequestAccessToken {
+        rack_id: RackId,
+        request_id: uuid::Uuid,
+    },
 }
 
 /// The site-wide default credentials endpoint exploration requires before it
@@ -572,7 +576,10 @@ impl CredentialKey {
             Self::MachineIdentityEncryptionKey { .. } => {
                 CredentialPrefix::MachineIdentityEncryptionKey
             }
-            Self::RackMaintenanceAccessToken { .. } => CredentialPrefix::RackMaintenanceAccessToken,
+            Self::RackMaintenanceAccessToken { .. }
+            | Self::RackMaintenanceRequestAccessToken { .. } => {
+                CredentialPrefix::RackMaintenanceAccessToken
+            }
         }
     }
 
@@ -684,6 +691,12 @@ impl CredentialKey {
             CredentialKey::RackMaintenanceAccessToken { rack_id } => {
                 Cow::from(format!("racks/{rack_id}/maintenance/access-token"))
             }
+            CredentialKey::RackMaintenanceRequestAccessToken {
+                rack_id,
+                request_id,
+            } => Cow::from(format!(
+                "racks/{rack_id}/maintenance/requests/{request_id}/access-token"
+            )),
         }
     }
 }
@@ -1185,7 +1198,20 @@ mod tests {
                 Check {
                     scenario: "rack maintenance access token",
                     input: Row {
-                        key: CredentialKey::RackMaintenanceAccessToken { rack_id },
+                        key: CredentialKey::RackMaintenanceAccessToken {
+                            rack_id: rack_id.clone(),
+                        },
+                        expected_prefix: "racks/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "request-scoped rack maintenance access token",
+                    input: Row {
+                        key: CredentialKey::RackMaintenanceRequestAccessToken {
+                            rack_id,
+                            request_id: uuid::Uuid::nil(),
+                        },
                         expected_prefix: "racks/",
                     },
                     expect: PathChecks::all_hold(),
@@ -1264,7 +1290,13 @@ mod tests {
             CredentialKey::MachineIdentityEncryptionKey {
                 key_id: "k".to_string(),
             },
-            CredentialKey::RackMaintenanceAccessToken { rack_id },
+            CredentialKey::RackMaintenanceAccessToken {
+                rack_id: rack_id.clone(),
+            },
+            CredentialKey::RackMaintenanceRequestAccessToken {
+                rack_id,
+                request_id: uuid::Uuid::nil(),
+            },
         ];
 
         for key in &keys {
