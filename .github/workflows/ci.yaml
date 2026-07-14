@@ -774,7 +774,7 @@ jobs:
       platforms: linux/amd64
       runner: linux-amd64-cpu16
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
-      load: false
+      load: true
       scan: true
       tag_latest: false
       timeout_minutes: 60
