@@ -1470,30 +1470,44 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Error deleting Allocation, DB error retrieving remaining Allocations for Tenant", nil)
 		}
 		if acount == 0 {
-			tsDAO := cdbm.NewTenantSiteDAO(dah.dbSession)
-			tss, tscount, serr := tsDAO.GetAll(
-				ctx,
-				tx,
-				cdbm.TenantSiteFilterInput{
-					TenantIDs: []uuid.UUID{a.TenantID},
-					SiteIDs:   []uuid.UUID{a.SiteID},
-				},
-				cdbp.PageInput{},
-				nil,
-			)
+				// Privileged tenants (and service accounts, which are marked
+				// the same way) keep their TenantSite association even after
+				// their last allocation on a site is removed, since they
+				// don't rely on allocations to access the site in the first
+				// place.
+				tnDAO := cdbm.NewTenantDAO(dah.dbSession)
+				tenantForCleanup, terr := tnDAO.GetByID(ctx, tx, a.TenantID, nil)
+				if terr != nil {
+					logger.Error().Err(terr).Msg("error retrieving Tenant for TenantSite cleanup check")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Error deleting Allocation, DB error retrieving Tenant for cleanup check", nil)
+				}
+				isPrivileged := tenantForCleanup != nil && tenantForCleanup.Config != nil && tenantForCleanup.Config.TargetedInstanceCreation
 
-			if serr != nil {
-				logger.Error().Err(serr).Msg("error getting count of Tenant/Site associations")
-				return cutil.NewAPIError(http.StatusInternalServerError, "Error deleting Allocation, DB error retrieving Tenant/Site associations", nil)
-			}
-			if tscount > 0 {
-				derr := tsDAO.Delete(ctx, tx, tss[0].ID)
-				if derr != nil {
-					logger.Error().Err(derr).Msg("error deleting Tenant/Site association")
-					return cutil.NewAPIError(http.StatusInternalServerError, "Error deleting Allocation, DB error deleting Tenant/Site association", nil)
+				if !isPrivileged {
+					tsDAO := cdbm.NewTenantSiteDAO(dah.dbSession)
+					tss, tscount, serr := tsDAO.GetAll(
+						ctx,
+						tx,
+						cdbm.TenantSiteFilterInput{
+							TenantIDs: []uuid.UUID{a.TenantID},
+							SiteIDs:   []uuid.UUID{a.SiteID},
+						},
+						cdbp.PageInput{},
+						nil,
+					)
+					if serr != nil {
+						logger.Error().Err(serr).Msg("error getting count of Tenant/Site associations")
+						return cutil.NewAPIError(http.StatusInternalServerError, "Error deleting Allocation, DB error retrieving Tenant/Site associations", nil)
+					}
+					if tscount > 0 {
+						derr := tsDAO.Delete(ctx, tx, tss[0].ID)
+						if derr != nil {
+							logger.Error().Err(derr).Msg("error deleting Tenant/Site association")
+							return cutil.NewAPIError(http.StatusInternalServerError, "Error deleting Allocation, DB error deleting Tenant/Site association", nil)
+						}
+					}
 				}
 			}
-		}
 		return nil
 	})
 	if err != nil {

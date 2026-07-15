@@ -206,6 +206,28 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 		return common.HandleTxError(c, logger, err, "Failed to retrieve current Tenant, DB transaction error")
 	}
 
+	// If this tenant is privileged (targeted instance creation enabled),
+	// ensure it has TenantSite records for every site under its org's
+	// infrastructure provider, since privileged tenants should be able to
+	// operate on any site without needing an allocation first.
+	if tn.Config != nil && tn.Config.TargetedInstanceCreation {
+		ipDAO := cdbm.NewInfrastructureProviderDAO(gcth.dbSession)
+		ips, ipErr := ipDAO.GetAllByOrg(ctx, nil, org, nil)
+		if ipErr != nil {
+			logger.Error().Err(ipErr).Msg("error retrieving Infrastructure Provider for this org")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Infrastructure Provider for org, DB error", nil)
+		}
+		if len(ips) > 0 {
+			ip := ips[0]
+			err = cdb.WithTx(ctx, gcth.dbSession, func(tx *cdb.Tx) error {
+				return EnsureTenantSitesForInfrastructureProvider(ctx, tx, gcth.dbSession, tn, ip.ID, dbUser.ID)
+			})
+			if err != nil {
+				return common.HandleTxError(c, logger, err, "Failed to ensure TenantSite records for privileged tenant")
+			}
+		}
+	}
+
 	// Create response
 	apiInstance := model.NewAPITenant(tn)
 

@@ -177,6 +177,18 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 		}
 	}
 
+	// Ensure this service account's tenant has TenantSite records for every
+	// site under this org's infrastructure provider, since service accounts
+	// should be able to operate on any site without needing an allocation.
+	serr = cdb.WithTx(ctx, gcsah.dbSession, func(tx *cdb.Tx) error {
+		return EnsureTenantSitesForInfrastructureProvider(ctx, tx, gcsah.dbSession, tn, ip.ID, dbUser.ID)
+	})
+	if serr != nil {
+		return common.HandleTxError(c, logger, serr, "Failed to ensure TenantSite records for service account")
+	}
+
+	// Create response
+
 	// Create response
 	apiServiceAccount := model.NewAPIServiceAccount(serviceAccountEnabled, ip, tn)
 
