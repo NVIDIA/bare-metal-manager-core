@@ -16,6 +16,7 @@
  */
 use std::collections::HashMap;
 
+use carbide_host_support::bootstrap_ca::BootstrapCaSource;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use chrono::Utc;
 use common::api_fixtures::{
@@ -442,11 +443,12 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
     assert!(cloud_init_cfg.discovery_instructions.is_some());
 }
 
-/// Verifies cloud-init discovery instructions carry the configured DPU VF count.
+/// Verifies cloud-init discovery instructions carry configured DPU provisioning values.
 #[crate::sqlx_test]
-async fn test_cloud_init_uses_configured_num_of_vfs(pool: sqlx::PgPool) {
+async fn test_cloud_init_uses_configured_dpu_provisioning_values(pool: sqlx::PgPool) {
     let mut config = get_config();
     config.dpu_config.num_of_vfs = 64;
+    config.dpu_config.bootstrap_ca_source = BootstrapCaSource::Embedded;
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     // Discover an unassigned interface so the API returns discovery instructions.
@@ -480,6 +482,10 @@ async fn test_cloud_init_uses_configured_num_of_vfs(pool: sqlx::PgPool) {
         .discovery_instructions
         .expect("expected discovery instructions");
     assert_eq!(discovery_instructions.num_of_vfs, Some(64));
+    assert_eq!(
+        discovery_instructions.bootstrap_ca_source,
+        rpc::forge::BootstrapCaSource::Embedded as i32
+    );
 }
 
 #[crate::sqlx_test]

@@ -729,6 +729,12 @@ async fn initialize_dpf_sdk(
 
     tracing::info!("Initializing DPF SDK");
 
+    carbide_config
+        .dpf
+        .dpu_agent_bootstrap_ca
+        .validate()
+        .map_err(|err| eyre::eyre!("invalid DPF bootstrap CA configuration: {err}"))?;
+
     let repo = carbide_dpf::KubeRepository::new()
         .await
         .map_err(|e| eyre::eyre!("failed to create DPF repository: {e}"))?;
@@ -775,7 +781,10 @@ async fn initialize_dpf_sdk(
                 bluefield_software,
                 flavor_name: deployment.flavor_name.clone(),
                 deployment_name: deployment.deployment_name.clone(),
-                services: crate::dpf_services::mandatory_services(&services),
+                services: crate::dpf_services::mandatory_services(
+                    &services,
+                    &carbide_config.dpf.dpu_agent_bootstrap_ca,
+                ),
                 proxy: carbide_config.dpf.proxy.clone(),
                 deployment_type,
             }

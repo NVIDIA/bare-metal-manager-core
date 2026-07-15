@@ -28,6 +28,7 @@ use carbide_firmware::defaults::{
     BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
     BF3_CEC_VERSION, BF3_NIC_VERSION, BF3_UEFI_VERSION,
 };
+use carbide_host_support::bootstrap_ca::BootstrapCaSource;
 use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
 use carbide_machine_controller::config::power_manager::default_power_options;
 use carbide_machine_controller::config::{
@@ -1157,6 +1158,109 @@ pub enum ComputeAllocationEnforcement {
 
 /// DPF (DPU Platform Framework) configuration for
 /// deploying DPU fabric as a Kubernetes service.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "source", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DpfDpuAgentBootstrapCa {
+    /// Preserve the legacy behavior: download the trust anchor from nico-pxe.
+    LegacyDownload {
+        /// Optional full endpoint override. When omitted, the DPU agent uses its
+        /// built-in legacy endpoint.
+        #[serde(default)]
+        url: Option<url::Url>,
+    },
+    /// Copy the trust anchor projected from a Kubernetes object.
+    Mounted {
+        /// Kubernetes object type containing the trust anchor.
+        object_kind: DpfBootstrapCaObjectKind,
+        /// Name of the Kubernetes object in the DPU cluster.
+        name: String,
+        /// Key within the Kubernetes object.
+        #[serde(default = "default_dpf_bootstrap_ca_key")]
+        key: String,
+    },
+}
+
+impl Default for DpfDpuAgentBootstrapCa {
+    fn default() -> Self {
+        Self::LegacyDownload { url: None }
+    }
+}
+
+impl DpfDpuAgentBootstrapCa {
+    /// Validate values that cannot be constrained by deserialization alone.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::LegacyDownload { url: Some(url) }
+                if !matches!(url.scheme(), "http" | "https") =>
+            {
+                Err("dpf.dpu_agent_bootstrap_ca.url must use http or https".to_string())
+            }
+            Self::Mounted { name, .. } if name.trim().is_empty() => Err(
+                "dpf.dpu_agent_bootstrap_ca.name must not be empty for mounted sources".to_string(),
+            ),
+            Self::Mounted { name, .. } if !is_valid_kubernetes_object_name(name) => Err(
+                "dpf.dpu_agent_bootstrap_ca.name must be a valid Kubernetes DNS subdomain for mounted sources"
+                    .to_string(),
+            ),
+            Self::Mounted { key, .. } if key.trim().is_empty() => Err(
+                "dpf.dpu_agent_bootstrap_ca.key must not be empty for mounted sources".to_string(),
+            ),
+            Self::Mounted { key, .. } if !is_valid_kubernetes_data_key(key) => Err(
+                "dpf.dpu_agent_bootstrap_ca.key must be a valid Kubernetes Secret or ConfigMap data key for mounted sources"
+                    .to_string(),
+            ),
+            _ => Ok(()),
+        }
+    }
+}
+
+const KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH: usize = 253;
+
+// Secret and ConfigMap names use Kubernetes' DNS-1123 subdomain validation.
+fn is_valid_kubernetes_object_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        && value.split('.').all(|label| {
+            let bytes = label.as_bytes();
+            bytes
+                .first()
+                .is_some_and(|byte| is_dns_1123_alphanumeric(*byte))
+                && bytes
+                    .last()
+                    .is_some_and(|byte| is_dns_1123_alphanumeric(*byte))
+                && bytes
+                    .iter()
+                    .all(|byte| is_dns_1123_alphanumeric(*byte) || *byte == b'-')
+        })
+}
+
+fn is_dns_1123_alphanumeric(byte: u8) -> bool {
+    byte.is_ascii_lowercase() || byte.is_ascii_digit()
+}
+
+// Kubernetes applies this validation to keys in both ConfigMap and Secret data.
+fn is_valid_kubernetes_data_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        && value != "."
+        && !value.starts_with("..")
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+/// Kubernetes object kinds supported as DPF DPU-agent trust-anchor sources.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DpfBootstrapCaObjectKind {
+    Secret,
+    ConfigMap,
+}
+
+fn default_dpf_bootstrap_ca_key() -> String {
+    "ca.crt".to_string()
+}
+
 #[derive(Clone, Debug, Serialize, Default, Deserialize)]
 pub struct DpfConfig {
     /// Enables DPF deployment.
@@ -1168,6 +1272,9 @@ pub struct DpfConfig {
     /// docker_image_pull_secret is set in services sections as well.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
+    /// Selects how the DPF-managed DPU agent obtains the API trust anchor.
+    #[serde(default)]
+    pub dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa,
     /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
@@ -2288,6 +2395,10 @@ pub const fn default_bmc_session_lockout_threshold() -> u32 {
 /// DpuConfig related internal configuration
 #[derive(Clone, Debug, Serialize)]
 pub struct DpuConfig {
+    /// How booting DPUs obtain the CA used to authenticate Carbide.
+    #[serde(default)]
+    pub bootstrap_ca_source: BootstrapCaSource,
+
     /// Enable dpu firmware updates on initial discovery
     #[serde(default)]
     pub dpu_nic_firmware_initial_update_enabled: bool,
@@ -2346,6 +2457,8 @@ impl<'de> Deserialize<'de> for DpuConfig {
         #[derive(Deserialize)]
         struct PartialDpuConfig {
             #[serde(default)]
+            bootstrap_ca_source: Option<BootstrapCaSource>,
+            #[serde(default)]
             dpu_nic_firmware_initial_update_enabled: Option<bool>,
             #[serde(default)]
             dpu_nic_firmware_reprovision_update_enabled: Option<bool>,
@@ -2371,6 +2484,9 @@ impl<'de> Deserialize<'de> for DpuConfig {
         }
 
         Ok(DpuConfig {
+            bootstrap_ca_source: partial
+                .bootstrap_ca_source
+                .unwrap_or(default.bootstrap_ca_source),
             dpu_nic_firmware_initial_update_enabled: partial
                 .dpu_nic_firmware_initial_update_enabled
                 .unwrap_or(default.dpu_nic_firmware_initial_update_enabled),
@@ -2398,6 +2514,7 @@ impl Default for DpuConfig {
     // can support auto-ingestion for.
     fn default() -> Self {
         Self {
+            bootstrap_ca_source: BootstrapCaSource::default(),
             dpu_nic_firmware_initial_update_enabled: false,
             dpu_nic_firmware_reprovision_update_enabled: true,
             dpu_models: HashMap::from([
@@ -3129,7 +3246,7 @@ mod tests {
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
     use carbide_test_support::Outcome::Yields;
-    use carbide_test_support::scenarios;
+    use carbide_test_support::{Check, check_values, scenarios};
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
@@ -3867,6 +3984,10 @@ mod tests {
         );
         assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
         assert!(!config.auth.as_ref().unwrap().permissive_mode);
+        assert_eq!(
+            config.dpu_config.bootstrap_ca_source,
+            BootstrapCaSource::LegacyDownload
+        );
         assert_eq!(config.dpu_config.num_of_vfs, DEFAULT_DPU_NUM_OF_VFS);
         assert_eq!(
             config
@@ -4700,6 +4821,7 @@ mqtt_endpoint = "mqtt.forge"
     fn deserialize_dpu_config() {
         let toml = r#"
 [dpu_config]
+bootstrap_ca_source = "embedded"
 dpu_enable_secure_boot = true
 num_of_vfs = 64
 "#;
@@ -4710,9 +4832,29 @@ num_of_vfs = 64
             .extract()
             .unwrap();
 
+        assert_eq!(
+            config.dpu_config.bootstrap_ca_source,
+            BootstrapCaSource::Embedded
+        );
         assert!(config.dpu_config.dpu_enable_secure_boot);
         assert_eq!(config.dpu_config.num_of_vfs, 64);
         assert!(!config.dpu_config.dpu_models.is_empty());
+    }
+
+    #[test]
+    fn deserialize_dpu_config_rejects_unknown_bootstrap_ca_source() {
+        let toml = r#"
+[dpu_config]
+bootstrap_ca_source = "download"
+"#;
+
+        let error = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .merge(Toml::string(toml))
+            .extract::<CarbideConfig>()
+            .unwrap_err();
+
+        assert!(error.to_string().contains("bootstrap_ca_source"), "{error}");
     }
 
     /// Validates the hard limit on generated BlueField virtual functions.
@@ -5000,6 +5142,247 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 pool_type: resource_pool::ResourcePoolType::Integer,
                 delegate_prefix_len: None,
             }
+        );
+    }
+
+    #[test]
+    fn deserialize_dpf_dpu_agent_bootstrap_ca_sources() {
+        check_values(
+            [
+                Check {
+                    scenario: "default legacy download",
+                    input: "",
+                    expect: Ok((DpfDpuAgentBootstrapCa::default(), Ok(()))),
+                },
+                Check {
+                    scenario: "custom legacy endpoint",
+                    input: r#"
+[dpu_agent_bootstrap_ca]
+source = "legacy_download"
+url = "https://pxe.example.test/site-ca.pem"
+"#,
+                    expect: Ok((
+                        DpfDpuAgentBootstrapCa::LegacyDownload {
+                            url: Some(
+                                url::Url::parse("https://pxe.example.test/site-ca.pem").unwrap(),
+                            ),
+                        },
+                        Ok(()),
+                    )),
+                },
+                Check {
+                    scenario: "mounted ConfigMap CA",
+                    input: r#"
+[dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "config_map"
+name = "nico-bootstrap-ca-v1"
+"#,
+                    expect: Ok((
+                        DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "nico-bootstrap-ca-v1".to_string(),
+                            key: "ca.crt".to_string(),
+                        },
+                        Ok(()),
+                    )),
+                },
+            ],
+            |input| {
+                toml::from_str::<DpfConfig>(input)
+                    .map_err(|error| error.to_string())
+                    .map(|config| {
+                        let validation = config.dpu_agent_bootstrap_ca.validate();
+                        (config.dpu_agent_bootstrap_ca, validation)
+                    })
+            },
+        );
+    }
+
+    #[test]
+    fn deserialize_dpf_dpu_agent_bootstrap_ca_rejects_unknown_fields() {
+        let error = toml::from_str::<DpfConfig>(
+            r#"
+[dpu_agent_bootstrap_ca]
+source = "legacy_download"
+object_kind = "secret"
+"#,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field `object_kind`"));
+    }
+
+    #[test]
+    fn dpf_dpu_agent_bootstrap_ca_validation_rejects_unsafe_values() {
+        struct ValidationInput {
+            policy: DpfDpuAgentBootstrapCa,
+            expected_error: &'static str,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "unsupported URL scheme",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::LegacyDownload {
+                            url: Some(url::Url::parse("file:///tmp/site-ca.pem").unwrap()),
+                        },
+                        expected_error: "must use http or https",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "empty object name",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "  ".to_string(),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must not be empty",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "empty object key",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: String::new(),
+                        },
+                        expected_error: "key must not be empty",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object name containing uppercase characters",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "Nico-bootstrap-ca".to_string(),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must be a valid Kubernetes DNS subdomain",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object name with an empty DNS label",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "nico..bootstrap-ca".to_string(),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must be a valid Kubernetes DNS subdomain",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object name longer than the Kubernetes limit",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "a".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH + 1),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must be a valid Kubernetes DNS subdomain",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object key containing a path separator",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: "certs/ca.crt".to_string(),
+                        },
+                        expected_error: "key must be a valid Kubernetes Secret or ConfigMap data key",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object key using a reserved parent-directory prefix",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: "..ca.crt".to_string(),
+                        },
+                        expected_error: "key must be a valid Kubernetes Secret or ConfigMap data key",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object key using the reserved current-directory name",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: ".".to_string(),
+                        },
+                        expected_error: "key must be a valid Kubernetes Secret or ConfigMap data key",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object key longer than the Kubernetes limit",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: "a".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH + 1),
+                        },
+                        expected_error: "key must be a valid Kubernetes Secret or ConfigMap data key",
+                    },
+                    expect: true,
+                },
+            ],
+            |ValidationInput {
+                 policy,
+                 expected_error,
+             }| {
+                policy
+                    .validate()
+                    .is_err_and(|error| error.contains(expected_error))
+            },
+        );
+    }
+
+    #[test]
+    fn dpf_dpu_agent_bootstrap_ca_validation_accepts_kubernetes_references() {
+        check_values(
+            [
+                Check {
+                    scenario: "dotted object name and default-style key",
+                    input: ("nico.bootstrap-ca-v1".to_string(), "ca.crt".to_string()),
+                    expect: Ok(()),
+                },
+                Check {
+                    scenario: "maximum-length object name and key",
+                    input: (
+                        "a".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH),
+                        "A".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH),
+                    ),
+                    expect: Ok(()),
+                },
+                Check {
+                    scenario: "uppercase and underscore in data key",
+                    input: ("nico-bootstrap-ca".to_string(), ".SITE_CA-V1".to_string()),
+                    expect: Ok(()),
+                },
+            ],
+            |(name, key)| {
+                DpfDpuAgentBootstrapCa::Mounted {
+                    object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                    name,
+                    key,
+                }
+                .validate()
+            },
         );
     }
 

@@ -22,6 +22,7 @@ use std::default::Default;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+use carbide_host_support::bootstrap_ca::BootstrapCaSource;
 use carbide_ib_fabric::config::IbFabricDefinition;
 use carbide_machine_controller::config::{
     BomValidationConfig, FirmwareGlobal, MachineStateControllerConfig, MachineValidationConfig,
@@ -195,6 +196,7 @@ pub fn get() -> CarbideConfig {
             switch_mtls_services: vec![],
         },
         dpu_config: InitialDpuConfig {
+            bootstrap_ca_source: BootstrapCaSource::LegacyDownload,
             dpu_nic_firmware_initial_update_enabled: true,
             dpu_nic_firmware_reprovision_update_enabled: true,
             dpu_models: dpu_fw_example(),

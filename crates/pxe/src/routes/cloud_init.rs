@@ -25,6 +25,7 @@ use axum::routing::get;
 use axum_template::TemplateEngine;
 use base64::Engine as _;
 use carbide_host_support::agent_config;
+use carbide_host_support::bootstrap_ca::BootstrapCaSource;
 use carbide_instrument::emit;
 use carbide_uuid::machine::MachineInterfaceId;
 use rpc::forge;
@@ -35,6 +36,12 @@ use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome};
 
 const DEFAULT_NUM_OF_VFS: u32 = 16;
 const DEFAULT_HBN_BRIDGE: &str = "br-hbn";
+
+fn parse_bootstrap_ca_source(value: i32) -> Result<BootstrapCaSource, String> {
+    forge::BootstrapCaSource::try_from(value)
+        .map(BootstrapCaSource::from)
+        .map_err(|_| format!("unknown bootstrap CA source value {value}"))
+}
 
 /// Generates the content of the /etc/forge/config.toml file.
 ///
@@ -94,6 +101,7 @@ fn user_data_handler(
     vf_intercept_bridge_sf: Option<String>,
     api_url_override: Option<String>,
     pxe_url_override: Option<String>,
+    bootstrap_ca_source: BootstrapCaSource,
     state: State<AppState>,
 ) -> (String, HashMap<String, String>) {
     let config = state.runtime_config.clone();
@@ -125,6 +133,10 @@ fn user_data_handler(
     context.insert(
         "forge_agent_config_b64".to_string(),
         base64::engine::general_purpose::STANDARD.encode(forge_agent_config),
+    );
+    context.insert(
+        "bootstrap_ca_source".to_string(),
+        bootstrap_ca_source.to_string(),
     );
 
     let bmc_fw_update = state
@@ -225,26 +237,36 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
             ) {
                 (Some(interface), Some(domain)) => match interface.id {
                     Some(machine_interface_id) => {
-                        emit(PxeBootOutcome {
-                            endpoint: BootEndpoint::CloudInit,
-                            reason: OutcomeReason::Ok,
-                        });
-                        user_data_handler(
-                            machine_interface_id,
-                            interface,
-                            domain,
-                            discovery_instructions.hbn_reps,
-                            discovery_instructions.hbn_sfs,
-                            discovery_instructions.num_of_vfs,
-                            discovery_instructions.vf_intercept_bridge_name,
-                            discovery_instructions.host_representor_intercept_bridging,
-                            discovery_instructions.hbn_bridge,
-                            discovery_instructions.vf_intercept_bridge_port,
-                            discovery_instructions.vf_intercept_bridge_sf,
-                            machine.instructions.api_url_override,
-                            machine.instructions.pxe_url_override,
-                            state.clone(),
-                        )
+                        match parse_bootstrap_ca_source(discovery_instructions.bootstrap_ca_source)
+                        {
+                            Ok(bootstrap_ca_source) => {
+                                emit(PxeBootOutcome {
+                                    endpoint: BootEndpoint::CloudInit,
+                                    reason: OutcomeReason::Ok,
+                                });
+                                user_data_handler(
+                                    machine_interface_id,
+                                    interface,
+                                    domain,
+                                    discovery_instructions.hbn_reps,
+                                    discovery_instructions.hbn_sfs,
+                                    discovery_instructions.num_of_vfs,
+                                    discovery_instructions.vf_intercept_bridge_name,
+                                    discovery_instructions.host_representor_intercept_bridging,
+                                    discovery_instructions.hbn_bridge,
+                                    discovery_instructions.vf_intercept_bridge_port,
+                                    discovery_instructions.vf_intercept_bridge_sf,
+                                    machine.instructions.api_url_override,
+                                    machine.instructions.pxe_url_override,
+                                    bootstrap_ca_source,
+                                    state.clone(),
+                                )
+                            }
+                            Err(error) => log_and_generate_generic_error(
+                                error,
+                                OutcomeReason::InstructionsInvalid,
+                            ),
+                        }
                     }
                     None => log_and_generate_generic_error(
                         format!("The interface ID should not be null: {interface:?}"),
@@ -368,11 +390,109 @@ mod tests {
     use std::fs;
 
     use carbide_instrument::testing::MetricsCapture;
+    use carbide_test_support::{Check, check_values};
 
     use super::*;
     use crate::common::test_app_state;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/test_data");
+
+    fn render_user_data_for_bootstrap_ca(source: BootstrapCaSource) -> String {
+        let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
+        let tera = tera::Tera::new(template_glob).unwrap();
+        let context = HashMap::from([
+            ("bootstrap_ca_source".to_string(), source.to_string()),
+            (
+                "api_url".to_string(),
+                "https://carbide-api.forge".to_string(),
+            ),
+            (
+                "forge_agent_config_b64".to_string(),
+                "W21hY2hpbmVdCg==".to_string(),
+            ),
+            ("forge_bmc_fw_update".to_string(), String::new()),
+            ("forge_hbn_bridge".to_string(), "br-hbn".to_string()),
+            ("hostname".to_string(), "test-host".to_string()),
+            (
+                "interface_id".to_string(),
+                "91609f10-c91d-470d-a260-6293ea0c1234".to_string(),
+            ),
+            ("num_of_vfs".to_string(), "3".to_string()),
+            (
+                "pxe_url".to_string(),
+                "http://carbide-pxe.forge".to_string(),
+            ),
+            ("seconds_since_epoch".to_string(), "0".to_string()),
+        ]);
+
+        tera.render(
+            "user-data",
+            &tera::Context::from_serialize(context).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn bootstrap_ca_source_protobuf_values_fail_closed() {
+        check_values(
+            [
+                Check {
+                    scenario: "legacy download preserves historical command without local validation",
+                    input: forge::BootstrapCaSource::LegacyDownload as i32,
+                    expect: Ok(BootstrapCaSource::LegacyDownload),
+                },
+                Check {
+                    scenario: "embedded",
+                    input: forge::BootstrapCaSource::Embedded as i32,
+                    expect: Ok(BootstrapCaSource::Embedded),
+                },
+                Check {
+                    scenario: "mounted",
+                    input: forge::BootstrapCaSource::Mounted as i32,
+                    expect: Ok(BootstrapCaSource::Mounted),
+                },
+                Check {
+                    scenario: "unknown",
+                    input: 99,
+                    expect: Err("unknown bootstrap CA source value 99".to_string()),
+                },
+            ],
+            parse_bootstrap_ca_source,
+        );
+    }
+
+    #[test]
+    fn user_data_template_applies_bootstrap_ca_policy() {
+        check_values(
+            [
+                Check {
+                    scenario: "legacy download",
+                    input: BootstrapCaSource::LegacyDownload,
+                    expect: (1, false, false, false, false),
+                },
+                Check {
+                    scenario: "embedded",
+                    input: BootstrapCaSource::Embedded,
+                    expect: (0, true, true, false, true),
+                },
+                Check {
+                    scenario: "mounted",
+                    input: BootstrapCaSource::Mounted,
+                    expect: (0, true, false, true, false),
+                },
+            ],
+            |source| {
+                let rendered = render_user_data_for_bootstrap_ca(source);
+                (
+                    rendered.matches("ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem http://carbide-pxe.forge/api/v0/tls/root_ca").count(),
+                    rendered.contains("validate_bootstrap_ca()"),
+                    rendered.contains("install_embedded_bootstrap_ca /opt/forge/embedded_forge_root.pem /opt/forge/forge_root.pem"),
+                    rendered.contains("accept_mounted_bootstrap_ca /opt/forge/forge_root.pem"),
+                    rendered.contains("  /embedded_forge_root.pem"),
+                )
+            },
+        );
+    }
 
     #[test]
     fn forge_agent_config() {
@@ -443,6 +563,10 @@ mod tests {
 
         let context = HashMap::from([
             (
+                "bootstrap_ca_source".to_string(),
+                "legacy_download".to_string(),
+            ),
+            (
                 "api_url".to_string(),
                 "https://carbide-api.forge".to_string(),
             ),
@@ -495,6 +619,10 @@ mod tests {
         let tera = tera::Tera::new(template_glob).unwrap();
 
         let context = HashMap::from([
+            (
+                "bootstrap_ca_source".to_string(),
+                "legacy_download".to_string(),
+            ),
             (
                 "api_url".to_string(),
                 "https://carbide-api.forge".to_string(),
@@ -580,10 +708,15 @@ mod tests {
             None,
             None,
             None,
+            BootstrapCaSource::LegacyDownload,
             state,
         );
 
         assert_eq!(template_key, "user-data");
+        assert_eq!(
+            context.get("bootstrap_ca_source").map(String::as_str),
+            Some("legacy_download"),
+        );
         assert_eq!(
             context.get("hostname").map(String::as_str),
             Some("node-01.forge.example.com"),
@@ -622,6 +755,7 @@ mod tests {
             None,
             None,
             None,
+            BootstrapCaSource::LegacyDownload,
             state,
         );
 

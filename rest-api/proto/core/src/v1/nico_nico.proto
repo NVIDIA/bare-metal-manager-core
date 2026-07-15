@@ -5250,6 +5250,15 @@ message PxeInstructions {
   optional string static_pxe_url_override = 4;
 }
 
+// Selects how a booting DPU obtains the CA used to authenticate NICo.
+// LEGACY_DOWNLOAD preserves the historical unauthenticated PXE download for
+// rolling upgrades. EMBEDDED and MOUNTED require a CA to already be present.
+enum BootstrapCaSource {
+  BOOTSTRAP_CA_SOURCE_LEGACY_DOWNLOAD = 0;
+  BOOTSTRAP_CA_SOURCE_EMBEDDED = 1;
+  BOOTSTRAP_CA_SOURCE_MOUNTED = 2;
+}
+
 message CloudInitDiscoveryInstructions {
   MachineInterface machine_interface = 1;
   PxeDomain domain = 2;
@@ -5281,6 +5290,10 @@ message CloudInitDiscoveryInstructions {
 
   // Bridge that intercept patch ports attach to during BlueField provisioning.
   optional string hbn_bridge = 12;
+
+  // How the DPU obtains the CA used to authenticate NICo. The zero value
+  // preserves the legacy download behavior for rolling upgrades.
+  BootstrapCaSource bootstrap_ca_source = 13;
 }
 
 message CloudInitMetaData {

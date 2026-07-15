@@ -92,6 +92,7 @@ pub(crate) enum OutcomeReason {
     ArchitectureNotFound,
     InterfaceNotFound,
     InstructionsEmpty,
+    InstructionsInvalid,
     MetadataNotFound,
     UpstreamApiError,
 }
@@ -163,6 +164,11 @@ mod tests {
                     scenario: "instructions empty",
                     input: OutcomeReason::InstructionsEmpty.label_value(),
                     expect: "instructions_empty".to_string(),
+                },
+                Check {
+                    scenario: "instructions invalid",
+                    input: OutcomeReason::InstructionsInvalid.label_value(),
+                    expect: "instructions_invalid".to_string(),
                 },
                 Check {
                     scenario: "upstream API error",

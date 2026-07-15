@@ -145,6 +145,12 @@ nico-ntp:
 ## ---------------------------------------------------------------------------
 nico-pxe:
   enabled: true
+  ## Optional CA bundle served to bootstrapping clients. Set at most one object
+  ## name; leaving both empty preserves the PXE workload CA fallback.
+  bootstrapRootCa:
+    configMapName: ""
+    secretName: ""
+    key: ca.crt
 
 ## ---------------------------------------------------------------------------
 ## nico-ssh-console-rs — SSH console proxy

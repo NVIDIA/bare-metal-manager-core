@@ -441,6 +441,7 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `bootstrap_ca_source` | `BootstrapCaSource` | `legacy_download` | How non-DPF DPUs obtain the API trust anchor: `legacy_download`, `embedded`, or `mounted`. Omitting the field preserves the historical PXE download. The field is not sent to host Scout boots. Non-network modes do not fall back to downloading. |
 | `dpu_nic_firmware_initial_update_enabled` | `bool` | `false` | Enable DPU NIC firmware updates on initial discovery. |
 | `dpu_nic_firmware_reprovision_update_enabled` | `bool` | `true` | Enable DPU NIC firmware updates on reprovisioning. |
 | `dpu_models` | `HashMap<String, Firmware>` | *(BF2+BF3 defaults)* | DPU model firmware definitions. |
@@ -448,6 +449,19 @@ Extends `StateControllerConfig` with:
 | `dpu_enable_secure_boot` | `bool` | `false` | Enable secure boot flow for DPU provisioning via Redfish. |
 | `num_of_vfs` | `u32` | `16` | Number of VFs configured per DPU PF during BlueField provisioning. Max `126`. |
 | `restart_ovs_on_use_admin_network_change` | `bool` | `false` | Restart OVS on DPU-OS agents when host `use_admin_network` changes. Containerized agents skip the local service restart and still ACK the network config. |
+
+To use `embedded`, build a site-specific BFB with an explicit
+`BOOTSTRAP_CA_PATH`. The build provides no repository or default CA fallback
+for the dedicated embedded payload. Existing legacy artifact inputs remain
+unchanged. It stages the source at `/opt/forge/embedded_forge_root.pem`.
+
+This path is separate from `/opt/forge/forge_root.pem`, which the provisioning
+environment must populate for `mounted`. NICo does not create that mount. Both
+modes fail closed when their own bundle is absent or invalid. Changing this
+setting affects the next DPU network boot or reprovisioning. It does not affect
+host Scout boots or rewrite installed DPUs in place. The selected CA validates
+the NICo API server certificate. This validation remains necessary even when
+client-certificate authentication is not used.
 
 ### `NetworkSecurityGroupConfig`
 
@@ -540,10 +554,53 @@ events, so consumers handle them identically.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `false` | Enable DPF Kubernetes deployment. |
-| `services` | `Option<Vec<DpfServiceConfig>>` | — | Additional Helm services. |
+| `dpu_agent_bootstrap_ca` | `DpfDpuAgentBootstrapCa` | `legacy_download` | Bootstrap trust for the containerized DPU agent. Supports `legacy_download` and `mounted`, as described in the following examples. |
+| `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, and pull-secret settings for the six mandatory DPF services. |
 | `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`). |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4Generic is opt-in via `[dpf.deployments.bf4_generic]`. |
+
+Omitting `[dpf.dpu_agent_bootstrap_ca]` preserves the historical download URL.
+Use the following configuration to retain download mode while overriding the
+complete endpoint URL:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "legacy_download"
+# Optional full endpoint URL. Omit to use the agent default.
+url = "http://carbide-pxe.forge/api/v0/tls/root_ca"
+```
+
+Use the following configuration to project an existing Secret into the DPU
+agent init container:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "secret"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+Use the following configuration for a ConfigMap that already exists in every
+target DPU cluster:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "config_map"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+The URL override changes routing, not the initial trust model. An HTTPS URL is
+authenticated only when its server certificate chains to a root already
+trusted by the shared dpu-agent image.
+
+Mounted mode never falls back to the legacy download. The shared published
+dpu-agent image does not embed a site-specific trust anchor. A mounted
+ConfigMap must already exist in the DPU cluster. A suitably labeled Secret can
+be propagated there by DPF.
 
 ### `RmsConfig`
 
