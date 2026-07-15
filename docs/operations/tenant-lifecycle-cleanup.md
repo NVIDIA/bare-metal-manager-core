@@ -323,8 +323,7 @@ storage cleanup:
 1. Re-enable host lockdown.
 1. Continue to post-cleanup validation.
 
-If the Redfish job fails, NICo retries the job path and can power-cycle the host
-as part of the recovery loop.
+If the Redfish job fails, NICo retries the job path and, if required, power-cycles the host as part of the recovery loop.
 
 ### InfiniBand Cleanup
 
