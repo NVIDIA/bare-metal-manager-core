@@ -19,6 +19,7 @@
 //! `#[derive(LabelValue)]`. See the `carbide-instrument` crate documentation
 //! for the model and usage; these macros are re-exported from there.
 
+use carbide_observability_schema::{is_event_log_reserved_field, validate_event_name};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Field, Fields, Ident, LitStr};
@@ -122,26 +123,28 @@ enum MetricSpec {
 }
 
 struct EventArgs {
-    name: Option<LitStr>,
+    event_name: Option<LitStr>,
+    metric_name: Option<LitStr>,
     component: Option<LitStr>,
     message: Option<LitStr>,
     describe: Option<LitStr>,
     unit: Option<LitStr>,
     log: LogSpec,
     metric: MetricSpec,
-    name_unchecked: bool,
+    metric_name_unchecked: bool,
 }
 
 fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
     let mut args = EventArgs {
-        name: None,
+        event_name: None,
+        metric_name: None,
         component: None,
         message: None,
         describe: None,
         unit: None,
         log: LogSpec::Info,
         metric: MetricSpec::None,
-        name_unchecked: false,
+        metric_name_unchecked: false,
     };
     let mut saw_attr = false;
 
@@ -151,8 +154,21 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
         }
         saw_attr = true;
         attr.parse_nested_meta(|meta| {
-            if meta.path.is_ident("name") {
-                args.name = Some(meta.value()?.parse()?);
+            if meta.path.is_ident("event_name") {
+                if args.event_name.is_some() {
+                    return Err(meta.error("duplicate `event_name`"));
+                }
+                args.event_name = Some(meta.value()?.parse()?);
+            } else if meta.path.is_ident("metric_name") {
+                if args.metric_name.is_some() {
+                    return Err(meta.error("duplicate `metric_name`"));
+                }
+                args.metric_name = Some(meta.value()?.parse()?);
+            } else if meta.path.is_ident("name") {
+                return Err(meta.error(
+                    "`name` has been split into `event_name` and `metric_name`; every Event \
+                     needs event_name, and metric-backed Events also need metric_name",
+                ));
             } else if meta.path.is_ident("component") {
                 args.component = Some(meta.value()?.parse()?);
             } else if meta.path.is_ident("message") {
@@ -161,8 +177,13 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
                 args.describe = Some(meta.value()?.parse()?);
             } else if meta.path.is_ident("unit") {
                 args.unit = Some(meta.value()?.parse()?);
+            } else if meta.path.is_ident("metric_name_unchecked") {
+                args.metric_name_unchecked = true;
             } else if meta.path.is_ident("name_unchecked") {
-                args.name_unchecked = true;
+                return Err(meta.error(
+                    "`name_unchecked` was renamed to `metric_name_unchecked` because it only \
+                     relaxes validation of a grandfathered metric name",
+                ));
             } else if meta.path.is_ident("log") {
                 let ident: Ident = meta.value()?.parse()?;
                 args.log = match ident.to_string().as_str() {
@@ -194,8 +215,8 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
                 };
             } else {
                 return Err(meta.error(
-                    "unknown `event` key; expected name, component, message, describe, log, \
-                     metric, unit, or name_unchecked",
+                    "unknown `event` key; expected event_name, metric_name, component, message, \
+                     describe, log, metric, unit, or metric_name_unchecked",
                 ));
             }
             Ok(())
@@ -205,7 +226,8 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
     if !saw_attr {
         return Err(syn::Error::new_spanned(
             &input.ident,
-            "deriving Event requires an #[event(name = ..., component = ..., ...)] attribute",
+            "deriving Event requires an #[event(event_name = ..., component = ..., ...)] \
+             attribute",
         ));
     }
     Ok(args)
@@ -243,6 +265,28 @@ fn classify_field(field: &Field) -> syn::Result<FieldKind> {
     }
 }
 
+fn validate_event_log_field(log: LogSpec, kind: FieldKind, ident: &Ident) -> syn::Result<()> {
+    if ident == "message" {
+        return Err(syn::Error::new_spanned(
+            ident,
+            "`message` is reserved for the event message; pick another field name",
+        ));
+    }
+    if log != LogSpec::Off
+        && matches!(kind, FieldKind::Label | FieldKind::Context)
+        && is_event_log_reserved_field(&ident.to_string())
+    {
+        return Err(syn::Error::new_spanned(
+            ident,
+            format!(
+                "`{ident}` is reserved by Event-generated logs or the log formatter; choose a \
+                 domain-specific field name"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     let struct_ident = &input.ident;
     if !input.generics.params.is_empty() {
@@ -255,42 +299,73 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
 
     let args = parse_event_args(&input)?;
 
-    let name = args.name.as_ref().ok_or_else(|| {
-        syn::Error::new_spanned(&input.ident, "#[event(...)] requires name = \"...\"")
+    let event_name = args.event_name.as_ref().ok_or_else(|| {
+        syn::Error::new_spanned(&input.ident, "#[event(...)] requires event_name = \"...\"")
     })?;
+    if let Err(error) = validate_event_name(&event_name.value()) {
+        return Err(syn::Error::new_spanned(event_name, error));
+    }
     let component = args.component.as_ref().ok_or_else(|| {
         syn::Error::new_spanned(&input.ident, "#[event(...)] requires component = \"...\"")
     })?;
-    let name_value = name.value();
+
+    let metric_name = match (args.metric, args.metric_name.as_ref()) {
+        (MetricSpec::None, Some(metric_name)) => {
+            return Err(syn::Error::new_spanned(
+                metric_name,
+                "metric_name is only valid when metric is counter or histogram",
+            ));
+        }
+        (MetricSpec::None, None) => None,
+        (_, Some(metric_name)) => Some(metric_name),
+        (_, None) => {
+            return Err(syn::Error::new_spanned(
+                &input.ident,
+                "metric_name = \"...\" is required when metric is counter or histogram",
+            ));
+        }
+    };
+    if args.metric_name_unchecked && metric_name.is_none() {
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "metric_name_unchecked is only valid for a metric-backed Event",
+        ));
+    }
 
     // The metric name in the attribute is the exposed name, verbatim, so a
     // dashboard greps straight back to this line. Validate the conventions
     // unless the site is migrating a grandfathered pre-standard name.
     let mut histogram_unit: Option<&'static str> = None;
-    if args.metric == MetricSpec::Histogram {
+    if args.metric == MetricSpec::Histogram
+        && let Some(metric_name) = metric_name
+    {
+        let metric_name_value = metric_name.value();
         histogram_unit = UNIT_SUFFIXES
             .iter()
-            .find(|(suffix, _)| name_value.ends_with(suffix))
+            .find(|(suffix, _)| metric_name_value.ends_with(suffix))
             .map(|(_, unit)| *unit);
     }
-    if !args.name_unchecked {
-        if !name_value.starts_with("carbide_") {
+    if !args.metric_name_unchecked
+        && let Some(metric_name) = metric_name
+    {
+        let metric_name_value = metric_name.value();
+        if !metric_name_value.starts_with("carbide_") {
             return Err(syn::Error::new_spanned(
-                name,
-                "metric names use the `carbide_` prefix (use name_unchecked only to keep a \
-                 grandfathered pre-standard name)",
+                metric_name,
+                "metric names use the `carbide_` prefix (use metric_name_unchecked only to \
+                 keep a grandfathered pre-standard name)",
             ));
         }
         match args.metric {
-            MetricSpec::Counter if !name_value.ends_with("_total") => {
+            MetricSpec::Counter if !metric_name_value.ends_with("_total") => {
                 return Err(syn::Error::new_spanned(
-                    name,
+                    metric_name,
                     "counter names end in `_total` (Prometheus convention)",
                 ));
             }
             MetricSpec::Histogram if histogram_unit.is_none() => {
                 return Err(syn::Error::new_spanned(
-                    name,
+                    metric_name,
                     "histogram names end in their unit: one of `_seconds`, `_milliseconds`, \
                      `_microseconds`, `_bytes`",
                 ));
@@ -300,8 +375,8 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         if let Some(unit) = &args.unit {
             return Err(syn::Error::new_spanned(
                 unit,
-                "`unit` is only for name_unchecked histograms; a standard histogram name \
-                 already declares its unit as the suffix",
+                "`unit` is only for metric_name_unchecked histograms; a standard histogram \
+                 name already declares its unit as the suffix",
             ));
         }
     }
@@ -329,8 +404,9 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     };
     if args.metric == MetricSpec::Histogram && unit_value.is_empty() {
         return Err(syn::Error::new_spanned(
-            name,
-            "a name_unchecked histogram needs an explicit unit = \"...\"",
+            metric_name.expect("histogram metric name was required above"),
+            "a metric_name_unchecked histogram without a recognized suffix needs an explicit \
+             unit = \"...\"",
         ));
     }
 
@@ -371,13 +447,9 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     let mut observations: Vec<&Ident> = Vec::new();
     for field in fields {
         let ident = field.ident.as_ref().expect("named field");
-        if ident == "message" {
-            return Err(syn::Error::new_spanned(
-                ident,
-                "`message` is reserved for the event message; pick another field name",
-            ));
-        }
-        match classify_field(field)? {
+        let field_kind = classify_field(field)?;
+        validate_event_log_field(args.log, field_kind, ident)?;
+        match field_kind {
             FieldKind::Label => labels.push(ident),
             FieldKind::Context => contexts.push(ident),
             FieldKind::Observation => observations.push(ident),
@@ -429,6 +501,10 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         }
         MetricSpec::None => quote! { ::carbide_instrument::MetricKind::None },
     };
+    let metric_name_const = match metric_name {
+        Some(metric_name) => quote! { ::std::option::Option::Some(#metric_name) },
+        None => quote! { ::std::option::Option::None },
+    };
     let message_value = args.message.as_ref().map(LitStr::value).unwrap_or_default();
     let describe_value = args
         .describe
@@ -446,22 +522,24 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
 
     // One tracing::event! per level: the macro needs a const level and static
     // field names, so the dispatch is generated here rather than written by hand.
-    let log_fields: Vec<proc_macro2::TokenStream> = labels
-        .iter()
-        .map(|ident| {
-            quote! {
-                #ident = ::carbide_instrument::LabelValue::label_value(&self.#ident).as_str()
-            }
-        })
-        .chain(
-            contexts
-                .iter()
-                .map(|ident| quote! { #ident = %self.#ident }),
-        )
-        .collect();
+    let mut log_fields = vec![quote! { event_name = #event_name }];
+    if let Some(metric_name) = metric_name {
+        log_fields.push(quote! { metric_name = #metric_name });
+    }
+    log_fields.extend(labels.iter().map(|ident| {
+        quote! {
+            #ident = ::carbide_instrument::LabelValue::label_value(&self.#ident).as_str()
+        }
+    }));
+    log_fields.extend(
+        contexts
+            .iter()
+            .map(|ident| quote! { #ident = %self.#ident }),
+    );
     let log_arm = |level: proc_macro2::TokenStream| {
         quote! {
             ::carbide_instrument::__private::tracing::event!(
+                name: #event_name,
                 ::carbide_instrument::__private::tracing::Level::#level,
                 #(#log_fields,)*
                 "{}",
@@ -476,10 +554,33 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         log_arm(quote! { DEBUG }),
         log_arm(quote! { TRACE }),
     );
+    let log_fn = if args.log == LogSpec::Off {
+        quote! {
+            fn __log(&self, _level: ::carbide_instrument::__private::tracing::Level) {}
+        }
+    } else {
+        quote! {
+            fn __log(&self, level: ::carbide_instrument::__private::tracing::Level) {
+                let __message = ::carbide_instrument::Event::message(self);
+                if level == ::carbide_instrument::__private::tracing::Level::ERROR {
+                    #arm_error;
+                } else if level == ::carbide_instrument::__private::tracing::Level::WARN {
+                    #arm_warn;
+                } else if level == ::carbide_instrument::__private::tracing::Level::INFO {
+                    #arm_info;
+                } else if level == ::carbide_instrument::__private::tracing::Level::DEBUG {
+                    #arm_debug;
+                } else {
+                    #arm_trace;
+                }
+            }
+        }
+    };
 
     Ok(quote! {
         impl ::carbide_instrument::Event for #struct_ident {
-            const NAME: &'static str = #name;
+            const EVENT_NAME: &'static str = #event_name;
+            const METRIC_NAME: ::std::option::Option<&'static str> = #metric_name_const;
             const COMPONENT: &'static str = #component;
             const DESCRIBE: &'static str = #describe_value;
             #log_items
@@ -513,21 +614,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             }
 
             #observation_fn
-
-            fn __log(&self, level: ::carbide_instrument::__private::tracing::Level) {
-                let __message = ::carbide_instrument::Event::message(self);
-                if level == ::carbide_instrument::__private::tracing::Level::ERROR {
-                    #arm_error;
-                } else if level == ::carbide_instrument::__private::tracing::Level::WARN {
-                    #arm_warn;
-                } else if level == ::carbide_instrument::__private::tracing::Level::INFO {
-                    #arm_info;
-                } else if level == ::carbide_instrument::__private::tracing::Level::DEBUG {
-                    #arm_debug;
-                } else {
-                    #arm_trace;
-                }
-            }
+            #log_fn
 
             fn __instrument(&self) -> &'static ::carbide_instrument::__private::CachedInstrument {
                 static INSTRUMENT: ::std::sync::OnceLock<
@@ -573,7 +660,17 @@ fn snake_case(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::snake_case;
+    use proc_macro2::Span;
+    use syn::{DeriveInput, Ident};
+
+    use super::{FieldKind, LogSpec, expand_event, snake_case, validate_event_log_field};
+
+    fn expansion_error(source: &str) -> String {
+        let input: DeriveInput = syn::parse_str(source).expect("valid derive input");
+        expand_event(input)
+            .expect_err("input should be rejected")
+            .to_string()
+    }
 
     #[test]
     fn snake_case_variants() {
@@ -583,5 +680,92 @@ mod tests {
         assert_eq!(snake_case("Ok"), "ok");
         assert_eq!(snake_case("NoDpu"), "no_dpu");
         assert_eq!(snake_case("A"), "a");
+    }
+
+    #[test]
+    fn event_identity_diagnostics_are_specific() {
+        struct Case {
+            scenario: &'static str,
+            source: &'static str,
+            expected: &'static str,
+        }
+
+        for Case {
+            scenario,
+            source,
+            expected,
+        } in [
+            Case {
+                scenario: "event name is required",
+                source: r#"#[event(component = "demo", message = "demo")] struct Demo {}"#,
+                expected: "requires event_name",
+            },
+            Case {
+                scenario: "event name follows the shared grammar",
+                source: r#"#[event(event_name = "demo.started", component = "demo", message = "demo")] struct Demo {}"#,
+                expected: "ASCII lower_snake_case",
+            },
+            Case {
+                scenario: "metric-backed event needs a metric name",
+                source: r#"#[event(event_name = "demo", component = "demo", log = off, metric = counter)] struct Demo {}"#,
+                expected: "metric_name = \"...\" is required",
+            },
+            Case {
+                scenario: "log-only event rejects a metric name",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", message = "demo")] struct Demo {}"#,
+                expected: "metric_name is only valid",
+            },
+            Case {
+                scenario: "legacy name explains the split",
+                source: r#"#[event(name = "carbide_demo_total", component = "demo", log = off, metric = counter)] struct Demo {}"#,
+                expected: "has been split into `event_name` and `metric_name`",
+            },
+            Case {
+                scenario: "unchecked escape hatch is metric-specific",
+                source: r#"#[event(event_name = "demo", metric_name = "demo", component = "demo", log = off, metric = counter, name_unchecked)] struct Demo {}"#,
+                expected: "renamed to `metric_name_unchecked`",
+            },
+            Case {
+                scenario: "event name is declared once",
+                source: r#"#[event(event_name = "first", event_name = "second", component = "demo", message = "demo")] struct Demo {}"#,
+                expected: "duplicate `event_name`",
+            },
+            Case {
+                scenario: "metric name is declared once",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_first_total", metric_name = "carbide_second_total", component = "demo", log = off, metric = counter)] struct Demo {}"#,
+                expected: "duplicate `metric_name`",
+            },
+        ] {
+            let error = expansion_error(source);
+            assert!(
+                error.contains(expected),
+                "{scenario}: expected `{expected}` in `{error}`"
+            );
+        }
+    }
+
+    #[test]
+    fn reserved_fields_apply_only_to_the_log_surface() {
+        for field_name in carbide_observability_schema::EVENT_LOG_RESERVED_FIELDS {
+            let ident = Ident::new(field_name, Span::call_site());
+            if *field_name == "message" {
+                for kind in [FieldKind::Label, FieldKind::Context, FieldKind::Observation] {
+                    assert!(validate_event_log_field(LogSpec::Info, kind, &ident).is_err());
+                    assert!(validate_event_log_field(LogSpec::Off, kind, &ident).is_err());
+                }
+                continue;
+            }
+            for kind in [FieldKind::Label, FieldKind::Context] {
+                assert!(validate_event_log_field(LogSpec::Info, kind, &ident).is_err());
+                assert!(validate_event_log_field(LogSpec::Dynamic, kind, &ident).is_err());
+                assert!(validate_event_log_field(LogSpec::Off, kind, &ident).is_ok());
+            }
+            assert!(
+                validate_event_log_field(LogSpec::Info, FieldKind::Observation, &ident).is_ok()
+            );
+        }
+
+        let machine_id = Ident::new("machine_id", Span::call_site());
+        assert!(validate_event_log_field(LogSpec::Info, FieldKind::Context, &machine_id).is_ok());
     }
 }

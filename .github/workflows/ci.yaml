@@ -1355,6 +1355,9 @@ jobs:
       - name: Check workspace deps
         run: cargo xtask check-workspace-deps
 
+      - name: Check instrumented event names
+        run: cargo xtask check-event-names
+
       - name: Check licenses
         run: cargo make --no-workspace check-licenses
 

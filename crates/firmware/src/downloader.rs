@@ -54,7 +54,8 @@ pub(crate) enum DownloadOutcome {
 /// records the attempt's duration.
 #[derive(Event)]
 #[event(
-    name = "carbide_firmware_download_duration_seconds",
+    event_name = "firmware_download_finished",
+    metric_name = "carbide_firmware_download_duration_seconds",
     component = "carbide-firmware",
     log = dynamic,
     metric = histogram,

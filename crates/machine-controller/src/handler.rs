@@ -157,7 +157,8 @@ pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 2; // Faster for tests
 /// `carbide_exhausted_reprovision_retry_count` gauge instead.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_host_reprovision_retries_total",
+    event_name = "host_firmware_upgrade_retried",
+    metric_name = "carbide_host_reprovision_retries_total",
     component = "machine-controller",
     log = info,
     metric = counter,

@@ -584,6 +584,7 @@ dependencies = [
   "carbide-lints",
   "lint-error-messages",
   "check-format-nightly",
+  "check-event-names",
   "check-workspace-deps",
   "check-licenses",
   "check-bans",
@@ -830,6 +831,11 @@ description = "Check that error messages follow C-GOOD-ERR (lowercase, no traili
 script = [
   "cargo --quiet xtask lint-error-messages || (RC=$?; echo 'To fix automatically, run `cargo xtask lint-error-messages --fix`'; exit $RC)",
 ]
+
+[tasks.check-event-names]
+workspace = false
+description = "Check that production instrumented Events have unique event_name identities"
+script = ["cargo --quiet xtask check-event-names"]
 
 [tasks.check-isolated-package-builds]
 workspace = false

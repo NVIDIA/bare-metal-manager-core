@@ -40,7 +40,8 @@ pub use config::{get_dpu_agent_meter, get_prometheus_registry};
 /// push that the per-RPC metric never sees.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_dpu_agent_report_total",
+    event_name = "dpu_agent_report_loop_completed",
+    metric_name = "carbide_dpu_agent_report_total",
     component = "forge-dpu-agent",
     log = off,
     metric = counter,

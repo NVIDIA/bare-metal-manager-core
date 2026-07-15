@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 mod error_message_case;
+mod event_names;
 mod isolated_package_builds;
 mod squash_migrations;
 mod workspace_deps;
@@ -24,6 +25,11 @@ use clap::Parser;
 #[derive(Parser)]
 #[clap(name = "xtask")]
 enum Xtask {
+    #[clap(
+        name = "check-event-names",
+        about = "Check that production instrumented Events have unique event_name identities"
+    )]
+    CheckEventNames,
     #[clap(
         name = "check-workspace-deps",
         about = "Check for any dependency versions defined in crate-level Cargo.toml's instead of the workspace root"
@@ -69,6 +75,7 @@ struct CheckWorkspaceDeps {
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     match Xtask::parse() {
+        Xtask::CheckEventNames => event_names::check()?,
         Xtask::CheckWorkspaceDeps(CheckWorkspaceDeps { fix }) => {
             workspace_deps::check(fix)?.report_and_exit()
         }

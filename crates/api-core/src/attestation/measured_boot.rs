@@ -64,7 +64,8 @@ pub(crate) enum MeasuredBootVerificationFailureCause {
 /// the underlying reason when the checks errored.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_measured_boot_verification_failures_total",
+    event_name = "measured_boot_verification_failed",
+    metric_name = "carbide_measured_boot_verification_failures_total",
     component = "nico-api",
     log = warn,
     metric = counter,

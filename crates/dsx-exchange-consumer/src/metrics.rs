@@ -102,7 +102,8 @@ where
 /// An MQTT message reached a subscription handler, before any queueing.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_received_total",
+    event_name = "dsx_exchange_message_received",
+    metric_name = "carbide_dsx_exchange_consumer_messages_received_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -114,7 +115,8 @@ pub struct MessageReceived;
 /// applied (or its alert cleared).
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_processed_total",
+    event_name = "dsx_exchange_message_processed",
+    metric_name = "carbide_dsx_exchange_consumer_messages_processed_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -128,7 +130,8 @@ pub struct MessageProcessed;
 /// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_dropped_total",
+    event_name = "dsx_exchange_message_dropped",
+    metric_name = "carbide_dsx_exchange_consumer_messages_dropped_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -143,7 +146,8 @@ pub struct MessageDropped;
 /// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_dedup_skipped_total",
+    event_name = "dsx_exchange_message_deduplicated",
+    metric_name = "carbide_dsx_exchange_consumer_dedup_skipped_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -158,7 +162,8 @@ pub struct MessageDeduplicated;
 /// framework records the `Duration` observation in seconds.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_message_age_seconds",
+    event_name = "dsx_exchange_message_age_sampled",
+    metric_name = "carbide_dsx_exchange_consumer_message_age_seconds",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = histogram,

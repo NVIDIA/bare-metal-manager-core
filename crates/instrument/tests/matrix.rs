@@ -29,20 +29,14 @@ enum Stage {
     Apply,
 }
 
-fn field<'a>(log: &'a carbide_instrument::testing::CapturedLog, name: &str) -> Option<&'a str> {
-    log.fields
-        .iter()
-        .find(|(k, _)| k == name)
-        .map(|(_, v)| v.as_str())
-}
-
 /// log = warn, metric = counter: one emit writes the log line AND moves the
 /// counter, with identical label values.
 #[test]
 fn both_sides_from_one_emit() {
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_both_total",
+        event_name = "test_matrix_both_fired",
+        metric_name = "carbide_test_matrix_both_total",
         component = "matrix-test",
         log = warn,
         metric = counter,
@@ -69,10 +63,16 @@ fn both_sides_from_one_emit() {
     assert_eq!(logs.len(), 1);
     let log = &logs[0];
     assert_eq!(log.level, tracing::Level::WARN);
+    assert_eq!(log.metadata_name, "test_matrix_both_fired");
     assert_eq!(log.message, "matrix both fired");
-    assert_eq!(field(log, "stage"), Some("apply"));
-    assert_eq!(field(log, "outcome"), Some("error"));
-    assert_eq!(field(log, "machine"), Some("machine-1"));
+    assert_eq!(log.field("event_name"), Some("test_matrix_both_fired"));
+    assert_eq!(
+        log.field("metric_name"),
+        Some("carbide_test_matrix_both_total")
+    );
+    assert_eq!(log.field("stage"), Some("apply"));
+    assert_eq!(log.field("outcome"), Some("error"));
+    assert_eq!(log.field("machine"), Some("machine-1"));
 
     assert_eq!(
         metrics.counter_delta(
@@ -89,7 +89,8 @@ fn both_sides_from_one_emit() {
 fn metric_only_writes_no_log() {
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_quiet_total",
+        event_name = "test_matrix_quiet_fired",
+        metric_name = "carbide_test_matrix_quiet_total",
         component = "matrix-test",
         log = off,
         metric = counter
@@ -124,7 +125,7 @@ fn metric_only_writes_no_log() {
 fn log_only_registers_no_metric() {
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_logonly",
+        event_name = "test_matrix_log_only_fired",
         component = "matrix-test",
         log = info,
         metric = none,
@@ -144,20 +145,27 @@ fn log_only_registers_no_metric() {
 
     assert_eq!(logs.len(), 1);
     assert_eq!(logs[0].level, tracing::Level::INFO);
-    assert_eq!(field(&logs[0], "detail"), Some("just words"));
+    assert_eq!(logs[0].metadata_name, "test_matrix_log_only_fired");
+    assert_eq!(
+        logs[0].field("event_name"),
+        Some("test_matrix_log_only_fired")
+    );
+    assert_eq!(logs[0].field("metric_name"), None);
+    assert_eq!(logs[0].field("detail"), Some("just words"));
     assert_eq!(
         metrics.counter_delta("carbide_test_matrix_logonly", &[]),
         0.0
     );
 }
 
-/// metric = histogram: the observation records in the unit the name declares
+/// metric = histogram: the observation records in the unit `metric_name` declares
 /// (a Duration converts), and the log still fires independently.
 #[test]
 fn histogram_records_the_observation_in_declared_units() {
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_copy_duration_seconds",
+        event_name = "test_matrix_copy_finished",
+        metric_name = "carbide_test_matrix_copy_duration_seconds",
         component = "matrix-test",
         log = info,
         metric = histogram,
@@ -182,6 +190,15 @@ fn histogram_records_the_observation_in_declared_units() {
     });
 
     assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].metadata_name, "test_matrix_copy_finished");
+    assert_eq!(
+        logs[0].field("event_name"),
+        Some("test_matrix_copy_finished")
+    );
+    assert_eq!(
+        logs[0].field("metric_name"),
+        Some("carbide_test_matrix_copy_duration_seconds")
+    );
     assert_eq!(
         metrics.histogram_count_delta(
             "carbide_test_matrix_copy_duration_seconds",
@@ -205,7 +222,8 @@ fn histogram_records_the_observation_in_declared_units() {
 fn unit_struct_and_declared_knobs() {
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_unit_total",
+        event_name = "test_matrix_tick_recorded",
+        metric_name = "carbide_test_matrix_unit_total",
         component = "matrix-test",
         log = off,
         metric = counter
@@ -214,7 +232,11 @@ fn unit_struct_and_declared_knobs() {
 
     assert_eq!(<Tick as Event>::LOG, LogAt::Off);
     assert_eq!(<Tick as Event>::METRIC, MetricKind::Counter);
-    assert_eq!(<Tick as Event>::NAME, "carbide_test_matrix_unit_total");
+    assert_eq!(<Tick as Event>::EVENT_NAME, "test_matrix_tick_recorded");
+    assert_eq!(
+        <Tick as Event>::METRIC_NAME,
+        Some("carbide_test_matrix_unit_total")
+    );
     assert_eq!(<Tick as Event>::COMPONENT, "matrix-test");
 
     let metrics = MetricsCapture::start();
@@ -231,7 +253,8 @@ fn unit_struct_and_declared_knobs() {
 fn per_instance_log_at_override() {
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_calls_total",
+        event_name = "test_matrix_call_finished",
+        metric_name = "carbide_test_matrix_calls_total",
         component = "matrix-test",
         log = dynamic,
         metric = counter,
@@ -263,6 +286,15 @@ fn per_instance_log_at_override() {
 
     assert_eq!(logs.len(), 1, "only the failure logs");
     assert_eq!(logs[0].level, tracing::Level::WARN);
+    assert_eq!(logs[0].metadata_name, "test_matrix_call_finished");
+    assert_eq!(
+        logs[0].field("event_name"),
+        Some("test_matrix_call_finished")
+    );
+    assert_eq!(
+        logs[0].field("metric_name"),
+        Some("carbide_test_matrix_calls_total")
+    );
     assert_eq!(
         metrics.counter_delta("carbide_test_matrix_calls_total", &[("outcome", "ok")]),
         1.0
@@ -273,13 +305,14 @@ fn per_instance_log_at_override() {
     );
 }
 
-/// Every supported histogram unit round-trips: the name in the attribute is
+/// Every supported histogram unit round-trips: `metric_name` in the attribute is
 /// the exposed name, and the observation records in that unit.
 #[test]
 fn histogram_units_round_trip() {
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_lag_duration_milliseconds",
+        event_name = "test_matrix_lag_sampled",
+        metric_name = "carbide_test_matrix_lag_duration_milliseconds",
         component = "matrix-test",
         log = off,
         metric = histogram
@@ -291,7 +324,8 @@ fn histogram_units_round_trip() {
 
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_poll_duration_microseconds",
+        event_name = "test_matrix_poll_sampled",
+        metric_name = "carbide_test_matrix_poll_duration_microseconds",
         component = "matrix-test",
         log = off,
         metric = histogram
@@ -303,7 +337,8 @@ fn histogram_units_round_trip() {
 
     #[derive(Event)]
     #[event(
-        name = "carbide_test_matrix_payload_bytes",
+        event_name = "test_matrix_payload_sized",
+        metric_name = "carbide_test_matrix_payload_bytes",
         component = "matrix-test",
         log = off,
         metric = histogram
@@ -365,9 +400,9 @@ fn red_helper_counts_everything_and_logs_only_failures() {
 
     assert_eq!(logs.len(), 1, "successes are counted silently");
     assert_eq!(logs[0].level, tracing::Level::WARN);
-    assert_eq!(field(&logs[0], "backend"), Some("matrix_backend"));
-    assert_eq!(field(&logs[0], "operation"), Some("matrix_op"));
-    assert_eq!(field(&logs[0], "error"), Some("boom"));
+    assert_eq!(logs[0].field("backend"), Some("matrix_backend"));
+    assert_eq!(logs[0].field("operation"), Some("matrix_op"));
+    assert_eq!(logs[0].field("error"), Some("boom"));
 
     for outcome in ["ok", "error"] {
         assert_eq!(
@@ -383,4 +418,81 @@ fn red_helper_counts_everything_and_logs_only_failures() {
             "{outcome}"
         );
     }
+}
+
+/// Event identity fields survive the real formatter boundary as searchable
+/// logfmt key/value pairs, without changing the human-readable message.
+#[test]
+fn event_identity_renders_through_logfmt() {
+    use std::sync::{Arc, Mutex};
+
+    use tracing_subscriber::prelude::*;
+
+    #[derive(Clone)]
+    struct TestWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for TestWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let mut buffer = self
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            buffer.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_logfmt_rendered",
+        metric_name = "carbide_test_matrix_logfmt_total",
+        component = "matrix-test",
+        log = info,
+        metric = counter,
+        message = "logfmt identity rendered"
+    )]
+    struct LogfmtRendered {
+        #[label]
+        outcome: Outcome,
+        #[context]
+        machine_id: String,
+    }
+
+    let buffer = Arc::new(Mutex::new(Vec::new()));
+    let writer = TestWriter(buffer.clone());
+    let layer = logfmt::layer().with_writer(Arc::new(move || Box::new(writer.clone())));
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        emit(LogfmtRendered {
+            outcome: Outcome::Ok,
+            machine_id: "machine-1".to_string(),
+        });
+    });
+
+    let rendered = String::from_utf8(
+        buffer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone(),
+    )
+    .expect("logfmt output is UTF-8");
+    assert!(
+        rendered.contains("event_name=test_matrix_logfmt_rendered"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("metric_name=carbide_test_matrix_logfmt_total"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("msg=\"logfmt identity rendered\""),
+        "{rendered}"
+    );
+    assert_eq!(rendered.matches("event_name=").count(), 1, "{rendered}");
+    assert_eq!(rendered.matches("metric_name=").count(), 1, "{rendered}");
 }

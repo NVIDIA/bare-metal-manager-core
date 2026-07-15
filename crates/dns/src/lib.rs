@@ -225,7 +225,8 @@ impl From<ResponseCode> for Rcode {
 /// no per-query log line is built.
 #[derive(Event)]
 #[event(
-    name = "carbide_dns_queries_total",
+    event_name = "dns_query_received",
+    metric_name = "carbide_dns_queries_total",
     component = "carbide-dns",
     log = off,
     metric = counter,
@@ -242,7 +243,8 @@ struct DnsQueryReceived {
 /// against the query counter shows requests that never produced a response.
 #[derive(Event)]
 #[event(
-    name = "carbide_dns_responses_total",
+    event_name = "dns_response_sent",
+    metric_name = "carbide_dns_responses_total",
     component = "carbide-dns",
     log = off,
     metric = counter,
@@ -261,7 +263,8 @@ struct DnsResponseSent {
 /// untouched log line rather than replacing it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dns_request_duration_milliseconds",
+    event_name = "dns_request_completed",
+    metric_name = "carbide_dns_request_duration_milliseconds",
     component = "carbide-dns",
     log = off,
     metric = histogram,

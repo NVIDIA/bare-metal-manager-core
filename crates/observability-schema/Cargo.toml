@@ -15,26 +15,12 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-instrument-macros"
+name = "carbide-observability-schema"
 version = "0.0.0"
 edition.workspace = true
+description = "Shared, dependency-free validation for NICo observability schemas."
 license.workspace = true
 authors.workspace = true
-
-[lib]
-proc-macro = true
-
-[dependencies]
-carbide-observability-schema = { path = "../observability-schema" }
-proc-macro2 = { workspace = true, features = ["proc-macro"] }
-quote = { workspace = true, default-features = false }
-syn = { workspace = true, features = [
-  "clone-impls",
-  "derive",
-  "parsing",
-  "printing",
-  "proc-macro",
-] }
 
 [lints]
 workspace = true

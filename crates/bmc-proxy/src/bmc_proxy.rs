@@ -224,7 +224,8 @@ impl RefreshableTlsAcceptor {
 /// Counted, never logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_bmc_proxy_tls_connection_attempted_total",
+    event_name = "bmc_proxy_tls_connection_attempted",
+    metric_name = "carbide_bmc_proxy_tls_connection_attempted_total",
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
@@ -236,7 +237,8 @@ struct TlsConnectionAttempted;
 /// stack. Counted, never logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_bmc_proxy_tls_connection_success_total",
+    event_name = "bmc_proxy_tls_connection_succeeded",
+    metric_name = "carbide_bmc_proxy_tls_connection_success_total",
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
@@ -263,7 +265,8 @@ enum ConnectionFailReason {
 /// the `reason` label distinguishes which leg failed.
 #[derive(Event)]
 #[event(
-    name = "carbide_bmc_proxy_tls_connection_fail_total",
+    event_name = "bmc_proxy_tls_connection_failed",
+    metric_name = "carbide_bmc_proxy_tls_connection_fail_total",
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
