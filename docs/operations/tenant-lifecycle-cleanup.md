@@ -8,7 +8,7 @@ returns networking to the admin side. NICo then runs cleanup and sanitization
 workflows, performs the configured trust checks, and validates the host. When
 the host is eligible for allocation again, NICo returns it to `Ready`.
 
-For reference, refer to the following resources:
+Refer to the following resources for more information:
 
 - [Managed Host State Diagrams](../architecture/state_machines/managedhost.md)
 - [Repair Workflows](../manuals/repair/overview.md)
