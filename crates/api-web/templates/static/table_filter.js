@@ -24,6 +24,10 @@
  * (case-insensitive AND match), restoring browser find-style searching that
  * pagination otherwise breaks up across pages. Pairs naturally with the "All"
  * pagination option: choose "All", then filter the whole list at once.
+ *
+ * Pages that already ship their own row filter for a table can opt that table
+ * out (to avoid a duplicate, conflicting control) by adding either the
+ * `data-no-auto-filter` attribute or the `no-auto-filter` class to the table.
  */
 (function () {
 	"use strict";
@@ -109,8 +113,12 @@
 	}
 
 	document.addEventListener("DOMContentLoaded", function () {
+		// Skip tables that opt out (pages that already render their own row
+		// filter), so we don't add a second, conflicting control.
 		document
-			.querySelectorAll("table.sortable.overview")
+			.querySelectorAll(
+				"table.sortable.overview:not([data-no-auto-filter]):not(.no-auto-filter)"
+			)
 			.forEach(attachFilter);
 	});
 })();
