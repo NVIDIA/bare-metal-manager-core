@@ -1962,6 +1962,7 @@ dependencies = [
  "hyper-util",
  "ipnetwork",
  "logfmt",
+ "metrics-endpoint",
  "netlink-packet-route 0.19.0",
  "nonzero_ext",
  "opentelemetry 0.32.0",

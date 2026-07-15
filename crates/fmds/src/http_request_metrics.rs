@@ -19,19 +19,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::State;
-use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
-use axum::routing::get;
 use eyre::WrapErr;
-use http_body_util::Full;
-use hyper::body::Bytes;
 use hyper::{Request, Response};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter, MeterProvider};
 use opentelemetry_prometheus::ExporterBuilder;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
-use prometheus::{Encoder, Registry, TextEncoder};
+use prometheus::Registry;
 use tonic::service::AxumBody;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
@@ -89,31 +84,6 @@ pub fn init() -> eyre::Result<(Registry, HttpRequestMetrics)> {
     opentelemetry::global::set_meter_provider(meter_provider);
 
     Ok((prometheus_registry, http_metrics))
-}
-
-pub fn metrics_router(registry: Registry) -> Router {
-    Router::new()
-        .route("/", get(export_metrics))
-        .with_state(registry)
-}
-
-#[axum::debug_handler]
-async fn export_metrics(State(registry): State<Registry>) -> Response<Full<Bytes>> {
-    tokio::task::spawn_blocking(move || {
-        let mut buffer = vec![];
-        let encoder = TextEncoder::new();
-        let metric_families = registry.gather();
-        encoder.encode(&metric_families, &mut buffer).unwrap();
-
-        Response::builder()
-            .status(200)
-            .header(CONTENT_TYPE, encoder.format_type())
-            .header(CONTENT_LENGTH, buffer.len())
-            .body(buffer.into())
-            .unwrap()
-    })
-    .await
-    .unwrap()
 }
 
 /// Same HTTP instrumentation as forge-dpu-agent `WithTracingLayer` (request count + latency + tracing logs).

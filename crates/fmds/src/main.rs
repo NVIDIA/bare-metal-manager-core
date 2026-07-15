@@ -111,13 +111,13 @@ async fn main() -> eyre::Result<()> {
     let metrics_address = options.metrics_address;
     let registry_for_metrics = prometheus_registry.clone();
     tokio::spawn(async move {
-        let router = axum::Router::new().nest(
-            "/metrics",
-            http_request_metrics::metrics_router(registry_for_metrics),
-        );
-        let server = axum_server::Server::bind(metrics_address);
-        tracing::info!(%metrics_address, "Prometheus /metrics listening");
-        if let Err(err) = server.serve(router.into_make_service()).await {
+        let config = metrics_endpoint::MetricsEndpointConfig {
+            address: metrics_address,
+            registry: registry_for_metrics,
+            health_controller: None,
+            additional_prefix: None,
+        };
+        if let Err(err) = metrics_endpoint::run_metrics_endpoint(&config).await {
             tracing::error!("Prometheus metrics server error: {err}");
         }
     });
