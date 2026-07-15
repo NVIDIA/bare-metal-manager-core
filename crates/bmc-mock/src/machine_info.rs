@@ -943,6 +943,18 @@ impl HostMachineInfo {
 }
 
 impl MachineInfo {
+    pub fn supports_ipmi_console(&self) -> bool {
+        matches!(
+            self,
+            MachineInfo::Host(host)
+                if matches!(
+                    host.bmc_vendor(),
+                    redfish::oem::BmcVendor::Supermicro
+                        | redfish::oem::BmcVendor::Nvidia(_)
+                )
+        )
+    }
+
     pub fn oem_state(&self) -> redfish::oem::State {
         match self {
             MachineInfo::Host(host) => host.oem_state(),

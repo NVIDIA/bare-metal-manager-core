@@ -1072,7 +1072,10 @@ impl MachineStateMachine {
                     .write()
                     .await
                     .insert(ip_address.to_string(), bmc_mock.router().clone());
-                None
+                bmc_mock
+                    .start_ipmi_only(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
+                    .await?
+                    .map(Arc::new)
             }
         };
         Ok((maybe_bmc_mock_handle, bmc_mock.state().clone()))
@@ -1175,6 +1178,8 @@ pub enum MachineStateError {
     PxeError(#[from] PxeError),
     #[error("BMC mock TLS error: {0}")]
     BmcMockTls(#[from] bmc_mock::tls::Error),
+    #[error("failed to start IPMI simulator: {0}")]
+    IpmiSim(#[from] bmc_mock::ipmi_sim::Error),
     #[error("Mock SSH server error: {0}")]
     MockSshServer(String),
     #[error("{0}")]

@@ -58,6 +58,9 @@ pub struct Args {
         help = "An ip_address and .tar.gz file pair (comma separated).\nThe file is an archive of redfish data when the request is forwarded to a specific IP address.\nRepeat for different machines"
     )]
     pub ip_router: Option<Vec<IpRouterPair>>,
+
+    #[clap(long, help = "Start an IPMI/SOL simulator for the generated BMC mock")]
+    pub enable_ipmi_simulation: bool,
 }
 
 pub fn parse_args() -> Args {
