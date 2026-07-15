@@ -19,15 +19,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::State;
-use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
-use axum::routing::get;
-use http_body_util::Full;
-use hyper::body::Bytes;
 use hyper::{Request, Response};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
-use prometheus::{Encoder, TextEncoder};
 use tonic::service::AxumBody;
 use tower::ServiceBuilder;
 use tracing::Span;
@@ -260,30 +254,6 @@ impl NetworkMonitorMetricsState {
     }
 }
 
-pub fn get_metrics_router(registry: prometheus::Registry) -> Router {
-    Router::new()
-        .route("/", get(export_metrics))
-        .with_state(registry)
-}
-
-#[axum::debug_handler]
-async fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Full<Bytes>> {
-    tokio::task::spawn_blocking(move || {
-        let mut buffer = vec![];
-        let encoder = TextEncoder::new();
-        let metric_families = registry.gather();
-        encoder.encode(&metric_families, &mut buffer).unwrap();
-
-        Response::builder()
-            .status(200)
-            .header(CONTENT_TYPE, encoder.format_type())
-            .header(CONTENT_LENGTH, buffer.len())
-            .body(buffer.into())
-            .unwrap()
-    })
-    .await
-    .unwrap()
-}
 pub trait WithTracingLayer {
     fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router;
 }

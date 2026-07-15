@@ -1091,6 +1091,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "mac_address",
+ "metrics-endpoint",
  "mockall",
  "netlink-packet-route 0.19.0",
  "nix 0.31.3",
