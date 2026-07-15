@@ -139,35 +139,6 @@ pub(crate) async fn discover_machine(
         db::machine_interface::find_for_update_by_ip(&mut txn, remote_ip).await?
     };
 
-    if !hardware_info.is_dpu()
-        && hardware_info.tpm_ek_certificate.is_none()
-        && api.runtime_config.tpm_required
-    {
-        return Err(CarbideError::InvalidArgument(format!(
-            "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {:?}",
-            caller_interface.id,
-        ))
-        .into());
-    } else if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_some() {
-        // this means we do have an EK cert for a host
-
-        // get the EK cert from incoming message
-        let tpm_ek_cert =
-            hardware_info
-                .tpm_ek_certificate
-                .as_ref()
-                .ok_or(CarbideError::InvalidArgument(
-                    "tpm_ek_cert is empty".to_string(),
-                ))?;
-
-        attest::match_insert_new_ek_cert_status_against_ca(
-            &mut txn,
-            tpm_ek_cert,
-            &stable_machine_id,
-        )
-        .await?;
-    }
-
     let site_explorer_creates_machines = api
         .runtime_config
         .site_explorer
@@ -202,6 +173,35 @@ pub(crate) async fn discover_machine(
             "machine discovery is not authorized for the selected interface".to_string(),
         )
         .into());
+    }
+
+    if !hardware_info.is_dpu()
+        && hardware_info.tpm_ek_certificate.is_none()
+        && api.runtime_config.tpm_required
+    {
+        return Err(CarbideError::InvalidArgument(format!(
+            "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {:?}",
+            caller_interface.id,
+        ))
+        .into());
+    } else if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_some() {
+        // this means we do have an EK cert for a host
+
+        // get the EK cert from incoming message
+        let tpm_ek_cert =
+            hardware_info
+                .tpm_ek_certificate
+                .as_ref()
+                .ok_or(CarbideError::InvalidArgument(
+                    "tpm_ek_cert is empty".to_string(),
+                ))?;
+
+        attest::match_insert_new_ek_cert_status_against_ca(
+            &mut txn,
+            tpm_ek_cert,
+            &stable_machine_id,
+        )
+        .await?;
     }
 
     if !hardware_info.is_dpu()
