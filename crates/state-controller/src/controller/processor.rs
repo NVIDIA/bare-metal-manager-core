@@ -841,9 +841,7 @@ async fn process_object<IO: StateControllerIO>(
         );
     if let Some(recorder) = &per_object_state {
         if object_gone {
-            recorder
-                .metrics
-                .clear(recorder.object_type, &object_id.to_string());
+            recorder.clear(&object_id.to_string());
         } else if let (Some(final_state), Some(entered)) = (
             metrics
                 .common
@@ -871,8 +869,7 @@ async fn process_object<IO: StateControllerIO>(
                 // flapping a stuck object out of alerts.
                 (None, Some(_)) => ManualIntervention::Unknown,
             };
-            recorder.metrics.record(
-                recorder.object_type,
+            recorder.record(
                 &object_id.to_string(),
                 state,
                 substate,
@@ -885,9 +882,7 @@ async fn process_object<IO: StateControllerIO>(
             // iteration (e.g. a DB error or timeout during load): keep any
             // existing series alive instead of letting them evict — and the
             // triage alerts flap — mid-incident.
-            recorder
-                .metrics
-                .touch(recorder.object_type, &object_id.to_string());
+            recorder.touch(&object_id.to_string());
         }
     }
 

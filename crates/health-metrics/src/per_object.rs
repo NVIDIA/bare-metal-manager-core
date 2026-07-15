@@ -136,16 +136,26 @@ impl PerObjectGauge {
         self.set_all(object_type, object_id, Vec::new());
     }
 
-    /// Refreshes the object's eviction deadline without changing its series;
-    /// a no-op if the object has none. For writers that cannot determine the
-    /// current value this iteration but know the existing series must not be
-    /// evicted meanwhile.
-    pub fn touch(&self, object_type: &'static str, object_id: &str) {
-        let key = ObjectKey::new(object_type, object_id);
+    /// Refreshes the entry's eviction deadline without changing its series;
+    /// a no-op if absent. For writers that cannot determine the current value
+    /// this iteration but know the existing series must not be evicted
+    /// meanwhile. Not public: external keep-alives go through
+    /// [`PerObjectMetricsRegistry::touch_object`] or [`Self::touch_if_labels`],
+    /// which cannot keep a series whose labels went stale.
+    fn touch_key(&self, key: &ObjectKey) {
         let mut entries = self.0.entries.lock().expect("per-object gauge mutex poisoned");
-        if let Some(entry) = entries.get_mut(&key) {
+        if let Some(entry) = entries.get_mut(key) {
             entry.updated_at = Instant::now();
         }
+    }
+
+    /// Removes the entry without the caller re-allocating an [`ObjectKey`].
+    fn clear_key(&self, key: &ObjectKey) {
+        self.0
+            .entries
+            .lock()
+            .expect("per-object gauge mutex poisoned")
+            .remove(key);
     }
 
     /// Like [`Self::touch`], but only while every series still carries all of
@@ -206,12 +216,12 @@ impl PerObjectGauge {
     }
 }
 
-/// Exports one [`PerObjectGauge`] as a native Prometheus metric family.
+/// Exports one [`PerObjectGauge`] as a native Prometheus metric family. The
+/// family name and help are served from `desc`, the same source the registry
+/// checks for collisions.
 #[derive(Debug)]
 struct GaugeCollector {
     gauge: PerObjectGauge,
-    name: &'static str,
-    help: &'static str,
     desc: Desc,
 }
 
@@ -228,12 +238,7 @@ impl GaugeCollector {
             label_names.iter().map(|label| label.to_string()).collect(),
             HashMap::new(),
         )?;
-        Ok(Self {
-            gauge,
-            name,
-            help,
-            desc,
-        })
+        Ok(Self { gauge, desc })
     }
 }
 
@@ -264,8 +269,8 @@ impl Collector for GaugeCollector {
             return Vec::new();
         }
         let mut family = proto::MetricFamily::default();
-        family.set_name(self.name.to_string());
-        family.set_help(self.help.to_string());
+        family.set_name(self.desc.fq_name.clone());
+        family.set_help(self.desc.help.clone());
         family.set_field_type(proto::MetricType::GAUGE);
         family.set_metric(metrics);
         vec![family]
@@ -298,9 +303,11 @@ fn prometheus_metric((value, labels): &(f64, Vec<KeyValue>)) -> proto::Metric {
 pub struct PerObjectMetricsRegistry {
     emit_for_classifications: HashSet<HealthAlertClassification>,
     classification: PerObjectGauge,
-    /// Every gauge created through this registry (including the
-    /// classification gauge), so [`Self::clear_object`] can sweep all series
-    /// of a deleted object.
+    /// The state/info gauges created via [`Self::gauge`], swept by
+    /// [`Self::clear_object`] and [`Self::touch_object`]. Deliberately
+    /// excludes the classification gauge: deletion clears it too (explicitly,
+    /// in `clear_object`), but a keep-alive touch must not extend the
+    /// pre-existing main-endpoint metric's eviction beyond its own hold.
     gauges: Mutex<Vec<PerObjectGauge>>,
 }
 
@@ -314,11 +321,10 @@ impl PerObjectMetricsRegistry {
         emit_for_classifications: impl IntoIterator<Item = HealthAlertClassification>,
         hold_period: Duration,
     ) -> Arc<Self> {
-        let classification = PerObjectGauge::new(hold_period);
         Arc::new(Self {
             emit_for_classifications: emit_for_classifications.into_iter().collect(),
-            classification: classification.clone(),
-            gauges: Mutex::new(vec![classification]),
+            classification: PerObjectGauge::new(hold_period),
+            gauges: Mutex::new(Vec::new()),
         })
     }
 
@@ -351,33 +357,38 @@ impl PerObjectMetricsRegistry {
         Ok(gauge)
     }
 
-    /// Removes every series of the object across all gauges created through
-    /// this registry, e.g. when the object was deleted. (Gauge locks nest
-    /// inside the registry lock; no path takes them in the other order.)
+    /// Removes every series of the object — state/info gauges plus the
+    /// classification gauge — e.g. when the object was deleted. (Gauge locks
+    /// nest inside the registry lock; no path takes them in the other order.)
     pub fn clear_object(&self, object_type: &'static str, object_id: &str) {
+        let key = ObjectKey::new(object_type, object_id);
+        self.classification.clear_key(&key);
         for gauge in self
             .gauges
             .lock()
             .expect("per-object registry mutex poisoned")
             .iter()
         {
-            gauge.clear(object_type, object_id);
+            gauge.clear_key(&key);
         }
     }
 
-    /// Refreshes the eviction deadline of every series of the object across
-    /// all gauges created through this registry, without changing them. For
-    /// iterations that could not determine the object's state at all (e.g. a
-    /// load failure): neither the state series nor the info/association
-    /// series recorded by handlers that never ran may evict mid-incident.
+    /// Refreshes the eviction deadline of the object's state/info series
+    /// without changing them. For iterations that could not determine the
+    /// object's state at all (e.g. a load failure): neither the state series
+    /// nor the info/association series recorded by handlers that never ran
+    /// may evict mid-incident. The classification gauge is deliberately not
+    /// touched — its eviction semantics predate this endpoint and stay
+    /// governed solely by its own recording cadence and hold.
     pub fn touch_object(&self, object_type: &'static str, object_id: &str) {
+        let key = ObjectKey::new(object_type, object_id);
         for gauge in self
             .gauges
             .lock()
             .expect("per-object registry mutex poisoned")
             .iter()
         {
-            gauge.touch(object_type, object_id);
+            gauge.touch_key(&key);
         }
     }
 
@@ -396,14 +407,22 @@ impl PerObjectMetricsRegistry {
             return;
         }
 
-        let series: Vec<(f64, Vec<KeyValue>)> = classifications
+        let mut classifications: Vec<String> = classifications
             .into_iter()
             .filter(|c| self.emit_for_classifications.contains(*c))
-            .map(|c| {
+            .map(ToString::to_string)
+            .collect();
+        // Deterministic order (the input is set-like), so an unchanged
+        // classification set keeps its entry — and cached encoding — in
+        // set_all instead of being replaced every iteration.
+        classifications.sort_unstable();
+        let series: Vec<(f64, Vec<KeyValue>)> = classifications
+            .into_iter()
+            .map(|classification| {
                 let mut labels = vec![
                     KeyValue::new("object_type", object_type),
                     KeyValue::new("object_id", object_id.to_string()),
-                    KeyValue::new("classification", c.to_string()),
+                    KeyValue::new("classification", classification),
                 ];
                 labels.extend(extra_labels.iter().cloned());
                 (1.0, labels)

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ::db::work_lock_manager::WorkLockManagerHandle;
 use carbide_utils::periodic_timer::PeriodicTimer;
@@ -47,6 +47,10 @@ pub(super) struct PeriodicEnqueuer<IO: StateControllerIO> {
     pub(super) per_object_state: Option<PerObjectStateRecorder>,
     /// The live object ids seen by the previous iteration.
     pub(super) known_object_ids: HashSet<String>,
+    /// Removed ids re-cleared each iteration until the deadline, so a handler
+    /// task that was already running when its object was deleted cannot
+    /// resurrect the series after the first clear.
+    pub(super) pending_clears: HashMap<String, Instant>,
 }
 
 pub(super) struct SingleIterationResult {
@@ -221,13 +225,33 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
 
         // Objects that vanished from the live set were deleted outside the
         // controller, so no handler iteration will ever clear their
-        // per-object series — do it here, where the live set is known.
+        // per-object series — do it here, where the live set is known. The
+        // known set is rebuilt by moving ids out of the previous one, so the
+        // steady state allocates nothing.
         if let Some(recorder) = &self.per_object_state {
-            let live: HashSet<String> = queued_objects.iter().cloned().collect();
-            for gone in self.known_object_ids.difference(&live) {
-                recorder.metrics.clear(recorder.object_type, gone);
+            let now = Instant::now();
+            let mut previous = std::mem::take(&mut self.known_object_ids);
+            for id in &queued_objects {
+                if let Some(known) = previous.take(id.as_str()) {
+                    self.known_object_ids.insert(known);
+                } else {
+                    // Re-created while a deletion re-clear was pending: it is
+                    // live again, stop clearing it.
+                    self.pending_clears.remove(id);
+                    self.known_object_ids.insert(id.clone());
+                }
             }
-            self.known_object_ids = live;
+            // A handler task dispatched before the deletion may still be
+            // running and re-record after a clear, so removed ids stay on a
+            // re-clear list until no in-flight handler can outlive them.
+            let clear_until = now + self.iteration_config.max_object_handling_time;
+            for gone in previous {
+                self.pending_clears.insert(gone, clear_until);
+            }
+            self.pending_clears.retain(|id, deadline| {
+                recorder.clear(id);
+                *deadline > now
+            });
         }
 
         // The transactions for listing and enqueuing are decoupled to avoid

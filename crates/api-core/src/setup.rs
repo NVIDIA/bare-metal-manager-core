@@ -1352,15 +1352,14 @@ async fn initialize_and_start_controllers<'a>(
             .object_types
             .iter()
             .any(|t| t.as_str() == object_type)
-            .then_some(PerObjectStateRecorder {
-                object_type,
-                metrics,
-            })
+            .then_some(PerObjectStateRecorder::new(object_type, metrics))
     };
-    // Machine trait/association info series accompany the machine state series.
+    // Machine trait/association info series accompany the machine state
+    // series, so both are gated by the same recorder.
+    let machine_state_recorder = per_object_state_recorder("machine");
     let machine_per_object_info = per_object_prometheus_registry
         .as_ref()
-        .filter(|_| per_object_state_recorder("machine").is_some())
+        .filter(|_| machine_state_recorder.is_some())
         .map(|prometheus_registry| {
             MachinePerObjectInfo::new(
                 &per_object_metrics_registry,
@@ -1388,7 +1387,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
-        .per_object_state_metrics(per_object_state_recorder("machine"))
+        .per_object_state_metrics(machine_state_recorder)
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
         .state_handler(Arc::new(
             MachineStateHandlerBuilder::builder()

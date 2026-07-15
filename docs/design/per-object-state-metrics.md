@@ -87,8 +87,9 @@ Covers three asks at once: lifecycle timestamp, state age
 transition, compresses well, and is exact at query time), and **current state
 as join key** via its labels. On transition the entry is replaced by the
 committing iteration (including the new state's re-resolved SLA), so exactly
-one series per object exists. Entry time = the controller state's version
-timestamp (exact and immune to handler latency and clock-skew fallbacks).
+one series per object exists per process (see the multi-replica caveat in
+the Queries section). Entry time = the controller state's version timestamp
+(exact and immune to handler latency and clock-skew fallbacks).
 
 #### `carbide_object_state_sla_seconds`
 
@@ -175,12 +176,27 @@ Churn is bounded by transition rate, observable in advance via the existing
 
 ## Queries (issue use cases)
 
+Two caveats apply to all joins below:
+
+- **Multiple API replicas.** Series live in the memory of whichever replica
+  last processed the object, so with `replicas > 1` a scraped fleet can
+  briefly expose the same object from more than one pod (the stale copy ages
+  out within the hold period). Aggregate away the scrape instance first —
+  e.g. `max by (object_type, object_id, state, substate) (...)` — before
+  joining, or run a single replica for this endpoint.
+- **Transitions vs. scrapes.** The three state families are updated as
+  separate series; a scrape landing mid-transition can see them disagree on
+  `state` for one interval. Alerts on these joins should carry a `for:` of at
+  least one scrape interval.
+
 **Stuck beyond per-object SLA** (warning; critical = `2 *`):
 
 ```
-(time() - carbide_object_state_entered_timestamp_seconds)
+max by (object_type, object_id, state, substate)
+    (time() - carbide_object_state_entered_timestamp_seconds)
   > on(object_type, object_id, state, substate) group_left()
-    carbide_object_state_sla_seconds
+    max by (object_type, object_id, state, substate)
+        (carbide_object_state_sla_seconds)
 ```
 
 **Manual-intervention ratio and triage breakdown:**

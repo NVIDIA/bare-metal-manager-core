@@ -892,7 +892,7 @@ pub enum PerObjectStateMetricObjectType {
 }
 
 impl PerObjectStateMetricObjectType {
-    pub const ALL: [Self; 8] = [
+    const ALL: [Self; 8] = [
         Self::Machine,
         Self::Switch,
         Self::Rack,

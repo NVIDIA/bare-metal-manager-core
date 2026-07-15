@@ -40,8 +40,13 @@ async fn handle_metrics_request(
         (&Method::GET, "/metrics") => {
             // Gathering and encoding a large registry (the per-object
             // endpoint serves O(fleet) series) is a CPU burst: run it off the
-            // async workers shared with the API and the state controllers.
-            let encoded = tokio::task::spawn_blocking(move || encode_metrics(&state)).await;
+            // async workers shared with the API and the state controllers,
+            // and bound the concurrency so a scraper retry storm can't stack
+            // multi-10MB encodes.
+            let _permit = state.encode_permits.acquire().await;
+            let encode_state = state.clone();
+            let encoded =
+                tokio::task::spawn_blocking(move || encode_metrics(&encode_state)).await;
             match encoded {
                 Ok(buffer) => Response::builder()
                     .status(200)
@@ -104,6 +109,9 @@ fn encode_metrics(state: &MetricsHandlerState) -> Vec<u8> {
 struct MetricsHandlerState {
     registry: prometheus::Registry,
     additional_prefix: Option<(String, String)>,
+    /// Bounds concurrent gather+encode runs (e.g. HA scraper pairs plus
+    /// retries); waiters queue instead of stacking buffers.
+    encode_permits: tokio::sync::Semaphore,
 }
 
 /// Configuration for the metrics endpoint
@@ -125,6 +133,7 @@ pub async fn run_metrics_endpoint(
     let handler_state = Arc::new(MetricsHandlerState {
         registry: config.registry.clone(),
         additional_prefix: config.additional_prefix.clone(),
+        encode_permits: tokio::sync::Semaphore::new(2),
     });
 
     tracing::info!(

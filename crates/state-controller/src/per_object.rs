@@ -44,8 +44,9 @@ pub enum ManualIntervention {
     Unknown,
 }
 
-/// The per-object state gauges, shared by all state controllers.
-#[derive(Debug)]
+/// The per-object state gauges, shared by all state controllers. Cheap to
+/// clone (every field is `Arc`-backed).
+#[derive(Clone, Debug)]
 pub struct PerObjectStateMetrics {
     registry: Arc<PerObjectMetricsRegistry>,
     entered: PerObjectGauge,
@@ -61,9 +62,9 @@ impl PerObjectStateMetrics {
         registry: &Arc<PerObjectMetricsRegistry>,
         prometheus_registry: &prometheus::Registry,
         hold_period: Duration,
-    ) -> prometheus::Result<Arc<Self>> {
+    ) -> prometheus::Result<Self> {
         const STATE_LABELS: &[&str] = &["object_type", "object_id", "state", "substate"];
-        Ok(Arc::new(Self {
+        Ok(Self {
             registry: registry.clone(),
             entered: registry.gauge(
                 prometheus_registry,
@@ -90,15 +91,32 @@ impl PerObjectStateMetrics {
                 &["object_type", "object_id", "state", "substate", "reason"],
                 hold_period,
             )?,
-        }))
+        })
+    }
+}
+
+/// [`PerObjectStateMetrics`] bound to one controller's object type
+/// (`machine`, `switch`, ...), as threaded into the controller builder. All
+/// writes go through this type so the object type used for series lifecycle
+/// and labels can never diverge.
+#[derive(Clone, Debug)]
+pub struct PerObjectStateRecorder {
+    object_type: &'static str,
+    metrics: PerObjectStateMetrics,
+}
+
+impl PerObjectStateRecorder {
+    pub fn new(object_type: &'static str, metrics: PerObjectStateMetrics) -> Self {
+        Self {
+            object_type,
+            metrics,
+        }
     }
 
-    /// Records an object's state as of this iteration, replacing all of its
+    /// Records the object's state as of this iteration, replacing all of its
     /// series. `sla == None` (state without an SLA) clears the SLA series.
-    #[allow(clippy::too_many_arguments)]
     pub fn record(
         &self,
-        object_type: &'static str,
         object_id: &str,
         state: &'static str,
         substate: &'static str,
@@ -106,6 +124,7 @@ impl PerObjectStateMetrics {
         sla: Option<Duration>,
         manual_intervention: ManualIntervention,
     ) {
+        let object_type = self.object_type;
         let labels = || {
             vec![
                 KeyValue::new("object_type", object_type),
@@ -114,7 +133,7 @@ impl PerObjectStateMetrics {
                 KeyValue::new("substate", substate),
             ]
         };
-        self.entered.set(
+        self.metrics.entered.set(
             object_type,
             object_id,
             entered.timestamp() as f64,
@@ -122,52 +141,47 @@ impl PerObjectStateMetrics {
         );
         match sla {
             Some(sla) => self
+                .metrics
                 .sla
                 .set(object_type, object_id, sla.as_secs_f64(), labels()),
-            None => self.sla.clear(object_type, object_id),
+            None => self.metrics.sla.clear(object_type, object_id),
         }
         match manual_intervention {
             ManualIntervention::Required(reason) => {
                 let mut labels = labels();
                 labels.push(KeyValue::new("reason", reason));
-                self.manual_intervention
+                self.metrics
+                    .manual_intervention
                     .set(object_type, object_id, 1.0, labels);
             }
             ManualIntervention::NotRequired => {
-                self.manual_intervention.clear(object_type, object_id)
+                self.metrics.manual_intervention.clear(object_type, object_id)
             }
             // Keep the series alive only while it still describes the state
             // the object is in — after an out-of-band state change the kept
             // fact would contradict the entered/sla series just recorded.
             ManualIntervention::Unknown => {
-                self.manual_intervention
+                self.metrics
+                    .manual_intervention
                     .touch_if_labels(object_type, object_id, &labels())
             }
         }
     }
 
-    /// Refreshes the eviction deadline of all of the object's series across
-    /// every per-object gauge (state, info, associations) without changing
-    /// them, for iterations that could not determine the object's state at
-    /// all (e.g. a load failure): mid-incident triage series — including the
-    /// info series joins depend on, whose recording handler never ran — must
-    /// not evict just because the database is degraded.
-    pub fn touch(&self, object_type: &'static str, object_id: &str) {
-        self.registry.touch_object(object_type, object_id);
+    /// Refreshes the eviction deadline of all of the object's state/info
+    /// series without changing them, for iterations that could not determine
+    /// the object's state at all (e.g. a load failure): mid-incident triage
+    /// series — including the info series joins depend on, whose recording
+    /// handler never ran — must not evict just because the database is
+    /// degraded.
+    pub fn touch(&self, object_id: &str) {
+        self.metrics.registry.touch_object(self.object_type, object_id);
     }
 
     /// Removes all of the object's series across every per-object gauge
     /// (state, info, associations, classification), e.g. when the object was
     /// deleted.
-    pub fn clear(&self, object_type: &'static str, object_id: &str) {
-        self.registry.clear_object(object_type, object_id);
+    pub fn clear(&self, object_id: &str) {
+        self.metrics.registry.clear_object(self.object_type, object_id);
     }
-}
-
-/// [`PerObjectStateMetrics`] bound to one controller's object type
-/// (`machine`, `switch`, ...), as threaded into the controller builder.
-#[derive(Clone, Debug)]
-pub struct PerObjectStateRecorder {
-    pub object_type: &'static str,
-    pub metrics: Arc<PerObjectStateMetrics>,
 }

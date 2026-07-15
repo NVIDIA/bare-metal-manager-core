@@ -193,6 +193,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             io: self.io.clone().unwrap_or_default(),
             per_object_state: per_object_state_metrics.clone(),
             known_object_ids: Default::default(),
+            pending_clears: Default::default(),
         };
 
         let (task_sender, task_receiver) = tokio::sync::mpsc::unbounded_channel();

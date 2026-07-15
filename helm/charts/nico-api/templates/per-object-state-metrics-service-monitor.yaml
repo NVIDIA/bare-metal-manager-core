@@ -1,4 +1,4 @@
-{{- if and .Values.service.perObjectStateMetrics.enabled (gt (len (default list .Values.service.perObjectStateMetrics.objectTypes)) 0) .Values.perObjectStateMetricsServiceMonitor.enabled }}
+{{- if and (include "nico-api.perObjectStateMetricsActive" .) .Values.perObjectStateMetricsServiceMonitor.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:

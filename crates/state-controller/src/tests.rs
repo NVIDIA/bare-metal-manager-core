@@ -1169,15 +1169,63 @@ fn per_object_state_recorder(
 ) -> crate::per_object::PerObjectStateRecorder {
     let registry =
         carbide_health_metrics::PerObjectMetricsRegistry::new(Vec::new(), Duration::from_secs(60));
-    crate::per_object::PerObjectStateRecorder {
-        object_type: "test_object",
-        metrics: crate::per_object::PerObjectStateMetrics::new(
+    crate::per_object::PerObjectStateRecorder::new(
+        "test_object",
+        crate::per_object::PerObjectStateMetrics::new(
             &registry,
             prometheus_registry,
             Duration::from_secs(60),
         )
         .unwrap(),
-    }
+    )
+}
+
+/// Boilerplate shared by the per-object metrics tests: tables, one
+/// `test-obj-1` object, and a controller wired with the given handler and a
+/// per-object state recorder whose series land on the returned registry.
+/// The `JoinSet` keeps the work-lock manager alive for the test's duration.
+async fn per_object_test_controller<IO>(
+    pool: &sqlx::PgPool,
+    handler: Arc<
+        dyn StateHandler<
+                State = TestObject,
+                ControllerState = TestObjectControllerState,
+                ObjectId = String,
+                ContextObjects = TestStateControllerContextObjects,
+            >,
+    >,
+) -> eyre::Result<(StateController<IO>, prometheus::Registry, JoinSet<()>)>
+where
+    IO: StateControllerIO<
+            ObjectId = String,
+            State = TestObject,
+            ControllerState = TestObjectControllerState,
+            ContextObjects = TestStateControllerContextObjects,
+        >,
+{
+    create_test_state_controller_tables(pool).await;
+    let mut join_set = JoinSet::new();
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
+
+    let mut txn = pool.begin().await?;
+    create_test_object("test-obj-1".to_string(), &mut txn).await;
+    txn.commit().await?;
+
+    let prometheus_registry = prometheus::Registry::new();
+    let controller = StateController::<IO>::builder()
+        .iteration_config(IterationConfig {
+            iteration_time: Duration::from_millis(50),
+            ..Default::default()
+        })
+        .database(pool.clone(), work_lock_manager_handle)
+        .processor_id(uuid::Uuid::new_v4().to_string())
+        .services(Arc::new(()))
+        .state_handler(handler)
+        .per_object_state_metrics(Some(per_object_state_recorder(&prometheus_registry)))
+        .build_for_manual_iterations(CancellationToken::new())?;
+
+    Ok((controller, prometheus_registry, join_set))
 }
 
 /// `(sorted attribute block, value)` rows for the named metric, parsed from
@@ -1214,29 +1262,8 @@ fn parsed_prometheus_metrics(
 async fn test_per_object_state_metrics_record_observed_state(
     pool: sqlx::PgPool,
 ) -> eyre::Result<()> {
-    create_test_state_controller_tables(&pool).await;
-    let mut join_set = JoinSet::new();
-    let cancel_token = CancellationToken::new();
-    let work_lock_manager_handle =
-        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
-
-    let mut txn = pool.begin().await?;
-    create_test_object("test-obj-1".to_string(), &mut txn).await;
-    txn.commit().await?;
-
-    let prometheus_registry = prometheus::Registry::new();
-    let handler = Arc::new(TestManualInterventionStateHandler::default());
-    let mut controller = StateController::<TestStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: Duration::from_millis(50),
-            ..Default::default()
-        })
-        .database(pool.clone(), work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(Arc::new(()))
-        .state_handler(handler)
-        .per_object_state_metrics(Some(per_object_state_recorder(&prometheus_registry)))
-        .build_for_manual_iterations(cancel_token)?;
+    let (mut controller, prometheus_registry, _join_set) =
+        per_object_test_controller::<TestStateControllerIO>(&pool, Arc::new(TestManualInterventionStateHandler::default())).await?;
 
     // First iteration: the handler requires manual intervention.
     controller.run_single_iteration().await;
@@ -1402,28 +1429,8 @@ impl StateControllerIO for SlaTestStateControllerIO {
 async fn test_per_object_state_metrics_sla_and_state_based_intervention(
     pool: sqlx::PgPool,
 ) -> eyre::Result<()> {
-    create_test_state_controller_tables(&pool).await;
-    let mut join_set = JoinSet::new();
-    let cancel_token = CancellationToken::new();
-    let work_lock_manager_handle =
-        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
-
-    let mut txn = pool.begin().await?;
-    create_test_object("test-obj-1".to_string(), &mut txn).await;
-    txn.commit().await?;
-
-    let prometheus_registry = prometheus::Registry::new();
-    let mut controller = StateController::<SlaTestStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: Duration::from_millis(50),
-            ..Default::default()
-        })
-        .database(pool.clone(), work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(Arc::new(()))
-        .state_handler(Arc::new(TestTransitionStateHandler))
-        .per_object_state_metrics(Some(per_object_state_recorder(&prometheus_registry)))
-        .build_for_manual_iterations(cancel_token)?;
+    let (mut controller, prometheus_registry, _join_set) =
+        per_object_test_controller::<SlaTestStateControllerIO>(&pool, Arc::new(TestTransitionStateHandler)).await?;
 
     // First iteration transitions A -> B and records the committed state B
     // immediately, including B's resolved SLA; B needs no manual intervention.
@@ -1498,28 +1505,8 @@ impl StateHandler for TestDeletionStateHandler {
 async fn test_per_object_state_metrics_cleared_on_deletion(
     pool: sqlx::PgPool,
 ) -> eyre::Result<()> {
-    create_test_state_controller_tables(&pool).await;
-    let mut join_set = JoinSet::new();
-    let cancel_token = CancellationToken::new();
-    let work_lock_manager_handle =
-        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
-
-    let mut txn = pool.begin().await?;
-    create_test_object("test-obj-1".to_string(), &mut txn).await;
-    txn.commit().await?;
-
-    let prometheus_registry = prometheus::Registry::new();
-    let mut controller = StateController::<TestStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: Duration::from_millis(50),
-            ..Default::default()
-        })
-        .database(pool.clone(), work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(Arc::new(()))
-        .state_handler(Arc::new(TestDeletionStateHandler::default()))
-        .per_object_state_metrics(Some(per_object_state_recorder(&prometheus_registry)))
-        .build_for_manual_iterations(cancel_token)?;
+    let (mut controller, prometheus_registry, _join_set) =
+        per_object_test_controller::<TestStateControllerIO>(&pool, Arc::new(TestDeletionStateHandler::default())).await?;
 
     controller.run_single_iteration().await;
     assert_eq!(
@@ -1580,31 +1567,11 @@ impl StateHandler for TestLockLossStateHandler {
 async fn test_lock_loss_requeues_without_publishing_the_transition(
     pool: sqlx::PgPool,
 ) -> eyre::Result<()> {
-    create_test_state_controller_tables(&pool).await;
-    let mut join_set = JoinSet::new();
-    let cancel_token = CancellationToken::new();
-    let work_lock_manager_handle =
-        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
-
-    let mut txn = pool.begin().await?;
-    create_test_object("test-obj-1".to_string(), &mut txn).await;
-    txn.commit().await?;
-
-    let prometheus_registry = prometheus::Registry::new();
-    let mut controller = StateController::<TestStateControllerIO>::builder()
-        .iteration_config(IterationConfig {
-            iteration_time: Duration::from_millis(50),
-            ..Default::default()
-        })
-        .database(pool.clone(), work_lock_manager_handle.clone())
-        .processor_id(uuid::Uuid::new_v4().to_string())
-        .services(Arc::new(()))
-        .state_handler(Arc::new(TestLockLossStateHandler {
+    let (mut controller, prometheus_registry, _join_set) =
+        per_object_test_controller::<TestStateControllerIO>(&pool, Arc::new(TestLockLossStateHandler {
             pool: pool.clone(),
             calls: Default::default(),
-        }))
-        .per_object_state_metrics(Some(per_object_state_recorder(&prometheus_registry)))
-        .build_for_manual_iterations(cancel_token)?;
+        })).await?;
 
     controller.run_single_iteration().await;
 

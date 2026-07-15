@@ -40,8 +40,7 @@ use crate::cfg::file::{
 use crate::listener::AdminUiRoutesBuilder;
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
-    Logging, create_metric_for_spancount_reader, create_metrics, create_per_object_metrics,
-    setup_logging,
+    Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
 use crate::secrets::{SecretRouting, SecretsContext};
 use crate::{CarbideError, dynamic_settings, setup};
@@ -179,9 +178,12 @@ pub async fn run(
         })?;
     }
 
-    // The opt-in per-object state metrics live on their own registry and
-    // listener so operators can scrape (or skip) them independently. No
-    // alt-prefix mirroring here: it would double every per-object family.
+    // The opt-in per-object state metrics live on their own bare Prometheus
+    // registry (native pull collectors, not OpenTelemetry instruments, whose
+    // per-stream cardinality limit a per-object fleet vastly exceeds) and
+    // their own listener, so operators can scrape (or skip) them
+    // independently. No alt-prefix mirroring here: it would double every
+    // per-object family.
     let per_object_config = &carbide_config.observability.per_object_state_metrics;
     if per_object_config.enabled && per_object_config.object_types.is_empty() {
         tracing::warn!(
@@ -191,7 +193,7 @@ pub async fn run(
     }
     let per_object_metrics = (per_object_config.enabled
         && !per_object_config.object_types.is_empty())
-    .then(create_per_object_metrics);
+    .then(prometheus::Registry::new);
     if let Some(registry) = &per_object_metrics {
         let address = per_object_config.listen_address;
         join_set
