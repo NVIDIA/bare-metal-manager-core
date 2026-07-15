@@ -888,23 +888,55 @@ func Test_tenantConfigUpMigration(t *testing.T) {
 	ipu := model.TestBuildUser(t, dbSession, uuid.NewString(), ipOrg, ipRoles)
 
 	tnOrg1 := "test-tenant-org-1"
+	tnOrg2 := "test-tenant-org-2"
+	tnOrg3 := "test-tenant-org-3"
 
 	tenant1 := model.TestBuildTenant(t, dbSession, "test-tenant-1", tnOrg1, ipu)
+	tenant2 := model.TestBuildTenant(t, dbSession, "test-tenant-2", tnOrg2, ipu)
+	tenant3 := model.TestBuildTenant(t, dbSession, "test-tenant-3", tnOrg3, ipu)
 
-	// Simulate a legacy row with a NULL config prior to the migration.
-	_, err = dbSession.DB.Exec("UPDATE tenant SET config = NULL where id = ?", tenant1.ID)
+	// Simulate legacy rows with NULL configs prior to the migration.
+	_, err = dbSession.DB.Exec("UPDATE tenant SET config = NULL WHERE id IN (?)", bun.In([]uuid.UUID{tenant1.ID, tenant2.ID}))
+	assert.NoError(t, err)
+
+	// Seed one tenant with a pre-existing non-NULL config that must survive the migration.
+	existingConfig := map[string]interface{}{
+		"targetedInstanceCreation": true,
+		"enableSshAccess":          false,
+	}
+	_, err = dbSession.DB.NewUpdate().
+		Table("tenant").
+		Set("config = ?", existingConfig).
+		Where("id = ?", tenant3.ID).
+		Exec(ctx)
 	assert.NoError(t, err)
 
 	// Call up migration function
 	err = tenantConfigUpMigration(ctx, dbSession.DB)
 	assert.NoError(t, err)
 
-	// The migration backfills NULL configs with an empty JSON object, so no
-	// tenant row should have a NULL config after it runs.
-	nullConfigCount, err := dbSession.DB.NewSelect().
+	// The migration backfills NULL configs with an empty JSON object and leaves
+	// pre-existing non-NULL values untouched.
+	type tenantConfigRow struct {
+		ID     uuid.UUID              `bun:"id"`
+		Config map[string]interface{} `bun:"config,type:jsonb"`
+	}
+
+	var rows []tenantConfigRow
+	err = dbSession.DB.NewSelect().
 		Table("tenant").
-		Where("config IS NULL").
-		Count(ctx)
+		Column("id", "config").
+		Where("id IN (?)", bun.In([]uuid.UUID{tenant1.ID, tenant2.ID, tenant3.ID})).
+		Scan(ctx, &rows)
 	assert.NoError(t, err)
-	assert.Equal(t, 0, nullConfigCount)
+	require.Len(t, rows, 3)
+
+	configByID := make(map[uuid.UUID]map[string]interface{}, len(rows))
+	for _, row := range rows {
+		configByID[row.ID] = row.Config
+	}
+
+	assert.Equal(t, map[string]interface{}{}, configByID[tenant1.ID])
+	assert.Equal(t, map[string]interface{}{}, configByID[tenant2.ID])
+	assert.Equal(t, existingConfig, configByID[tenant3.ID])
 }

@@ -363,7 +363,7 @@ func TestBuildTenantAccountWithTargetedInstanceCreation(t *testing.T, dbSession 
 		Config:                   &cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
 		CreatedBy:                user.ID,
 	})
-	assert.Nil(t, err)
+	require.NoError(t, err)
 
 	return ta
 }

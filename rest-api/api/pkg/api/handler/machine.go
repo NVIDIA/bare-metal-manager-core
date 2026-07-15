@@ -284,7 +284,10 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			}
 			filterInput.SiteIDs = []uuid.UUID{site.ID}
 		}
-	} else if tenant != nil && (infrastructureProvider == nil || len(privilegedSiteIDs) > 0) {
+	} else if tenant != nil && infrastructureProvider == nil {
+		// Tenant-only caller: restrict to the Sites the Tenant is privileged on.
+		// Dual-role callers keep their provider-wide filter untouched so it is
+		// not narrowed by the tenant's privileged Sites.
 		filterInput.SiteIDs = privilegedSiteIDs
 	}
 
@@ -2034,8 +2037,9 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site detail for Machine, DB error", nil)
 	}
 
-	// Validate role: Provider Admins, or privileged Tenant Admins
-	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gadmh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{})
+	// Validate role: Provider Admins, or privileged Tenant Admins. Scope DPU
+	// access to the Machine's Site so capability/ownership rules are enforced.
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gadmh.dbSession, org, dbUser, false, common.SiteScope(site))
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

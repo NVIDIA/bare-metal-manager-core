@@ -631,6 +631,9 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		CreatedBy:                 dualRoleUserID,
 	}).Exec(ctx)
 	assert.Nil(t, err)
+	// Ready account with the unmanaged provider, but capability disabled at the
+	// account (global) level: access to the external/unmanaged site must come
+	// solely from the dualRoleExternalTenantSite grant, not a global default.
 	_, err = dbSession.DB.NewInsert().Model(&cdbm.TenantAccount{
 		ID:                        uuid.New(),
 		AccountNumber:             common.GenerateAccountNumber(),
@@ -639,7 +642,7 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		InfrastructureProviderID:  unmanagedIP.ID,
 		InfrastructureProviderOrg: unmanagedIP.Org,
 		Status:                    cdbm.TenantAccountStatusReady,
-		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
 		CreatedBy:                 dualRoleUserID,
 	}).Exec(ctx)
 	assert.Nil(t, err)
@@ -1745,6 +1748,110 @@ func TestDeleteExpectedMachineHandler_Handle(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestExpectedMachineTenantSiteOverrideDenied verifies that TenantSite association
+// does not grant access when global capability is enabled but the Site override is false.
+func TestExpectedMachineTenantSiteOverrideDenied(t *testing.T) {
+	dbSession := testExpectedMachineInitDB(t)
+	ctx := context.Background()
+
+	ipOrg := "test-ip-org-override"
+	ip := &cdbm.InfrastructureProvider{
+		ID:   uuid.New(),
+		Name: "test-provider-override",
+		Org:  ipOrg,
+	}
+	_, err := dbSession.DB.NewInsert().Model(ip).Exec(ctx)
+	assert.Nil(t, err)
+
+	site := &cdbm.Site{
+		ID:                       uuid.New(),
+		Name:                     "test-site-override",
+		Org:                      ipOrg,
+		InfrastructureProviderID: ip.ID,
+		Status:                   cdbm.SiteStatusRegistered,
+	}
+	_, err = dbSession.DB.NewInsert().Model(site).Exec(ctx)
+	assert.Nil(t, err)
+
+	tenantOrg := "test-tenant-org-override"
+	tenant := &cdbm.Tenant{
+		ID:             uuid.New(),
+		Name:           "test-tenant-override",
+		Org:            tenantOrg,
+		OrgDisplayName: cutil.GetPtr("Test Tenant Override"),
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenant).Exec(ctx)
+	assert.Nil(t, err)
+
+	tenantUser := &cdbm.User{
+		ID:    uuid.New(),
+		Email: cutil.GetPtr("tenant-override@example.com"),
+		OrgData: cdbm.OrgData{
+			tenantOrg: cdbm.Org{
+				ID:          125,
+				Name:        tenantOrg,
+				DisplayName: "Test Tenant Org Override",
+				OrgType:     "ENTERPRISE",
+				Roles:       []string{authz.TenantAdminRole},
+			},
+		},
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantUser).Exec(ctx)
+	assert.Nil(t, err)
+
+	tenantAccount := &cdbm.TenantAccount{
+		ID:                       uuid.New(),
+		AccountNumber:            "TA-override",
+		TenantID:                 &tenant.ID,
+		TenantOrg:                tenantOrg,
+		InfrastructureProviderID: ip.ID,
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                tenantUser.ID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
+	assert.Nil(t, err)
+
+	siteOverrideFalse := false
+	tenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  tenant.ID,
+		TenantOrg: tenantOrg,
+		SiteID:    site.ID,
+		Config:    cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideFalse},
+		CreatedBy: tenantUser.ID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	cfg := common.GetTestConfig()
+	e := echo.New()
+	handler := NewCreateExpectedMachineHandler(dbSession, sc.NewClientPool(nil), cfg)
+
+	reqBody, err := json.Marshal(model.APIExpectedMachineCreateRequest{
+		SiteID:              site.ID.String(),
+		BmcMacAddress:       "AA:BB:CC:DD:EE:99",
+		DefaultBmcUsername:  cutil.GetPtr("admin"),
+		DefaultBmcPassword:  cutil.GetPtr("password"),
+		ChassisSerialNumber: "OVERRIDE-DENIED-CHASSIS",
+	})
+	assert.Nil(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/v2/org/"+tenantOrg+"/nico/expected-machine", bytes.NewReader(reqBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("user", tenantUser)
+	c.SetParamNames("orgName")
+	c.SetParamValues(tenantOrg)
+
+	err = handler.Handle(c)
+	assert.Nil(t, err)
+	assert.Equal(t, http.StatusForbidden, rec.Code, "Response: %v", rec.Body.String())
 }
 
 // TestTenantWithTargetedInstanceCreationCapability tests that tenants with TargetedInstanceCreation

@@ -66,24 +66,9 @@ func (caps APITenantAccountSiteCapabilitiesUpdateRequest) Validate() error {
 				validation.In(tenantAccountSiteCapabilityScopes...).Error(validationErrorInvalidSiteCapabilityScope)),
 			validation.Field(&cap.SiteIDs,
 				validation.When(cap.Scope == TenantAccountSiteCapabilityScopeGlobal,
-					validation.By(func(value interface{}) error {
-						siteIDs, ok := value.([]string)
-						if !ok {
-							return nil
-						}
-						if len(siteIDs) > 0 {
-							return fmt.Errorf(validationErrorGlobalSiteIDsNotAllowed)
-						}
-						return nil
-					})),
+					validation.Empty.Error(validationErrorGlobalSiteIDsNotAllowed)),
 				validation.When(cap.Scope == TenantAccountSiteCapabilityScopeLimited,
-					validation.By(func(value interface{}) error {
-						siteIDs, ok := value.([]string)
-						if !ok || len(siteIDs) == 0 {
-							return fmt.Errorf(validationErrorLimitedSiteIDsRequired)
-						}
-						return nil
-					}),
+					validation.Required.Error(validationErrorLimitedSiteIDsRequired),
 					validation.Each(validationis.UUID.Error(validationErrorInvalidUUID)),
 				),
 			),
@@ -96,10 +81,18 @@ func (caps APITenantAccountSiteCapabilitiesUpdateRequest) Validate() error {
 		}
 
 		for _, siteID := range cap.SiteIDs {
-			if _, ok := seenSiteIDs[siteID]; ok {
+			// Normalize to the canonical UUID string so differently formatted
+			// representations of the same Site (case, urn prefix) dedupe. The
+			// values are already validated as UUIDs above, so parsing succeeds.
+			parsed, perr := uuid.Parse(siteID)
+			if perr != nil {
+				return validation.Errors{prefix: fmt.Errorf(validationErrorInvalidUUID)}
+			}
+			key := parsed.String()
+			if _, ok := seenSiteIDs[key]; ok {
 				return validation.Errors{"siteCapabilities": fmt.Errorf(validationErrorDuplicateSiteID)}
 			}
-			seenSiteIDs[siteID] = struct{}{}
+			seenSiteIDs[key] = struct{}{}
 		}
 	}
 
@@ -172,11 +165,9 @@ func filterTenantSitesForAccount(ta *cdbm.TenantAccount, tenantSites []cdbm.Tena
 
 	filtered := make([]cdbm.TenantSite, 0, len(tenantSites))
 	for _, ts := range tenantSites {
+		// Fail closed: a TenantSite with a missing Site relation cannot be
+		// confirmed to belong to this account's provider, so it is excluded.
 		if ts.Site != nil && ts.Site.InfrastructureProviderID == ta.InfrastructureProviderID {
-			filtered = append(filtered, ts)
-			continue
-		}
-		if ts.Site == nil {
 			filtered = append(filtered, ts)
 		}
 	}

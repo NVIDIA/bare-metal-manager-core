@@ -438,13 +438,41 @@ func (gatah GetAllTenantAccountHandler) Handle(c echo.Context) error {
 		}
 	}
 
+	// Batch-load TenantSite rows (with Site relation) for every Tenant across the
+	// returned accounts so per-Site capability overrides can be resolved without
+	// a per-account query. Rows are grouped by TenantID; NewAPITenantAccount
+	// further narrows them to the account's provider.
+	tenantSitesByTenant := map[uuid.UUID][]cdbm.TenantSite{}
+	tenantIDSet := mapset.NewSet[uuid.UUID]()
+	for _, ta := range tas {
+		if ta.TenantID != nil {
+			tenantIDSet.Add(*ta.TenantID)
+		}
+	}
+	if tenantIDSet.Cardinality() > 0 {
+		tsDAO := cdbm.NewTenantSiteDAO(gatah.dbSession)
+		tenantSites, _, tserr := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
+			TenantIDs: tenantIDSet.ToSlice(),
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Site"})
+		if tserr != nil {
+			logger.Error().Err(tserr).Msg("error retrieving Tenant Sites for Tenant Accounts from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Accounts", nil)
+		}
+		for _, ts := range tenantSites {
+			cts := ts
+			tenantSitesByTenant[ts.TenantID] = append(tenantSitesByTenant[ts.TenantID], cts)
+		}
+	}
+
 	for _, ta := range tas {
 		tmpTa := ta
 		allocationCount := 0
+		var tenantSites []cdbm.TenantSite
 		if tmpTa.TenantID != nil {
 			allocationCount = allocationCountByProviderAndTenant[tmpTa.InfrastructureProviderID][*tmpTa.TenantID]
+			tenantSites = tenantSitesByTenant[*tmpTa.TenantID]
 		}
-		apiTa := model.NewAPITenantAccount(&tmpTa, ssdMap[ta.ID.String()], allocationCount, nil)
+		apiTa := model.NewAPITenantAccount(&tmpTa, ssdMap[ta.ID.String()], allocationCount, tenantSites)
 		apiTas = append(apiTas, apiTa)
 	}
 
