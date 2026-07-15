@@ -1474,14 +1474,9 @@ func (dah DeleteAllocationHandler) Handle(c echo.Context) error {
 				// the same way) keep their TenantSite association even after
 				// their last allocation on a site is removed, since they
 				// don't rely on allocations to access the site in the first
-				// place.
-				tnDAO := cdbm.NewTenantDAO(dah.dbSession)
-				tenantForCleanup, terr := tnDAO.GetByID(ctx, tx, a.TenantID, nil)
-				if terr != nil {
-					logger.Error().Err(terr).Msg("error retrieving Tenant for TenantSite cleanup check")
-					return cutil.NewAPIError(http.StatusInternalServerError, "Error deleting Allocation, DB error retrieving Tenant for cleanup check", nil)
-				}
-				isPrivileged := tenantForCleanup != nil && tenantForCleanup.Config != nil && tenantForCleanup.Config.TargetedInstanceCreation
+				// place. a.Tenant is already loaded via includeRelations on
+				// the earlier GetByID for this allocation.
+				isPrivileged := a.Tenant != nil && a.Tenant.Config != nil && a.Tenant.Config.TargetedInstanceCreation
 
 				if !isPrivileged {
 					tsDAO := cdbm.NewTenantSiteDAO(dah.dbSession)

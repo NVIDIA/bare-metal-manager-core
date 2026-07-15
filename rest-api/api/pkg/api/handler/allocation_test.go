@@ -2796,3 +2796,102 @@ func TestInstanceTypeAllocationForMultipleTenants(t *testing.T) {
 		})
 	}
 }
+
+func TestAllocationHandler_Delete_PrivilegedTenantKeepsTenantSite(t *testing.T) {
+	ctx := context.Background()
+	dbSession := common.TestInitDB(t)
+	defer dbSession.Close()
+
+	common.TestSetupSchema(t, dbSession)
+
+	ipOrg := "test-privileged-ip-org"
+	tnOrg := "test-privileged-tn-org"
+
+	ipu := common.TestBuildUser(t, dbSession, uuid.NewString(), ipOrg, []string{authz.ProviderAdminRole})
+	tnu := common.TestBuildUser(t, dbSession, uuid.NewString(), tnOrg, []string{authz.TenantAdminRole})
+
+	ip := common.TestBuildInfrastructureProvider(t, dbSession, "test-privileged-ip", ipOrg, ipu)
+	site := common.TestBuildSite(t, dbSession, ip, "test-privileged-site", ipu)
+
+	tenant := common.TestBuildTenant(t, dbSession, "test-privileged-tenant", tnOrg, tnu)
+
+	// Mark this tenant as privileged.
+	tnDAO := cdbm.NewTenantDAO(dbSession)
+	updatedTenant, err := tnDAO.Update(ctx, nil, cdbm.TenantUpdateInput{
+		TenantID: tenant.ID,
+		Config:   &cdbm.TenantConfig{TargetedInstanceCreation: true},
+	})
+	require.NoError(t, err)
+	require.True(t, updatedTenant.Config.TargetedInstanceCreation)
+
+	it := common.TestBuildInstanceType(t, dbSession, "test-privileged-it", cutil.GetPtr(uuid.New()), site, map[string]string{
+		"name": "test-privileged-instance-type",
+	}, ipu)
+
+	for i := 1; i <= 1; i++ {
+		mc := testInstanceBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr(false), nil)
+		require.NotNil(t, mc)
+		mit := testInstanceBuildMachineInstanceType(t, dbSession, mc, it)
+		require.NotNil(t, mit)
+	}
+
+	ac := model.APIAllocationConstraintCreateRequest{
+		ResourceType:    cdbm.AllocationResourceTypeInstanceType,
+		ResourceTypeID:  it.ID.String(),
+		ConstraintType:  cdbm.AllocationConstraintTypeReserved,
+		ConstraintValue: 1,
+	}
+	body, err := json.Marshal(model.APIAllocationCreateRequest{
+		Name:                  "privileged-tenant-allocation",
+		Description:           cutil.GetPtr(""),
+		TenantID:              tenant.ID.String(),
+		SiteID:                site.ID.String(),
+		AllocationConstraints: []model.APIAllocationConstraintCreateRequest{ac},
+	})
+	require.NoError(t, err)
+
+	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
+	allocation := testCreateAllocation(t, dbSession, ipamStorage, ipu, ipOrg, string(body))
+	require.NotNil(t, allocation)
+
+	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+
+	// Sanity check: creating the allocation should have created a TenantSite.
+	_, tscount, err := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+		SiteIDs:   []uuid.UUID{site.ID},
+	}, cdbp.PageInput{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, tscount)
+
+	// Delete the allocation -- it's the tenant's only/last one on this site.
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+
+	ec := e.NewContext(req, rec)
+	ec.SetParamNames("orgName", "id")
+	ec.SetParamValues(ipOrg, allocation.ID)
+	ec.Set("user", ipu)
+	ec.SetRequest(ec.Request().WithContext(ctx))
+
+	cfg := common.GetTestConfig()
+	dah := DeleteAllocationHandler{
+		dbSession: dbSession,
+		tc:        &tmocks.Client{},
+		cfg:       cfg,
+	}
+	err = dah.Handle(ec)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	// Even though this was the tenant's last allocation on the site, the
+	// TenantSite association should persist because the tenant is privileged.
+	_, tscount, err = tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+		SiteIDs:   []uuid.UUID{site.ID},
+	}, cdbp.PageInput{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, tscount, "privileged tenant should keep its TenantSite association after its last allocation is deleted")
+}

@@ -39,36 +39,51 @@ func EnsureTenantSitesForInfrastructureProvider(
 	if err != nil {
 		return fmt.Errorf("error retrieving sites for infrastructure provider: %w", err)
 	}
+	if len(sites) == 0 {
+		return nil
+	}
+
+	siteIDs := make([]uuid.UUID, len(sites))
+	for i, site := range sites {
+		siteIDs[i] = site.ID
+	}
 
 	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+	existing, _, err := tsDAO.GetAll(
+		ctx,
+		tx,
+		cdbm.TenantSiteFilterInput{
+			TenantIDs: []uuid.UUID{tenant.ID},
+			SiteIDs:   siteIDs,
+		},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("error retrieving existing TenantSite entries: %w", err)
+	}
+
+	existingSiteIDs := make(map[uuid.UUID]bool, len(existing))
+	for _, ts := range existing {
+		existingSiteIDs[ts.SiteID] = true
+	}
+
 	for _, site := range sites {
-		_, count, err := tsDAO.GetAll(
+		if existingSiteIDs[site.ID] {
+			continue
+		}
+		_, err := tsDAO.Create(
 			ctx,
 			tx,
-			cdbm.TenantSiteFilterInput{
-				TenantIDs: []uuid.UUID{tenant.ID},
-				SiteIDs:   []uuid.UUID{site.ID},
+			cdbm.TenantSiteCreateInput{
+				TenantID:  tenant.ID,
+				TenantOrg: tenant.Org,
+				SiteID:    site.ID,
+				CreatedBy: createdBy,
 			},
-			cdbp.PageInput{},
-			nil,
 		)
 		if err != nil {
-			return fmt.Errorf("error retrieving TenantSite entry for site %s: %w", site.ID, err)
-		}
-		if count == 0 {
-			_, err := tsDAO.Create(
-				ctx,
-				tx,
-				cdbm.TenantSiteCreateInput{
-					TenantID:  tenant.ID,
-					TenantOrg: tenant.Org,
-					SiteID:    site.ID,
-					CreatedBy: createdBy,
-				},
-			)
-			if err != nil {
-				return fmt.Errorf("error creating TenantSite entry for site %s: %w", site.ID, err)
-			}
+			return fmt.Errorf("error creating TenantSite entry for site %s: %w", site.ID, err)
 		}
 	}
 	return nil
