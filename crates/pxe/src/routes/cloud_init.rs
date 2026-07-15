@@ -305,6 +305,11 @@ fn extract_network_config(custom_cloud_init: &str) -> Option<String> {
     serde_yaml::to_string(value.get("network")?).ok()
 }
 
+/// Serves NoCloud's `network-config` document for a tenant's assigned
+/// machine, extracted from any `network:` key present in their custom
+/// cloud-init userdata. Renders empty when no such key is present, which
+/// cloud-init treats as "no custom network config" and falls back to
+/// its default DHCP behavior.
 pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let network_config_yaml = machine
         .instructions
@@ -335,6 +340,9 @@ pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
     )
 }
 
+/// Builds the PXE service's route table for the cloud-init-related
+/// endpoints served under `path_prefix`: `user-data`, `meta-data`,
+/// `vendor-data`, and `network-config`.
 pub fn get_router(path_prefix: &str) -> Router<AppState> {
     Router::new()
         .route(
