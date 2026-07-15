@@ -260,9 +260,6 @@ func (cskh CreateSSHKeyHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to set updated version for SSH Key Group", nil)
 			}
 
-			// Only mark the group as Syncing if it actually has a site to
-			// sync with -- otherwise there's nothing for the sync workflow
-			// to do, and the group would get stuck in Syncing forever.
 			skgsaDAO := cdbm.NewSSHKeyGroupSiteAssociationDAO(cskh.dbSession)
 			skgsas, _, derr = skgsaDAO.GetAll(ctx, tx, cdbm.SSHKeyGroupSiteAssociationFilterInput{SSHKeyGroupIDs: []uuid.UUID{dbskg.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 			if derr != nil {
@@ -270,6 +267,9 @@ func (cskh CreateSSHKeyHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve SSH Key Group Association from DB", nil)
 			}
 
+			// Only mark the group as Syncing if it actually has a site to
+			// sync with -- otherwise there's nothing for the sync workflow
+			// to do, and the group would get stuck in Syncing forever.
 			if len(skgsas) > 0 {
 				// Update SSH Key Group status to Syncing
 				_, derr = skgDAO.Update(
