@@ -455,3 +455,39 @@ func TestConfig_Validation(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkerPool_StressSubmitDuringStop(t *testing.T) {
+	for iter := 0; iter < 200; iter++ {
+		config := DefaultConfig()
+		config.MaxWorkers = 4
+		config.QueueSize = 10
+
+		pool := New(config)
+		if err := pool.Start(); err != nil {
+			t.Fatalf("failed to start pool: %v", err)
+		}
+
+		var wg sync.WaitGroup
+
+		for g := 0; g < 20; g++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						t.Errorf("Submit panicked: %v", r)
+					}
+				}()
+				for j := 0; j < 50; j++ {
+					task := newMockTask(fmt.Sprintf("stress-%d-%d-%d", iter, id, j), 0, false)
+					_ = pool.Submit(task) // errors are expected once stopped; panics are not
+				}
+			}(g)
+		}
+
+		// Stop concurrently, with submissions still actively in flight.
+		_ = pool.Stop()
+
+		wg.Wait()
+	}
+}
