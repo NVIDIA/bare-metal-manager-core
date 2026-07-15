@@ -231,7 +231,9 @@ Clear the UEFI password (supply the current one):
     ClearNvram,
     /// Set BIOS options
     SetBios(SetBios),
-    /// Reset BIOS settings to factory defaults
+    /// Reset BIOS settings to factory defaults. Returns once the BMC accepts
+    /// the reset request. A system restart is required for the settings to
+    /// take effect.
     #[command(after_long_help = "\
 EXAMPLES:
 
@@ -539,7 +541,11 @@ pub struct MachineSetupStatusArgs {
 
 #[derive(Parser, Debug, PartialEq, Clone)]
 pub struct ResetBiosArgs {
-    #[clap(short, long, help = "Restart the system to apply the BIOS reset")]
+    #[clap(
+        short,
+        long,
+        help = "Perform a forced restart after the BMC accepts the BIOS reset request"
+    )]
     pub reboot: bool,
 }
 

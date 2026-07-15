@@ -10,16 +10,18 @@ defaults
 ## SYNOPSIS
 
 **nico-admin-cli redfish reset-bios** \[**-r**\|**--reboot**\]
-\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
+\[**--extended**\] \[**--sort-by** *\<SORT_BY\>*\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
-Reset BIOS settings to factory defaults
+Reset BIOS settings to factory defaults. Returns once the BMC accepts
+the reset request. A system restart is required for the settings to take
+effect.
 
 ## OPTIONS
 
 **-r**, **--reboot**  
-Restart the system to apply the BIOS reset
+Perform a forced restart after the BMC accepts the BIOS reset request
 
 **--extended**  
 Extended result output.
