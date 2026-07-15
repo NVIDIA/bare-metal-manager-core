@@ -29,9 +29,9 @@
 //! rotate every device reads as "pending" until the engine lands.
 //! `GetCredentialRotationStatus` reports that convergence.
 //!
-//! NVOS is rejected for now: NICo does not own the NVOS password until REQ-6
-//! (set-NVOS-from-factory), so there is no baseline to rotate from and the
-//! backfill deliberately seeds no `nvos` target row.
+//! NVOS is rejected for now. Its target row remains absent until the first
+//! versioned target secret has been stored and verified; API exposure remains
+//! disabled until the end-to-end NVOS rotation path is activated.
 
 use ::rpc::forge as rpc;
 use carbide_authn::middleware::Principal;
