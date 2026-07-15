@@ -212,7 +212,7 @@ pub async fn results(
         include_history: false,
         machine_id: None,
     });
-    tracing::info!(%validation_id, "results");
+    tracing::info!(machine_validation_id = %validation_id, "results");
 
     let validation_results = match state
         .get_machine_validation_results(request)
@@ -233,7 +233,7 @@ pub async fn results(
             })
             .collect(),
         Err(err) => {
-            tracing::error!(%err, %validation_id, "get_validation_results failed");
+            tracing::error!(error = %err, machine_validation_id = %validation_id, "get_validation_results failed");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to get validation results",
@@ -296,7 +296,7 @@ pub async fn result_details(
             )
             .collect(),
         Err(err) => {
-            tracing::error!(%err, %validation_id, "get_validation_results failed");
+            tracing::error!(error = %err, machine_validation_id = %validation_id, "get_validation_results failed");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to get validation results",
@@ -321,7 +321,7 @@ pub async fn show_tests_html(
     let validate_tests = match fetch_validation_tests(state, None).await {
         Ok(tests) => tests,
         Err(err) => {
-            tracing::error!(%err, "fetch_validation_tests");
+            tracing::error!(error = %err, "fetch_validation_tests");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading validation tests",
@@ -348,7 +348,7 @@ pub async fn show_tests_details_html(
     let validate_tests = match fetch_validation_tests(state, Some(test_id)).await {
         Ok(tests) => tests,
         Err(err) => {
-            tracing::error!(%err, "fetch_validation_tests");
+            tracing::error!(error = %err, "fetch_validation_tests");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading validation tests",
@@ -414,7 +414,7 @@ pub async fn runs(
             })
             .collect(),
         Err(err) => {
-            tracing::warn!(%err,"get_machine_validation_runs failed");
+            tracing::warn!(error = %err,"get_machine_validation_runs failed");
             Vec::new()
         }
     };
@@ -453,7 +453,7 @@ pub async fn external_configs(
             })
             .collect(),
         Err(err) => {
-            tracing::warn!(%err,"get_machine_validation_runs failed");
+            tracing::warn!(error = %err,"get_machine_validation_external_configs failed");
             Vec::new()
         }
     };

@@ -97,7 +97,7 @@ pub fn setup_agent_run_env(
     }
 
     let hbn_root = td.path();
-    tracing::info!("Using hbn_root: {:?}", hbn_root);
+    tracing::info!(?hbn_root, "Using HBN root");
     fs::create_dir_all(hbn_root.join("etc/frr"))?;
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;

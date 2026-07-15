@@ -380,8 +380,8 @@ async fn handle_dpf_waiting_for_ready(
 
     if current_phase == carbide_dpf::DpuPhase::Error {
         tracing::error!(
-            host = %state.host_snapshot.id,
-            dpu = %dpu_snapshot.id,
+            machine_id = %state.host_snapshot.id,
+            dpu_machine_id = %dpu_snapshot.id,
             "DPU entered error phase during DPF provisioning"
         );
         let details = FailureDetails {
@@ -447,7 +447,7 @@ async fn handle_dpf_reprovisioning(
             .map_err(dpf_error)?;
     if dpf_dpudevices_and_dpunode_crs_noexist {
         tracing::info!(
-            host = %state.host_snapshot.id,
+            machine_id = %state.host_snapshot.id,
             "DPUDevice/DPUNode CRs do not exist, creating them before reprovisioning"
         );
         if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
@@ -465,7 +465,7 @@ async fn handle_dpf_reprovisioning(
         return Ok(outcome.with_txn(txn));
     }
 
-    tracing::info!("DPF initiate reprovision of DPU {}", dpu_snapshot.id);
+    tracing::info!(machine_id = %dpu_snapshot.id, "DPF initiate reprovision of DPU");
     dpf_sdk
         .reprovision_dpu(&dpf_id(dpu_snapshot)?, &node_name)
         .await
@@ -501,7 +501,7 @@ pub async fn handle_dpf_state(
         .map_err(dpf_error)?
     {
         tracing::error!(
-            host = %state.host_snapshot.id,
+            machine_id = %state.host_snapshot.id,
             node = %node_name,
             "DPUNode has stale labels, failing for reprovisioning"
         );
@@ -532,7 +532,7 @@ pub async fn handle_dpf_state(
             handle_dpf_reprovisioning(state, dpu_snapshot, ctx, dpf_sdk).await
         }
         DpfState::Unknown => {
-            tracing::warn!(dpu_id = %dpu_snapshot.id, "unknown DPF state in DB, transitioning to provisioning");
+            tracing::warn!(dpu_machine_id = %dpu_snapshot.id, "unknown DPF state in DB, transitioning to provisioning");
             let next = set_one_dpu_dpf_state(state, &dpu_snapshot.id, DpfState::Provisioning)?;
             Ok(StateHandlerOutcome::transition(next))
         }

@@ -205,7 +205,7 @@ impl ConnectorMetricsInner {
         self.total_successes.fetch_add(1, Ordering::SeqCst);
         GLOBAL_TOTALS.successes.fetch_add(1, Ordering::Relaxed);
         self.addr_maps.lock().unwrap().add_success_by_addr(addr);
-        trace!("connected to {addr}");
+        trace!(endpoint_address = %addr, "connected");
     }
 
     // connect_error is the "inner" function for handling a
@@ -216,7 +216,7 @@ impl ConnectorMetricsInner {
         self.total_errors.fetch_add(1, Ordering::SeqCst);
         GLOBAL_TOTALS.errors.fetch_add(1, Ordering::Relaxed);
         self.addr_maps.lock().unwrap().add_error_by_addr(addr);
-        info!("connect error for {}: {:?}", addr, e);
+        info!(endpoint_address = %addr, error = ?e, "connect error");
     }
 }
 
@@ -412,7 +412,7 @@ fn connect(
             conf = conf.with_retries(retries)
         }
         if let Err(e) = socket.set_tcp_keepalive(&conf) {
-            warn!("tcp set_keepalive error: {}", e);
+            warn!(error = %e, "tcp set_keepalive error");
         }
     }
     #[cfg(target_os = "linux")]
@@ -449,19 +449,19 @@ fn connect(
     if config.reuse_address
         && let Err(e) = socket.set_reuseaddr(true)
     {
-        warn!("tcp set_reuse_address error: {}", e);
+        warn!(error = %e, "tcp set_reuse_address error");
     }
 
     if let Some(size) = config.send_buffer_size
         && let Err(e) = socket.set_send_buffer_size(size.try_into().unwrap_or(u32::MAX))
     {
-        warn!("tcp set_buffer_size error: {}", e);
+        warn!(error = %e, "tcp set_buffer_size error");
     }
 
     if let Some(size) = config.recv_buffer_size
         && let Err(e) = socket.set_recv_buffer_size(size.try_into().unwrap_or(u32::MAX))
     {
-        warn!("tcp set_recv_buffer_size error: {}", e);
+        warn!(error = %e, "tcp set_recv_buffer_size error");
     }
 
     let connect = socket.connect(*addr);
@@ -520,7 +520,7 @@ impl<'a> ConnectingTcp<'a> {
         config: &'a Config,
         metrics: ConnectorMetrics,
     ) -> Self {
-        trace!("ConnectingTcp config: {:?}", config);
+        trace!(?config, "ConnectingTcp config");
 
         if let Some(fallback_timeout) = config.happy_eyeballs_timeout {
             let (preferred_addrs, fallback_addrs) = remote_addrs
@@ -927,10 +927,10 @@ impl tower_service::Service<Uri> for ForgeHttpConnector {
 
 fn get_host_port<'u>(config: &Config, dst: &'u Uri) -> Result<(&'u str, u16), ConnectError> {
     trace!(
-        "Http::connect; scheme={:?}, host={:?}, port={:?}",
-        dst.scheme(),
-        dst.host(),
-        dst.port(),
+        scheme = ?dst.scheme(),
+        host = ?dst.host(),
+        port = ?dst.port(),
+        "Http::connect"
     );
 
     if config.enforce_http {
@@ -1006,7 +1006,7 @@ impl ForgeHttpConnector {
             );
 
         tryhard::retry_fn(|| {
-            trace!("establishing new tcp connection for {dst}");
+            trace!(destination_address = %dst, "establishing new tcp connection");
             let c = ConnectingTcp::new(addrs.clone(), config, self.metrics.clone());
             c.connect()
         })

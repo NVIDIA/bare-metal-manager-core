@@ -140,7 +140,10 @@ async fn get_from_tar(
 
     match cache.entries.lock().unwrap().get(&path) {
         None => {
-            tracing::trace!("Not found: {path}");
+            tracing::trace!(
+                path = %path,
+                "BMC mock archive path not found",
+            );
             (StatusCode::NOT_FOUND, path).into_response()
         }
         Some(s) => (StatusCode::OK, s.clone()).into_response(),
@@ -149,7 +152,11 @@ async fn get_from_tar(
 
 // We should never get here, but axum's matchit bug means we sometimes do: https://github.com/tokio-rs/axum/issues/1986
 async fn not_found_handler(req: Request<Body>) -> (StatusCode, String) {
-    tracing::warn!("fallback: No route for {} {}", req.method(), req.uri());
+    tracing::warn!(
+        method = %req.method(),
+        uri = %req.uri(),
+        "No route for BMC mock request",
+    );
     (
         StatusCode::NOT_FOUND,
         format!("No route for {} {}", req.method(), req.uri()),

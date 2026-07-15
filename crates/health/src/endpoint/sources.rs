@@ -56,7 +56,11 @@ impl StaticEndpointSource {
             let mac = match MacAddress::from_str(&cfg.mac) {
                 Ok(mac) => mac,
                 Err(error) => {
-                    tracing::warn!(?error, mac = ?cfg.mac, "Invalid MAC in static endpoint config");
+                    tracing::warn!(
+                        ?error,
+                        bmc_mac_address = ?cfg.mac,
+                        "Invalid MAC in static endpoint config"
+                    );
                     continue;
                 }
             };
@@ -182,7 +186,7 @@ impl StaticEndpointSource {
                 Err(error) => {
                     tracing::warn!(
                         ?error,
-                        ?addr,
+                        bmc_address = ?addr,
                         "Failed to construct BmcClient for static endpoint"
                     );
                     continue;

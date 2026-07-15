@@ -58,7 +58,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let templates = match fetch_templates(state).await {
         Ok(t) => t,
         Err(err) => {
-            tracing::error!(%err, "list_ipxe_templates");
+            tracing::error!(error = %err, "list_ipxe_templates");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading iPXE templates",
@@ -75,7 +75,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let templates = match fetch_templates(state).await {
         Ok(t) => t,
         Err(err) => {
-            tracing::error!(%err, "list_ipxe_templates");
+            tracing::error!(error = %err, "list_ipxe_templates");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading iPXE templates",
@@ -128,7 +128,7 @@ pub async fn detail(
             return super::not_found_response(id_str);
         }
         Err(err) => {
-            tracing::error!(%err, "get_ipxe_template");
+            tracing::error!(error = %err, "get_ipxe_template");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading iPXE template",

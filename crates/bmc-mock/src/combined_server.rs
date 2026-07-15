@@ -60,7 +60,10 @@ impl Drop for CombinedServer {
         if let Some(join_handle) = self.join_handle.take()
             && !join_handle.is_finished()
         {
-            tracing::info!("Stopping BMC Mock at {}", self.address);
+            tracing::info!(
+                listen_address = %self.address,
+                "Stopping BMC mock",
+            );
             self.axum_handle.shutdown();
             join_handle.abort()
         }
@@ -114,7 +117,10 @@ impl CombinedServer {
                 )
             }
         };
-        tracing::info!("Listening on {}", addr);
+        tracing::info!(
+            listen_address = %addr,
+            "BMC mock listening",
+        );
 
         // Inject middleware to normalize request URIs by dropping the trailing slash
         let router = router.layer(NormalizePathLayer::trim_trailing_slash());
@@ -125,7 +131,11 @@ impl CombinedServer {
                     .serve(router.into_make_service())
                     .await
                     .inspect_err(|e| {
-                        tracing::error!("BMC mock could not listen on address {}: {}", addr, e)
+                        tracing::error!(
+                            listen_address = %addr,
+                            error = %e,
+                            "BMC mock could not listen",
+                        )
                     })?;
                 Ok(())
             })

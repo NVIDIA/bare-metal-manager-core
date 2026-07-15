@@ -111,9 +111,9 @@ async fn test_site_explorer_power_shelf_discovery(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -221,9 +221,9 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
     let power_shelf = env.new_power_shelf("B8:3F:D2:90:97:B0", "192.0.1.180", "PS123456789");
 
     tracing::info!(
-        "Static ip {} assigned to power shelf mac {}",
-        power_shelf.ip,
-        power_shelf.bmc_mac_address,
+        ip_address = %power_shelf.ip,
+        mac_address = %power_shelf.bmc_mac_address,
+        "Static ip assigned to power shelf mac",
     );
     // Create expected power shelf via the RPC handler, which
     // pre-allocates a machine interface with the static IP.
@@ -471,9 +471,9 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create an expected power shelf entry
@@ -580,9 +580,9 @@ async fn test_site_explorer_power_shelf_creation_limit(
             .await?
             .into_inner();
         tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            power_shelf.bmc_mac_address,
-            response.address
+            mac_address = %power_shelf.bmc_mac_address,
+            ip_address = %response.address,
+            "DHCP assigned ip"
         );
         power_shelf.ip = response.address.clone();
     }
@@ -690,9 +690,9 @@ async fn test_site_explorer_power_shelf_disabled(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
 
@@ -794,9 +794,9 @@ async fn test_site_explorer_power_shelf_error_handling(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -892,9 +892,9 @@ async fn test_site_explorer_creates_power_shelf(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -1065,9 +1065,9 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -1519,9 +1519,9 @@ async fn test_power_shelf_state_history_error_handling(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database

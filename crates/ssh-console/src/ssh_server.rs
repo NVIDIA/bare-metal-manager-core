@@ -75,7 +75,7 @@ pub async fn spawn(
             addr: listen_address,
             error,
         })?;
-    tracing::info!("listening on {}", listen_address);
+    tracing::info!(%listen_address, "SSH server listening");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let join_handle = tokio::spawn(server.run(listener, shutdown_rx));

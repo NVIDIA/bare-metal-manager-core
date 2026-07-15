@@ -49,11 +49,19 @@ type Store interface {
 		opts operationrun.TargetListOptions,
 	) ([]*operationrun.OperationRunTarget, int32, error)
 
-	// LockOperationRunTargets locks all materialized targets for one run.
+	// LockOperationRunTargets locks materialized targets for one run and phase.
 	LockOperationRunTargets(
 		ctx context.Context,
 		runID uuid.UUID,
+		phaseIndex int32,
 	) ([]*operationrun.OperationRunTarget, error)
+
+	// GetTargetPhaseAggregate returns aggregate target facts for phase decisions.
+	GetTargetPhaseAggregate(
+		ctx context.Context,
+		runID uuid.UUID,
+		currentPhaseIndex int32,
+	) (operationrun.TargetPhaseAggregate, error)
 
 	// UpdateRunState persists lifecycle fields owned by dispatch/manual
 	// controls.

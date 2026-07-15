@@ -90,14 +90,19 @@ impl TestMachine {
     }
 
     pub async fn reboot_completed(&self) -> rpc::forge::MachineRebootCompletedResponse {
-        tracing::info!("Machine ={} rebooted", self.id);
-        self.api
+        let response = self
+            .api
             .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
                 machine_id: self.id.into(),
             }))
             .await
             .unwrap()
-            .into_inner()
+            .into_inner();
+        tracing::info!(
+            machine_id = %self.id,
+            "Machine rebooted",
+        );
+        response
     }
 
     pub async fn forge_agent_control(&self) -> rpc::forge::ForgeAgentControlResponse {

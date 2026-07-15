@@ -29,7 +29,7 @@ data:
     dpu_reboot_delay = 1 # in units of seconds
     host_reboot_delay = 1 # in units of seconds
     vpc_count = 0
-    admin_dhcp_relay_address = "192.168.176.1"
+    admin_dhcp_relay_address = "192.168.64.1"
     oob_dhcp_relay_address = "192.168.192.1"
     subnets_per_vpc = 0
     run_interval_working = "1s"

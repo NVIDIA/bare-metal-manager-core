@@ -192,7 +192,10 @@ pub async fn run_baseline_test_environment(
             .collect(),
     );
 
-    tracing::debug!("baseline test mock hosts: {mock_hosts:?}");
+    tracing::debug!(
+        mock_host_count = mock_hosts.len(),
+        "Configured baseline test mock hosts"
+    );
 
     let api_server_handle = ssh_console_mock_api_server::MockApiServer {
         mock_hosts: mock_hosts.clone(),

@@ -255,7 +255,12 @@ fn extract_manager_devices(
         let bmc_ip: IpAddr = match bmc_ip_str.parse() {
             Ok(ip) => ip,
             Err(e) => {
-                tracing::warn!(hostname, bmc_ip = bmc_ip_str, error = %e, "Invalid BMC IP; skipping");
+                tracing::warn!(
+                    hostname,
+                    bmc_ip_address = bmc_ip_str,
+                    error = %e,
+                    "Invalid BMC IP; skipping"
+                );
                 continue;
             }
         };
@@ -317,7 +322,7 @@ impl ClusterEndpointSource {
             self.proxy_url.as_ref(),
             self.cache_size,
         );
-        tracing::info!(count = endpoints.len(), "Loaded cluster endpoints");
+        tracing::info!(endpoint_count = endpoints.len(), "Loaded cluster endpoints");
         Ok(endpoints)
     }
 }
@@ -354,7 +359,7 @@ async fn fetch_from_manager(
 
     let nodes = extract_manager_devices(&raw, username, password)?;
     tracing::info!(
-        loaded = nodes.len(),
+        loaded_node_count = nodes.len(),
         "Cluster manager device fetch complete"
     );
     Ok(nodes)
@@ -395,7 +400,7 @@ fn build_endpoints(
         let IpAddr::V4(v4) = node.bmc_ip else {
             tracing::warn!(
                 hostname = %node.hostname,
-                bmc_ip = %node.bmc_ip,
+                bmc_ip_address = %node.bmc_ip,
                 "cluster endpoint has non-IPv4 BMC address; skipping"
             );
             continue;

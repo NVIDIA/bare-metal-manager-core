@@ -215,7 +215,7 @@ impl DhcpServerControl for DhcpServerControlService {
     ) -> Result<Response<GetDhcpTimestampsResponse>, Status> {
         let mut ts = DhcpTimestamps::new(DhcpTimestampsFilePath::Hbn);
         if let Err(e) = ts.read() {
-            tracing::warn!("Failed to read DHCP timestamps file: {e}");
+            tracing::warn!(error = %e, "Failed to read DHCP timestamps file");
         }
         let entries = ts
             .into_iter()
@@ -233,13 +233,13 @@ impl DhcpServerControl for DhcpServerControlService {
 /// Start the plain (no-TLS) gRPC control server and block until it exits.
 pub async fn run_grpc_server(addr: SocketAddr, ctrl_tx: mpsc::Sender<ControlRequest>) {
     let service = DhcpServerControlService { ctrl_tx };
-    tracing::info!("gRPC config-reload server listening on {}", addr);
+    tracing::info!(listen_address = %addr, "gRPC config-reload server listening");
 
     if let Err(e) = tonic::transport::Server::builder()
         .add_service(DhcpServerControlServer::new(service))
         .serve(addr)
         .await
     {
-        tracing::error!("gRPC server exited with error: {}", e);
+        tracing::error!(listen_address = %addr, error = %e, "gRPC server exited");
     }
 }

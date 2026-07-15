@@ -89,7 +89,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let skus = match fetch_skus(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_skus");
+            tracing::error!(error = %err, "fetch_skus");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading skus").into_response();
         }
     };
@@ -104,7 +104,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let skus = match fetch_skus(state).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_skus");
+            tracing::error!(error = %err, "fetch_skus");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading SKUs").into_response();
         }
     };
@@ -203,7 +203,7 @@ pub async fn detail(
             return super::not_found_response(sku_id);
         }
         Err(err) => {
-            tracing::error!(%err, "find_skus_by_ids");
+            tracing::error!(error = %err, "find_skus_by_ids");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading SKUs").into_response();
         }
     };

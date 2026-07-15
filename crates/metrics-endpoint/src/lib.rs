@@ -88,6 +88,10 @@ struct MetricsHandlerState {
     registry: prometheus::Registry,
     health_controller: HealthController,
     additional_prefix: Option<PrefixMigration>,
+    /// Bounds concurrent gather+encode runs (e.g. HA scraper pairs plus
+    /// retries): a large registry encode is a multi-MB CPU burst, so waiters
+    /// queue instead of stacking buffers.
+    encode_permits: tokio::sync::Semaphore,
 }
 
 /// An old/new prefix pair: metric families whose name starts with `old` are
@@ -194,7 +198,7 @@ pub async fn run_metrics_endpoint_with_cancellation(
     let listener = TcpListener::bind(&config.address).await?;
 
     tracing::info!(
-        address = config.address.to_string(),
+        metrics_address = config.address.to_string(),
         "Starting metrics listener"
     );
 
@@ -212,13 +216,14 @@ pub async fn run_metrics_endpoint_with_listener(
         registry: config.registry.clone(),
         health_controller: config.health_controller.clone().unwrap_or_default(),
         additional_prefix: config.additional_prefix.clone(),
+        encode_permits: tokio::sync::Semaphore::new(2),
     });
 
     while let Some(result) = cancel_token.run_until_cancelled(listener.accept()).await {
         let stream = match result {
             Ok((stream, _addr)) => stream,
             Err(e) => {
-                tracing::error!("error accepting TCP connection: {e}");
+                tracing::error!(error = %e, "error accepting TCP connection");
                 continue;
             }
         };
@@ -233,7 +238,7 @@ pub async fn run_metrics_endpoint_with_listener(
                     io,
                     service_fn(move |req: Request<body::Incoming>| {
                         let handler_state = handler_state.clone();
-                        async move { handle_metrics_request(req, handler_state) }
+                        async move { handle_metrics_request(req, handler_state).await }
                     }),
                 )
                 .await
@@ -282,20 +287,37 @@ fn encode_metrics(
 }
 
 /// Metrics request handler
-fn handle_metrics_request(
+async fn handle_metrics_request(
     req: Request<body::Incoming>,
     state: Arc<MetricsHandlerState>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
-            let buffer = encode_metrics(&state.registry, state.additional_prefix.as_ref());
-
-            Response::builder()
-                .status(200)
-                .header(CONTENT_TYPE, TextEncoder::new().format_type())
-                .header(CONTENT_LENGTH, buffer.len())
-                .body(Full::new(Bytes::from(buffer)))
-                .unwrap()
+            // Gathering and encoding a large registry (e.g. carbide-api's
+            // per-object endpoint serves O(fleet) series) is a CPU burst: run
+            // it off the async workers, bounded so a scraper retry storm
+            // can't stack encodes.
+            let _permit = state.encode_permits.acquire().await;
+            let encode_state = state.clone();
+            let encoded = tokio::task::spawn_blocking(move || {
+                encode_metrics(&encode_state.registry, encode_state.additional_prefix.as_ref())
+            })
+            .await;
+            match encoded {
+                Ok(buffer) => Response::builder()
+                    .status(200)
+                    .header(CONTENT_TYPE, TextEncoder::new().format_type())
+                    .header(CONTENT_LENGTH, buffer.len())
+                    .body(Full::new(Bytes::from(buffer)))
+                    .unwrap(),
+                Err(e) => {
+                    tracing::error!("Failed to encode metrics: {e}");
+                    Response::builder()
+                        .status(500)
+                        .body(Full::new(Bytes::from("Failed to encode metrics")))
+                        .unwrap()
+                }
+            }
         }
         (&Method::GET, "/health") if state.health_controller.is_healthy() => Response::builder()
             .status(200)

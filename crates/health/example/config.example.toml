@@ -205,6 +205,14 @@ firmware_refresh_interval = "30m"
 poll_interval = "1m"
 state_refresh_interval = "30m"
 
+# GPU inventory: out-of-band GPU count vs the machine's assigned SKU (issue #301).
+# Disabled by default. Requires [endpoint_sources.carbide_api] (to resolve the
+# expected count from the SKU) and [sinks.health_report] (to deliver alerts) to be
+# enabled, or config validation fails. GPU population is near-static, so keep the
+# interval infrequent (default 1h). Uncomment to enable:
+# [collectors.gpu_inventory]
+# interval = "1h"
+
 [collectors.logs]
 #  "auto": (default)
 #       - spawn SSE per endpoint

@@ -128,8 +128,9 @@ pub async fn create_or_update_with_bom_validation(
         let age = Utc::now() - topology.updated;
         if bom_validation_enabled && age > TimeDelta::days(1) {
             tracing::debug!(
-                "Received inventory update from {}, bom_validation is enabled, existing data is old, updating",
-                machine_id
+                machine_id = %machine_id,
+                inventory_age_days = age.num_days(),
+                "Received stale inventory update while BOM validation is enabled",
             );
             set_topology_update_needed(txn, machine_id, true).await?;
         }

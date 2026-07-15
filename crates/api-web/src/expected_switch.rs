@@ -70,7 +70,7 @@ async fn fetch_expected_switches(
     {
         Ok(response) => response.into_inner(),
         Err(err) => {
-            tracing::error!(%err, "get_all_expected_switches_linked");
+            tracing::error!(error = %err, "get_all_expected_switches_linked");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to list expected switches".to_string(),

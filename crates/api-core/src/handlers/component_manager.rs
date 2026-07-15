@@ -931,7 +931,7 @@ async fn resolve_switch_endpoints(
                 id: row.switch_id,
                 reason: "NVOS MAC or IP not available".into(),
             };
-            tracing::warn!(%u, "skipping switch");
+            tracing::warn!(switch_id = %u.id, reason = %u.reason, "skipping switch");
             unresolved.push(u);
             resolved_ids.insert(row.switch_id);
             continue;
@@ -950,7 +950,7 @@ async fn resolve_switch_endpoints(
                     id: row.switch_id,
                     reason: format!("BMC credentials unavailable: {e}"),
                 };
-                tracing::warn!(%u, "skipping switch");
+                tracing::warn!(switch_id = %u.id, reason = %u.reason, "skipping switch");
                 unresolved.push(u);
                 continue;
             }
@@ -965,7 +965,7 @@ async fn resolve_switch_endpoints(
                         id: row.switch_id,
                         reason: format!("NVOS credentials unavailable: {e}"),
                     };
-                    tracing::warn!(%u, "skipping switch");
+                    tracing::warn!(switch_id = %u.id, reason = %u.reason, "skipping switch");
                     unresolved.push(u);
                     continue;
                 }
@@ -989,14 +989,14 @@ async fn resolve_switch_endpoints(
                 id: *id,
                 reason: "switch not found in database".into(),
             };
-            tracing::warn!(%u, "skipping switch");
+            tracing::warn!(switch_id = %u.id, reason = %u.reason, "skipping switch");
             unresolved.push(u);
         }
     }
 
     if !unresolved.is_empty() {
         tracing::warn!(
-            count = unresolved.len(),
+            unresolved_switch_count = unresolved.len(),
             "some switches could not be resolved to endpoints"
         );
     }
@@ -1039,21 +1039,23 @@ async fn resolve_power_shelf_endpoints(
     for row in rows {
         resolved_ids.insert(row.power_shelf_id);
 
-        let pmc_credentials =
-            match fetch_powershelf_pmc_credentials(api.credential_manager.as_ref(), row.pmc_mac)
-                .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    let u = UnresolvedDevice {
-                        id: row.power_shelf_id,
-                        reason: format!("PMC credentials unavailable: {e}"),
-                    };
-                    tracing::warn!(%u, "skipping power shelf");
-                    unresolved.push(u);
-                    continue;
-                }
-            };
+        let pmc_credentials = match fetch_powershelf_pmc_credentials(
+            api.credential_manager.as_ref(),
+            row.pmc_mac,
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let u = UnresolvedDevice {
+                    id: row.power_shelf_id,
+                    reason: format!("PMC credentials unavailable: {e}"),
+                };
+                tracing::warn!(power_shelf_id = %u.id, reason = %u.reason, "skipping power shelf");
+                unresolved.push(u);
+                continue;
+            }
+        };
 
         mac_to_id.insert(row.pmc_mac, row.power_shelf_id);
         endpoints.push(PowerShelfEndpoint {
@@ -1071,14 +1073,14 @@ async fn resolve_power_shelf_endpoints(
                 id: *id,
                 reason: "power shelf not found in database".into(),
             };
-            tracing::warn!(%u, "skipping power shelf");
+            tracing::warn!(power_shelf_id = %u.id, reason = %u.reason, "skipping power shelf");
             unresolved.push(u);
         }
     }
 
     if !unresolved.is_empty() {
         tracing::warn!(
-            count = unresolved.len(),
+            unresolved_power_shelf_count = unresolved.len(),
             "some power shelves could not be resolved to endpoints"
         );
     }
@@ -1184,7 +1186,7 @@ async fn resolve_compute_tray_endpoints(
 
     if !unresolved.is_empty() {
         tracing::warn!(
-            count = unresolved.len(),
+            unresolved_compute_tray_count = unresolved.len(),
             "some compute trays could not be resolved to endpoints"
         );
     }
@@ -1441,7 +1443,7 @@ pub(crate) async fn component_power_control(
 
                 tracing::info!(
                     backend = cm.nv_switch.name(),
-                    count = endpoints.resolved.endpoints.len(),
+                    switch_count = endpoints.resolved.endpoints.len(),
                     ?action,
                     "power control for switches"
                 );
@@ -1486,7 +1488,7 @@ pub(crate) async fn component_power_control(
 
             tracing::info!(
                 backend = cm.power_shelf.name(),
-                count = endpoints.resolved.endpoints.len(),
+                power_shelf_count = endpoints.resolved.endpoints.len(),
                 ?action,
                 "power control for power shelves"
             );
@@ -1577,7 +1579,7 @@ pub(crate) async fn component_power_control(
 
                 tracing::info!(
                     backend = cm.compute_tray.name(),
-                    count = resolved.resolved.endpoints.len(),
+                    compute_tray_count = resolved.resolved.endpoints.len(),
                     ?action,
                     "power control for compute trays"
                 );
@@ -1663,7 +1665,7 @@ pub(crate) async fn component_configure_switch_certificate(
 
     tracing::info!(
         backend = cm.nv_switch.name(),
-        count = endpoints.resolved.endpoints.len(),
+        switch_count = endpoints.resolved.endpoints.len(),
         "configure switch certificate for switches"
     );
 
@@ -1747,7 +1749,8 @@ async fn power_control_health_override(
         tracing::warn!(
             %machine_id,
             error = %e,
-            "failed to {action} health report override for power control"
+            action,
+            "Failed to apply health report override for power control",
         );
     }
 
@@ -1776,7 +1779,7 @@ async fn request_re_exploration(api: &Api, ips: &[IpAddr]) {
         })
         .await;
     if let Err(e) | Ok(Err(e)) = result {
-        tracing::warn!(?e, "failed to request re-exploration after power control");
+        tracing::warn!(error = ?e, "failed to request re-exploration after power control");
     }
 }
 

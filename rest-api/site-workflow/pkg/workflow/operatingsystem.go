@@ -158,3 +158,34 @@ func DiscoverOsImageInventory(ctx workflow.Context) error {
 
 	return nil
 }
+
+// DiscoverOperatingSystemInventory triggers Operating System (iPXE / Templated iPXE
+// definition) inventory collection from nico-core and publishes it to the cloud for
+// reconciliation with the operating_system table.
+func DiscoverOperatingSystemInventory(ctx workflow.Context) error {
+	logger := log.With().Str("Workflow", "DiscoverOperatingSystemInventory").Logger()
+	logger.Info().Msg("Starting workflow")
+
+	retrypolicy := &temporal.RetryPolicy{
+		InitialInterval:    2 * time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    10 * time.Second,
+		MaximumAttempts:    2,
+	}
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy:         retrypolicy,
+	}
+	ctx = workflow.WithActivityOptions(ctx, options)
+
+	var inventoryManager activity.ManageOperatingSystemInventory
+
+	err := workflow.ExecuteActivity(ctx, inventoryManager.DiscoverOperatingSystemInventory).Get(ctx, nil)
+	if err != nil {
+		logger.Error().Err(err).Str("Activity", "DiscoverOperatingSystemInventory").Msg("Failed to execute activity from workflow")
+		return err
+	}
+
+	logger.Info().Msg("Completing workflow")
+	return nil
+}

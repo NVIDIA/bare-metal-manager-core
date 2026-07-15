@@ -107,8 +107,14 @@ impl MachineValidation {
             .get_external_config(file_name.clone(), Some("container_auth".to_string()))
             .await
         {
-            Ok(()) => trace!("Fetched {} config", file_name),
-            Err(e) => trace!("Error - {}", e.to_string()),
+            Ok(()) => trace!(
+                external_config_file = %file_name,
+                "Fetched external machine validation config",
+            ),
+            Err(e) => trace!(
+                error = %e,
+                "Failed to fetch container authentication config",
+            ),
         }
         Ok(())
     }
@@ -117,7 +123,10 @@ impl MachineValidation {
         external_config_file: String,
         external_config_name: Option<String>,
     ) -> Result<(), MachineValidationError> {
-        tracing::info!("{}", external_config_file);
+        tracing::info!(
+            external_config_file = %external_config_file,
+            "Fetching external machine validation config",
+        );
 
         let name = if let Some(name) = external_config_name {
             name
@@ -172,7 +181,10 @@ impl MachineValidation {
         self,
         data: Option<rpc::forge::MachineValidationResult>,
     ) -> Result<(), MachineValidationError> {
-        tracing::info!("{}", data.clone().unwrap().name);
+        tracing::info!(
+            validation_name = %data.as_ref().expect("validation result").name,
+            "Persisting machine validation result",
+        );
         let mut client = self.create_forge_client().await?;
         let request =
             tonic::Request::new(rpc::forge::MachineValidationResultPostRequest { result: data });
@@ -228,18 +240,18 @@ impl MachineValidation {
                     .await
                 {
                     Ok(true) => {
-                        trace!(%validation_id, test_id = %test_id, "sent machine validation heartbeat")
+                        trace!(machine_validation_id = %validation_id, test_id = %test_id, "sent machine validation heartbeat")
                     }
                     Ok(false) => {
                         error!(
-                            %validation_id,
+                            machine_validation_id = %validation_id,
                             test_id = %test_id,
                             "machine validation heartbeat was rejected because run or attempt is no longer active"
                         );
                         return;
                     }
                     Err(e) => {
-                        error!(%validation_id, test_id = %test_id, error = %e, "failed to send machine validation heartbeat")
+                        error!(machine_validation_id = %validation_id, test_id = %test_id, error = %e, "failed to send machine validation heartbeat")
                     }
                 }
             }
@@ -250,7 +262,10 @@ impl MachineValidation {
         self,
         test_request: rpc::forge::MachineValidationTestsGetRequest,
     ) -> Result<Vec<rpc::forge::MachineValidationTest>, MachineValidationError> {
-        tracing::info!("{:?}", test_request);
+        tracing::info!(
+            request = ?test_request,
+            "Fetching machine validation tests",
+        );
         let mut client = self.create_forge_client().await?;
         let request = tonic::Request::new(test_request);
         let response = client
@@ -272,7 +287,7 @@ impl MachineValidation {
             "{}://{}{}{}",
             SCHME, MACHINE_VALIDATION_SERVER, MACHINE_VALIDATION_IMAGE_PATH, "list.json"
         );
-        tracing::info!(url);
+        tracing::info!(url = %url, "Fetching machine validation image list");
         MachineValidationManager::download_file(&url, IMAGE_LIST_FILE).await?;
 
         let json_file_path = Path::new("/tmp/list.json");
@@ -296,9 +311,15 @@ impl MachineValidation {
         for image_name in list.images {
             match Self::import_container(&image_name, MACHINE_VALIDATION_RUNNER_TAG).await {
                 Ok(data) => {
-                    trace!("Import successful '{}'", data)
+                    trace!(
+                        image_reference = %data,
+                        "Imported machine validation container image",
+                    )
                 }
-                Err(e) => error!("Failed to import '{}'", e.to_string()),
+                Err(e) => error!(
+                    error = %e,
+                    "Failed to import machine validation container image",
+                ),
             };
         }
         Ok(())
@@ -308,15 +329,18 @@ impl MachineValidation {
         image_name: &str,
         image_tag: &str,
     ) -> Result<String, MachineValidationError> {
-        tracing::info!(image_name);
+        tracing::info!(%image_name, "Importing machine validation image");
         let url: String = format!(
             "{SCHME}://{MACHINE_VALIDATION_SERVER}{MACHINE_VALIDATION_IMAGE_PATH}{image_name}.tar"
         );
-        tracing::info!(url);
+        tracing::info!(url = %url, "Fetching machine validation image");
         MachineValidationManager::download_file(&url, MACHINE_VALIDATION_IMAGE_FILE).await?;
 
         let command_string = format!(" ctr images import {MACHINE_VALIDATION_IMAGE_FILE}");
-        info!("Executing command '{}'", command_string);
+        info!(
+            command = %command_string,
+            "Executing machine validation command",
+        );
         TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
             .timeout(DEFAULT_TIMEOUT)
@@ -329,17 +353,28 @@ impl MachineValidation {
     }
 
     pub async fn pull_container(image_name: &str) {
-        tracing::info!(image_name);
+        tracing::info!(%image_name, "Pulling machine validation image");
         let command_string = format!(" nerdctl -n default pull {image_name}");
-        tracing::info!(command_string);
+        tracing::info!(
+            command = %command_string,
+            "Executing machine validation command"
+        );
         match TokioCmd::new("sh")
             .args(vec!["-c".to_string(), command_string])
             .timeout(DEFAULT_TIMEOUT)
             .output_with_timeout()
             .await
         {
-            Ok(result) => info!("pulled: {}", result.stdout),
-            Err(e) => error!("Failed to image pull{} '{}'", image_name, e),
+            Ok(result) => info!(
+                image_name = %image_name,
+                stdout = %result.stdout,
+                "Pulled machine validation container image",
+            ),
+            Err(e) => error!(
+                image_name = %image_name,
+                error = %e,
+                "Failed to pull machine validation container image",
+            ),
         }
     }
     async fn execute_machinevalidation_command(
@@ -365,14 +400,14 @@ impl MachineValidation {
             .await
         {
             Ok(true) => trace!(
-                %validation_id,
+                machine_validation_id = %validation_id,
                 test_id = %test.test_id,
                 "sent initial machine validation heartbeat"
             ),
             Ok(false) => {
                 let now = Utc::now();
                 error!(
-                    %validation_id,
+                    machine_validation_id = %validation_id,
                     test_id = %test.test_id,
                     "initial machine validation heartbeat was rejected"
                 );
@@ -384,7 +419,7 @@ impl MachineValidation {
                 return MachineValidationExecution::without_heartbeat(mc_result);
             }
             Err(e) => error!(
-                %validation_id,
+                machine_validation_id = %validation_id,
                 test_id = %test.test_id,
                 error = %e,
                 "failed to send initial machine validation heartbeat"
@@ -401,7 +436,10 @@ impl MachineValidation {
                 .get_external_config(file_name.clone(), None)
                 .await
             {
-                Ok(()) => trace!("Fetched {} config", file_name),
+                Ok(()) => trace!(
+                    external_config_file = %file_name,
+                    "Fetched external machine validation config",
+                ),
                 Err(e) => {
                     mc_result.start_time = Some(Utc::now().into());
                     mc_result.end_time = Some(Utc::now().into());
@@ -466,7 +504,10 @@ impl MachineValidation {
                 command_string
             );
         };
-        info!("Executing command '{}'", command_string);
+        info!(
+            command = %command_string,
+            "Executing machine validation command",
+        );
 
         let _ = std::fs::remove_file("/tmp/forge_env_variables");
         match File::create("/tmp/forge_env_variables") {
@@ -559,7 +600,10 @@ impl MachineValidation {
         self,
         data: rpc::forge::MachineValidationRunRequest,
     ) -> Result<(), MachineValidationError> {
-        tracing::info!("{:?}", data.clone());
+        tracing::info!(
+            request = ?data,
+            "Updating machine validation run",
+        );
         let mut client = self.create_forge_client().await?;
         let request = tonic::Request::new(data);
         let _response = client
@@ -585,7 +629,7 @@ impl MachineValidation {
         self.clone().get_container_auth_config().await?;
         match Self::get_container_images().await {
             Ok(_) => info!("Successfully fetched container images"),
-            Err(e) => error!("{}", e.to_string()),
+            Err(e) => error!(error = %e, "Failed to fetch container images"),
         }
         if execute_tests_sequentially {
             for test in tests {
@@ -612,8 +656,15 @@ impl MachineValidation {
                     heartbeat.stop().await;
                 }
                 match persist_result {
-                    Ok(_) => info!("Successfully sent to api server - {}", test.name),
-                    Err(e) => error!("{}", e.to_string()),
+                    Ok(_) => info!(
+                        test_name = %test.name,
+                        "Sent machine validation result to API server",
+                    ),
+                    Err(e) => error!(
+                        test_name = %test.name,
+                        error = %e,
+                        "Failed to send machine validation result to API server",
+                    ),
                 }
             }
         } else {

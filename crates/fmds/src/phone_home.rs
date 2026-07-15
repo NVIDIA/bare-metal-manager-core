@@ -64,9 +64,9 @@ pub async fn phone_home(state: &Arc<FmdsState>) -> Result<(), eyre::Error> {
         .ok_or_else(|| eyre!("timestamp is empty in response"))?;
 
     tracing::info!(
-        "Successfully phoned home for Machine {} at {}",
-        machine_id,
-        timestamp,
+        %machine_id,
+        %timestamp,
+        "Successfully phoned home",
     );
 
     Ok(())

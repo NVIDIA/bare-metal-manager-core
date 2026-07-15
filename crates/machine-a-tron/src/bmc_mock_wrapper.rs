@@ -92,7 +92,12 @@ impl BmcMockWrapper {
                 &self.app_context.app_config.interface,
             )
             .await
-            .inspect_err(|e| tracing::warn!("{}", e))
+            .inspect_err(|e| {
+                tracing::warn!(
+                    error = %e,
+                    "failed to add BMC mock address to interface",
+                )
+            })
             .map_err(MachineStateError::ListenAddressConfigError)?;
         }
 
@@ -138,7 +143,10 @@ impl BmcMockWrapper {
             None
         };
 
-        tracing::info!("Starting bmc mock on {:?}", address);
+        tracing::info!(
+            listen_address = ?address,
+            "Starting BMC mock",
+        );
 
         let tls_server_config = bmc_mock::tls::server_config(Some(certs_dir))?;
         let bmc_mock_router = self.bmc_mock_router.clone();

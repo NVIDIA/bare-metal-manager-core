@@ -61,7 +61,7 @@ pub fn setup_logging(debug: bool) -> SetupResult<()> {
         )
         .try_init()?;
 
-    tracing::info!("current log level: {}", LevelFilter::current());
+    tracing::info!(configured_log_level = %LevelFilter::current(), "current log level");
     Ok(())
 }
 

@@ -74,7 +74,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let racks = match fetch_racks(&state).await {
         Ok(racks) => racks,
         Err(err) => {
-            tracing::error!(%err, "fetch_racks");
+            tracing::error!(error = %err, "fetch_racks");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading racks").into_response();
         }
     };
@@ -90,7 +90,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let racks = match fetch_racks(&state).await {
         Ok(racks) => racks,
         Err(err) => {
-            tracing::error!(%err, "fetch_racks");
+            tracing::error!(error = %err, "fetch_racks");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading racks").into_response();
         }
     };
@@ -150,7 +150,7 @@ pub async fn fetch_rack(
             return Ok(None);
         }
         Err(err) => {
-            tracing::error!(%err, %rack_id, "find_racks_by_ids");
+            tracing::error!(error = %err, %rack_id, "find_racks_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -186,7 +186,7 @@ pub async fn detail(
     let associated_machines = match fetch_machine_ids(api.clone(), rack_id.clone()).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_machine_ids");
+            tracing::error!(error = %err, "fetch_machine_ids");
             vec![]
         }
     };
@@ -194,7 +194,7 @@ pub async fn detail(
     let associated_switches = match fetch_switch_ids(&api, &rack_id).await {
         Ok(ids) => ids,
         Err(err) => {
-            tracing::error!(%err, "fetch_switch_ids");
+            tracing::error!(error = %err, "fetch_switch_ids");
             vec![]
         }
     };
@@ -202,7 +202,7 @@ pub async fn detail(
     let associated_power_shelves = match fetch_power_shelf_ids(&api, &rack_id).await {
         Ok(ids) => ids,
         Err(err) => {
-            tracing::error!(%err, "fetch_power_shelf_ids");
+            tracing::error!(error = %err, "fetch_power_shelf_ids");
             vec![]
         }
     };
@@ -247,7 +247,7 @@ pub async fn detail(
             records: records.into_iter().map(Into::into).collect(),
         },
         Err((code, err)) => {
-            tracing::error!(%code, %err, %rack_id, "fetch_rack_state_history_records");
+            tracing::error!(http_status = %code, error = %err, %rack_id, "fetch_rack_state_history_records");
             StateHistoryTable { records: vec![] }
         }
     };

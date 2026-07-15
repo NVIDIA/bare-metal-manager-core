@@ -28,8 +28,9 @@ use crate::{CONFIG, CarbideDhcpContext, tls};
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LeaseExpirationResult {
     Success = 0,
-    InvalidAddress = 1,
-    ApiError = 2,
+    FeatureDisabled = 1,
+    InvalidAddress = 2,
+    ApiError = 3,
 }
 
 /// Called from the C++ lease4_expire / lease6_expire callouts to release
@@ -104,6 +105,7 @@ fn expire_lease_at(
                 }
                 rpc::ExpireDhcpLeaseStatus::FeatureDisabled => {
                     log::info!("Feature is disabled at NICo");
+                    return LeaseExpirationResult::FeatureDisabled;
                 }
             }
             LeaseExpirationResult::Success

@@ -245,7 +245,10 @@ impl MachineUpdateManager {
             if (current_updating_machines.len() as i32) >= max_concurrent_updates {
                 break;
             }
-            tracing::debug!("in progress: {:?}", current_updating_machines);
+            tracing::debug!(
+                current_updating_machines = ?current_updating_machines,
+                "Machine updates in progress",
+            );
             let available_updates = max_concurrent_updates - current_updating_machines.len() as i32;
 
             let updates_started = update_module
@@ -256,7 +259,10 @@ impl MachineUpdateManager {
                     &snapshots,
                 )
                 .await?;
-            tracing::debug!("started: {:?}", updates_started);
+            tracing::debug!(
+                updates_started = ?updates_started,
+                "Machine updates started",
+            );
 
             updates_started_count += updates_started.len();
 
