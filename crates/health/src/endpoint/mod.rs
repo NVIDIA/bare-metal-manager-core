@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
+mod cluster;
 mod model;
 mod sources;
 
+pub use cluster::ClusterEndpointSource;
 pub use model::{
     BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata, EndpointSource, MachineData,
     PowerShelfData, SwitchData, SwitchEndpointRole,

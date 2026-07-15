@@ -75,7 +75,10 @@ pub(crate) fn resolve_profile<'a>(
     let rack_profile_id = match rack_profile_id {
         Some(rc) => rc,
         None => {
-            tracing::info!("Rack {} has no rack_profile_id configured", id);
+            tracing::info!(
+                rack_id = %id,
+                "Rack has no rack_profile_id configured",
+            );
             return None;
         }
     };
@@ -89,9 +92,9 @@ pub(crate) fn resolve_profile<'a>(
         Some(profile) => Some(profile),
         None => {
             tracing::warn!(
-                "Rack {} has unknown rack_profile_id '{}'",
-                id,
-                rack_profile_id
+                rack_id = %id,
+                rack_profile_id = %rack_profile_id,
+                "Rack has unknown rack_profile_id",
             );
             None
         }

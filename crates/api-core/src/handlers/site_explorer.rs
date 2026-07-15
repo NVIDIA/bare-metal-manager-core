@@ -257,7 +257,10 @@ pub(crate) async fn clear_site_exploration_error(
     // actually retries preingestion instead of requiring a force-delete of the
     // endpoint. Non-failed states are left untouched.
     if db::explored_endpoints::reset_failed_preingestion(bmc_ip, &mut txn).await? {
-        tracing::info!("Reset failed preingestion to initial for {bmc_ip} on error clear");
+        tracing::info!(
+            bmc_ip_address = %bmc_ip,
+            "Reset failed preingestion to initial after clearing the site exploration error",
+        );
     }
 
     txn.commit().await?;

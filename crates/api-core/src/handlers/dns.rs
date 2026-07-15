@@ -40,7 +40,7 @@ async fn lookup_soa_record(
     db: impl DbReader<'_>,
     query_name: &str,
 ) -> Result<DnsResourceRecordReply, tonic::Status> {
-    tracing::debug!("Looking up SOA record for {}", query_name);
+    tracing::debug!(query_name, "Looking up SOA record",);
     let record = resource_record::get_soa_record(db, query_name)
         .await
         .map_err(CarbideError::from)?
@@ -64,7 +64,7 @@ async fn lookup_records_by_qname(
     txn: impl DbReader<'_>,
     query_name: &str,
 ) -> Result<Vec<DnsResourceRecordReply>, tonic::Status> {
-    tracing::debug!("Looking up records for {}", query_name);
+    tracing::debug!(query_name, "Looking up DNS records",);
 
     // dns_records view expects trailing dots (FQDN format)
     let qname_with_dot = if !query_name.ends_with('.') {
@@ -136,7 +136,7 @@ pub async fn get_all_domains(
     )
     .await?;
 
-    tracing::debug!(count = domains.len(), "Found domains");
+    tracing::debug!(domain_count = domains.len(), "Found domains");
     for domain in &domains {
         tracing::debug!(
             domain_id = %domain.id,
@@ -154,7 +154,7 @@ pub async fn get_all_domains(
     let response = protos::dns::GetAllDomainsResponse { result };
 
     tracing::debug!(
-        count = response.result.len(),
+        domain_info_count = response.result.len(),
         "Formatted DomainInfo response"
     );
     Ok(Response::new(response))

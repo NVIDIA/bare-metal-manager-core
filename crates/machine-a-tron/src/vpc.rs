@@ -63,7 +63,12 @@ impl Vpc {
             _ = ui_event_tx
                 .send(UiUpdate::Vpc(details))
                 .await
-                .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
+                .inspect_err(|e| {
+                    tracing::warn!(
+                        error = %e,
+                        "Error sending TUI event",
+                    )
+                });
         }
 
         new_vpc

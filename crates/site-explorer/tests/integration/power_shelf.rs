@@ -111,9 +111,9 @@ async fn test_site_explorer_power_shelf_discovery(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -129,7 +129,6 @@ async fn test_site_explorer_power_shelf_discovery(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
@@ -194,13 +193,9 @@ async fn test_site_explorer_power_shelf_discovery(
         assert_eq!(res.clone().unwrap().vendor, report.report.vendor);
         assert_eq!(res.clone().unwrap().systems, report.report.systems);
     }
-    let mut txn = env.pool.begin().await?;
-    db::explored_endpoints::set_preingestion_complete(power_shelf.ip.parse().unwrap(), &mut txn)
-        .await?;
-    txn.commit().await?;
 
-    explorer.run_single_iteration().await.unwrap();
-    // Check metrics
+    // A declared power shelf takes manual ingestion, so it is created in the
+    // same iteration it is explored -- no separate preingestion pass needed.
     assert_eq!(
         test_meter
             .formatted_metric("carbide_endpoint_explorations_count")
@@ -226,9 +221,9 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
     let power_shelf = env.new_power_shelf("B8:3F:D2:90:97:B0", "192.0.1.180", "PS123456789");
 
     tracing::info!(
-        "Static ip {} assigned to power shelf mac {}",
-        power_shelf.ip,
-        power_shelf.bmc_mac_address,
+        ip_address = %power_shelf.ip,
+        mac_address = %power_shelf.bmc_mac_address,
+        "Static ip assigned to power shelf mac",
     );
     // Create expected power shelf via the RPC handler, which
     // pre-allocates a machine interface with the static IP.
@@ -245,7 +240,6 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
@@ -477,9 +471,9 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create an expected power shelf entry
@@ -496,7 +490,6 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
@@ -587,9 +580,9 @@ async fn test_site_explorer_power_shelf_creation_limit(
             .await?
             .into_inner();
         tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            power_shelf.bmc_mac_address,
-            response.address
+            mac_address = %power_shelf.bmc_mac_address,
+            ip_address = %response.address,
+            "DHCP assigned ip"
         );
         power_shelf.ip = response.address.clone();
     }
@@ -608,7 +601,6 @@ async fn test_site_explorer_power_shelf_creation_limit(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 2, // Limit to 2 per run
         ..Default::default()
     };
@@ -655,20 +647,10 @@ async fn test_site_explorer_power_shelf_creation_limit(
     }
     let test_meter = &env.test_harness.test_meter;
 
+    // Declared power shelves take manual ingestion, so they are created in the
+    // same iteration they are explored. With a per-run limit of 2, the first
+    // iteration creates 2 of the 3...
     explorer.run_single_iteration().await.unwrap();
-    let mut txn = env.pool.begin().await?;
-    for power_shelf in &power_shelves {
-        db::explored_endpoints::set_preingestion_complete(
-            power_shelf.ip.parse().unwrap(),
-            &mut txn,
-        )
-        .await?;
-    }
-    txn.commit().await?;
-
-    explorer.run_single_iteration().await.unwrap();
-
-    // Check that only 2 power shelves were created due to limit
     assert_eq!(
         test_meter
             .formatted_metric("carbide_site_explorer_created_power_shelves_count")
@@ -676,10 +658,8 @@ async fn test_site_explorer_power_shelf_creation_limit(
         "2"
     );
 
-    // Run another iteration to create the remaining power shelf
+    // ...and the next iteration creates the remaining one.
     explorer.run_single_iteration().await.unwrap();
-
-    // Check that all 3 power shelves were created
     assert_eq!(
         test_meter
             .formatted_metric("carbide_site_explorer_created_power_shelves_count")
@@ -710,9 +690,9 @@ async fn test_site_explorer_power_shelf_disabled(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
 
@@ -729,7 +709,6 @@ async fn test_site_explorer_power_shelf_disabled(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(false.into()), // Disabled
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
@@ -815,9 +794,9 @@ async fn test_site_explorer_power_shelf_error_handling(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -833,7 +812,6 @@ async fn test_site_explorer_power_shelf_error_handling(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
@@ -893,7 +871,6 @@ async fn test_site_explorer_creates_power_shelf(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
@@ -915,9 +892,9 @@ async fn test_site_explorer_creates_power_shelf(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -1088,9 +1065,9 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -1154,7 +1131,6 @@ async fn test_power_shelf_state_history(pool: PgPool) -> Result<(), Box<dyn std:
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
         ..Default::default()
     };
@@ -1397,7 +1373,6 @@ async fn test_power_shelf_state_history_multiple(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 2,
         ..Default::default()
     };
@@ -1544,9 +1519,9 @@ async fn test_power_shelf_state_history_error_handling(
         .await?
         .into_inner();
     tracing::info!(
-        "DHCP with mac {} assigned ip {}",
-        power_shelf.bmc_mac_address,
-        response.address
+        mac_address = %power_shelf.bmc_mac_address,
+        ip_address = %response.address,
+        "DHCP assigned ip"
     );
     power_shelf.ip = response.address.clone();
     // Create expected power shelf entry in the database
@@ -1612,7 +1587,6 @@ async fn test_power_shelf_state_history_error_handling(
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
         ..Default::default()
     };

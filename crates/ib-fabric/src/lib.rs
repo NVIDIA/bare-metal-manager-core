@@ -21,10 +21,9 @@ pub mod ib;
 mod metrics;
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write;
-use std::io;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{fmt, io};
 
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::infiniband::IBPartitionId;
@@ -138,7 +137,7 @@ impl IbFabricMonitor {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("IbFabricMonitor error: {}", e);
+                    tracing::warn!(error = %e, "IB fabric monitor iteration failed");
                 }
             }
 
@@ -194,7 +193,7 @@ impl IbFabricMonitor {
                     *num_changes
                 }
                 Err(e) => {
-                    tracing::error!("IbFabricMonitor run failed due to: {:?}", e);
+                    tracing::error!(error = ?e, "IB fabric monitor run failed");
                     check_ib_fabrics_span.record("otel.status_code", "error");
                     // Writing this field will set the span status to error
                     // Therefore we only write it on errors
@@ -389,7 +388,7 @@ async fn load_single_fabric_data(
                 fabric,
                 &fabric_definition.endpoints,
                 &e,
-                "failed to build the IB fabric client",
+                FabricFailureStage::BuildClient,
             );
             return None;
         }
@@ -401,7 +400,7 @@ async fn load_single_fabric_data(
             fabric,
             &fabric_definition.endpoints,
             &e,
-            "IB fabric health check failed",
+            FabricFailureStage::HealthCheck,
         );
         // There's no point in loading other information case the fabric is down
         return Some(conn);
@@ -417,7 +416,7 @@ async fn load_single_fabric_data(
                 fabric,
                 &fabric_definition.endpoints,
                 &e,
-                "Loading port information failed",
+                FabricFailureStage::LoadPorts,
             );
             // There's no point in loading other information case the fabric is down
             return Some(conn);
@@ -434,7 +433,7 @@ async fn load_single_fabric_data(
                 fabric,
                 &fabric_definition.endpoints,
                 &e,
-                "Loading partition information failed",
+                FabricFailureStage::LoadPartitions,
             );
             // There's no point in loading other information case the fabric is down
             return Some(conn);
@@ -447,8 +446,27 @@ async fn load_single_fabric_data(
     Some(conn)
 }
 
-/// Records a failed stage of a fabric's data load: logs the failure under the
-/// stage's `message` and stores the error as the fabric's error metric.
+#[derive(Clone, Copy)]
+enum FabricFailureStage {
+    BuildClient,
+    HealthCheck,
+    LoadPorts,
+    LoadPartitions,
+}
+
+impl fmt::Display for FabricFailureStage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::BuildClient => "build_client",
+            Self::HealthCheck => "health_check",
+            Self::LoadPorts => "load_ports",
+            Self::LoadPartitions => "load_partitions",
+        })
+    }
+}
+
+/// Records a failed stage of a fabric's data load and stores the error as the
+/// fabric's error metric.
 ///
 /// TODO: Storing the raw error string isn't efficient because we will get a
 /// lot of different dimensions. We need to have better defined errors from the
@@ -458,9 +476,15 @@ fn note_fabric_error(
     fabric: &str,
     endpoints: &[String],
     error: &IbError,
-    message: &'static str,
+    failure_stage: FabricFailureStage,
 ) {
-    tracing::error!(fabric, endpoints = endpoints.join(","), error = %error, "{message}");
+    tracing::error!(
+        fabric,
+        endpoints = endpoints.join(","),
+        %failure_stage,
+        error = %error,
+        "IB fabric operation failed",
+    );
     fabric_metrics.fabric_error = error.to_string();
 }
 
@@ -1009,7 +1033,7 @@ async fn record_machine_infiniband_status_observation(
                     tracing::debug!(
                         machine_id = %machine_id,
                         guid = %guid,
-                        state = ?port_data.state,
+                        port_state = ?port_data.state,
                         "IB port is not active"
                     );
                 }
@@ -1056,37 +1080,27 @@ async fn record_machine_infiniband_status_observation(
 
     if !result.missing_guid_pkeys.is_empty() {
         metrics.num_machines_with_missing_pkeys += 1;
-        let mut msg = "Machine is missing pkeys on UFM: ".to_string();
-        for (idx, (_fabric, guid, pkey)) in result.missing_guid_pkeys.iter().enumerate() {
-            if idx != 0 {
-                msg.push(',');
-            }
-            write!(&mut msg, "(guid: {guid}, pkey: {pkey})").unwrap();
-        }
-        tracing::warn!(machine_id = %machine_id, msg);
+        tracing::warn!(
+            machine_id = %machine_id,
+            missing_guid_pkeys = ?result.missing_guid_pkeys,
+            "Machine is missing pkeys on UFM",
+        );
     }
     if !result.unexpected_guid_pkeys.is_empty() {
         metrics.num_machines_with_unexpected_pkeys += 1;
-        let mut msg = "Machine has unexpected registered pkeys on UFM: ".to_string();
-        for (idx, (_fabric, guid, pkey)) in result.unexpected_guid_pkeys.iter().enumerate() {
-            if idx != 0 {
-                msg.push(',');
-            }
-            write!(&mut msg, "(guid: {guid}, pkey: {pkey})").unwrap();
-        }
-        tracing::warn!(machine_id = %machine_id, msg);
+        tracing::warn!(
+            machine_id = %machine_id,
+            unexpected_guid_pkeys = ?result.unexpected_guid_pkeys,
+            "Machine has unexpected registered pkeys on UFM",
+        );
     }
     if !result.unknown_guid_pkeys.is_empty() {
         metrics.num_machines_with_unknown_pkeys += 1;
-        let mut msg =
-            "Machine has registered pkeys on UFM that do not map to IB PartitionIDs: ".to_string();
-        for (idx, (_fabric, guid, pkey)) in result.unknown_guid_pkeys.iter().enumerate() {
-            if idx != 0 {
-                msg.push(',');
-            }
-            write!(&mut msg, "(guid: {guid}, pkey: {pkey})").unwrap();
-        }
-        tracing::warn!(machine_id = %machine_id, msg);
+        tracing::warn!(
+            machine_id = %machine_id,
+            unknown_guid_pkeys = ?result.unknown_guid_pkeys,
+            "Machine has registered pkeys on UFM that do not map to IB PartitionIDs",
+        );
     }
 
     let has_existing_ib_port_down_alert = mh_snapshot
@@ -1099,7 +1113,7 @@ async fn record_machine_infiniband_status_observation(
         tracing::warn!(
             machine_id = %machine_id,
             down_ports = ?result.down_port_guids,
-            total_ports = guids.len(),
+            total_port_count = guids.len(),
             "IB port(s) detected as down - setting PreventAllocations alert"
         );
         set_ib_port_down_alert(db_pool, machine_id, &result.down_port_guids, guids.len()).await?;

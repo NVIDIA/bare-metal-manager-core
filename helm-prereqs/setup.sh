@@ -552,6 +552,8 @@ fi
 #      7e. Temporal namespace + TLS certs (issued by the NICo REST CA issuer)
 #      7f. Temporal helm chart
 #      7g. NICo REST helm chart (API, cert-manager, workflow, site-manager)
+#      7h. NICo Flow (Flow, PSM, NSM)
+#      7i. NICo REST site-agent
 # ---------------------------------------------------------------------------
 echo ""
 _SETUP_PHASE="[7/7] NICo REST"

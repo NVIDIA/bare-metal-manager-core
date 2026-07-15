@@ -64,6 +64,18 @@ impl NvRedfishClientPool {
         bmc_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<Arc<ServiceRoot>, Error> {
+        self.service_root_with_cache_predicate(bmc_address, credentials, |_| true)
+            .await
+    }
+
+    /// Same as [`Self::service_root`], but a freshly fetched root is cached
+    /// only when `should_cache` returns true for it.
+    pub async fn service_root_with_cache_predicate(
+        &self,
+        bmc_address: SocketAddr,
+        credentials: Credentials,
+        should_cache: impl FnOnce(&ServiceRoot) -> bool,
+    ) -> Result<Arc<ServiceRoot>, Error> {
         let Credentials::UsernamePassword { username, password } = credentials;
         let bmc_credentials = BmcCredentials::new(username, password);
 
@@ -95,7 +107,9 @@ impl NvRedfishClientPool {
                 service_root
             };
             let service_root = Arc::new(service_root);
-            self.update_cache(bmc_address, bmc_credentials, service_root.clone());
+            if should_cache(&service_root) {
+                self.update_cache(bmc_address, bmc_credentials, service_root.clone());
+            }
             Ok(service_root)
         }
     }

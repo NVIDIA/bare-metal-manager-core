@@ -85,6 +85,22 @@ impl PowerSupplyBuilder {
         self.apply_patch(json!({"PowerState": v}))
     }
 
+    /// Delta Energy Systems reports per-PSU power state under
+    /// `Oem.deltaenergysystems.Power` (not the standard `PowerState` field),
+    /// alongside a `FanSpeedTarget`. Mirrors the shape served by real Delta
+    /// power shelves.
+    pub fn oem_delta_power_state(self, v: bool) -> Self {
+        self.apply_patch(json!({
+            "Oem": {
+                "deltaenergysystems": {
+                    "@odata.type": "#DeltaEnergySystemsPowerSupply.v1_0_0.PowerSupply",
+                    "Power": v,
+                    "FanSpeedTarget": 0
+                }
+            }
+        }))
+    }
+
     pub fn status(self, status: redfish::resource::Status) -> Self {
         self.apply_patch(json!({
             "Status": status.into_json()

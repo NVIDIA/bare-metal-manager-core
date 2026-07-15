@@ -104,9 +104,9 @@ pub(super) async fn configure_host_bios(
     {
         Err(e) => {
             tracing::warn!(
-                "redfish machine_setup failed for {}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}",
-                mh_snapshot.host_snapshot.id,
-                e
+                machine_id = %mh_snapshot.host_snapshot.id,
+                error = %e,
+                "redfish machine_setup failed, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed"
             );
 
             // if machine_setup failed, reboot to potentially work around
@@ -178,7 +178,7 @@ pub(super) async fn advance_bios_config_job(
             if job_state.is_error_state() {
                 let failure = format!("BIOS job {} failed with state {job_state:#?}", job_id);
                 tracing::warn!(
-                    %failure,
+                    reason = %failure,
                     "transitioning to HandleBiosJobFailure (power cycle + BMC reset)"
                 );
                 return Ok(try_bios_recovery_attempt(
@@ -234,7 +234,7 @@ pub(super) async fn advance_bios_config_job(
                         job_id, minutes_since_state_change, e
                     );
                     tracing::warn!(
-                        %failure,
+                        reason = %failure,
                         "transitioning to HandleBiosJobFailure (power cycle + BMC reset)"
                     );
                     return Ok(try_bios_recovery_attempt(
@@ -254,7 +254,7 @@ pub(super) async fn advance_bios_config_job(
                         job_id
                     );
                     tracing::warn!(
-                        %failure,
+                        reason = %failure,
                         "transitioning to HandleBiosJobFailure (power cycle + BMC reset)"
                     );
                     Ok(try_bios_recovery_attempt(
@@ -290,7 +290,7 @@ pub(super) async fn advance_bios_config_job(
                         )));
                     }
                     tracing::info!(
-                        %failure,
+                        reason = %failure,
                         "HandleBiosJobFailure: resetting BMC after BIOS job failure"
                     );
                     redfish_client
@@ -358,12 +358,12 @@ fn try_bios_recovery_attempt(
         tracing::warn!(
             retry_count,
             max_retries = machine_controller_config.max_bios_config_retries,
-            %failure,
+            reason = %failure,
             "BIOS recovery budget exhausted; moving host to Failed for manual remediation"
         );
         return Ok(BiosRecoveryAttemptOutcome::Failed {
             failure: format!(
-                "{failure} (automated BIOS recovery exhausted after {} attempts)",
+                "{failure} (automated BIOS recovery exhausted after {} retries)",
                 machine_controller_config.max_bios_config_retries
             ),
         });

@@ -57,6 +57,9 @@ pub mod dgx_vr_nvl;
 /// Support of LiteOn Power Shelf.
 pub mod liteon_power_shelf;
 
+/// Support of Delta Energy Systems Power Shelf.
+pub mod delta_power_shelf;
+
 /// Support of NVIDIA Switch ND5200_LD.
 pub mod nvidia_switch_nd5200_ld;
 

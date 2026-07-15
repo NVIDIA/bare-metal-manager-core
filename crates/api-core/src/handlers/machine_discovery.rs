@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub use ::rpc::forge as rpc;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineIdSource;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
@@ -126,8 +127,8 @@ pub(crate) async fn discover_machine(
     db::machine_interface::lock_all_admin_segments(&mut txn).await?;
 
     tracing::debug!(
-        ?remote_ip,
-        ?interface_id,
+        remote_ip_address = ?remote_ip,
+        machine_interface_id = ?interface_id,
         "discover_machine loading interface"
     );
 
@@ -361,7 +362,7 @@ pub(crate) async fn discover_machine(
             .await?;
 
             tracing::info!(
-                ?mi_id,
+                machine_interface_id = ?mi_id,
                 machine_id = %proactive_machine.id,
                 "Created host machine proactively",
             );
@@ -416,10 +417,10 @@ pub(crate) async fn discover_machine(
         )
     } else {
         tracing::info!(
-            "Attestation enabled is {}. Is_DPU is {}. Vending certs to machine with id {}",
-            api.runtime_config.attestation_enabled,
-            hardware_info.is_dpu(),
-            stable_machine_id,
+            attestation_enabled = api.runtime_config.attestation_enabled,
+            is_dpu = hardware_info.is_dpu(),
+            %stable_machine_id,
+            "Vending attestation certificates",
         );
 
         None
@@ -433,7 +434,7 @@ pub(crate) async fn discover_machine(
         && let Some(scout_version) = machine_discovery_info
             .discovery_reporter_version
             .as_deref()
-            .filter(|v| !v.is_empty())
+            .none_if_empty()
     {
         db::machine::update_last_scout_observed_version(
             &stable_machine_id,

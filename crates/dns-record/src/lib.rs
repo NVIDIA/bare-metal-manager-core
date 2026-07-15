@@ -172,17 +172,18 @@ impl SoaRecord {
         } else {
             // Increment the last two digits if the date hasn't changed
             let incremented_serial = self.serial + 1;
-            debug!("DNS serial number incremented: {}", incremented_serial);
+            debug!(serial = incremented_serial, "DNS serial number incremented");
             self.serial = incremented_serial;
         }
     }
     pub fn generate_new_serial() -> u32 {
         let now = Utc::now();
         let formatted_data = now.format("%Y%m%d").to_string() + "01";
-        debug!("Serial generated for zone {}", formatted_data);
-        formatted_data
+        let serial = formatted_data
             .parse::<u32>()
-            .expect("Unable to generate new serial for zone")
+            .expect("Unable to generate new serial for zone");
+        debug!(serial, "generated serial for DNS zone");
+        serial
     }
 
     pub fn new(domain_name: &str) -> SoaRecord {

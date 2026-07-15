@@ -74,7 +74,7 @@ impl DnsMetrics {
                 .build(),
             _negative_cache_size: meter
                 .u64_observable_gauge("carbide_dns_negative_cache_size")
-                .with_description("Current number of entries in the negative DNS cache")
+                .with_description("Number of entries in the negative DNS cache")
                 .with_callback(move |observer| {
                     observer.observe(negative_cache.entry_count() as u64, &[]);
                 })
@@ -229,7 +229,7 @@ impl From<ResponseCode> for Rcode {
     component = "carbide-dns",
     log = off,
     metric = counter,
-    describe = "The number of DNS queries received, by query type"
+    describe = "Number of DNS queries received, by query type"
 )]
 struct DnsQueryReceived {
     #[label]
@@ -246,7 +246,7 @@ struct DnsQueryReceived {
     component = "carbide-dns",
     log = off,
     metric = counter,
-    describe = "The number of DNS responses sent, by response code"
+    describe = "Number of DNS responses sent, by response code"
 )]
 struct DnsResponseSent {
     #[label]
@@ -412,7 +412,7 @@ impl RequestHandler for DnsServer {
                         if self.negative_cache.record(cache_key, code, transient) {
                             self.metrics.negative_cache_eviction.add(1, &[]);
                         }
-                        tracing::debug!(%code, "Caching negative response");
+                        tracing::debug!(response_code = %code, "Caching negative response");
 
                         (code, vec![])
                     }
@@ -423,7 +423,7 @@ impl RequestHandler for DnsServer {
             tracing::info!(
                 response_code = ?response_code,
                 record_count = records.len(),
-                duration_ms = duration.as_millis(),
+                duration_milliseconds = duration.as_millis(),
                 "Request completed"
             );
             emit(DnsRequestCompleted {
@@ -457,10 +457,10 @@ impl DnsServer {
         let servfail_ttl = config.servfail_cache_ttl();
         if servfail_ttl.as_secs() != config.negative_cache_servfail_ttl_secs {
             warn!(
-                configured = config.negative_cache_servfail_ttl_secs,
-                clamped_secs = servfail_ttl.as_secs(),
-                min_secs = config::NEGATIVE_CACHE_SERVFAIL_TTL_MIN_SECS,
-                max_secs = config::NEGATIVE_CACHE_SERVFAIL_TTL_MAX_SECS,
+                configured_servfail_ttl_seconds = config.negative_cache_servfail_ttl_secs,
+                clamped_servfail_ttl_seconds = servfail_ttl.as_secs(),
+                minimum_servfail_ttl_seconds = config::NEGATIVE_CACHE_SERVFAIL_TTL_MIN_SECS,
+                maximum_servfail_ttl_seconds = config::NEGATIVE_CACHE_SERVFAIL_TTL_MAX_SECS,
                 "negative_cache_servfail_ttl_secs out of range; clamped"
             );
         }
@@ -507,7 +507,7 @@ impl DnsServer {
 
         tracing::debug!(
             record_count = response.records.len(),
-            duration_ms = api_duration.as_millis(),
+            duration_milliseconds = api_duration.as_millis(),
             "API lookup completed"
         );
 
@@ -544,13 +544,13 @@ impl DnsServer {
     pub async fn run(config: Config) -> Result<(), Report> {
         let listen = config.listen_address;
 
-        info!("Starting DNS server on {}", listen);
+        info!(listen_address = %listen, "Starting DNS server");
 
         let forge_client_config = config.forge_client_config();
         let api_uri = config.api_uri.to_string();
         let api_config = ApiConfig::new(api_uri.as_str(), &forge_client_config);
 
-        info!("Connecting to carbide-api at {}", api_uri);
+        info!(%api_uri, "Connecting to carbide-api");
 
         let client = Mutex::new(ForgeTlsClient::retry_build(&api_config).await?);
 
@@ -575,12 +575,13 @@ impl DnsServer {
             address: config.metrics_listen_address,
             registry: metrics_setup.registry,
             health_controller: Some(metrics_setup.health_controller),
+            additional_prefix: None,
         };
 
         tokio::spawn(async move {
-            tracing::info!("Spawning metrics endpoint on {}", metrics_config.address);
+            tracing::info!(metrics_address = %metrics_config.address, "Spawning metrics endpoint");
             if let Err(e) = run_metrics_endpoint(&metrics_config).await {
-                tracing::error!("Metrics endpoint error: {}", e);
+                tracing::error!(error = %e, "Metrics endpoint error");
             }
         });
 
@@ -611,9 +612,9 @@ impl DnsServer {
         srv.register_listener(tcp_socket, Duration::new(5, 0), 32);
 
         info!(
-            "Started DNS server on {} version {}",
-            listen,
-            carbide_version::version!()
+            listen_address = %listen,
+            version = carbide_version::version!(),
+            "Started DNS server",
         );
 
         match srv.block_until_done().await {
@@ -622,7 +623,7 @@ impl DnsServer {
             }
             Err(e) => {
                 let error_msg = format!("Carbide-dns has encountered an error: {e}");
-                error!("{}", error_msg);
+                error!(error = %e, "Carbide-dns has encountered an error");
                 return Err(eyre::eyre!("{}", error_msg));
             }
         }

@@ -149,7 +149,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         _last_error: Option<&EndpointExplorationError>,
         _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        tracing::info!("Endpoint {bmc_ip_address} is getting explored");
+        tracing::info!(%bmc_ip_address, "Endpoint is getting explored");
         self.explore_endpoint_calls
             .lock()
             .unwrap()

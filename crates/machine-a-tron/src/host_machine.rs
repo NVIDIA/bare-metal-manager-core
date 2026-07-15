@@ -107,6 +107,7 @@ impl HostMachine {
             nvos_mac_addresses: persisted_host_machine.nvos_mac_addresses.clone(),
             switch_serial_number: persisted_host_machine.switch_serial_number.clone(),
             hw_mac_addr_pool,
+            delta_psu_power: None,
         };
         let dpus = dpu_machines
             .into_iter()
@@ -313,7 +314,10 @@ impl HostMachine {
                 }
             }
             Some(cmd) = self.bmc_control_rx.recv() => {
-                tracing::debug!("HOST set_system_power request: {cmd:?}");
+                tracing::debug!(
+                    command = ?cmd,
+                    "Received host power command",
+                );
                 match cmd {
                     BmcCommand::SetSystemPower { request, reply } => {
                         let response = self.set_system_power(request);
@@ -401,7 +405,7 @@ impl HostMachine {
     }
 
     fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
-        tracing::debug!("Host set_system_power request: {request:?}");
+        tracing::debug!(?request, "Received host system-power request",);
 
         match request {
             // Force-restart does not restart DPUs
@@ -420,7 +424,8 @@ impl HostMachine {
                         _ = dpu.set_system_power(request).inspect_err(|e| {
                             tracing::error!(
                                 error = %e,
-                                "Could not send power request to DPU {dpu_index}",
+                                dpu_index,
+                                "Could not send power request to DPU",
                             )
                         });
                     }
@@ -662,8 +667,8 @@ impl HostMachineHandle {
         {
             Some(machine_id) => {
                 tracing::info!(
-                    "Attempting to delete machine with id: {} from db.",
-                    machine_id
+                    %machine_id,
+                    "Attempting to delete machine from database",
                 );
                 machine_id.to_string()
             }
@@ -671,7 +676,10 @@ impl HostMachineHandle {
                 // force_delete_machine also supports sending MAC address (which could break if there is 0 DPUs on this host)
                 match self.0.host_info.system_mac_address() {
                     Some(mac) => {
-                        tracing::info!("Attempting to delete machine with mac: {} from db.", mac);
+                        tracing::info!(
+                            mac_address = %mac,
+                            "Attempting to delete machine from database",
+                        );
                         mac.to_string()
                     }
                     None => {

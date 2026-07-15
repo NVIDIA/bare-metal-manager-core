@@ -50,7 +50,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let switches = match fetch_switches(&state).await {
         Ok(switches) => switches,
         Err(err) => {
-            tracing::error!(%err, "fetch_switches");
+            tracing::error!(error = %err, "fetch_switches");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading switches").into_response();
         }
     };
@@ -93,7 +93,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let switches = match fetch_switches(&state).await {
         Ok(switches) => switches,
         Err(err) => {
-            tracing::error!(%err, "fetch_switches");
+            tracing::error!(error = %err, "fetch_switches");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading switches").into_response();
         }
     };
@@ -148,6 +148,7 @@ struct SwitchDetail {
     power_state: Option<String>,
     health_status: Option<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
+    nvos_info: Option<rpc::forge::SwitchNvosInfo>,
     metadata_detail: super::MetadataDetail,
     health_detail: super::HealthDetail,
     history: StateHistoryTable,
@@ -196,6 +197,7 @@ impl SwitchDetail {
             power_state,
             health_status,
             bmc_info: switch.bmc_info,
+            nvos_info: switch.nvos_info,
             metadata_detail,
             health_detail,
             history,
@@ -225,16 +227,17 @@ pub async fn detail(
         return (StatusCode::OK, Json(switch)).into_response();
     }
 
-    let history =
-        match super::state_history::fetch_switch_state_history_records(&api, &switch_id).await {
-            Ok((_switch_id, records)) => StateHistoryTable {
-                records: records.into_iter().map(Into::into).collect(),
-            },
-            Err((code, err)) => {
-                tracing::error!(%code, %err, %switch_id, "fetch_switch_state_history_records");
-                StateHistoryTable { records: vec![] }
-            }
-        };
+    let history = match super::state_history::fetch_switch_state_history_records(&api, &switch_id)
+        .await
+    {
+        Ok((_switch_id, records)) => StateHistoryTable {
+            records: records.into_iter().map(Into::into).collect(),
+        },
+        Err((code, err)) => {
+            tracing::error!(http_status = %code, error = %err, %switch_id, "fetch_switch_state_history_records");
+            StateHistoryTable { records: vec![] }
+        }
+    };
 
     let detail = SwitchDetail::new(switch, history);
     (StatusCode::OK, Html(detail.render().unwrap())).into_response()
@@ -256,7 +259,7 @@ async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<rpc::forge::S
         Ok(response) => response.into_inner(),
         Err(err) if err.code() == tonic::Code::NotFound => return Ok(None),
         Err(err) => {
-            tracing::error!(%err, %switch_id, "fetch_switch");
+            tracing::error!(error = %err, %switch_id, "fetch_switch");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response());
         }
     };

@@ -173,13 +173,17 @@ To configure these flows:
 2. **Configure the DHCP relay on every OOB switch** to forward DHCP traffic to the `nico-dhcp` LoadBalancer VIP (the IP assigned to the `nico-dhcp` service by MetalLB in [Quick Start Step 3h](../getting-started/quick-start.md#3h-assign-service-vips)). The relay must be on the same L2 broadcast domain as the BMCs and DPUs it serves.
 3. **For predefined IPs**, upload `expected_machines.json` with `bmc_ip_address` populated **before** the host first powers on. Uploading after the BMC has already received a dynamic lease will not retroactively change its IP — release the lease (`nico-admin-cli ... em ...`) and power-cycle the BMC.
 4. **Set `dhcp_servers`** in `siteConfig` to the list of DHCP server IPs reachable from bare-metal hosts. This list is informational and is passed through to agents; it does not change how `nico-dhcp` itself serves leases. May be left as `[]`.
+5. **Set `ntp_servers`** in `siteConfig` to your NTP server IPs. NICo uses this list to configure BMC NTP through Redfish during pre-ingestion, includes it in `DiscoverDhcp` responses, and passes it to DPU agents so their DHCP server advertises the same NTP servers to managed hosts.
 
 The values that `nico-dhcp` returns in DHCP options (nameservers, NTP servers, next-server, boot file, etc.) are sourced from:
 
-- The Kea hook parameters in the `nico-dhcp` Helm chart (`nico-nameserver`, `nico-ntpserver`, etc.) — set these to the `unbound.nico` (or `unbound.nico`, see [section 3](#3-dns-configuration)) recursive resolver VIP and your enterprise NTP server addresses.
+- The `ntp_servers` list in `siteConfig` — preferred for DHCP option 42 when non-empty.
+- The Kea hook parameters in the `nico-dhcp` Helm chart (`nico-nameserver`, `nico-ntpserver`, etc.) — set these to the `unbound.nico` (or `unbound.nico`, see [section 3](#3-dns-configuration)) recursive resolver VIP. `nico-ntpserver` is used only as a fallback when `siteConfig.ntp_servers` is empty.
 - The per-segment definitions in `siteConfig` `[networks.<name>]` blocks — gateway, MTU, additional routes.
 
-> **NTP note:** NICo does not run a standalone NTP service. NTP server addresses are distributed to managed hosts via DHCP option 42, configured in the `nico-dhcp` chart Kea hook parameters (`nico-ntpserver`). Point this to your enterprise NTP servers.
+<Note>
+NICo does not run a standalone NTP service. Point `siteConfig.ntp_servers` to your enterprise NTP servers. NICo also attempts to set those servers on host BMCs during pre-ingestion; if the Redfish operation fails repeatedly, pre-ingestion continues and the failure is logged.
+</Note>
 
 ### 2.3 How to Verify DHCP Is Working
 
@@ -289,7 +293,7 @@ The required A records (shown for `.nico`; substitute `.nico` if your binaries u
 | `nico-api.nico` | 443 | `nico-api` external LoadBalancer VIP | NICo gRPC API | Yes — `NICO_API_URL` env var on most clients |
 | `nico-pxe.nico` | 80 | `nico-pxe` LoadBalancer VIP | iPXE scripts, cloud-init, internal APT, TLS root CA | **No** — hardcoded in the compiled DPU agent |
 | `nico-static-pxe.nico` | 80 | Static PXE asset server VIP | `scout.squashfs`, `scout.efi`, BFB images, and other static boot artifacts | **No** — hardcoded in the host boot scripts that ship inside boot images |
-| `nico-ntp.nico` | 123 | Operator-supplied NTP server IP(s) — the record points at your existing NTP infrastructure, not a NICo-deployed service | NTP time sync; agent reads this and re-advertises via DHCP option 42 | **No** — hostname is hardcoded in the compiled DPU agent; multiple A records recommended |
+| `nico-ntp.nico` | 123 | Operator-supplied NTP server IP(s) — the record points at your existing NTP infrastructure, not a NICo-deployed service | Legacy NTP fallback for DPU agents when `siteConfig.ntp_servers` is empty | **Fallback only** — prefer `siteConfig.ntp_servers`, but keep this DNS record if any deployed agent still relies on it |
 | `unbound.nico` | 53 | `unbound` LoadBalancer VIP | Recursive DNS resolver | Yes — the resolver address itself is distributed via DHCP option 6 |
 | `otel-receiver.nico` | 443 | OTel receiver VIP on the site controller | OTLP ingestion endpoint for DPU otel-collector sidecars | Yes — set in the otel-collector configuration YAML and re-deployed |
 
@@ -343,10 +347,11 @@ Use this checklist as the final gate before powering on the first host BMC:
 - [ ] One or more OOB network segments declared in `[networks.<name>]`, sized for `1 + 2 × DPU_count` IPs per host.
 - [ ] `initial_domain_name` set in `siteConfig`.
 - [ ] `dhcp_servers` set in `siteConfig` (or left as `[]`).
+- [ ] `ntp_servers` set in `siteConfig`, or the legacy `nico-ntp` DNS / `nico-dhcp` `nico-ntpserver` fallback is intentionally configured.
 - [ ] `expected_machines.json` uploaded for every host; `bmc_ip_address` populated for any host that needs a predefined BMC IP.
 - [ ] OOB switches configured with a DHCP relay pointing to the `nico-dhcp` LoadBalancer VIP.
 - [ ] LoadBalancer VIPs assigned for `nico-api`, `nico-dhcp`, `nico-pxe`, `nico-dns` (one per replica), `nico-ssh-console-rs`, and `unbound`.
-- [ ] `unbound`'s `local_data.conf` ConfigMap contains A records for `nico-api`, `nico-pxe`, `nico-static-pxe`, `nico-ntp`, `unbound`, and `otel-receiver` in the `.nico` (or `.nico`) zone; the `nico-ntp` record points to your operator-supplied NTP server.
+- [ ] `unbound`'s `local_data.conf` ConfigMap contains A records for `nico-api`, `nico-pxe`, `nico-static-pxe`, `unbound`, and `otel-receiver` in the `.nico` zone; include `nico-ntp` pointing at your operator-supplied NTP server if you use the legacy fallback.
 - [ ] `nico-dns` zone for `initial_domain_name` is delegated from upstream DNS, or `unbound` forwards the zone to the `nico-dns` VIPs.
 - [ ] `unbound.nico` resolves every NICo service hostname (verified with the `dig` loop in [section 3.4](#34-how-to-verify-dns-is-working)).
 - [ ] `nico-dhcp` logs show DISCOVER → OFFER for a test BMC power-on.

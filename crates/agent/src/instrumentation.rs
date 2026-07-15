@@ -19,15 +19,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::State;
-use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
-use axum::routing::get;
-use http_body_util::Full;
-use hyper::body::Bytes;
 use hyper::{Request, Response};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
-use prometheus::{Encoder, TextEncoder};
 use tonic::service::AxumBody;
 use tower::ServiceBuilder;
 use tracing::Span;
@@ -94,7 +88,7 @@ impl AgentMetricsState {
 pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
     let http_counter = meter
         .u64_counter("http_requests")
-        .with_description("Total number of HTTP requests made.")
+        .with_description("Number of HTTP requests made.")
         .build();
     let http_req_latency_histogram: Histogram<f64> = meter
         .f64_histogram("request_latency")
@@ -162,7 +156,7 @@ impl NetworkMonitorMetricsState {
             .build();
         let network_monitor_error = meter
             .u64_counter("forge_dpu_agent_network_monitor_error")
-            .with_description("Network monitor errors which are unrelated to network connectivity")
+            .with_description("Network monitor errors unrelated to network connectivity")
             .build();
         let network_communication_error = meter
             .u64_counter("forge_dpu_agent_network_communication_error")
@@ -260,30 +254,6 @@ impl NetworkMonitorMetricsState {
     }
 }
 
-pub fn get_metrics_router(registry: prometheus::Registry) -> Router {
-    Router::new()
-        .route("/", get(export_metrics))
-        .with_state(registry)
-}
-
-#[axum::debug_handler]
-async fn export_metrics(State(registry): State<prometheus::Registry>) -> Response<Full<Bytes>> {
-    tokio::task::spawn_blocking(move || {
-        let mut buffer = vec![];
-        let encoder = TextEncoder::new();
-        let metric_families = registry.gather();
-        encoder.encode(&metric_families, &mut buffer).unwrap();
-
-        Response::builder()
-            .status(200)
-            .header(CONTENT_TYPE, encoder.format_type())
-            .header(CONTENT_LENGTH, buffer.len())
-            .body(buffer.into())
-            .unwrap()
-    })
-    .await
-    .unwrap()
-}
 pub trait WithTracingLayer {
     fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router;
 }
@@ -294,7 +264,11 @@ impl WithTracingLayer for Router {
         let layer = tower_http::trace::TraceLayer::new_for_http()
             .on_request(move |request: &Request<AxumBody>, _span: &Span| {
                 metrics.http_counter.add(1, &[]);
-                tracing::info!("started {} {}", request.method(), request.uri().path())
+                tracing::info!(
+                    method = %request.method(),
+                    request_path = %request.uri().path(),
+                    "HTTP request started"
+                )
             })
             .on_response(
                 move |_response: &Response<AxumBody>, latency: Duration, _span: &Span| {
@@ -303,7 +277,10 @@ impl WithTracingLayer for Router {
                         .http_req_latency_histogram
                         .record(latency.as_secs_f64() * 1000.0, &[]);
 
-                    tracing::info!("response generated in {:?}", latency)
+                    tracing::info!(
+                        latency_milliseconds = latency.as_secs_f64() * 1000.0,
+                        "HTTP response generated"
+                    )
                 },
             );
 

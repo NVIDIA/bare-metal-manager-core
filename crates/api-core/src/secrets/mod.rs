@@ -53,7 +53,7 @@ pub mod routing;
 mod tests;
 
 pub use import::{import_secrets, is_vault_import_complete, mark_vault_import_complete};
-pub use metrics::{OperationTimer, SecretsMetrics};
+pub use metrics::{OperationTimer, SecretsOperation};
 pub use re_wrap::{ReWrapStaleResult, re_wrap_stale};
 pub use routing::SecretRouting;
 
@@ -163,28 +163,16 @@ pub struct PostgresCredentialManager {
     pool: PgPool,
     routing: SecretRouting,
     kms: Arc<dyn KmsBackend>,
-    metrics: Option<SecretsMetrics>,
 }
 
 impl PostgresCredentialManager {
     /// Create a manager from a pool, write routing, and KMS backend.
     pub fn new(pool: PgPool, routing: SecretRouting, kms: Arc<dyn KmsBackend>) -> Self {
-        Self {
-            pool,
-            routing,
-            kms,
-            metrics: None,
-        }
+        Self { pool, routing, kms }
     }
 
-    /// Attach metrics instruments.
-    pub fn with_metrics(mut self, metrics: SecretsMetrics) -> Self {
-        self.metrics = Some(metrics);
-        self
-    }
-
-    fn timer(&self, operation: &'static str) -> OperationTimer {
-        OperationTimer::start(self.metrics.clone(), operation)
+    fn timer(&self, operation: SecretsOperation) -> OperationTimer {
+        OperationTimer::start(operation)
     }
 
     async fn conn(&self) -> Result<sqlx::pool::PoolConnection<sqlx::Postgres>, PgSecretsError> {
@@ -351,7 +339,7 @@ impl CredentialReader for PostgresCredentialManager {
         &self,
         key: &CredentialKey,
     ) -> Result<Option<Credentials>, SecretsError> {
-        let timer = self.timer("get");
+        let timer = self.timer(SecretsOperation::Get);
         let path = key.to_key_str();
 
         let row = db::secrets::get_latest(&self.pool, &path)
@@ -392,7 +380,7 @@ impl CredentialWriter for PostgresCredentialManager {
         key: &CredentialKey,
         credentials: &Credentials,
     ) -> Result<(), SecretsError> {
-        let timer = self.timer("set");
+        let timer = self.timer(SecretsOperation::Set);
         let path = key.to_key_str();
 
         let json_bytes =
@@ -413,7 +401,7 @@ impl CredentialWriter for PostgresCredentialManager {
         key: &CredentialKey,
         credentials: &Credentials,
     ) -> Result<(), SecretsError> {
-        let timer = self.timer("create");
+        let timer = self.timer(SecretsOperation::Create);
         let path = key.to_key_str();
 
         // Encrypt before the transaction opens: the KMS call can be a
@@ -457,7 +445,7 @@ impl CredentialWriter for PostgresCredentialManager {
     }
 
     async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
-        let timer = self.timer("delete");
+        let timer = self.timer(SecretsOperation::Delete);
         let path = key.to_key_str();
 
         let mut conn = self.conn().await?;

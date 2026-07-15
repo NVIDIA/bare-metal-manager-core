@@ -20,7 +20,7 @@
 use std::time::Duration;
 
 use carbide_mqtt_common::hook::{MqttPublisher, QueuedMessage, process_events};
-use carbide_mqtt_common::metrics::MqttHookMetrics;
+use carbide_mqtt_common::metrics::{MqttHookMetrics, PublishComponent};
 use carbide_uuid::machine::MachineId;
 use model::machine::ManagedHostState;
 use opentelemetry::metrics::Meter;
@@ -52,7 +52,7 @@ impl MqttStateChangeHook {
     ///
     /// Spawns a background task to process queued events.
     /// Emits metrics:
-    /// - `forge_dsx_event_bus_publish_count`: Total number of MQTT publish attempts
+    /// - `forge_dsx_event_bus_publish_count`: Number of MQTT publish attempts
     /// - `forge_dsx_event_bus_queue_depth`: Current queue depth
     pub fn new<P: MqttPublisher>(
         client: P,
@@ -64,7 +64,8 @@ impl MqttStateChangeHook {
         cancel_token: CancellationToken,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(queue_capacity);
-        let metrics = MqttHookMetrics::new(meter, sender.downgrade(), "managed_host");
+        let metrics =
+            MqttHookMetrics::new(meter, sender.downgrade(), PublishComponent::ManagedHost);
         join_set.spawn(process_events(
             receiver,
             client,
@@ -99,7 +100,10 @@ impl StateChangeHook<MachineId, ManagedHostState> for MqttStateChangeHook {
                     deadline,
                 };
                 if let Err(e) = self.sender.try_send(queued) {
-                    tracing::warn!("MQTT state change event dropped (queue full): {e}");
+                    tracing::warn!(
+                        error = %e,
+                        "MQTT state change event dropped (queue full)",
+                    );
                     self.metrics.record_overflow();
                 }
             }

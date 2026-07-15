@@ -14,145 +14,77 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
 use axum::extract::{ConnectInfo, Request};
 use axum::middleware::Next;
 use axum::response::Response;
+use tracing::Instrument;
 
+/// Emits one request log line through the fleet's logfmt subscriber.
+///
+/// Opens an `info` span named `request` around the downstream handler and
+/// records the method, path, query, client address, and the request and
+/// response headers of interest on it. The logfmt layer renders the span on
+/// close as a `level=SPAN span_name=request ...` line, giving it the
+/// `component` tag, level filtering, `span_id` correlation, and timing every
+/// other span in the fleet gets.
 pub(crate) async fn logger(
     ConnectInfo(socket_addr): ConnectInfo<SocketAddr>,
     request: Request,
     next: Next,
 ) -> Response {
-    let mut props = BTreeMap::new();
-    props.insert("level", "SPAN".to_string());
-    props.insert("span_name", "request".to_string());
-
-    props.insert("request_method", request.method().to_string());
-    props.insert("request_path", request.uri().path().to_string());
-    props.insert(
-        "request_query",
-        request
-            .uri()
-            .query()
-            .map(|q| q.to_string())
-            .unwrap_or_default(),
+    // A per-request correlation id, matching the fleet's request logging
+    // (api-core's `LogService`). The logfmt layer surfaces it as `span_id` on
+    // the span line and on every child event, so a request and the logs emitted
+    // while serving it share one key.
+    let span_id = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
+    let span = tracing::info_span!(
+        "request",
+        span_id,
+        remote_ip = %socket_addr.ip(),
+        remote_port = socket_addr.port(),
+        request_method = %request.method(),
+        request_path = request.uri().path(),
+        request_query = request.uri().query().unwrap_or_default(),
+        request_headers_host = tracing::field::Empty,
+        "request_headers_content-length" = tracing::field::Empty,
+        "request_headers_user-agent" = tracing::field::Empty,
+        response_status = tracing::field::Empty,
+        "response_headers_content-length" = tracing::field::Empty,
     );
+
+    // Header fields are only surfaced when present, matching what the request
+    // actually carried; an absent header leaves its `Empty` placeholder unset,
+    // so the logfmt layer omits it.
     if let Some(host) = request.headers().get("Host").and_then(|h| h.to_str().ok()) {
-        props.insert("request_headers_host", host.to_string());
+        span.record("request_headers_host", host);
     }
     if let Some(content_length) = request
         .headers()
         .get("Content-Length")
         .and_then(|h| h.to_str().ok())
     {
-        props.insert("request_headers_content-length", content_length.to_string());
+        span.record("request_headers_content-length", content_length);
     }
     if let Some(user_agent) = request
         .headers()
         .get("User-Agent")
         .and_then(|h| h.to_str().ok())
     {
-        props.insert("request_headers_user-agent", user_agent.to_string());
+        span.record("request_headers_user-agent", user_agent);
     }
 
-    let response = next.run(request).await;
+    let response = next.run(request).instrument(span.clone()).await;
 
-    props.insert("response_status", response.status().as_str().to_string());
+    span.record("response_status", response.status().as_str());
     if let Some(content_length) = response
         .headers()
         .get("Content-Length")
         .and_then(|h| h.to_str().ok())
     {
-        props.insert(
-            "response_headers_content-length",
-            content_length.to_string(),
-        );
+        span.record("response_headers_content-length", content_length);
     }
-
-    props.insert("remote_ip", socket_addr.ip().to_string());
-    props.insert("remote_port", socket_addr.port().to_string());
-
-    let formatted = render_logfmt(&props);
-    println!("{formatted}");
 
     response
-}
-
-/// Renders a list of key-value pairs into a logfmt string
-fn render_logfmt(props: &BTreeMap<&'static str, String>) -> String {
-    let mut msg = String::new();
-
-    for (key, value) in props {
-        if !msg.is_empty() {
-            msg.push(' ');
-        }
-        msg += key;
-        msg.push('=');
-        let needs_quotes = value.is_empty()
-            || value
-                .as_bytes()
-                .iter()
-                .any(|c| *c <= b' ' || matches!(*c, b'=' | b'"'));
-
-        if needs_quotes {
-            msg.push('"');
-        }
-
-        msg.push_str(&value.escape_debug().to_string());
-
-        if needs_quotes {
-            msg.push('"');
-        }
-    }
-
-    msg
-}
-
-#[cfg(test)]
-mod tests {
-    use carbide_test_support::value_scenarios;
-
-    use super::*;
-
-    fn render(entries: Vec<(&'static str, &'static str)>) -> String {
-        let mut props = BTreeMap::new();
-        for (key, value) in entries {
-            props.insert(key, value.to_string());
-        }
-        render_logfmt(&props)
-    }
-
-    #[test]
-    fn renders_logfmt() {
-        value_scenarios!(
-            render:
-            "plain values" {
-                vec![
-                    ("method", "GET"),
-                    ("path", "/boot"),
-                    ("remote_ip", "127.0.0.1"),
-                ] => "method=GET path=/boot remote_ip=127.0.0.1".to_string(),
-            }
-
-            "quoted values" {
-                vec![
-                    ("method", "GET"),
-                    ("path", "/boot"),
-                    ("remote_ip", "127.0.0.1"),
-                    ("z", "with whitespace"),
-                    ("e", ""),
-                ] => "e=\"\" method=GET path=/boot remote_ip=127.0.0.1 z=\"with whitespace\"".to_string(),
-            }
-
-            "escaped values" {
-                vec![
-                    ("message", "quoted \"value\""),
-                    ("path", "a=b"),
-                ] => "message=\"quoted \\\"value\\\"\" path=\"a=b\"".to_string(),
-            }
-        );
-    }
 }

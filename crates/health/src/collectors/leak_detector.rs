@@ -222,7 +222,7 @@ fn build_health_report(detectors: Vec<Arc<LeakDetector>>, context: &EventContext
             | None => {
                 tracing::warn!(
                     detector = %target,
-                    state = ?detector.detector_state.flatten(),
+                    leak_detector_state = ?detector.detector_state.flatten(),
                     "Leak detector is not reporting an actionable leak state"
                 );
             }

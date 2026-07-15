@@ -93,7 +93,10 @@ async fn process(State(mut state): State<Expander>, request: Request<Body>) -> R
         .filter_map(|member| match member {
             Value::Object(object) => Some(object),
             _ => {
-                tracing::warn!("Invalid member JSON, expected Object: {:?}", member);
+                tracing::warn!(
+                    member = ?member,
+                    "Invalid member JSON, expected Object",
+                );
                 None
             }
         })
@@ -101,8 +104,8 @@ async fn process(State(mut state): State<Expander>, request: Request<Body>) -> R
             Some(Value::String(id)) => Some(id.to_owned()),
             _ => {
                 tracing::warn!(
-                    "Invalid member JSON, expected @odata.id string: {:?}",
-                    object
+                    object = ?object,
+                    "Invalid member JSON, expected @odata.id string",
                 );
                 None
             }

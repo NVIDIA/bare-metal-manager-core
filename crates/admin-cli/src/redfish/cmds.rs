@@ -632,6 +632,15 @@ pub struct FwFilter {
     only_uefi: bool,
 }
 
+/// True if a firmware-inventory id refers to the BMC firmware. BF3 exposes it
+/// as `"BMC_Firmware"`; BF4 uses exactly `"BlueField_FW_BMC_0"`. Matching the
+/// full BF4 id (via `ends_with`, allowing an optional path prefix) excludes
+/// unrelated components — including `"..._FW_BMC_0_x"` / `"..._FW_BMC_01"` and
+/// any other id that merely ends in `"FW_BMC_0"`.
+fn is_bmc_firmware_id(id: &str) -> bool {
+    id.contains("BMC_Firmware") || id.ends_with("BlueField_FW_BMC_0")
+}
+
 async fn show_all_fws(redfish: Box<dyn Redfish>, f: FwFilter) -> Result<(), RedfishError> {
     let fws: Vec<String> = redfish.get_software_inventories().await?;
     let mut fws_info: Vec<SoftwareInventory> = Vec::new();
@@ -645,11 +654,11 @@ async fn show_all_fws(redfish: Box<dyn Redfish>, f: FwFilter) -> Result<(), Redf
     }
 
     if f.only_bmc {
-        if !fws.contains(&"BMC_Firmware".to_string()) {
+        if !fws.iter().any(|id| is_bmc_firmware_id(id)) {
             println!("BMC FW is not found");
             return Err(RedfishError::NoContent);
         }
-        fws_info.retain(|f| f.id.contains("BMC_Firmware"));
+        fws_info.retain(|f| is_bmc_firmware_id(&f.id));
     }
 
     if f.only_dpu_os {
@@ -976,4 +985,23 @@ fn convert_chassis_to_nice_table(chassis_vec: Vec<Chassis>) -> Box<Table> {
         ]);
     }
     table.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_bmc_firmware_id;
+
+    #[test]
+    fn is_bmc_firmware_id_matches_bf3_and_bf4_only() {
+        // BF3 id and BF4 id are recognized.
+        assert!(is_bmc_firmware_id("BMC_Firmware"));
+        assert!(is_bmc_firmware_id("BlueField_FW_BMC_0"));
+
+        // Not the BMC firmware: unrelated components, slot/backup variants, or
+        // any id that merely ends in "FW_BMC_0".
+        assert!(!is_bmc_firmware_id("DPU_OS"));
+        assert!(!is_bmc_firmware_id("BlueField_FW_BMC_0_ERoT"));
+        assert!(!is_bmc_firmware_id("BlueField_FW_BMC_01"));
+        assert!(!is_bmc_firmware_id("Something_FW_BMC_0"));
+    }
 }

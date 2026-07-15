@@ -78,6 +78,7 @@ config-version = { path = "../config-version", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
 libnmxc = { path = "../libnmxc" }
 logfmt = { path = "../logfmt" }
+metrics-endpoint = { path = "../metrics-endpoint" }
 mqttea = { path = "../mqttea" }
 nras = { path = "../nras" }
 spancounter = { path = "../spancounter" }
@@ -221,6 +222,9 @@ carbide-version = { path = "../version" }
 
 [dev-dependencies]
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
+carbide-api-db = { path = "../api-db", default-features = false, features = [
+  "test-support",
+] }
 carbide-api-model = { path = "../api-model", default-features = false, features = [
   "test-support",
 ] }

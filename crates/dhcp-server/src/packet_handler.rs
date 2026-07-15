@@ -229,7 +229,7 @@ impl Packet {
         dst_address: SocketAddrV4,
         socket: Arc<UdpSocket>,
     ) -> Result<(), String> {
-        tracing::debug!("Sending packet to {:?}", dst_address);
+        tracing::debug!(destination_address = ?dst_address, "Sending packet");
         socket
             .send_to(&self.encoded_packet, dst_address)
             .await

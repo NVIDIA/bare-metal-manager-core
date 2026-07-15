@@ -36,6 +36,7 @@ use carbide_rack_controller::fabric_manager::{
 };
 use carbide_rack_controller::validating::strip_rv_labels;
 use carbide_secrets::credentials::{CredentialManager, Credentials};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
@@ -629,10 +630,7 @@ fn build_switch_device_info_request(
 const NMX_CONFIGURE_RMS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn build_nmx_configure_rms_client(rms_config: &RmsConfig) -> Option<librms::RackManagerApi> {
-    let url = rms_config
-        .api_url
-        .as_deref()
-        .filter(|url| !url.is_empty())?;
+    let url = rms_config.api_url.as_deref().none_if_empty()?;
     let mut rms_client_config = librms::client_config::RmsClientConfig::new(
         rms_config.root_ca_path.clone(),
         rms_config.client_cert.clone(),
@@ -999,7 +997,7 @@ async fn rms_get_firmware_upgrade_status(
                 };
                 tracing::warn!(
                     job_id = %job_id,
-                    status = response.status,
+                    job_status = response.status,
                     error = %message,
                     "RMS returned a non-success firmware job status lookup; retrying later"
                 );
@@ -1274,7 +1272,7 @@ pub fn apply_nvos_job_status_response(
                 other => {
                     tracing::warn!(
                         job_id = %job_id,
-                        state = %other,
+                        job_state = %other,
                         "RMS returned unknown switch system image job state; keeping previous status",
                     );
                     switch.error_message =
@@ -1294,7 +1292,7 @@ pub fn apply_nvos_job_status_response(
             };
             tracing::warn!(
                 job_id = %job_id,
-                status = response.status,
+                job_status = response.status,
                 error = %message,
                 "RMS returned a non-success switch image job status lookup; retrying later",
             );
@@ -1672,8 +1670,8 @@ pub async fn handle_maintenance(
                     let next = next_state_after_firmware(scope);
                     tracing::info!(
                         rack_id = %id,
-                        completed,
-                        total,
+                        completed_device_count = completed,
+                        total_device_count = total,
                         next_state = %next,
                         "Rack firmware upgrade complete; advancing to explicitly requested next activity"
                     );
@@ -1682,8 +1680,8 @@ pub async fn handle_maintenance(
                     let next = next_state_after_nvos(scope);
                     tracing::info!(
                         rack_id = %id,
-                        completed,
-                        total,
+                        completed_device_count = completed,
+                        total_device_count = total,
                         next_state = %next,
                         "Rack firmware upgrade complete; no explicit NVOS update requested, advancing"
                     );
@@ -1933,8 +1931,8 @@ pub async fn handle_maintenance(
                         .await?;
                     } else {
                         tracing::error!(
-                            "switch {} not found in database for NVOS update",
-                            switch.mac
+                            mac_address = %switch.mac,
+                            "switch not found in database for NVOS update",
                         );
                     }
                 }
@@ -1975,8 +1973,8 @@ pub async fn handle_maintenance(
                 let next = next_state_after_nvos(scope);
                 tracing::info!(
                     rack_id = %id,
-                    completed,
-                    total,
+                    completed_switch_count = completed,
+                    total_switch_count = total,
                     next_state = %next,
                     "Rack NVOS update complete, advancing"
                 );
@@ -2134,8 +2132,8 @@ pub async fn handle_maintenance(
                     tracing::error!(
                         rack_id = %id,
                         batch_status = batch.status,
-                        successful_nodes = stats.successful_nodes,
-                        failed_nodes = stats.failed_nodes,
+                        successful_node_count = stats.successful_nodes,
+                        failed_node_count = stats.failed_nodes,
                         summary = %summary,
                         "RMS BatchSetScaleUpFabricState failed",
                     );
@@ -2150,7 +2148,7 @@ pub async fn handle_maintenance(
 
                 tracing::info!(
                     rack_id = %id,
-                    successful_nodes = stats.successful_nodes,
+                    successful_node_count = stats.successful_nodes,
                     switch_count = switch_inventory.switches.len(),
                     "ScaleUpFabric state disabled; advancing to ConfigureScaleUpFabricManager"
                 );
@@ -2321,7 +2319,7 @@ pub async fn handle_maintenance(
                     tracing::error!(
                         rack_id = %id,
                         primary_switch = %primary_switch.device.node_id,
-                        message = %message,
+                        reason = %message,
                         "RMS ConfigureScaleUpFabricManager failed for switch, advancing to WaitForFabricStatus",
                     );
                     return Ok(StateHandlerOutcome::transition(RackState::Maintenance {
@@ -2428,20 +2426,29 @@ pub async fn handle_maintenance(
         },
         RackMaintenanceState::PowerSequence { rack_power } => match rack_power {
             RackPowerState::PoweringOn => {
-                tracing::info!("Rack {} power sequence (on) - stubbed", id);
+                tracing::info!(
+                    rack_id = %id,
+                    "Rack power sequence (on) - stubbed",
+                );
 
                 Ok(StateHandlerOutcome::transition(RackState::Maintenance {
                     maintenance_state: RackMaintenanceState::Completed,
                 }))
             }
             RackPowerState::PoweringOff => {
-                tracing::info!("Rack {} power sequence (off) - stubbed", id);
+                tracing::info!(
+                    rack_id = %id,
+                    "Rack power sequence (off) - stubbed",
+                );
                 Ok(StateHandlerOutcome::wait(
                     "power sequence (off) in progress".into(),
                 ))
             }
             RackPowerState::PowerReset => {
-                tracing::info!("Rack {} power sequence (reset) - stubbed", id);
+                tracing::info!(
+                    rack_id = %id,
+                    "Rack power sequence (reset) - stubbed",
+                );
                 Ok(StateHandlerOutcome::wait(
                     "power sequence (reset) in progress".into(),
                 ))

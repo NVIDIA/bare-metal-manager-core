@@ -159,7 +159,7 @@ pub struct DhcpPacketDropped {
     component = "nico-dhcp",
     log = off,
     metric = counter,
-    describe = "Number of DHCP replies successfully sent, by reply message type."
+    describe = "Number of DHCP replies sent, by reply message type."
 )]
 pub struct DhcpReplySent {
     #[label]

@@ -62,8 +62,8 @@ pub async fn handle_power(
         }
     } else {
         tracing::warn!(
-            "Power options are not available for host: {}",
-            mh_snapshot.host_snapshot.id
+            machine_id = %mh_snapshot.host_snapshot.id,
+            "Power options are not available for host"
         );
         Ok(PowerHandlingOutcome::new(None, true, None))
     }
@@ -115,7 +115,8 @@ pub async fn handle_power_desired_on(
             }
             UsablePowerState::NotUsable(s) => {
                 tracing::warn!(
-                    "Not usable power state {s}. Since desired state is On, continuing state machine. Will check in next cycle."
+                    power_state = %s,
+                    "Not usable power state. Since desired state is On, continuing state machine. Will check in next cycle."
                 );
                 return Ok(PowerHandlingOutcome::new(
                     Some(updated_power_options),
@@ -186,7 +187,7 @@ pub async fn get_updated_power_options_desired_off(
                     "Desired state is Off and actual state is Off.".to_string()
                 };
                 if let PowerState::On = power_state {
-                    tracing::warn!(cause);
+                    tracing::warn!(reason = %cause, "Skipping host power handling");
                 }
                 return Ok(PowerHandlingOutcome::new(
                     Some(updated_power_options),
@@ -198,7 +199,7 @@ pub async fn get_updated_power_options_desired_off(
                 let cause = format!(
                     "Not usable power state {s}. Since desired state is Off, not processing any event."
                 );
-                tracing::warn!(cause);
+                tracing::warn!(reason = %cause, "Skipping host power handling");
                 return Ok(PowerHandlingOutcome::new(
                     Some(updated_power_options),
                     false,

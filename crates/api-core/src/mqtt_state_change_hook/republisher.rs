@@ -20,13 +20,13 @@
 use std::time::Duration;
 
 use carbide_mqtt_common::hook::{MqttPublisher, publish_with_deadline};
-use carbide_mqtt_common::metrics::MqttHookMetrics;
+use carbide_mqtt_common::metrics::{MqttHookMetrics, PublishComponent};
+use carbide_utils::managed_loop::{self, LoopManager};
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use health_report::HealthReport;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostState};
-use opentelemetry::metrics::Meter;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
@@ -72,8 +72,8 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
     /// Reuses the change-hook publish metrics (`carbide_dsx_event_bus_publish_count`)
     /// under the `managed_host_republish` component so periodic publishes can be
     /// told apart from change-driven ones on dashboards.
-    pub fn new(publisher: P, params: ManagedHostStateRepublisherParams, meter: &Meter) -> Self {
-        let metrics = MqttHookMetrics::without_queue_depth(meter, "managed_host_republish");
+    pub fn new(publisher: P, params: ManagedHostStateRepublisherParams) -> Self {
+        let metrics = MqttHookMetrics::without_queue_depth(PublishComponent::ManagedHostRepublish);
         Self {
             publisher,
             db_pool: params.db_pool,
@@ -95,9 +95,9 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
     ) -> std::io::Result<()> {
         if self.config.enabled {
             tracing::info!(
-                interval_secs = self.config.publish_interval().as_secs(),
+                interval_seconds = self.config.publish_interval().as_secs(),
                 scope = ?self.config.scope,
-                healthy_republish_every = self.config.healthy_republish_every,
+                healthy_republish_interval_sweeps = self.config.healthy_republish_every,
                 max_publishes_per_second = self.config.max_publishes_per_second.0,
                 "Starting periodic managed host state republisher"
             );
@@ -134,9 +134,8 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
                 self.config.healthy_republish_every,
                 sweep,
             );
-            if let Err(e) = self.run_sweep(publish_healthy, &cancel_token).await {
-                tracing::warn!(error = %e, "Managed host state republish sweep failed");
-            }
+            let result = self.run_sweep(publish_healthy, &cancel_token).await;
+            managed_loop::record_iteration(LoopManager::ManagedHostStateRepublisher, &result);
             sweep = sweep.wrapping_add(1);
         }
     }
@@ -168,11 +167,9 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
                 return Ok(());
             }
             Err(e) => {
-                tracing::warn!(
-                    lock = REPUBLISH_WORK_KEY,
-                    "Unable to acquire managed host state republish lock: {e}"
-                );
-                return Ok(());
+                return Err(eyre::Report::new(e).wrap_err(format!(
+                    "unable to acquire managed host state republish lock `{REPUBLISH_WORK_KEY}`"
+                )));
             }
         };
 
@@ -241,9 +238,9 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
         }
 
         tracing::info!(
-            total,
-            published,
-            skipped_healthy,
+            total_host_count = total,
+            published_host_count = published,
+            skipped_healthy_host_count = skipped_healthy,
             publish_healthy,
             scope = ?self.config.scope,
             "Managed host state republish sweep complete"
@@ -324,18 +321,13 @@ mod tests {
 
     use carbide_uuid::machine::{MachineIdSource, MachineType};
     use mqttea::MqtteaClientError;
-    use opentelemetry::global;
     use tokio::sync::Barrier;
 
     use super::*;
     use crate::cfg::file::PublishRate;
 
-    fn test_meter() -> Meter {
-        global::meter("republisher-test")
-    }
-
     fn test_metrics() -> MqttHookMetrics {
-        MqttHookMetrics::without_queue_depth(&test_meter(), "managed_host_republish_test")
+        MqttHookMetrics::without_queue_depth(PublishComponent::ManagedHostRepublish)
     }
 
     fn test_machine_id() -> MachineId {

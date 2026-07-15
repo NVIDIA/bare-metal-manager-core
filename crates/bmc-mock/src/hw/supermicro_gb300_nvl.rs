@@ -159,20 +159,6 @@ impl SupermicroGB300Nvl<'_> {
         )
         .collect::<Vec<_>>();
 
-        let eth_interfaces = [&self.embedded_1g_nic.ethernet_nic()]
-            .iter()
-            .enumerate()
-            .map(|(index, nic)| {
-                redfish::ethernet_interface::builder(&redfish::ethernet_interface::system_resource(
-                    system_id,
-                    &format!("EthernetInterface{index}"),
-                ))
-                .mac_address(nic.mac_address)
-                .interface_enabled(false)
-                .build()
-            })
-            .collect();
-
         redfish::computer_system::Config {
             systems: vec![
                 redfish::computer_system::SingleSystemConfig {
@@ -200,7 +186,7 @@ impl SupermicroGB300Nvl<'_> {
                     boot_options: Some(boot_options),
                     boot_order_mode: redfish::computer_system::BootOrderMode::OrderedCollection,
                     chassis: vec!["Chassis_0".into()],
-                    eth_interfaces: Some(eth_interfaces),
+                    eth_interfaces: None,
                     id: system_id.into(),
                     log_services: None,
                     // SMC GB300: Supermicro host system reporting product "GB NVL".

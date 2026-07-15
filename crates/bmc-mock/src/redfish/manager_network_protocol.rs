@@ -52,8 +52,12 @@ impl Builder for ManagerNetworkProtocolBuilder {
 }
 
 impl ManagerNetworkProtocolBuilder {
-    pub fn ipmi_enabled(self, value: bool) -> Self {
-        self.apply_patch(json!({"IPMI": { "ProtocolEnabled": value }}))
+    pub fn ipmi(self, enabled: bool, port: Option<u16>) -> Self {
+        let value = self.apply_patch(json!({"IPMI": { "ProtocolEnabled": enabled }}));
+        match port {
+            Some(port) => value.apply_patch(json!({"IPMI": { "Port": port }})),
+            None => value,
+        }
     }
 
     pub fn ntp(self, protocol_enabled: bool, servers: &[impl AsRef<str>]) -> Self {

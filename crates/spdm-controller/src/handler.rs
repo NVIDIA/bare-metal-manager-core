@@ -118,7 +118,10 @@ impl StateHandler for SpdmAttestationStateHandler {
                     Ok(x) => x.version,
                     Err(libredfish::RedfishError::NotSupported(msg)) => {
                         tracing::info!(
-                            "Device attestation is not supported for device (firmware version not available): {device_id}, machine: {machine_id}, msg: {msg}"
+                            device_id = %device_id,
+                            machine_id = %machine_id,
+                            reason = %msg,
+                            "device attestation is not supported because firmware version is unavailable"
                         );
                         return Ok(StateHandlerOutcome::transition(
                             SpdmAttestationState::Passed,
@@ -238,9 +241,9 @@ impl StateHandler for SpdmAttestationStateHandler {
                     task_state => {
                         let err = task.messages.iter().map(|t| t.message.clone()).join("\n");
                         tracing::error!(
-                            "Error while triggering measurement: {}: State: {:?}",
-                            err,
-                            task_state
+                            error = %err,
+                            task_state = ?task_state,
+                            "measurement collection task entered an unexpected state"
                         );
                         if *retry_count > 4 {
                             Ok(StateHandlerOutcome::transition(

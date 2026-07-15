@@ -22,6 +22,7 @@ use std::io;
 use std::sync::Arc;
 
 use carbide_machine_controller::config::machine_validation::MachineValidationConfig;
+use carbide_utils::managed_loop::{self, LoopManager};
 use carbide_utils::periodic_timer::PeriodicTimer;
 use db::ObjectColumnFilter;
 use db::machine_validation::StateColumn;
@@ -171,9 +172,8 @@ impl MachineValidationManager {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
             let tick = timer.tick();
-            if let Err(e) = self.run_single_iteration().await {
-                tracing::warn!("MachineValidationManager error: {}", e);
-            }
+            let result = self.run_single_iteration().await;
+            managed_loop::record_iteration(LoopManager::MachineValidationManager, &result);
 
             tokio::select! {
                 _ = tick.sleep() => {},
@@ -281,10 +281,10 @@ impl MachineValidationManager {
         )
         .await?;
         tracing::debug!(
-            "MachineValidation metrics: completed {} failed {} in_progress {}",
-            metrics.completed_validation,
-            metrics.failed_validation,
-            metrics.in_progress_validation,
+            completed_validation_count = metrics.completed_validation,
+            failed_validation_count = metrics.failed_validation,
+            in_progress_validation_count = metrics.in_progress_validation,
+            "Machine validation metrics computed",
         );
         self.metric_holder.update_metrics(metrics);
 
@@ -504,7 +504,7 @@ async fn reconcile_stale_validation(
     .await?
     else {
         tracing::debug!(
-            validation_id = %validation.id,
+            machine_validation_id = %validation.id,
             "skipping stale machine validation because it is no longer active or stale"
         );
         return Ok(None);
@@ -548,7 +548,7 @@ async fn record_failed_validation_side_effects(
 
     let Some(machine) = db::machine::find_by_validation_id(txn, &validation.id).await? else {
         tracing::warn!(
-            validation_id = %validation.id,
+            machine_validation_id = %validation.id,
             machine_id = %validation.machine_id,
             "failed machine validation has no owning machine"
         );

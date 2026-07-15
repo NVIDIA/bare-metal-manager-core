@@ -72,13 +72,17 @@ pub struct Config<'a, B: Bmc> {
     pub retry_timeout: Duration,
 }
 
+fn is_bf4_product(product: Option<Product<&str>>) -> bool {
+    // TODO: we should use part_number similar to BF3.
+    product == Some(Product::new("B4240V")) || product == Some(Product::new("BlueField-4"))
+}
+
 /// Builds the chassis exploration config shared by [`nv_generate_exploration_report`]
 /// and the [`detect_hw_type`] accessor, so detection cannot drift between them.
 fn build_chassis_explore_config<B: Bmc>(root: &ServiceRoot<B>) -> chassis::Config {
     let is_nvidia_vendor = root.vendor() == Some(Vendor::new("Nvidia"))
         || root.vendor() == Some(Vendor::new("NVIDIA"));
-    let is_bf4_product = root.product() == Some(Product::new("B4240V"));
-    let need_bf4_network_device_fns = is_nvidia_vendor && is_bf4_product;
+    let need_bf4_network_device_fns = is_nvidia_vendor && is_bf4_product(root.product());
 
     chassis::Config {
         network_adapter: network_adapter::Config {
@@ -115,6 +119,14 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     let explored_chassis =
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
     let explored_inventories = ExploredInventories::explore(&root).await?;
+
+    // Delta power shelves do not expose a `/redfish/v1/Systems` collection (and
+    // report no vendor in the service root, so nv-redfish fabricates the path
+    // and gets a 404). Detect them from the chassis and synthesize the report
+    // from chassis + manager data instead of fetching a ComputerSystem.
+    if explored_chassis.is_delta_powershelf() {
+        return build_delta_powershelf_report(&root, explored_chassis, explored_inventories).await;
+    }
 
     if explored_chassis.is_bluefield2() {
         root = root.as_ref().clone().restrict_expand().into();
@@ -219,6 +231,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
                 hw::HwType::Bluefield
                 | hw::HwType::Gb200
                 | hw::HwType::LiteonPowerShelf
+                | hw::HwType::DeltaPowerShelf
                 | hw::HwType::NvSwitch,
             ) => false,
             None => false,
@@ -276,6 +289,62 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         machine_setup_status: Some(machine_setup_status),
         secure_boot_status,
         lockdown_status,
+        physical_slot_number: None,
+        compute_tray_index: None,
+        topology_id: None,
+        revision_id: None,
+        remediation_error: None,
+    })
+}
+
+/// Builds an exploration report for a Delta power shelf.
+///
+/// Delta BMCs do not serve `/redfish/v1/Systems`, so the standard flow (which
+/// unconditionally fetches a `ComputerSystem`) fails with a 404. Here we skip
+/// that fetch and synthesize a `ComputerSystem` from the chassis, matching the
+/// behavior of the libredfish Delta power-shelf path.
+async fn build_delta_powershelf_report<B: Bmc>(
+    root: &ServiceRoot<B>,
+    explored_chassis: ExploredChassisCollection<B>,
+    explored_inventories: ExploredInventories<B>,
+) -> Result<EndpointExplorationReport, Error<B>> {
+    let hw_type = hw::HwType::DeltaPowerShelf;
+
+    let manager = root
+        .managers()
+        .await
+        .map_err(Error::nv_redfish("managers"))?
+        .ok_or_else(Error::bmc_not_provided("managers"))?
+        .members()
+        .await
+        .map_err(Error::nv_redfish("managers members"))?
+        .into_iter()
+        .next()
+        .ok_or_else(Error::bmc_not_provided("at least one manager"))?;
+    let explored_manager = ExploredManager::explore(manager, &manager::Config::default()).await?;
+
+    let system = explored_chassis.synthesized_powershelf_system();
+
+    Ok(EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        last_exploration_latency: None,
+        machine_id: None,
+        managers: vec![explored_manager.to_model()?],
+        systems: vec![system],
+        chassis: explored_chassis.to_model(),
+        service: explored_inventories.to_model(Some(hw_type)),
+        vendor: hw_type.bmc_vendor(),
+        versions: HashMap::default(),
+        model: None,
+        power_shelf_id: None,
+        switch_id: None,
+        machine_setup_status: Some(MachineSetupStatus {
+            is_done: true,
+            diffs: vec![],
+        }),
+        secure_boot_status: None,
+        lockdown_status: None,
         physical_slot_number: None,
         compute_tray_index: None,
         topology_id: None,
@@ -345,6 +414,11 @@ pub(crate) fn hw_type<B: Bmc>(
             explored_chassis
                 .is_liteon_powershelf()
                 .then_some(hw::HwType::LiteonPowerShelf)
+        })
+        .or_else(|| {
+            explored_chassis
+                .is_delta_powershelf()
+                .then_some(hw::HwType::DeltaPowerShelf)
         })
 }
 
@@ -666,6 +740,7 @@ fn machine_setup_status<B: Bmc>(
     }
     match hw_type {
         hw::HwType::LiteonPowerShelf => (),
+        hw::HwType::DeltaPowerShelf => (),
         hw::HwType::NvSwitch => (),
         hw::HwType::Viking => {
             diffs.extend(

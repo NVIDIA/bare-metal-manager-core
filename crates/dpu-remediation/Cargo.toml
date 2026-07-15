@@ -41,3 +41,4 @@ carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
 carbide-tls = { path = "../tls" }
 carbide-uuid = { path = "../uuid" }
 carbide-rpc = { path = "../rpc" }
+carbide-utils = { path = "../utils" }

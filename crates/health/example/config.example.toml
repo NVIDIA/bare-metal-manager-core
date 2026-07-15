@@ -98,16 +98,47 @@ max_backups = 5
 
 [sinks.otlp]
 enabled = false
-endpoint = "http://localhost:4317"
 
-# Include Redfish diagnostic payload fields in OTLP logs.
+# Each target owns its endpoint, queues, batching policy, diagnostics policy,
+# and optional TLS policy. This active target uses plaintext HTTP.
+# Add more target tables for fan-out.
+[[sinks.otlp.targets]]
+endpoint = "http://localhost:4317"
+batch_size = 512
+flush_interval = "2s"
+
+# Include Redfish diagnostic payload fields in OTLP logs for this target.
 # If every diagnostic-capable sink leaves diagnostics off, collectors do not
 # attach them. OTLP exports parent logs normally and keeps diagnostics as
 # latest-wins per endpoint while the drain is backed up.
 include_diagnostics = false
-
-batch_size = 512
-flush_interval = "2s"
+#
+# TLS-only target with an explicit CA bundle.
+# The reload interval is optional and defaults to five minutes.
+# [[sinks.otlp.targets]]
+# endpoint = "https://telemetry.example.com:4317"
+# batch_size = 1024
+# flush_interval = "5s"
+# include_diagnostics = true
+#
+# [sinks.otlp.targets.tls]
+# ca_cert_path = "/var/run/secrets/central-otlp/ca.crt"
+# tls_server_name = "telemetry.example.com"
+# reload_interval = "5m"
+#
+# mTLS target with an explicit CA bundle and client identity.
+# [[sinks.otlp.targets]]
+# endpoint = "https://telemetry.example.com:4317"
+# batch_size = 1024
+# flush_interval = "5s"
+# include_diagnostics = true
+#
+# [sinks.otlp.targets.tls]
+# ca_cert_path = "/var/run/secrets/central-otlp/ca.crt"
+# client_cert_path = "/var/run/secrets/central-otlp/tls.crt"
+# client_key_path = "/var/run/secrets/central-otlp/tls.key"
+# tls_server_name = "telemetry.example.com"
+# reload_interval = "5m"
 
 [sinks.health_report]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
@@ -174,6 +205,14 @@ firmware_refresh_interval = "30m"
 poll_interval = "1m"
 state_refresh_interval = "30m"
 
+# GPU inventory: out-of-band GPU count vs the machine's assigned SKU (issue #301).
+# Disabled by default. Requires [endpoint_sources.carbide_api] (to resolve the
+# expected count from the SKU) and [sinks.health_report] (to deliver alerts) to be
+# enabled, or config validation fails. GPU population is near-static, so keep the
+# interval infrequent (default 1h). Uncomment to enable:
+# [collectors.gpu_inventory]
+# interval = "1h"
+
 [collectors.logs]
 #  "auto": (default)
 #       - spawn SSE per endpoint
@@ -195,6 +234,9 @@ connect_failure_threshold = 5
 logs_collection_interval = "5m"
 state_refresh_interval = "30m"
 logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+# Skip any Redfish LogService whose odata id contains one of these substrings.
+# Applies when auto-mode downgrades to periodic collection. See [collectors.logs.periodic].
+exclude_services = ["Journal"]
 
 # SSE reconnect backoff; read when mode = "sse" and during auto-mode SSE attempts.
 [collectors.logs.sse]
@@ -207,6 +249,11 @@ max_backoff = "30s"
 logs_collection_interval = "5m"
 state_refresh_interval = "30m"
 logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+# Skip any Redfish LogService whose odata id contains one of these substrings.
+# Defaults to ["Journal"] to suppress the bmcweb HTTP-access log (high-volume noise,
+# self-referential since polling generates Journal entries). Set to [] to collect
+# from every discovered LogService. Also read by auto-mode after downgrade.
+exclude_services = ["Journal"]
 
 # ==============================================================================
 # TLS: Shared certificate configuration for switch collectors

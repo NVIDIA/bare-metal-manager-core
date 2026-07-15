@@ -43,7 +43,10 @@ pub async fn spawn(
         .await
         .map_err(SpawnError::Listen)?;
 
-    tracing::info!("metrics listening on {}", config.metrics_address);
+    tracing::info!(
+        metrics_address = %config.metrics_address,
+        "metrics service listening"
+    );
 
     let join_handle = tokio::spawn(async move {
         loop {
@@ -55,7 +58,7 @@ pub async fn spawn(
 
                 res = listener.accept() => match res {
                     Ok((stream, addr)) => {
-                        tracing::info!("got metrics connection from {addr}");
+                        tracing::info!(peer_address = %addr, "accepted metrics connection");
                         tokio::task::spawn({
                             let metrics_state = metrics_state.clone();
                             async move {

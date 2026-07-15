@@ -45,6 +45,7 @@ pub enum HwType {
     Supermicro,
     Viking,
     LiteonPowerShelf,
+    DeltaPowerShelf,
     NvSwitch,
     VeraRubin,
 }
@@ -65,6 +66,7 @@ impl HwType {
             // SMC GB300 runs a Supermicro (OpenBMC) host BMC.
             Self::SupermicroGb300 => Some(bmc_vendor::BMCVendor::Supermicro),
             Self::LiteonPowerShelf => Some(bmc_vendor::BMCVendor::Liteon),
+            Self::DeltaPowerShelf => Some(bmc_vendor::BMCVendor::Delta),
             Self::NvSwitch => Some(bmc_vendor::BMCVendor::Nvidia),
             Self::Supermicro => Some(bmc_vendor::BMCVendor::Supermicro),
             Self::Viking => Some(bmc_vendor::BMCVendor::Nvidia),
@@ -90,6 +92,7 @@ impl HwType {
             // TODO(smc): confirm the SMC GB300 infinite-boot BIOS attribute from the tray BIOS.
             Self::SupermicroGb300 => None,
             Self::LiteonPowerShelf => None,
+            Self::DeltaPowerShelf => None,
             Self::NvSwitch => None,
             Self::Supermicro => None,
             Self::Viking => Some(BiosAttr::new_str("NvidiaInfiniteboot", "Enable")),

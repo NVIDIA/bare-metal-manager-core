@@ -178,12 +178,12 @@ impl ServiceAddresses {
             .await
             .wrap_err("DNS resolver for carbide-pxe")?;
         // This log should be removed after some time.
-        tracing::info!(?pxe_ips, "Pxe server resolved");
+        tracing::info!(pxe_ip_addresses = ?pxe_ips, "Pxe server resolved");
 
         let ntpservers = match url_resolver.resolve("carbide-ntp.forge").await {
             Ok(x) => {
                 // This log should be removed after some time.
-                tracing::info!(?x, "NTP servers resolved.");
+                tracing::info!(ntp_server_ip_addresses = ?x, "NTP servers resolved.");
                 x
             }
             Err(e) => {

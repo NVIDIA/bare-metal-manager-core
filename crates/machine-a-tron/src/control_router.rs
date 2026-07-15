@@ -107,9 +107,9 @@ mod tests {
     use crate::status::MachineStatusConfig;
 
     #[tokio::test]
-    async fn machines_status_returns_json() {
+    async fn machines_status_does_not_require_bmc_routes() {
         let router = append(
-            Router::new().route("/redfish/v1", get(|| async { "bmc" })),
+            Router::new(),
             ControlState::new(Vec::new(), MachineStatusConfig::new(1266)),
         );
 

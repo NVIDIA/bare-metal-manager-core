@@ -72,6 +72,8 @@ subnets_per_vpc = 2
 # (which carbide uses to determine what network the request came from.)
 oob_dhcp_relay_address = "172.21.0.1"
 admin_dhcp_relay_address = "172.20.0.1"
+# Direct host DHCP for zero-DPU hosts and DPUs operating as plain NICs.
+host_inband_dhcp_relay_address = "172.22.0.1"
 
 # Configures the location of some JSON templates machine-a-tron uses as a basis
 # for mocking certain data. There is no reason to change this from the default.

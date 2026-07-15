@@ -5,9 +5,9 @@ The `deploy/kustomization.yaml` file drives the top‑level deployment. Populate
 
 | Value | Description |
 | --- | --- |
-| `yourdockerregistry.com/path/to/nico-core` | Registry URL that hosts the NICo core (`nvmetal-nico`) image. |
+| `yourdockerregistry.com/path/to/nico-core` | Source image placeholder rewritten to `NICO_REGISTRY_PATH/nico-core` by `deploy/kustomization.yaml`. |
 | `NICO_REGISTRY_PATH` | URL to the registry that hosts all NICo components; shared path for component images. |
-| `NICO_TAG` | Version tag for the `nvmetal-nico` component. |
+| `NICO_TAG` | Version tag for the NICo Core (`nico-core`) image. |
 | `yourdockerregistry.com/path/to/boot-artifacts-aarch64` | Registry URL for the `boot-artifacts-aarch64` image. |
 | `BOOT_ARTIFACTS_AARCH64_TAG` | Version tag for the `boot-artifacts-aarch64` component. |
 | `yourdockerregistry.com/path/to/boot-artifacts-x86_64` | Registry URL for the `boot-artifacts-x86_64` image. |
