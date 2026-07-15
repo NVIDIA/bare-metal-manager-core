@@ -580,8 +580,11 @@ async fn test_insecure_discovery_uses_interface_id_and_ignores_remote_ip(
         ..Default::default()
     });
     request
-        .metadata_mut()
-        .insert("x-forwarded-for", "203.0.113.254".parse().unwrap());
+        .extensions_mut()
+        .insert::<Arc<ConnectionAttributes>>(Arc::new(ConnectionAttributes {
+            peer_address: SocketAddr::from((Ipv4Addr::new(203, 0, 113, 254), 0)),
+            peer_certificates: vec![],
+        }));
 
     let response = env.api.discover_machine(request).await?.into_inner();
 
