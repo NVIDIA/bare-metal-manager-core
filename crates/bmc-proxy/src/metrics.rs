@@ -48,6 +48,7 @@ pub async fn start(
                     address,
                     registry: metrics_setup.registry,
                     health_controller: Some(metrics_setup.health_controller),
+                    additional_prefix: None,
                 },
                 cancellation_token,
                 listener,

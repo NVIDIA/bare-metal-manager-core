@@ -119,7 +119,8 @@ async fn test_integration() -> eyre::Result<()> {
     // HostInband segments must live in a Flat VPC -- those VPC types are
     // mutually bound. Create one for the HostInband fixture.
     let flat_vpc = vpc::create_flat(carbide_api_addrs, tenant_org_id).await?;
-    subnet::create(carbide_api_addrs, &flat_vpc, &domain_id, 11, true).await?;
+    let host_inband_segment_id =
+        subnet::create(carbide_api_addrs, &flat_vpc, &domain_id, 11, true).await?;
 
     // Create FNN VPC + VPC prefixes (IPv4 + IPv6) for dual-stack L3 linknet testing.
     let fnn_vpc = vpc::create_fnn(carbide_api_addrs, tenant_org_id).await?;
@@ -192,32 +193,47 @@ async fn test_integration() -> eyre::Result<()> {
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
-            // Relay IP in host-inband net
-            Ipv4Addr::new(10, 10, 11, 2),
+            &flat_vpc,
         )
         .boxed(),
-        test_machine_a_tron_singledpu_nic_mode(
+        test_machine_a_tron_nic_mode(
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
-            // Relay IP in host-inband  net
-            Ipv4Addr::new(10, 10, 11, 2),
+            &flat_vpc,
+            &host_inband_segment_id,
         )
         .boxed(),
-        test_machine_a_tron_singledpu_nic_mode(
+        test_machine_a_tron_nic_mode(
             HostHardwareType::HpeProliantDl380aGen11,
             &test_env,
             &bmc_address_registry,
-            // Relay IP in host-inband net
-            Ipv4Addr::new(10, 10, 11, 2),
+            &flat_vpc,
+            &host_inband_segment_id,
+        )
+        .boxed(),
+        test_machine_a_tron_nic_mode(
+            HostHardwareType::WiwynnGB200Nvl,
+            &test_env,
+            &bmc_address_registry,
+            &flat_vpc,
+            &host_inband_segment_id,
+        )
+        .boxed(),
+        test_machine_a_tron_nic_mode(
+            HostHardwareType::SupermicroGb300Nvl,
+            &test_env,
+            &bmc_address_registry,
+            &flat_vpc,
+            &host_inband_segment_id,
         )
         .boxed(),
         test_machine_a_tron_dpu_to_nic_mode_reregistration(
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
-            // Relay IP in host-inband net
-            Ipv4Addr::new(10, 10, 11, 2),
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
         )
         .boxed(),
         test_machine_a_tron_dual_stack(
@@ -543,7 +559,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
                 let instance_id = instance::create(
                     &carbide_api_addrs,
                     &host_machine_id,
-                    Some(&segment_id),
+                    &segment_id,
                     Some("test"),
                     true,
                     true,
@@ -663,7 +679,7 @@ async fn test_machine_a_tron_multidpu(
                 let instance_id = instance::create(
                     carbide_api_addrs,
                     &machine_id,
-                    Some(&segment_id),
+                    &segment_id,
                     None,
                     false,
                     false,
@@ -786,7 +802,7 @@ async fn test_machine_a_tron_zerodpu(
     hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
-    admin_dhcp_relay_address: Ipv4Addr,
+    flat_vpc_id: &str,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
         hw_type,
@@ -796,9 +812,10 @@ async fn test_machine_a_tron_zerodpu(
         None,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        Ipv4Addr::new(172, 20, 0, 2),
         |machine_handle| {
             let carbide_api_addrs = &test_env.carbide_api_addrs;
+            let flat_vpc_id = flat_vpc_id.to_string();
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -808,24 +825,17 @@ async fn test_machine_a_tron_zerodpu(
                     .expect("Machine ID should be set if host is ready");
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
 
-                // Zero-DPU tenants pass `auto: true` with empty interfaces; the
-                // allocator resolves the host's HostInband segment(s) from the
-                // machine snapshot (which is also covered in unit tests as
-                // `test_zero_dpu_instance_allocation_auto`).
-                let instance_id = instance::create(
+                let instance_id = instance::create_with_auto_host_inband_networking(
                     carbide_api_addrs,
                     &machine_id,
-                    None,
-                    None,
-                    false,
-                    false,
-                    &[],
+                    &flat_vpc_id,
                 )
                 .await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
                     .await?;
+                assert_auto_instance_network(carbide_api_addrs, &instance_id, &flat_vpc_id).await?;
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
                 );
@@ -843,11 +853,12 @@ async fn test_machine_a_tron_zerodpu(
     .await
 }
 
-async fn test_machine_a_tron_singledpu_nic_mode(
+async fn test_machine_a_tron_nic_mode(
     hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
-    admin_dhcp_relay_address: Ipv4Addr,
+    flat_vpc_id: &str,
+    host_inband_segment_id: &str,
 ) -> eyre::Result<()> {
     run_machine_a_tron_test(
         hw_type,
@@ -857,9 +868,18 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         None,
         test_env,
         bmc_mock_registry,
-        admin_dhcp_relay_address,
+        Ipv4Addr::new(172, 20, 0, 2),
         |machine_handle| {
             let carbide_api_addrs = &test_env.carbide_api_addrs;
+            let flat_vpc_id = flat_vpc_id.to_string();
+            let host_inband_segment_id = host_inband_segment_id.to_string();
+            let expected_host_mac = machine_handle
+                .host_info()
+                .dpus
+                .first()
+                .expect("NIC-mode host should contain at least one DPU NIC")
+                .host_mac_address
+                .to_string();
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
@@ -869,25 +889,25 @@ async fn test_machine_a_tron_singledpu_nic_mode(
                     .expect("Machine ID should be set if host is ready");
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
 
-                // For a DPU in NIC-mode, the DPU is treated as a plain NIC, meaning
-                // allocation goes through HostInband the same way the zero-DPU path
-                // allocation does; the request carries `auto: true` with empty
-                // interfaces, and Carbide resolves from the host's HostInband
-                // segment(s).
-                let instance_id = instance::create(
+                assert_nic_mode_host(
                     carbide_api_addrs,
                     &machine_id,
-                    None,
-                    None,
-                    false,
-                    false,
-                    &[],
+                    &expected_host_mac,
+                    &host_inband_segment_id,
+                )
+                .await?;
+
+                let instance_id = instance::create_with_auto_host_inband_networking(
+                    carbide_api_addrs,
+                    &machine_id,
+                    &flat_vpc_id,
                 )
                 .await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(90))
                     .await?;
+                assert_auto_instance_network(carbide_api_addrs, &instance_id, &flat_vpc_id).await?;
                 tracing::info!(
                     "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
                 );
@@ -903,6 +923,97 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         },
     )
     .await
+}
+
+async fn assert_nic_mode_host(
+    carbide_api_addrs: &[SocketAddr],
+    machine_id: &carbide_uuid::machine::MachineId,
+    expected_host_mac: &str,
+    host_inband_segment_id: &str,
+) -> eyre::Result<()> {
+    let machine = machine::get_json_by_id(carbide_api_addrs, machine_id).await?;
+    let associated_dpus = machine["associatedDpuMachineIds"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    eyre::ensure!(
+        associated_dpus.is_empty(),
+        "NIC-mode host {machine_id} still has associated DPUs: {associated_dpus:?}"
+    );
+
+    let interfaces = machine["interfaces"]
+        .as_array()
+        .ok_or_else(|| eyre::eyre!("NIC-mode host {machine_id} has no interfaces"))?;
+    eyre::ensure!(
+        interfaces
+            .iter()
+            .all(|interface| interface["attachedDpuMachineId"].is_null()),
+        "NIC-mode host {machine_id} still has a DPU-backed interface: {interfaces:?}"
+    );
+
+    let has_expected_primary_host_inband_interface = interfaces.iter().any(|interface| {
+        interface["macAddress"]
+            .as_str()
+            .is_some_and(|mac| mac.eq_ignore_ascii_case(expected_host_mac))
+            && interface["primaryInterface"] == true
+            && interface["segmentId"]["value"] == host_inband_segment_id
+            && interface["interfaceType"] != "INTERFACE_TYPE_BMC"
+    });
+    eyre::ensure!(
+        has_expected_primary_host_inband_interface,
+        "NIC-mode host {machine_id} did not promote DPU host-facing PF {expected_host_mac} as its primary HostInband interface"
+    );
+    Ok(())
+}
+
+async fn assert_auto_instance_network(
+    carbide_api_addrs: &[SocketAddr],
+    instance_id: &str,
+    flat_vpc_id: &str,
+) -> eyre::Result<()> {
+    let instance = instance::get_instance_json_by_id(carbide_api_addrs, instance_id).await?;
+    let network = &instance["config"]["network"];
+    eyre::ensure!(
+        network["auto"] == true,
+        "instance {instance_id} did not retain auto networking: {network}"
+    );
+    eyre::ensure!(
+        network["interfaces"].as_array().is_some_and(Vec::is_empty),
+        "instance {instance_id} exposed resolved interfaces in its external config: {network}"
+    );
+    eyre::ensure!(
+        network["autoConfig"]["vpcId"]["value"] == flat_vpc_id,
+        "instance {instance_id} did not retain Flat VPC {flat_vpc_id}: {network}"
+    );
+
+    let status_interfaces = instance["status"]["network"]["interfaces"]
+        .as_array()
+        .ok_or_else(|| eyre::eyre!("instance {instance_id} has no network status interfaces"))?;
+    eyre::ensure!(
+        !status_interfaces.is_empty()
+            && status_interfaces.iter().all(|interface| {
+                interface["vpcId"]["value"] == flat_vpc_id
+                    && interface["macAddress"]
+                        .as_str()
+                        .is_some_and(|mac| !mac.is_empty())
+                    && interface["addresses"]
+                        .as_array()
+                        .is_some_and(|values| !values.is_empty())
+                    && interface["gateways"]
+                        .as_array()
+                        .is_some_and(|values| !values.is_empty())
+                    && interface["prefixes"]
+                        .as_array()
+                        .is_some_and(|values| !values.is_empty())
+            }),
+        "instance {instance_id} status does not contain resolved Flat VPC networking: {status_interfaces:?}"
+    );
+    eyre::ensure!(
+        instance["status"]["network"]["configsSynced"] == "SYNCED",
+        "instance {instance_id} network status is not synced: {}",
+        instance["status"]["network"]
+    );
+    Ok(())
 }
 
 /// DPU-mode -> NIC-mode flip + zero-DPU re-ingestion (machine-a-tron harness,
@@ -1223,7 +1334,7 @@ async fn test_machine_a_tron_dual_stack_l2(
                 let instance_id = instance::create(
                     carbide_api_addrs,
                     &machine_id,
-                    Some(&segment_id),
+                    &segment_id,
                     None,
                     false,
                     false,
@@ -1315,6 +1426,9 @@ where
                     .unwrap()
                     .to_string(),
                 admin_dhcp_relay_address,
+                // Keep this distinct from the Admin relay so NIC-mode tests
+                // fail if machine-a-tron sends host DHCP through Admin.
+                host_inband_dhcp_relay_address: Some(Ipv4Addr::new(10, 10, 11, 2)),
                 oob_dhcp_relay_address: Ipv4Addr::new(172, 20, 1, 1),
                 vpc_count: 0,
                 subnets_per_vpc: 0,

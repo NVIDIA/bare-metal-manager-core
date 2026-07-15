@@ -63,10 +63,10 @@ pub struct IpxeTemplateArtifact {
     pub cached_url: Option<String>,
 }
 
-/// Scope for iPXE script templates.
+/// Visibility for iPXE script templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum IpxeTemplateScope {
+pub enum IpxeTemplateVisibility {
     /// NICo Core usage only.
     #[default]
     Internal,
@@ -87,8 +87,8 @@ pub struct IpxeTemplate {
     pub required_params: Vec<String>,
     #[serde(default)]
     pub required_artifacts: Vec<String>,
-    #[serde(default)]
-    pub scope: IpxeTemplateScope,
+    #[serde(default, alias = "scope")]
+    pub visibility: IpxeTemplateVisibility,
 }
 
 /// Template collection loaded from YAML

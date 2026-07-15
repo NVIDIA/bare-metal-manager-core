@@ -314,6 +314,7 @@ pub fn metrics_server() {
                         address: metrics_endpoint,
                         registry: mconf.registry,
                         health_controller: Some(health_controller),
+                        additional_prefix: None,
                     })
                     .await
                     {

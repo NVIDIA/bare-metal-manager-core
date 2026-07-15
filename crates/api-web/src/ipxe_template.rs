@@ -28,9 +28,9 @@ use rpc::forge::forge_server::Forge;
 
 use super::Base;
 
-fn ipxe_template_scope_fmt(scope: &i32) -> Cow<'static, str> {
-    rpc::forge::IpxeTemplateScope::try_from(*scope)
-        .map(|scope| Cow::Owned(format!("{scope:?}")))
+fn ipxe_template_visibility_fmt(visibility: &i32) -> Cow<'static, str> {
+    rpc::forge::IpxeTemplateVisibility::try_from(*visibility)
+        .map(|visibility| Cow::Owned(format!("{visibility:?}")))
         .unwrap_or(Cow::Borrowed("Unknown"))
 }
 
@@ -38,11 +38,11 @@ mod filters {
     pub use super::super::filters::option_fmt;
 
     #[askama::filter_fn]
-    pub fn ipxe_template_scope_fmt(
-        scope: &i32,
+    pub fn ipxe_template_visibility_fmt(
+        visibility: &i32,
         _env: &dyn askama::Values,
     ) -> askama::Result<super::Cow<'static, str>> {
-        Ok(super::ipxe_template_scope_fmt(scope))
+        Ok(super::ipxe_template_visibility_fmt(visibility))
     }
 }
 

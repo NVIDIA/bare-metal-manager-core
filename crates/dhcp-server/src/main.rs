@@ -503,6 +503,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             address: metrics_listen_addr,
             registry: metrics_setup.registry,
             health_controller: Some(metrics_setup.health_controller),
+            additional_prefix: None,
         };
         // The endpoint's /health and /ready report process liveness (the
         // default HealthController state), not packet-serving readiness --

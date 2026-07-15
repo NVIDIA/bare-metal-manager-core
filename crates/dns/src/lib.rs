@@ -575,6 +575,7 @@ impl DnsServer {
             address: config.metrics_listen_address,
             registry: metrics_setup.registry,
             health_controller: Some(metrics_setup.health_controller),
+            additional_prefix: None,
         };
 
         tokio::spawn(async move {

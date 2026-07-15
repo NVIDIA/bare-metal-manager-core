@@ -55,7 +55,7 @@ use crate::ethernet_virtualization::{
 use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
-use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
+use crate::instrumentation::{create_metrics, get_dpu_agent_meter, get_prometheus_registry};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::get_host_boot_timestamp;
@@ -129,13 +129,37 @@ pub async fn setup_and_run(
     let agent_meter = get_dpu_agent_meter();
     let metrics = create_metrics(agent_meter);
 
-    if let Err(e) = crate::metadata_service::spawn_prometheus_metrics_server(
-        agent_config.telemetry.metrics_address.clone(),
-    ) {
-        tracing::warn!(
-            error = format!("{e:#}"),
-            "Failed to start Prometheus /metrics endpoint"
-        );
+    match agent_config
+        .telemetry
+        .metrics_address
+        .parse::<std::net::SocketAddr>()
+    {
+        Ok(metrics_address) => {
+            tracing::info!(
+                metrics_address = %metrics_address,
+                "Starting Prometheus /metrics endpoint"
+            );
+            let metrics_config = metrics_endpoint::MetricsEndpointConfig {
+                address: metrics_address,
+                registry: get_prometheus_registry(),
+                health_controller: None,
+                additional_prefix: None,
+            };
+            tokio::task::spawn(async move {
+                if let Err(e) = metrics_endpoint::run_metrics_endpoint(&metrics_config).await {
+                    tracing::error!(
+                        error = format!("{e:#}"),
+                        "Prometheus /metrics endpoint exited with error"
+                    );
+                }
+            });
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = format!("{e:#}"),
+                "Failed to start Prometheus /metrics endpoint"
+            );
+        }
     }
 
     // And now set up our FMDS updater, which will either be our original

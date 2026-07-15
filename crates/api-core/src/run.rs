@@ -38,7 +38,6 @@ use crate::cfg::file::{
     CarbideConfig, CredentialBackend, ImportSource, ProviderConfig, SecretsConfig,
 };
 use crate::listener::AdminUiRoutesBuilder;
-use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
     Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
@@ -155,17 +154,22 @@ pub async fn run(
     // Spin up the webserver which servers `/metrics` requests
     if let Some(metrics_address) = carbide_config.metrics_endpoint {
         // If a replacement prefix for "carbide_" is configured, also emit metrics under that
-        let additional_prefix = carbide_config
-            .alt_metric_prefix
-            .clone()
-            .map(|alt_prefix| ("carbide_".to_string(), alt_prefix));
+        let additional_prefix =
+            carbide_config
+                .alt_metric_prefix
+                .clone()
+                .map(|alt| metrics_endpoint::PrefixMigration {
+                    old: "carbide_".to_string(),
+                    new: alt,
+                });
         join_set.build_task().name("metrics_endpoint").spawn({
             let cancel_token = cancel_token.clone();
             async move {
-                if let Err(e) = run_metrics_endpoint(
-                    &MetricsEndpointConfig {
+                if let Err(e) = metrics_endpoint::run_metrics_endpoint_with_cancellation(
+                    &metrics_endpoint::MetricsEndpointConfig {
                         address: metrics_address,
                         registry: metrics.registry,
+                        health_controller: None,
                         additional_prefix,
                     },
                     cancel_token,

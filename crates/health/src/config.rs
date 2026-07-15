@@ -89,6 +89,9 @@ pub struct EndpointSourcesConfig {
 
     /// Static BMC endpoints
     pub static_bmc_endpoints: Vec<StaticBmcEndpoint>,
+
+    /// Cluster inventory file source (file or cluster manager JSON RPC)
+    pub cluster: Configurable<ClusterEndpointSourceConfig>,
 }
 
 impl Default for EndpointSourcesConfig {
@@ -96,7 +99,91 @@ impl Default for EndpointSourcesConfig {
         Self {
             carbide_api: Configurable::Enabled(CarbideApiConnectionConfig::default()),
             static_bmc_endpoints: Vec::new(),
+            cluster: Configurable::Disabled,
         }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterEndpointSourceConfig {
+    /// Path to a JSON inventory file containing BMC endpoints and credentials for the cluster.
+    /// Used when `cluster_manager_url` is absent.
+    #[serde(default)]
+    pub inventory_path: PathBuf,
+
+    /// Cluster manager head-node URL (e.g. https://10.x.x.x:8081).
+    /// When set, inventory and credentials are fetched live via cluster manager JSON RPC
+    /// instead of reading `inventory_path`.
+    #[serde(default)]
+    pub cluster_manager_url: Option<url::Url>,
+
+    /// Cluster manager partition to read bmcsettings from (default: "base").
+    /// The cluster manager stores BMC username/password at partition level; this selects which partition.
+    #[serde(default = "default_cluster_manager_partition")]
+    pub cluster_manager_partition: String,
+
+    /// Fallback BMC username if cluster manager JSON RPC does not return one.
+    /// Cluster manager default is "bright" (set during head-node installation).
+    #[serde(default = "default_cluster_manager_username")]
+    pub default_username: String,
+
+    /// Fallback BMC password if cluster manager JSON RPC does not return one.
+    /// Must be set explicitly — no code-level default.
+    #[serde(default)]
+    pub default_password: Option<String>,
+
+    /// Optional BMC port override. None uses the BmcClient default (443/HTTPS).
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+fn default_cluster_manager_partition() -> String {
+    "base".to_string()
+}
+
+fn default_cluster_manager_username() -> String {
+    "bright".to_string()
+}
+
+impl Default for ClusterEndpointSourceConfig {
+    fn default() -> Self {
+        Self {
+            inventory_path: PathBuf::default(),
+            cluster_manager_url: None,
+            cluster_manager_partition: default_cluster_manager_partition(),
+            default_username: default_cluster_manager_username(),
+            default_password: None,
+            port: None,
+        }
+    }
+}
+
+impl ClusterEndpointSourceConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.cluster_manager_url.is_none() && self.inventory_path.as_os_str().is_empty() {
+            return Err(
+                "cluster endpoint source requires either `inventory_path` or `cluster_manager_url`"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ClusterEndpointSourceConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClusterEndpointSourceConfig")
+            .field("inventory_path", &self.inventory_path)
+            .field("cluster_manager_url", &self.cluster_manager_url)
+            .field("cluster_manager_partition", &self.cluster_manager_partition)
+            .field("default_username", &self.default_username)
+            .field(
+                "default_password",
+                &self.default_password.as_ref().map(|_| "<redacted>"),
+            )
+            .field("port", &self.port)
+            .finish()
     }
 }
 
@@ -371,6 +458,13 @@ pub struct OtlpTargetConfig {
     /// Endpoint URI that receives both logs and metrics over OTLP/gRPC.
     pub endpoint: String,
 
+    /// Optional TLS or mTLS configuration for this endpoint.
+    ///
+    /// Omit this table for HTTPS endpoints that use platform trust roots. A
+    /// configured profile supplies a private CA, and supplying a client
+    /// certificate and key additionally enables mTLS.
+    pub tls: Option<OtlpTlsConfig>,
+
     /// Maximum number of events or samples exported per request. Defaults to
     /// 512.
     #[serde(default = "OtlpTargetConfig::default_batch_size")]
@@ -415,8 +509,107 @@ impl OtlpTargetConfig {
             return Err(format!("{path}.flush_interval must be greater than 0"));
         }
 
-        tonic::transport::Channel::from_shared(self.endpoint.clone())
+        let endpoint = tonic::transport::Channel::from_shared(self.endpoint.clone())
             .map_err(|_| format!("invalid {path}.endpoint: {}", self.endpoint))?;
+
+        if let Some(tls) = &self.tls {
+            if endpoint.uri().scheme_str() != Some("https") {
+                return Err(format!("{path}.tls requires an https endpoint"));
+            }
+
+            tls.validate(&path)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// TLS policy for one OTLP/gRPC target.
+///
+/// The CA bundle verifies the server certificate. Supplying both client paths
+/// adds a client identity and enables mTLS. Each signal drain periodically
+/// reloads the certificate files and adopts them only after a replacement
+/// connection succeeds. A failed reload leaves the current connection active.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OtlpTlsConfig {
+    /// Path to the CA bundle used to verify the OTLP server certificate.
+    pub ca_cert_path: PathBuf,
+
+    /// Optional path to the client certificate chain for mTLS.
+    pub client_cert_path: Option<PathBuf>,
+
+    /// Optional path to the client private key for mTLS.
+    pub client_key_path: Option<PathBuf>,
+
+    /// Optional DNS name used for TLS SNI and server certificate verification.
+    pub tls_server_name: Option<String>,
+
+    /// Interval between reloads of this target's TLS files. Defaults to five
+    /// minutes.
+    #[serde(
+        default = "OtlpTlsConfig::default_reload_interval",
+        with = "humantime_serde"
+    )]
+    pub reload_interval: Duration,
+}
+
+impl OtlpTlsConfig {
+    /// Default interval between attempts to reload an OTLP target's TLS files.
+    pub(crate) const DEFAULT_RELOAD_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+    fn default_reload_interval() -> Duration {
+        Self::DEFAULT_RELOAD_INTERVAL
+    }
+
+    fn validate(&self, target_path: &str) -> Result<(), String> {
+        let path = format!("{target_path}.tls");
+
+        if self.ca_cert_path.as_os_str().is_empty() {
+            return Err(format!("{path}.ca_cert_path must not be empty"));
+        }
+
+        match (&self.client_cert_path, &self.client_key_path) {
+            (Some(client_cert_path), Some(client_key_path)) => {
+                if client_cert_path.as_os_str().is_empty() {
+                    return Err(format!("{path}.client_cert_path must not be empty"));
+                }
+
+                if client_key_path.as_os_str().is_empty() {
+                    return Err(format!("{path}.client_key_path must not be empty"));
+                }
+            }
+            (Some(_), None) => {
+                return Err(format!(
+                    "{path}.client_key_path must be set when {path}.client_cert_path is set"
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(format!(
+                    "{path}.client_cert_path must be set when {path}.client_key_path is set"
+                ));
+            }
+            (None, None) => {}
+        }
+
+        if let Some(tls_server_name) = self.tls_server_name.as_deref() {
+            if tls_server_name.trim().is_empty() {
+                return Err(format!("{path}.tls_server_name must not be empty"));
+            }
+
+            if tls_server_name.trim() != tls_server_name {
+                return Err(format!(
+                    "{path}.tls_server_name must not contain leading or trailing whitespace"
+                ));
+            }
+
+            DnsName::try_from(tls_server_name)
+                .map_err(|_| format!("{path}.tls_server_name must be a valid DNS name"))?;
+        }
+
+        if self.reload_interval.is_zero() {
+            return Err(format!("{path}.reload_interval must be greater than 0"));
+        }
 
         Ok(())
     }
@@ -939,6 +1132,14 @@ pub struct PeriodicLogConfig {
 
     /// Path to logs collector state file (supports {machine_id} placeholder).
     pub logs_state_file: String,
+
+    /// Substrings matched against each Redfish LogService odata id; any service
+    /// whose id contains one of these is skipped during discovery. Defaults to
+    /// `["Journal"]` to suppress the bmcweb HTTP-access log, which is
+    /// high-volume and self-referential. Set to `[]` to collect from every
+    /// discovered LogService.
+    #[serde(default)]
+    pub exclude_services: Vec<String>,
 }
 
 impl Default for PeriodicLogConfig {
@@ -947,6 +1148,7 @@ impl Default for PeriodicLogConfig {
             logs_collection_interval: Duration::from_secs(300),
             state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
+            exclude_services: vec!["Journal".to_string()],
         }
     }
 }
@@ -1422,6 +1624,10 @@ impl Config {
             .enumerate()
         {
             endpoint.validate(index)?;
+        }
+
+        if let Configurable::Enabled(ref cluster_cfg) = self.endpoint_sources.cluster {
+            cluster_cfg.validate()?;
         }
 
         if let Configurable::Enabled(health_report) = &self.sinks.health_report
@@ -1943,6 +2149,7 @@ username = "root"
                 batch_size: 512,
                 flush_interval: Duration::from_secs(2),
                 include_diagnostics: false,
+                tls: None,
             }],
         });
 
@@ -1958,6 +2165,7 @@ username = "root"
                 batch_size: 512,
                 flush_interval: Duration::from_secs(2),
                 include_diagnostics: false,
+                tls: None,
             }],
         });
 
@@ -2000,13 +2208,20 @@ include_diagnostics = true
             .merge(Toml::string(
                 r#"
 [[targets]]
-endpoint = "http://site.example:4317"
+endpoint = "https://site.example:4317"
 
 [[targets]]
 endpoint = "https://central.example:4317"
 batch_size = 1024
 flush_interval = "5s"
 include_diagnostics = true
+
+[targets.tls]
+ca_cert_path = "/central/ca.crt"
+client_cert_path = "/central/tls.crt"
+client_key_path = "/central/tls.key"
+tls_server_name = "central.example"
+reload_interval = "30s"
 "#,
             ))
             .extract()
@@ -2015,11 +2230,32 @@ include_diagnostics = true
         let targets = &otlp.targets;
 
         assert_eq!(targets.len(), 2);
+        assert!(targets[0].tls.is_none());
         assert_eq!(targets[0].batch_size, 512);
         assert_eq!(targets[0].flush_interval, Duration::from_secs(2));
         assert_eq!(targets[1].batch_size, 1024);
         assert_eq!(targets[1].flush_interval, Duration::from_secs(5));
         assert!(targets[1].include_diagnostics);
+
+        let tls = targets[1]
+            .tls
+            .as_ref()
+            .expect("central target should use TLS");
+
+        assert_eq!(tls.ca_cert_path, PathBuf::from("/central/ca.crt"));
+
+        assert_eq!(
+            tls.client_cert_path.as_deref(),
+            Some(Path::new("/central/tls.crt"))
+        );
+
+        assert_eq!(
+            tls.client_key_path.as_deref(),
+            Some(Path::new("/central/tls.key"))
+        );
+
+        assert_eq!(tls.tls_server_name.as_deref(), Some("central.example"));
+        assert_eq!(tls.reload_interval, Duration::from_secs(30));
 
         let mut config = Config::default();
 
@@ -2028,6 +2264,16 @@ include_diagnostics = true
         config
             .validate()
             .expect("multi-target OTLP config should validate");
+    }
+
+    #[test]
+    fn otlp_tls_reload_interval_defaults_to_five_minutes() {
+        let tls: OtlpTlsConfig = Figment::new()
+            .merge(Toml::string("ca_cert_path = \"/site/ca.crt\""))
+            .extract()
+            .expect("OTLP TLS config should parse without a reload interval");
+
+        assert_eq!(tls.reload_interval, OtlpTlsConfig::DEFAULT_RELOAD_INTERVAL);
     }
 
     #[test]
@@ -2064,6 +2310,41 @@ endpoint = "http://site.example:4317"
 "#,
                 expected: "sinks.otlp.targets[1].endpoint must be unique: http://site.example:4317",
             },
+            TestCase {
+                name: "TLS with plaintext endpoint",
+                toml: r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+"#,
+                expected: "sinks.otlp.targets[0].tls requires an https endpoint",
+            },
+            TestCase {
+                name: "incomplete mTLS identity",
+                toml: r#"
+[[targets]]
+endpoint = "https://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+client_cert_path = "/site/tls.crt"
+"#,
+                expected: "sinks.otlp.targets[0].tls.client_key_path must be set when sinks.otlp.targets[0].tls.client_cert_path is set",
+            },
+            TestCase {
+                name: "zero TLS reload interval",
+                toml: r#"
+[[targets]]
+endpoint = "https://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+reload_interval = "0s"
+"#,
+                expected: "sinks.otlp.targets[0].tls.reload_interval must be greater than 0",
+            },
         ];
 
         for case in cases {
@@ -2097,6 +2378,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()
@@ -2133,6 +2415,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: true,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()
@@ -2149,12 +2432,14 @@ endpoint = "http://site.example:4317"
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: false,
+                                tls: None,
                             },
                             OtlpTargetConfig {
                                 endpoint: "http://central.example:4317".to_string(),
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: true,
+                                tls: None,
                             },
                         ],
                     }),
@@ -2199,6 +2484,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()

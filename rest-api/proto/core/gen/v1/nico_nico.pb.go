@@ -913,50 +913,50 @@ func (IpxeTemplateArtifactCacheStrategy) EnumDescriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{14}
 }
 
-// Scope for iPXE script templates.
-type IpxeTemplateScope int32
+// Visibility for iPXE script templates.
+type IpxeTemplateVisibility int32
 
 const (
-	IpxeTemplateScope_INTERNAL IpxeTemplateScope = 0 // NICo-core usage only
-	IpxeTemplateScope_PUBLIC   IpxeTemplateScope = 1 // Usable by tenant
+	IpxeTemplateVisibility_INTERNAL IpxeTemplateVisibility = 0 // NICo-core usage only
+	IpxeTemplateVisibility_PUBLIC   IpxeTemplateVisibility = 1 // Usable by tenant
 )
 
-// Enum value maps for IpxeTemplateScope.
+// Enum value maps for IpxeTemplateVisibility.
 var (
-	IpxeTemplateScope_name = map[int32]string{
+	IpxeTemplateVisibility_name = map[int32]string{
 		0: "INTERNAL",
 		1: "PUBLIC",
 	}
-	IpxeTemplateScope_value = map[string]int32{
+	IpxeTemplateVisibility_value = map[string]int32{
 		"INTERNAL": 0,
 		"PUBLIC":   1,
 	}
 )
 
-func (x IpxeTemplateScope) Enum() *IpxeTemplateScope {
-	p := new(IpxeTemplateScope)
+func (x IpxeTemplateVisibility) Enum() *IpxeTemplateVisibility {
+	p := new(IpxeTemplateVisibility)
 	*p = x
 	return p
 }
 
-func (x IpxeTemplateScope) String() string {
+func (x IpxeTemplateVisibility) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (IpxeTemplateScope) Descriptor() protoreflect.EnumDescriptor {
+func (IpxeTemplateVisibility) Descriptor() protoreflect.EnumDescriptor {
 	return file_nico_nico_proto_enumTypes[15].Descriptor()
 }
 
-func (IpxeTemplateScope) Type() protoreflect.EnumType {
+func (IpxeTemplateVisibility) Type() protoreflect.EnumType {
 	return &file_nico_nico_proto_enumTypes[15]
 }
 
-func (x IpxeTemplateScope) Number() protoreflect.EnumNumber {
+func (x IpxeTemplateVisibility) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use IpxeTemplateScope.Descriptor instead.
-func (IpxeTemplateScope) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use IpxeTemplateVisibility.Descriptor instead.
+func (IpxeTemplateVisibility) EnumDescriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{15}
 }
 
@@ -16519,8 +16519,8 @@ type IpxeTemplate struct {
 	Description       string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	ReservedParams    []string               `protobuf:"bytes,5,rep,name=reserved_params,json=reservedParams,proto3" json:"reserved_params,omitempty"`          // Reserved for nico-core to provide at render time
 	RequiredArtifacts []string               `protobuf:"bytes,6,rep,name=required_artifacts,json=requiredArtifacts,proto3" json:"required_artifacts,omitempty"` // Error if these artifacts are not provided or empty
-	Scope             IpxeTemplateScope      `protobuf:"varint,7,opt,name=scope,proto3,enum=forge.IpxeTemplateScope" json:"scope,omitempty"`                    // INTERNAL = nico-core only, PUBLIC = tenant-usable
 	Id                *IpxeTemplateId        `protobuf:"bytes,8,opt,name=id,proto3" json:"id,omitempty"`                                                        // Stable UUID, hardcoded in templates.yaml; consistent across all sites
+	Visibility        IpxeTemplateVisibility `protobuf:"varint,9,opt,name=visibility,proto3,enum=forge.IpxeTemplateVisibility" json:"visibility,omitempty"`     // INTERNAL = nico-core only, PUBLIC = tenant-usable
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -16597,18 +16597,18 @@ func (x *IpxeTemplate) GetRequiredArtifacts() []string {
 	return nil
 }
 
-func (x *IpxeTemplate) GetScope() IpxeTemplateScope {
-	if x != nil {
-		return x.Scope
-	}
-	return IpxeTemplateScope_INTERNAL
-}
-
 func (x *IpxeTemplate) GetId() *IpxeTemplateId {
 	if x != nil {
 		return x.Id
 	}
 	return nil
+}
+
+func (x *IpxeTemplate) GetVisibility() IpxeTemplateVisibility {
+	if x != nil {
+		return x.Visibility
+	}
+	return IpxeTemplateVisibility_INTERNAL
 }
 
 // Tenant related configuration that is set once the instance is allocated
@@ -61528,16 +61528,18 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\n" +
 	"_auth_typeB\r\n" +
 	"\v_auth_tokenB\r\n" +
-	"\v_cached_url\"\xb9\x02\n" +
+	"\v_cached_url\"\xd5\x02\n" +
 	"\fIpxeTemplate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\btemplate\x18\x02 \x01(\tR\btemplate\x12'\n" +
 	"\x0frequired_params\x18\x03 \x03(\tR\x0erequiredParams\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12'\n" +
 	"\x0freserved_params\x18\x05 \x03(\tR\x0ereservedParams\x12-\n" +
-	"\x12required_artifacts\x18\x06 \x03(\tR\x11requiredArtifacts\x12.\n" +
-	"\x05scope\x18\a \x01(\x0e2\x18.forge.IpxeTemplateScopeR\x05scope\x12&\n" +
-	"\x02id\x18\b \x01(\v2\x16.common.IpxeTemplateIdR\x02id\"\xb4\x01\n" +
+	"\x12required_artifacts\x18\x06 \x03(\tR\x11requiredArtifacts\x12&\n" +
+	"\x02id\x18\b \x01(\v2\x16.common.IpxeTemplateIdR\x02id\x12=\n" +
+	"\n" +
+	"visibility\x18\t \x01(\x0e2\x1d.forge.IpxeTemplateVisibilityR\n" +
+	"visibilityJ\x04\b\a\x10\bR\x05scope\"\xb4\x01\n" +
 	"\fTenantConfig\x124\n" +
 	"\x16tenant_organization_id\x18\x01 \x01(\tR\x14tenantOrganizationId\x12\x1f\n" +
 	"\bhostname\x18\x0f \x01(\tH\x00R\bhostname\x88\x01\x01\x12(\n" +
@@ -65498,8 +65500,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\n" +
 	"LOCAL_ONLY\x10\x01\x12\x0f\n" +
 	"\vCACHED_ONLY\x10\x02\x12\x0f\n" +
-	"\vREMOTE_ONLY\x10\x03*-\n" +
-	"\x11IpxeTemplateScope\x12\f\n" +
+	"\vREMOTE_ONLY\x10\x03*2\n" +
+	"\x16IpxeTemplateVisibility\x12\f\n" +
 	"\bINTERNAL\x10\x00\x12\n" +
 	"\n" +
 	"\x06PUBLIC\x10\x01*7\n" +
@@ -66347,7 +66349,7 @@ var file_nico_nico_proto_goTypes = []any{
 	(NetworkSegmentType)(0),                                                   // 12: forge.NetworkSegmentType
 	(NetworkSegmentFlag)(0),                                                   // 13: forge.NetworkSegmentFlag
 	(IpxeTemplateArtifactCacheStrategy)(0),                                    // 14: forge.IpxeTemplateArtifactCacheStrategy
-	(IpxeTemplateScope)(0),                                                    // 15: forge.IpxeTemplateScope
+	(IpxeTemplateVisibility)(0),                                               // 15: forge.IpxeTemplateVisibility
 	(SpxAttachmentType)(0),                                                    // 16: forge.SpxAttachmentType
 	(IssueCategory)(0),                                                        // 17: forge.IssueCategory
 	(AssignStaticAddressStatus)(0),                                            // 18: forge.AssignStaticAddressStatus
@@ -67786,8 +67788,8 @@ var file_nico_nico_proto_depIdxs = []int32{
 	264,  // 250: forge.BatchInstanceAllocationRequest.instance_requests:type_name -> forge.InstanceAllocationRequest
 	293,  // 251: forge.BatchInstanceAllocationResponse.instances:type_name -> forge.Instance
 	14,   // 252: forge.IpxeTemplateArtifact.cache_strategy:type_name -> forge.IpxeTemplateArtifactCacheStrategy
-	15,   // 253: forge.IpxeTemplate.scope:type_name -> forge.IpxeTemplateScope
-	1003, // 254: forge.IpxeTemplate.id:type_name -> common.IpxeTemplateId
+	1003, // 253: forge.IpxeTemplate.id:type_name -> common.IpxeTemplateId
+	15,   // 254: forge.IpxeTemplate.visibility:type_name -> forge.IpxeTemplateVisibility
 	272,  // 255: forge.InstanceOperatingSystemConfig.ipxe:type_name -> forge.InlineIpxe
 	996,  // 256: forge.InstanceOperatingSystemConfig.os_image_id:type_name -> common.UUID
 	1004, // 257: forge.InstanceOperatingSystemConfig.operating_system_id:type_name -> common.OperatingSystemId

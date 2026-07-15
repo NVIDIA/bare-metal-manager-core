@@ -202,28 +202,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .as_slice(),
     )?;
 
-    // If we're using a combined BMC mock that routes to each mock machine using headers, launch it
-    // after the machines are created so the control UI can report their handles.
-    let maybe_bmc_mock_handles: Option<(CombinedServer, Option<MockSshServerHandle>)> =
+    // Launch the control UI after the machines are created so it can report their handles. In
+    // combined-BMC mode it shares the combined BMC listener. In per-IP mode it listens on the
+    // loopback address at the same port, independently of the per-machine BMC listeners.
+    let control_state = ControlState::new(
+        machine_handles.clone(),
+        MachineStatusConfig::new(bmc_mock_port),
+    );
+    let certs_dir = app_context
+        .bmc_mock_certs_dir
+        .as_ref()
+        .cloned()
+        .or_else(|| {
+            PathBuf::from(forge_root_ca_path.clone())
+                .parent()
+                .map(Path::to_path_buf)
+        });
+    let server_handles: (CombinedServer, Option<MockSshServerHandle>) =
         match &app_context.bmc_registration_mode {
             BmcRegistrationMode::BackingInstance(bmc_mock_registry) => {
-                let certs_dir = app_context
-                    .bmc_mock_certs_dir
-                    .as_ref()
-                    .cloned()
-                    .or_else(|| {
-                        PathBuf::from(forge_root_ca_path.clone())
-                            .parent()
-                            .map(Path::to_path_buf)
-                    });
-
-                let server_config = bmc_mock::tls::server_config(certs_dir)?;
-                let control_state = ControlState::new(
-                    machine_handles.clone(),
-                    MachineStatusConfig::new(bmc_mock_port),
-                );
+                let server_config = bmc_mock::tls::server_config(certs_dir.clone())?;
                 let bmc_router = bmc_mock::combined_router(bmc_mock_registry.clone());
-                let router = append_control_routes(bmc_router, control_state);
+                let router = append_control_routes(bmc_router, control_state.clone());
                 let bmc_https_mock = bmc_mock::CombinedServer::run_router(
                     "bmc-mock",
                     router,
@@ -255,11 +255,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     None
                 };
 
-                Some((bmc_https_mock, bmc_ssh_mock))
+                (bmc_https_mock, bmc_ssh_mock)
             }
             BmcRegistrationMode::None(_) => {
-                // Otherwise each mock machine runs its own listener
-                None
+                let server_config = bmc_mock::tls::server_config(certs_dir)?;
+                let router = append_control_routes(axum::Router::new(), control_state);
+                let control_server = bmc_mock::CombinedServer::run_router(
+                    "machine-a-tron-control",
+                    router,
+                    Some(ListenerOrAddress::Address(
+                        format!("127.0.0.1:{bmc_mock_port}").parse().unwrap(),
+                    )),
+                    server_config,
+                );
+                (control_server, None)
             }
         };
 
@@ -311,9 +320,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .ok();
     }
 
-    if let Some((mut bmc_mock_handle, _mock_ssh_server_handle)) = maybe_bmc_mock_handles {
-        bmc_mock_handle.stop().await?;
-    }
+    let (mut server_handle, _mock_ssh_server_handle) = server_handles;
+    server_handle.stop().await?;
     Ok(())
 }
 
