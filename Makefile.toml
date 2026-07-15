@@ -232,11 +232,15 @@ SCCACHE_HOST="${SCCACHE_DIR:-$HOME/.sccache}"
 mkdir -p "$SCCACHE_HOST"
 HOST_UID=$(id -u)
 HOST_GID=$(id -g)
-PKG_VERSION=$(git -C "${REPO_ROOT}" describe --tags --first-parent --always --long 2>/dev/null | sed 's/^v//')
-case "${PKG_VERSION}" in
-  [0-9]*) ;;
-  *) PKG_VERSION="0.0.0-${PKG_VERSION}" ;;
-esac
+if [ -n "$VERSION" ]; then
+  PKG_VERSION=$(echo "$VERSION" | sed 's/^v//')
+else
+  PKG_VERSION=$(git -C "${REPO_ROOT}" describe --tags --first-parent --always --long 2>/dev/null | sed 's/^v//')
+  case "${PKG_VERSION}" in
+    [0-9]*) ;;
+    *) PKG_VERSION="0.0.0-${PKG_VERSION}" ;;
+  esac
+fi
 docker run --rm \
   --privileged \
   -v "${REPO_ROOT}":/code \
@@ -247,6 +251,7 @@ docker run --rm \
   -e SCCACHE_DIR=/sccache \
   -e SA_ENABLEMENT=1 \
   -e PKG_VERSION="${PKG_VERSION}" \
+  -e VERSION="${VERSION}" \
   -e HOST_UID="${HOST_UID}" \
   -e HOST_GID="${HOST_GID}" \
   carbide-pxe-builder \
