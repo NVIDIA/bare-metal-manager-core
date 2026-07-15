@@ -53,27 +53,32 @@ pub fn start_scout_stream(machine_id: MachineId, options: &Options) -> tokio::ta
     tokio::spawn(async move {
         loop {
             tracing::info!(
-                "scout stream starting (api:{}, machine_id:{machine_id})",
-                options.api
+                api_endpoint = %options.api,
+                %machine_id,
+                "scout stream starting",
             );
 
             match run_scout_stream_loop(machine_id, &options).await {
                 Ok(_) => {
                     tracing::info!(
-                        "scout stream closed (api:{}, machine_id:{machine_id})",
-                        options.api
+                        api_endpoint = %options.api,
+                        %machine_id,
+                        "scout stream closed",
                     );
                 }
                 Err(e) => {
                     tracing::error!(
-                        "scout stream error (api:{}, machine_id:{machine_id}): {e}",
-                        options.api
+                        api_endpoint = %options.api,
+                        %machine_id,
+                        error = %e,
+                        "scout stream error",
                     );
                 }
             }
             tracing::warn!(
-                "scout stream reconnecting (api:{}, machine_id:{machine_id}): 10s delay",
-                options.api
+                api_endpoint = %options.api,
+                %machine_id,
+                "scout stream reconnecting after 10s delay",
             );
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
@@ -113,8 +118,9 @@ async fn run_scout_stream_loop(
     let mut response_stream = client.scout_stream(request_stream).await?.into_inner();
 
     tracing::info!(
-        "scout stream connection established (api:{}, machine_id:{machine_id})",
-        options.api
+        api_endpoint = %options.api,
+        %machine_id,
+        "scout stream connection established",
     );
 
     // ...and start processing streaming updates.
@@ -137,8 +143,10 @@ async fn run_scout_stream_loop(
             // And then send the response back to carbide-api.
             if let Err(e) = tx.send(payload).await {
                 tracing::error!(
-                    "scout stream failed to send response (api:{}, machine_id:{machine_id}): {e}",
-                    options.api
+                    api_endpoint = %options.api,
+                    %machine_id,
+                    error = %e,
+                    "scout stream failed to send response",
                 );
                 break;
             }
@@ -156,8 +164,8 @@ fn handle_scout_stream_api_bound_message(
     request: scout_stream_scout_bound_message::Payload,
 ) -> ScoutStreamApiBoundMessage {
     tracing::info!(
-        "[scout_stream] processing incoming request for flow_uuid: {}",
-        flow_uuid
+        %flow_uuid,
+        "[scout_stream] processing incoming request",
     );
     match request {
         scout_stream_scout_bound_message::Payload::ScoutStreamAgentPingRequest(req) => {

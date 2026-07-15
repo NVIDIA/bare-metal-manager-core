@@ -273,7 +273,11 @@ impl Collector for SubRegistry {
 impl Drop for CollectorRegistry {
     fn drop(&mut self) {
         if let Err(e) = self.parent.unregister(self.registry.clone()) {
-            tracing::error!(e=?e, "Could not properly drop registry for collector {}", self.prefix())
+            tracing::error!(
+                error = ?e,
+                collector_prefix = self.prefix().as_str(),
+                "Could not properly drop registry for collector"
+            )
         }
     }
 }
@@ -465,8 +469,8 @@ pub async fn run_metrics_server(
         .map_err(|e| Box::new(e) as BoxedErr)?;
 
     tracing::info!(
-        "Metrics server listening on {} (paths: /metrics, /telemetry, /livez)",
-        metrics_endpoint
+        %metrics_endpoint,
+        "Metrics server listening (paths: /metrics, /telemetry, /livez)"
     );
 
     loop {

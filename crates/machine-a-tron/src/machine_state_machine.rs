@@ -496,7 +496,7 @@ impl MachineStateMachine {
     fn fsm_event(&mut self, event: Event) {
         let old_state = self.fsm;
         let (new_state, actions) = self.fsm.event(event);
-        tracing::info!(?old_state, ?event, ?new_state, ?actions, "machine FSM step");
+        tracing::info!(previous_state = ?old_state, ?event, next_state = ?new_state, ?actions, "machine FSM step");
         actions
             .into_iter()
             .for_each(|action| self.actions.push_back(action));
@@ -525,15 +525,16 @@ impl MachineStateMachine {
         .await
         .inspect(|_| {
             tracing::debug!(
-                "BMC DHCP Request for {} took {}ms",
-                self.machine_info.bmc_mac_address(),
-                start.elapsed().as_millis()
+                bmc_mac_address = %self.machine_info.bmc_mac_address(),
+                elapsed_milliseconds = start.elapsed().as_millis(),
+                "BMC DHCP request completed",
             );
         })
         .inspect_err(|err| {
             tracing::warn!(
-                "BMC DHCP Request failed after {}ms: {err}",
-                start.elapsed().as_millis()
+                elapsed_milliseconds = start.elapsed().as_millis(),
+                error = %err,
+                "BMC DHCP request failed",
             );
         })
     }
@@ -551,11 +552,11 @@ impl MachineStateMachine {
         let machine_dhcp_info_result = if let Some(DpuDhcpRelay::HostEnd(relay_tx)) =
             &self.dpu_dhcp_relay
         {
-            tracing::debug!(%primary_mac, "requesting machine DHCP through DPU relay");
+            tracing::debug!(primary_mac_address = %primary_mac, "requesting machine DHCP through DPU relay");
             let (reply_tx, reply_rx) = oneshot::channel();
             if relay_tx.send(reply_tx).is_err() {
                 tracing::warn!(
-                    %primary_mac,
+                    primary_mac_address = %primary_mac,
                     "DPU DHCP relay request channel is closed; retrying after relay state reconciliation"
                 );
                 return Err(MachineStateError::DpuDhcpRelayUnavailable);
@@ -566,15 +567,15 @@ impl MachineStateMachine {
                 Ok(Ok(result)) => result,
                 Ok(Err(_)) => {
                     tracing::warn!(
-                        %primary_mac,
+                        primary_mac_address = %primary_mac,
                         "DPU DHCP relay response was canceled; retrying after relay state reconciliation"
                     );
                     return Err(MachineStateError::DpuDhcpRelayUnavailable);
                 }
                 Err(_) => {
                     tracing::warn!(
-                        %primary_mac,
-                        timeout_ms = DPU_DHCP_RELAY_TIMEOUT.as_millis(),
+                        primary_mac_address = %primary_mac,
+                        timeout_milliseconds = DPU_DHCP_RELAY_TIMEOUT.as_millis(),
                         "DPU DHCP relay response timed out; retrying after relay state reconciliation"
                     );
                     return Err(MachineStateError::DpuDhcpRelayUnavailable);
@@ -587,7 +588,7 @@ impl MachineStateMachine {
                 self.config.host_inband_dhcp_relay_address,
             );
             tracing::debug!(
-                %primary_mac,
+                primary_mac_address = %primary_mac,
                 %direct_relay_address,
                 "requesting machine DHCP directly"
             );
@@ -604,16 +605,17 @@ impl MachineStateMachine {
         machine_dhcp_info_result
             .inspect(|_| {
                 tracing::debug!(
-                    %primary_mac,
-                    elapsed_ms = start.elapsed().as_millis(),
+                    primary_mac_address = %primary_mac,
+                    elapsed_milliseconds = start.elapsed().as_millis(),
                     "machine DHCP request completed"
                 );
             })
             .map_err(|err| {
                 tracing::debug!(
-                    %primary_mac,
-                    elapsed_ms = start.elapsed().as_millis(),
-                    "machine DHCP request failed: {err}"
+                    primary_mac_address = %primary_mac,
+                    elapsed_milliseconds = start.elapsed().as_millis(),
+                    error = %err,
+                    "machine DHCP request failed"
                 );
                 err.into()
             })
@@ -730,9 +732,9 @@ impl MachineStateMachine {
             return Err(MachineStateError::MachineNotFound(machine_id));
         };
         tracing::trace!(
-            "get action took {}ms; action={:?}",
-            start.elapsed().as_millis(),
-            control_response.action,
+            elapsed_milliseconds = start.elapsed().as_millis(),
+            action = ?control_response.action,
+            "forge_agent_control action received",
         );
 
         match &control_response.action {
@@ -758,9 +760,9 @@ impl MachineStateMachine {
             Some(Action::Noop(_)) => {}
             _ => {
                 tracing::warn!(
-                    "Unknown action from forge_agent_control: {:?} for OS image {}",
-                    control_response.action,
-                    os_image,
+                    action = ?control_response.action,
+                    os_image = %os_image,
+                    "Unknown forge_agent_control action for OS image",
                 );
             }
         }
@@ -901,7 +903,10 @@ impl MachineStateMachine {
             )
             .await?;
 
-        tracing::trace!("discover_machine took {}ms", start.elapsed().as_millis());
+        tracing::trace!(
+            elapsed_milliseconds = start.elapsed().as_millis(),
+            "discover_machine completed",
+        );
         Ok(machine_discovery_result)
     }
 
@@ -998,7 +1003,7 @@ impl MachineStateMachine {
             GracefulShutdown | ForceOff => self.fsm_event(Event::PowerOff),
             PushPowerButton | Nmi | Suspend | Pause | Resume => {
                 let msg = format!("Machine-a-tron mock: unsupported power request {request:?}",);
-                tracing::warn!("{msg}");
+                tracing::warn!(?request, "unsupported machine-a-tron mock power request",);
                 return Err(SetSystemPowerError::BadRequest(msg));
             }
         };
@@ -1080,7 +1085,10 @@ impl MachineStateMachine {
             .discovery_completed(*machine_id)
             .await
             .map_err(ClientApiError::InvocationError)?;
-        tracing::trace!("discovery_complete took {}ms", start.elapsed().as_millis());
+        tracing::trace!(
+            elapsed_milliseconds = start.elapsed().as_millis(),
+            "discovery_complete completed",
+        );
         Ok(())
     }
 

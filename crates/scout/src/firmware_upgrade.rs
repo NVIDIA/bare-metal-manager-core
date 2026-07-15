@@ -62,9 +62,9 @@ async fn run_firmware_upgrade(
     task: &FirmwareUpgradeTask,
 ) -> Result<FirmwareUpgradeResult, Box<dyn std::error::Error>> {
     tracing::info!(
-        "[firmware_upgrade] starting for component={} version={}",
-        task.component_type,
-        task.target_version,
+        component_type = %task.component_type,
+        target_version = %task.target_version,
+        "[firmware_upgrade] starting",
     );
 
     let work_dir = tempfile::tempdir()?;
@@ -96,8 +96,8 @@ async fn run_firmware_upgrade(
         .into());
     }
     tracing::info!(
-        "[firmware_upgrade] script downloaded and verified: {:?}",
-        script_path
+        script_path = ?script_path,
+        "[firmware_upgrade] script downloaded and verified",
     );
 
     // Download file artifacts and verify checksums.
@@ -124,13 +124,16 @@ async fn run_firmware_upgrade(
             )
             .into());
         }
-        tracing::info!("[firmware_upgrade] checksum verified for {}", artifact.url);
+        tracing::info!(
+            artifact_url = %artifact.url,
+            "[firmware_upgrade] checksum verified",
+        );
         downloaded_artifacts.push(dest);
     }
 
     tracing::info!(
-        "[firmware_upgrade] files downloaded. Executing script {:?}",
-        script_path,
+        script_path = ?script_path,
+        "[firmware_upgrade] files downloaded; executing script",
     );
 
     // Execute the script with env vars for context.
@@ -204,8 +207,11 @@ async fn download_file_with_retries(
         .on_retry(|attempt, next_delay, error| {
             let delay = next_delay.unwrap_or_default();
             tracing::warn!(
-                "[firmware_upgrade] download attempt {attempt} failed for {}: {error}, retrying in {delay:?}",
-                url_owned
+                attempt,
+                url = %url_owned,
+                error = %error,
+                retry_delay_seconds = delay.as_secs_f64(),
+                "[firmware_upgrade] download attempt failed; retrying",
             );
             std::future::ready(())
         })
@@ -233,7 +239,11 @@ async fn download_file(
 
     let dest = target_dir.join(filename);
 
-    tracing::info!("[firmware_upgrade] downloading {url} -> {dest:?}");
+    tracing::info!(
+        url,
+        destination = ?dest,
+        "[firmware_upgrade] downloading",
+    );
 
     let response = client.get(url).send().await?.error_for_status()?;
     let mut stream = response.bytes_stream();

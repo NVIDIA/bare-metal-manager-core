@@ -534,7 +534,12 @@ impl From<DatabaseError> for tonic::Status {
             if f.len() == 2 {
                 let handler = f[0].trim();
                 let location = f[1].trim().replace("at ", "");
-                tracing::error!("{from} location={location} handler='{handler}'");
+                tracing::error!(
+                    error = %from,
+                    error_location = %location,
+                    handler,
+                    "database error conversion",
+                );
                 true
             } else {
                 false
@@ -546,7 +551,7 @@ impl From<DatabaseError> for tonic::Status {
         if !printed {
             match from {
                 DatabaseError::NotImplemented => {}
-                _ => tracing::error!("{from}"),
+                _ => tracing::error!(error = %from, "database error conversion"),
             }
         }
 

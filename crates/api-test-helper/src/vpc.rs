@@ -31,7 +31,10 @@ pub async fn create(carbide_api_addrs: &[SocketAddr], tenant_org_id: &str) -> ey
         "tenantOrganizationId": tenant_org_id,
     });
     let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
-    tracing::info!("VPC created with ID {vpc_id}");
+    tracing::info!(
+        vpc_id = %vpc_id,
+        "VPC created",
+    );
     Ok(vpc_id)
 }
 
@@ -48,7 +51,10 @@ pub async fn create_fnn(
         "network_virtualization_type": 5, // FNN
     });
     let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
-    tracing::info!("FNN VPC created with ID {vpc_id}");
+    tracing::info!(
+        vpc_id = %vpc_id,
+        "FNN VPC created",
+    );
     Ok(vpc_id)
 }
 
@@ -66,6 +72,9 @@ pub async fn create_flat(
         "network_virtualization_type": 6, // FLAT
     });
     let vpc_id = grpcurl_id(carbide_api_addrs, "CreateVpc", &data.to_string()).await?;
-    tracing::info!("Flat VPC created with ID {vpc_id}");
+    tracing::info!(
+        vpc_id = %vpc_id,
+        "Flat VPC created",
+    );
     Ok(vpc_id)
 }

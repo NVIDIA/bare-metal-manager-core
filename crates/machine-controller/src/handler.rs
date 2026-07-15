@@ -740,12 +740,11 @@ impl MachineStateHandler {
             && let Some((machine_id, details)) = get_failed_state(mh_snapshot)
         {
             tracing::error!(
-                %machine_id,
-                "ManagedHost {}/{} (failed machine: {}) is moved to Failed state with cause: {:?}",
-                mh_snapshot.host_snapshot.id,
-                get_display_ids(&mh_snapshot.dpu_snapshots),
-                machine_id,
-                details
+                machine_id = %mh_snapshot.host_snapshot.id,
+                dpu_machine_ids = %get_display_ids(&mh_snapshot.dpu_snapshots),
+                failed_machine_id = %machine_id,
+                failure_details = ?details,
+                "ManagedHost is moved to Failed state"
             );
             let next_state = match mh_state {
                 ManagedHostState::Assigned { .. } => ManagedHostState::Assigned {
@@ -981,9 +980,9 @@ impl MachineStateHandler {
                     && mh_snapshot.host_snapshot.bios_password_set_time.is_none()
                 {
                     tracing::info!(
-                        "transitioning legacy {} host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured",
-                        mh_snapshot.host_snapshot.bmc_vendor(),
-                        mh_snapshot.host_snapshot.id
+                        vendor = %mh_snapshot.host_snapshot.bmc_vendor(),
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "transitioning legacy host to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured"
                     );
                     return Ok(StateHandlerOutcome::transition(
                         ManagedHostState::HostInit {
@@ -1483,12 +1482,11 @@ impl MachineStateHandler {
                         // Do nothing.
                         // Handle error cause and decide how to recover if possible.
                         tracing::error!(
-                            %machine_id,
-                            "ManagedHost {} is in Failed state with machine/cause {}/{}. Failed at: {}, Ignoring.",
-                            host_machine_id,
-                            machine_id,
-                            details.cause,
-                            details.failed_at,
+                            machine_id = %host_machine_id,
+                            failed_machine_id = %machine_id,
+                            failure_cause = %details.cause,
+                            failed_at = %details.failed_at,
+                            "ManagedHost is in Failed state. Ignoring.",
                         );
                         // TODO: Should this be StateHandlerError::ManualInterventionRequired ?
                         Ok(StateHandlerOutcome::do_nothing())
@@ -1779,7 +1777,11 @@ impl MachineStateHandler {
         if let Err(err) =
             handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart).await
         {
-            tracing::error!(%host_machine_id, "Host reboot failed with error: {err}");
+            tracing::error!(
+                machine_id = %host_machine_id,
+                error = %err,
+                "Host reboot failed"
+            );
         }
         set_managed_host_topology_update_needed(
             ctx.pending_db_writes,
@@ -2043,7 +2045,10 @@ async fn handle_restart_verification(
                     verified: Some(true),
                     attempts: 0,
                 });
-            tracing::info!("Restart verified for host {}", mh_snapshot.host_snapshot.id);
+            tracing::info!(
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "Restart verified for host"
+            );
             return Ok(None);
         }
 
@@ -2062,9 +2067,9 @@ async fn handle_restart_verification(
                 });
 
             tracing::info!(
-                "Issued force-restart for host {} after {} failed verifications",
-                mh_snapshot.host_snapshot.id,
-                verification_attempts
+                machine_id = %mh_snapshot.host_snapshot.id,
+                verification_attempt_count = verification_attempts,
+                "Issued force-restart for host after failed verifications"
             );
             return Ok(None);
         }
@@ -2148,7 +2153,7 @@ async fn handle_restart_verification(
                         verified: Some(true),
                         attempts: 0,
                     });
-                tracing::info!("Restart verified for DPU {}", dpu.id);
+                tracing::info!(machine_id = %dpu.id, "Restart verified for DPU");
             } else if verification_attempts >= MAX_VERIFICATION_ATTEMPTS {
                 dpu_redfish_client
                     .power(SystemPowerControl::ForceRestart)
@@ -2164,9 +2169,9 @@ async fn handle_restart_verification(
                     });
 
                 tracing::info!(
-                    "Issued force-restart for DPU {} after {} failed verifications",
-                    dpu.id,
-                    verification_attempts
+                    machine_id = %dpu.id,
+                    verification_attempt_count = verification_attempts,
+                    "Issued force-restart for DPU after failed verifications"
                 );
             } else {
                 ctx.pending_db_writes
@@ -2216,7 +2221,7 @@ pub async fn check_restart_in_logs(
     let logs = redfish_client.get_bmc_event_log(Some(restart_time)).await?;
 
     for log in &logs {
-        tracing::debug!("BMC log message: {}", log.message);
+        tracing::debug!(bmc_message = %log.message, "BMC log message");
     }
 
     let restart_found = logs.iter().any(|log| {
@@ -2280,7 +2285,11 @@ async fn are_dpus_up_trigger_reboot_if_needed(
                 .await
             {
                 Ok(_) => {}
-                Err(e) => tracing::warn!("could not reboot dpu {}: {e}", dpu_snapshot.id),
+                Err(e) => tracing::warn!(
+                    machine_id = %dpu_snapshot.id,
+                    error = %e,
+                    "could not reboot dpu"
+                ),
             }
             return false;
         }
@@ -2313,7 +2322,7 @@ impl StateHandler for MachineStateHandler {
             .is_empty()
             && mh_snapshot.dpu_snapshots.is_empty()
         {
-            tracing::error!("No DPU snapshot found for host {}", host_machine_id);
+            tracing::error!(machine_id = %host_machine_id, "No DPU snapshot found for host");
             return Err(StateHandlerError::GenericError(eyre!(
                 "No DPU snapshot found."
             )));
@@ -2522,9 +2531,9 @@ async fn handle_bfb_install_state(
                 .await
                 .map_err(|e| redfish_error("update_firmware_simple_update", e))?;
             tracing::info!(
-                "DPU {} OS install task {} submitted.",
-                dpu_snapshot.id,
-                task.id
+                dpu_machine_id = %dpu_snapshot.id,
+                task_id = %task.id,
+                "DPU OS install task submitted."
             );
             Ok(StateHandlerOutcome::transition(
                 next_state_resolver.next_bfb_install_state(
@@ -2545,15 +2554,20 @@ async fn handle_bfb_install_state(
                 .map_err(|e| redfish_error("get_task", e))?;
 
             tracing::info!(
-                "DPU {} OS install task {}: {:#?}",
-                dpu_snapshot.id,
-                task.id,
-                task.task_state
+                dpu_machine_id = %dpu_snapshot.id,
+                task_id = %task.id,
+                task_state = ?task.task_state,
+                "DPU OS install task"
             );
 
             match task.task_state {
                 Some(TaskState::Completed) => {
-                    tracing::info!("Install BFB on {:#?} completed", dpu_snapshot.bmc_addr());
+                    tracing::info!(
+                        dpu_machine_id = %dpu_snapshot.id,
+                        task_id = %task_id,
+                        bmc_address = ?dpu_snapshot.bmc_addr(),
+                        "Install BFB completed"
+                    );
                     let next_state = next_state_resolver.next_bfb_install_state(
                         &state.managed_state,
                         &InstallDpuOsState::Completed,
@@ -2568,7 +2582,12 @@ async fn handle_bfb_install_state(
                         dpu_snapshot.bmc_addr(),
                         task.messages.iter().map(|t| t.message.clone()).join("\n")
                     );
-                    tracing::error!(msg);
+                    tracing::error!(
+                        dpu_machine_id = %dpu_snapshot.id,
+                        %task_id,
+                        reason = %msg,
+                        "BFB install task failed",
+                    );
                     let next_state = next_state_resolver.next_bfb_install_state(
                         &state.managed_state,
                         &InstallDpuOsState::InstallationError { msg },
@@ -2593,7 +2612,13 @@ async fn handle_bfb_install_state(
                         task_state,
                         task.messages.iter().map(|t| t.message.clone()).join("\n")
                     );
-                    tracing::error!(msg);
+                    tracing::error!(
+                        dpu_machine_id = %dpu_snapshot.id,
+                        %task_id,
+                        task_state = ?task_state,
+                        reason = %msg,
+                        "BFB install task failed",
+                    );
                     let next_state = next_state_resolver.next_bfb_install_state(
                         &state.managed_state,
                         &InstallDpuOsState::InstallationError { msg },
@@ -2881,8 +2906,9 @@ async fn handle_dpu_reprovision(
             // Host is not powered-off yet. Try again.
             if power_state != libredfish::PowerState::Off {
                 tracing::error!(
-                    "Machine {} is still not power-off state. Turning off for host again.",
-                    state.host_snapshot.id
+                    machine_id = %state.host_snapshot.id,
+                    %power_state,
+                    "Host is still not powered off; forcing power off again"
                 );
                 handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
 
@@ -2958,7 +2984,7 @@ async fn handle_dpu_reprovision(
             for dsnapshot in &state.dpu_snapshots {
                 if !is_dpu_up(state, dsnapshot) {
                     let msg = format!("Waiting for DPU {} to come up", dsnapshot.id);
-                    tracing::warn!("{msg}");
+                    tracing::warn!(machine_id = %dsnapshot.id, "Waiting for DPU to come up");
 
                     let mut reboot_status = None;
                     // Only the DPU handled by this invocation should trigger its
@@ -2985,7 +3011,10 @@ async fn handle_dpu_reprovision(
                     dsnapshot,
                     state.host_snapshot.network_config.version,
                 ) {
-                    tracing::warn!("Waiting for network to be ready for DPU {}", dsnapshot.id);
+                    tracing::warn!(
+                        machine_id = %dsnapshot.id,
+                        "Waiting for network to be ready for DPU"
+                    );
 
                     // The install path already requested a DPU reboot. If this
                     // specific DPU remains unsynced, let trigger_reboot_if_needed
@@ -3240,8 +3269,8 @@ async fn handle_dpu_reprovision(
             // At this point, all of the host's DPU have finished the NIC FW Update, been power cycled, and the ARM has come up on the DPU.
             if state.host_snapshot.bmc_vendor().is_lenovo() {
                 tracing::info!(
-                    "Initiating BMC reset of lenovo machine {}",
-                    state.host_snapshot.id
+                    machine_id = %state.host_snapshot.id,
+                    "Initiating BMC reset of lenovo machine"
                 );
 
                 let redfish_client = ctx
@@ -3251,8 +3280,9 @@ async fn handle_dpu_reprovision(
 
                 if let Err(redfish_error) = redfish_client.bmc_reset().await {
                     tracing::warn!(
-                        "Failed to reboot BMC for {} through redfish, will try ipmitool: {redfish_error}",
-                        &state.host_snapshot.id
+                        machine_id = %state.host_snapshot.id,
+                        error = %redfish_error,
+                        "Failed to reboot BMC through redfish, will try ipmitool"
                     );
 
                     let bmc_mac_address = state.host_snapshot.bmc_info.mac.ok_or_else(|| {
@@ -3281,8 +3311,9 @@ async fn handle_dpu_reprovision(
                         .await
                     {
                         tracing::warn!(
-                            "Failed to reset BMC for {} through IPMI tool: {ipmitool_error}",
-                            &state.host_snapshot.id
+                            machine_id = %state.host_snapshot.id,
+                            error = %ipmitool_error,
+                            "Failed to reset BMC through IPMI tool"
                         );
 
                         return Err(StateHandlerError::GenericError(eyre!(
@@ -3583,14 +3614,22 @@ async fn check_fw_component_version(
         let inventory = match redfish_client.get_firmware(inventory_id).await {
             Ok(inventory) => inventory,
             Err(e) => {
-                tracing::error!(machine_id=%dpu_snapshot.id, "redfish command get_firmware error {}", e.to_string());
+                tracing::error!(
+                    machine_id = %dpu_snapshot.id,
+                    error = %e,
+                    "redfish command get_firmware error"
+                );
                 return Err(redfish_error("get_firmware", e));
             }
         };
 
         if inventory.version.is_none() {
             let msg = format!("Unknown {component_name:?} version");
-            tracing::error!(machine_id=%dpu_snapshot.id, msg);
+            tracing::error!(
+                machine_id = %dpu_snapshot.id,
+                component = ?component_name,
+                "Unknown firmware version",
+            );
             return Err(StateHandlerError::FirmwareUpdateError(eyre!(msg)));
         };
 
@@ -3621,20 +3660,20 @@ async fn check_fw_component_version(
             {
                 // For this case need to run host power cycle
                 tracing::info!(
-                    machine_id=%dpu_snapshot.id,
-                    "Need to launch host power cycle to update CEC FW from {} to {}",
-                    cur_version,
-                    expected_version
+                    machine_id = %dpu_snapshot.id,
+                    current_version = %cur_version,
+                    expected_version = %expected_version,
+                    "Need to launch host power cycle to update CEC FW"
                 );
                 return Ok(None);
             }
 
             tracing::debug!(
-                machine_id=%dpu_snapshot.id,
-                "{:#?} FW not yet at the expected version. Expected: {}, Current: {}",
-                component,
-                expected_version,
-                cur_version,
+                machine_id = %dpu_snapshot.id,
+                component = ?component,
+                expected_version = %expected_version,
+                current_version = %cur_version,
+                "FW not yet at the expected version",
             );
 
             // Don't return Error. In case of the error, reboot time won't be updated in db.
@@ -3647,10 +3686,10 @@ async fn check_fw_component_version(
         }
 
         tracing::info!(
-            machine_id=%dpu_snapshot.id,
-            "{:#?} FW updated successfully to {}",
-            component,
-            expected_version,
+            machine_id = %dpu_snapshot.id,
+            component = ?component,
+            expected_version = %expected_version,
+            "FW updated successfully",
         );
 
         // BMC FW version need to update in machine_topology->bmc_info
@@ -3665,8 +3704,11 @@ async fn check_fw_component_version(
                 .get_firmware("DPU_UEFI")
                 .await
                 .inspect_err(|e| {
-                    tracing::error!("redfish command get_firmware error {}", e.to_string());
-                    tracing::error!(machine_id=%dpu_snapshot.id, "redfish command get_firmware error {}", e.to_string());
+                    tracing::error!(
+                        machine_id = %dpu_snapshot.id,
+                        error = %e,
+                        "redfish command get_firmware error"
+                    );
                 })
                 .ok()
                 .and_then(|uefi| uefi.version)
@@ -3841,10 +3883,17 @@ impl DpuMachineStateHandler {
                 Ok(StateHandlerOutcome::transition(next_state))
             }
             DpuDiscoveringState::EnableRshim => {
-                let _ = dpu_redfish_client
+                dpu_redfish_client
                     .enable_rshim_bmc()
                     .await
-                    .map_err(|e| tracing::info!("failed to enable rshim on DPU {e}"));
+                    .inspect_err(|e| {
+                        tracing::info!(
+                            dpu_machine_id = %dpu_machine_id,
+                            error = %e,
+                            "failed to enable rshim on DPU"
+                        )
+                    })
+                    .ok();
 
                 let next_dpu_discovering_state =
                     DpuDiscoveringState::next_substate_based_on_bfb_support(
@@ -3854,13 +3903,14 @@ impl DpuMachineStateHandler {
                     );
 
                 tracing::info!(
-                    "DPU {dpu_machine_id} (BMC FW version: {}); next_state: {}.",
-                    dpu_snapshot
+                    dpu_machine_id = %dpu_machine_id,
+                    bmc_firmware_version = %dpu_snapshot
                         .bmc_info
                         .firmware_version
                         .clone()
                         .unwrap_or("unknown".to_string()),
-                    next_dpu_discovering_state
+                    next_state = %next_dpu_discovering_state,
+                    "DPU discovery state selected."
                 );
 
                 let next_state =
@@ -4004,8 +4054,8 @@ impl DpuMachineStateHandler {
                 }
 
                 tracing::debug!(
-                    "ManagedHostState::DPUNotReady::Init: firmware update enabled = {}",
-                    self.dpu_nic_firmware_initial_update_enabled
+                    firmware_update_enabled = self.dpu_nic_firmware_initial_update_enabled,
+                    "ManagedHostState::DPUNotReady::Init"
                 );
 
                 // All DPUs are discovered. Reboot them to proceed.
@@ -4101,7 +4151,11 @@ impl DpuMachineStateHandler {
                             "failed to create redfish client for DPU {}, potentially because we turned the host off as part of error handling in this state. err: {}",
                             dpu_snapshot.id, e
                         );
-                        tracing::warn!(msg);
+                        tracing::warn!(
+                            machine_id = %dpu_snapshot.id,
+                            error = %e,
+                            "failed to create redfish client for DPU, potentially because we turned the host off as part of error handling in this state",
+                        );
                         // If we cannot create a redfish client for the DPU, this function call will never result in an actual DPU reboot.
                         // The only side effect is turning the DPU's host back on if we turned it off earlier.
                         let reboot_status = trigger_reboot_if_needed(
@@ -4157,7 +4211,11 @@ impl DpuMachineStateHandler {
                         "redfish machine_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}",
                         dpu_snapshot.id, e
                     );
-                    tracing::warn!(msg);
+                    tracing::warn!(
+                        machine_id = %dpu_snapshot.id,
+                        error = %e,
+                        "redfish machine_setup failed for DPU, potentially due to known race condition between UEFI POST and BMC; issuing a force-restart",
+                    );
                     let reboot_status = trigger_reboot_if_needed(
                         dpu_snapshot,
                         state,
@@ -4189,7 +4247,11 @@ impl DpuMachineStateHandler {
                         "Failed to run uefi_setup call failed for DPU {}: {}",
                         dpu_snapshot.id, e
                     );
-                    tracing::warn!(msg);
+                    tracing::warn!(
+                        machine_id = %dpu_snapshot.id,
+                        error = %e,
+                        "Failed to run uefi_setup for DPU",
+                    );
                     let reboot_status = trigger_reboot_if_needed(
                         dpu_snapshot,
                         state,
@@ -4263,8 +4325,8 @@ impl DpuMachineStateHandler {
                 match dpu_redfish_client.is_bios_setup(None).await {
                     Ok(true) => {
                         tracing::info!(
-                            dpu_id = %dpu_snapshot.id,
-                            "BIOS setup verified successfully for DPU"
+                            dpu_machine_id = %dpu_snapshot.id,
+                            "BIOS setup verified"
                         );
                         Ok(StateHandlerOutcome::transition(next_state))
                     }
@@ -4279,7 +4341,11 @@ impl DpuMachineStateHandler {
                             "DPU {} BIOS attributes not ready ({e}); issuing a force-restart to mitigate the known UEFI POST/BMC race",
                             dpu_snapshot.id
                         );
-                        tracing::warn!("{msg}");
+                        tracing::warn!(
+                            machine_id = %dpu_snapshot.id,
+                            error = %e,
+                            "DPU BIOS attributes not ready; issuing a force-restart to mitigate the known UEFI POST/BMC race",
+                        );
                         let reboot_status = trigger_reboot_if_needed(
                             dpu_snapshot,
                             state,
@@ -4296,7 +4362,7 @@ impl DpuMachineStateHandler {
                     }
                     Err(e) => {
                         tracing::warn!(
-                            dpu_id = %dpu_snapshot.id,
+                            dpu_machine_id = %dpu_snapshot.id,
                             error = %e,
                             "Failed to check DPU BIOS setup status, will retry"
                         );
@@ -4349,8 +4415,8 @@ impl DpuMachineStateHandler {
             }
             DpuInitState::WaitingForNetworkInstall => {
                 tracing::warn!(
-                    "Invalid State WaitingForNetworkInstall for dpu Machine {}",
-                    dpu_machine_id
+                    machine_id = %dpu_machine_id,
+                    "Invalid State WaitingForNetworkInstall for dpu Machine"
                 );
                 Err(StateHandlerError::InvalidHostState(
                     *dpu_machine_id,
@@ -4388,8 +4454,10 @@ impl DpuMachineStateHandler {
 
             if count > 0 && !has_dpu_finished_booting {
                 tracing::info!(
-                    "Waiting for DPU {} to finish booting; boot progress: {dpu_boot_progress:#?}; SetSecureBoot cycle: {count}",
-                    dpu_snapshot.id
+                    machine_id = %dpu_snapshot.id,
+                    boot_progress = ?dpu_boot_progress,
+                    attempt = count,
+                    "Waiting for DPU to finish booting; SetSecureBoot cycle"
                 )
             }
 
@@ -4511,9 +4579,9 @@ impl DpuMachineStateHandler {
                     }
                     Err(StateHandlerError::MissingData { object_id, missing }) => {
                         tracing::info!(
-                            "Missing data in secure boot status response for DPU {}: {}; rebooting DPU as a work-around",
-                            object_id,
-                            missing
+                            machine_id = %object_id,
+                            missing = %missing,
+                            "Missing data in secure boot status response for DPU; rebooting DPU as a work-around"
                         );
 
                         /***
@@ -4891,9 +4959,9 @@ pub async fn trigger_reboot_if_needed_with_location(
     if let MachineLastRebootRequestedMode::PowerOff = last_reboot_requested.mode {
         // PowerOn the host.
         tracing::info!(
-            "Machine {} is in power-off state. Turning on for host: {}",
-            target.id,
-            host.id,
+            machine_id = %target.id,
+            host_machine_id = %host.id,
+            "Machine is in power-off state. Turning on for host",
         );
 
         if wait(
@@ -4922,14 +4990,18 @@ pub async fn trigger_reboot_if_needed_with_location(
             SystemPowerControl::On
         } else {
             tracing::error!(
-                "Machine {} is still not power-off state. Turning off again for host: {}",
-                target.id,
-                host.id,
+                machine_id = %target.id,
+                host_machine_id = %host.id,
+                "Machine is still not power-off state. Turning off again for host",
             );
             SystemPowerControl::ForceOff
         };
 
-        tracing::trace!(machine_id=%target.id, "Redfish setting host power state to {action}");
+        tracing::trace!(
+            machine_id = %target.id,
+            %action,
+            "Redfish setting host power state"
+        );
         handler_host_power_control_with_location(state, ctx, action, trigger_location).await?;
         return Ok(RebootStatus {
             increase_retry_count: false,
@@ -4940,8 +5012,8 @@ pub async fn trigger_reboot_if_needed_with_location(
     // Check if reboot is prevented by health override.
     if state.aggregate_health.is_reboot_blocked_in_state_machine() {
         tracing::info!(
-            "Not trying to reboot {} since health override is set to prevent reboot.",
-            target.id,
+            machine_id = %target.id,
+            "Not trying to reboot since health override is set to prevent reboot.",
         );
         return Ok(RebootStatus {
             increase_retry_count: false,
@@ -5044,10 +5116,11 @@ pub async fn trigger_reboot_if_needed_with_location(
                 )
             };
 
-            tracing::info!(machine_id=%target.id,
-                "triggered reboot for machine in managed-host state {}: {}",
-                state.managed_state,
-                status,
+            tracing::info!(
+                machine_id = %target.id,
+                managed_host_state = %state.managed_state,
+                reboot_status = %status,
+                "Triggered reboot in managed-host state",
             );
 
             Ok(RebootStatus {
@@ -5408,7 +5481,12 @@ async fn handle_host_uefi_setup(
 
                     // For all other vendors, allow ingestion even though we couldnt set the bios password
                     // An operator will have to set the bios password manually
-                    tracing::info!(msg);
+                    tracing::info!(
+                        machine_id = %state.host_snapshot.id,
+                        bmc_vendor = %state.host_snapshot.bmc_vendor(),
+                        error = %e,
+                        "failed to set the BIOS password",
+                    );
 
                     Ok(StateHandlerOutcome::transition(
                         ManagedHostState::HostInit {
@@ -5597,12 +5675,15 @@ impl StateHandler for HostMachineStateHandler {
                     match redfish_client.lockdown_status().await {
                         Err(libredfish::RedfishError::NotSupported(_)) => {
                             tracing::info!(
-                                "BMC vendor does not support checking lockdown status for {host_machine_id}."
+                                machine_id = %host_machine_id,
+                                "BMC vendor does not support checking lockdown status."
                             );
                         }
                         Err(e) => {
                             tracing::warn!(
-                                "Error fetching lockdown status for {host_machine_id} during machine_setup check: {e}"
+                                machine_id = %host_machine_id,
+                                error = %e,
+                                "Error fetching lockdown status during machine_setup check"
                             );
                             return Ok(StateHandlerOutcome::wait(format!(
                                 "Failed to fetch lockdown status: {}",
@@ -5611,7 +5692,8 @@ impl StateHandler for HostMachineStateHandler {
                         }
                         Ok(lockdown_status) if !lockdown_status.is_fully_disabled() => {
                             tracing::info!(
-                                "Lockdown is enabled for {host_machine_id} during machine_setup, disabling now."
+                                machine_id = %host_machine_id,
+                                "Lockdown is enabled during machine_setup, disabling now."
                             );
                             let next_state = ManagedHostState::HostInit {
                                 machine_state: MachineState::WaitingForLockdown {
@@ -5788,10 +5870,9 @@ impl StateHandler for HostMachineStateHandler {
                     ) {
                         tracing::trace!(
                             machine_id = %host_machine_id,
-                            "Waiting for forge-scout to report host online. \
-                                         Host last seen {:?}, must come after DPU's {}",
-                            mh_snapshot.host_snapshot.last_discovery_time,
-                            mh_snapshot.host_snapshot.state.version.timestamp()
+                            host_last_seen = ?mh_snapshot.host_snapshot.last_discovery_time,
+                            minimum_discovery_time = %mh_snapshot.host_snapshot.state.version.timestamp(),
+                            "Waiting for forge-scout to report host online; host discovery predates the current state transition"
                         );
                         let status = trigger_reboot_if_needed(
                             &mh_snapshot.host_snapshot,
@@ -6023,7 +6104,8 @@ impl StateHandler for HostMachineStateHandler {
                                 }
                                 Err(libredfish::RedfishError::NotSupported(_)) => {
                                     tracing::info!(
-                                        "BMC vendor does not support checking lockdown status for {host_machine_id}."
+                                        machine_id = %host_machine_id,
+                                        "BMC vendor does not support checking lockdown status."
                                     );
                                     Ok(StateHandlerOutcome::transition(next_state))
                                 }
@@ -6849,7 +6931,7 @@ impl StateHandler for InstanceStateHandler {
                                 instance_id = %instance.id,
                                 machine_id = %host_machine_id,
                                 guids = ?guids,
-                                details = %details,
+                                reason = %details,
                                 "IB ports not observable during termination - IB Monitor will unbind"
                             );
 
@@ -6994,11 +7076,11 @@ impl StateHandler for InstanceStateHandler {
                         // 2. If failed during reprovision, fix the config/hw issue and
                         //    retrigger DPU reprovision.
                         tracing::warn!(
-                            "Instance id {}/machine: {} stuck in failed state. details: {:?}, failed machine: {}",
-                            instance.id,
-                            host_machine_id,
-                            details,
-                            machine_id
+                            instance_id = %instance.id,
+                            machine_id = %host_machine_id,
+                            failure_details = ?details,
+                            failed_machine_id = %machine_id,
+                            "Instance machine stuck in failed state"
                         );
                         Ok(StateHandlerOutcome::do_nothing())
                     }
@@ -7132,8 +7214,8 @@ async fn process_dpu_use_admin_network_state_change(
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<(), StateHandlerError> {
     tracing::info!(
-        "Set use_admin_network_changed flag as host {} has changed use_admin_network state and site-restart-ovs is set",
-        &mh_snapshot.host_snapshot.id
+        machine_id = %mh_snapshot.host_snapshot.id,
+        "Set use_admin_network_changed flag as host has changed use_admin_network state and site-restart-ovs is set"
     );
 
     // Determine which DPUs have tenant interface configs. A DPU matches if:
@@ -7172,7 +7254,10 @@ async fn process_dpu_use_admin_network_state_change(
         });
 
         if dpu_has_tenant_interface_config {
-            tracing::info!("Set DPU use_admin_network_changed flag for dpu {}", &dpu.id);
+            tracing::info!(
+                dpu_machine_id = %dpu.id,
+                "Set use_admin_network_changed flag"
+            );
             db::machine::set_use_admin_network_changed(txn, &dpu.id, true).await?;
         }
     }
@@ -7376,9 +7461,9 @@ async fn handle_instance_network_config_update_request(
                     .collect_vec();
 
                 tracing::info!(
-                    "Releasing network resources for instance {}: addresses: {:?}",
-                    instance.id,
-                    addresses,
+                    instance_id = %instance.id,
+                    addresses = ?addresses,
+                    "Releasing network resources",
                 );
                 db::instance_address::delete_addresses(&mut txn, &addresses).await?;
                 release_network_segments_with_vpc_prefix(&resources_to_be_released, &mut txn)
@@ -7488,15 +7573,19 @@ fn check_instance_network_synced_and_dpu_healthy(
             .iter()
             .filter(|dpu_machine_id| {
                 if let Some(device) = id_to_device_map.get(dpu_machine_id) {
-                    tracing::info!("Found device {} for dpu {}", device, dpu_machine_id);
+                    tracing::info!(
+                        %device,
+                        dpu_machine_id = %dpu_machine_id,
+                        "Found DPU device"
+                    );
                     if let Some(id_vec) = device_to_id_map.get(device)
                         && let Some(device_instance) =
                             id_vec.iter().position(|id| id == *dpu_machine_id)
                     {
                         tracing::info!(
-                            "Found device_instance {} for dpu {}",
                             device_instance,
-                            dpu_machine_id
+                            dpu_machine_id = %dpu_machine_id,
+                            "Found DPU device instance"
                         );
                         let device_locator = DeviceLocator {
                             device: device.clone(),
@@ -7517,14 +7606,14 @@ fn check_instance_network_synced_and_dpu_healthy(
 
     if instance.observations.network.len() != dpu_machine_ids.len() {
         tracing::info!(
-            "obs: {} dpus: {}",
-            instance.observations.network.len(),
-            dpu_machine_ids.len()
+            network_observation_count = instance.observations.network.len(),
+            dpu_count = dpu_machine_ids.len(),
+            "network observation count does not match DPU count"
         );
 
         let mut missing_dpus = Vec::default();
         for dpu_id in dpu_machine_ids {
-            tracing::info!("checking dpu: {}", dpu_id);
+            tracing::info!(dpu_machine_id = %dpu_id, "checking dpu");
             if !instance.observations.network.contains_key(&dpu_id) {
                 tracing::info!("missing");
                 missing_dpus.push(dpu_id);
@@ -7773,8 +7862,8 @@ async fn rack_failed_abort_host_reprovision_outcome(
     tracing::info!(
         machine_id = %machine_id,
         rack_id = %rack_id,
-        from = ?state.managed_state,
-        to = ?target_state,
+        previous_state = ?state.managed_state,
+        next_state = ?target_state,
         "Rack is in Error; aborting machine HostReprovision and returning to Ready",
     );
 
@@ -7960,8 +8049,8 @@ impl HostUpgradeState {
                 if let Some(result) = result {
                     if result.success {
                         tracing::info!(
-                            "Scout firmware upgrade succeeded for {}",
-                            state.host_snapshot.id
+                            machine_id = %state.host_snapshot.id,
+                            "Scout firmware upgrade succeeded"
                         );
                         let next_reprov_state = HostReprovisionState::ResetForNewFirmware {
                             final_version: final_version.to_string(),
@@ -7983,9 +8072,9 @@ impl HostUpgradeState {
                             result.error.clone()
                         };
                         tracing::warn!(
-                            "Scout firmware upgrade failed for {}: {}",
-                            state.host_snapshot.id,
-                            reason
+                            machine_id = %state.host_snapshot.id,
+                            reason = %reason,
+                            "Scout firmware upgrade failed"
                         );
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             HostReprovisionState::FailedFirmwareUpgrade {
@@ -7998,9 +8087,9 @@ impl HostUpgradeState {
                     }
                 } else if Utc::now() > *deadline {
                     tracing::warn!(
-                        "Scout firmware upgrade timed out for {} (deadline {})",
-                        state.host_snapshot.id,
-                        deadline,
+                        machine_id = %state.host_snapshot.id,
+                        %deadline,
+                        "Scout firmware upgrade timed out",
                     );
                     Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         HostReprovisionState::FailedFirmwareUpgrade {
@@ -8229,8 +8318,8 @@ impl HostUpgradeState {
         // For now, only gb200s need manual upgrades.
         if requires_manual_firmware_upgrade(state, &ctx.services.site_config.firmware_global) {
             tracing::info!(
-                "Machine {} (GB200) requires manual firmware upgrade, transitioning to WaitingForManualUpgrade",
-                machine_id
+                %machine_id,
+                "Machine (GB200) requires manual firmware upgrade, transitioning to WaitingForManualUpgrade"
             );
             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                 HostReprovisionState::WaitingForManualUpgrade {
@@ -8262,7 +8351,7 @@ impl HostUpgradeState {
         else {
             // find_explored_refreshed_endpoint's behavior is to return None to indicate we're waiting for an update, not to indicate there isn't anything.
 
-            tracing::debug!("Managed host {machine_id} waiting for site explorer to revisit");
+            tracing::debug!(%machine_id, "Managed host waiting for site explorer to revisit");
             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeatV2 {
                     firmware_type: current_firmware_type,
@@ -8376,11 +8465,12 @@ impl HostUpgradeState {
                         .await;
                 }
 
-                tracing::info!(%machine_id,
-                    "Installing {:?} (number #{}) on {}",
-                    to_install,
+                tracing::info!(
+                    %machine_id,
+                    firmware = ?to_install,
                     firmware_number,
-                    explored_endpoint.address
+                    bmc_ip_address = %explored_endpoint.address,
+                    "Installing firmware"
                 );
 
                 if !repeat && to_install.pre_update_resets {
@@ -8421,7 +8511,11 @@ impl HostUpgradeState {
                     // Note that this is different from the place where we do something similar
                     false
                 } else {
-                    tracing::warn!("Could not get lockdown status for {machine_id}: {e}",);
+                    tracing::warn!(
+                        %machine_id,
+                        error = %e,
+                        "Could not get lockdown status"
+                    );
                     return Ok(StateHandlerOutcome::do_nothing());
                 }
             }
@@ -8433,7 +8527,7 @@ impl HostUpgradeState {
                 .lockdown(libredfish::EnabledDisabled::Enabled)
                 .await
             {
-                tracing::error!("Could not set lockdown for {machine_id}: {e}");
+                tracing::error!(%machine_id, error = %e, "Could not set lockdown");
                 return Ok(StateHandlerOutcome::do_nothing());
             }
             match scenario {
@@ -8531,7 +8625,10 @@ impl HostUpgradeState {
                 Ok(cmd) => cmd,
                 Err(e) => {
                     tracing::error!(
-                        "Upgrade script {machine_id} {address} command creation failed: {e}"
+                        %machine_id,
+                        bmc_ip_address = %address,
+                        error = %e,
+                        "Upgrade script command creation failed"
                     );
                     upgrade_script_state.completed(machine_id.to_string(), false);
                     return;
@@ -8539,7 +8636,11 @@ impl HostUpgradeState {
             };
 
             let Some(stdout) = cmd.stdout.take() else {
-                tracing::error!("Upgrade script {machine_id} {address} STDOUT creation failed");
+                tracing::error!(
+                    %machine_id,
+                    bmc_ip_address = %address,
+                    "Upgrade script STDOUT creation failed"
+                );
                 let _ = cmd.kill().await;
                 let _ = cmd.wait().await;
                 upgrade_script_state.completed(machine_id.to_string(), false);
@@ -8548,7 +8649,11 @@ impl HostUpgradeState {
             let stdout = tokio::io::BufReader::new(stdout);
 
             let Some(stderr) = cmd.stderr.take() else {
-                tracing::error!("Upgrade script {machine_id} {address} STDERR creation failed");
+                tracing::error!(
+                    %machine_id,
+                    bmc_ip_address = %address,
+                    "Upgrade script STDERR creation failed"
+                );
                 let _ = cmd.kill().await;
                 let _ = cmd.wait().await;
                 upgrade_script_state.completed(machine_id.to_string(), false);
@@ -8556,37 +8661,57 @@ impl HostUpgradeState {
             };
             let stderr = tokio::io::BufReader::new(stderr);
 
-            // Take the stdout and stderr from the script and write them to a log with a searchable prefix
-            let machine_id2 = address.clone();
-            let address2 = address.clone();
+            // Record the script streams with searchable fields.
+            let stderr_machine_id = machine_id;
+            let stderr_address = address.clone();
             let thread = tokio::spawn(async move {
                 let mut lines = stderr.lines();
                 while let Some(line) = lines.next_line().await.unwrap_or(None) {
-                    tracing::info!("Upgrade script {machine_id2} {address2} STDERR {line}");
+                    tracing::info!(
+                        machine_id = %stderr_machine_id,
+                        bmc_ip_address = %stderr_address,
+                        stream = "stderr",
+                        output = %line,
+                        "Upgrade script output"
+                    );
                 }
             });
             let mut lines = stdout.lines();
             while let Some(line) = lines.next_line().await.unwrap_or(None) {
-                tracing::info!("Upgrade script {machine_id} {address} {line}");
+                tracing::info!(
+                    %machine_id,
+                    bmc_ip_address = %address,
+                    stream = "stdout",
+                    output = %line,
+                    "Upgrade script output"
+                );
             }
             let _ = tokio::join!(thread);
 
             match cmd.wait().await {
                 Err(e) => {
                     tracing::info!(
-                        "Upgrade script {machine_id} {address} FAILED: Wait failure {e}"
+                        %machine_id,
+                        bmc_ip_address = %address,
+                        error = %e,
+                        "Upgrade script FAILED: Wait failure"
                     );
                     upgrade_script_state.completed(machine_id.to_string(), false);
                 }
                 Ok(errorcode) => {
                     if errorcode.success() {
                         tracing::info!(
-                            "Upgrade script {machine_id} {address} completed successfully"
+                            %machine_id,
+                            bmc_ip_address = %address,
+                            "Upgrade script completed successfully"
                         );
                         upgrade_script_state.completed(machine_id.to_string(), true);
                     } else {
                         tracing::warn!(
-                            "Upgrade script {machine_id} {address} FAILED: Exited with {errorcode}"
+                            %machine_id,
+                            bmc_ip_address = %address,
+                            exit_status = %errorcode,
+                            "Upgrade script FAILED: Exited"
                         );
                         upgrade_script_state.completed(machine_id.to_string(), false);
                     }
@@ -8609,9 +8734,9 @@ impl HostUpgradeState {
 
         if let Some(completed_at) = state.host_snapshot.manual_firmware_upgrade_completed {
             tracing::info!(
-                "Manual firmware upgrade completed for {} at {}, proceeding to automatic upgrades",
-                machine_id,
-                completed_at
+                %machine_id,
+                %completed_at,
+                "Manual firmware upgrade completed, proceeding to automatic upgrades"
             );
 
             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
@@ -8624,8 +8749,8 @@ impl HostUpgradeState {
         }
 
         tracing::debug!(
-            "Machine {} still waiting for manual firmware upgrade to be marked complete",
-            machine_id
+            %machine_id,
+            "Machine still waiting for manual firmware upgrade to be marked complete"
         );
         Ok(StateHandlerOutcome::do_nothing())
     }
@@ -8656,7 +8781,7 @@ impl HostUpgradeState {
                 firmware_type: FirmwareComponentType::Unknown,
                 report_time: Some(Utc::now()),
                 reason: Some(format!(
-                    "The upgrade script failed.  Search the log for \"Upgrade script {}\" for script output.  Use \"forge-admin-cli mh reset-host-reprovisioning --machine {}\" to retry.",
+                    "The upgrade script failed. Search logs for the \"Upgrade script output\" message with machine_id={} to find script output. Use \"forge-admin-cli mh reset-host-reprovisioning --machine {}\" to retry.",
                     state.host_snapshot.id, state.host_snapshot.id
                 )),
             };
@@ -8772,9 +8897,9 @@ impl HostUpgradeState {
             ResolvedFirmwareArtifactSource::Remote { url, sha256 } => {
                 if !self.downloader.available(&artifact.local_path, url, sha256) {
                     tracing::debug!(
-                        "{} is being downloaded from {}, update deferred",
-                        artifact.local_path.display(),
-                        url
+                        artifact_path = %artifact.local_path.display(),
+                        %url,
+                        "firmware artifact is being downloaded, update deferred"
                     );
 
                     return Ok(StateHandlerOutcome::do_nothing());
@@ -8787,7 +8912,11 @@ impl HostUpgradeState {
                         artifact.local_path.display(),
                         snapshot.id
                     );
-                    tracing::warn!("{reason}");
+                    tracing::warn!(
+                        artifact_path = %artifact.local_path.display(),
+                        machine_id = %snapshot.id,
+                        "firmware artifact is not present and no firmware artifact URL is configured",
+                    );
                     return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         HostReprovisionState::FailedFirmwareUpgrade {
                             firmware_type: *component_type,
@@ -8802,9 +8931,9 @@ impl HostUpgradeState {
 
         let Ok(_active) = self.upload_limiter.try_acquire() else {
             tracing::debug!(
-                "Deferring installation of {:?} on {}, too many uploads already active",
-                to_install,
-                snapshot.id,
+                firmware = ?to_install,
+                machine_id = %snapshot.id,
+                "Deferring installation, too many uploads already active",
             );
             return Ok(StateHandlerOutcome::do_nothing());
         };
@@ -8824,8 +8953,9 @@ impl HostUpgradeState {
                     true
                 } else {
                     tracing::warn!(
-                        "Could not get lockdown status for {}: {e}",
-                        state.host_snapshot.id
+                        machine_id = %state.host_snapshot.id,
+                        error = %e,
+                        "Could not get lockdown status"
                     );
                     return Ok(StateHandlerOutcome::do_nothing());
                 }
@@ -8835,16 +8965,16 @@ impl HostUpgradeState {
             // Already disabled, we can go ahead
             tracing::debug!("Host fw update: No need for disabling lockdown");
         } else {
-            tracing::info!(%address, "Host fw update: Disabling lockdown");
+            tracing::info!(bmc_ip_address = %address, "Host fw update: Disabling lockdown");
             if let Err(e) = redfish_client
                 .lockdown(libredfish::EnabledDisabled::Disabled)
                 .await
             {
-                tracing::warn!("Could not set lockdown for {}: {e}", address.to_string());
+                tracing::warn!(bmc_ip_address = %address, error = %e, "Could not set lockdown");
                 return Ok(StateHandlerOutcome::do_nothing());
             }
             if fw_info.model == "Dell" {
-                tracing::info!(%address, "Host fw update: Rebooting after disabling lockdown because Dell");
+                tracing::info!(bmc_ip_address = %address, "Host fw update: Rebooting after disabling lockdown because Dell");
                 handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart).await?;
                 // Wait until the next state machine iteration to let it restart
                 return Ok(StateHandlerOutcome::do_nothing());
@@ -8920,7 +9050,9 @@ impl HostUpgradeState {
         match self.async_firmware_uploader.upload_status(&machine_id) {
             None => {
                 tracing::info!(
-                    "Apparent restart before upload to {machine_id} {address} completion, returning to CheckingFirmware"
+                    %machine_id,
+                    bmc_ip_address = %address,
+                    "Apparent restart before upload completion, returning to CheckingFirmware"
                 );
                 Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                     HostReprovisionState::CheckingFirmwareRepeatV2 {
@@ -8933,7 +9065,11 @@ impl HostUpgradeState {
             Some(upload_status) => {
                 match upload_status {
                     None => {
-                        tracing::debug!("Upload to {machine_id} {address} not yet complete");
+                        tracing::debug!(
+                            %machine_id,
+                            bmc_ip_address = %address,
+                            "Upload not yet complete"
+                        );
                         Ok(StateHandlerOutcome::do_nothing())
                     }
                     Some(result) => {
@@ -8941,7 +9077,10 @@ impl HostUpgradeState {
                             UploadResult::Success { task_id } => {
                                 // We want to remove the machine ID from the hashmap, but do not do it here, because we may fail the commit.  Run it in the next state handling.  Failure case doesn't matter, it would have identical behavior.
                                 tracing::info!(
-                                    "Upload to {machine_id} {address} completed with task ID {task_id}"
+                                    %machine_id,
+                                    bmc_ip_address = %address,
+                                    %task_id,
+                                    "Upload completed"
                                 );
                                 // Upload complete and updated started, will monitor task in future iterations
                                 let reprovision_state =
@@ -9037,10 +9176,10 @@ impl HostUpgradeState {
                     | Some(TaskState::Running)
                     | Some(TaskState::Pending) => {
                         tracing::debug!(
-                            "Upgrade task for {} not yet complete, current state {:?} message {:?}",
-                            machine_id,
-                            task_info.task_state,
-                            task_info.messages,
+                            %machine_id,
+                            task_state = ?task_info.task_state,
+                            messages = ?task_info.messages,
+                            "Upgrade task not yet complete",
                         );
                         Ok(StateHandlerOutcome::do_nothing())
                     }
@@ -9082,10 +9221,11 @@ impl HostUpgradeState {
                                     .unwrap_or(false);
                                 if has_more_artifacts {
                                     tracing::debug!(
-                                        "Moving {:?} chain step {} on {} to CheckingFirmware",
-                                        selected_firmware,
+                                        %machine_id,
+                                        firmware = ?selected_firmware,
                                         firmware_number,
-                                        endpoint.address
+                                        bmc_ip_address = %endpoint.address,
+                                        "Moving firmware chain step to CheckingFirmware"
                                     );
 
                                     // There are more files to install.
@@ -9107,8 +9247,8 @@ impl HostUpgradeState {
                         }
 
                         tracing::debug!(
-                            "Saw completion of host firmware upgrade task for {}",
-                            machine_id
+                            %machine_id,
+                            "Saw completion of host firmware upgrade task"
                         );
 
                         let reprovision_state = HostReprovisionState::ResetForNewFirmware {
@@ -9138,7 +9278,11 @@ impl HostUpgradeState {
                                 .last()
                                 .map_or("".to_string(), |m| m.message.clone())
                         );
-                        tracing::warn!(msg);
+                        tracing::warn!(
+                            %machine_id,
+                            reason = %msg,
+                            "Firmware upgrade task failed",
+                        );
 
                         // We need site explorer to requery the version, just in case it actually did get done
                         let mut txn = ctx.services.db_pool.begin().await?;
@@ -9162,7 +9306,11 @@ impl HostUpgradeState {
                             "Unrecognized task state for {}: {:?}",
                             machine_id, task_info.task_state
                         );
-                        tracing::warn!(msg);
+                        tracing::warn!(
+                            %machine_id,
+                            reason = %msg,
+                            "Unrecognized firmware upgrade task state",
+                        );
 
                         let reprovision_state = HostReprovisionState::FailedFirmwareUpgrade {
                             firmware_type: *firmware_type,
@@ -9193,8 +9341,9 @@ impl HostUpgradeState {
                             && current_version == final_version
                         {
                             tracing::info!(
-                                "Marking completion of Redfish task of firmware upgrade for {} with missing task",
-                                &endpoint.address
+                                %machine_id,
+                                bmc_ip_address = %endpoint.address,
+                                "Marking completion of Redfish task of firmware upgrade with missing task"
                             );
 
                             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
@@ -9211,9 +9360,10 @@ impl HostUpgradeState {
                             && Utc::now().signed_duration_since(started_waiting)
                                 > chrono::TimeDelta::minutes(15)
                         {
-                            tracing::info!(%machine_id,
-                                "Timed out with missing Redfish task for firmware upgrade for {}, returning to CheckingFirmware",
-                                &endpoint.address
+                            tracing::info!(
+                                %machine_id,
+                                bmc_ip_address = %endpoint.address,
+                                "Timed out with missing Redfish task for firmware upgrade, returning to CheckingFirmware"
                             );
                             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                                 HostReprovisionState::CheckingFirmwareRepeatV2 {
@@ -9273,7 +9423,7 @@ impl HostUpgradeState {
         };
 
         let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, ctx).await? else {
-            tracing::debug!("Waiting for site explorer to revisit {machine_id}");
+            tracing::debug!(%machine_id, "Waiting for site explorer to revisit");
             return Ok(StateHandlerOutcome::do_nothing());
         };
 
@@ -9282,8 +9432,9 @@ impl HostUpgradeState {
                 && *delay_until > chrono::Utc::now().timestamp()
             {
                 tracing::info!(
-                    "Waiting after {last_power_drain_operation:?} of {}",
-                    &endpoint.address
+                    last_power_drain_operation = ?last_power_drain_operation,
+                    bmc_ip_address = %endpoint.address,
+                    "Waiting after power drain operation"
                 );
                 return Ok(StateHandlerOutcome::do_nothing());
             }
@@ -9292,13 +9443,13 @@ impl HostUpgradeState {
                 None | Some(PowerDrainState::On) => {
                     // The 1000 is for unit tests; values above this will skip delays.
                     if *power_drains_needed == 0 || *power_drains_needed == 1000 {
-                        tracing::info!("Power drains for {} done", &endpoint.address);
+                        tracing::info!(bmc_ip_address = %endpoint.address, "Power drains done");
                         // This path, and only this path of the match, exits the match and lets us proceed.  All others should return after updating state.
                     } else {
                         tracing::info!(
-                            "Upgrade task has completed for {} but needs {} power drain(s), initiating one",
-                            &endpoint.address,
-                            power_drains_needed
+                            bmc_ip_address = %endpoint.address,
+                            required_power_drain_count = *power_drains_needed,
+                            "Upgrade task has completed but needs power drain(s), initiating one"
                         );
                         handler_host_power_control(state, ctx, SystemPowerControl::ForceOff)
                             .await?;
@@ -9321,7 +9472,7 @@ impl HostUpgradeState {
                     }
                 }
                 Some(PowerDrainState::Off) => {
-                    tracing::info!("Doing powercycle now for {}", &endpoint.address);
+                    tracing::info!(bmc_ip_address = %endpoint.address, "Doing powercycle now");
                     handler_host_power_control(state, ctx, SystemPowerControl::ACPowercycle)
                         .await?;
 
@@ -9341,7 +9492,7 @@ impl HostUpgradeState {
                     )));
                 }
                 Some(PowerDrainState::Powercycle) => {
-                    tracing::info!("Turning back on {}", &endpoint.address);
+                    tracing::info!(bmc_ip_address = %endpoint.address, "Turning back on");
                     handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
 
                     let delay = if *power_drains_needed < 1000 { 5 } else { 0 };
@@ -9362,8 +9513,8 @@ impl HostUpgradeState {
             };
         } else if firmware_type.is_uefi() {
             tracing::debug!(
-                "Upgrade task has completed for {} but needs reboot, initiating one",
-                &endpoint.address
+                bmc_ip_address = %endpoint.address,
+                "Upgrade task has completed but needs reboot, initiating one"
             );
             handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart).await?;
 
@@ -9378,8 +9529,8 @@ impl HostUpgradeState {
                 .is_dell()
         {
             tracing::debug!(
-                "Upgrade task has completed for {} but needs BMC reboot, initiating one",
-                &endpoint.address
+                bmc_ip_address = %endpoint.address,
+                "Upgrade task has completed but needs BMC reboot, initiating one"
             );
             let redfish_client = ctx
                 .services
@@ -9387,7 +9538,7 @@ impl HostUpgradeState {
                 .await?;
 
             if let Err(e) = redfish_client.bmc_reset().await {
-                tracing::warn!("Failed to reboot {}: {e}", &endpoint.address);
+                tracing::warn!(bmc_ip_address = %endpoint.address, error = %e, "Failed to reboot");
                 return Ok(StateHandlerOutcome::do_nothing());
             }
         }
@@ -9405,12 +9556,20 @@ impl HostUpgradeState {
             // We previously possibly tried to use ACPowerycle here, however that requires enough time for the BMC to come back.  We use
             // the power_drains_needed setting instead for that which is already aware of how to keep track of that sort of thing.
             if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
-                tracing::error!("Failed to power off {}: {e}", &endpoint.address);
+                tracing::error!(
+                    bmc_ip_address = %endpoint.address,
+                    error = %e,
+                    "Failed to power off"
+                );
                 return Ok(StateHandlerOutcome::do_nothing());
             }
             tokio::time::sleep(self.hgx_bmc_gpu_reboot_delay).await;
             if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
-                tracing::error!("Failed to power on {}: {e}", &endpoint.address);
+                tracing::error!(
+                    bmc_ip_address = %endpoint.address,
+                    error = %e,
+                    "Failed to power on"
+                );
                 return Ok(StateHandlerOutcome::do_nothing());
             }
             // Okay to proceed
@@ -9461,13 +9620,13 @@ impl HostUpgradeState {
             };
 
         let Some(endpoint) = find_explored_refreshed_endpoint(state, machine_id, ctx).await? else {
-            tracing::debug!("Waiting for site explorer to revisit {machine_id}");
+            tracing::debug!(%machine_id, "Waiting for site explorer to revisit");
             return Ok(StateHandlerOutcome::do_nothing());
         };
 
         let fw_config_snapshot = self.host_firmware_config_snapshot(ctx).await?;
         let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host(&endpoint) else {
-            tracing::error!("Could no longer find firmware info for {machine_id}");
+            tracing::error!(%machine_id, "Could no longer find firmware info");
             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeatV2 {
                     firmware_type: Some(*firmware_type),
@@ -9479,7 +9638,7 @@ impl HostUpgradeState {
 
         let current_versions = endpoint.find_all_versions(&fw_info, *firmware_type);
         if current_versions.is_empty() {
-            tracing::error!("Could no longer find current versions for {machine_id}");
+            tracing::error!(%machine_id, "Could no longer find current versions");
             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeatV2 {
                     firmware_type: Some(*firmware_type),
@@ -9492,15 +9651,17 @@ impl HostUpgradeState {
         let versions_match_final_version = current_versions.iter().all(|v| *v == final_version);
         if !versions_match_final_version {
             tracing::warn!(
-                "{}: Not all firmware versions match. Expected: {final_version}, Found: {:?}",
-                endpoint.address,
-                current_versions
+                %machine_id,
+                bmc_ip_address = %endpoint.address,
+                %final_version,
+                current_versions = ?current_versions,
+                "Not all firmware versions match"
             );
         }
 
         if versions_match_final_version {
             // Done waiting, go back to overall checking of version`2s
-            tracing::debug!("Done waiting for {machine_id} to reach version");
+            tracing::debug!(%machine_id, "Done waiting to reach version");
             Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeatV2 {
                     firmware_type: Some(*firmware_type),
@@ -9517,7 +9678,14 @@ impl HostUpgradeState {
                     let reason = format!(
                         "Firmware version did not converge after completed update for {firmware_type}: expected {final_version}, found {current_versions:?} after {reset_retry_count} reset retries"
                     );
-                    tracing::warn!(%machine_id, "{reason}");
+                    tracing::warn!(
+                        %machine_id,
+                        firmware_type = %firmware_type,
+                        expected_version = %final_version,
+                        current_versions = ?current_versions,
+                        reset_retry_count = *reset_retry_count,
+                        "Firmware version did not converge after completed update",
+                    );
                     return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         HostReprovisionState::FailedFirmwareUpgrade {
                             firmware_type: *firmware_type,
@@ -9529,9 +9697,10 @@ impl HostUpgradeState {
                 }
 
                 tracing::info!(
-                    "Upgrade for {} {:?} has taken more than 30 minutes to report new version; resetting again.",
-                    &endpoint.address,
-                    firmware_type
+                    %machine_id,
+                    bmc_ip_address = %endpoint.address,
+                    firmware_type = ?firmware_type,
+                    "Upgrade has taken more than 30 minutes to report new version; resetting again."
                 );
                 let details = &HostReprovisionState::ResetForNewFirmware {
                     final_version: final_version.to_string(),
@@ -9547,7 +9716,11 @@ impl HostUpgradeState {
                     .await;
             }
             tracing::info!(
-                "Waiting for {machine_id} {firmware_type:?} to reach version {final_version} currently {current_versions:?}"
+                %machine_id,
+                firmware_type = ?firmware_type,
+                %final_version,
+                current_versions = ?current_versions,
+                "Waiting to reach firmware version"
             );
 
             let mut txn = ctx.services.db_pool.begin().await?;
@@ -9626,7 +9799,9 @@ impl AsyncFirmwareUploader {
             //
             // Log it so we can see what's going on in case there's problems.
             tracing::info!(
-                "Uploading conflict for {id} {address}; our upload should still be in progress."
+                machine_id = %id,
+                bmc_ip_address = %address,
+                "Uploading conflict; our upload should still be in progress."
             );
             return;
         }
@@ -9652,7 +9827,12 @@ impl AsyncFirmwareUploader {
                     hashmap.insert(id, Some(UploadResult::Success { task_id }));
                 }
                 Err(e) => {
-                    tracing::warn!("Failed uploading firmware to {id} {address}: {e}");
+                    tracing::warn!(
+                        machine_id = %id,
+                        bmc_ip_address = %address,
+                        error = %e,
+                        "Failed uploading firmware"
+                    );
                     let mut hashmap = active_uploads.lock().expect("lock poisoned");
                     hashmap.insert(id, Some(UploadResult::Failure));
                 }
@@ -9989,9 +10169,9 @@ async fn wait_for_boss_controller_job_to_scheduled(
         ),
         libredfish::JobState::Completed => {
             tracing::warn!(
-                "CreateBossVolume: job {} for {} completed before being scheduled, skipping reboot",
-                job_id,
-                mh_snapshot.host_snapshot.id,
+                %job_id,
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "CreateBossVolume: job completed before being scheduled, skipping reboot",
             );
 
             waiting_for_cleanup_state(
@@ -10334,7 +10514,11 @@ async fn restart_dpu(
             .map_err(|e| {
                 // We use a Dell to mock our BMC responses in the integration tests. UefiHttp boot is not implemented
                 // for Dells, so this call is failing in our tests. Regardless, it is ok to not make this call blocking.
-                tracing::error!(%e, "Failed to configure DPU {} to boot once", machine.id);
+                tracing::error!(
+                    machine_id = %machine.id,
+                    error = %e,
+                    "Failed to configure DPU to boot once"
+                );
             });
     }
 
@@ -10342,7 +10526,7 @@ async fn restart_dpu(
         .power(SystemPowerControl::ForceRestart)
         .await
     {
-        tracing::error!(%e, "Failed to reboot a DPU");
+        tracing::error!(error = %e, "Failed to reboot a DPU");
         return Err(redfish_error("reboot dpu", e));
     }
 
@@ -10555,7 +10739,8 @@ fn handle_no_dpu_error(
     match (result, expected_dpu_count) {
         (Err(RedfishError::NoDpu), 0) => {
             tracing::info!(
-                "redfish {operation} failed with NoDpu on a zero-DPU host; treating as Ok"
+                operation,
+                "redfish operation failed with NoDpu on a zero-DPU host; treating as Ok"
             );
             Ok(None)
         }
@@ -10586,7 +10771,7 @@ async fn log_host_config(redfish_client: &dyn Redfish, mh_snapshot: &ManagedHost
         Ok(opts) => opts,
         Err(e) => {
             tracing::warn!(
-                %host_id,
+                host_machine_id = %host_id,
                 %managed_state,
                 error = %e,
                 "Failed to fetch boot options"
@@ -10650,7 +10835,7 @@ async fn log_host_config(redfish_client: &dyn Redfish, mh_snapshot: &ManagedHost
     };
 
     tracing::info!(
-        %host_id,
+        host_machine_id = %host_id,
         %managed_state,
         "Host config:\nBoot order:\n{}\n{}",
         boot_entries.join("\n"),
@@ -10839,7 +11024,11 @@ async fn handle_instance_host_platform_config(
                     }
                     Err(e) => {
                         // TODO: Dell's return a generic error if in lockdown which needs to be changed in Redfish SDK
-                        tracing::warn!("Failed to AC Powercycle host, skipping to power on: {e}");
+                        tracing::warn!(
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            error = %e,
+                            "Failed to AC Powercycle host, skipping to power on"
+                        );
                     }
                 };
             }
@@ -10854,7 +11043,7 @@ async fn handle_instance_host_platform_config(
             .map_err(|e| StateHandlerError::GenericError(eyre!("failed to power on host: {e}")))?;
 
             tracing::info!(
-                host_id = %mh_snapshot.host_snapshot.id,
+                host_machine_id = %mh_snapshot.host_snapshot.id,
                 power_on_retry_count = next_retry,
                 %power_state,
                 "waiting for host to power ON"
@@ -11166,9 +11355,9 @@ async fn set_host_boot_order(
                     // it hasn't been fixed/addressed yet, and it appears to be logged all over
                     // the place now.
                     tracing::warn!(
-                        "redfish set_boot_order_dpu_first failed for {}, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed. err: {}",
-                        mh_snapshot.host_snapshot.id,
-                        e
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        error = %e,
+                        "redfish set_boot_order_dpu_first failed, potentially due to known race condition between UEFI POST and BMC. triggering force-restart if needed"
                     );
 
                     let reboot_status = if mh_snapshot.host_snapshot.last_reboot_requested.is_none()
@@ -11273,7 +11462,7 @@ async fn set_host_boot_order(
                 }
                 tracing::warn!(
                     machine_id = %mh_snapshot.host_snapshot.id,
-                    minutes_waiting,
+                    time_in_state_minutes = minutes_waiting,
                     "Re-asserted HTTP boot device still not applied after the wait window; migrating to shared BIOS repair",
                 );
                 return Ok(SetBootOrderOutcome::ConfigureBios);
@@ -11337,11 +11526,11 @@ async fn set_host_boot_order(
                         }
 
                         tracing::warn!(
-                            "SetBootOrder: job {} lookup failed for {} after {} minutes, transitioning to HandleJobFailure: {}",
-                            job_id,
-                            mh_snapshot.host_snapshot.id,
-                            minutes_since_state_change,
-                            e
+                            %job_id,
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            time_in_state_minutes = minutes_since_state_change,
+                            error = %e,
+                            "SetBootOrder: job lookup failed, transitioning to HandleJobFailure"
                         );
 
                         return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
@@ -11361,9 +11550,10 @@ async fn set_host_boot_order(
                     }
                     _ if job_state.is_error_state() => {
                         tracing::warn!(
-                            "SetBootOrder: job {} failed for {} with state {job_state:#?}, transitioning to HandleJobFailure",
-                            job_id,
-                            mh_snapshot.host_snapshot.id,
+                            %job_id,
+                            machine_id = %mh_snapshot.host_snapshot.id,
+                            job_state = ?job_state,
+                            "SetBootOrder: job failed, transitioning to HandleJobFailure",
                         );
 
                         return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
@@ -11419,9 +11609,9 @@ async fn set_host_boot_order(
 
                     // Host is powered off, reset the BMC
                     tracing::info!(
-                        "HandleJobFailure: Resetting BMC for {} after failure: {}",
-                        mh_snapshot.host_snapshot.id,
-                        failure
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        reason = %failure,
+                        "HandleJobFailure: Resetting BMC after failure"
                     );
 
                     redfish_client
@@ -11474,8 +11664,8 @@ async fn set_host_boot_order(
 
                     // Host is powered on, transition to CheckBootOrder to verify and retry
                     tracing::info!(
-                        "HandleJobFailure: BMC reset complete and host powered on for {}, transitioning to CheckBootOrder",
-                        mh_snapshot.host_snapshot.id,
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "HandleJobFailure: BMC reset complete and host powered on, transitioning to CheckBootOrder",
                     );
 
                     Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
@@ -11547,8 +11737,8 @@ async fn set_host_boot_order(
 
             if boot_order_configured {
                 tracing::info!(
-                    "Boot order verified for {} - the host has its boot order configured properly",
-                    mh_snapshot.host_snapshot.id,
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Boot order verified",
                 );
                 return Ok(SetBootOrderOutcome::Done);
             }
@@ -11558,10 +11748,10 @@ async fn set_host_boot_order(
                 mh_snapshot.host_snapshot.state.version.since_state_change();
 
             tracing::warn!(
-                "Boot order check failed for {} - the host does not have its boot order configured properly after SetBootOrder (retry_count: {}, time_in_state: {} minutes)",
-                mh_snapshot.host_snapshot.id,
+                machine_id = %mh_snapshot.host_snapshot.id,
                 retry_count,
-                time_since_state_change.num_minutes()
+                time_in_state_minutes = time_since_state_change.num_minutes(),
+                "Boot order check failed after SetBootOrder"
             );
 
             if time_since_state_change.num_minutes() < CHECK_BOOT_ORDER_TIMEOUT_MINUTES {

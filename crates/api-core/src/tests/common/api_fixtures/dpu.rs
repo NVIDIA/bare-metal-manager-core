@@ -62,7 +62,10 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
 }
 
 pub async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
-    tracing::debug!("Creating machine inventory for {}", machine_id);
+    tracing::debug!(
+        machine_id = %machine_id,
+        "Creating machine inventory",
+    );
     env.api
         .update_agent_reported_inventory(Request::new(rpc::forge::DpuAgentInventoryReport {
             machine_id: Some(machine_id),

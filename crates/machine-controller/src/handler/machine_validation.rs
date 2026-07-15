@@ -127,7 +127,7 @@ async fn handle_validation_boot_config_stage(
             if !completed {
                 tracing::info!(
                     %machine_id,
-                    %validation_id,
+                    machine_validation_id = %validation_id,
                     "Machine validation boot-config failure observed after the run was already terminal"
                 );
             }
@@ -231,12 +231,12 @@ pub(crate) async fn handle_machine_validation_state(
             is_enabled,
         } => {
             tracing::trace!(
-                "context = {} id = {} completed = {} total = {}, is_enabled = {} ",
-                context,
-                id,
-                completed,
-                total,
-                is_enabled,
+                machine_validation_context = %context,
+                machine_validation_id = %id,
+                completed_validation_count = completed,
+                total_validation_count = total,
+                validation_enabled = is_enabled,
+                "machine validation progress",
             );
             if !rebooted(&mh_snapshot.host_snapshot) {
                 // Ensure the boot config is still what it should be while
@@ -305,8 +305,8 @@ pub(crate) async fn handle_machine_validation_state(
             if machine_validation_completed(&mh_snapshot.host_snapshot) {
                 if mh_snapshot.host_snapshot.failure_details.cause == FailureCause::NoError {
                     tracing::info!(
-                        "{} machine validation completed",
-                        mh_snapshot.host_snapshot.id
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "machine validation completed"
                     );
                     let machine_validation =
                         db::machine_validation::find_by_id(&mut ctx.services.db_reader, id)
@@ -330,7 +330,10 @@ pub(crate) async fn handle_machine_validation_state(
                         },
                     ));
                 } else {
-                    tracing::info!("{} machine validation failed", mh_snapshot.host_snapshot.id);
+                    tracing::info!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "machine validation failed"
+                    );
                     return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
                         details: mh_snapshot.host_snapshot.failure_details.clone(),
                         machine_id: mh_snapshot.host_snapshot.id,

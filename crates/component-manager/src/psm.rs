@@ -116,7 +116,7 @@ async fn register_with_psm(
 
     for f in &failures {
         tracing::warn!(
-            pmc_mac = %f.pmc_mac_address,
+            pmc_mac_address = %f.pmc_mac_address,
             error = %f.error,
             "PSM registration failed for power shelf"
         );

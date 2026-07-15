@@ -81,8 +81,8 @@ pub async fn trigger_attestation(
         Some(product_name) => product_name,
         None => {
             tracing::info!(
-                "ServiceRoot.Product is None, not scheduling SPDM attestation for machine: {}",
-                machine_id
+                %machine_id,
+                "ServiceRoot.Product is None; not scheduling SPDM attestation"
             );
             return Ok(0);
         }
@@ -90,9 +90,9 @@ pub async fn trigger_attestation(
 
     if !is_supported_product(&product) {
         tracing::info!(
-            "ServiceRoot.Product - {} - is not supported, not scheduling SPDM attestation for machine: {}",
-            product,
-            machine_id
+            %machine_id,
+            %product,
+            "ServiceRoot.Product is not supported; not scheduling SPDM attestation"
         );
         return Ok(0);
     }
@@ -143,9 +143,9 @@ pub async fn trigger_attestation(
     txn.commit().await?;
 
     tracing::info!(
-        "SPDM attestation commenced for machine {}, scheduled {} SPDM device attestations",
-        machine_id,
-        records_inserted
+        %machine_id,
+        inserted_record_count = records_inserted,
+        "SPDM attestation commenced; scheduled SPDM device attestations"
     );
 
     Ok(records_inserted)

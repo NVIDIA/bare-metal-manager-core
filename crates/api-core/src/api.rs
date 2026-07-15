@@ -3619,7 +3619,7 @@ impl Api {
                     // don't raise the "not set" warning on a transient secrets failure.
                     tracing::warn!(
                         key = %key.to_key_str(),
-                        %err,
+                        error = %err,
                         "could not verify default credential presence",
                     );
                 }

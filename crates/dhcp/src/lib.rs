@@ -14,14 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+//! Kea DHCP hook library for Carbide.
+//!
+//! Example Kea configurations live in `examples/kea-dhcp4-carbide.conf` and
+//! `examples/kea-dhcp6-carbide.conf`.
+
 use std::ffi::CStr;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, RwLock};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use forge_tls::default as tls_default;
 use libc::c_char;
+use mac_address::MacAddress;
 use metrics_endpoint::HealthController;
 use once_cell::sync::Lazy;
 use rpc::forge_tls_client::ForgeClientConfig;
@@ -29,10 +36,12 @@ use tokio::runtime::{Builder, Runtime};
 
 mod cache;
 mod discovery;
+mod discovery_v6;
 mod kea;
 mod kea_logger;
 mod lease_expiration;
 mod machine;
+mod machine_v6;
 mod vendor_class;
 
 // Should be #[cfg(test)] but tests/integration_test.rs also uses it
@@ -49,9 +58,13 @@ static LOGGER: kea_logger::KeaLogger = kea_logger::KeaLogger;
 pub struct CarbideDhcpContext {
     api_endpoint: String,
     nameservers: Vec<Ipv4Addr>,
+    dns_servers_ipv6: Vec<Ipv6Addr>,
     mqtt_server: Option<String>,
     ntpservers: Vec<Ipv4Addr>,
+    ntp_servers_ipv6: Vec<Ipv6Addr>,
     provisioning_server_ipv4: Option<Ipv4Addr>,
+    provisioning_server_ipv6: Option<Ipv6Addr>,
+    rapid_commit_v6: bool,
     forge_root_ca_path: String,
     forge_client_cert_path: String,
     forge_client_key_path: String,
@@ -70,11 +83,28 @@ pub struct CarbideDhcpMetrics {
     certificate_expiration_value: Arc<AtomicI64>,
 }
 
+const METRICS_INIT_TIMEOUT: Duration = Duration::from_secs(5);
+const METRICS_INIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+fn wait_for_metrics_initialization() -> bool {
+    let deadline = Instant::now() + METRICS_INIT_TIMEOUT;
+    loop {
+        if CONFIG.read().unwrap().metrics.is_some() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(METRICS_INIT_POLL_INTERVAL);
+    }
+}
+
 impl Default for CarbideDhcpContext {
     fn default() -> Self {
         Self {
             api_endpoint: "https://[::1]:1079".to_string(),
             nameservers: vec![Ipv4Addr::new(1, 1, 1, 1)],
+            dns_servers_ipv6: Vec::new(),
             forge_root_ca_path: std::env::var("FORGE_ROOT_CAFILE_PATH")
                 .unwrap_or_else(|_| tls_default::ROOT_CA.to_string()),
             forge_client_cert_path: std::env::var("FORGE_CLIENT_CERT_PATH")
@@ -86,8 +116,11 @@ impl Default for CarbideDhcpContext {
                 Ipv4Addr::new(172, 20, 0, 26),
                 Ipv4Addr::new(172, 20, 0, 27),
             ], // local ntp servers
+            ntp_servers_ipv6: Vec::new(),
             mqtt_server: None,
             provisioning_server_ipv4: None,
+            provisioning_server_ipv6: None,
+            rapid_commit_v6: false,
             metrics_endpoint: None,
             metrics: None,
             health_controller: None,
@@ -113,17 +146,23 @@ pub(crate) fn format_ipv4_list(addresses: &[Ipv4Addr]) -> String {
         .join(",")
 }
 
+/// Parse a comma-separated list of IPv6 addresses from hook configuration.
+pub(crate) fn parse_ipv6_list(addresses: &str) -> Result<Vec<Ipv6Addr>, std::net::AddrParseError> {
+    addresses
+        .split(',')
+        .map(str::trim)
+        .filter(|address| !address.is_empty())
+        .map(str::parse)
+        .collect()
+}
+
 impl CarbideDhcpContext {
     pub fn get_tokio_runtime() -> &'static Runtime {
         static TOKIO: Lazy<Runtime> = Lazy::new(|| {
-            let runtime = Builder::new_current_thread()
+            Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .expect("unable to build runtime?");
-
-            thread::spawn(metrics::metrics_server);
-
-            runtime
+                .expect("unable to build runtime?")
         });
 
         &TOKIO
@@ -205,24 +244,155 @@ pub unsafe extern "C" fn carbide_set_config_ntp(ntpservers: *const c_char) {
     }
 }
 
-/// Take the config parameter from Kea and configure it as our metrics endpoint
+/// Return a UTF-8 hook parameter string from a C pointer.
+///
+/// # Safety
+/// `value` must be null only for invalid input, or point to a valid null-terminated C string.
+unsafe fn hook_parameter_string(value: *const c_char, name: &str) -> Option<String> {
+    if value.is_null() {
+        log::error!("missing value for hook parameter {name}");
+        return None;
+    }
+
+    match unsafe { CStr::from_ptr(value) }.to_str() {
+        Ok(value) => Some(value.to_owned()),
+        Err(err) => {
+            log::error!("failed to parse hook parameter {name} as UTF-8: {err}");
+            None
+        }
+    }
+}
+
+/// Take IPv6 DNS servers for DHCPv6 option rendering.
+///
+/// # Safety
+/// Function is unsafe as it dereferences a raw pointer given to it. Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hook_set_config_dns_servers_ipv6(servers: *const c_char) -> bool {
+    unsafe {
+        let Some(servers_str) = hook_parameter_string(servers, "hook-dns-servers-ipv6") else {
+            return false;
+        };
+        match parse_ipv6_list(&servers_str) {
+            Ok(servers) => {
+                CONFIG.write().unwrap().dns_servers_ipv6 = servers;
+                true
+            }
+            Err(err) => {
+                log::error!("failed to parse DHCPv6 DNS server configuration {servers_str}: {err}");
+                false
+            }
+        }
+    }
+}
+
+/// Take IPv6 NTP servers for DHCPv6 option rendering.
+///
+/// # Safety
+/// Function is unsafe as it dereferences a raw pointer given to it. Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hook_set_config_ntp_servers_ipv6(servers: *const c_char) -> bool {
+    unsafe {
+        let Some(servers_str) = hook_parameter_string(servers, "hook-ntp-servers-ipv6") else {
+            return false;
+        };
+        match parse_ipv6_list(&servers_str) {
+            Ok(servers) => {
+                CONFIG.write().unwrap().ntp_servers_ipv6 = servers;
+                true
+            }
+            Err(err) => {
+                log::error!("failed to parse DHCPv6 NTP server configuration {servers_str}: {err}");
+                false
+            }
+        }
+    }
+}
+
+/// Take the optional IPv6 provisioning-server address reserved for future DHCPv6 boot options.
+///
+/// # Safety
+/// Function is unsafe as it dereferences a raw pointer given to it. Caller is responsible
+/// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hook_set_config_provisioning_server_ipv6(
+    provisioning_server: *const c_char,
+) -> bool {
+    unsafe {
+        let Some(provisioning_server_str) =
+            hook_parameter_string(provisioning_server, "hook-provisioning-server-ipv6")
+        else {
+            return false;
+        };
+        if provisioning_server_str.trim().is_empty() {
+            CONFIG.write().unwrap().provisioning_server_ipv6 = None;
+            return true;
+        }
+
+        match provisioning_server_str.parse::<Ipv6Addr>() {
+            Ok(provisioning_server) => {
+                CONFIG.write().unwrap().provisioning_server_ipv6 = Some(provisioning_server);
+                true
+            }
+            Err(err) => {
+                log::error!(
+                    "failed to parse DHCPv6 provisioning-server configuration {provisioning_server_str}: {err}"
+                );
+                false
+            }
+        }
+    }
+}
+
+/// Set whether DHCPv6 rapid-commit rendering is enabled.
+///
+/// Rapid commit stays disabled by default for this milestone; the setter is
+/// present so the Kea parameter is validated and ready for the later gate.
+#[unsafe(no_mangle)]
+pub extern "C" fn hook_set_config_rapid_commit_v6(enabled: bool) {
+    if enabled {
+        log::warn!("DHCPv6 rapid-commit is configured but remains disabled for this milestone");
+    }
+    CONFIG.write().unwrap().rapid_commit_v6 = false;
+}
+
+/// Take the config parameter from Kea and configure it as our metrics endpoint.
+///
+/// Returns false when the endpoint cannot be parsed, allowing Kea load to fail
+/// before the process-lifetime metrics server starts.
 ///
 /// # Safety
 /// Function is unsafe as it dereferences a raw pointer given to it.  Caller is responsible
 /// to validate that the pointer passed to it meets the necessary conditions to be dereferenced.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_char) {
+pub unsafe extern "C" fn carbide_set_config_metrics_endpoint(endpoint: *const c_char) -> bool {
     unsafe {
-        let config_metrics_endpoint = CStr::from_ptr(endpoint).to_str().unwrap().to_owned();
+        let Some(config_metrics_endpoint) =
+            hook_parameter_string(endpoint, "carbide-metrics-endpoint")
+        else {
+            return false;
+        };
         match config_metrics_endpoint.parse::<SocketAddr>() {
             Ok(metrics_endpoint) => {
+                // Store the endpoint before starting the process-lifetime metrics server.
                 log::info!("metrics endpoint: {config_metrics_endpoint}");
                 CONFIG.write().unwrap().metrics_endpoint = Some(metrics_endpoint);
-                // this will initiate metrics server
-                CarbideDhcpContext::get_tokio_runtime();
+                static METRICS_SERVER: Lazy<()> = Lazy::new(|| {
+                    let _ = thread::spawn(metrics::metrics_server);
+                });
+                Lazy::force(&METRICS_SERVER);
+                if !wait_for_metrics_initialization() {
+                    log::warn!(
+                        "metrics endpoint configured but metrics did not initialize within {METRICS_INIT_TIMEOUT:?}"
+                    );
+                }
+                true
             }
             Err(err) => {
                 log::error!("failed to parse metrics endpoint {config_metrics_endpoint} : {err}");
+                false
             }
         }
     }
@@ -271,11 +441,119 @@ pub extern "C" fn carbide_increment_reply_sent(message_type: u8) {
     metrics::increment_reply_sent(metrics::ReplyMessageType::from(message_type));
 }
 
+/// Increments counter for number of DHCPv6 replies sent, labelled by the
+/// response's message type. `message_type` is the raw DHCPv6 message-type code
+/// from the response packet (`Pkt6::getType()`); the mapping onto the bounded
+/// label lives in [`metrics::V6ReplyMessageType`].
+///
+/// # Safety
+///
+/// None
+#[unsafe(no_mangle)]
+pub extern "C" fn carbide_increment_v6_reply_sent(message_type: u8) {
+    metrics::increment_v6_reply_sent(metrics::V6ReplyMessageType::from(message_type));
+}
+
+/// Increments counter for number of dropped DHCPv6 requests.
+///
+/// # Safety
+///
+/// None
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn carbide_increment_dropped_v6_requests(reason: *const c_char) {
+    let reason = if reason.is_null() {
+        metrics::V6DropReason::Unknown
+    } else {
+        unsafe { CStr::from_ptr(reason) }
+            .to_str()
+            .map_or(metrics::V6DropReason::Unknown, metrics::V6DropReason::from)
+    };
+    metrics::increment_dropped_v6_requests(reason);
+}
+
+/// Invalidates DHCPv6 lease-cache entries for an expired lease.
+///
+/// # Safety
+///
+/// `ip_address` and `mac_address` must be valid null-terminated C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn carbide_invalidate_v6_lease_cache(
+    ip_address: *const c_char,
+    mac_address: *const c_char,
+) -> usize {
+    if ip_address.is_null() || mac_address.is_null() {
+        return 0;
+    }
+
+    let Ok(ip_address) = unsafe { CStr::from_ptr(ip_address) }.to_str() else {
+        return 0;
+    };
+    let Ok(mac_address) = unsafe { CStr::from_ptr(mac_address) }.to_str() else {
+        return 0;
+    };
+    match (
+        ip_address.parse::<Ipv6Addr>(),
+        mac_address.parse::<MacAddress>(),
+    ) {
+        (Ok(ip_address), Ok(mac_address)) => cache::invalidate_v6_lease(ip_address, mac_address),
+        (ip_result, mac_result) => {
+            log::warn!(
+                "Unable to invalidate DHCPv6 lease cache for expired lease: ip={ip_address} ip_error={:?} mac={mac_address} mac_error={:?}",
+                ip_result.err(),
+                mac_result.err()
+            );
+            0
+        }
+    }
+}
+
+/// Clears the recent-expiry DHCPv6 lease cache tombstone for a lease.
+///
+/// # Safety
+///
+/// `ip_address` and `mac_address` must be valid null-terminated C strings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn carbide_clear_v6_lease_cache_invalidation(
+    ip_address: *const c_char,
+    mac_address: *const c_char,
+) -> bool {
+    if ip_address.is_null() || mac_address.is_null() {
+        return false;
+    }
+
+    let Ok(ip_address) = unsafe { CStr::from_ptr(ip_address) }.to_str() else {
+        return false;
+    };
+    let Ok(mac_address) = unsafe { CStr::from_ptr(mac_address) }.to_str() else {
+        return false;
+    };
+    match (
+        ip_address.parse::<Ipv6Addr>(),
+        mac_address.parse::<MacAddress>(),
+    ) {
+        (Ok(ip_address), Ok(mac_address)) => {
+            cache::clear_v6_lease_invalidation(ip_address, mac_address)
+        }
+        (ip_result, mac_result) => {
+            log::warn!(
+                "Unable to clear DHCPv6 lease cache invalidation: ip={ip_address} ip_error={:?} mac={mac_address} mac_error={:?}",
+                ip_result.err(),
+                mac_result.err()
+            );
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
+    use std::ffi::CString;
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
-    use super::{format_ipv4_list, parse_ipv4_list};
+    use super::{
+        format_ipv4_list, hook_set_config_dns_servers_ipv6, hook_set_config_ntp_servers_ipv6,
+        hook_set_config_provisioning_server_ipv6, parse_ipv4_list, parse_ipv6_list,
+    };
 
     #[test]
     fn parses_comma_separated_ipv4_list() {
@@ -315,5 +593,36 @@ mod tests {
         let addresses = [Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)];
 
         assert_eq!(format_ipv4_list(&addresses), "1.1.1.1,8.8.8.8");
+    }
+
+    #[test]
+    fn parses_comma_separated_ipv6_list() {
+        let addresses = parse_ipv6_list("2001:db8::1, 2001:db8::2").unwrap();
+
+        assert_eq!(
+            addresses,
+            vec![
+                "2001:db8::1".parse::<Ipv6Addr>().unwrap(),
+                "2001:db8::2".parse::<Ipv6Addr>().unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_non_ipv6_list_entries() {
+        assert!(parse_ipv6_list("2001:db8::1,1.1.1.1").is_err());
+        assert!(parse_ipv6_list("2001:db8::1,not-an-ip").is_err());
+    }
+
+    #[test]
+    fn v6_hook_setters_report_invalid_addresses() {
+        let invalid_list = CString::new("2001:db8::1,not-an-ip").unwrap();
+        let invalid_address = CString::new("not-an-ip").unwrap();
+
+        // Invalid present hook values must fail Kea load instead of leaving
+        // missing or stale DHCPv6 option state behind.
+        assert!(!unsafe { hook_set_config_dns_servers_ipv6(invalid_list.as_ptr()) });
+        assert!(!unsafe { hook_set_config_ntp_servers_ipv6(invalid_list.as_ptr()) });
+        assert!(!unsafe { hook_set_config_provisioning_server_ipv6(invalid_address.as_ptr()) });
     }
 }

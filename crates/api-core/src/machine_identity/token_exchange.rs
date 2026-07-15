@@ -126,7 +126,7 @@ pub(crate) async fn token_exchange_request(
     if !status.is_success() {
         let snippet = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
         tracing::warn!(
-            status = %status,
+            http_status = %status,
             body_prefix = %snippet,
             "token exchange endpoint returned error"
         );

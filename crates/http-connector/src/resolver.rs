@@ -299,7 +299,7 @@ impl<C: ConnectionProvider> Service<Name> for HickoryResolver<C> {
 
         Box::pin(async move {
             let response = resolver.lookup_ip(name.to_string()).await?;
-            trace!("response from DNS Server{:?}", response);
+            trace!(?response, "response from DNS Server");
             let addresses = response.iter();
 
             Ok(SocketAddrs {

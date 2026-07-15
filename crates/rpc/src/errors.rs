@@ -124,7 +124,12 @@ impl From<RpcDataConversionError> for tonic::Status {
             if f.len() == 2 {
                 let handler = f[0].trim();
                 let location = f[1].trim().replace("at ", "");
-                tracing::error!("{from} location={location} handler='{handler}'");
+                tracing::error!(
+                    error = %from,
+                    error_location = %location,
+                    handler,
+                    "RPC error conversion",
+                );
                 true
             } else {
                 false
@@ -134,7 +139,7 @@ impl From<RpcDataConversionError> for tonic::Status {
         };
 
         if !printed {
-            tracing::error!("{from}");
+            tracing::error!(error = %from, "RPC error conversion");
         }
 
         Status::invalid_argument(from.to_string())

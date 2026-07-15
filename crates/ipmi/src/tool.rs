@@ -151,7 +151,7 @@ impl IPMIToolImpl {
             .args(&args)
             .attempts(self.attempts);
 
-        tracing::info!("Running command: {:?}", cmd);
+        tracing::info!(command = ?cmd, "Running IPMI command");
         let result = cmd.env("IPMITOOL_PASSWORD", password).output().await;
         count_ipmi_command(command, &result);
         result

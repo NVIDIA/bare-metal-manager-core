@@ -97,14 +97,16 @@ fn get_ek_certificate_with_runner(runner: &impl CommandRunner) -> Result<Vec<u8>
         Ok(cert) => Ok(cert),
         Err(primary_error) => {
             tracing::warn!(
-                "Could not read TPM EK certificate using {TPM2_GET_EK_CERTIFICATE}: {primary_error:?}; probing known NV indices"
+                command = TPM2_GET_EK_CERTIFICATE,
+                error = ?primary_error,
+                "Could not read TPM EK certificate; probing known NV indices"
             );
             let mut certs = vec![];
             let mut nv_errors = vec![];
             for index in TPM_EK_CERT_NV_INDICES {
                 match get_ek_certificate_from_nv_index(runner, index) {
                     Ok(cert) => {
-                        tracing::info!("Read TPM EK certificate from NV index {index}");
+                        tracing::info!(index, "Read TPM EK certificate from NV index");
                         certs.extend_from_slice(&cert);
                     }
                     Err(e) => nv_errors.push(format!("{index}: {e}")),

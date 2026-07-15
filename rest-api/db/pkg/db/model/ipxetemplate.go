@@ -27,10 +27,10 @@ const (
 	// IpxeTemplateOrderByDefault is the default field for ordering
 	IpxeTemplateOrderByDefault = IpxeTemplateOrderByName
 
-	// IpxeTemplateScopeInternal represents an internal-only template
-	IpxeTemplateScopeInternal = "Internal"
-	// IpxeTemplateScopePublic represents a public template
-	IpxeTemplateScopePublic = "Public"
+	// IpxeTemplateVisibilityInternal represents an internal-only template
+	IpxeTemplateVisibilityInternal = "Internal"
+	// IpxeTemplateVisibilityPublic represents a public template
+	IpxeTemplateVisibilityPublic = "Public"
 )
 
 var (
@@ -53,7 +53,7 @@ type IpxeTemplate struct {
 	RequiredParams    []string  `bun:"required_params,type:text[],default:'{}'"`
 	ReservedParams    []string  `bun:"reserved_params,type:text[],default:'{}'"`
 	RequiredArtifacts []string  `bun:"required_artifacts,type:text[],default:'{}'"`
-	Scope             string    `bun:"scope,notnull"`
+	Visibility        string    `bun:"visibility,notnull"`
 	Created           time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated           time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
 }
@@ -67,7 +67,7 @@ type IpxeTemplateCreateInput struct {
 	RequiredParams    []string
 	ReservedParams    []string
 	RequiredArtifacts []string
-	Scope             string
+	Visibility        string
 }
 
 // IpxeTemplateUpdateInput are input parameters for the Update method. All fields
@@ -80,12 +80,12 @@ type IpxeTemplateUpdateInput struct {
 	RequiredParams    *[]string
 	ReservedParams    *[]string
 	RequiredArtifacts *[]string
-	Scope             *string
+	Visibility        *string
 }
 
 // IpxeTemplateFilterInput are input parameters for the filter/GetAll method.
-// Note: only `Public`-scoped templates are ever propagated into REST (see the
-// workflow activity `UpdateIpxeTemplatesInDB`), so there is no scope filter.
+// Note: only `Public`-visibility templates are ever propagated into REST (see the
+// workflow activity `UpdateIpxeTemplatesInDB`), so there is no visibility filter.
 //
 // IpxeTemplateIDs filters on the template's primary key (which equals core's TemplateID).
 // Names filters on the unique template name.
@@ -143,7 +143,7 @@ func (itd IpxeTemplateSQLDAO) Create(ctx context.Context, tx *db.Tx, input IpxeT
 		RequiredParams:    input.RequiredParams,
 		ReservedParams:    input.ReservedParams,
 		RequiredArtifacts: input.RequiredArtifacts,
-		Scope:             input.Scope,
+		Visibility:        input.Visibility,
 	}
 
 	_, err := db.GetIDB(tx, itd.dbSession).NewInsert().Model(it).Exec(ctx)
@@ -268,9 +268,9 @@ func (itd IpxeTemplateSQLDAO) Update(ctx context.Context, tx *db.Tx, input IpxeT
 		it.RequiredArtifacts = *input.RequiredArtifacts
 		updatedFields = append(updatedFields, "required_artifacts")
 	}
-	if input.Scope != nil {
-		it.Scope = *input.Scope
-		updatedFields = append(updatedFields, "scope")
+	if input.Visibility != nil {
+		it.Visibility = *input.Visibility
+		updatedFields = append(updatedFields, "visibility")
 	}
 
 	if len(updatedFields) > 0 {

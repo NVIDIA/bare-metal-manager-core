@@ -1072,7 +1072,10 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         .unwrap()
         .into_inner();
 
-    tracing::info!("dns_record is {:?}: ", dns_record);
+    tracing::info!(
+        dns_record = ?dns_record,
+        "Fetched DNS record",
+    );
     assert_eq!(dns_record.records.first().unwrap().content, "192.0.2.3");
 
     //DHCP response uses hostname set during allocation

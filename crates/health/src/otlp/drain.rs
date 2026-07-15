@@ -206,8 +206,8 @@ impl OtlpDrainTask {
                 Err(status) if is_retryable(&status) && attempt < MAX_RETRIES => {
                     let delay = backoff.next_delay();
                     tracing::warn!(
-                        code = ?status.code(),
-                        message = status.message(),
+                        grpc_status_code = ?status.code(),
+                        error = status.message(),
                         endpoint = %self.target.endpoint,
                         attempt,
                         retry_in = ?delay,

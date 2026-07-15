@@ -479,7 +479,10 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 dpu_snapshot.id
             );
 
-            tracing::error!(message);
+            tracing::error!(
+                dpu_machine_id = %dpu_snapshot.id,
+                "FNN-configured DPU has no ASN"
+            );
             CarbideError::internal(message)
         })?
     } else {
@@ -890,7 +893,7 @@ pub(crate) async fn record_dpu_network_status(
         && machine_obs.network_config_version.as_ref() == Some(&dpu_machine.network_config.version)
     {
         tracing::info!(
-            dpu_id = %dpu_machine_id,
+            dpu_machine_id = %dpu_machine_id,
             network_config_version = %dpu_machine.network_config.version,
             agent_version = ?machine_obs.agent_version,
             "Clearing use_admin_network_changed after matching-version ACK; OVS restart may have been skipped by agents that do not support the flag"

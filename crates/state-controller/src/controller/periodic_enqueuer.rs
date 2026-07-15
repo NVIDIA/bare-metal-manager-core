@@ -144,7 +144,7 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
                 iteration_result.skipped_iteration = true;
             }
             Err(e) => {
-                tracing::error!(controller=IO::LOG_SPAN_CONTROLLER_NAME, err=?e, "PeriodicEnqueuer iteration failed");
+                tracing::error!(controller=IO::LOG_SPAN_CONTROLLER_NAME, error=?e, "PeriodicEnqueuer iteration failed");
                 controller_span.record("otel.status_code", "error");
                 // Writing this field will set the span status to error
                 // Therefore we only write it on errors
@@ -183,7 +183,11 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             }
         };
 
-        tracing::trace!(iteration_data = ?locked_controller_iteration.iteration_data, "Starting iteration with ID ");
+        tracing::trace!(
+            iteration_id = locked_controller_iteration.iteration_data.id.0,
+            iteration_data = ?locked_controller_iteration.iteration_data,
+            "Starting controller iteration"
+        );
         iteration_metrics.iteration_id = Some(locked_controller_iteration.iteration_data.id);
 
         self.enqueue_objects(iteration_metrics).await?;

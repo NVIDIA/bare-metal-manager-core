@@ -48,18 +48,18 @@ pub async fn handle_error(
         };
         if scope.is_full_rack() {
             tracing::info!(
-                "Rack {} on-demand maintenance requested from Error state (full rack, activities: [{}]), transitioning to Maintenance",
-                id,
-                activities_desc,
+                rack_id = %id,
+                activity_description = %activities_desc,
+                "Rack on-demand maintenance requested from Error state (full rack, activities), transitioning to Maintenance",
             );
         } else {
             tracing::info!(
-                "Rack {} on-demand maintenance requested from Error state (partial: {} machines, {} switches, {} power shelves, activities: [{}]), transitioning to Maintenance",
-                id,
-                scope.machine_ids.len(),
-                scope.switch_ids.len(),
-                scope.power_shelf_ids.len(),
-                activities_desc,
+                rack_id = %id,
+                requested_machine_count = scope.machine_ids.len(),
+                requested_switch_count = scope.switch_ids.len(),
+                requested_power_shelf_count = scope.power_shelf_ids.len(),
+                activity_description = %activities_desc,
+                "Rack on-demand maintenance requested from Error state (partial: machines, switches, power shelves, activities), transitioning to Maintenance",
             );
         }
         let txn = ctx.services.db_pool.begin().await?;
@@ -71,14 +71,18 @@ pub async fn handle_error(
 
     if all_components_ready(id, ctx).await? {
         tracing::info!(
-            "Rack {} components all Ready, transitioning from Error back to Ready",
-            id
+            rack_id = %id,
+            "Rack components all Ready, transitioning from Error back to Ready",
         );
         let txn = ctx.services.db_pool.begin().await?;
         return Ok(StateHandlerOutcome::transition(RackState::Ready).with_txn(txn));
     }
 
-    tracing::error!("Rack {} is in error state: {}", id, cause);
+    tracing::error!(
+        rack_id = %id,
+        cause = %cause,
+        "Rack is in error state",
+    );
     Ok(StateHandlerOutcome::wait(format!(
         "rack in error state: {}",
         cause

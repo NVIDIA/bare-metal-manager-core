@@ -315,8 +315,8 @@ pub async fn create_missing_from(
     for expected_power_shelf in expected_power_shelves {
         if existing_map.contains_key(&expected_power_shelf.bmc_mac_address.to_string()) {
             tracing::debug!(
-                "Not overwriting expected-power-shelf with mac_addr: {}",
-                expected_power_shelf.bmc_mac_address.to_string()
+                bmc_mac_address = %expected_power_shelf.bmc_mac_address,
+                "Expected power shelf already exists; not overwriting",
             );
             continue;
         }

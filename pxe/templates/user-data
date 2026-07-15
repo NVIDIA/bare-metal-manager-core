@@ -182,6 +182,191 @@ write_files:
   - path: /var/log/forge/forge-scout.log
     permissions: '0644'
     content: Not Started
+  - path: /opt/forge/patch-hbn-manifest.py
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      """Patch doca_hbn.yaml to fix init-sfs bugs. (hbn init container script)
+
+      Fixes 1-3: init-sfs restart recovery
+      The init-sfs script moves SF interfaces to the pod namespace before
+      checking SFC journal completion. If the check fails, kubelet restarts
+      the init container, but the script only polls the host namespace for
+      interfaces that are now in the pod namespace, causing an infinite loop.
+      1. journalctl --boot: only check current boot's journal
+      2. Idempotent polling: fall back to pod namespace check
+      3. Non-fatal move: tolerate already-migrated interfaces
+
+      Fixes 4-5: mgmt.intf IP extraction
+      The setup_eth0_in_mgmt_vrf() function extracted the pod IP from
+      iptables NAT rules, which picks up all kube-proxy DNAT entries
+      (not just HBN's port-8765 rule). It also read the subnet mask from
+      the br-mgmt CNI config (/16), which is wrong when Flannel assigns
+      the pod IP (/24). This produces a mangled mgmt.intf that causes
+      ifreload to fail inside the HBN container.
+      4. Read IP/gateway directly from pod eth0 and default route
+      5. Make IPv6 address/gateway lines conditional (Flannel has no IPv6)
+
+      Fix 6: NVUE config re-apply on HBN restart
+      The forge-dpu-agent writes nvue_startup.yaml to the hostPath and
+      calls `nv config apply` inside HBN only when the file content
+      changes. After an HBN container restart, the applied NVUE state
+      is lost (bgpd reverts to no, interfaces revert to defaults) but
+      the file persists on the hostPath, so the agent sees no diff and
+      skips re-application. Deleting the file in init-sfs forces the
+      agent to re-write it and call `nv config apply` on the new
+      container.
+      6. Delete nvue_startup.yaml from hostPath during init-sfs
+      """
+      import re
+      import sys
+
+      path = sys.argv[1] if len(sys.argv) > 1 else \
+          '/opt/forge/doca_container_configs/configs/doca_hbn.yaml'
+
+      try:
+          with open(path) as f:
+              content = f.read()
+      except FileNotFoundError:
+          print(f"CARBIDE PATCH: {path} not found, skipping")
+          sys.exit(0)
+
+      original = content
+
+      # Fix 1: only check current boot's journal
+      if 'journalctl -u sfc.service --no-pager -b' not in content:
+          content = content.replace(
+              'journalctl -u sfc.service --no-pager',
+              'journalctl -u sfc.service --no-pager -b'
+          )
+
+      # Fix 2: poll pod namespace as fallback (two spacing variants)
+      POLL_FIX = (
+          'intf_ready=$(chroot /host nsenter -t 1 -n ip -br link show dev'
+          ' ${intf} 2>/dev/null | cut -d" " -f1); [ -z "$intf_ready" ] &&'
+          ' intf_ready=$(ip -br link show dev ${intf} 2>/dev/null'
+          ' | cut -d" " -f1)'
+      )
+      content = content.replace(
+          'intf_ready=$(chroot /host nsenter -t 1 -n ip -br link show'
+          ' dev ${intf} | cut -d" " -f1)',
+          POLL_FIX
+      )
+      content = content.replace(
+          'intf_ready=$(chroot /host nsenter -t 1 -n ip -br link show'
+          ' dev ${intf} | cut -d " " -f1)',
+          POLL_FIX
+      )
+
+      # Fix 3: non-fatal interface move
+      if 'echo "Interface ${intf} already in pod namespace"' not in content:
+          content = content.replace(
+              'chroot /host nsenter -t 1 -n /usr/sbin/ip link set'
+              ' ${intf} netns ${NS}',
+              'chroot /host nsenter -t 1 -n /usr/sbin/ip link set'
+              ' ${intf} netns ${NS} 2>/dev/null ||'
+              ' echo "Interface ${intf} already in pod namespace"'
+          )
+
+      # Fix 4: replace iptables-based IP/gateway extraction with direct
+      # eth0 reading from the pod namespace. The old approach greps all
+      # kube-proxy DNAT entries and reads the wrong subnet mask from the
+      # br-mgmt CNI config.
+      MGMT_INTF_FIX = [
+          '# Read eth0 IP directly from the pod network namespace (init container',
+          '# shares pod netns). The previous approach parsed iptables NAT rules to',
+          '# find the pod IP, but kube-proxy populates those rules with DNAT entries',
+          "# for every cluster service endpoint -- not just HBN's port-8765 rule --",
+          '# causing multiple IPs to be concatenated into mgmt.intf. It also read',
+          '# the subnet mask from the br-mgmt CNI config (/16), which is wrong when',
+          '# Flannel assigns the pod IP (/24). Reading eth0 directly is correct',
+          '# regardless of which CNI is active (br-mgmt on boot 1, Flannel on boot 2+).',
+          "IP4=$(ip -4 addr show eth0 2>/dev/null | awk '/inet /{print $2; exit}')",
+          "IP6=$(ip -6 addr show eth0 2>/dev/null | awk '/inet6 / && !/fe80/{print $2; exit}')",
+          '',
+          '# Get gateway from the pod default route. On fresh pod creation the CNI',
+          '# installs a default route via the bridge IP (e.g. via 10.244.x.1 for',
+          '# Flannel, via 10.88.0.1 for br-mgmt).',
+          "GW_IP4=$(ip -4 route show default 2>/dev/null | awk '/via/{print $3; exit}')",
+          "GW_IP6=$(ip -6 route show default 2>/dev/null | awk '/via/ && !/fe80/{print $3; exit}')",
+          '',
+          '# Fallback for HBN crash recovery: if the main HBN container ran and',
+          '# FRR/BGP replaced the original CNI default route (shows as "default',
+          '# nhid N proto bgp" with no "via"), derive the gateway as the first',
+          '# usable IP in the pod subnet (network_address + 1).',
+          'if [ -z "$GW_IP4" ] && [ -n "$IP4" ]; then',
+          "    IFS='/' read -r _addr _mask <<< \"$IP4\"",
+          "    IFS='.' read -r _a _b _c _d <<< \"$_addr\"",
+          '    _ipint=$(( (_a<<24) + (_b<<16) + (_c<<8) + _d ))',
+          '    _maskint=$(( 0xFFFFFFFF << (32-_mask) & 0xFFFFFFFF ))',
+          '    _gwint=$(( (_ipint & _maskint) + 1 ))',
+          '    GW_IP4="$(( (_gwint>>24)&0xFF )).$(( (_gwint>>16)&0xFF )).$(( (_gwint>>8)&0xFF )).$(( _gwint&0xFF ))"',
+          'fi',
+      ]
+      ip_match = re.search(r'^([ \t]*)# Read CNI file', content, re.MULTILINE)
+      if ip_match:
+          indent = ip_match.group(1)
+          new_code = '\n'.join(
+              (indent + line if line else '')
+              for line in MGMT_INTF_FIX
+          )
+          content = re.sub(
+              r'^[ \t]*# Read CNI file[^\n]*\n'
+              r'[ \t]*CNI_FILE=/etc/cni/net\.d/10-containerd-net-br-mgmt\.conflist'
+              r'.*?'
+              r'GW_IP6=\$\(echo \$GATEWAYS[^\n]+',
+              new_code,
+              content,
+              flags=re.DOTALL | re.MULTILINE,
+          )
+
+      # Fix 5: make IPv6 address/gateway conditional in mgmt.intf generation.
+      # Flannel does not assign IPv6, so writing empty address/gateway lines
+      # produces invalid ifupdown2 config. Guard against double-application
+      # since the old string is a substring of the new string.
+      if '[ -n "$IP6" ] && echo "    address $IP6"' not in content:
+          content = content.replace(
+              'echo "    address $IP6" >> $ENIM',
+              '[ -n "$IP6" ] && echo "    address $IP6" >> $ENIM'
+          )
+      if '[ -n "$GW_IP6" ] && echo "    gateway $GW_IP6"' not in content:
+          content = content.replace(
+              'echo "    gateway $GW_IP6" >> $ENIM',
+              '[ -n "$GW_IP6" ] && echo "    gateway $GW_IP6" >> $ENIM'
+          )
+
+      # Fix 6: delete the NVUE config diff cache from the hostPath so the
+      # forge-dpu-agent re-writes and re-applies it to the new container.
+      NVUE_RM = (
+          'rm -f /host/var/lib/hbn/var/support/nvue_startup.yaml\n'
+      )
+      if 'rm -f /host/var/lib/hbn/var/support/nvue_startup.yaml' not in content:
+          content = content.replace(
+              'setup_eth0_in_mgmt_vrf\n\n      sysctl',
+              'setup_eth0_in_mgmt_vrf\n\n'
+              '      # Force forge-dpu-agent to re-apply NVUE config to this\n'
+              '      # new container (the agent skips nv-config-apply when its\n'
+              '      # input file on the hostPath has not changed).\n'
+              '      rm -f /host/var/lib/hbn/var/support/nvue_startup.yaml\n\n'
+              '      sysctl'
+          )
+
+      expected_markers = {
+          "fix1 (journalctl -b)": 'journalctl -u sfc.service --no-pager -b' in content,
+          "fix4 (eth0 IP read)": 'ip -4 addr show eth0' in content,
+          "fix6 (nvue rm)": 'rm -f /host/var/lib/hbn/var/support/nvue_startup' in content,
+      }
+      missing = [name for name, ok in expected_markers.items() if not ok]
+      if missing:
+          print(f"CARBIDE PATCH: WARNING - fixes not applied to {path}: {', '.join(missing)}")
+          print("The manifest structure may have changed upstream.")
+          sys.exit(1)
+      if content == original:
+          print(f"CARBIDE PATCH: {path} already patched")
+          sys.exit(0)
+      with open(path, 'w') as f:
+          f.write(content)
+      print(f"CARBIDE PATCH: {path} patched successfully")
   - path: /opt/forge/runcmds.sh
     permissions: '0755'
     content: |
@@ -271,6 +456,7 @@ write_files:
       chmod +x /opt/forge/doca_container_configs/scripts/hbn-dpu-setup.sh
       cd /opt/forge/doca_container_configs/scripts/
       ip vrf exec mgmt /bin/bash hbn-dpu-setup.sh
+      python3 /opt/forge/patch-hbn-manifest.py
       ctr -n=k8s.io image import /opt/forge/doca_hbn.tar
       /opt/mellanox/doca/services/telemetry/import_doca_telemetry.sh
 

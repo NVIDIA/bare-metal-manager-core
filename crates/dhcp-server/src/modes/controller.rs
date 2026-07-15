@@ -73,12 +73,12 @@ impl DhcpMode for Controller {
                 &mut machine_cache,
             ) {
                 tracing::info!(
-                    "returning cached response for (mac: {}, link(or relay)_address: {}, circuit_id: {:?}, remote: {:?}, vendor: {})",
-                    discovery_request.mac_address,
-                    link_address,
-                    &discovery_request.circuit_id,
-                    &discovery_request.remote_id,
-                    &vendor_id,
+                    mac_address = %discovery_request.mac_address,
+                    %link_address,
+                    circuit_id = ?discovery_request.circuit_id,
+                    remote_id = ?discovery_request.remote_id,
+                    %vendor_id,
+                    "returning cached response"
                 );
 
                 return Ok(cache_entry.dhcp_record);

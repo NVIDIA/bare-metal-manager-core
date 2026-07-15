@@ -119,7 +119,10 @@ impl Server {
                             tokio::spawn(async move {
                                 if config.nodelay
                                     && let Err(e) = socket.set_nodelay(true) {
-                                        tracing::warn!("set_nodelay() failed: {e:?}");
+                                        tracing::warn!(
+                                            error = ?e,
+                                            "set_nodelay failed",
+                                        );
                                     }
 
                                 let session = match run_stream(config, socket, handler).await {
@@ -283,7 +286,8 @@ impl server::Handler for MockSshHandler {
                 Ok(server::Auth::Accept)
             } else {
                 tracing::info!(
-                    "got incorrect auth_password, rejecting. user={user}, password={password}"
+                    user = %user,
+                    "Incorrect SSH password; rejecting authentication",
                 );
                 Ok(server::Auth::Reject {
                     proceed_with_methods: None,
@@ -292,7 +296,8 @@ impl server::Handler for MockSshHandler {
             }
         } else {
             tracing::info!(
-                "configured to accept any credentials, accepting user={user}, password={password}"
+                user = %user,
+                "Accepting SSH credentials because any credentials are allowed",
             );
             Ok(server::Auth::Accept)
         }
@@ -367,8 +372,8 @@ impl server::Handler for MockSshHandler {
                         (b"\x1c", PromptBehavior::Dell) => {
                             // ssh-console should have prevented this, make it a warning.
                             tracing::warn!(
-                                "Got ctrl+\\ in system console, dropping to BMC prompt {:?}",
-                                self.console_state
+                                console_state = ?self.console_state,
+                                "Got ctrl+\\ in system console, dropping to BMC prompt",
                             );
                             // ctrl+\
                             self.console_state = ConsoleState::Bmc;

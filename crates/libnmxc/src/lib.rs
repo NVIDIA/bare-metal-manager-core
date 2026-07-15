@@ -390,7 +390,7 @@ impl ChannelConnector for TlsChannelConnector {
                 .await?
         };
 
-        debug!("Connected to NMX-C at {}", endpoint.uri);
+        debug!(endpoint = %endpoint.uri, "Connected to NMX-C");
         Ok(channel)
     }
 

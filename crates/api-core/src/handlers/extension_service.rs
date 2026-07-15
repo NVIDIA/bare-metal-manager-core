@@ -142,9 +142,9 @@ pub(crate) async fn create(
                         .await
                 {
                     tracing::warn!(
-                        "Failed to delete credential for extension service {} after transaction failure: {}",
-                        service_id,
-                        delete_err
+                        extension_service_id = %service_id,
+                        error = %delete_err,
+                        "Failed to delete extension service credential after transaction failure",
                     );
                 }
             }
@@ -389,9 +389,9 @@ pub(crate) async fn update(
                             .await
                     {
                         tracing::warn!(
-                            "Failed to delete credential for extension service {} after transaction failure: {}",
-                            service_id,
-                            delete_err
+                            extension_service_id = %service_id,
+                            error = %delete_err,
+                            "Failed to delete extension service credential after transaction failure",
                         );
                     }
                 }
@@ -523,10 +523,10 @@ pub(crate) async fn delete(
                 delete_extension_service_credential(&api.credential_manager, credential_key).await
             {
                 tracing::warn!(
-                    "Failed to delete credential for extension service {} version {}: {}",
-                    service_id,
-                    version,
-                    e
+                    extension_service_id = %service_id,
+                    version = %version,
+                    error = %e,
+                    "Failed to delete extension service credential",
                 );
             }
         }

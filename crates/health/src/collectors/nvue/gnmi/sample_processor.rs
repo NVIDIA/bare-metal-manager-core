@@ -48,8 +48,8 @@ impl GnmiSampleProcessor {
             Some(proto::subscribe_response::Response::Error(e)) => {
                 stream_metrics.stream_errors_total.inc();
                 tracing::warn!(
-                    code = e.code,
-                    message = %e.message,
+                    grpc_status_code = e.code,
+                    error = %e.message,
                     "nvue_gnmi SAMPLE: server error in stream"
                 );
                 return;

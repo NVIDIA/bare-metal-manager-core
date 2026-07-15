@@ -194,8 +194,8 @@ pub(crate) async fn sign_machine_identity(
             .await
             .inspect_err(|e| {
                 tracing::error!(
-                    org_id = %identity_row.organization_id.as_str(),
-                    message = %e.message(),
+                    organization_id = %identity_row.organization_id.as_str(),
+                    error = %e.message(),
                     "tenant signing key decrypt failed"
                 );
             })
@@ -244,8 +244,8 @@ pub(crate) async fn sign_machine_identity(
         .await
         .inspect_err(|e| {
             tracing::error!(
-                org_id = %identity_row.organization_id.as_str(),
-                message = %e.message(),
+                organization_id = %identity_row.organization_id.as_str(),
+                error = %e.message(),
                 "token delegation auth config decrypt failed"
             );
         })?;

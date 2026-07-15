@@ -63,6 +63,21 @@ func (s *PhaseStats) AddTargets(targets []*OperationRunTarget) {
 	}
 }
 
+func (s *PhaseStats) Add(other PhaseStats) {
+	if s == nil {
+		return
+	}
+
+	if other.PhaseIndex > s.PhaseIndex {
+		s.PhaseIndex = other.PhaseIndex
+	}
+	s.SelectedTargets += other.SelectedTargets
+	s.StatusCounts.Completed += other.StatusCounts.Completed
+	s.StatusCounts.Failed += other.StatusCounts.Failed
+	s.StatusCounts.Terminated += other.StatusCounts.Terminated
+	s.StatusCounts.Skipped += other.StatusCounts.Skipped
+}
+
 func (s *PhaseStats) AddTarget(target *OperationRunTarget) {
 	if s == nil || target == nil {
 		return
@@ -72,7 +87,7 @@ func (s *PhaseStats) AddTarget(target *OperationRunTarget) {
 		s.PhaseIndex = target.PhaseIndex
 	}
 	s.SelectedTargets++
-	s.StatusCounts.AddStatus(target.Status)
+	s.StatusCounts.Add(target.Status)
 }
 
 // FailurePercent returns the percentage of selected targets that failed.
@@ -81,6 +96,21 @@ func (s PhaseStats) FailurePercent() int {
 		return 0
 	}
 	return s.StatusCounts.Failed * 100 / s.SelectedTargets
+}
+
+func (s PhaseStats) TerminalTargets() int {
+	return s.StatusCounts.Completed +
+		s.StatusCounts.Failed +
+		s.StatusCounts.Terminated +
+		s.StatusCounts.Skipped
+}
+
+func (s PhaseStats) AllTargetsTerminal() bool {
+	return s.SelectedTargets > 0 && s.TerminalTargets() == s.SelectedTargets
+}
+
+func (s PhaseStats) FailedOrTerminatedTargets() int {
+	return s.StatusCounts.Failed + s.StatusCounts.Terminated
 }
 
 // SafetyGateTrippedMessage formats the pause message for a gate that tripped
@@ -122,7 +152,7 @@ func (s PhaseStats) SafetyGateTrippedMessage(gate SafetyGate) string {
 	}
 }
 
-func (s *TargetStatusCounts) AddStatus(status OperationRunTargetStatus) {
+func (s *TargetStatusCounts) Add(status OperationRunTargetStatus) {
 	if s == nil {
 		return
 	}

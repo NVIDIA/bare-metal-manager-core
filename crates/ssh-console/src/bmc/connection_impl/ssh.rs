@@ -104,7 +104,11 @@ pub async fn spawn(
                                 && ringbuf_contains(&output_ringbuf, bmc_prompt) {
                                     let mut ringbuf_str = String::new();
                                     output_ringbuf.read_to_string(&mut ringbuf_str).ok();
-                                    tracing::warn!(%machine_id, "BMC dropped to system prompt, exiting. output: {ringbuf_str:?}");
+                                    tracing::warn!(
+                                        %machine_id,
+                                        output = ?ringbuf_str,
+                                        "BMC dropped to system prompt, exiting"
+                                    );
                                     break;
                                 }
                         }
@@ -262,7 +266,7 @@ async fn make_authenticated_client(
         .map_err(|error| ClientCreationError::Authentication { addr: *addr, error })?
     {
         AuthResult::Success => {
-            tracing::warn!(%machine_id, %addr, %user, "auth_none succeeded, it shouldn't have!");
+            tracing::warn!(%machine_id, bmc_address = %addr, %user, "auth_none succeeded, it shouldn't have!");
             return Ok(client);
         }
         AuthResult::Failure {
@@ -302,13 +306,13 @@ async fn make_authenticated_client(
                     })? {
                     AuthResult::Success => {
                         tracing::debug!(
-                            %machine_id, %user, %addr,
+                            %machine_id, %user, bmc_address = %addr,
                             "PublicKey authentication succeeded"
                         );
                         return Ok(client);
                     }
                     AuthResult::Failure { .. } => {
-                        tracing::warn!(%machine_id, %user, %addr, "PublicKey authentication failed")
+                        tracing::warn!(%machine_id, %user, bmc_address = %addr, "PublicKey authentication failed")
                     }
                 }
             }
@@ -342,14 +346,14 @@ async fn make_authenticated_client(
                         }
                         KeyboardInteractiveAuthResponse::Success => {
                             tracing::debug!(
-                                %machine_id, %user, %addr,
+                                %machine_id, %user, bmc_address = %addr,
                                 "KeyboardInteractive authentication succeeded"
                             );
                             return Ok(client);
                         }
                         KeyboardInteractiveAuthResponse::Failure { .. } => {
                             tracing::warn!(
-                                %machine_id, %user, %addr,
+                                %machine_id, %user, bmc_address = %addr,
                                 "KeyboardInteractive authentication failed"
                             );
                             break;
@@ -369,18 +373,18 @@ async fn make_authenticated_client(
                     })? {
                     AuthResult::Success => {
                         tracing::debug!(
-                            %machine_id, %user, %addr,
+                            %machine_id, %user, bmc_address = %addr,
                             "Password authentication succeeded"
                         );
                         return Ok(client);
                     }
                     AuthResult::Failure { .. } => {
-                        tracing::warn!(%machine_id, %user, %addr, "Password authentication failed");
+                        tracing::warn!(%machine_id, %user, bmc_address = %addr, "Password authentication failed");
                     }
                 }
             }
             other => {
-                tracing::debug!(%machine_id, "Ignoring unsupported auth method {other:?}")
+                tracing::debug!(%machine_id, ?other, "Ignoring unsupported auth method")
             }
         }
     }
@@ -565,7 +569,8 @@ async fn trigger_and_await_sol_console(
                     msg => {
                         tracing::debug!(
                             %machine_id,
-                            "message from BMC while activating serial prompt: {msg:?}"
+                            bmc_message = ?msg,
+                            "message from BMC while activating serial prompt"
                         )
                     }
                 }

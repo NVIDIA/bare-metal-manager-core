@@ -21,10 +21,9 @@ import (
 )
 
 const currentPhaseIndexSubquery = `(
-	SELECT MIN(phase_index)
-	FROM operation_run_target AS current_phase
-	WHERE current_phase.operation_run_id = ?
-	AND current_phase.status NOT IN (?)
+	SELECT current_phase_run.current_phase_index
+	FROM operation_run AS current_phase_run
+	WHERE current_phase_run.id = ?
 )`
 
 // txKeyType is an unexported type for the transaction context key, preventing
@@ -167,6 +166,7 @@ func (s *PostgresStore) List(
 		"status",
 		"status_reason",
 		"status_message",
+		"current_phase_index",
 		"options",
 		"operation_type",
 		"operation_code",
@@ -344,7 +344,6 @@ func applyTargetPhaseScope(
 		return q.Where(
 			"ort.phase_index = "+currentPhaseIndexSubquery,
 			runID,
-			bun.In(operationrun.TerminalTargetStatuses()),
 		)
 	}
 
@@ -358,14 +357,12 @@ func applyTargetPhaseScope(
 		return q.Where(
 			"ort.phase_index < COALESCE("+currentPhaseIndexSubquery+", ort.phase_index + 1)",
 			runID,
-			bun.In(operationrun.TerminalTargetStatuses()),
 		)
 	case operationrun.TargetPhaseScopeCurrentAndCompletedPhases:
 		// Same fallback rationale as CompletedPhases above.
 		return q.Where(
 			"ort.phase_index <= COALESCE("+currentPhaseIndexSubquery+", ort.phase_index)",
 			runID,
-			bun.In(operationrun.TerminalTargetStatuses()),
 		)
 	case operationrun.TargetPhaseScopeAllMaterializedTargets:
 		return q

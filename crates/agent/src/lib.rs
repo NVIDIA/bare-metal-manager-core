@@ -129,7 +129,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         .machine_identity
         .validate()
         .map_err(|e| eyre::eyre!("invalid [machine-identity] in agent config: {e}"))?;
-    tracing::info!("Using configuration from {path}: {agent:?}");
+    tracing::info!(config_path = path.as_str(), ?agent, "Using configuration");
 
     if agent.machine.is_fake_dpu {
         tracing::warn!("Pretending local host is a DPU. Dev only.");
@@ -243,7 +243,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 None => NetworkPingerType::OobNetBind,
             };
 
-            tracing::info!("Using {}", pinger_type);
+            tracing::info!(%pinger_type, "Using pinger");
             let pinger: Arc<dyn Ping> = Arc::from(pinger_type);
 
             let mut network_monitor =
@@ -299,7 +299,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             {
                 Ok(id) => id,
                 Err(e) => {
-                    tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+                    tracing::error!(error = ?e, "Failed to get host machine ID after retries");
                     return Err(e);
                 }
             };

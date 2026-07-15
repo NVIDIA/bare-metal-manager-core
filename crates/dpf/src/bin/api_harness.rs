@@ -314,7 +314,7 @@ async fn redfish_reboot_host(
         .and_then(|sys| sys.boot_progress)
         .and_then(|bp| bp.last_state_time);
     tracing::info!(
-        host = %host_bmc_ip,
+        host_bmc_ip_address = %host_bmc_ip,
         pre_reboot_time = ?pre_reboot_time,
         "Sending ForceRestart via Redfish"
     );
@@ -349,7 +349,7 @@ async fn redfish_reboot_host(
 
                 if timestamp_changed && os_running {
                     tracing::info!(
-                        host = %host_bmc_ip,
+                        host_bmc_ip_address = %host_bmc_ip,
                         last_state_time = ?current_time,
                         "Host rebooted and OS is running"
                     );
@@ -357,9 +357,9 @@ async fn redfish_reboot_host(
                 }
 
                 tracing::debug!(
-                    host = %host_bmc_ip,
+                    host_bmc_ip_address = %host_bmc_ip,
                     last_state_time = ?current_time,
-                    last_state = ?current_state,
+                    host_state = ?current_state,
                     timestamp_changed,
                     os_running,
                     "Waiting for host reboot to complete"
@@ -367,7 +367,7 @@ async fn redfish_reboot_host(
             }
             Err(e) => {
                 tracing::debug!(
-                    host = %host_bmc_ip,
+                    host_bmc_ip_address = %host_bmc_ip,
                     error = %e,
                     "Redfish unreachable during reboot, retrying"
                 );
@@ -521,7 +521,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let password =
                 resolve_bmc_password(&repo, &cli.namespace, bmc_password.as_deref()).await?;
             redfish_reboot_host(&host_bmc_ip, &bmc_username, &password).await?;
-            tracing::info!(host = %host_bmc_ip, "Host reboot initiated via Redfish");
+            tracing::info!(host_bmc_ip_address = %host_bmc_ip, "Host reboot initiated via Redfish");
         }
     }
 
@@ -577,7 +577,7 @@ async fn monitor_until_ready(
     let _watcher = sdk
         .watcher()
         .on_dpu_event(|event| async move {
-            tracing::info!(dpu = %event.dpu_name, phase = ?event.phase, "DPU event");
+            tracing::info!(dpu_name = %event.dpu_name, phase = ?event.phase, "DPU event");
             Ok(())
         })
         .on_reboot_required({
@@ -672,7 +672,7 @@ async fn monitor_until_ready(
             }
         }
     };
-    tracing::info!(node = %node_name, host = %host_bmc_ip, "Reboot required, rebooting host via Redfish");
+    tracing::info!(node = %node_name, host_bmc_ip_address = %host_bmc_ip, "Reboot required, rebooting host via Redfish");
     redfish_reboot_host(host_bmc_ip, DEFAULT_BMC_USERNAME, bmc_password)
         .await
         .map_err(|e| format!("Redfish reboot failed: {e}"))?;
@@ -709,7 +709,7 @@ async fn run_provisioning_flow(
     let timeout = Duration::from_secs(timeout_secs);
 
     tracing::info!("=== DPF Provisioning Flow ===");
-    tracing::info!(host = %host_bmc_ip, dpu_count = dpus.len(), timeout_secs, "Starting provisioning");
+    tracing::info!(host_bmc_ip_address = %host_bmc_ip, dpu_count = dpus.len(), timeout_seconds = timeout_secs, "Starting provisioning");
 
     tracing::info!("[1/4] Initializing DPF resources...");
     let init_config = InitDpfResourcesConfig {
@@ -758,7 +758,7 @@ async fn run_provisioning_flow(
 
     tracing::info!(
         dpu_count = dpus.len(),
-        elapsed_secs = elapsed.as_secs(),
+        elapsed_seconds = elapsed.as_secs(),
         "=== Provisioning Complete ==="
     );
     Ok(())
@@ -800,7 +800,7 @@ async fn wait_for_dpu_created_after(
                 let name = dpu.metadata.name.as_deref().unwrap_or_default();
                 if dpu.spec.dpu_device_name != device_name {
                     tracing::debug!(
-                        dpu = %name,
+                        dpu_name = %name,
                         spec_device = %dpu.spec.dpu_device_name,
                         want_device = %device_name,
                         "DPU skip (device name mismatch)"
@@ -814,7 +814,7 @@ async fn wait_for_dpu_created_after(
                     .and_then(k8s_time_to_system_time)
                 else {
                     tracing::info!(
-                        dpu = %name,
+                        dpu_name = %name,
                         "DPU skip (no creation_timestamp or conversion failed)"
                     );
                     return std::future::ready(Ok::<(), DpfError>(()));
@@ -831,9 +831,9 @@ async fn wait_for_dpu_created_after(
                     .unwrap_or(0);
                 let passes = ct > cutoff;
                 tracing::info!(
-                    dpu = %name,
-                    creation_ms = ct_ms,
-                    cutoff_ms = cutoff_ms,
+                    dpu_name = %name,
+                    creation_time_milliseconds = ct_ms,
+                    cutoff_time_milliseconds = cutoff_ms,
                     passes = passes,
                     "DPU created_after check"
                 );
@@ -887,7 +887,7 @@ async fn run_reprovisioning_flow(
 
     tracing::info!(
         device_name = %device_name,
-        elapsed_secs = elapsed.as_secs(),
+        elapsed_seconds = elapsed.as_secs(),
         "=== Reprovisioning Complete ==="
     );
     Ok(())
@@ -965,7 +965,7 @@ async fn show_status(
         tracing::info!(name = %name, dpu_count, "DPU Node");
         if let Some(dpus) = &node.spec.dpus {
             for dpu in dpus {
-                tracing::info!(dpu = %dpu.name, "  DPU");
+                tracing::info!(dpu_name = %dpu.name, "  DPU");
             }
         }
     }
@@ -1005,7 +1005,7 @@ async fn show_status(
             .first()
             .map(|c| c.type_.clone())
             .unwrap_or_else(|| "Unknown".to_string());
-        tracing::info!(name = %name, serial = %serial, status = %status_str, "DPU Device");
+        tracing::info!(name = %name, serial = %serial, dpu_device_status = %status_str, "DPU Device");
     }
 
     // List DPUDeployments
@@ -1053,19 +1053,19 @@ async fn run_watcher(sdk: Arc<DpfSdk<KubeRepository>>) -> Result<(), Box<dyn std
     let watcher = sdk
         .watcher()
         .on_dpu_event(|event| async move {
-            tracing::info!(dpu = %event.dpu_name, phase = ?event.phase, "PHASE");
+            tracing::info!(dpu_name = %event.dpu_name, phase = ?event.phase, "PHASE");
             Ok(())
         })
         .on_reboot_required(|event| async move {
-            tracing::warn!(node = %event.node_name, host = %event.host_bmc_ip, "REBOOT REQUIRED");
+            tracing::warn!(node = %event.node_name, host_bmc_ip_address = %event.host_bmc_ip, "REBOOT REQUIRED");
             Ok(())
         })
         .on_dpu_ready(|event| async move {
-            tracing::info!(dpu = %event.dpu_name, device_name = %event.device_name, "READY");
+            tracing::info!(dpu_name = %event.dpu_name, device_name = %event.device_name, "READY");
             Ok(())
         })
         .on_error(|event| async move {
-            tracing::error!(dpu = %event.dpu_name, device_name = %event.device_name, node = %event.node_name, "ERROR");
+            tracing::error!(dpu_name = %event.dpu_name, device_name = %event.device_name, node = %event.node_name, "ERROR");
             Ok(())
         })
         .start()?;

@@ -79,9 +79,9 @@ impl DiscoverDhcp for FakeMachine {
             .await?
             .into_inner();
         tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            self.mac,
-            response.address
+            mac_address = %self.mac,
+            ip_address = %response.address,
+            "DHCP assigned ip"
         );
         self.ip = response.address;
         Ok(())

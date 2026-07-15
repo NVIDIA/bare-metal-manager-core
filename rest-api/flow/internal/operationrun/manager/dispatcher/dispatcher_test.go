@@ -224,7 +224,7 @@ func TestDispatchRunReconcilesCompletedTaskAndCompletesRun(t *testing.T) {
 	require.Equal(t, now, *store.run.FinishedAt)
 }
 
-func TestDispatchRunFailsWhenTerminalChangesSpanMultiplePhases(t *testing.T) {
+func TestDispatchRunLocksOnlyCurrentPhaseTargets(t *testing.T) {
 	runID := uuid.New()
 	firstTaskID := uuid.New()
 	secondTaskID := uuid.New()
@@ -261,8 +261,11 @@ func TestDispatchRunFailsWhenTerminalChangesSpanMultiplePhases(t *testing.T) {
 	}, now)
 
 	err := dispatcher.dispatchRun(context.Background(), runID)
-	require.ErrorContains(t, err, "terminal target changes span multiple phases")
-	require.Equal(t, operationrun.OperationRunStatusRunning, store.run.Status)
+	require.NoError(t, err)
+	require.Equal(t, operationrun.OperationRunTargetStatusCompleted, first.Status)
+	require.Equal(t, operationrun.OperationRunTargetStatusSubmitted, second.Status)
+	require.Equal(t, operationrun.OperationRunStatusPaused, store.run.Status)
+	require.Equal(t, operationrun.OperationRunStatusReasonPhaseGate, store.run.StatusReason)
 }
 
 func TestDispatchRunPausesWhenSafetyGateTrips(t *testing.T) {
@@ -624,13 +627,11 @@ func TestDecideSetsTerminalStatusFromTargetOutcomes(t *testing.T) {
 			run := &operationrun.OperationRun{
 				Status: operationrun.OperationRunStatusRunning,
 			}
-			summary := newReconciliationSummary()
-			summary.CurrentPhaseIndex = -1
-			summary.TargetCount = len(tt.statuses)
+			summary := operationrun.TargetPhaseSummary{}
+			summary.TotalPhases = 1
+			summary.CurrentPhaseStats.SelectedTargets = len(tt.statuses)
 			for _, status := range tt.statuses {
-				if status.IsFailedOrTerminated() {
-					summary.FailedOrTerminatedTargetCount++
-				}
+				summary.CurrentPhaseStats.StatusCounts.Add(status)
 			}
 
 			decision, err := (&Dispatcher{}).decide(&preparedDispatch{
@@ -696,8 +697,37 @@ func (s *fakeStore) LockRunnable(
 func (s *fakeStore) LockOperationRunTargets(
 	ctx context.Context,
 	runID uuid.UUID,
+	phaseIndex int32,
 ) ([]*operationrun.OperationRunTarget, error) {
-	return s.targets, nil
+	targets := make([]*operationrun.OperationRunTarget, 0)
+	for _, target := range s.targets {
+		if target.PhaseIndex == phaseIndex {
+			targets = append(targets, target)
+		}
+	}
+	return targets, nil
+}
+
+func (s *fakeStore) GetTargetPhaseAggregate(
+	ctx context.Context,
+	runID uuid.UUID,
+	currentPhaseIndex int32,
+) (operationrun.TargetPhaseAggregate, error) {
+	var totalPhases int32
+	completedStats := operationrun.PhaseStats{PhaseIndex: max(currentPhaseIndex-1, 0)}
+	for _, target := range s.targets {
+		if target.PhaseIndex+1 > totalPhases {
+			totalPhases = target.PhaseIndex + 1
+		}
+		if target.PhaseIndex < currentPhaseIndex {
+			completedStats.AddTarget(target)
+		}
+	}
+
+	return operationrun.TargetPhaseAggregate{
+		TotalPhases:         totalPhases,
+		CompletedPhaseStats: completedStats,
+	}, nil
 }
 
 func (s *fakeStore) UpdateRunState(
@@ -759,8 +789,17 @@ func (s *dispatchOnceStore) LockRunnable(
 func (s *dispatchOnceStore) LockOperationRunTargets(
 	ctx context.Context,
 	runID uuid.UUID,
+	phaseIndex int32,
 ) ([]*operationrun.OperationRunTarget, error) {
 	return nil, nil
+}
+
+func (s *dispatchOnceStore) GetTargetPhaseAggregate(
+	ctx context.Context,
+	runID uuid.UUID,
+	currentPhaseIndex int32,
+) (operationrun.TargetPhaseAggregate, error) {
+	return operationrun.TargetPhaseAggregate{}, nil
 }
 
 func (s *dispatchOnceStore) UpdateRunState(

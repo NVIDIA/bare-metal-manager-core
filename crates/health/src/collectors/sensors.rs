@@ -93,7 +93,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
     async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
         let Some(inventory) = self.shared.load_full() else {
             tracing::debug!(
-                bmc_addr = ?self.endpoint.addr,
+                bmc_address = ?self.endpoint.addr,
                 "No entity inventory available yet; skipping sensor iteration"
             );
             return Ok(IterationResult {
@@ -113,7 +113,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         let sweep = self.endpoint.bmc.collector_sweep();
         if sweep == CollectorSweep::Skip {
             tracing::debug!(
-                bmc_addr = ?self.endpoint.addr,
+                bmc_address = ?self.endpoint.addr,
                 "BMC connection circuit is open; skipping sensor iteration"
             );
             return Ok(IterationResult {
@@ -125,9 +125,9 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
         let probe_only = sweep == CollectorSweep::Probe;
 
         tracing::debug!(
-            bmc_addr = ?self.endpoint.addr,
+            bmc_address = ?self.endpoint.addr,
             generation = inventory.generation,
-            inventory_age_secs = inventory.discovered_at.elapsed().as_secs(),
+            inventory_age_seconds = inventory.discovered_at.elapsed().as_secs(),
             entity_count = inventory.entities.len(),
             probe_only,
             "Reading entity inventory snapshot for sensor iteration"
