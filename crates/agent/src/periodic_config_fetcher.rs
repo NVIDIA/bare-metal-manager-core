@@ -111,7 +111,7 @@ impl PeriodicConfigFetcher {
         let sitename = match fetch_sitename(&forge_client_config, &config.forge_api).await {
             Ok(sn) => sn,
             Err(e) => {
-                warn!("Unable to fetch sitename. Error {}", e);
+                warn!(error = %e, "Unable to fetch sitename");
                 None
             }
         };
@@ -190,8 +190,8 @@ async fn single_fetch(
     }
 
     trace!(
-        "Fetching periodic configuration for Machine {}",
-        state.config.machine_id
+        machine_id = %state.config.machine_id,
+        "Fetching periodic configuration"
     );
 
     match fetch(
@@ -213,22 +213,24 @@ async fn single_fetch(
                 }
                 Err(err) => {
                     error!(
-                        "Failed to fetch the latest configuration: {err}.\n Will retry in {:?}",
-                        state.config.config_fetch_interval
+                        error = %err,
+                        retry_interval_seconds = state.config.config_fetch_interval.as_secs_f64(),
+                        "Failed to fetch the latest configuration. Will retry"
                     );
                 }
             };
         }
         Err(err) => match err.downcast_ref::<tonic::Status>() {
             Some(grpc_status) if grpc_status.code() == tonic::Code::NotFound => {
-                warn!("DPU not found: {}", state.config.machine_id);
+                warn!(machine_id = %state.config.machine_id, "DPU not found");
                 state.netconf.store(None);
                 state.instmeta.store(None);
             }
             _ => {
                 error!(
-                    "Failed to fetch the latest configuration. Will retry in {:?}. {err:#?}",
-                    state.config.config_fetch_interval
+                    retry_interval_seconds = state.config.config_fetch_interval.as_secs_f64(),
+                    error = ?err,
+                    "Failed to fetch the latest configuration. Will retry"
                 );
             }
         },
@@ -289,7 +291,7 @@ pub fn instance_metadata_from_instance(
     let devices = match extract_instance_ib_config(&instance) {
         Ok(value) => Some(value),
         Err(e) => {
-            trace!("Failed to fetch IB config: {}", e.to_string());
+            trace!(error = %e, "Failed to fetch IB config");
             None
         }
     };

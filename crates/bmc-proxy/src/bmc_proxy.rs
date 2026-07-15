@@ -144,7 +144,7 @@ pub async fn start(
     let BmcProxyParams { config } = params;
 
     tracing::info!(
-        address = config.listen.to_string(),
+        listen_address = config.listen.to_string(),
         build_version = carbide_version::v!(build_version),
         build_date = carbide_version::v!(build_date),
         rust_version = carbide_version::v!(rust_version),
@@ -259,8 +259,8 @@ enum ConnectionFailReason {
 
 /// An inbound connection failed before it could be served -- the TCP accept
 /// errored, the TLS acceptor could not be reloaded, or the TLS handshake
-/// errored. Metric-only: the `tracing::error!` beside each emit stays the log,
-/// byte-for-byte as before; the `reason` label distinguishes which leg failed.
+/// errored. Metric-only: the `tracing::error!` beside each emit remains the log;
+/// the `reason` label distinguishes which leg failed.
 #[derive(Event)]
 #[event(
     name = "carbide_bmc_proxy_tls_connection_fail_total",
@@ -308,7 +308,10 @@ impl BmcProxy {
                     match RefreshableTlsAcceptor::new(self.state.config.tls.clone()).await {
                         Ok(acceptor) => acceptor,
                         Err(e) => {
-                            tracing::error!("Error reloading TLS certificate, will retry: {e}");
+                            tracing::error!(
+                                error = %e,
+                                "Error reloading TLS certificate, will retry",
+                            );
                             emit(TlsConnectionFailed {
                                 reason: ConnectionFailReason::TlsCertificateInvalid,
                             });
@@ -324,46 +327,52 @@ impl BmcProxy {
 
             tokio::task::Builder::new()
                 .name("http conn handler")
-                .spawn(
-                    async move {
-                        match tls_acceptor.accept(conn).await {
-                            Ok(conn) => {
-                                let conn = TokioIo::new(conn);
-                                emit(TlsConnectionSucceeded);
+                .spawn(async move {
+                    match tls_acceptor.accept(conn).await {
+                        Ok(conn) => {
+                            let conn = TokioIo::new(conn);
+                            emit(TlsConnectionSucceeded);
 
-                                let (_, session) = conn.inner().get_ref();
-                                let connection_attributes = {
-                                    let peer_address = addr;
-                                    let peer_certificates =
-                                        session.peer_certificates().unwrap_or_default().to_vec();
-                                    Arc::new(ConnectionAttributes {
-                                        peer_address,
-                                        peer_certificates,
-                                    })
-                                };
-                                let conn_attrs_extension_layer =
-                                    AddExtensionLayer::new(connection_attributes);
+                            let (_, session) = conn.inner().get_ref();
+                            let connection_attributes = {
+                                let peer_address = addr;
+                                let peer_certificates =
+                                    session.peer_certificates().unwrap_or_default().to_vec();
+                                Arc::new(ConnectionAttributes {
+                                    peer_address,
+                                    peer_certificates,
+                                })
+                            };
+                            let conn_attrs_extension_layer =
+                                AddExtensionLayer::new(connection_attributes);
 
-                                let app_with_ext = tower::ServiceBuilder::new()
-                                    .layer(conn_attrs_extension_layer)
-                                    .service(app);
+                            let app_with_ext = tower::ServiceBuilder::new()
+                                .layer(conn_attrs_extension_layer)
+                                .service(app);
 
-                                if let Err(error) = http
-                                    .serve_connection(conn, TowerToHyperService::new(app_with_ext))
-                                    .await
-                                {
-                                    tracing::debug!(%error, "error servicing tls http request: {error:?}");
-                                }
-                            }
-                            Err(error) => {
-                                tracing::error!(%error, address = %addr, "error accepting tls connection");
-                                emit(TlsConnectionFailed {
-                                    reason: ConnectionFailReason::TlsConnectionFailure,
-                                });
+                            if let Err(error) = http
+                                .serve_connection(conn, TowerToHyperService::new(app_with_ext))
+                                .await
+                            {
+                                tracing::debug!(
+                                    %error,
+                                    error_debug = ?error,
+                                    "error servicing tls http request",
+                                );
                             }
                         }
+                        Err(error) => {
+                            tracing::error!(
+                                %error,
+                                peer_address = %addr,
+                                "error accepting tls connection"
+                            );
+                            emit(TlsConnectionFailed {
+                                reason: ConnectionFailReason::TlsConnectionFailure,
+                            });
+                        }
                     }
-                )
+                })
                 // Safety: This only fails if run outside the tokio runtime
                 .expect("could not spawn task to handle HTTP connection");
         }
@@ -488,7 +497,7 @@ fn get_tls_acceptor(tls_config: &TlsConfig) -> Result<RefreshableTlsAcceptor, Bm
 pub fn cert_description_layer<AZ: Authorization>(
     auth_config: &AuthConfig,
 ) -> Result<CertDescriptionMiddleware<AZ>, BmcProxyError> {
-    tracing::info!("TrustConfig rendered from config: {:?}", auth_config.trust);
+    tracing::info!(trust_config = ?auth_config.trust, "TrustConfig rendered from config");
     let spiffe_context = SpiffeContext::try_from(auth_config.trust.clone()).map_err(|e| {
         BmcProxyError::InvalidConfiguration(format!(
             "Invalid trust config in bmc-proxy config toml file: {e}"
@@ -651,7 +660,7 @@ async fn ip_for_forwarded_target(
         .iter()
         .filter_map(|s| {
             IpAddr::from_str(s)
-                .inspect_err(|e| tracing::error!("Invalid IP address returned by API: {e}"))
+                .inspect_err(|e| tracing::error!(error = %e, "Invalid IP address returned by API"))
                 .ok()
         })
         .collect::<Vec<_>>();
@@ -666,13 +675,9 @@ async fn ip_for_forwarded_target(
         (0, 1..) => {
             if v6_ips.len() > 1 {
                 tracing::warn!(
-                    "Multiple IPv6 BMC IP's found for {} ({}), using first one",
-                    lookup_by_str,
-                    v6_ips
-                        .iter()
-                        .map(|ip| ip.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
+                    lookup_by = %lookup_by_str,
+                    ip_addresses = ?v6_ips,
+                    "Multiple IPv6 BMC IP's found, using first one",
                 );
             }
             v6_ips.into_iter().next()
@@ -682,13 +687,9 @@ async fn ip_for_forwarded_target(
             // first, in case of broken dual-stack setups.
             if v4_ips.len() > 1 {
                 tracing::warn!(
-                    "Multiple IPv4 BMC IP's found for {} ({}), using first one",
-                    lookup_by_str,
-                    v4_ips
-                        .iter()
-                        .map(|ip| ip.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
+                    lookup_by = %lookup_by_str,
+                    ip_addresses = ?v4_ips,
+                    "Multiple IPv4 BMC IP's found, using first one",
                 );
             }
             v4_ips.into_iter().next()
@@ -971,11 +972,11 @@ async fn get_bmc_credentials(
     credential_cache: &CredentialCache,
 ) -> Result<BmcCredentials, BmcProxyError> {
     if let Some(credentials) = credential_cache.lock().await.get(&ip).cloned() {
-        tracing::debug!(%ip, "Using cached BMC credentials");
+        tracing::debug!(bmc_ip_address = %ip, "Using cached BMC credentials");
         return Ok(credentials);
     }
 
-    tracing::debug!(%ip, "Fetching BMC credentials from Carbide API");
+    tracing::debug!(bmc_ip_address = %ip, "Fetching BMC credentials from Carbide API");
     let bmc_mac_address = api_client
         .find_mac_address_by_bmc_ip(forge::BmcIp {
             bmc_ip: ip.to_string(),
@@ -1010,7 +1011,7 @@ fn build_http_client() -> Result<reqwest::Client, BmcProxyError> {
         .pool_max_idle_per_host(4)
         .build()
         .map_err(|err| {
-            tracing::error!(%err, "build_http_client");
+            tracing::error!(error = %err, "build_http_client");
             BmcProxyError::InternalProxying(format!("Http building failed: {err}"))
         })
 }
@@ -1021,11 +1022,11 @@ async fn get_http_client(
 ) -> Result<reqwest::Client, BmcProxyError> {
     let mut client_cache = client_cache.lock().await;
     if let Some(client) = client_cache.get(&ip) {
-        tracing::debug!(%ip, "Using cached BMC HTTP client");
+        tracing::debug!(bmc_ip_address = %ip, "Using cached BMC HTTP client");
         return Ok(client.clone());
     }
 
-    tracing::debug!(%ip, "Creating cached BMC HTTP client");
+    tracing::debug!(bmc_ip_address = %ip, "Creating cached BMC HTTP client");
     let client = build_http_client()?;
     client_cache.insert(ip, client.clone());
     Ok(client)
@@ -1033,7 +1034,7 @@ async fn get_http_client(
 
 async fn evict_cached_credentials(ip: IpAddr, credential_cache: &CredentialCache) {
     if credential_cache.lock().await.remove(&ip).is_some() {
-        tracing::info!(%ip, "Evicted cached BMC credentials after upstream auth failure");
+        tracing::info!(bmc_ip_address = %ip, "Evicted cached BMC credentials after upstream auth failure");
     }
 }
 

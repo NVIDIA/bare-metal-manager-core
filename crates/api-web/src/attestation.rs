@@ -111,7 +111,7 @@ pub async fn show_attestation_results(
             Some(report) => match mbreport::MeasurementReport::from_grpc(report) {
                 Ok(report) => report,
                 Err(err) => {
-                    tracing::error!(%err, "show_attestation_results");
+                    tracing::error!(error = %err, "show_attestation_results");
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Html("Error deserializing the report".to_string()),
@@ -126,7 +126,7 @@ pub async fn show_attestation_results(
             }
         },
         Err(err) => {
-            tracing::error!(%err, "show_attestation_results");
+            tracing::error!(error = %err, "show_attestation_results");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Html("Error getting measurement report".to_string()),
@@ -146,7 +146,7 @@ pub async fn show_attestation_results(
                 Some(bundle) => match mbbundle::MeasurementBundle::from_grpc(bundle) {
                     Ok(bundle) => bundle,
                     Err(err) => {
-                        tracing::error!(%err, "show_attestation_results");
+                        tracing::error!(error = %err, "show_attestation_results");
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Html("Error deserializing the bundle".to_string()),
@@ -161,7 +161,7 @@ pub async fn show_attestation_results(
                 }
             },
             Err(err) => {
-                tracing::error!(%err, "show_attestation_results");
+                tracing::error!(error = %err, "show_attestation_results");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Html("Error getting measurement bundle".to_string()),
@@ -179,7 +179,7 @@ pub async fn show_attestation_results(
                 Some(bundle) => match mbbundle::MeasurementBundle::from_grpc(bundle) {
                     Ok(bundle) => Some(bundle),
                     Err(err) => {
-                        tracing::error!(%err, "show_attestation_results");
+                        tracing::error!(error = %err, "show_attestation_results");
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Html("Error deserializing the bundle".to_string()),
@@ -189,7 +189,7 @@ pub async fn show_attestation_results(
                 None => None,
             },
             Err(err) => {
-                tracing::error!(%err, "show_attestation_results");
+                tracing::error!(error = %err, "show_attestation_results");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Html("Error getting partially matching measurement bundle".to_string()),
@@ -212,7 +212,7 @@ pub async fn show_attestation_results(
                     match mbprofile::MeasurementSystemProfile::from_grpc(profile_pb) {
                         Ok(profile) => profile,
                         Err(err) => {
-                            tracing::error!(%err, "show_attestation_results");
+                            tracing::error!(error = %err, "show_attestation_results");
                             return (
                                 StatusCode::INTERNAL_SERVER_ERROR,
                                 Html("Error deserializing measurement system profile".to_string()),
@@ -228,7 +228,7 @@ pub async fn show_attestation_results(
                 }
             },
             Err(err) => {
-                tracing::error!(%err, "show_attestation_results");
+                tracing::error!(error = %err, "show_attestation_results");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Html("Error getting measurement system profile".to_string()),
@@ -325,7 +325,7 @@ async fn get_latest_journal_for_machine_id(
             Some(journal_proto) => match mbjournal::MeasurementJournal::from_grpc(journal_proto) {
                 Ok(journal) => journal,
                 Err(err) => {
-                    tracing::error!(%err, "get_latest_journal_for_machine_id");
+                    tracing::error!(error = %err, "get_latest_journal_for_machine_id");
                     return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Html("Failed parsing MeasurementBundle protobuf".to_string()),
@@ -340,7 +340,7 @@ async fn get_latest_journal_for_machine_id(
             }
         },
         Err(err) => {
-            tracing::error!(%err, "get_latest_journal_for_machine_id");
+            tracing::error!(error = %err, "get_latest_journal_for_machine_id");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Html("Error getting journal".to_string()),
@@ -359,7 +359,7 @@ pub async fn show_attestation_summary(AxumState(state): AxumState<Arc<Api>>) -> 
             attestations: match MachineAttestationSummaryList::try_from(response.into_inner()) {
                 Ok(attestations_list) => attestations_list.0,
                 Err(err) => {
-                    tracing::error!(%err, "show_attestation_summary");
+                    tracing::error!(error = %err, "show_attestation_summary");
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Html("Error obtaining MachineAttestationSummaryList".to_string()),
@@ -368,7 +368,7 @@ pub async fn show_attestation_summary(AxumState(state): AxumState<Arc<Api>>) -> 
             },
         },
         Err(err) => {
-            tracing::error!(%err, "show_attestation_summary");
+            tracing::error!(error = %err, "show_attestation_summary");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Html("Error calling list_attestation_summary".to_string()),
@@ -438,7 +438,7 @@ pub async fn submit_report_promotion(
             ),
         },
         Err(err) => {
-            tracing::error!(%err, "submit_report_promotion");
+            tracing::error!(error = %err, "submit_report_promotion");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Html("Error promoting report".to_string()),

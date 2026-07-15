@@ -100,14 +100,21 @@ pub fn with_http_request_trace_layer(router: Router, metrics: Arc<HttpRequestMet
         })
         .on_request(move |request: &Request<AxumBody>, _span: &Span| {
             metrics_request.http_counter.add(1, &[]);
-            tracing::info!("started {} {}", request.method(), request.uri().path());
+            tracing::info!(
+                method = %request.method(),
+                request_path = %request.uri().path(),
+                "started request",
+            );
         })
         .on_response(
             move |_response: &Response<AxumBody>, latency: Duration, _span: &Span| {
                 metrics_response
                     .http_req_latency_histogram
                     .record(latency.as_secs_f64() * 1000.0, &[]);
-                tracing::info!("response generated in {:?}", latency);
+                tracing::info!(
+                    latency_milliseconds = latency.as_secs_f64() * 1000.0,
+                    "response generated"
+                );
             },
         );
 

@@ -821,7 +821,10 @@ pub(crate) async fn on_demand_rack_maintenance(
         return Err(status);
     }
 
-    tracing::info!("On-demand maintenance scheduled for rack {}", rack_id,);
+    tracing::info!(
+        rack_id = %rack_id,
+        "On-demand maintenance scheduled",
+    );
 
     Ok(Response::new(rpc::RackMaintenanceOnDemandResponse {}))
 }

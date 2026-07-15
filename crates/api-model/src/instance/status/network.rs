@@ -24,7 +24,6 @@ use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use ipnetwork::IpNetwork;
-use itertools::Itertools;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
@@ -222,8 +221,8 @@ impl InstanceNetworkStatus {
                         > 1
                     {
                         tracing::error!(
-                            "Found multiple physical interfaces when no device specified: {:?}",
-                            config
+                            ?config,
+                            "Found multiple physical interfaces when no device specified",
                         );
                         return Self::unsynchronized_for_config(&config);
                     }
@@ -292,8 +291,8 @@ impl InstanceNetworkStatus {
 
         if !missing_dpus.is_empty() {
             tracing::info!(
-                "Missing observations for DPUs: {}",
-                missing_dpus.into_iter().join(",")
+                missing_dpu_ids = ?missing_dpus,
+                "Missing observations for DPUs",
             );
         }
 
@@ -393,11 +392,16 @@ impl InstanceInterfaceStatus {
         // if any of them were not found.
         let gateways = prefix_ids
             .iter()
-            .map(|id| if let Some(gw) = value.network_segment_gateways.remove(id) {
-                Some(gw)
-            } else {
-                tracing::warn!("Missing gateway in InstanceInterfaceConfig for network prefix {id}, gateways field will be empty.");
-                None
+            .map(|id| {
+                if let Some(gw) = value.network_segment_gateways.remove(id) {
+                    Some(gw)
+                } else {
+                    tracing::warn!(
+                        network_prefix_id = %id,
+                        "Missing gateway in InstanceInterfaceConfig; gateways field will be empty",
+                    );
+                    None
+                }
             })
             .collect::<Option<Vec<_>>>()
             .unwrap_or_default();

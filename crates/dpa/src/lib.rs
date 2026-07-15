@@ -71,10 +71,10 @@ pub async fn send_dpa_command(
         }
         Err(e) => {
             tracing::error!(
-                "send_dpa_command -  error: {:#?} sending message: {:#?} to topic: {}",
-                e,
-                svni,
-                topic
+                error = ?e,
+                payload = ?svni,
+                %topic,
+                "failed to send DPA command"
             );
             return Err(eyre::eyre!("send_message error: {e}"));
         }

@@ -61,8 +61,8 @@ pub async fn start_configure_switch_certificate(
         return Ok(match mode {
             ConfigureSwitchCertificateMode::BringUp => {
                 tracing::info!(
-                    "Switch {:?}: no rack association, skipping certificate configuration",
-                    switch_id
+                    switch_id = ?switch_id,
+                    "Switch: no rack association, skipping certificate configuration",
                 );
                 StartConfigureSwitchCertificateResult::EarlyTransition(
                     StateHandlerOutcome::transition(
@@ -88,8 +88,8 @@ pub async fn start_configure_switch_certificate(
         return Ok(match mode {
             ConfigureSwitchCertificateMode::BringUp => {
                 tracing::info!(
-                    "Switch {:?}: component manager is not configured, skipping certificate configuration",
-                    switch_id
+                    switch_id = ?switch_id,
+                    "Switch: component manager is not configured, skipping certificate configuration",
                 );
                 StartConfigureSwitchCertificateResult::EarlyTransition(
                     StateHandlerOutcome::transition(
@@ -155,8 +155,8 @@ pub async fn start_configure_switch_certificate(
     tracing::info!(
         %job_id,
         ?mode,
-        "Switch {:?}: started switch certificate configuration",
-        switch_id
+        switch_id = ?switch_id,
+        "Switch: started switch certificate configuration",
     );
 
     Ok(StartConfigureSwitchCertificateResult::JobStarted(job_id))

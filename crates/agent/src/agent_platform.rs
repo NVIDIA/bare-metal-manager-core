@@ -65,16 +65,16 @@ impl ManagedFile {
         if !destination_exists {
             safe_copy(self.path.as_path(), source_path).inspect(|_| {
                 tracing::info!(
-                    "Copied file contents from {src} to {dst}",
-                    src = source_path.display(),
-                    dst = self.path.display()
+                    source_path = %source_path.display(),
+                    destination_path = %self.path.display(),
+                    "Copied file contents"
                 );
             })
         } else {
             tracing::debug!(
-                "File {dst} already exists, will not be updated from {src}",
-                src = source_path.display(),
-                dst = self.path.display()
+                source_path = %source_path.display(),
+                destination_path = %self.path.display(),
+                "File already exists, will not be updated"
             );
             Ok(())
         }

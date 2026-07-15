@@ -102,7 +102,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let vpcs = match fetch_vpcs(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_vpcs");
+            tracing::error!(error = %err, "fetch_vpcs");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading VPCs").into_response();
         }
     };
@@ -117,7 +117,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let vpcs = match fetch_vpcs(state).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_vpcs");
+            tracing::error!(error = %err, "fetch_vpcs");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading VPCs").into_response();
         }
     };
@@ -257,7 +257,7 @@ pub async fn detail(
         }
         Ok(mut x) => x.vpcs.remove(0),
         Err(err) => {
-            tracing::error!(%err, "find_vpcs");
+            tracing::error!(error = %err, "find_vpcs");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading VPCs").into_response();
         }
     };
@@ -289,7 +289,7 @@ async fn fetch_vpc_peerings(state: Arc<Api>, vpc_id_string: String) -> Vec<VpcPe
     {
         Ok(id_list) => id_list.vpc_peering_ids,
         Err(err) => {
-            tracing::error!(%err, "find_vpc_peering_ids");
+            tracing::error!(error = %err, "find_vpc_peering_ids");
             return Vec::new();
         }
     };
@@ -309,7 +309,7 @@ async fn fetch_vpc_peerings(state: Arc<Api>, vpc_id_string: String) -> Vec<VpcPe
     {
         Ok(peerings) => peerings.vpc_peerings,
         Err(err) => {
-            tracing::error!(%err, "find_vpc_peerings_by_ids");
+            tracing::error!(error = %err, "find_vpc_peerings_by_ids");
             Vec::new()
         }
     };

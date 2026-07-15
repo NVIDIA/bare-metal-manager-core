@@ -45,7 +45,7 @@ pub fn get_nvidia_smi_data() -> HardwareEnumerationResult<Vec<RpcGpu>> {
     for result in csv_reader.deserialize() {
         match result {
             Ok(gpu) => gpus.push(gpu),
-            Err(error) => tracing::error!("Could not parse nvidia-smi output: {}", error),
+            Err(error) => tracing::error!(%error, "Could not parse nvidia-smi output"),
         }
     }
 

@@ -46,8 +46,8 @@ pub async fn handle_ready(
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
     if config.topology_changed {
         tracing::info!(
-            "Rack {} topology changed, transitioning from Ready to Discovering",
-            id
+            rack_id = %id,
+            "Rack topology changed, transitioning from Ready to Discovering",
         );
         state.config.topology_changed = false;
         let mut txn = ctx.services.db_pool.begin().await?;
@@ -57,8 +57,8 @@ pub async fn handle_ready(
 
     if config.reprovision_requested {
         tracing::info!(
-            "Rack {} reprovision requested, transitioning from Ready to Maintenance",
-            id
+            rack_id = %id,
+            "Rack reprovision requested, transitioning from Ready to Maintenance",
         );
         state.config.reprovision_requested = false;
         state.config.maintenance_requested = None;
@@ -85,18 +85,18 @@ pub async fn handle_ready(
         };
         if scope.is_full_rack() {
             tracing::info!(
-                "Rack {} on-demand maintenance requested (full rack, activities: [{}]), transitioning to Maintenance",
-                id,
-                activities_desc,
+                rack_id = %id,
+                activity_description = %activities_desc,
+                "Rack on-demand maintenance requested (full rack, activities), transitioning to Maintenance",
             );
         } else {
             tracing::info!(
-                "Rack {} on-demand maintenance requested (partial: {} machines, {} switches, {} power shelves, activities: [{}]), transitioning to Maintenance",
-                id,
-                scope.machine_ids.len(),
-                scope.switch_ids.len(),
-                scope.power_shelf_ids.len(),
-                activities_desc,
+                rack_id = %id,
+                requested_machine_count = scope.machine_ids.len(),
+                requested_switch_count = scope.switch_ids.len(),
+                requested_power_shelf_count = scope.power_shelf_ids.len(),
+                activity_description = %activities_desc,
+                "Rack on-demand maintenance requested (partial: machines, switches, power shelves, activities), transitioning to Maintenance",
             );
         }
         // Leave maintenance_requested set; the maintenance handler reads the
@@ -109,7 +109,11 @@ pub async fn handle_ready(
     }
 
     if let Some(cause) = detect_component_failure(id, ctx).await? {
-        tracing::warn!("Rack {} transitioning from Ready to Error: {}", id, cause);
+        tracing::warn!(
+            rack_id = %id,
+            cause = %cause,
+            "Rack transitioning from Ready to Error",
+        );
         let txn = ctx.services.db_pool.begin().await?;
         return Ok(StateHandlerOutcome::transition(RackState::Error { cause }).with_txn(txn));
     }
@@ -277,8 +281,8 @@ pub(super) async fn all_components_ready(
     let total = all_switches.len() + all_power_shelves.len() + all_machines.len();
     if total == 0 {
         tracing::debug!(
-            "Rack {} has no components registered; not promoting out of Error",
-            rack_id
+            rack_id = %rack_id,
+            "Rack has no components registered; not promoting out of Error",
         );
         return Ok(false);
     }
@@ -289,14 +293,14 @@ pub(super) async fn all_components_ready(
 
     if !all_ready {
         tracing::debug!(
-            "Rack {} components not yet all Ready: switches {}/{}, power shelves {}/{}, machines {}/{}",
-            rack_id,
-            ready_switches.len(),
-            all_switches.len(),
-            ready_power_shelves.len(),
-            all_power_shelves.len(),
-            ready_machines.len(),
-            all_machines.len(),
+            rack_id = %rack_id,
+            ready_switch_count = ready_switches.len(),
+            total_switch_count = all_switches.len(),
+            ready_power_shelf_count = ready_power_shelves.len(),
+            total_power_shelf_count = all_power_shelves.len(),
+            ready_machine_count = ready_machines.len(),
+            total_machine_count = all_machines.len(),
+            "Rack components not yet all Ready: switches, power shelves, machines",
         );
     }
 

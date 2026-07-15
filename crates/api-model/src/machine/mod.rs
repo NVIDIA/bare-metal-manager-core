@@ -2561,7 +2561,8 @@ pub fn state_sla(
     {
         tracing::debug!(
             machine_id = %machine_id,
-            "Skipping state machine SLA for machine due to {exclude} classification"
+            health_alert_classification = %exclude,
+            "Skipping state machine SLA due to classification",
         );
         return StateSla::no_sla();
     }
@@ -2946,8 +2947,8 @@ pub fn dpf_based_dpu_provisioning_possible(
     // DPF should be enabled for host.
     if !state.host_snapshot.dpf.enabled {
         tracing::info!(
-            "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
-            state.host_snapshot.id
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU provisioning is not possible because DPF is not enabled for the host.",
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,
@@ -2970,9 +2971,8 @@ pub fn dpf_based_dpu_provisioning_possible(
             .all(|dpu| dpu.reprovision_requested.is_some())
     {
         tracing::info!(
-            "DPF based DPU reprovisioning is not possible for host {} because initial ingestion is not done with DPF \
-            and not all DPUs are being reprovisioned.",
-            state.host_snapshot.id
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU reprovisioning is not possible for host because initial ingestion is not done with DPF and not all DPUs are being reprovisioned.",
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,
@@ -2992,8 +2992,8 @@ pub fn dpf_based_dpu_provisioning_possible(
             .unwrap_or(false)
     }) {
         tracing::info!(
-            "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
-            state.host_snapshot.id
+            machine_id = %state.host_snapshot.id,
+            "DPF-based DPU provisioning is not possible because some DPUs are BlueField-2",
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,

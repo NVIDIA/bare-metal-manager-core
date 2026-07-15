@@ -83,7 +83,7 @@ pub(crate) async fn get_inner(
                     .unwrap_or_default(),
                 bmc_endpoint_request.ip_address
             );
-            tracing::error!(e);
+            tracing::error!(error = %e, "Invalid BMC MAC address");
             CarbideError::internal(e)
         })?;
 

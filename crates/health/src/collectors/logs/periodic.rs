@@ -202,8 +202,8 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         }
 
         tracing::info!(
-            total_services = services.len(),
-            excluded_services = excluded_count,
+            service_count = services.len(),
+            excluded_service_count = excluded_count,
             "Discovered distinct log services"
         );
 
@@ -224,8 +224,8 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             match self.discover_log_services().await {
                 Ok(services) => {
                     tracing::info!(
-                        "Service discovery complete. Found {} log services",
-                        services.len()
+                        service_count = services.len(),
+                        "Log service discovery complete"
                     );
 
                     let persistent_state = self.load_persistent_state().await;

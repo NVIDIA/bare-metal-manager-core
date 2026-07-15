@@ -73,9 +73,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(ip_routers) = args.ip_router {
         for ip_router in ip_routers {
             info!(
-                "Using archive {} for {}",
-                ip_router.targz.to_string_lossy(),
-                ip_router.ip_address
+                archive_path = %ip_router.targz.to_string_lossy(),
+                ip_address = %ip_router.ip_address,
+                "Using BMC mock archive",
             );
             let r = tar_router::tar_router(
                 TarGzOption::Disk(&ip_router.targz),
@@ -87,9 +87,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let listen_addr = args.port.map(|p| SocketAddr::from(([0, 0, 0, 0], p)));
-    info!("Using cert_path: {:?}", args.cert_path);
+    info!(
+        cert_path = ?args.cert_path,
+        "Using BMC mock certificate path",
+    );
     let router = if let Some(tar_path) = args.targz {
-        info!("Using archive {} as default", tar_path.to_string_lossy());
+        info!(
+            archive_path = %tar_path.to_string_lossy(),
+            "Using default BMC mock archive",
+        );
         tar_router::tar_router(TarGzOption::Disk(&tar_path), Some(&mut tar_router_entries)).unwrap()
     } else {
         info!("Using default BMC mock");
@@ -132,7 +138,10 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
                     continue;
                 }
                 Err(err) => {
-                    tracing::error!("Error trying to run 'virsh reboot ManagedHost'. {}", err);
+                    tracing::error!(
+                        error = %err,
+                        "Failed to run virsh reboot for managed host",
+                    );
                     continue;
                 }
             };
@@ -142,11 +151,15 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
                     tracing::debug!("Rebooted qemu managed host...");
                 }
                 Some(exit_code) => {
-                    tracing::error!(
-                        "Reboot command 'virsh reboot ManagedHost' failed with exit code {exit_code}."
+                    tracing::error!(exit_code, "virsh reboot failed for managed host",);
+                    tracing::info!(
+                        stdout = %String::from_utf8_lossy(&reboot_output.stdout),
+                        "virsh reboot standard output",
                     );
-                    tracing::info!("STDOUT: {}", String::from_utf8_lossy(&reboot_output.stdout));
-                    tracing::info!("STDERR: {}", String::from_utf8_lossy(&reboot_output.stderr));
+                    tracing::info!(
+                        stderr = %String::from_utf8_lossy(&reboot_output.stderr),
+                        "virsh reboot standard error",
+                    );
                 }
                 None => {
                     tracing::error!("Reboot command killed by signal");

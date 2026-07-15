@@ -128,7 +128,7 @@ pub async fn list_html(
     let machines = match fetch_dpus(&state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_dpus");
+            tracing::error!(error = %err, "fetch_dpus");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading DPUs").into_response();
         }
     };
@@ -146,7 +146,7 @@ pub async fn list_json(AxumState(state): AxumState<Arc<Api>>) -> impl IntoRespon
     let machines = match fetch_dpus(&state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_dpus");
+            tracing::error!(error = %err, "fetch_dpus");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading DPUs").into_response();
         }
     };

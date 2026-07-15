@@ -93,7 +93,7 @@ impl MockApiServer {
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .inspect_err(|crypto_provider| {
-                tracing::warn!("Crypto provider already configured: {crypto_provider:?}")
+                tracing::warn!(?crypto_provider, "Crypto provider already configured")
             })
             .ok(); // if something else is already default, ignore.
 

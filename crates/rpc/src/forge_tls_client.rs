@@ -214,7 +214,7 @@ impl ForgeClientConfig {
                     });
 
                 if !errors.is_empty() {
-                    tracing::warn!( certs = ?errors, "Found error parsing one or more certificates");
+                    tracing::warn!(error = ?errors, "Found error parsing one or more certificates");
                 }
 
                 valid_certificates
@@ -383,9 +383,9 @@ impl<'a> ForgeTlsClient<'a> {
                     .await
                     .inspect_err(|err| {
                         tracing::error!(
-                            "error connecting client to forge api (url: {}), will retry: {}",
-                            api_config.url,
-                            format_error_chain(err)
+                            url = %api_config.url,
+                            error = %format_error_chain(err),
+                            "Failed to connect client to Forge API; retrying",
                         );
                     })
                     .map_err(|e| ForgeTlsClientError::Connection(format_error_chain(&e)))?;
@@ -397,10 +397,10 @@ impl<'a> ForgeTlsClient<'a> {
             .await
             .inspect_err(|err| {
                 tracing::error!(
-                    "error connecting client to forge api (url: {}, attempts: {}): {}",
-                    api_config.url,
-                    api_config.retry_config.retries,
-                    err
+                    url = %api_config.url,
+                    retries = api_config.retry_config.retries,
+                    error = %err,
+                    "Failed to connect client to Forge API after retries",
                 );
             });
 
@@ -688,9 +688,9 @@ impl<'a> ForgeTlsClient<'a> {
                     .await
                     .inspect_err(|err| {
                         tracing::error!(
-                            "error connecting client to forge api (url: {}), will retry: {}",
-                            api_config.url,
-                            format_error_chain(err)
+                            url = %api_config.url,
+                            error = %format_error_chain(err),
+                            "Failed to connect client to NMX-C API; retrying",
                         );
                     })
                     .map_err(|e| ForgeTlsClientError::Connection(format_error_chain(&e)))?;
@@ -702,10 +702,10 @@ impl<'a> ForgeTlsClient<'a> {
             .await
             .inspect_err(|err| {
                 tracing::error!(
-                    "error connecting client to nmx-c api (url: {}, attempts: {}): {}",
-                    api_config.url,
-                    api_config.retry_config.retries,
-                    err
+                    url = %api_config.url,
+                    retries = api_config.retry_config.retries,
+                    error = %err,
+                    "Failed to connect client to NMX-C API after retries",
                 );
             });
 

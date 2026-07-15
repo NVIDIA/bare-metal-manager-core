@@ -212,7 +212,9 @@ pub async fn run(prompt: String) -> eyre::Result<IpmiSimHandle> {
     };
 
     tracing::debug!(
-        "ipmi_sim will listen on port {ipmi_sim_lanplus_port} and {ipmi_sim_serial_port}"
+        ipmi_sim_lanplus_port,
+        ipmi_sim_serial_port,
+        "ipmi_sim will listen"
     );
 
     let mock_serial_console_port = mock_serial_console.port;
@@ -290,7 +292,7 @@ sol "telnet:127.0.0.1:{mock_serial_console_port}" 115200
 pub async fn run_mock_serial_console(prompt: String) -> eyre::Result<MockSerialConsoleHandle> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
-    tracing::debug!("mock serial console: listening on port {port}");
+    tracing::debug!(port, "mock serial console listening");
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
     tokio::spawn(async move {
         loop {
@@ -298,7 +300,7 @@ pub async fn run_mock_serial_console(prompt: String) -> eyre::Result<MockSerialC
                 res = listener.accept() => {
                     match res {
                         Ok((tcp_stream, addr)) => {
-                            tracing::debug!("mock serial console: got connection from {addr}");
+                            tracing::debug!(peer_address = %addr, "mock serial console accepted connection");
                             tokio::spawn({
                                 let prompt = prompt.clone();
                                 async move {

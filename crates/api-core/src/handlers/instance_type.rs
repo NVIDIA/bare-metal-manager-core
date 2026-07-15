@@ -596,7 +596,9 @@ pub(crate) async fn associate_machines(
 
     if ids.len() != machine_versions.len() {
         tracing::error!(
-            "Not all machine's instances updated. This should never happen because we take row-lock. Something is terribly wrong. ids: {ids:?}; versions: {machine_versions:?}"
+            ids = ?ids,
+            machine_versions = ?machine_versions,
+            "Not all machine-to-instance-type associations were updated; row locking should have prevented this",
         )
     }
 
@@ -700,7 +702,7 @@ pub(crate) async fn remove_machine_association(
 
         // Check if the new machine count would drop below the sum of active allocation counts.
         if new_total_machine_count < total_allocations {
-            let matchine_id = machine.id;
+            let machine_id = machine.id;
             // # enforce_if_present:  If allocations are found for instance type ID, enforce it; otherwise, it's like no limits.
             // # always:              Enforce allocations.  If none are found, its a constraint value of 0 (i.e., you get nothing).
             // # warn_only (default): Don't enforce, but log what would have happened if they were enforced.
@@ -716,10 +718,10 @@ pub(crate) async fn remove_machine_association(
                     ).into());
                 }
                 (false, ComputeAllocationEnforcement::EnforceIfPresent) => {
-                    tracing::debug!(%matchine_id, %instance_type_id, "EnforceIfPresent set but no allocations seen during machine removal from instance type");
+                    tracing::debug!(%machine_id, %instance_type_id, "EnforceIfPresent set but no allocations seen during machine removal from instance type");
                 }
                 (_, ComputeAllocationEnforcement::WarnOnly) => {
-                    tracing::warn!(%matchine_id, %instance_type_id, "request to remove machine from instance type would reduce associated machine count below current tenant allocations count but enforcement is not enabled");
+                    tracing::warn!(%machine_id, %instance_type_id, "request to remove machine from instance type would reduce associated machine count below current tenant allocations count but enforcement is not enabled");
                 }
             }
         }

@@ -142,9 +142,10 @@ impl Firmware {
                 .find(|&x| self.matching_version_id(&x.id, firmware_type))
             {
                 tracing::debug!(
-                    "find_version {:?}: For {firmware_type:?} found {:?}",
-                    report.machine_id,
-                    matching_inventory.version
+                    machine_id = ?report.machine_id,
+                    ?firmware_type,
+                    version = ?matching_inventory.version,
+                    "Found matching firmware version",
                 );
                 return matching_inventory.version.clone();
             };

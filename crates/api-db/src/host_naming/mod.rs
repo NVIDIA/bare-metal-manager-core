@@ -697,7 +697,7 @@ async fn claim_bare_serial_hostname(
             )));
         }
         tracing::info!(
-            interface_id = %sibling.id,
+            machine_interface_id = %sibling.id,
             hostname = %bare,
             renamed = %renamed,
             "reclaiming the bare serial name from a demoted interface of the same machine"

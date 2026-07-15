@@ -159,7 +159,10 @@ impl FirmwareDownloader {
         }
 
         if url.is_empty() {
-            tracing::error!("Firmware with file not present has no URL: {filename:?}");
+            tracing::error!(
+                firmware_path = ?filename,
+                "Firmware artifact is missing and has no URL",
+            );
             return false;
         }
 
@@ -273,14 +276,16 @@ fn cached_file_status(filename: &Path, sha256: &str) -> CachedFileStatus {
         Ok(()) => CachedFileStatus::Available,
         Err(err) => {
             tracing::warn!(
-                "Cached firmware artifact {} failed checksum verification: {err}",
-                filename.display()
+                filename = %filename.display(),
+                error = %err,
+                "Cached firmware artifact failed checksum verification",
             );
 
             if let Err(err) = std::fs::remove_file(filename) {
                 tracing::error!(
-                    "Failed to remove stale cached firmware artifact {}: {err}",
-                    filename.display()
+                    filename = %filename.display(),
+                    error = %err,
+                    "Failed to remove stale cached firmware artifact",
                 );
                 return CachedFileStatus::Unusable;
             }

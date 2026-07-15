@@ -66,8 +66,8 @@ async fn tenant_identity_with_decrypted_token_delegation(
     .await
     .inspect_err(|e| {
         tracing::error!(
-            org_id = %cfg.organization_id.as_str(),
-            message = %e.message(),
+            organization_id = %cfg.organization_id.as_str(),
+            error = %e.message(),
             "token delegation auth config decrypt failed"
         );
     })?;

@@ -93,11 +93,11 @@ pub async fn handle_created(
     }
 
     tracing::info!(
-        "Rack {} has all expected devices (compute={}, switch={}, power_shelf={}). Transitioning to Discovering.",
-        id,
+        rack_id = %id,
         compute_count,
         switch_count,
-        power_shelf_count
+        power_shelf_count,
+        "Rack has all expected devices (compute, switch, power_shelf). Transitioning to Discovering.",
     );
     Ok(StateHandlerOutcome::transition(RackState::Discovering).with_txn(txn))
 }

@@ -77,7 +77,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let oss = match fetch_operating_systems(state).await {
         Ok(v) => v,
         Err(err) => {
-            tracing::error!(%err, "fetch_operating_systems");
+            tracing::error!(error = %err, "fetch_operating_systems");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading operating systems",
@@ -96,7 +96,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut oss = match fetch_operating_systems(state).await {
         Ok(v) => v,
         Err(err) => {
-            tracing::error!(%err, "fetch_operating_systems");
+            tracing::error!(error = %err, "fetch_operating_systems");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading operating systems",
@@ -250,7 +250,7 @@ pub async fn detail(
             return super::not_found_response(os_id);
         }
         Err(err) => {
-            tracing::error!(%err, "get_operating_system");
+            tracing::error!(error = %err, "get_operating_system");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading operating system",

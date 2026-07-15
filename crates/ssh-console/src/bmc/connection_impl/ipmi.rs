@@ -663,7 +663,11 @@ impl IpmitoolMessageProxy {
                 return Ok(());
             }
             other => {
-                tracing::debug!(%machine_id, "Not handling unknown SSH frontend message in ipmitool: {other:?}");
+                tracing::debug!(
+                    %machine_id,
+                    ?other,
+                    "Not handling unknown SSH frontend message in ipmitool"
+                );
             }
         };
         Ok(())

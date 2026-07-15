@@ -1340,7 +1340,10 @@ impl<'a> MockExploredHost<'a> {
             let sku = db::sku::generate_sku_from_machine(txn.as_mut(), host_machine_id)
                 .await
                 .unwrap();
-            tracing::info!("creating sku: {}", sku.id);
+            tracing::info!(
+                sku_id = %sku.id,
+                "creating sku",
+            );
             db::sku::create(&mut txn, &sku).await.unwrap();
 
             tracing::info!("assigning sku");

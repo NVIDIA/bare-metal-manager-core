@@ -832,7 +832,7 @@ script = ["cargo xtask check-isolated-package-builds"]
 workspace = false
 description = "Check cargo-deny against licenses we're using to validate that we're not introducing new licenses inadvertently"
 category = "Licensing"
-script = ["cargo deny check license"]
+script = ["cargo deny check licenses"]
 
 [tasks.check-bans]
 workspace = false

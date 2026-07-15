@@ -581,7 +581,7 @@ async fn define_by_prefix(
             tracing::debug!(
                 pool_name = name,
                 prefix,
-                num_values,
+                value_count = num_values,
                 "Populated IPv4 resource pool from prefix"
             );
         }
@@ -596,7 +596,7 @@ async fn define_by_prefix(
             tracing::debug!(
                 pool_name = name,
                 prefix,
-                num_values,
+                value_count = num_values,
                 "Populated IPv6 resource pool from prefix"
             );
         }
@@ -616,8 +616,8 @@ async fn define_by_prefix(
             tracing::debug!(
                 pool_name = name,
                 prefix,
-                delegate_len,
-                num_values,
+                delegation_prefix_length = delegate_len,
+                value_count = num_values,
                 "Populated IPv6 prefix delegation pool"
             );
         }
@@ -656,7 +656,7 @@ async fn define_by_range(
                 pool_name = name,
                 range_start,
                 range_end,
-                num_values,
+                value_count = num_values,
                 "Populated IPv4 resource pool from range"
             );
         }
@@ -672,7 +672,7 @@ async fn define_by_range(
                 pool_name = name,
                 range_start,
                 range_end,
-                num_values,
+                value_count = num_values,
                 "Populated IPv6 resource pool from range"
             );
         }
@@ -688,7 +688,7 @@ async fn define_by_range(
                 pool_name = name,
                 range_start,
                 range_end,
-                num_values,
+                value_count = num_values,
                 "Populated IPv6 prefix pool from range"
             );
         }
@@ -704,7 +704,11 @@ async fn define_by_range(
                 model::resource_pool::ValueType::Integer,
             );
             populate(&pool, txn, values, auto_assign).await?;
-            tracing::debug!(pool_name = name, num_values, "Populated int resource pool");
+            tracing::debug!(
+                pool_name = name,
+                value_count = num_values,
+                "Populated int resource pool"
+            );
         }
     }
     Ok(())

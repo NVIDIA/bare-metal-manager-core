@@ -157,7 +157,10 @@ pub fn parse_carbide_config(
         .iter()
         .filter(|(_, host)| host.vendor == bmc_vendor::BMCVendor::Unknown)
     {
-        tracing::error!("Host firmware configuration has invalid vendor for {label}")
+        tracing::error!(
+            label = %label,
+            "Host firmware configuration has invalid vendor",
+        )
     }
 
     // If the carbide config does not say whether to allow dynamically changing the bmc_proxy or
@@ -244,7 +247,10 @@ pub fn parse_carbide_config(
         .wrap_err("Invalid configuration"));
     }
 
-    tracing::trace!("Carbide config: {:#?}", config.redacted());
+    tracing::trace!(
+        config = ?config.redacted(),
+        "Carbide config",
+    );
     Ok(Arc::new(config))
 }
 
@@ -552,10 +558,10 @@ pub async fn start_api(
         {
             Ok(cm) => {
                 tracing::info!(
-                    "Component manager configured (nv_switch={}, power_shelf={}, compute_tray={})",
-                    cm.nv_switch.name(),
-                    cm.power_shelf.name(),
-                    cm.compute_tray.name()
+                    nv_switch_backend = cm.nv_switch.name(),
+                    power_shelf_backend = cm.power_shelf.name(),
+                    compute_tray_backend = cm.compute_tray.name(),
+                    "Component manager configured",
                 );
                 Some(cm)
             }
@@ -571,8 +577,8 @@ pub async fn start_api(
                 // TODO: make the three backends individually optional so a bad
                 // config for one backend does not disable the others.
                 tracing::error!(
-                    "Component manager NOT initialized; failed to build one of the \
-                     nv-switch / power-shelf / compute-tray backends: {e}"
+                    error = %e,
+                    "Component manager NOT initialized; failed to build one of the nv-switch / power-shelf / compute-tray backends",
                 );
                 None
             }
@@ -919,8 +925,7 @@ impl<'a> SeedData<'a> {
                         object_kind = %kind,
                         object_name = %name,
                         source = %source,
-                        "{kind} `{name}` is defined in {source}. Defining initial objects in {source} \
-                         is deprecated; move the definitions into `initial_objects_file`.",
+                        "Initial object is defined in a deprecated configuration source; move the definition into `initial_objects_file`.",
                     );
                 }
                 Ok(Cow::Borrowed(cc))
@@ -973,8 +978,7 @@ impl<'a> SeedData<'a> {
                         object_kind = %kind,
                         object_name = %name,
                         source = %source,
-                        "{kind} `{name}` is still defined in {source}. \
-                         Move it into initial_objects_file to silence this warning.",
+                        "Initial object is still defined in a deprecated configuration source; move it into `initial_objects_file`.",
                     );
                 }
                 Ok(merged)
@@ -1027,7 +1031,10 @@ async fn initialize_and_start_controllers<'a>(
     if let Some(domain_name) = &carbide_config.initial_domain_name
         && db_init::create_initial_domain(db_pool.clone(), domain_name).await?
     {
-        tracing::info!("Created initial domain {domain_name}");
+        tracing::info!(
+            domain_name = %domain_name,
+            "Created initial domain",
+        );
     }
 
     // Probe the helm-chart layout first, then the forged-kustomize layout.
@@ -1047,14 +1054,18 @@ async fn initialize_and_start_controllers<'a>(
             .await
             .wrap_err_with(|| format!("Failed to read {path_used}"))?;
         let expected_machines = serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str()).inspect_err(|err| {
-                tracing::error!("expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing: {err}.");
+                tracing::error!(
+                    error = %err,
+                    "expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing.",
+                );
             })?;
         let mut txn = Transaction::begin(db_pool).await?;
         crate::handlers::expected_machine::create_missing_from(&mut txn, &expected_machines)
             .await
             .inspect_err(|err| {
                 tracing::error!(
-                    "Unable to update database from expected_machines list, bailing: {err}"
+                    error = %err,
+                    "Unable to update database from expected_machines list, bailing",
                 );
             })?;
         txn.commit().await?;
@@ -1142,7 +1153,10 @@ async fn initialize_and_start_controllers<'a>(
     .await?;
 
     if let Err(e) = update_dpu_asns(db_pool, common_pools).await {
-        tracing::warn!("Failed to update ASN for DPUs: {e}");
+        tracing::warn!(
+            error = %e,
+            "Failed to update ASN for DPUs",
+        );
     }
 
     let downloader = FirmwareDownloader::new();
@@ -1195,9 +1209,9 @@ async fn initialize_and_start_controllers<'a>(
             client.register_metrics(&meter, "dsx_event_bus");
 
             tracing::info!(
-                "DSX Exchange Event Bus enabled, publishing to {}:{}",
-                config.mqtt_endpoint,
-                config.mqtt_broker_port
+                mqtt_endpoint = %config.mqtt_endpoint,
+                mqtt_broker_port = config.mqtt_broker_port,
+                "DSX Exchange Event Bus enabled",
             );
 
             let bms_client = BmsDsxExchangeHandle::new(

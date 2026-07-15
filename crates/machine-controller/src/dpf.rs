@@ -351,7 +351,7 @@ impl DpfSdkOps {
             .watcher()
             .on_dpu_event(|event| async move {
                 tracing::debug!(
-                    dpu = %event.dpu_name,
+                    dpu_name = %event.dpu_name,
                     device_name = %event.device_name,
                     node = %event.node_name,
                     phase = ?event.phase,
@@ -366,7 +366,7 @@ impl DpfSdkOps {
                     async move {
                         tracing::info!(
                             node = %event.node_name,
-                            host = %event.host_bmc_ip,
+                            host_bmc_ip_address = %event.host_bmc_ip,
                             "DPF reboot required"
                         );
                         enqueue_host(&db_pool, &event.node_name, "reboot").await
@@ -379,7 +379,7 @@ impl DpfSdkOps {
                     let db_pool = db_pool.clone();
                     async move {
                         tracing::info!(
-                            dpu = %event.dpu_name,
+                            dpu_name = %event.dpu_name,
                             device_name = %event.device_name,
                             node = %event.node_name,
                             "DPF DPU ready"
@@ -406,7 +406,7 @@ impl DpfSdkOps {
                     let db_pool = db_pool.clone();
                     async move {
                         tracing::error!(
-                            dpu = %event.dpu_name,
+                            dpu_name = %event.dpu_name,
                             device_name = %event.device_name,
                             node = %event.node_name,
                             "DPF DPU entered error phase"
@@ -447,7 +447,7 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
     };
 
     let Some(host_machine_id) = host_machine_id else {
-        tracing::warn!(node = %node_name, %bmc_mac, reason, "Could not find host for DPF node");
+        tracing::warn!(node = %node_name, bmc_mac_address = %bmc_mac, reason, "Could not find host for DPF node");
         return Ok(());
     };
 
@@ -476,7 +476,7 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
             DpfError::InvalidState(format!("Failed to enqueue machine {}: {e}", host.id))
         })?;
 
-    tracing::info!(node = %node_name, host = %host.id, reason, "Enqueued host for DPF state handling");
+    tracing::info!(node = %node_name, machine_id = %host.id, reason, "Enqueued host for DPF state handling");
     Ok(())
 }
 
@@ -590,8 +590,9 @@ impl DpfOperations for DpfSdkOps {
         for m in mismatches {
             let Some(machine_id_str) = m.dpu_labels.get(DPU_MACHINE_ID_LABEL) else {
                 tracing::warn!(
-                    dpu = %m.dpu_cr_name,
-                    "Outdated DPU missing {DPU_MACHINE_ID_LABEL} label; skipping"
+                    dpu_name = %m.dpu_cr_name,
+                    label = DPU_MACHINE_ID_LABEL,
+                    "Outdated DPU missing label; skipping"
                 );
                 continue;
             };
@@ -599,10 +600,11 @@ impl DpfOperations for DpfSdkOps {
                 Ok(id) => id,
                 Err(e) => {
                     tracing::warn!(
-                        dpu = %m.dpu_cr_name,
+                        dpu_name = %m.dpu_cr_name,
                         label_value = %machine_id_str,
+                        label = DPU_MACHINE_ID_LABEL,
                         error = %e,
-                        "Outdated DPU has invalid {DPU_MACHINE_ID_LABEL} label; skipping"
+                        "Outdated DPU has invalid label; skipping"
                     );
                     continue;
                 }

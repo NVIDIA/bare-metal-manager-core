@@ -38,8 +38,8 @@ pub struct MachineInventoryUpdaterConfig {
 
 pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<()> {
     tracing::trace!(
-        "Updating machine inventory for machine: {}",
-        config.machine_id
+        machine_id = %config.machine_id,
+        "Updating machine inventory"
     );
 
     let machine_id = config.machine_id;
@@ -50,7 +50,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 
         let images = container::Images::list().await?;
 
-        tracing::trace!("Containers: {:?}", containers);
+        tracing::trace!(?containers, "Containers");
 
         let mut result: Vec<ContainerSummary> = Vec::new();
 
@@ -104,8 +104,8 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
     .await
     {
         tracing::error!(
-            "Error while executing update_agent_reported_inventory: {:#}",
-            e
+            error = ?e,
+            "Failed to update agent-reported inventory"
         );
     } else {
         tracing::debug!("Successfully updated machine inventory");
@@ -134,12 +134,23 @@ async fn update_agent_reported_inventory(
         }
     };
 
-    tracing::trace!("update_machine_inventory: {:?}", inventory_report);
+    let software_component_count = inventory_report
+        .inventory
+        .as_ref()
+        .map_or(0, |inventory| inventory.components.len());
+    tracing::trace!(
+        machine_id = ?inventory_report.machine_id,
+        software_component_count,
+        "Updating machine inventory"
+    );
 
     let request = tonic::Request::new(inventory_report);
     match client.update_agent_reported_inventory(request).await {
         Ok(response) => {
-            tracing::trace!("update_agent_reported_inventory response: {:?}", response);
+            tracing::trace!(
+                ?response,
+                "Received agent-reported inventory update response"
+            );
             Ok(())
         }
         Err(err) => Err(eyre::eyre!(

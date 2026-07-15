@@ -675,7 +675,10 @@ async fn test_machine_a_tron_multidpu(
                 let machine_id = machine_handle
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
-                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+                tracing::info!(
+                    machine_id = %machine_id,
+                    "Machine has made it to Ready, allocating instance",
+                );
                 let instance_id = instance::create(
                     carbide_api_addrs,
                     &machine_id,
@@ -718,14 +721,18 @@ async fn test_machine_a_tron_multidpu(
                 assert_eq!(gateways.len(), 1);
 
                 tracing::info!(
-                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                    machine_id = %machine_id,
+                    "Machine has made it to Assigned/Ready, releasing instance",
                 );
                 instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
-                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                tracing::info!(
+                    machine_id = %machine_id,
+                    "Machine has made it to Ready again, all done",
+                );
                 Ok::<(), eyre::Report>(())
             }
         },
@@ -823,7 +830,10 @@ async fn test_machine_a_tron_zerodpu(
                 let machine_id = machine_handle
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
-                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+                tracing::info!(
+                    machine_id = %machine_id,
+                    "Machine has made it to Ready, allocating instance",
+                );
 
                 let instance_id = instance::create_with_auto_host_inband_networking(
                     carbide_api_addrs,
@@ -837,7 +847,8 @@ async fn test_machine_a_tron_zerodpu(
                     .await?;
                 assert_auto_instance_network(carbide_api_addrs, &instance_id, &flat_vpc_id).await?;
                 tracing::info!(
-                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                    machine_id = %machine_id,
+                    "Machine has made it to Assigned/Ready, releasing instance",
                 );
 
                 instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
@@ -845,7 +856,10 @@ async fn test_machine_a_tron_zerodpu(
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
-                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                tracing::info!(
+                    machine_id = %machine_id,
+                    "Machine has made it to Ready again, all done",
+                );
                 Ok::<(), eyre::Report>(())
             }
         },
@@ -887,7 +901,10 @@ async fn test_machine_a_tron_nic_mode(
                 let machine_id = machine_handle
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
-                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+                tracing::info!(
+                    machine_id = %machine_id,
+                    "Machine has made it to Ready, allocating instance",
+                );
 
                 assert_nic_mode_host(
                     carbide_api_addrs,
@@ -909,7 +926,8 @@ async fn test_machine_a_tron_nic_mode(
                     .await?;
                 assert_auto_instance_network(carbide_api_addrs, &instance_id, &flat_vpc_id).await?;
                 tracing::info!(
-                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                    machine_id = %machine_id,
+                    "Machine has made it to Assigned/Ready, releasing instance",
                 );
 
                 instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
@@ -917,7 +935,10 @@ async fn test_machine_a_tron_nic_mode(
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
-                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
+                tracing::info!(
+                    machine_id = %machine_id,
+                    "Machine has made it to Ready again, all done",
+                );
                 Ok::<(), eyre::Report>(())
             }
         },
@@ -1056,7 +1077,9 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
                 tracing::info!(
-                    "Machine {initial_machine_id} (bmc_mac {bmc_mac}) is Ready in DPU mode; flipping to NIC mode"
+                    initial_machine_id = %initial_machine_id,
+                    bmc_mac_address = %bmc_mac,
+                    "Machine is Ready in DPU mode; flipping to NIC mode",
                 );
 
                 // 2. Flip the ExpectedMachine to NIC mode. Get the current record,
@@ -1076,7 +1099,10 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     Some(&expected_machine),
                 )
                 .await?;
-                tracing::info!("ExpectedMachine for {bmc_mac} now declares NIC mode");
+                tracing::info!(
+                    bmc_mac_address = %bmc_mac,
+                    "ExpectedMachine for now declares NIC mode",
+                );
 
                 // 3. Force-delete the managed-DPU machine so site-explorer
                 //    re-ingests the host under the new declared mode. This is the
@@ -1098,7 +1124,10 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     Some(&force_delete_req),
                 )
                 .await?;
-                tracing::info!("Force-deleted machine {initial_machine_id}; awaiting re-ingestion as NicMode");
+                tracing::info!(
+                    initial_machine_id = %initial_machine_id,
+                    "Force-deleted machine; awaiting re-ingestion as NicMode",
+                );
 
                 // 4. Wait for the host to re-ingest as a zero-managed-DPU machine,
                 //    asserted directly against the database. The host's TPM-derived
@@ -1145,8 +1174,9 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
 
                     if host_exists && nic_count >= 1 && managed_dpu_count == 0 {
                         tracing::info!(
-                            "Host re-ingested as zero-managed-DPU machine {host_id} \
-                             (nic_count={nic_count}); DPU->NIC flip applied"
+                            host_machine_id = %host_id,
+                            nic_interface_count = nic_count,
+                            "Host re-ingested as a zero-managed-DPU machine; DPU-to-NIC flip applied",
                         );
                         break;
                     }
@@ -1164,7 +1194,10 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                 //    the host BMC now serves an event log so the controller's
                 //    restart verification can confirm reboots, and the zero-DPU
                 //    lockdown short-circuit lets it skip the DPU-down wait.
-                tracing::info!("Waiting for re-ingested NicMode host {host_id} to reach Ready");
+                tracing::info!(
+                    host_machine_id = %host_id,
+                    "Waiting for re-ingested NicMode host to reach Ready",
+                );
                 let ready_deadline = time::Instant::now() + Duration::from_secs(240);
                 loop {
                     let resp = api_test_helper::grpcurl::grpcurl(
@@ -1176,7 +1209,11 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     let resp: serde_json::Value = serde_json::from_str(&resp)?;
                     let state = resp["machines"][0]["state"].as_str().unwrap_or("");
                     if state == "Ready" {
-                        tracing::info!("Re-ingested NicMode host {host_id} reached Ready ({state})");
+                        tracing::info!(
+                            host_machine_id = %host_id,
+                            machine_state = state,
+                            "Re-ingested NicMode host reached Ready",
+                        );
                         break;
                     }
                     if time::Instant::now() >= ready_deadline {
@@ -1222,7 +1259,8 @@ async fn test_machine_a_tron_dual_stack(
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
                 tracing::info!(
-                    "Machine {machine_id} is Ready, allocating dual-stack instance via ipv6 config"
+                    machine_id = %machine_id,
+                    "Machine is Ready, allocating dual-stack instance via ipv6 config",
                 );
                 let instance_id = instance::create_with_vpc_prefixes(
                     carbide_api_addrs,
@@ -1280,7 +1318,9 @@ async fn test_machine_a_tron_dual_stack(
                 );
 
                 tracing::info!(
-                    "Machine {machine_id} dual-stack allocation verified: addresses = {addr_strings:?}"
+                    machine_id = %machine_id,
+                    addresses = ?addr_strings,
+                    "Machine dual-stack allocation verified",
                 );
 
                 instance::release(carbide_api_addrs, &machine_id, &instance_id, false)
@@ -1290,7 +1330,8 @@ async fn test_machine_a_tron_dual_stack(
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!(
-                    "Machine {machine_id} back to Ready after dual-stack release"
+                    machine_id = %machine_id,
+                    "Machine back to Ready after dual-stack release",
                 );
                 Ok::<(), eyre::Report>(())
             }
@@ -1329,7 +1370,8 @@ async fn test_machine_a_tron_dual_stack_l2(
                     .observed_machine_id()
                     .expect("Machine ID should be set if host is ready");
                 tracing::info!(
-                    "Machine {machine_id} is Ready, allocating dual-stack L2 instance"
+                    machine_id = %machine_id,
+                    "Machine is Ready, allocating dual-stack L2 instance",
                 );
                 let instance_id = instance::create(
                     carbide_api_addrs,
@@ -1350,17 +1392,18 @@ async fn test_machine_a_tron_dual_stack_l2(
                     .await?;
 
                 tracing::info!(
-                    "Machine {machine_id} dual-stack L2 instance allocated and reached Assigned/Ready"
+                    machine_id = %machine_id,
+                    "Machine dual-stack L2 instance allocated and reached Assigned/Ready",
                 );
 
-                instance::release(carbide_api_addrs, &machine_id, &instance_id, false)
-                    .await?;
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
 
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 tracing::info!(
-                    "Machine {machine_id} back to Ready after dual-stack L2 release"
+                    machine_id = %machine_id,
+                    "Machine back to Ready after dual-stack L2 release",
                 );
                 Ok::<(), eyre::Report>(())
             }

@@ -95,9 +95,9 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
     ) -> std::io::Result<()> {
         if self.config.enabled {
             tracing::info!(
-                interval_secs = self.config.publish_interval().as_secs(),
+                interval_seconds = self.config.publish_interval().as_secs(),
                 scope = ?self.config.scope,
-                healthy_republish_every = self.config.healthy_republish_every,
+                healthy_republish_interval_sweeps = self.config.healthy_republish_every,
                 max_publishes_per_second = self.config.max_publishes_per_second.0,
                 "Starting periodic managed host state republisher"
             );
@@ -238,9 +238,9 @@ impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
         }
 
         tracing::info!(
-            total,
-            published,
-            skipped_healthy,
+            total_host_count = total,
+            published_host_count = published,
+            skipped_healthy_host_count = skipped_healthy,
             publish_healthy,
             scope = ?self.config.scope,
             "Managed host state republish sweep complete"

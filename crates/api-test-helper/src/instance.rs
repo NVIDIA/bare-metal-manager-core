@@ -32,7 +32,9 @@ pub async fn create(
     keyset_ids: &[&str],
 ) -> eyre::Result<String> {
     tracing::info!(
-        "Creating instance with machine: {host_machine_id}, with network segment: {segment_id}"
+        host_machine_id = %host_machine_id,
+        network_segment_id = segment_id,
+        "Creating instance",
     );
 
     let network = serde_json::json!({
@@ -62,7 +64,9 @@ pub async fn create_with_auto_host_inband_networking(
     flat_vpc_id: &str,
 ) -> eyre::Result<String> {
     tracing::info!(
-        "Creating automatically-networked instance with machine: {host_machine_id}, with Flat VPC: {flat_vpc_id}"
+        host_machine_id = %host_machine_id,
+        flat_vpc_id,
+        "Creating automatically-networked instance",
     );
 
     let network = serde_json::json!({
@@ -120,7 +124,10 @@ async fn create_with_network(
         },
     });
     let instance_id = grpcurl_id(addrs, "AllocateInstance", &data.to_string()).await?;
-    tracing::info!("Instance created with ID {instance_id}");
+    tracing::info!(
+        instance_id = %instance_id,
+        "Instance created",
+    );
 
     if !wait_until_ready {
         return Ok(instance_id);
@@ -143,7 +150,10 @@ async fn create_with_network(
     wait_for_instance_state(addrs, &instance_id, "READY").await?;
     wait_for_state(addrs, host_machine_id, "Assigned/Ready").await?;
 
-    tracing::info!("Instance with ID {instance_id} is ready");
+    tracing::info!(
+        instance_id = %instance_id,
+        "Instance is ready",
+    );
 
     Ok(instance_id)
 }
@@ -158,7 +168,7 @@ pub async fn create_with_vpc_prefixes(
     tracing::info!(
         %host_machine_id,
         ?vpc_prefix_ids,
-        "Creating instance with VPC prefix allocation",
+        "Creating instance",
     );
 
     let v4_id = vpc_prefix_ids
@@ -198,7 +208,11 @@ pub async fn create_with_vpc_prefixes(
     });
 
     let instance_id = grpcurl_id(addrs, "AllocateInstance", &data.to_string()).await?;
-    tracing::info!("Dual-stack instance created with ID {instance_id}");
+    tracing::info!(
+        instance_id = %instance_id,
+        ?vpc_prefix_ids,
+        "Instance created",
+    );
     Ok(instance_id)
 }
 
@@ -208,13 +222,20 @@ pub async fn release(
     instance_id: &str,
     wait_until_ready: bool,
 ) -> eyre::Result<()> {
-    tracing::info!("Releasing instance {instance_id} on machine: {host_machine_id}");
+    tracing::info!(
+        instance_id,
+        host_machine_id = %host_machine_id,
+        "Releasing instance",
+    );
 
     let data = serde_json::json!({
         "id": {"value": instance_id}
     });
     let resp = grpcurl(addrs, "ReleaseInstance", Some(data)).await?;
-    tracing::info!("ReleaseInstance response: {}", resp);
+    tracing::info!(
+        release_instance_response = %resp,
+        "ReleaseInstance response",
+    );
 
     if !wait_until_ready {
         return Ok(());
@@ -240,9 +261,9 @@ pub async fn release(
             })
         });
     if let Some(ip_address) = ip_address {
-        tracing::info!("Instance with ID {instance_id} at {ip_address} is terminating");
+        tracing::info!(instance_id, ip_address, "Instance is terminating",);
     } else {
-        tracing::info!("Instance with ID {instance_id} is terminating");
+        tracing::info!(instance_id, "Instance is terminating",);
     }
 
     wait_for_state(addrs, host_machine_id, "WaitingForCleanup/HostCleanup").await?;
@@ -251,10 +272,13 @@ pub async fn release(
     });
     let response = grpcurl(addrs, "FindInstancesByIds", Some(&data)).await?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
-    tracing::info!("FindInstancesByIds Response: {}", resp);
+    tracing::info!(
+        find_instances_response = %resp,
+        "FindInstancesByIds Response",
+    );
     assert!(resp["instances"].as_array().unwrap().is_empty());
 
-    tracing::info!("Instance with ID {instance_id} is released");
+    tracing::info!(instance_id, "Instance is released",);
 
     Ok(())
 }
@@ -268,7 +292,11 @@ pub async fn phone_home(
         "instance_id": {"value": instance_id},
     });
 
-    tracing::info!(%host_machine_id, "Phoning home for instance {instance_id}");
+    tracing::info!(
+        %host_machine_id,
+        instance_id,
+        "Phoning home",
+    );
 
     grpcurl(addrs, "UpdateInstancePhoneHomeLastContact", Some(&data)).await?;
 
@@ -286,7 +314,10 @@ pub async fn get_instance_state(addrs: &[SocketAddr], instance_id: &str) -> eyre
         .as_str()
         .unwrap()
         .to_string();
-    tracing::info!("\tCurrent instance state: {state}");
+    tracing::info!(
+        instance_state = %state,
+        "Current instance state",
+    );
 
     Ok(state)
 }
@@ -327,14 +358,17 @@ pub async fn wait_for_instance_state(
 
     let mut latest_state = String::new();
 
-    tracing::info!("Waiting for Instance {instance_id} state {target_state}");
+    tracing::info!(instance_id, target_state, "Waiting for Instance state",);
     while start.elapsed() < MAX_WAIT {
         latest_state = get_instance_state(addrs, instance_id).await?;
 
         if latest_state.contains(target_state) {
             return Ok(());
         }
-        tracing::info!("\tCurrent instance state: {latest_state}");
+        tracing::info!(
+            instance_state = %latest_state,
+            "Current instance state",
+        );
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 

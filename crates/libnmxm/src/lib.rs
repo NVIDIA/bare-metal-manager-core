@@ -356,7 +356,11 @@ impl NmxmApiClient {
                 source: e,
             })?;
         let response_body = String::from_utf8_lossy(&response_buffer).to_string();
-        debug!("RX {status_code} {}", truncate(&response_body, 1500));
+        debug!(
+            http_status = status_code.as_u16(),
+            response_body = truncate(&response_body, 1500),
+            "Received NMX-M response"
+        );
 
         if !status_code.is_success() {
             return Err(NmxmApiError::HTTPErrorCode {
