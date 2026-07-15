@@ -1237,6 +1237,7 @@ dependencies = [
  "librms",
  "logfmt",
  "mac_address",
+ "metrics-endpoint",
  "mockito",
  "mqttea",
  "nras",
