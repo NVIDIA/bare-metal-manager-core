@@ -3025,6 +3025,7 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
+ "carbide-instrument",
  "carbide-redfish",
  "carbide-utils",
  "config-version",
@@ -7528,6 +7529,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
+ "carbide-instrument",
  "clap",
  "fmt",
  "jsonwebtoken",
