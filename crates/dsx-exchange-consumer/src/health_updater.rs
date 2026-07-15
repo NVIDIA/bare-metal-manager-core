@@ -30,7 +30,7 @@ use crate::ConsumerMetrics;
 use crate::api_client::{HEALTH_REPORT_SOURCE, RackHealthReportSink};
 use crate::config::CacheConfig;
 use crate::messages::{FaultValue, LeakMetadata, LeakPointType, ValueMessage};
-use crate::metrics::{MessageDeduplicated, MessageProcessed};
+use crate::metrics::{MessageAge, MessageDeduplicated, MessageProcessed};
 use crate::mqtt_consumer::MqttMessage;
 
 /// Health status updater that processes MQTT messages and updates the API.
@@ -111,6 +111,15 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
     }
 
     async fn handle_value_message(&self, topic: &str, msg: ValueMessage) {
+        // Consumer lag: how far behind the BMS event time we are when this
+        // message reaches processing. BMS-vs-consumer clock skew can make the
+        // delta negative, and `to_std()` errors on a negative duration, so
+        // clamp to zero.
+        let age = (chrono::Utc::now() - msg.timestamp)
+            .to_std()
+            .unwrap_or_default();
+        emit(MessageAge { age });
+
         let point_path = match extract_point_path(topic, &self.topic_prefix) {
             Some(path) => path,
             None => {
