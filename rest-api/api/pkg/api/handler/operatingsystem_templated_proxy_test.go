@@ -18,6 +18,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -174,6 +175,6 @@ func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 		require.NoError(t, perr)
 		osDAO := cdbm.NewOperatingSystemDAO(dbSession)
 		_, gerr := osDAO.GetByID(ctx, nil, parsedID, nil)
-		assert.Error(t, gerr, "OS should be soft-deleted once every site is cleaned up")
+		assert.ErrorIs(t, gerr, cdb.ErrDoesNotExist, "OS should be soft-deleted once every site is cleaned up")
 	})
 }

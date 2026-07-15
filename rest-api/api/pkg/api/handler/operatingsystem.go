@@ -59,8 +59,6 @@ func syncOperatingSystemToSitesViaProxy(
 	fullMethod string,
 	req proto.Message,
 ) int {
-	ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
-	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
 	siteErrors := 0
 	for _, ossa := range ossas {
 		slogger := logger.With().Str("Site ID", ossa.SiteID.String()).Logger()
@@ -68,7 +66,9 @@ func syncOperatingSystemToSitesViaProxy(
 		stc, cerr := scp.GetClientByID(ossa.SiteID)
 		if cerr != nil {
 			slogger.Error().Err(cerr).Msg("failed to retrieve Temporal client for Site")
-			updateOSSAStatusViaProxy(ctx, slogger, ossaDAO, sdDAO, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to connect to site")
+			// Site is already counted as an error below; a bookkeeping failure is
+			// logged inside and does not change the outcome for this site.
+			_ = updateOSSAStatusViaProxy(ctx, slogger, dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to connect to site")
 			siteErrors++
 			continue
 		}
@@ -79,30 +79,45 @@ func syncOperatingSystemToSitesViaProxy(
 		perr := common.ExecuteCoreGRPC(ctx, stc, fullMethod, req, nil, ossa.SiteID.String())
 		if perr != nil {
 			slogger.Error().Err(perr).Int("code", perr.Code).Msg("failed to sync Operating System to site via Core proxy")
-			updateOSSAStatusViaProxy(ctx, slogger, ossaDAO, sdDAO, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to sync Operating System to site")
+			_ = updateOSSAStatusViaProxy(ctx, slogger, dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to sync Operating System to site")
 			siteErrors++
 			continue
 		}
 
-		updateOSSAStatusViaProxy(ctx, slogger, ossaDAO, sdDAO, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusSynced, "Operating System successfully synced to site")
+		// The proxy call succeeded, but if we cannot durably record the Synced
+		// status the association state is unreliable, so treat that as a site
+		// error rather than reporting the OS as fully synced.
+		if serr := updateOSSAStatusViaProxy(ctx, slogger, dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusSynced, "Operating System successfully synced to site"); serr != nil {
+			siteErrors++
+		}
 	}
 	return siteErrors
 }
 
 // updateOSSAStatusViaProxy updates an Operating System Site Association status and
-// records a status detail entry. Failures are logged but not propagated, mirroring
-// the best-effort status bookkeeping of the existing image sync paths.
-func updateOSSAStatusViaProxy(ctx context.Context, logger zerolog.Logger, ossaDAO cdbm.OperatingSystemSiteAssociationDAO, sdDAO cdbm.StatusDetailDAO, ossaID uuid.UUID, status string, message string) {
-	if _, err := ossaDAO.Update(ctx, nil, cdbm.OperatingSystemSiteAssociationUpdateInput{
-		OperatingSystemSiteAssociationID: ossaID,
-		Status:                           cutil.GetPtr(status),
-	}); err != nil {
-		logger.Error().Err(err).Str("Status", status).Msg("failed to update Operating System Site Association status")
-		return
+// records the corresponding status detail atomically in a single transaction, so
+// the status and its audit entry cannot diverge. Any persistence error is logged
+// and returned so callers can account for it (e.g. as a site error when computing
+// aggregate status) instead of silently reporting success.
+func updateOSSAStatusViaProxy(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, ossaID uuid.UUID, status string, message string) error {
+	err := cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
+		ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
+		sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+		if _, uerr := ossaDAO.Update(ctx, tx, cdbm.OperatingSystemSiteAssociationUpdateInput{
+			OperatingSystemSiteAssociationID: ossaID,
+			Status:                           cutil.GetPtr(status),
+		}); uerr != nil {
+			return uerr
+		}
+		if _, cerr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ossaID.String(), Status: status, Message: &message}); cerr != nil {
+			return cerr
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Error().Err(err).Str("Status", status).Msg("failed to persist Operating System Site Association status")
 	}
-	if _, err := sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: ossaID.String(), Status: status, Message: &message}); err != nil {
-		logger.Error().Err(err).Msg("failed to create status detail for Operating System Site Association")
-	}
+	return err
 }
 
 // updateOperatingSystemAggregateStatus sets the Operating System's aggregate status
@@ -578,7 +593,7 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		req := model.BuildCreateOperatingSystemRequest(os)
 		siteErrors := syncOperatingSystemToSitesViaProxy(ctx, logger, csh.dbSession, csh.scp, dbossa, createOperatingSystemMethod, req)
 		updateOperatingSystemAggregateStatus(ctx, logger, csh.dbSession, os.ID, siteErrors > 0)
-		os, dbossd, dbossa = reloadOperatingSystemForResponse(ctx, logger, csh.dbSession, os)
+		os, dbossd, dbossa = reloadOperatingSystemForResponse(ctx, logger, csh.dbSession, os, dbossd, dbossa)
 	}
 
 	// create response
@@ -589,8 +604,10 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 
 // reloadOperatingSystemForResponse re-reads the Operating System, its recent status
 // details, and its site associations after a proxy sync so the API response reflects
-// the post-sync state. Best-effort: on any read error the prior values are kept.
-func reloadOperatingSystemForResponse(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, os *cdbm.OperatingSystem) (*cdbm.OperatingSystem, []cdbm.StatusDetail, []cdbm.OperatingSystemSiteAssociation) {
+// the post-sync state. Best-effort: the caller passes the values it already holds
+// (priorSSDs, priorOSSAs), and each is replaced only on a successful re-read, so a
+// read error keeps the prior value rather than dropping it to nil.
+func reloadOperatingSystemForResponse(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, os *cdbm.OperatingSystem, priorSSDs []cdbm.StatusDetail, priorOSSAs []cdbm.OperatingSystemSiteAssociation) (*cdbm.OperatingSystem, []cdbm.StatusDetail, []cdbm.OperatingSystemSiteAssociation) {
 	osDAO := cdbm.NewOperatingSystemDAO(dbSession)
 	ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
 	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
@@ -602,14 +619,14 @@ func reloadOperatingSystemForResponse(ctx context.Context, logger zerolog.Logger
 		logger.Warn().Err(err).Msg("failed to reload Operating System for response")
 	}
 
-	var ssds []cdbm.StatusDetail
+	ssds := priorSSDs
 	if v, err := sdDAO.GetRecentByEntityIDs(ctx, nil, []string{os.ID.String()}, common.RECENT_STATUS_DETAIL_COUNT); err == nil {
 		ssds = v
 	} else {
 		logger.Warn().Err(err).Msg("failed to reload Operating System status details for response")
 	}
 
-	var ossas []cdbm.OperatingSystemSiteAssociation
+	ossas := priorOSSAs
 	if v, _, err := ossaDAO.GetAll(ctx, nil,
 		cdbm.OperatingSystemSiteAssociationFilterInput{OperatingSystemIDs: []uuid.UUID{os.ID}},
 		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
@@ -1503,7 +1520,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			req := model.BuildUpdateOperatingSystemRequest(uos)
 			siteErrors := syncOperatingSystemToSitesViaProxy(ctx, logger, ush.dbSession, ush.scp, ipxeOssas, updateOperatingSystemMethod, req)
 			updateOperatingSystemAggregateStatus(ctx, logger, ush.dbSession, uos.ID, siteErrors > 0)
-			uos, ssds, dbossas = reloadOperatingSystemForResponse(ctx, logger, ush.dbSession, uos)
+			uos, ssds, dbossas = reloadOperatingSystemForResponse(ctx, logger, ush.dbSession, uos, ssds, dbossas)
 		}
 	}
 
@@ -1809,6 +1826,30 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
 			}
+
+			// Mark each affected association Deleting in the same transaction so the
+			// in-progress state is durable before any per-site proxy delete runs; the
+			// post-commit loop transitions each to deleted (row removed) or Error.
+			for _, ossa := range ossasToDelete {
+				if ossa.Status == cdbm.OperatingSystemSiteAssociationStatusDeleting {
+					continue
+				}
+				if _, derr := ossaDAO.Update(ctx, tx, cdbm.OperatingSystemSiteAssociationUpdateInput{
+					OperatingSystemSiteAssociationID: ossa.ID,
+					Status:                           cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusDeleting),
+				}); derr != nil {
+					logger.Error().Err(derr).Msg("error updating Operating System Association in DB")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Operating System", nil)
+				}
+				if _, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+					EntityID: ossa.ID.String(),
+					Status:   cdbm.OperatingSystemSiteAssociationStatusDeleting,
+					Message:  cutil.GetPtr("received request for deletion, pending processing"),
+				}); derr != nil {
+					logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Association", nil)
+				}
+			}
 		}
 
 		// Delete OS if its not Image
@@ -1849,6 +1890,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 			stc, cerr := dsh.scp.GetClientByID(ossa.SiteID)
 			if cerr != nil {
 				slogger.Error().Err(cerr).Msg("failed to retrieve Temporal client for Site")
+				_ = updateOSSAStatusViaProxy(ctx, slogger, dsh.dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to connect to site")
 				remaining++
 				continue
 			}
@@ -1858,12 +1900,14 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 					slogger.Warn().Msg("Operating System not found on site, treating delete as successful")
 				} else {
 					slogger.Error().Err(perr).Int("code", perr.Code).Msg("failed to delete Operating System on site via Core proxy")
+					_ = updateOSSAStatusViaProxy(ctx, slogger, dsh.dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to delete Operating System on site")
 					remaining++
 					continue
 				}
 			}
 			if derr := ossaDAO.Delete(ctx, nil, ossa.ID); derr != nil {
 				slogger.Error().Err(derr).Msg("failed to delete Operating System Site Association after site delete")
+				_ = updateOSSAStatusViaProxy(ctx, slogger, dsh.dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to remove Operating System site association after site delete")
 				remaining++
 			}
 		}
@@ -1872,6 +1916,14 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 				logger.Error().Err(derr).Msg("failed to soft-delete Operating System after all sites cleaned up")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete Operating System", nil)
 			}
+		} else {
+			// Some sites could not be cleaned up. Transition the OS out of the
+			// transient Deleting state into Error (with per-site Error associations
+			// recorded above) so it is not stranded in Deleting forever: the state is
+			// visible via GET and the delete is idempotently retryable (already-gone
+			// sites return not-found and cleaned-up associations are no longer
+			// candidates), converging once the sites recover.
+			updateOperatingSystemAggregateStatus(ctx, logger, dsh.dbSession, os.ID, true)
 		}
 	}
 

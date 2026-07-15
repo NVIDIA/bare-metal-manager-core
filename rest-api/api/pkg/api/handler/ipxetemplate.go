@@ -303,7 +303,12 @@ func (h GetIpxeTemplateHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify iPXE template authorization, DB error", nil)
 	}
 
-	if !callerHasAccessToAnyAssociatedSite(ctx, logger, h.dbSession, infrastructureProvider, tenant, associations) {
+	hasAccess, err := callerHasAccessToAnyAssociatedSite(ctx, logger, h.dbSession, infrastructureProvider, tenant, associations)
+	if err != nil {
+		logger.Error().Err(err).Msg("error verifying iPXE template site authorization")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify iPXE template authorization, DB error", nil)
+	}
+	if !hasAccess {
 		logger.Warn().Msg("caller is not authorized to access any Site associated with this iPXE template")
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not authorized to access this iPXE template", nil)
 	}
@@ -312,8 +317,10 @@ func (h GetIpxeTemplateHandler) Handle(c echo.Context) error {
 	return c.JSON(http.StatusOK, model.NewAPIIpxeTemplate(tmpl))
 }
 
-// callerHasAccessToAnyAssociatedSite returns true when the caller (provider or tenant)
-// has access to at least one site in the given association set.
+// callerHasAccessToAnyAssociatedSite reports whether the caller (provider or
+// tenant) has access to at least one site in the given association set. A non-nil
+// error indicates a lookup failure and must be surfaced by callers as HTTP 500,
+// rather than being collapsed into a "no access" (HTTP 403) answer.
 func callerHasAccessToAnyAssociatedSite(
 	ctx context.Context,
 	logger zerolog.Logger,
@@ -321,9 +328,9 @@ func callerHasAccessToAnyAssociatedSite(
 	provider *cdbm.InfrastructureProvider,
 	tenant *cdbm.Tenant,
 	associations []cdbm.IpxeTemplateSiteAssociation,
-) bool {
+) (bool, error) {
 	if len(associations) == 0 {
-		return false
+		return false, nil
 	}
 
 	siteIDs := make([]uuid.UUID, 0, len(associations))
@@ -340,10 +347,10 @@ func callerHasAccessToAnyAssociatedSite(
 		}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error retrieving provider sites for iPXE template authorization")
-			return false
+			return false, serr
 		}
 		if len(sites) > 0 {
-			return true
+			return true, nil
 		}
 	}
 
@@ -356,12 +363,12 @@ func callerHasAccessToAnyAssociatedSite(
 		}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
 		if terr != nil {
 			logger.Error().Err(terr).Msg("error retrieving Tenant Site associations for iPXE template authorization")
-			return false
+			return false, terr
 		}
 		if len(tss) > 0 {
-			return true
+			return true, nil
 		}
 	}
 
-	return false
+	return false, nil
 }

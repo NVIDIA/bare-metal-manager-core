@@ -938,6 +938,9 @@ func validateIpxeTemplateArtifacts(artifacts []cdbm.OperatingSystemIpxeArtifact)
 		if strings.TrimSpace(a.URL) == "" {
 			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): url is required", i, a.Name)}
 		}
+		if err := validation.Validate(a.URL, is.URL); err != nil {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): url is not valid: %w", i, a.Name, err)}
+		}
 		if _, ok := validCacheStrategies[a.CacheStrategy]; !ok {
 			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): cacheStrategy must be one of CacheAsNeeded, LocalOnly, CachedOnly, RemoteOnly", i, a.Name)}
 		}

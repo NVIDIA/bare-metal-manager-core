@@ -1,0 +1,179 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package handler
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// newTemplatedOsEchoContext returns a bare echo.Context whose request carries a
+// background context, which is all the buildInstance*OsConfig helpers require.
+func newTemplatedOsEchoContext(t *testing.T) echo.Context {
+	t.Helper()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req = req.WithContext(context.Background())
+	return e.NewContext(req, httptest.NewRecorder())
+}
+
+// assertTemplatedOsConfig asserts that a built InstanceOperatingSystemConfig
+// references the Operating System by ID (the Templated iPXE variant) rather than
+// carrying an inline iPXE script or an OS image reference.
+func assertTemplatedOsConfig(t *testing.T, osConfig *corev1.InstanceOperatingSystemConfig, osID uuid.UUID) {
+	t.Helper()
+	require.NotNil(t, osConfig)
+	variant, ok := osConfig.Variant.(*corev1.InstanceOperatingSystemConfig_OperatingSystemId)
+	require.Truef(t, ok, "expected OperatingSystemId variant for Templated iPXE OS, got %T", osConfig.Variant)
+	require.NotNil(t, variant.OperatingSystemId)
+	assert.Equal(t, osID.String(), variant.OperatingSystemId.Value)
+}
+
+// TestBuildInstanceOsConfig_TemplatedIPXE verifies that a Templated iPXE
+// Operating System is translated into an InstanceOperatingSystemConfig that
+// references the OS by ID (corev1.InstanceOperatingSystemConfig_OperatingSystemId)
+// across the create, update and batch-create instance paths, and that the shared
+// templated-OS site validator rejects OSes that are not usable at the Site.
+//
+// Unlike raw iPXE (inline script) and Image (OS image ID) types, a Templated
+// iPXE OS is rendered on the Site from its template, so only the OS ID is
+// propagated to Core, and only once the definition is synchronized to that Site.
+func TestBuildInstanceOsConfig_TemplatedIPXE(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testMachineInitDB(t)
+	defer dbSession.Close()
+
+	common.TestSetupSchema(t, dbSession)
+
+	cfg := common.GetTestConfig()
+	logger := zerolog.Nop()
+
+	org := "tmpl-os-instance-org"
+	user := testInstanceBuildUser(t, dbSession, uuid.NewString(), org, []string{"tenant_admin"})
+	tenant := testInstanceBuildTenant(t, dbSession, "tmpl-os-instance-tenant", org, user)
+
+	ip := testMachineBuildInfrastructureProvider(t, dbSession, "tmpl-os-instance-ip-org", "tmpl-os-instance-provider")
+	site := testMachineBuildSite(t, dbSession, ip, "tmpl-os-instance-site", cdbm.SiteStatusRegistered)
+
+	// buildOS builds a tenant-owned Templated iPXE OS with the given scope.
+	buildOS := func(name, scope string) *cdbm.OperatingSystem {
+		os := testInstanceBuildOperatingSystem(t, dbSession, name, tenant,
+			cdbm.OperatingSystemTypeTemplatedIPXE, false, nil, false, cdbm.OperatingSystemStatusReady, user)
+		os.IpxeOsScope = cutil.GetPtr(scope)
+		_, err := dbSession.DB.NewUpdate().Model(os).Column("ipxe_os_scope").WherePK().Exec(ctx)
+		require.NoError(t, err)
+		return os
+	}
+
+	// A Global-scope OS synchronized (Synced association) to the Site: the happy path.
+	osSynced := buildOS("tmpl-os-instance-os-synced", cdbm.OperatingSystemScopeGlobal)
+	testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, site.ID, osSynced.ID)
+
+	t.Run("create", func(t *testing.T) {
+		ec := newTemplatedOsEchoContext(t)
+		h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}
+		apiReq := &model.APIInstanceCreateRequest{
+			TenantID:          tenant.ID.String(),
+			OperatingSystemID: cutil.GetPtr(osSynced.ID.String()),
+		}
+
+		osConfig, osID, apiErr := h.buildInstanceCreateRequestOsConfig(ec, &logger, apiReq, site)
+		require.Nil(t, apiErr)
+		require.NotNil(t, osID)
+		assert.Equal(t, osSynced.ID, *osID)
+		assertTemplatedOsConfig(t, osConfig, osSynced.ID)
+	})
+
+	t.Run("update", func(t *testing.T) {
+		ec := newTemplatedOsEchoContext(t)
+		h := UpdateInstanceHandler{dbSession: dbSession, cfg: cfg}
+		// The instance is passed directly (not loaded from the DB) and only needs
+		// its Tenant populated for the ownership check.
+		instance := &cdbm.Instance{
+			ID:       uuid.New(),
+			TenantID: tenant.ID,
+			Tenant:   tenant,
+		}
+		apiReq := &model.APIInstanceUpdateRequest{
+			OperatingSystemID: cutil.GetPtr(osSynced.ID.String()),
+		}
+
+		osConfig, osID, apiErr := h.buildInstanceUpdateRequestOsConfig(ec, &logger, apiReq, instance, site)
+		require.Nil(t, apiErr)
+		require.NotNil(t, osID)
+		assert.Equal(t, osSynced.ID, *osID)
+		assertTemplatedOsConfig(t, osConfig, osSynced.ID)
+	})
+
+	t.Run("batch create", func(t *testing.T) {
+		ec := newTemplatedOsEchoContext(t)
+		h := BatchCreateInstanceHandler{dbSession: dbSession, cfg: cfg}
+		apiReq := &model.APIBatchInstanceCreateRequest{
+			TenantID:          tenant.ID.String(),
+			OperatingSystemID: cutil.GetPtr(osSynced.ID.String()),
+		}
+
+		osConfig, osID, apiErr := h.buildBatchInstanceCreateRequestOsConfig(ec, &logger, apiReq, site)
+		require.Nil(t, apiErr)
+		require.NotNil(t, osID)
+		assert.Equal(t, osSynced.ID, *osID)
+		assertTemplatedOsConfig(t, osConfig, osSynced.ID)
+	})
+
+	// The following cases exercise the shared validator through the create path;
+	// the same validator gates the update and batch paths.
+
+	// A Local-scope OS (created in nico-core) is a legitimate, usable definition
+	// once it is present at its Site: selection is gated on site availability, not
+	// on scope. (osScope only constrains OS creation, per the OS API validation
+	// rules, where Local is rejected because such OSes originate in core.)
+	t.Run("allows Local-scope templated OS synchronized to Site", func(t *testing.T) {
+		osLocal := buildOS("tmpl-os-instance-os-local", cdbm.OperatingSystemScopeLocal)
+		testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, site.ID, osLocal.ID)
+
+		ec := newTemplatedOsEchoContext(t)
+		h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}
+		apiReq := &model.APIInstanceCreateRequest{
+			TenantID:          tenant.ID.String(),
+			OperatingSystemID: cutil.GetPtr(osLocal.ID.String()),
+		}
+
+		osConfig, osID, apiErr := h.buildInstanceCreateRequestOsConfig(ec, &logger, apiReq, site)
+		require.Nil(t, apiErr)
+		require.NotNil(t, osID)
+		assert.Equal(t, osLocal.ID, *osID)
+		assertTemplatedOsConfig(t, osConfig, osLocal.ID)
+	})
+
+	t.Run("rejects templated OS not synchronized to Site", func(t *testing.T) {
+		// No Synced association at this Site, regardless of scope.
+		osUnsynced := buildOS("tmpl-os-instance-os-unsynced", cdbm.OperatingSystemScopeGlobal)
+
+		ec := newTemplatedOsEchoContext(t)
+		h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}
+		apiReq := &model.APIInstanceCreateRequest{
+			TenantID:          tenant.ID.String(),
+			OperatingSystemID: cutil.GetPtr(osUnsynced.ID.String()),
+		}
+
+		osConfig, osID, apiErr := h.buildInstanceCreateRequestOsConfig(ec, &logger, apiReq, site)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+		assert.Nil(t, osConfig)
+		assert.Nil(t, osID)
+	})
+}

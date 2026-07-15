@@ -11736,19 +11736,32 @@ paths:
           description: 'Optional site ID(s); may be repeated to restrict results to templates available at any of the sites'
         - schema:
             type: integer
-          name: pageNumber
+            example: 1
+            default: 1
+            minimum: 1
           in: query
-          required: false
+          name: pageNumber
+          description: Page number for pagination query
         - schema:
             type: integer
-          name: pageSize
+            minimum: 1
+            maximum: 100
+            example: 20
           in: query
-          required: false
+          name: pageSize
+          description: Page size for pagination query
         - schema:
             type: string
-          name: orderBy
+            enum:
+              - NAME_ASC
+              - NAME_DESC
+              - CREATED_ASC
+              - CREATED_DESC
+              - UPDATED_ASC
+              - UPDATED_DESC
           in: query
-          required: false
+          name: orderBy
+          description: Ordering for pagination query
       responses:
         '200':
           description: OK
@@ -11758,6 +11771,12 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/IpxeTemplate'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy": "NAME_ASC"}'
+              description: Pagination result in JSON format
         '403':
           $ref: '#/components/responses/ForbiddenError'
   '/v2/org/{org}/nico/ipxe-template/{ipxeTemplateId}':

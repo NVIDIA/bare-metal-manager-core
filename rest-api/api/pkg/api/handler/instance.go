@@ -89,6 +89,46 @@ func NewCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, 
 	}
 }
 
+// validateTemplatedIpxeOsForSite guards the Templated iPXE Operating System
+// selection paths (Instance create / update / batch-create) before the OS ID is
+// sent to Core. Caller authorization and tenant/OS ownership are already enforced
+// by the handlers (ValidateOrgMembership / ValidateUserRoles) and the per-request
+// ownership check, so this enforces the site-availability contract specific to
+// templated OSes: the OS definition must be synchronized to the Instance's Site
+// (a Synced OperatingSystemSiteAssociation) so the Site can render the template
+// at provisioning time.
+//
+// This is intentionally scope-agnostic. osScope constrains OS *creation* and
+// definition sync direction, not Instance selection: a Local OS (created in
+// nico-core) is a legitimate, usable definition once it is present at its Site,
+// and Global/Limited OSes are usable once their rest -> core push has completed.
+// In every case a Synced association is the signal that the definition is
+// actually available at the Site, so we gate on that alone.
+func validateTemplatedIpxeOsForSite(ctx context.Context, dbSession *cdb.Session, logger *zerolog.Logger, os *cdbm.OperatingSystem, siteID uuid.UUID) *cutil.APIError {
+	ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
+	_, ossaCount, err := ossaDAO.GetAll(
+		ctx,
+		nil,
+		cdbm.OperatingSystemSiteAssociationFilterInput{
+			OperatingSystemIDs: []uuid.UUID{os.ID},
+			SiteIDs:            []uuid.UUID{siteID},
+			Statuses:           []string{cdbm.OperatingSystemSiteAssociationStatusSynced},
+		},
+		cdbp.PageInput{Limit: cutil.GetPtr(1)},
+		nil,
+	)
+	if err != nil {
+		logger.Error().Err(err).Str("operatingSystemId", os.ID.String()).Msg("error retrieving OperatingSystemSiteAssociations for Templated iPXE OS")
+		return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve OperatingSystem site associations, DB error", nil)
+	}
+	if ossaCount == 0 {
+		logger.Warn().Str("operatingSystemId", os.ID.String()).Str("siteId", siteID.String()).Msg("Templated iPXE Operating System is not synchronized to the Instance's Site")
+		return cutil.NewAPIError(http.StatusBadRequest, "Templated iPXE Operating System specified in request is not synchronized to the Instance's Site", nil)
+	}
+
+	return nil
+}
+
 // Returns either a default OS or an existing instance OS config.
 // apiRequest will be mutated for use in create.
 // osConfig will hold the struct/data for use with Temporal/NICo calls.
@@ -214,6 +254,9 @@ func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Conte
 			UserData: apiRequest.UserData,
 		}, osID, nil
 	} else if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+		if apiErr := validateTemplatedIpxeOsForSite(ctx, cih.dbSession, logger, os, site.ID); apiErr != nil {
+			return nil, nil, apiErr
+		}
 		return &corev1.InstanceOperatingSystemConfig{
 			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe,
 			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,
@@ -2110,6 +2153,9 @@ func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Conte
 				UserData: userData,
 			}, osID, nil
 		} else if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+			if apiErr := validateTemplatedIpxeOsForSite(ctx, uih.dbSession, logger, os, site.ID); apiErr != nil {
+				return nil, nil, apiErr
+			}
 			return &corev1.InstanceOperatingSystemConfig{
 				RunProvisioningInstructionsOnEveryBoot: alwaysBootWithCustomIpxe,
 				PhoneHomeEnabled:                       phoneHomeEnabled,
