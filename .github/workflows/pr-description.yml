@@ -51,6 +51,18 @@ jobs:
               >/dev/null
           }
 
+          status_finalized=false
+          publish_error_on_exit() {
+            local exit_code="$?"
+
+            if [[ "${exit_code}" -ne 0 && "${status_finalized}" != "true" ]]; then
+              message="PR description validation could not complete; inspect the workflow run"
+              post_status "${EVENT_HEAD_SHA}" error "${message}" || true
+              echo "::error::${message}"
+            fi
+          }
+          trap publish_error_on_exit EXIT
+
           post_status \
             "${EVENT_HEAD_SHA}" \
             pending \
@@ -96,6 +108,7 @@ jobs:
           if [[ "${comparison}" == "empty" ]]; then
             message="Pull request description must not be empty"
             post_status "${EVENT_HEAD_SHA}" failure "${message}"
+            status_finalized=true
             echo "::error::${message}"
             exit 1
           fi
@@ -103,13 +116,15 @@ jobs:
           if [[ "${comparison}" == "template" ]]; then
             message="Fill in the pull request template before submitting"
             post_status "${EVENT_HEAD_SHA}" failure "${message}"
+            status_finalized=true
             echo "::error::${message}"
             exit 1
           fi
 
-          if jq -e '(.body // "") | contains("<!--")' <<<"${pr_json}" >/dev/null; then
+          if [[ "${body}" == *"<!--"* ]]; then
             message="Remove all <!-- ... --> comments from the pull request description"
             post_status "${EVENT_HEAD_SHA}" failure "${message}"
+            status_finalized=true
             echo "::error::${message}"
             exit 1
           fi
@@ -118,3 +133,4 @@ jobs:
             "${EVENT_HEAD_SHA}" \
             success \
             "Pull request description is valid"
+          status_finalized=true
