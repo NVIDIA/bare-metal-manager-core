@@ -32,43 +32,31 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
 /// Request handler
-fn handle_metrics_request(
+async fn handle_metrics_request(
     req: Request<Incoming>,
     state: Arc<MetricsHandlerState>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let response: Response<Full<Bytes>> = match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
-            let mut buffer = Vec::new();
-            let encoder = TextEncoder::new();
-            let mut metric_families = state.registry.gather();
-
-            if let Some((old_prefix, new_prefix)) = &state.additional_prefix {
-                let alt_name_families: Vec<MetricFamily> = metric_families
-                    .iter()
-                    .filter_map(|family| {
-                        if !family.name().starts_with(old_prefix) {
-                            return None;
-                        }
-
-                        let mut alt_name_family = family.clone();
-                        alt_name_family.set_name(family.name().replacen(old_prefix, new_prefix, 1));
-                        Some(alt_name_family)
-                    })
-                    .collect();
-
-                if !alt_name_families.is_empty() {
-                    metric_families.extend(alt_name_families);
+            // Gathering and encoding a large registry (the per-object
+            // endpoint serves O(fleet) series) is a CPU burst: run it off the
+            // async workers shared with the API and the state controllers.
+            let encoded = tokio::task::spawn_blocking(move || encode_metrics(&state)).await;
+            match encoded {
+                Ok(buffer) => Response::builder()
+                    .status(200)
+                    .header(CONTENT_TYPE, TextEncoder::new().format_type())
+                    .header(CONTENT_LENGTH, buffer.len())
+                    .body(buffer.into())
+                    .unwrap(),
+                Err(e) => {
+                    tracing::error!("Failed to encode metrics: {e}");
+                    Response::builder()
+                        .status(500)
+                        .body("Failed to encode metrics".into())
+                        .unwrap()
                 }
             }
-
-            encoder.encode(&metric_families, &mut buffer).unwrap();
-
-            Response::builder()
-                .status(200)
-                .header(CONTENT_TYPE, encoder.format_type())
-                .header(CONTENT_LENGTH, buffer.len())
-                .body(buffer.into())
-                .unwrap()
         }
         (&Method::GET, "/") => Response::builder()
             .status(200)
@@ -81,6 +69,35 @@ fn handle_metrics_request(
     };
 
     Ok(response)
+}
+
+/// Gathers and text-encodes the registry, applying the alt-prefix mirroring.
+fn encode_metrics(state: &MetricsHandlerState) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    let encoder = TextEncoder::new();
+    let mut metric_families = state.registry.gather();
+
+    if let Some((old_prefix, new_prefix)) = &state.additional_prefix {
+        let alt_name_families: Vec<MetricFamily> = metric_families
+            .iter()
+            .filter_map(|family| {
+                if !family.name().starts_with(old_prefix) {
+                    return None;
+                }
+
+                let mut alt_name_family = family.clone();
+                alt_name_family.set_name(family.name().replacen(old_prefix, new_prefix, 1));
+                Some(alt_name_family)
+            })
+            .collect();
+
+        if !alt_name_families.is_empty() {
+            metric_families.extend(alt_name_families);
+        }
+    }
+
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+    buffer
 }
 
 /// The shared state between HTTP requests
@@ -125,9 +142,7 @@ pub async fn run_metrics_endpoint(
                     TokioIo::new(stream),
                     service_fn(move |req| {
                         let handler_state = handler_state.clone();
-                        async move {
-                            handle_metrics_request(req, handler_state)
-                        }
+                        async move { handle_metrics_request(req, handler_state).await }
                     }),
                 ));
             },

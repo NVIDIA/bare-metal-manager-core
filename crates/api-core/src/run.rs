@@ -40,7 +40,8 @@ use crate::cfg::file::{
 use crate::listener::AdminUiRoutesBuilder;
 use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
-    Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
+    Logging, create_metric_for_spancount_reader, create_metrics, create_per_object_metrics,
+    setup_logging,
 };
 use crate::secrets::{SecretRouting, SecretsContext};
 use crate::{CarbideError, dynamic_settings, setup};
@@ -176,6 +177,44 @@ pub async fn run(
                 }
             }
         })?;
+    }
+
+    // The opt-in per-object state metrics live on their own registry and
+    // listener so operators can scrape (or skip) them independently. No
+    // alt-prefix mirroring here: it would double every per-object family.
+    let per_object_config = &carbide_config.observability.per_object_state_metrics;
+    if per_object_config.enabled && per_object_config.object_types.is_empty() {
+        tracing::warn!(
+            "observability.per_object_state_metrics.enabled is set but object_types is empty; \
+             not starting the per-object metrics endpoint"
+        );
+    }
+    let per_object_metrics = (per_object_config.enabled
+        && !per_object_config.object_types.is_empty())
+    .then(create_per_object_metrics);
+    if let Some(registry) = &per_object_metrics {
+        let address = per_object_config.listen_address;
+        join_set
+            .build_task()
+            .name("per_object_metrics_endpoint")
+            .spawn({
+                let cancel_token = cancel_token.clone();
+                let registry = registry.clone();
+                async move {
+                    if let Err(e) = run_metrics_endpoint(
+                        &MetricsEndpointConfig {
+                            address,
+                            registry,
+                            additional_prefix: None,
+                        },
+                        cancel_token,
+                    )
+                    .await
+                    {
+                        tracing::error!("Per-object metrics endpoint failed with error: {}", e);
+                    }
+                }
+            })?;
     }
 
     let dynamic_settings = crate::dynamic_settings::DynamicSettings {
@@ -418,6 +457,7 @@ pub async fn run(
         carbide_config,
         initial_objects,
         metrics.meter,
+        per_object_metrics,
         dynamic_settings,
         redfish_pool,
         nv_redfish_pool,

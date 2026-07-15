@@ -168,6 +168,26 @@ must be small and closed. The framework makes that structural instead of a revie
 - Per-object metric series remain the exception, and they stay on the opt-in,
   hold-time-bounded `PerObjectMetricsRegistry` -- not on event labels.
 
+### Per-object state endpoint
+
+State-controller object IDs are intentionally high-cardinality. Their current
+state, resolved SLA, intervention status, stable traits, and machine
+associations are therefore observable gauges on a dedicated, disabled-by-default
+Prometheus endpoint rather than event labels or the main `/metrics` endpoint.
+The metric catalog is:
+
+- `carbide_object_state_entered_timestamp_seconds`
+- `carbide_object_state_sla_seconds`
+- `carbide_object_manual_intervention_required`
+- `carbide_object_info`
+- `carbide_machine_dpu_info`
+- `carbide_machine_instance_info`
+
+Enable and select object types with
+`[observability.per_object_state_metrics]`. Scrape it slowly (normally
+60–120 seconds), and scrape both endpoints into the same Prometheus before
+joining these series with aggregate or health metrics.
+
 ## Histograms and observations
 
 A histogram event carries exactly one `#[observation]` field: a `Duration` (converted to

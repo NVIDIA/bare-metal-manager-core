@@ -104,6 +104,11 @@ suppress_external_alerting_on_scout_heartbeat_timeout = false
 [observability]
 per_object_metrics_for_classifications = ["Hardware", "PreventAllocations"]
 
+[observability.per_object_state_metrics]
+enabled = true
+listen_address = "127.0.0.1:9191"
+object_types = ["machine", "switch"]
+
 [machine_state_controller.controller]
 iteration_time = "9m"
 max_object_handling_time = "99s"

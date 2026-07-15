@@ -137,6 +137,7 @@ impl EnvBuilder {
             ipmi_tool: carbide_ipmi::test_support(),
             site_config: runtime_config.machine_state_handler_site_config().into(),
             per_object_metrics_registry,
+            per_object_info: None,
         };
         let machine_controller = StateController::<MachineStateControllerIO>::builder()
             .database(pool, api.work_lock_manager_handle())

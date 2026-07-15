@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,6 +28,7 @@ use tracing::Instrument;
 use crate::config::IterationConfig;
 use crate::controller::{ControllerIteration, ControllerIterationId, IterationError, db};
 use crate::io::StateControllerIO;
+use crate::per_object::PerObjectStateRecorder;
 
 /// Periodically enqueues state handling tasks for all objects that are managed by the
 /// state controller.
@@ -39,6 +41,12 @@ pub(super) struct PeriodicEnqueuer<IO: StateControllerIO> {
     pub(super) metric_emitter: Option<EnqueuerMetricsEmitter>,
     pub(super) cancel_token: CancellationToken,
     pub(super) iteration_config: IterationConfig,
+    /// When set, objects that disappear from the live set between iterations
+    /// have their per-object series cleared (they were deleted outside the
+    /// controller, so no handler iteration will ever observe the deletion).
+    pub(super) per_object_state: Option<PerObjectStateRecorder>,
+    /// The live object ids seen by the previous iteration.
+    pub(super) known_object_ids: HashSet<String>,
 }
 
 pub(super) struct SingleIterationResult {
@@ -210,6 +218,17 @@ impl<IO: StateControllerIO> PeriodicEnqueuer<IO> {
             .map(|object_id| object_id.to_string())
             .collect();
         txn.commit().await?;
+
+        // Objects that vanished from the live set were deleted outside the
+        // controller, so no handler iteration will ever clear their
+        // per-object series — do it here, where the live set is known.
+        if let Some(recorder) = &self.per_object_state {
+            let live: HashSet<String> = queued_objects.iter().cloned().collect();
+            for gone in self.known_object_ids.difference(&live) {
+                recorder.metrics.clear(recorder.object_type, gone);
+            }
+            self.known_object_ids = live;
+        }
 
         // The transactions for listing and enqueuing are decoupled to avoid
         // any locking side-effects

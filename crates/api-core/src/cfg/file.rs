@@ -833,6 +833,89 @@ pub struct ObservabilityConfig {
     /// `object_id="<machine_id>"`).
     #[serde(default)]
     pub per_object_metrics_for_classifications: Vec<HealthAlertClassification>,
+
+    /// Per-object state progress metrics, served on a dedicated endpoint
+    /// (see `docs/design/per-object-state-metrics.md`).
+    #[serde(default)]
+    pub per_object_state_metrics: PerObjectStateMetricsConfig,
+}
+
+/// Configuration for the per-object state metrics endpoint. Off by default:
+/// the series cost O(fleet) cardinality, so operators opt in and scrape the
+/// dedicated endpoint at their own cadence.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PerObjectStateMetricsConfig {
+    /// Whether the per-object state metrics endpoint is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// The address the dedicated endpoint listens on.
+    #[serde(default = "default_per_object_state_metrics_listen_address")]
+    pub listen_address: SocketAddr,
+    /// Object types to emit state series for; defaults to all. An empty list
+    /// disables emission even when `enabled = true`.
+    #[serde(default = "default_per_object_state_metrics_object_types")]
+    pub object_types: Vec<PerObjectStateMetricObjectType>,
+}
+
+impl Default for PerObjectStateMetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen_address: default_per_object_state_metrics_listen_address(),
+            object_types: default_per_object_state_metrics_object_types(),
+        }
+    }
+}
+
+fn default_per_object_state_metrics_listen_address() -> SocketAddr {
+    SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), 9091)
+}
+
+fn default_per_object_state_metrics_object_types() -> Vec<PerObjectStateMetricObjectType> {
+    PerObjectStateMetricObjectType::ALL.to_vec()
+}
+
+/// Object types that can emit per-object state series. An enum so an
+/// unrecognized token fails config deserialization instead of silently
+/// emitting nothing for the intended type.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PerObjectStateMetricObjectType {
+    Machine,
+    Switch,
+    Rack,
+    PowerShelf,
+    NetworkSegment,
+    VpcPrefix,
+    SpdmAttestation,
+    IbPartition,
+}
+
+impl PerObjectStateMetricObjectType {
+    pub const ALL: [Self; 8] = [
+        Self::Machine,
+        Self::Switch,
+        Self::Rack,
+        Self::PowerShelf,
+        Self::NetworkSegment,
+        Self::VpcPrefix,
+        Self::SpdmAttestation,
+        Self::IbPartition,
+    ];
+
+    /// The `object_type` label token; must match what the controllers record.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Machine => "machine",
+            Self::Switch => "switch",
+            Self::Rack => "rack",
+            Self::PowerShelf => "power_shelf",
+            Self::NetworkSegment => "network_segment",
+            Self::VpcPrefix => "vpc_prefix",
+            Self::SpdmAttestation => "spdm_attestation",
+            Self::IbPartition => "ib_partition",
+        }
+    }
 }
 
 /// One external tool link rendered in the admin web UI's "Tools"
@@ -3698,6 +3781,14 @@ mod tests {
                     HealthAlertClassification::hardware(),
                     HealthAlertClassification::prevent_allocations(),
                 ],
+                per_object_state_metrics: PerObjectStateMetricsConfig {
+                    enabled: true,
+                    listen_address: "127.0.0.1:9191".parse().unwrap(),
+                    object_types: vec![
+                        PerObjectStateMetricObjectType::Machine,
+                        PerObjectStateMetricObjectType::Switch,
+                    ],
+                },
             }
         );
         assert_eq!(
@@ -4041,6 +4132,14 @@ mod tests {
                     HealthAlertClassification::hardware(),
                     HealthAlertClassification::prevent_allocations(),
                 ],
+                per_object_state_metrics: PerObjectStateMetricsConfig {
+                    enabled: true,
+                    listen_address: "127.0.0.1:9191".parse().unwrap(),
+                    object_types: vec![
+                        PerObjectStateMetricObjectType::Machine,
+                        PerObjectStateMetricObjectType::Switch,
+                    ],
+                },
             }
         );
         assert_eq!(

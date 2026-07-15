@@ -264,6 +264,15 @@ pub fn create_metrics() -> eyre::Result<Metrics> {
     })
 }
 
+/// Creates the registry for the dedicated per-object metrics endpoint
+/// (`observability.per_object_state_metrics`). Its metrics are exported by
+/// native pull collectors rather than OpenTelemetry instruments, so they are
+/// not subject to OpenTelemetry's per-stream cardinality limit — a per-object
+/// fleet vastly exceeds it.
+pub fn create_per_object_metrics() -> prometheus::Registry {
+    prometheus::Registry::new()
+}
+
 /// Configures a View for Histograms that describe retries or attempts for operations
 /// The view reconfigures the histogram to use a small set of buckets that track
 /// the exact amount of retry attempts up to 3, and 2 additional buckets up to 10.

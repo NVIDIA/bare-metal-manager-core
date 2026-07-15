@@ -337,6 +337,7 @@ impl TestEnv {
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.machine_state_handler_site_config().into(),
             per_object_metrics_registry: self.per_object_metrics_registry(),
+            per_object_info: None,
         }
     }
 
@@ -1544,6 +1545,7 @@ pub async fn create_test_env_with_overrides(
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: config.machine_state_handler_site_config().into(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                per_object_info: None,
             }
             .into(),
         )

@@ -33,6 +33,7 @@ test-support = []
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-health-metrics = { path = "../health-metrics" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 config-version = { path = "../config-version", features = ["sqlx"] }
@@ -46,6 +47,7 @@ eyre = { workspace = true }
 futures = { workspace = true }
 futures-util = { workspace = true }
 opentelemetry = { workspace = true }
+prometheus = { workspace = true }
 rand = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }

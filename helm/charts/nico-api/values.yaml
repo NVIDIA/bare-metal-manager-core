@@ -100,6 +100,24 @@ service:
     port: 1079
   metrics:
     port: 1080
+  ## Enables the application listener, container port, and Kubernetes Service
+  ## for high-cardinality per-object state metrics. An empty objectTypes list
+  ## skips the listener and omits the Service/port even when enabled is true.
+  ## The chart always renders object_types explicitly, so this list (not the
+  ## application default) decides what is emitted; all valid types are listed
+  ## below — remove entries to exclude them.
+  perObjectStateMetrics:
+    enabled: false
+    port: 9091
+    objectTypes:
+      - machine
+      - switch
+      - power_shelf
+      - rack
+      - network_segment
+      - vpc_prefix
+      - spdm_attestation
+      - ib_partition
   profiler:
     port: 1081
 
@@ -178,6 +196,13 @@ livenessProbe:
 serviceMonitor:
   enabled: false
   interval: 30s
+  scrapeTimeout: 25s
+
+## A separate monitor lets operators use a slower scrape interval and distinct
+## retention/routing for the high-cardinality per-object series.
+perObjectStateMetricsServiceMonitor:
+  enabled: false
+  interval: 60s
   scrapeTimeout: 25s
 
 auth:

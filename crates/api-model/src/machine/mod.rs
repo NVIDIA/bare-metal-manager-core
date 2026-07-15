@@ -2237,6 +2237,33 @@ impl Display for FailureSource {
     }
 }
 
+impl FailureCause {
+    /// Stable snake_case token for use as a metric label value. Unlike
+    /// [`Display`], never interpolates the free-text `err` (metric labels must
+    /// come from a closed set).
+    pub fn metric_label(&self) -> &'static str {
+        match self {
+            FailureCause::NoError => "no_error",
+            FailureCause::NVMECleanFailed { .. } => "nvme_clean_failed",
+            FailureCause::Discovery { .. } => "discovery",
+            FailureCause::Reprovisioning { .. } => "reprovisioning",
+            FailureCause::MachineValidation { .. } => "machine_validation",
+            FailureCause::UnhandledState { .. } => "unhandled_state",
+            FailureCause::MeasurementsFailedSignatureCheck { .. } => {
+                "measurements_failed_signature_check"
+            }
+            FailureCause::MeasurementsRetired { .. } => "measurements_retired",
+            FailureCause::MeasurementsRevoked { .. } => "measurements_revoked",
+            FailureCause::MeasurementsCAValidationFailed { .. } => {
+                "measurements_ca_validation_failed"
+            }
+            FailureCause::DpfProvisioning { .. } => "dpf_provisioning",
+            FailureCause::SpdmAttestationFailed { .. } => "spdm_attestation_failed",
+            FailureCause::BiosSetupFailed { .. } => "bios_setup_failed",
+        }
+    }
+}
+
 impl Display for FailureCause {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

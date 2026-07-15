@@ -37,6 +37,7 @@ use carbide_machine_controller::dpf::{
 };
 use carbide_machine_controller::handler::MachineStateHandlerBuilder;
 use carbide_machine_controller::io::MachineStateControllerIO;
+use carbide_machine_controller::per_object::MachinePerObjectInfo;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
@@ -87,6 +88,7 @@ use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, PgPool};
 use sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use state_controller::controller::{Enqueuer, StateController};
+use state_controller::per_object::{PerObjectStateMetrics, PerObjectStateRecorder};
 use state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use tokio::sync::Semaphore;
 use tokio::sync::oneshot::Sender;
@@ -328,6 +330,7 @@ pub async fn start_api(
     carbide_config: Arc<CarbideConfig>,
     initial_objects: Option<InitialObjectsConfig>,
     meter: Meter,
+    per_object_prometheus_registry: Option<prometheus::Registry>,
     dynamic_settings: DynamicSettings,
     shared_redfish_pool: Arc<dyn RedfishClientPool>,
     shared_nv_redfish_pool: Arc<NvRedfishClientPool>,
@@ -617,6 +620,7 @@ pub async fn start_api(
             join_set,
             api_service.clone(),
             meter.clone(),
+            per_object_prometheus_registry,
             ipmi_tool.clone(),
             seed_data,
             cancel_token.clone(),
@@ -991,6 +995,7 @@ async fn initialize_and_start_controllers<'a>(
     join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     meter: Meter,
+    per_object_prometheus_registry: Option<prometheus::Registry>,
     ipmi_tool: Arc<dyn IPMITool>,
     seed_data: Option<SeedData<'a>>,
     cancel_token: CancellationToken,
@@ -1272,26 +1277,98 @@ async fn initialize_and_start_controllers<'a>(
         .to_string_lossy()
         .to_string();
 
-    // Cross-controller registry feeding the per-object health metrics; shared by
-    // every state controller and registered once.
-    let per_object_metric_hold_time = [
+    // Every controller that records per-object series, in one place so the
+    // two hold-period computations below cannot drift apart. The first four
+    // also feed the per-object health classification metric.
+    let per_object_feeding_controllers = [
         &carbide_config.machine_state_controller.controller,
         &carbide_config.switch_state_controller.controller,
         &carbide_config.rack_state_controller.controller,
         &carbide_config.power_shelf_state_controller.controller,
-    ]
-    .into_iter()
-    .map(|controller| controller.metric_hold_time)
-    .max()
-    .unwrap_or_default();
+        &carbide_config.network_segment_state_controller.controller,
+        &carbide_config.vpc_prefix_state_controller.controller,
+        &carbide_config.spdm_state_controller.controller,
+        &carbide_config.ib_partition_state_controller.controller,
+    ];
+
+    // Cross-controller registry feeding the per-object health and state
+    // metrics; shared by every state controller and registered once. The
+    // classification gauge keeps its own hold derived only from the four
+    // controllers that record it, so tuning an unrelated controller's cadence
+    // cannot inflate eviction of the pre-existing main-endpoint metric.
+    let classification_hold_time = per_object_feeding_controllers[..4]
+        .iter()
+        .map(|controller| controller.metric_hold_time)
+        .max()
+        .unwrap_or_default();
     let per_object_metrics_registry = PerObjectMetricsRegistry::new(
         carbide_config
             .observability
             .per_object_metrics_for_classifications
             .clone(),
-        per_object_metric_hold_time.saturating_add(std::time::Duration::from_secs(60)),
+        classification_hold_time.saturating_add(std::time::Duration::from_secs(60)),
     );
     per_object_metrics_registry.register(&meter);
+
+    // Hold period for the per-object state/info gauges, which are fed by all
+    // eight controllers. An object's series is only refreshed after its
+    // handler finishes, so the worst-case refresh gap is roughly an iteration
+    // interval (with slack) PLUS the longest allowed handler runtime. Note:
+    // under fleet backlog the wall-clock iteration can exceed iteration_time;
+    // the hold cannot bound that statically.
+    let per_object_state_hold_time = per_object_feeding_controllers
+        .iter()
+        .map(|controller| {
+            controller.metric_hold_time.max(
+                controller.iteration_time
+                    + controller.iteration_time / 3
+                    + controller.max_object_handling_time,
+            )
+        })
+        .max()
+        .unwrap_or_default()
+        .saturating_add(std::time::Duration::from_secs(60));
+
+    // Per-object state progress metrics (opt-in): the state gauges are fed by
+    // the generic processors as native collectors on the dedicated per-object
+    // Prometheus registry, so they are served from their own endpoint. Object
+    // types are filtered via `observability.per_object_state_metrics
+    // .object_types` (a config enum, so unknown tokens fail deserialization).
+    let per_object_state_metrics = per_object_prometheus_registry
+        .as_ref()
+        .map(|prometheus_registry| {
+            PerObjectStateMetrics::new(
+                &per_object_metrics_registry,
+                prometheus_registry,
+                per_object_state_hold_time,
+            )
+        })
+        .transpose()?;
+    let per_object_state_recorder = |object_type: &'static str| -> Option<PerObjectStateRecorder> {
+        let metrics = per_object_state_metrics.clone()?;
+        carbide_config
+            .observability
+            .per_object_state_metrics
+            .object_types
+            .iter()
+            .any(|t| t.as_str() == object_type)
+            .then_some(PerObjectStateRecorder {
+                object_type,
+                metrics,
+            })
+    };
+    // Machine trait/association info series accompany the machine state series.
+    let machine_per_object_info = per_object_prometheus_registry
+        .as_ref()
+        .filter(|_| per_object_state_recorder("machine").is_some())
+        .map(|prometheus_registry| {
+            MachinePerObjectInfo::new(
+                &per_object_metrics_registry,
+                prometheus_registry,
+                per_object_state_hold_time,
+            )
+        })
+        .transpose()?;
 
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
@@ -1307,9 +1384,11 @@ async fn initialize_and_start_controllers<'a>(
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: carbide_config.machine_state_handler_site_config().into(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                per_object_info: machine_per_object_info,
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("machine"))
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
         .state_handler(Arc::new(
             MachineStateHandlerBuilder::builder()
@@ -1386,6 +1465,7 @@ async fn initialize_and_start_controllers<'a>(
             .into(),
         );
     ns_builder
+        .per_object_state_metrics(per_object_state_recorder("network_segment"))
         .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
         .state_handler(Arc::new(NetworkSegmentStateHandler::new(
             carbide_config
@@ -1407,6 +1487,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("vpc_prefix"))
         .iteration_config((&carbide_config.vpc_prefix_state_controller.controller).into())
         .state_handler(Arc::new(VpcPrefixStateHandler::new(
             carbide_config
@@ -1436,6 +1517,7 @@ async fn initialize_and_start_controllers<'a>(
                 }
                 .into(),
             )
+            .per_object_state_metrics(per_object_state_recorder("spdm_attestation"))
             .iteration_config((&carbide_config.spdm_state_controller.controller).into())
             .state_handler(Arc::new(SpdmAttestationStateHandler::new(
                 verifier,
@@ -1457,6 +1539,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("ib_partition"))
         .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
         .state_handler(Arc::new(IBPartitionStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
@@ -1475,6 +1558,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("power_shelf"))
         .iteration_config((&carbide_config.power_shelf_state_controller.controller).into())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
@@ -1504,6 +1588,8 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("rack"))
+        .iteration_config((&carbide_config.rack_state_controller.controller).into())
         .state_handler(Arc::new(RackStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build RackStateController");
@@ -1524,6 +1610,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("switch"))
         .iteration_config((&carbide_config.switch_state_controller.controller).into())
         .state_handler(Arc::new(SwitchStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
