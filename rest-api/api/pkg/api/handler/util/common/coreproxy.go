@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"time"
 
 	"github.com/google/uuid"
 	temporalEnums "go.temporal.io/api/enums/v1"
@@ -21,6 +22,8 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
+
+const coreProxyWorkflowExecutionTimeout = 45 * time.Second
 
 // ExecuteCoreGRPC proxies one already-validated NICo Core (forge.Forge) gRPC
 // request via the generic site proxy workflow (coreproxy.WorkflowName). A REST
@@ -57,7 +60,7 @@ func ExecuteCoreGRPC(ctx context.Context, stc tclient.Client, fullMethod string,
 	workflowID := fmt.Sprintf("core-grpc-%s-%s", path.Base(fullMethod), uuid.NewString())
 	workflowOptions := tclient.StartWorkflowOptions{
 		ID:                       workflowID,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		WorkflowExecutionTimeout: coreProxyWorkflowExecutionTimeout,
 		TaskQueue:                queue.SiteTaskQueue,
 		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}
