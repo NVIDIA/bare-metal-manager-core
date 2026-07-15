@@ -231,6 +231,19 @@ Clear the UEFI password (supply the current one):
     ClearNvram,
     /// Set BIOS options
     SetBios(SetBios),
+    /// Reset BIOS settings to factory defaults
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Reset BIOS settings to factory defaults:
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword reset-bios
+
+Reset BIOS settings and restart the system to apply the change:
+    $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
+    reset-bios --reboot
+
+")]
+    ResetBios(ResetBiosArgs),
     /// Get DPU mode
     GetNicMode,
     /// Is infinite boot enable
@@ -522,6 +535,12 @@ Check what machine-setup steps remain:
 pub struct MachineSetupStatusArgs {
     #[clap(long, help = "boot_interface_mac")]
     pub boot_interface_mac: Option<String>,
+}
+
+#[derive(Parser, Debug, PartialEq, Clone)]
+pub struct ResetBiosArgs {
+    #[clap(short, long, help = "Restart the system to apply the BIOS reset")]
+    pub reboot: bool,
 }
 
 #[derive(Parser, Debug, PartialEq, Clone)]
