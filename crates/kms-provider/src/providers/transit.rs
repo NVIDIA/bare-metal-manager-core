@@ -26,6 +26,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use carbide_instrument::red;
 use vaultrs::api::transit::requests::DataKeyType;
 use vaultrs::client::VaultClient;
 use vaultrs::transit;
@@ -136,12 +137,16 @@ impl KmsBackend for TransitKmsProvider {
         // The base64 string is another copy of the DEK; zeroize it like the
         // decoded buffers.
         let plaintext_b64 = Zeroizing::new(BASE64.encode(dek));
-        let response = transit::data::encrypt(
-            self.client.as_ref(),
-            &self.transit_mount,
-            kek_id,
-            &plaintext_b64,
-            None,
+        let response = red::instrumented(
+            "vault_transit",
+            "encrypt_dek",
+            transit::data::encrypt(
+                self.client.as_ref(),
+                &self.transit_mount,
+                kek_id,
+                &plaintext_b64,
+                None,
+            ),
         )
         .await
         .map_err(|e| KmsError::EncryptionFailed(format!("vault transit encrypt: {e}")))?;
@@ -163,12 +168,16 @@ impl KmsBackend for TransitKmsProvider {
         let ciphertext_str = std::str::from_utf8(&encrypted.ciphertext)
             .map_err(|_| KmsError::DecryptionFailed("invalid ciphertext encoding".to_string()))?;
 
-        let response = transit::data::decrypt(
-            self.client.as_ref(),
-            &self.transit_mount,
-            kek_id,
-            ciphertext_str,
-            None,
+        let response = red::instrumented(
+            "vault_transit",
+            "decrypt_dek",
+            transit::data::decrypt(
+                self.client.as_ref(),
+                &self.transit_mount,
+                kek_id,
+                ciphertext_str,
+                None,
+            ),
         )
         .await
         .map_err(|e| KmsError::DecryptionFailed(format!("vault transit decrypt: {e}")))?;
@@ -200,12 +209,16 @@ impl KmsBackend for TransitKmsProvider {
         &self,
         kek_id: &str,
     ) -> Result<(Zeroizing<[u8; 32]>, EncryptedDek), KmsError> {
-        let response = transit::generate::data_key(
-            self.client.as_ref(),
-            &self.transit_mount,
-            kek_id,
-            DataKeyType::Plaintext,
-            None,
+        let response = red::instrumented(
+            "vault_transit",
+            "generate_data_key",
+            transit::generate::data_key(
+                self.client.as_ref(),
+                &self.transit_mount,
+                kek_id,
+                DataKeyType::Plaintext,
+                None,
+            ),
         )
         .await
         .map_err(|e| KmsError::EncryptionFailed(format!("vault transit generate data key: {e}")))?;

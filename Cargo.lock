@@ -2244,6 +2244,7 @@ dependencies = [
  "aes-gcm 0.10.3",
  "async-trait",
  "base64",
+ "carbide-instrument",
  "carbide-test-support",
  "hex",
  "rand 0.10.1",
