@@ -150,6 +150,42 @@ impl ApiClientWrapper {
 
         Ok(())
     }
+    /// Fetch SKU manifests by id — the expected-hardware source of truth used
+    /// to validate out-of-band GPU count against the assigned SKU.
+    pub async fn find_skus_by_ids(
+        &self,
+        ids: Vec<String>,
+    ) -> Result<Vec<rpc::forge::Sku>, HealthError> {
+        let request = rpc::forge::SkusByIdsRequest { ids };
+
+        let response = self
+            .client
+            .find_skus_by_ids(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(response.skus)
+    }
+
+    /// Fetch a machine's currently-assigned SKU id, re-read live each call so SKU
+    /// assignments/changes after a collector starts are picked up (no caching).
+    pub async fn machine_hw_sku(
+        &self,
+        machine_id: carbide_uuid::machine::MachineId,
+    ) -> Result<Option<String>, HealthError> {
+        let request = rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![machine_id],
+            ..Default::default()
+        };
+
+        let response = self
+            .client
+            .find_machines_by_ids(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(response.machines.into_iter().next().and_then(|m| m.hw_sku))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
