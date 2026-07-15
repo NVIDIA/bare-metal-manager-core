@@ -62,17 +62,22 @@ impl ObjectKey {
     }
 }
 
+/// One object's series on one gauge: `(value, labels)` pairs, shared via
+/// `Arc` so scrape snapshots are pointer clones.
+type SharedSeries = Arc<Vec<(f64, Vec<KeyValue>)>>;
+
+/// Lazily built Prometheus encoding of a [`SharedSeries`], filled outside the
+/// gauge lock on first collection (the series are immutable after insert) so
+/// scrapes clone instead of re-encode.
+type EncodedSeries = Arc<OnceLock<Vec<proto::Metric>>>;
+
 /// The series one object currently exposes on one gauge. The series set is
 /// shared via `Arc` so scrape callbacks can snapshot it and observe outside
 /// the gauge lock.
 #[derive(Debug)]
 struct SeriesEntry {
-    /// `(value, labels)` per series.
-    series: Arc<Vec<(f64, Vec<KeyValue>)>>,
-    /// Prometheus encoding of `series`, built once outside the gauge lock on
-    /// first collection (the series are immutable after insert) so scrapes
-    /// clone instead of re-encode.
-    prometheus_metrics: Arc<OnceLock<Vec<proto::Metric>>>,
+    series: SharedSeries,
+    prometheus_metrics: EncodedSeries,
     updated_at: Instant,
 }
 
@@ -214,19 +219,19 @@ impl PerObjectGauge {
             .u64_observable_gauge(name)
             .with_description(description)
             .with_callback(move |observer| {
-                // Snapshot under the lock (cheap Arc clones), observe outside
-                // it, so a large scrape doesn't stall writers.
-                let mut snapshots = Vec::new();
-                state.for_each_live(|_, entry| snapshots.push(entry.series.clone()));
-                for (value, labels) in snapshots.iter().flat_map(|series| series.iter()) {
-                    observer.observe(*value as u64, labels);
+                // Snapshot under the lock (one exact-size Vec of Arc clones),
+                // observe outside it, so a large scrape doesn't stall writers.
+                for (series, _) in state.snapshot_live() {
+                    for (value, labels) in series.iter() {
+                        observer.observe(*value as u64, labels);
+                    }
                 }
             })
             .build();
     }
 
-    /// Locks the gauge, evicts stale entries, and visits the survivors.
-    fn for_each_live(&self, mut visit: impl FnMut(&ObjectKey, &SeriesEntry)) {
+    /// Locks the gauge and evicts stale entries, returning the guard.
+    fn lock_and_evict(&self) -> std::sync::MutexGuard<'_, HashMap<ObjectKey, SeriesEntry>> {
         let now = Instant::now();
         let mut entries = self
             .0
@@ -236,7 +241,25 @@ impl PerObjectGauge {
         entries.retain(|_, entry| {
             now.saturating_duration_since(entry.updated_at) <= self.0.hold_period
         });
-        for (key, entry) in entries.iter() {
+        entries
+    }
+
+    /// Evicts stale entries and snapshots the survivors' series (plus their
+    /// encoding cells) as one exact-size collection of `Arc` clones, so the
+    /// lock is released before any encoding or observation happens.
+    fn snapshot_live(&self) -> Vec<(SharedSeries, EncodedSeries)> {
+        self.lock_and_evict()
+            .values()
+            .map(|entry| (entry.series.clone(), entry.prometheus_metrics.clone()))
+            .collect()
+    }
+
+    /// Locks the gauge, evicts stale entries, and visits the survivors.
+    /// Test-only introspection; production readers go through
+    /// [`Self::snapshot_live`] so no per-entry work runs under the lock.
+    #[cfg(test)]
+    fn for_each_live(&self, mut visit: impl FnMut(&ObjectKey, &SeriesEntry)) {
+        for (key, entry) in self.lock_and_evict().iter() {
             visit(key, entry);
         }
     }
@@ -274,15 +297,13 @@ impl Collector for GaugeCollector {
     }
 
     fn collect(&self) -> Vec<proto::MetricFamily> {
-        // Snapshot under the gauge lock (cheap Arc clones), then encode
-        // outside it so a large scrape doesn't stall writers. The encoding is
-        // cached per entry, and unchanged re-records keep the entry, so
-        // steady-state scrapes only clone.
-        let mut snapshots = Vec::new();
-        self.gauge.for_each_live(|_, entry| {
-            snapshots.push((entry.series.clone(), entry.prometheus_metrics.clone()));
-        });
-        let metrics: Vec<proto::Metric> = snapshots
+        // Snapshot under the gauge lock (one exact-size Vec of Arc clones),
+        // then encode outside it so a large scrape doesn't stall writers. The
+        // encoding is cached per entry, and unchanged re-records keep the
+        // entry, so steady-state scrapes only clone.
+        let metrics: Vec<proto::Metric> = self
+            .gauge
+            .snapshot_live()
             .iter()
             .flat_map(|(series, encoded)| {
                 encoded

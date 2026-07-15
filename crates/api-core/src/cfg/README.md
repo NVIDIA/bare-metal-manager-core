@@ -336,7 +336,7 @@ TOML section: `[observability]`.
 | `per_object_metrics_for_classifications` | `Vec<HealthAlertClassification>` | `[]` | Health alert classifications for which the per-object metric `carbide_object_unhealthy_by_classification_count` is emitted, labeled with `object_type` (e.g. `machine`, `switch`, `rack`, `power_shelf`) and `object_id`. Each entry adds up to one extra time series per matching object, so it defaults to empty (disabled) to keep metric cardinality bounded. When empty, the metric is not registered or exposed at all; aggregate health metrics are unaffected regardless. |
 | `per_object_state_metrics` | `PerObjectStateMetricsConfig` | disabled | High-cardinality per-object state, SLA, manual-intervention, trait, and association metrics served from a dedicated listener. |
 
-#### `PerObjectStateMetricsConfig`
+### `PerObjectStateMetricsConfig`
 
 TOML section: `[observability.per_object_state_metrics]`.
 
