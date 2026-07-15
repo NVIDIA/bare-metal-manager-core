@@ -18,8 +18,10 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
-use rpc::DiscoveryInfo;
+use rpc::machine_discovery::{CpuInfo, Gpu, GpuPlatformInfo, MemoryDevice, TpmDescription};
+use rpc::{BlockDevice, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice, PciDeviceProperties};
 use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
@@ -29,6 +31,7 @@ pub struct LenovoGB300Nvl<'a> {
     pub system_0_serial_number: Cow<'a, str>,
     pub chassis_0_serial_number: Cow<'a, str>,
     pub dpu: hw::bluefield3::Bluefield3<'a>,
+    pub cx8_mac_addresses: [MacAddress; 10],
     pub embedded_1g_nic: hw::nic_intel_i210::NicIntelI210,
     pub bmc_mac_address_eth0: MacAddress,
     pub bmc_mac_address_eth1: MacAddress,
@@ -280,10 +283,196 @@ impl LenovoGB300Nvl<'_> {
     }
 
     pub fn discovery_info(&self) -> DiscoveryInfo {
+        let storage = [
+            ("SAMSUNG MZTL63T8HFLT-00AW7", "LDDL4U2Q", "LENOVOGB300NVME0"),
+            ("SAMSUNG MZTL63T8HFLT-00AW7", "LDDL4U2Q", "LENOVOGB300NVME1"),
+            ("SAMSUNG MZTL63T8HFLT-00AW7", "LDDL4U2Q", "LENOVOGB300NVME2"),
+            ("SAMSUNG MZTL63T8HFLT-00AW7", "LDDL4U2Q", "LENOVOGB300NVME3"),
+            ("SAMSUNG MZ1L21T9HCLS-00A07", "GDC7802Q", "LENOVOGB300NVME4"),
+        ];
+
         DiscoveryInfo {
-            network_interfaces: vec![self.dpu.host_nic().discovery_info(0x0603)],
+            network_interfaces: self.discovery_network_interfaces(),
+            infiniband_interfaces: vec![],
+            cpu_info: vec![CpuInfo {
+                model: "Neoverse-V2".into(),
+                vendor: "ARM".into(),
+                sockets: 2,
+                cores: 72,
+                threads: 72,
+            }],
+            block_devices: storage
+                .iter()
+                .map(|(model, revision, serial)| BlockDevice {
+                    model: (*model).into(),
+                    revision: (*revision).into(),
+                    serial: (*serial).into(),
+                    device_type: "disk".into(),
+                })
+                .collect(),
+            machine_type: CpuArchitecture::Aarch64.to_string(),
+            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(
+                CpuArchitecture::Aarch64,
+            )),
+            nvme_devices: storage
+                .iter()
+                .map(|(model, firmware_rev, serial)| NvmeDevice {
+                    model: (*model).into(),
+                    firmware_rev: (*firmware_rev).into(),
+                    serial: (*serial).into(),
+                })
+                .collect(),
+            dmi_data: Some(DmiData {
+                board_name: "PG548".into(),
+                board_version: "699-2G548-0301-B00".into(),
+                bios_version: "GBHC01A_01.05.0".into(),
+                product_serial: self.system_0_serial_number.to_string(),
+                board_serial: self.gpu[0].serial_number.to_string(),
+                chassis_serial: self.chassis_0_serial_number.to_string(),
+                bios_date: "03/05/2026".into(),
+                product_name: "HG635N_V2".into(),
+                sys_vendor: "Lenovo".into(),
+            }),
+            dpu_info: None,
+            gpus: self
+                .gpu
+                .iter()
+                .enumerate()
+                .map(|(index, gpu)| Gpu {
+                    name: "NVIDIA GB300".into(),
+                    serial: gpu.serial_number.to_string(),
+                    driver_version: "580.126.16".into(),
+                    vbios_version: "97.10.4A.00.1A".into(),
+                    inforom_version: "G548.0301.00.03".into(),
+                    total_memory: "284208 MiB".into(),
+                    frequency: "2070 MHz".into(),
+                    pci_bus_id: [
+                        "00000008:06:00.0",
+                        "00000009:06:00.0",
+                        "00000018:06:00.0",
+                        "00000019:06:00.0",
+                    ][index]
+                        .into(),
+                    platform_info: Some(GpuPlatformInfo {
+                        chassis_serial: self.chassis_0_serial_number.to_string(),
+                        slot_number: 4,
+                        tray_index: 3,
+                        host_id: 1,
+                        module_id: [2, 1, 4, 3][index],
+                        fabric_guid: format!("0xfeeeeeeeeeeeee{index:02x}"),
+                    }),
+                })
+                .collect(),
+            memory_devices: (0..2)
+                .map(|_| MemoryDevice {
+                    size_mb: Some(491520),
+                    mem_type: Some("LPDDR5".into()),
+                })
+                .collect(),
+            tpm_ek_certificate: None,
+            tpm_description: Some(TpmDescription {
+                vendor: "Could not convert spec_version672".into(),
+                firmware_version: "0xf0018.0x4a0a00".into(),
+                tpm_spec: "2.0".into(),
+            }),
             ..Default::default()
         }
+    }
+
+    fn discovery_network_interfaces(&self) -> Vec<NetworkInterface> {
+        let cx8_interfaces = [
+            (0x0000, 0, 0),
+            (0x0000, 1, 0),
+            (0x0000, 2, 0),
+            (0x0000, 3, 0),
+            (0x0002, 0, 0),
+            (0x0002, 1, 0),
+            (0x0010, 0, 1),
+            (0x0010, 1, 1),
+            (0x0012, 0, 1),
+            (0x0012, 1, 1),
+        ];
+
+        self.cx8_mac_addresses[..6]
+            .iter()
+            .zip(&cx8_interfaces[..6])
+            .map(|(mac, (domain, function, numa_node))| {
+                cx8_network_interface(*mac, *domain, *function, *numa_node)
+            })
+            .chain(std::iter::once(network_interface(
+                self.embedded_1g_nic.mac_address,
+                "Intel Corporation",
+                "I210 Gigabit Network Connection",
+                "/devices/pci0005:00/0005:00:00.0/0005:01:00.0/0005:02:06.0/0005:09:00.0/net/enP5p9s0",
+                "0005:09:00.0",
+                0,
+            )))
+            .chain(
+                self.cx8_mac_addresses[6..]
+                    .iter()
+                    .zip(&cx8_interfaces[6..])
+                    .map(|(mac, (domain, function, numa_node))| {
+                        cx8_network_interface(*mac, *domain, *function, *numa_node)
+                    }),
+            )
+            .chain(std::iter::once(self.dpu.host_nic_discovery_info(
+                "/devices/pci0016:00/0016:00:00.0/0016:01:00.0/net/enP22s22np0",
+                "0016:01:00.0",
+                1,
+            )))
+            .collect()
+    }
+}
+
+fn cx8_network_interface(
+    mac_address: MacAddress,
+    domain: u16,
+    function: u8,
+    numa_node: i32,
+) -> NetworkInterface {
+    let device_name = if domain == 0 {
+        format!("enp3s0f{function}np{function}")
+    } else {
+        format!("enP{domain}p3s0f{function}np{function}")
+    };
+    let path = format!(
+        "/devices/pci{domain:04x}:00\
+         /{domain:04x}:00:00.0\
+         /{domain:04x}:01:00.0\
+         /{domain:04x}:02:00.0\
+         /{domain:04x}:03:00.{function}\
+         /net/{device_name}"
+    );
+    let slot = format!("{domain:04x}:03:00.{function}");
+
+    network_interface(
+        mac_address,
+        "Mellanox Technologies",
+        "CX8 Family [ConnectX-8]",
+        &path,
+        &slot,
+        numa_node,
+    )
+}
+
+fn network_interface(
+    mac_address: MacAddress,
+    vendor: &str,
+    device: &str,
+    path: &str,
+    slot: &str,
+    numa_node: i32,
+) -> NetworkInterface {
+    NetworkInterface {
+        mac_address: mac_address.to_string(),
+        pci_properties: Some(PciDeviceProperties {
+            vendor: vendor.into(),
+            device: device.into(),
+            path: path.into(),
+            numa_node,
+            description: Some(device.into()),
+            slot: Some(slot.into()),
+        }),
     }
 }
 
