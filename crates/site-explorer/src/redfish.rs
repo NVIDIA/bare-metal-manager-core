@@ -337,7 +337,18 @@ impl RedfishClient {
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let service_root = self
             .nv_redfish_client_pool
-            .service_root(bmc_ip_address, credentials)
+            .service_root_with_cache_predicate(bmc_ip_address, credentials, |root| {
+                let complete = root.root.chassis.is_some() && root.root.managers.is_some();
+                if !complete {
+                    tracing::warn!(
+                        %bmc_ip_address,
+                        chassis = root.root.chassis.is_some(),
+                        managers = root.root.managers.is_some(),
+                        "BMC served a service root without required navigation not caching it"
+                    );
+                }
+                complete
+            })
             .await
             .map_err(|err| EndpointExplorationError::Other {
                 details: format!("Cannot Redfish service root: {err}"),

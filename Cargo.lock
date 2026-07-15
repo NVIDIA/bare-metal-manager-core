@@ -2748,6 +2748,9 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "axum",
+ "axum-server",
+ "bmc-mock",
  "bmc-vendor",
  "carbide-api-model",
  "carbide-instrument",
@@ -2759,6 +2762,7 @@ dependencies = [
  "mac_address",
  "nv-redfish",
  "reqwest 0.13.4",
+ "rustls",
  "serde",
  "serde_json",
  "state-controller",
