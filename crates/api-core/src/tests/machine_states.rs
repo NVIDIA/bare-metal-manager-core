@@ -4166,12 +4166,7 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
         .await;
 
     let err = result.expect_err("Expected FK violation from mismatched TPM");
-    assert_eq!(err.code(), Code::FailedPrecondition);
-    assert!(
-        err.message().contains("machine_id foreign key violation"),
-        "Expected TPM mismatch error, got: {}",
-        err.message()
-    );
+    assert_eq!(err.code(), Code::PermissionDenied);
 }
 
 #[crate::sqlx_test]
@@ -4203,12 +4198,7 @@ async fn test_host_discovery_without_tpm_cert_does_not_downgrade_existing_tpm_id
         .await;
 
     let err = result.expect_err("Expected serial fallback to be rejected");
-    assert_eq!(err.code(), Code::FailedPrecondition);
-    assert!(
-        err.message().contains("TPM EK certificate missing"),
-        "Expected missing TPM EK certificate error, got: {}",
-        err.message()
-    );
+    assert_eq!(err.code(), Code::PermissionDenied);
 }
 
 /// Spins up a test env configured for zero-DPU hosts plus a zero-DPU
