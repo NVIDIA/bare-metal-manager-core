@@ -1504,6 +1504,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .iteration_config((&carbide_config.rack_state_controller.controller).into())
         .state_handler(Arc::new(RackStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build RackStateController");
