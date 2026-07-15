@@ -271,8 +271,15 @@ pub(crate) async fn persist_validation_result(
             return Err(CarbideError::InvalidArgument("wrong validation ID".to_string()).into());
         }
     };
-    let machine_validation =
-        db::machine_validation::find_by_id(&mut txn, &validation_result.validation_id).await?;
+    // Acquire the parent-run lock before record_result() touches run-item rows.
+    // Heartbeats and stale-attempt reconciliation use the same parent-run ->
+    // run-item order. Successful results also serialize with the trigger that
+    // increments the parent run's completed count.
+    let machine_validation = db::machine_validation::lock_by_id_no_key_update(
+        &mut txn,
+        &validation_result.validation_id,
+    )
+    .await?;
     if !db::machine_validation::is_active(&machine_validation) {
         tracing::info!(
             machine_validation_id = %validation_result.validation_id,
@@ -309,8 +316,11 @@ pub(crate) async fn persist_validation_result(
 
     // Keep the durable run-item/attempt write ahead of the legacy projections.
     // A false return means this report is a replay of an already-terminal attempt.
-    let first_terminal_report =
-        db::machine_validation_execution::record_result(&mut txn, &validation_result).await?;
+    let first_terminal_report = db::machine_validation_execution::record_result_with_parent_lock(
+        &mut txn,
+        &validation_result,
+    )
+    .await?;
     if !first_terminal_report {
         tracing::info!(
             machine_validation_id = %validation_result.validation_id,
