@@ -273,6 +273,10 @@ check before requesting review.
     link the others to it.
   - New or moved public pages must be present in `docs/index.yml`, and changed
     public paths need redirects in `fern/docs.yml`.
+  - Using the CLI version pinned in `fern/fern.config.json`, run
+    `fern docs md check` and `fern check` from the repository root. Neither
+    command needs a Fern token, but without one, `fern check` skips the
+    published-state `missing-redirects` check.
   - `docs/release-notes.md` owns current unified releases;
     do not modify `rest-api/CHANGELOG.md`, as it is legacy history whose
     published entry order must be preserved.
@@ -291,8 +295,12 @@ check before requesting review.
 
   - Run `rumdl check --config docs/.rumdl.toml <changed-markdown-files>` and fail
     on every finding.
-  - For Fern-published pages, run `fern check` and inspect the PR preview; if it
-    is unavailable, use `(cd fern && fern docs dev)`.
+  - For Fern-published pages, inspect the CI-created PR preview. A local
+    `fern docs dev` preview works without a Fern token, but does not apply the
+    global `nvidia` theme without one.
+  - If a hosted preview must be created manually, run
+    `fern generate --docs --preview --id <stable-id>`, then delete it after
+    review with `fern docs preview delete --id <stable-id>`.
   - Inspect generated `nico-admin-cli` pages in GitHub's renderer and OpenAPI
     output with `make rest-api/preview-openapi`. Check navigation, anchors, wide
     tables, Mermaid layout, and component rendering in the actual target; lint
