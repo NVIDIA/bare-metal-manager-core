@@ -94,7 +94,7 @@ nico-api:
       enabled = true
       create_machines = true
       allow_changing_bmc_proxy = true
-      bmc_proxy = "machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
+      bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
       run_interval = "10s"
       machines_created_per_run = 1000
       explorations_per_run = 1000
@@ -116,7 +116,7 @@ nico-bmc-proxy:
       metrics_endpoint = "[::]:1080"
       database_url = "postgres://replaced-by-env-var"
       allowed_principals = ["trusted-certificate"]
-      bmc_proxy = "machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
+      bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
 
       [tls]
       identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
@@ -148,8 +148,6 @@ nico-machine-a-tron:
   # No need to copy secrets or configure cross-namespace access
   machineATron:
     nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
-    # Auto-configure site-explorer to use this BMC mock endpoint
-    configureBmcProxyHost: "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local"
   # SPIFFE URI must match nico-api's allowed service_base_paths
   certificate:
     uris:
