@@ -1937,30 +1937,34 @@ pub async fn allocate_svi_ip(
     }
 }
 
-// Support dpu-agent/scout transition from machine_interface_id to source IP.
-// Allow either for now.
-pub async fn find_by_ip_or_id(
+/// Find a single machine_interface by IP, while locking the machine_interfaces and
+/// machine_interface_addresses rows via FOR UPDATE.
+pub async fn find_for_update_by_ip(
     txn: &mut PgConnection,
-    remote_ip: Option<IpAddr>,
-    interface_id: Option<MachineInterfaceId>,
+    remote_ip: IpAddr,
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
-    if let Some(remote_ip) = remote_ip
-        && let Some(interface) = find_by_ip(&mut *txn, remote_ip).await?
-    {
-        // remove debug message by Apr 2024
-        tracing::debug!(
-            machine_interface_id = %interface.id,
-            remote_ip_address = %remote_ip,
-            "Loaded interface by remote IP"
-        );
-        return Ok(interface);
-    }
-    match interface_id {
-        Some(interface_id) => find_one(txn, interface_id).await,
-        None => Err(DatabaseError::NotFoundError {
-            kind: "machine_interface",
-            id: format!("remote_ip={remote_ip:?},interface_id={interface_id:?}"),
+    let query = r#"
+        SELECT mi.id
+        FROM machine_interface_addresses mia
+        JOIN machine_interfaces mi ON mi.id = mia.interface_id
+        WHERE mia.address = $1::inet
+        FOR UPDATE OF mia, mi
+    "#;
+    let interface_ids: Vec<(MachineInterfaceId,)> = sqlx::query_as(query)
+        .bind(remote_ip)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    match interface_ids.as_slice() {
+        [] => Err(DatabaseError::NotFoundError {
+            kind: "machine_interface for discovery IP",
+            id: remote_ip.to_string(),
         }),
+        [(interface_id,)] => find_one(txn, *interface_id).await,
+        _ => Err(DatabaseError::internal(format!(
+            "multiple machine interfaces map to discovery IP {remote_ip}"
+        ))),
     }
 }
 

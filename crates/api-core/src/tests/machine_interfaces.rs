@@ -665,7 +665,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 }
 
 #[crate::sqlx_test]
-async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_find_for_update_by_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
@@ -685,16 +685,8 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     .await
     .unwrap();
 
-    // By remote IP
-    let remote_ip = Some(interface.addresses[0]);
-    let interface_id = None;
-    let iface = db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
-    assert_eq!(iface.id, interface.id);
-
-    // By interface ID
-    let remote_ip = None;
-    let interface_id = Some(iface.id);
-    let iface = db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    let iface =
+        db::machine_interface::find_for_update_by_ip(&mut txn, interface.addresses[0]).await?;
     assert_eq!(iface.id, interface.id);
 
     Ok(())

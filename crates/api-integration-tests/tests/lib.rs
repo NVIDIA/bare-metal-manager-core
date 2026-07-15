@@ -25,6 +25,7 @@ use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{
     BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig, RackConfig,
 };
+use api_test_helper::utils::TestApiServerArgs;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,
@@ -85,25 +86,31 @@ async fn test_integration() -> eyre::Result<()> {
     let (server_handle_1, server_handle_2) = (
         utils::start_api_server(
             test_env.clone(),
-            Some(HostPortPair::HostAndPort(
-                "127.0.0.1".to_string(),
-                bmc_mock_handle.address.port(),
-            )),
-            empty_firmware_dir.path().to_owned(),
-            0,
-            true,
+            TestApiServerArgs {
+                bmc_proxy: Some(HostPortPair::HostAndPort(
+                    "127.0.0.1".to_string(),
+                    bmc_mock_handle.address.port(),
+                )),
+                firmware_directory: empty_firmware_dir.path().to_owned(),
+                addr_index: 0,
+                put_dev_bin_in_path: true,
+                insecure_discovery: true,
+            },
             cancel_token.clone(),
         )
         .await?,
         utils::start_api_server(
             test_env.clone(),
-            Some(HostPortPair::HostAndPort(
-                "127.0.0.1".to_string(),
-                bmc_mock_handle.address.port(),
-            )),
-            empty_firmware_dir.path().to_owned(),
-            1,
-            true,
+            TestApiServerArgs {
+                bmc_proxy: Some(HostPortPair::HostAndPort(
+                    "127.0.0.1".to_string(),
+                    bmc_mock_handle.address.port(),
+                )),
+                firmware_directory: empty_firmware_dir.path().to_owned(),
+                addr_index: 1,
+                put_dev_bin_in_path: true,
+                insecure_discovery: true,
+            },
             cancel_token.clone(),
         )
         .await?,
@@ -301,13 +308,16 @@ async fn test_machine_a_tron_rack_integration() -> eyre::Result<()> {
     let cancel_token = CancellationToken::new();
     let server_handle = utils::start_api_server(
         test_env.clone(),
-        Some(HostPortPair::HostAndPort(
-            "127.0.0.1".to_string(),
-            bmc_mock_handle.address.port(),
-        )),
-        empty_firmware_dir.path().to_owned(),
-        0,
-        true,
+        TestApiServerArgs {
+            bmc_proxy: Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            firmware_directory: empty_firmware_dir.path().to_owned(),
+            addr_index: 0,
+            put_dev_bin_in_path: true,
+            insecure_discovery: true,
+        },
         cancel_token.clone(),
     )
     .await?;
@@ -493,13 +503,16 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     let cancel_token = CancellationToken::new();
     let server_handle = utils::start_api_server(
         test_env.clone(),
-        Some(HostPortPair::HostAndPort(
-            "127.0.0.1".to_string(),
-            bmc_mock_handle.address.port(),
-        )),
-        empty_firmware_dir.path().to_owned(),
-        0,
-        true,
+        TestApiServerArgs {
+            bmc_proxy: Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            firmware_directory: empty_firmware_dir.path().to_owned(),
+            addr_index: 0,
+            put_dev_bin_in_path: true,
+            insecure_discovery: true,
+        },
         cancel_token.clone(),
     )
     .await?;

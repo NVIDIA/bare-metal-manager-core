@@ -37,6 +37,7 @@ pub struct StartArgs {
     pub cancel_token: CancellationToken,
     pub ready_channel: Sender<()>,
     pub credential_config: CredentialConfig,
+    pub insecure_discovery: bool,
 }
 
 pub async fn start(
@@ -51,6 +52,7 @@ pub async fn start(
         cancel_token,
         ready_channel,
         credential_config,
+        insecure_discovery,
     }: StartArgs,
 ) -> eyre::Result<()> {
     let firmware_directory_str = firmware_directory.to_string_lossy();
@@ -91,6 +93,7 @@ pub async fn start(
         max_find_by_ids = 100
         internet_l3_vni = 1337
         bypass_rbac = true
+        allow_insecure_discovery = {insecure_discovery}
 
         [ib_config]
         max_partition_per_tenant = 31

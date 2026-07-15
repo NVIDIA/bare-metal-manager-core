@@ -14,6 +14,11 @@ nico-api:
       dpu_ipmi_tool_impl = "test"
       initial_domain_name = "local.nico"
       initial_dpu_agent_upgrade_policy = "off"
+      # devspace's deployment uses machine-a-tron in single-IP mode, which
+      # requires insecure discovery (where the server trusts a caller-provided
+      # machine interface ID rather than inspecting the connection's source
+      # IP.)
+      allow_insecure_discovery = true
 
       # DB transactions in nico should be quick, pool size should ≈ the
       # number of cores. Default postgres configuration is a 100 connection

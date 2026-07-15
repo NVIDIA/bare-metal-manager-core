@@ -281,6 +281,13 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub allow_bmc_basic_auth_fallback: bool,
 
+    /// Allows machine discovery to trust the caller-supplied interface ID
+    /// instead of selecting an interface from the request's remote IP.
+    /// This is intended only for test environments using machine-a-tron
+    /// in single-IP mode.
+    #[serde(default)]
+    pub allow_insecure_discovery: bool,
+
     /// Infiniband fabrics managed by the site
     /// Note: At the moment, only a single fabric is supported
     #[serde(default)]
@@ -3016,6 +3023,7 @@ mod tests {
     use carbide_authn::config::CertComponent;
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
+    use carbide_test_support::{Check, check_values};
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
@@ -3331,6 +3339,7 @@ mod tests {
             std::time::Duration::from_secs(30 * 60)
         );
         assert!(config.dhcp_servers.is_empty());
+        assert!(!config.allow_insecure_discovery);
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
@@ -3384,6 +3393,37 @@ mod tests {
         // And make sure lack of [mlx-config-profiles] doesn't blow up
         // for sites not configured with any.
         assert!(config.mlxconfig_profiles.is_none());
+    }
+
+    #[test]
+    fn insecure_discovery_configuration_is_opt_in() {
+        check_values(
+            [
+                Check {
+                    scenario: "omitted",
+                    input: "",
+                    expect: false,
+                },
+                Check {
+                    scenario: "explicitly disabled",
+                    input: "allow_insecure_discovery = false",
+                    expect: false,
+                },
+                Check {
+                    scenario: "explicitly enabled",
+                    input: "allow_insecure_discovery = true",
+                    expect: true,
+                },
+            ],
+            |patch| {
+                let config: CarbideConfig = Figment::new()
+                    .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                    .merge(Toml::string(patch))
+                    .extract()
+                    .unwrap();
+                config.allow_insecure_discovery
+            },
+        );
     }
 
     #[test]
