@@ -17,11 +17,15 @@
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{Request, State};
-use axum::response::{Html, Response};
+use axum::extract::{Path, Request, State};
+use axum::http::StatusCode;
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
+use bmc_mock::injection::{Rule, RuleId};
+use carbide_uuid::machine::MachineId;
 use tower::Service;
+use uuid::Uuid;
 
 use crate::host_machine::HostMachineHandle;
 use crate::status::{MachineStatusConfig, MachinesStatusResponse};
@@ -30,6 +34,14 @@ pub fn append(router: Router, control_state: ControlState) -> Router {
     Router::new()
         .route("/", get(get_machines_ui))
         .route("/machines/status", get(get_machines_status))
+        .route(
+            "/machines/{id}/bmc/injection/rules",
+            get(list_bmc_injection_rules).post(upsert_bmc_injection_rule),
+        )
+        .route(
+            "/machines/{id}/bmc/injection/rules/{rule_id}",
+            axum::routing::delete(delete_bmc_injection_rule),
+        )
         .route("/{*all}", any(process))
         .with_state(ControlRouter {
             inner: router,
@@ -63,6 +75,20 @@ impl ControlState {
                 .collect(),
         }
     }
+
+    fn machine(&self, id: &str) -> Option<HostMachineHandle> {
+        let mat_id = Uuid::parse_str(id).ok();
+        let machine_id = id.parse::<MachineId>().ok();
+        self.machine_handles
+            .iter()
+            .find(|machine| {
+                mat_id.is_some_and(|id| machine.mat_id() == id)
+                    || machine_id
+                        .as_ref()
+                        .is_some_and(|id| machine.observed_machine_id().as_ref() == Some(id))
+            })
+            .cloned()
+    }
 }
 
 #[derive(Clone)]
@@ -77,6 +103,50 @@ async fn get_machines_status(State(state): State<ControlRouter>) -> Json<Machine
 
 async fn get_machines_ui() -> Html<&'static str> {
     Html(include_str!("../web/index.html"))
+}
+
+async fn list_bmc_injection_rules(
+    State(state): State<ControlRouter>,
+    Path(id): Path<String>,
+) -> Response {
+    let Some(machine) = state.control_state.machine(&id) else {
+        return machine_not_found();
+    };
+    Json(machine.list_bmc_injection_rules()).into_response()
+}
+
+async fn upsert_bmc_injection_rule(
+    State(state): State<ControlRouter>,
+    Path(id): Path<String>,
+    Json(rule): Json<Rule>,
+) -> Response {
+    let Some(machine) = state.control_state.machine(&id) else {
+        return machine_not_found();
+    };
+    Json(machine.upsert_bmc_injection_rule(rule)).into_response()
+}
+
+async fn delete_bmc_injection_rule(
+    State(state): State<ControlRouter>,
+    Path((id, rule_id)): Path<(String, String)>,
+) -> Response {
+    let Some(machine) = state.control_state.machine(&id) else {
+        return machine_not_found();
+    };
+    let rule_id = RuleId::from(rule_id);
+    if machine.delete_bmc_injection_rule(&rule_id) {
+        Json(machine.list_bmc_injection_rules()).into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            format!("BMC injection rule not found: {rule_id}"),
+        )
+            .into_response()
+    }
+}
+
+fn machine_not_found() -> Response {
+    (StatusCode::NOT_FOUND, "machine not found").into_response()
 }
 
 async fn process(State(mut state): State<ControlRouter>, request: Request<Body>) -> Response {
@@ -99,7 +169,7 @@ async fn call_inner_router(router: &mut Router, request: Request<Body>) -> Respo
 mod tests {
     use axum::Router;
     use axum::body::{Body, to_bytes};
-    use axum::http::{Request, StatusCode};
+    use axum::http::{Method, Request, StatusCode};
     use axum::routing::get;
     use tower::ServiceExt;
 
@@ -143,6 +213,59 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("machine-a-tron machines"));
+    }
+
+    #[tokio::test]
+    async fn bmc_injection_rules_require_known_machine() {
+        let router = append(
+            Router::new(),
+            ControlState::new(Vec::new(), MachineStatusConfig::new(1266)),
+        );
+
+        let get_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/machines/unknown/bmc/injection/rules")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
+
+        let body = to_bytes(get_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"machine not found");
+
+        let post_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/machines/unknown/bmc/injection/rules")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"id":"test","selector":{"Path":{"method":"GET","glob":"/**"}},"action":{"Status":503}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(post_response.status(), StatusCode::NOT_FOUND);
+
+        let delete_response = router
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/machines/unknown/bmc/injection/rules/test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete_response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

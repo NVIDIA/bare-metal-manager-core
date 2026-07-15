@@ -19,6 +19,7 @@ use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use bmc_mock::injection::{InjectionStore, Rule, RuleId};
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
@@ -239,6 +240,7 @@ impl HostMachine {
         let host_info = self.host_info.clone();
         let dpus = self.dpus.clone();
         let machine_config_section = self.machine_config_section.clone();
+        let bmc_injection = self.state_machine.bmc_injection_store();
 
         if !paused {
             self.resume_dpus();
@@ -265,6 +267,7 @@ impl HostMachine {
             host_info,
             dpus,
             machine_config_section,
+            bmc_injection,
 
             join_handle: Mutex::new(Some(join_handle)),
         }))
@@ -535,6 +538,7 @@ struct HostMachineActor {
     host_info: HostMachineInfo,
     dpus: Vec<DpuMachineHandle>,
     machine_config_section: String,
+    bmc_injection: Arc<InjectionStore>,
 }
 
 #[derive(Debug, Clone)]
@@ -561,6 +565,24 @@ impl HostMachineHandle {
             .message_tx
             .send(HostMachineMessage::GetApiState(tx))?;
         Ok(rx.await?)
+    }
+
+    pub(crate) fn list_bmc_injection_rules(&self) -> Vec<Rule> {
+        self.0
+            .bmc_injection
+            .list()
+            .into_iter()
+            .map(|rule| (*rule).clone())
+            .collect()
+    }
+
+    pub(crate) fn upsert_bmc_injection_rule(&self, rule: Rule) -> Vec<Rule> {
+        self.0.bmc_injection.upsert(rule);
+        self.list_bmc_injection_rules()
+    }
+
+    pub(crate) fn delete_bmc_injection_rule(&self, rule_id: &RuleId) -> bool {
+        self.0.bmc_injection.delete(rule_id)
     }
 
     pub async fn wait_until_machine_up_with_api_state(

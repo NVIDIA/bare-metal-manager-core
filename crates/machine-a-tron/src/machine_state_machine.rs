@@ -21,6 +21,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use bmc_mock::injection::InjectionStore;
 use bmc_mock::{
     BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostnameQuerying,
     MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
@@ -74,6 +75,7 @@ pub struct MachineStateMachine {
     fsm: MachineFsm,
     bmc_mock: Option<Arc<BmcMockWrapperHandle>>,
     bmc_state: Option<BmcState>,
+    bmc_injection: Arc<InjectionStore>,
     power_cycle_deadline: Option<Instant>,
     machine_on_deadline: Option<Instant>,
     agent_polling_deadline: Option<(Instant, Timer)>,
@@ -242,6 +244,7 @@ impl MachineStateMachine {
             actions: actions.into_iter().collect(),
             bmc_mock: None,
             bmc_state: None,
+            bmc_injection: Arc::new(InjectionStore::new()),
             power_cycle_deadline: None,
             machine_on_deadline: None,
             agent_polling_deadline: None,
@@ -285,6 +288,7 @@ impl MachineStateMachine {
             bmc_dhcp_info: None,
             bmc_mock: None,
             bmc_state: None,
+            bmc_injection: Arc::new(InjectionStore::new()),
             machine_dhcp_info: None,
             machine_discovery_result: None,
             machine_on_deadline: None,
@@ -1025,6 +1029,10 @@ impl MachineStateMachine {
         self.bmc_dhcp_info.as_ref().map(|v| v.ip_address)
     }
 
+    pub(crate) fn bmc_injection_store(&self) -> Arc<InjectionStore> {
+        self.bmc_injection.clone()
+    }
+
     pub fn booted_os(&self) -> MaybeOsImage {
         MaybeOsImage(self.fsm.booted_os())
     }
@@ -1042,6 +1050,7 @@ impl MachineStateMachine {
             )),
             Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
             self.mat_host_id,
+            self.bmc_injection.clone(),
         );
 
         let pw_override = match &self.machine_info {

@@ -67,6 +67,23 @@ pub fn machine_router(
     mat_host_id: String,
     redfish_auth: bool,
 ) -> (Router, BmcState) {
+    machine_router_with_injection_store(
+        machine_info,
+        callbacks,
+        mat_host_id,
+        redfish_auth,
+        Arc::new(InjectionStore::new()),
+    )
+}
+
+/// Return a machine router backed by a caller-provided injection store.
+pub fn machine_router_with_injection_store(
+    machine_info: &MachineInfo,
+    callbacks: Arc<dyn Callbacks>,
+    mat_host_id: String,
+    redfish_auth: bool,
+    injection: Arc<InjectionStore>,
+) -> (Router, BmcState) {
     let system_config = machine_info.system_config(callbacks.clone());
     let chassis_config = machine_info.chassis_config();
     let update_service_config = machine_info.update_service_config();
@@ -110,7 +127,6 @@ pub fn machine_router(
     );
     let session_service_state =
         Arc::new(crate::redfish::session_service::SessionServiceState::new());
-    let injection = Arc::new(InjectionStore::new());
     let state = BmcState {
         bmc_vendor,
         bmc_product,
