@@ -29,6 +29,7 @@ jobs:
     steps:
       - name: Publish pr-description status
         env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -56,22 +57,11 @@ jobs:
             "Checking the current pull request description"
 
           pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
-          current_head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
-          current_base_sha="$(jq -r '.base.sha' <<<"${pr_json}")"
-
-          # A rerun can use an old event payload after the PR head has changed.
-          # Ensure the status ultimately applies to the current head commit.
-          if [[ "${current_head_sha}" != "${EVENT_HEAD_SHA}" ]]; then
-            post_status \
-              "${current_head_sha}" \
-              pending \
-              "Checking the current pull request description"
-          fi
 
           template="$(
             gh api \
               --header "Accept: application/vnd.github.raw+json" \
-              "repos/${GITHUB_REPOSITORY}/contents/.github/PULL_REQUEST_TEMPLATE.md?ref=${current_base_sha}"
+              "repos/${GITHUB_REPOSITORY}/contents/.github/PULL_REQUEST_TEMPLATE.md?ref=${BASE_SHA}"
           )"
           body="$(jq -r '.body // ""' <<<"${pr_json}")"
 
@@ -105,26 +95,26 @@ jobs:
 
           if [[ "${comparison}" == "empty" ]]; then
             message="Pull request description must not be empty"
-            post_status "${current_head_sha}" failure "${message}"
+            post_status "${EVENT_HEAD_SHA}" failure "${message}"
             echo "::error::${message}"
             exit 1
           fi
 
           if [[ "${comparison}" == "template" ]]; then
             message="Fill in the pull request template before submitting"
-            post_status "${current_head_sha}" failure "${message}"
+            post_status "${EVENT_HEAD_SHA}" failure "${message}"
             echo "::error::${message}"
             exit 1
           fi
 
           if jq -e '(.body // "") | contains("<!--")' <<<"${pr_json}" >/dev/null; then
             message="Remove all <!-- ... --> comments from the pull request description"
-            post_status "${current_head_sha}" failure "${message}"
+            post_status "${EVENT_HEAD_SHA}" failure "${message}"
             echo "::error::${message}"
             exit 1
           fi
 
           post_status \
-            "${current_head_sha}" \
+            "${EVENT_HEAD_SHA}" \
             success \
             "Pull request description is valid"
