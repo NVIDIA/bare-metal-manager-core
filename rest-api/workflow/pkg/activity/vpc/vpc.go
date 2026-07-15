@@ -163,9 +163,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 		var networkVirtualizationType *string
 		// If the VPC in the DB has Network Virtualization Type, but Site reported different one then update it
 		reportedVirtType := cdbm.VpcProtoNetworkVirtualizationType(controllerVpc)
-		if reportedVirtType != nil &&
-			(vpc.NetworkVirtualizationType == nil || (vpc.NetworkVirtualizationType != nil &&
-				*reportedVirtType != *vpc.NetworkVirtualizationType)) {
+		if reportedVirtType != nil && !util.PtrsEqual(vpc.NetworkVirtualizationType, reportedVirtType) {
 			networkVirtualizationType = reportedVirtType
 		}
 
