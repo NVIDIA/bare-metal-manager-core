@@ -123,7 +123,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_object_info</td><td>gauge</td><td>Stable identifying traits for a state-controller object. Exposed only on the opt-in per-object endpoint.</td></tr>
 <tr><td>carbide_object_manual_intervention_required</td><td>gauge</td><td>Indicates that an object currently requires manual operator intervention. Exposed only on the opt-in per-object endpoint.</td></tr>
 <tr><td>carbide_object_state_entered_timestamp_seconds</td><td>gauge</td><td>Unix timestamp at which an object entered its current state. Exposed only on the opt-in per-object endpoint.</td></tr>
-<tr><td>carbide_object_state_sla_seconds</td><td>gauge</td><td>Resolved SLA in seconds for an object's current state. Exposed only on the opt-in per-object endpoint.</td></tr>
+<tr><td>carbide_object_state_sla_seconds</td><td>gauge</td><td>Resolved SLA in seconds for an objects current state. Exposed only on the opt-in per-object endpoint.</td></tr>
 <tr><td>carbide_pending_dpu_nic_firmware_update_count</td><td>gauge</td><td>Number of machines in the system that need a DPU/NIC firmware update</td></tr>
 <tr><td>carbide_pending_host_firmware_update_count</td><td>gauge</td><td>Number of host machines in the system that need a firmware update.</td></tr>
 <tr><td>carbide_power_shelves_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_power_shelves in the system</td></tr>
