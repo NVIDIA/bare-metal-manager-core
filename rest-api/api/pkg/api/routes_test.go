@@ -62,6 +62,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"machine-instance-type":     3,
 		"user":                      1,
 		"operating-system":          5,
+		"ipxe-template":             2,
 		"sshkey":                    5,
 		"sshkeygroup":               5,
 		"machine-capability":        1,

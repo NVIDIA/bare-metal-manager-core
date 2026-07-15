@@ -213,6 +213,17 @@ func (cih CreateInstanceHandler) buildInstanceCreateRequestOsConfig(c echo.Conte
 			},
 			UserData: apiRequest.UserData,
 		}, osID, nil
+	} else if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+		return &corev1.InstanceOperatingSystemConfig{
+			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe,
+			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,
+			Variant: &corev1.InstanceOperatingSystemConfig_OperatingSystemId{
+				OperatingSystemId: &corev1.OperatingSystemId{
+					Value: os.ID.String(),
+				},
+			},
+			UserData: apiRequest.UserData,
+		}, osID, nil
 	} else {
 		return &corev1.InstanceOperatingSystemConfig{
 			PhoneHomeEnabled: *apiRequest.PhoneHomeEnabled,
@@ -2094,6 +2105,17 @@ func (uih UpdateInstanceHandler) buildInstanceUpdateRequestOsConfig(c echo.Conte
 				Variant: &corev1.InstanceOperatingSystemConfig_Ipxe{
 					Ipxe: &corev1.InlineIpxe{
 						IpxeScript: *ipxeScript,
+					},
+				},
+				UserData: userData,
+			}, osID, nil
+		} else if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+			return &corev1.InstanceOperatingSystemConfig{
+				RunProvisioningInstructionsOnEveryBoot: alwaysBootWithCustomIpxe,
+				PhoneHomeEnabled:                       phoneHomeEnabled,
+				Variant: &corev1.InstanceOperatingSystemConfig_OperatingSystemId{
+					OperatingSystemId: &corev1.OperatingSystemId{
+						Value: os.ID.String(),
 					},
 				},
 				UserData: userData,

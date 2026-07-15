@@ -5,6 +5,8 @@ package model
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -70,6 +72,29 @@ type APIOperatingSystemCreateRequest struct {
 	AllowOverride bool `json:"allowOverride"`
 	// EnableBlockStorage indicates whether the Operating System image will be stored remotely via block storage
 	EnableBlockStorage bool `json:"enableBlockStorage"`
+	// IpxeTemplateId is the ID of the iPXE template to use (alternative to a raw ipxeScript)
+	IpxeTemplateId *string `json:"ipxeTemplateId"`
+	// IpxeTemplateParameters are the parameters to pass to the iPXE template
+	IpxeTemplateParameters []cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition
+	IpxeTemplateArtifacts []cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	// Scope controls the synchronization direction between carbide-rest and nico-core.
+	// Allowed values: "Global" (rest->core, all owner sites), "Limited" (rest->core, specific
+	// sites listed in siteIds). Required for Templated iPXE OS. For raw iPXE OS, only "Global"
+	// or unspecified is accepted. Rejected for Image OS.
+	Scope *string `json:"scope"`
+}
+
+// GetOperatingSystemType returns the OperatingSystem type inferred from the
+// create request's source fields (`IpxeScript`, `IpxeTemplateId`, or neither).
+func (oscr *APIOperatingSystemCreateRequest) GetOperatingSystemType() string {
+	if oscr.IpxeScript != nil {
+		return cdbm.OperatingSystemTypeIPXE
+	}
+	if oscr.IpxeTemplateId != nil {
+		return cdbm.OperatingSystemTypeTemplatedIPXE
+	}
+	return cdbm.OperatingSystemTypeImage
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -88,6 +113,18 @@ func (oscr *APIOperatingSystemCreateRequest) Validate() error {
 		return err
 	}
 
+	if oscr.IpxeTemplateId != nil && strings.TrimSpace(*oscr.IpxeTemplateId) == "" {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("must not be empty"),
+		}
+	}
+
+	if oscr.IpxeScript != nil && oscr.IpxeTemplateId != nil {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("ipxeScript and ipxeTemplateId are mutually exclusive"),
+		}
+	}
+
 	// Make sure siteIds only required in case of image is OS based
 	if oscr.IpxeScript != nil && len(oscr.SiteIDs) > 0 {
 		return validation.Errors{
@@ -95,19 +132,55 @@ func (oscr *APIOperatingSystemCreateRequest) Validate() error {
 		}
 	}
 
-	if oscr.IpxeScript != nil && oscr.ImageURL != nil {
+	if (oscr.IpxeScript != nil || oscr.IpxeTemplateId != nil) && oscr.ImageURL != nil {
 		return validation.Errors{
 			"imageURL": errors.New("cannot be specified for iPXE based Operating Systems"),
 		}
-	} else if oscr.IpxeScript == nil && oscr.ImageURL == nil {
+	} else if oscr.IpxeScript == nil && oscr.IpxeTemplateId == nil && oscr.ImageURL == nil {
 		return validation.Errors{
-			validationCommonErrorField: errors.New("either imageURL or ipxeScript must be specified"),
+			validationCommonErrorField: errors.New("one of imageURL, ipxeScript, or ipxeTemplateId must be specified"),
 		}
 	}
 
 	if oscr.EnableBlockStorage {
 		return validation.Errors{
 			"enableBlockStorage": errors.New("Enabling block storage is not supported at this time"),
+		}
+	}
+
+	// iPXE template definition fields are only valid for Templated iPXE Operating Systems.
+	if oscr.IpxeTemplateId == nil {
+		if len(oscr.IpxeTemplateParameters) > 0 {
+			return validation.Errors{
+				"ipxeTemplateParameters": errors.New("can only be specified for Templated iPXE Operating Systems"),
+			}
+		}
+		if len(oscr.IpxeTemplateArtifacts) > 0 {
+			return validation.Errors{
+				"ipxeTemplateArtifacts": errors.New("can only be specified for Templated iPXE Operating Systems"),
+			}
+		}
+	}
+
+	// Scope handling differs by OS type. Templated iPXE is validated in full by
+	// validateTemplatedIpxeOS (including its own image-field/site-id rules), so it
+	// returns early and never falls through to the image/raw-iPXE checks below.
+	switch {
+	case oscr.IpxeTemplateId != nil:
+		return oscr.validateTemplatedIpxeOS()
+	case oscr.IpxeScript != nil:
+		// raw iPXE: scope is optional but must be Global when set.
+		if oscr.Scope != nil && *oscr.Scope != cdbm.OperatingSystemScopeGlobal {
+			return validation.Errors{
+				"scope": fmt.Errorf("scope must be %q or unspecified for raw iPXE Operating Systems", cdbm.OperatingSystemScopeGlobal),
+			}
+		}
+	default:
+		// Image: scope is not applicable.
+		if oscr.Scope != nil {
+			return validation.Errors{
+				"scope": errors.New("scope can only be specified for Templated iPXE Operating Systems"),
+			}
 		}
 	}
 
@@ -284,6 +357,14 @@ type APIOperatingSystemUpdateRequest struct {
 	IsActive *bool `json:"isActive"`
 	// DeactivationNote is the deactivation note if any
 	DeactivationNote *string `json:"deactivationNote"`
+	// IpxeTemplateId is the ID of the iPXE template to use (alternative to a raw ipxeScript)
+	IpxeTemplateId *string `json:"ipxeTemplateId"`
+	// IpxeTemplateParameters are the parameters to pass to the iPXE template
+	IpxeTemplateParameters *[]cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition
+	IpxeTemplateArtifacts *[]cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	// Scope is immutable after creation. If provided, the request is rejected.
+	Scope *string `json:"scope"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -316,6 +397,69 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 	} else if existingOS.IsActive && osur.DeactivationNote != nil {
 		return validation.Errors{
 			"deactivationNote": errors.New("cannot change Deactivation Note on an active Operating System"),
+		}
+	}
+
+	// Scope is immutable after creation.
+	if osur.Scope != nil {
+		return validation.Errors{
+			"scope": errors.New("scope cannot be changed after creation"),
+		}
+	}
+
+	// iPXE script and template are mutually exclusive in a single request.
+	if osur.IpxeScript != nil && osur.IpxeTemplateId != nil {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("ipxeScript and ipxeTemplateId are mutually exclusive"),
+		}
+	}
+	if osur.IpxeTemplateId != nil && strings.TrimSpace(*osur.IpxeTemplateId) == "" {
+		return validation.Errors{
+			"ipxeTemplateId": errors.New("must not be empty"),
+		}
+	}
+	if osur.IpxeTemplateId != nil && osur.ImageURL != nil {
+		return validation.Errors{
+			"imageURL": errors.New("cannot be specified for iPXE based Operating Systems"),
+		}
+	}
+
+	// Reject cross-type field assignments based on the existing OS type and
+	// validate iPXE template definition fields (Templated iPXE only).
+	switch existingOS.Type {
+	case cdbm.OperatingSystemTypeImage:
+		if osur.IpxeTemplateId != nil {
+			return validation.Errors{"ipxeTemplateId": errors.New("unable to set iPXE template for image based Operating System")}
+		}
+	case cdbm.OperatingSystemTypeIPXE:
+		if osur.IpxeTemplateId != nil {
+			return validation.Errors{"ipxeTemplateId": errors.New("unable to set iPXE template for raw iPXE Operating System")}
+		}
+	case cdbm.OperatingSystemTypeTemplatedIPXE:
+		if osur.IpxeScript != nil {
+			return validation.Errors{"ipxeScript": errors.New("unable to set iPXE script for templated iPXE Operating System")}
+		}
+		if osur.ImageURL != nil {
+			return validation.Errors{"imageURL": errors.New("unable to set image URL for iPXE based Operating System")}
+		}
+	}
+	if existingOS.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+		if osur.IpxeTemplateParameters != nil {
+			if verr := validateIpxeTemplateParameters(*osur.IpxeTemplateParameters); verr != nil {
+				return verr
+			}
+		}
+		if osur.IpxeTemplateArtifacts != nil {
+			if verr := validateIpxeTemplateArtifacts(*osur.IpxeTemplateArtifacts); verr != nil {
+				return verr
+			}
+		}
+	} else {
+		if osur.IpxeTemplateParameters != nil {
+			return validation.Errors{"ipxeTemplateParameters": errors.New("can only be specified for Templated iPXE Operating Systems")}
+		}
+		if osur.IpxeTemplateArtifacts != nil {
+			return validation.Errors{"ipxeTemplateArtifacts": errors.New("can only be specified for Templated iPXE Operating Systems")}
 		}
 	}
 
@@ -597,6 +741,16 @@ type APIOperatingSystem struct {
 	RootFsLabel *string `json:"rootFsLabel"`
 	// IpxeScript is the ipxe ocript for the Operating System
 	IpxeScript *string `json:"ipxeScript"`
+	// IpxeTemplateId is the ID of the iPXE template used by this Operating System
+	IpxeTemplateId *string `json:"ipxeTemplateId"`
+	// IpxeTemplateParameters are the parameters passed to the iPXE template
+	IpxeTemplateParameters []cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition.
+	// Any artifact authToken is redacted in API responses.
+	IpxeTemplateArtifacts []cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	// Scope controls the synchronization direction between carbide-rest and nico-core.
+	// One of "Local", "Global", or "Limited". Only set for iPXE-based Operating Systems.
+	Scope *string `json:"scope"`
 	// PhoneHomeEnabled is an attribute which is specified by user if Operating System needs to be enabled for phone home or not
 	PhoneHomeEnabled bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
@@ -639,6 +793,8 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		RootFsID:           dbOS.RootFsID,
 		RootFsLabel:        dbOS.RootFsLabel,
 		IpxeScript:         dbOS.IpxeScript,
+		IpxeTemplateId:     dbOS.IpxeTemplateId,
+		Scope:              dbOS.IpxeOsScope,
 		PhoneHomeEnabled:   dbOS.PhoneHomeEnabled,
 		UserData:           dbOS.UserData,
 		IsCloudInit:        IsCloudInitFromUserData(dbOS.UserData),
@@ -649,6 +805,16 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		Status:             dbOS.Status,
 		Created:            dbOS.Created,
 		Updated:            dbOS.Updated,
+	}
+	apiOperatingSystem.IpxeTemplateParameters = dbOS.IpxeTemplateParameters
+	// Redact artifact auth tokens: never echo stored secrets back to clients.
+	if dbOS.IpxeTemplateArtifacts != nil {
+		redactedArtifacts := make([]cdbm.OperatingSystemIpxeArtifact, len(dbOS.IpxeTemplateArtifacts))
+		for i, artifact := range dbOS.IpxeTemplateArtifacts {
+			artifact.AuthToken = nil
+			redactedArtifacts[i] = artifact
+		}
+		apiOperatingSystem.IpxeTemplateArtifacts = redactedArtifacts
 	}
 	if dbOS.InfrastructureProviderID != nil {
 		apiOperatingSystem.InfrastructureProviderID = cutil.GetPtr(dbOS.InfrastructureProviderID.String())
@@ -698,4 +864,169 @@ func NewAPIOperatingSystemSummary(dbos *cdbm.OperatingSystem) *APIOperatingSyste
 	}
 
 	return &aos
+}
+
+// validateTemplatedIpxeOS fully validates a Templated iPXE create request: image
+// fields must be absent, scope must be Global or Limited (Local is rejected at
+// creation), siteIds are required only for Limited scope, and the template
+// parameters/artifacts must be well-formed.
+func (oscr *APIOperatingSystemCreateRequest) validateTemplatedIpxeOS() error {
+	if err := validation.ValidateStruct(oscr,
+		validation.Field(&oscr.ImageSHA, validation.Nil.Error("imageSHA cannot be specified for Templated iPXE Operating Systems")),
+		validation.Field(&oscr.ImageAuthType, validation.Nil.Error("imageAuthType cannot be specified for Templated iPXE Operating Systems")),
+		validation.Field(&oscr.ImageAuthToken, validation.Nil.Error("imageAuthToken cannot be specified for Templated iPXE Operating Systems")),
+		validation.Field(&oscr.ImageDisk, validation.Nil.Error("imageDisk cannot be specified for Templated iPXE Operating Systems")),
+		validation.Field(&oscr.RootFsID, validation.Nil.Error("rootFsId cannot be specified for Templated iPXE Operating Systems")),
+		validation.Field(&oscr.RootFsLabel, validation.Nil.Error("rootFsLabel cannot be specified for Templated iPXE Operating Systems")),
+	); err != nil {
+		return err
+	}
+
+	if oscr.Scope == nil {
+		return validation.Errors{"scope": errors.New("scope is required for Templated iPXE Operating Systems")}
+	}
+	switch *oscr.Scope {
+	case cdbm.OperatingSystemScopeGlobal, cdbm.OperatingSystemScopeLimited:
+		// valid
+	case cdbm.OperatingSystemScopeLocal:
+		return validation.Errors{"scope": errors.New("scope 'Local' cannot be specified at creation; Local Operating Systems are created in nico-core")}
+	default:
+		return validation.Errors{"scope": errors.New("scope must be one of 'Global' or 'Limited'")}
+	}
+
+	if len(oscr.SiteIDs) > 0 && *oscr.Scope != cdbm.OperatingSystemScopeLimited {
+		return validation.Errors{"siteIds": errors.New("siteIds can only be specified for Templated iPXE Operating Systems with scope 'Limited'")}
+	}
+	if *oscr.Scope == cdbm.OperatingSystemScopeLimited && len(oscr.SiteIDs) == 0 {
+		return validation.Errors{"siteIds": errors.New("at least one siteId must be specified when scope is 'Limited'")}
+	}
+
+	if err := validateIpxeTemplateParameters(oscr.IpxeTemplateParameters); err != nil {
+		return err
+	}
+	if err := validateIpxeTemplateArtifacts(oscr.IpxeTemplateArtifacts); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validCacheStrategies is the set of accepted artifact CacheStrategy string values.
+// It is derived from the DB model's strategy map so the API and persistence layers
+// agree on the canonical (friendly) strategy names.
+var validCacheStrategies = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(cdbm.OperatingSystemIpxeArtifactCacheStrategyToProtoMap))
+	for name := range cdbm.OperatingSystemIpxeArtifactCacheStrategyToProtoMap {
+		m[name] = struct{}{}
+	}
+	return m
+}()
+
+func validateIpxeTemplateParameters(params []cdbm.OperatingSystemIpxeParameter) error {
+	for i, p := range params {
+		if strings.TrimSpace(p.Name) == "" {
+			return validation.Errors{"ipxeTemplateParameters": fmt.Errorf("entry %d: name is required", i)}
+		}
+	}
+	return nil
+}
+
+func validateIpxeTemplateArtifacts(artifacts []cdbm.OperatingSystemIpxeArtifact) error {
+	for i, a := range artifacts {
+		if strings.TrimSpace(a.Name) == "" {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d: name is required", i)}
+		}
+		if strings.TrimSpace(a.URL) == "" {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): url is required", i, a.Name)}
+		}
+		if _, ok := validCacheStrategies[a.CacheStrategy]; !ok {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): cacheStrategy must be one of CacheAsNeeded, LocalOnly, CachedOnly, RemoteOnly", i, a.Name)}
+		}
+		if a.AuthType != nil && *a.AuthType != "" {
+			at := *a.AuthType
+			if at != cdbm.OperatingSystemAuthTypeBasic && at != cdbm.OperatingSystemAuthTypeBearer {
+				return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authType must be Basic or Bearer", i, a.Name)}
+			}
+			if a.AuthToken == nil || *a.AuthToken == "" {
+				return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authToken is required when authType is specified", i, a.Name)}
+			}
+		}
+		if a.AuthToken != nil && *a.AuthToken != "" && (a.AuthType == nil || *a.AuthType == "") {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authType must be specified when authToken is provided", i, a.Name)}
+		}
+	}
+	return nil
+}
+
+// BuildCreateOperatingSystemRequest builds the forge.Forge CreateOperatingSystem
+// request proto from a persisted Operating System record. It is used by the OS
+// handler to push iPXE / Templated iPXE definitions to on-site NICo Core through
+// the generic Core gRPC proxy.
+//
+// Note: artifact authTokens are nested inside the repeated artifacts message and
+// are therefore carried as-is (the proxy cannot redact nested fields).
+func BuildCreateOperatingSystemRequest(os *cdbm.OperatingSystem) *corev1.CreateOperatingSystemRequest {
+	return &corev1.CreateOperatingSystemRequest{
+		Id:                     &corev1.OperatingSystemId{Value: os.ID.String()},
+		Name:                   os.Name,
+		Description:            os.Description,
+		TenantOrganizationId:   os.Org,
+		IsActive:               os.IsActive,
+		AllowOverride:          os.AllowOverride,
+		PhoneHomeEnabled:       os.PhoneHomeEnabled,
+		UserData:               os.UserData,
+		IpxeScript:             os.IpxeScript,
+		IpxeTemplateId:         ipxeTemplateIDProto(os.IpxeTemplateId),
+		IpxeTemplateParameters: ipxeParametersProto(os.IpxeTemplateParameters),
+		IpxeTemplateArtifacts:  ipxeArtifactsProto(os.IpxeTemplateArtifacts),
+	}
+}
+
+// BuildUpdateOperatingSystemRequest builds the forge.Forge UpdateOperatingSystem
+// request proto from a persisted Operating System record.
+func BuildUpdateOperatingSystemRequest(os *cdbm.OperatingSystem) *corev1.UpdateOperatingSystemRequest {
+	return &corev1.UpdateOperatingSystemRequest{
+		Id:                         &corev1.OperatingSystemId{Value: os.ID.String()},
+		Name:                       &os.Name,
+		Description:                os.Description,
+		IsActive:                   &os.IsActive,
+		AllowOverride:              &os.AllowOverride,
+		PhoneHomeEnabled:           &os.PhoneHomeEnabled,
+		UserData:                   os.UserData,
+		IpxeScript:                 os.IpxeScript,
+		IpxeTemplateId:             ipxeTemplateIDProto(os.IpxeTemplateId),
+		IpxeTemplateParameters:     &corev1.IpxeTemplateParameters{Items: ipxeParametersProto(os.IpxeTemplateParameters)},
+		IpxeTemplateArtifacts:      &corev1.IpxeTemplateArtifacts{Items: ipxeArtifactsProto(os.IpxeTemplateArtifacts)},
+		IpxeTemplateDefinitionHash: os.IpxeTemplateDefinitionHash,
+	}
+}
+
+// BuildDeleteOperatingSystemRequest builds the forge.Forge DeleteOperatingSystem
+// request proto for a persisted Operating System record.
+func BuildDeleteOperatingSystemRequest(os *cdbm.OperatingSystem) *corev1.DeleteOperatingSystemRequest {
+	return &corev1.DeleteOperatingSystemRequest{
+		Id: &corev1.OperatingSystemId{Value: os.ID.String()},
+	}
+}
+
+func ipxeTemplateIDProto(id *string) *corev1.IpxeTemplateId {
+	if id == nil {
+		return nil
+	}
+	return &corev1.IpxeTemplateId{Value: *id}
+}
+
+func ipxeParametersProto(params []cdbm.OperatingSystemIpxeParameter) []*corev1.IpxeTemplateParameter {
+	out := make([]*corev1.IpxeTemplateParameter, 0, len(params))
+	for i := range params {
+		out = append(out, params[i].ToProto())
+	}
+	return out
+}
+
+func ipxeArtifactsProto(artifacts []cdbm.OperatingSystemIpxeArtifact) []*corev1.IpxeTemplateArtifact {
+	out := make([]*corev1.IpxeTemplateArtifact, 0, len(artifacts))
+	for i := range artifacts {
+		out = append(out, artifacts[i].ToProto())
+	}
+	return out
 }
