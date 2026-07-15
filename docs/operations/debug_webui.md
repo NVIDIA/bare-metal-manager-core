@@ -54,7 +54,7 @@ The WebUI exposes views grouped by entity type. All views are read-only unless n
 | View | Path | Description |
 |------|------|-------------|
 | Home | `/admin/` | NICo version, DPU agent upgrade policy, active log filter, dynamic feature flags, and operator-configured tool links |
-| Machines | `/admin/machine` | All managed hosts; per-machine detail, health, validation status |
+| Machines | `/admin/machine` | All managed hosts; per-machine detail, health, validation status; assign/remove SKU on hosts (write) |
 | DPUs | `/admin/dpu` | DPU inventory and per-DPU detail; DPU agent version list at `/admin/dpu/versions` |
 | DPAs | `/admin/dpa` | DPA (Data Processing Accelerator) inventory |
 | Hosts | `/admin/host` | Host-only view of managed machines |

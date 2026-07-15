@@ -32,7 +32,7 @@ use carbide_authn::SpiffeContext;
 use carbide_authn::middleware::{
     AuthContext, Authorization, CertDescriptionMiddleware, ConnectionAttributes, Principal,
 };
-use carbide_instrument::emit;
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_utils::HostPortPair;
 use forge_tls::client_config::ClientCert;
 use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
@@ -40,8 +40,6 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto;
 use hyper_util::service::TowerToHyperService;
 use mac_address::{MacAddress, MacParseError};
-use opentelemetry::KeyValue;
-use opentelemetry::metrics::Meter;
 use rpc::forge;
 use rpc::forge::find_bmc_ips_request::LookupBy;
 use rpc::forge_api_client::ForgeApiClient;
@@ -79,13 +77,11 @@ pub enum BmcProxyError {
 
 pub struct BmcProxyParams {
     pub config: Arc<crate::Config>,
-    pub meter: Meter,
 }
 
 #[derive(Clone)]
 struct BmcProxyState {
     config: Arc<crate::Config>,
-    meter: Meter,
     api_client: ForgeApiClient,
     credential_cache: CredentialCache,
     client_cache: HttpClientCache,
@@ -145,10 +141,10 @@ pub async fn start(
     join_set: &mut JoinSet<()>,
 ) -> Result<(), BmcProxyError> {
     // Destructure params to save typing
-    let BmcProxyParams { config, meter } = params;
+    let BmcProxyParams { config } = params;
 
     tracing::info!(
-        address = config.listen.to_string(),
+        listen_address = config.listen.to_string(),
         build_version = carbide_version::v!(build_version),
         build_date = carbide_version::v!(build_date),
         rust_version = carbide_version::v!(rust_version),
@@ -175,7 +171,6 @@ pub async fn start(
         credential_cache: Default::default(),
         client_cache: Default::default(),
         ip_cache: Default::default(),
-        meter,
     };
 
     let app = Router::new()
@@ -225,6 +220,60 @@ impl RefreshableTlsAcceptor {
     }
 }
 
+/// An inbound connection was accepted from the listener, before it is served.
+/// Counted, never logged.
+#[derive(Event)]
+#[event(
+    name = "carbide_bmc_proxy_tls_connection_attempted_total",
+    component = "nico-bmc-proxy",
+    log = off,
+    metric = counter,
+    describe = "Number of inbound TLS connection attempts"
+)]
+struct TlsConnectionAttempted;
+
+/// The TLS handshake completed and the connection was handed to the HTTP
+/// stack. Counted, never logged.
+#[derive(Event)]
+#[event(
+    name = "carbide_bmc_proxy_tls_connection_success_total",
+    component = "nico-bmc-proxy",
+    log = off,
+    metric = counter,
+    describe = "Number of successful TLS connections"
+)]
+struct TlsConnectionSucceeded;
+
+/// Why an inbound connection failed, as the bounded `reason` label. The
+/// rendered strings are the metric's contract: each variant renders to the
+/// snake_case value the counter has always reported, byte for byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum ConnectionFailReason {
+    /// The TCP accept itself errored.
+    TcpConnectionFailure,
+    /// The TLS acceptor could not be reloaded from disk.
+    TlsCertificateInvalid,
+    /// The TLS handshake errored.
+    TlsConnectionFailure,
+}
+
+/// An inbound connection failed before it could be served -- the TCP accept
+/// errored, the TLS acceptor could not be reloaded, or the TLS handshake
+/// errored. Metric-only: the `tracing::error!` beside each emit remains the log;
+/// the `reason` label distinguishes which leg failed.
+#[derive(Event)]
+#[event(
+    name = "carbide_bmc_proxy_tls_connection_fail_total",
+    component = "nico-bmc-proxy",
+    log = off,
+    metric = counter,
+    describe = "Number of failed inbound TCP connections"
+)]
+struct TlsConnectionFailed {
+    #[label]
+    reason: ConnectionFailReason,
+}
+
 struct BmcProxy {
     app: Router,
     listener: TcpListener,
@@ -236,36 +285,18 @@ impl BmcProxy {
     async fn run(mut self, cancel_token: CancellationToken) {
         let http = auto::Builder::new(TokioExecutor::new());
 
-        let connection_total_counter = self
-            .state
-            .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_attempted")
-            .with_description("The amount of tls connections that were attempted")
-            .build();
-        let connection_succeeded_counter = self
-            .state
-            .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_success")
-            .with_description("The amount of tls connections that were successful")
-            .build();
-        let connection_failed_counter = self
-            .state
-            .meter
-            .u64_counter("carbide-bmc-proxy.tls.connection_fail")
-            .with_description("The amount of tcp connections that were failures")
-            .build();
-
         while let Some(incoming_connection) = cancel_token
             .run_until_cancelled(self.listener.accept())
             .await
         {
-            connection_total_counter.add(1, &[]);
+            emit(TlsConnectionAttempted);
             let (conn, addr) = match incoming_connection {
                 Ok(incoming) => incoming,
                 Err(e) => {
                     tracing::error!(error = %e, "Error accepting connection");
-                    connection_failed_counter
-                        .add(1, &[KeyValue::new("reason", "tcp_connection_failure")]);
+                    emit(TlsConnectionFailed {
+                        reason: ConnectionFailReason::TcpConnectionFailure,
+                    });
                     continue;
                 }
             };
@@ -277,9 +308,13 @@ impl BmcProxy {
                     match RefreshableTlsAcceptor::new(self.state.config.tls.clone()).await {
                         Ok(acceptor) => acceptor,
                         Err(e) => {
-                            tracing::error!("Error reloading TLS certificate, will retry: {e}");
-                            connection_failed_counter
-                                .add(1, &[KeyValue::new("reason", "tls_certificate_invalid")]);
+                            tracing::error!(
+                                error = %e,
+                                "Error reloading TLS certificate, will retry",
+                            );
+                            emit(TlsConnectionFailed {
+                                reason: ConnectionFailReason::TlsCertificateInvalid,
+                            });
                             continue;
                         }
                     };
@@ -289,50 +324,55 @@ impl BmcProxy {
             // Spawn task to handle request
             let http = http.clone();
             let app = self.app.clone();
-            let connection_succeeded_counter = connection_succeeded_counter.clone();
-            let connection_failed_counter = connection_failed_counter.clone();
 
             tokio::task::Builder::new()
                 .name("http conn handler")
-                .spawn(
-                    async move {
-                        match tls_acceptor.accept(conn).await {
-                            Ok(conn) => {
-                                let conn = TokioIo::new(conn);
-                                connection_succeeded_counter.add(1, &[]);
+                .spawn(async move {
+                    match tls_acceptor.accept(conn).await {
+                        Ok(conn) => {
+                            let conn = TokioIo::new(conn);
+                            emit(TlsConnectionSucceeded);
 
-                                let (_, session) = conn.inner().get_ref();
-                                let connection_attributes = {
-                                    let peer_address = addr;
-                                    let peer_certificates =
-                                        session.peer_certificates().unwrap_or_default().to_vec();
-                                    Arc::new(ConnectionAttributes {
-                                        peer_address,
-                                        peer_certificates,
-                                    })
-                                };
-                                let conn_attrs_extension_layer =
-                                    AddExtensionLayer::new(connection_attributes);
+                            let (_, session) = conn.inner().get_ref();
+                            let connection_attributes = {
+                                let peer_address = addr;
+                                let peer_certificates =
+                                    session.peer_certificates().unwrap_or_default().to_vec();
+                                Arc::new(ConnectionAttributes {
+                                    peer_address,
+                                    peer_certificates,
+                                })
+                            };
+                            let conn_attrs_extension_layer =
+                                AddExtensionLayer::new(connection_attributes);
 
-                                let app_with_ext = tower::ServiceBuilder::new()
-                                    .layer(conn_attrs_extension_layer)
-                                    .service(app);
+                            let app_with_ext = tower::ServiceBuilder::new()
+                                .layer(conn_attrs_extension_layer)
+                                .service(app);
 
-                                if let Err(error) = http
-                                    .serve_connection(conn, TowerToHyperService::new(app_with_ext))
-                                    .await
-                                {
-                                    tracing::debug!(%error, "error servicing tls http request: {error:?}");
-                                }
-                            }
-                            Err(error) => {
-                                tracing::error!(%error, address = %addr, "error accepting tls connection");
-                                connection_failed_counter
-                                    .add(1, &[KeyValue::new("reason", "tls_connection_failure")]);
+                            if let Err(error) = http
+                                .serve_connection(conn, TowerToHyperService::new(app_with_ext))
+                                .await
+                            {
+                                tracing::debug!(
+                                    %error,
+                                    error_debug = ?error,
+                                    "error servicing tls http request",
+                                );
                             }
                         }
+                        Err(error) => {
+                            tracing::error!(
+                                %error,
+                                peer_address = %addr,
+                                "error accepting tls connection"
+                            );
+                            emit(TlsConnectionFailed {
+                                reason: ConnectionFailReason::TlsConnectionFailure,
+                            });
+                        }
                     }
-                )
+                })
                 // Safety: This only fails if run outside the tokio runtime
                 .expect("could not spawn task to handle HTTP connection");
         }
@@ -457,7 +497,7 @@ fn get_tls_acceptor(tls_config: &TlsConfig) -> Result<RefreshableTlsAcceptor, Bm
 pub fn cert_description_layer<AZ: Authorization>(
     auth_config: &AuthConfig,
 ) -> Result<CertDescriptionMiddleware<AZ>, BmcProxyError> {
-    tracing::info!("TrustConfig rendered from config: {:?}", auth_config.trust);
+    tracing::info!(trust_config = ?auth_config.trust, "TrustConfig rendered from config");
     let spiffe_context = SpiffeContext::try_from(auth_config.trust.clone()).map_err(|e| {
         BmcProxyError::InvalidConfiguration(format!(
             "Invalid trust config in bmc-proxy config toml file: {e}"
@@ -620,7 +660,7 @@ async fn ip_for_forwarded_target(
         .iter()
         .filter_map(|s| {
             IpAddr::from_str(s)
-                .inspect_err(|e| tracing::error!("Invalid IP address returned by API: {e}"))
+                .inspect_err(|e| tracing::error!(error = %e, "Invalid IP address returned by API"))
                 .ok()
         })
         .collect::<Vec<_>>();
@@ -635,13 +675,9 @@ async fn ip_for_forwarded_target(
         (0, 1..) => {
             if v6_ips.len() > 1 {
                 tracing::warn!(
-                    "Multiple IPv6 BMC IP's found for {} ({}), using first one",
-                    lookup_by_str,
-                    v6_ips
-                        .iter()
-                        .map(|ip| ip.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
+                    lookup_by = %lookup_by_str,
+                    ip_addresses = ?v6_ips,
+                    "Multiple IPv6 BMC IP's found, using first one",
                 );
             }
             v6_ips.into_iter().next()
@@ -651,13 +687,9 @@ async fn ip_for_forwarded_target(
             // first, in case of broken dual-stack setups.
             if v4_ips.len() > 1 {
                 tracing::warn!(
-                    "Multiple IPv4 BMC IP's found for {} ({}), using first one",
-                    lookup_by_str,
-                    v4_ips
-                        .iter()
-                        .map(|ip| ip.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", "),
+                    lookup_by = %lookup_by_str,
+                    ip_addresses = ?v4_ips,
+                    "Multiple IPv4 BMC IP's found, using first one",
                 );
             }
             v4_ips.into_iter().next()
@@ -940,11 +972,11 @@ async fn get_bmc_credentials(
     credential_cache: &CredentialCache,
 ) -> Result<BmcCredentials, BmcProxyError> {
     if let Some(credentials) = credential_cache.lock().await.get(&ip).cloned() {
-        tracing::debug!(%ip, "Using cached BMC credentials");
+        tracing::debug!(bmc_ip_address = %ip, "Using cached BMC credentials");
         return Ok(credentials);
     }
 
-    tracing::debug!(%ip, "Fetching BMC credentials from Carbide API");
+    tracing::debug!(bmc_ip_address = %ip, "Fetching BMC credentials from Carbide API");
     let bmc_mac_address = api_client
         .find_mac_address_by_bmc_ip(forge::BmcIp {
             bmc_ip: ip.to_string(),
@@ -979,7 +1011,7 @@ fn build_http_client() -> Result<reqwest::Client, BmcProxyError> {
         .pool_max_idle_per_host(4)
         .build()
         .map_err(|err| {
-            tracing::error!(%err, "build_http_client");
+            tracing::error!(error = %err, "build_http_client");
             BmcProxyError::InternalProxying(format!("Http building failed: {err}"))
         })
 }
@@ -990,11 +1022,11 @@ async fn get_http_client(
 ) -> Result<reqwest::Client, BmcProxyError> {
     let mut client_cache = client_cache.lock().await;
     if let Some(client) = client_cache.get(&ip) {
-        tracing::debug!(%ip, "Using cached BMC HTTP client");
+        tracing::debug!(bmc_ip_address = %ip, "Using cached BMC HTTP client");
         return Ok(client.clone());
     }
 
-    tracing::debug!(%ip, "Creating cached BMC HTTP client");
+    tracing::debug!(bmc_ip_address = %ip, "Creating cached BMC HTTP client");
     let client = build_http_client()?;
     client_cache.insert(ip, client.clone());
     Ok(client)
@@ -1002,7 +1034,7 @@ async fn get_http_client(
 
 async fn evict_cached_credentials(ip: IpAddr, credential_cache: &CredentialCache) {
     if credential_cache.lock().await.remove(&ip).is_some() {
-        tracing::info!(%ip, "Evicted cached BMC credentials after upstream auth failure");
+        tracing::info!(bmc_ip_address = %ip, "Evicted cached BMC credentials after upstream auth failure");
     }
 }
 
@@ -1023,7 +1055,6 @@ mod tests {
     use carbide_utils::HostPortPair;
     use http_body_util::BodyExt;
     use mac_address::MacAddress;
-    use opentelemetry::global;
     use rpc::forge;
     use rpc::forge::find_bmc_ips_request::LookupBy;
     use rpc::forge_api_client::ForgeApiClient;
@@ -1112,7 +1143,6 @@ mod tests {
                 )
                 .expect("test config should parse"),
             ),
-            meter: global::meter("carbide-bmc-proxy-test"),
             api_client: ForgeApiClient::new(&api_config),
             credential_cache: Default::default(),
             client_cache: Default::default(),
@@ -1831,5 +1861,38 @@ mod tests {
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(body, Bytes::from_static(br#"{"value":"ok"}"#));
+    }
+
+    /// The `reason` label values are the metric's contract: each variant
+    /// renders to the exact snake_case string the fail counter has always
+    /// reported. The failure path is not exercised by the metrics endpoint
+    /// tests, so this is what locks those bytes.
+    #[test]
+    fn connection_fail_reason_renders_expected_label_values() {
+        use carbide_instrument::LabelValue;
+        use carbide_test_support::{Check, check_values};
+
+        use super::ConnectionFailReason;
+
+        check_values(
+            [
+                Check {
+                    scenario: "tcp accept failure",
+                    input: ConnectionFailReason::TcpConnectionFailure,
+                    expect: "tcp_connection_failure".to_string(),
+                },
+                Check {
+                    scenario: "tls certificate reload failure",
+                    input: ConnectionFailReason::TlsCertificateInvalid,
+                    expect: "tls_certificate_invalid".to_string(),
+                },
+                Check {
+                    scenario: "tls handshake failure",
+                    input: ConnectionFailReason::TlsConnectionFailure,
+                    expect: "tls_connection_failure".to_string(),
+                },
+            ],
+            |reason| reason.label_value().to_string(),
+        );
     }
 }

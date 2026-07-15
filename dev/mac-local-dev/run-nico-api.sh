@@ -168,8 +168,15 @@ fi
 # We rewrite those paths to absolute ones in a throwaway /tmp copy so the
 # binary is always given correct paths regardless of CWD.
 # -----------------------------------------------------------------------------
-NICO_TMP_CONFIG="$(mktemp "${TMPDIR:-/tmp}/nico-api-config.XXXXXX.toml")" || die "Failed to create temporary config file"
-trap 'rm -f "$NICO_TMP_CONFIG"' EXIT
+# Create the config inside a private temp directory rather than naming the file
+# directly. macOS's BSD mktemp only substitutes *trailing* X's, so a template
+# like "nico-api-config.XXXXXX.toml" would be taken literally and collide across
+# runs. mktemp -d gives us a uniquely-named directory (portable across BSD/GNU),
+# and we place a fixed-name .toml file inside it — no rename, so no chance of
+# clobbering an unrelated file.
+NICO_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/nico-api-config.XXXXXX")" || die "Failed to create temporary config directory"
+NICO_TMP_CONFIG="$NICO_TMP_DIR/nico-api-config.toml"
+trap 'rm -rf "$NICO_TMP_DIR"' EXIT
 sed "s|= \"dev/|= \"$REPO_ROOT/dev/|g" \
   "$REPO_ROOT/dev/mac-local-dev/nico-api-config.toml" > "$NICO_TMP_CONFIG"
 ok "Resolved config written to $NICO_TMP_CONFIG"

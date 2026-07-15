@@ -589,7 +589,10 @@ impl SwitchCertificateMonitor {
         loop {
             let tick = timer.tick();
             if let Err(e) = self.run_single_iteration(&cancel_token).await {
-                tracing::warn!("SwitchCertificateMonitor error: {}", e);
+                tracing::warn!(
+                    error = %e,
+                    "Switch certificate monitor error",
+                );
             }
 
             tokio::select! {
@@ -647,7 +650,8 @@ impl SwitchCertificateMonitor {
             Ok(lock) => lock,
             Err(e) => {
                 tracing::warn!(
-                    "SwitchCertificateMonitor failed to acquire work lock: Another instance of carbide running? {e}"
+                    error = %e,
+                    "SwitchCertificateMonitor failed to acquire work lock: Another instance of carbide running?",
                 );
                 return Ok(());
             }
@@ -864,7 +868,7 @@ impl SwitchCertificateMonitor {
                         rack_id = %target.rack_id,
                         endpoint = %target.endpoint_url,
                         job_id = %in_flight_job.job_id,
-                        state = %state,
+                        job_state = %state,
                         "RMS NMX-C switch certificate configuration job is still in progress"
                     );
                     Ok(SwitchCertApplyStatus::Pending)
@@ -1085,7 +1089,7 @@ impl SwitchCertificateMonitor {
             _ => {
                 tracing::warn!(
                     job_id = %job_id,
-                    state = %response.state,
+                    job_state = %response.state,
                     "RMS returned unknown NMX-C switch certificate job state; treating as pending"
                 );
                 Ok(RmsSwitchCertJobState::Pending(response.state))

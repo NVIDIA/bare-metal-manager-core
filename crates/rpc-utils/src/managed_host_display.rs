@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use byte_unit::UnitType;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
@@ -67,7 +68,7 @@ impl ManagedHostMetadata {
             .await
             .map(|response| response.into_inner())
             .map_err(|e| {
-                warn!("Failed to get site exploration report: {:?}", e);
+                warn!(error = ?e, "failed to get site exploration report");
             })
             .unwrap_or_default();
 
@@ -428,7 +429,10 @@ pub fn get_managed_host_output(source: ManagedHostMetadata) -> Vec<ManagedHostOu
                         .remove(&id)
                         .map(|dpu| (id, dpu))
                         .or_else(|| {
-                            tracing::warn!("Could not find DPU for associated_dpu_machine_id {id}");
+                            tracing::warn!(
+                                dpu_machine_id = %id,
+                                "could not find associated DPU"
+                            );
                             None
                         })
                 })
@@ -574,11 +578,11 @@ pub fn to_time<M: Display>(t: Option<Timestamp>, machine_id: Option<M>) -> Optio
             }
             Err(err) => {
                 warn!(
-                    "get_managed_host_output {}, invalid timestamp: {}",
-                    machine_id
+                    machine_id = %machine_id
                         .map(|x| x.to_string())
                         .unwrap_or_else(|| "(no machine ID)".to_string()),
-                    err
+                    error = %err,
+                    "managed host has an invalid timestamp"
                 );
                 None
             }
@@ -599,10 +603,10 @@ impl From<Option<BmcInfo>> for BmcInfoDisplay {
     fn from(value: Option<BmcInfo>) -> Self {
         if let Some(bmc_info) = value {
             Self {
-                ip: bmc_info.ip.if_non_empty(),
-                mac: bmc_info.mac.if_non_empty(),
-                version: bmc_info.version.if_non_empty(),
-                firmware_version: bmc_info.firmware_version.if_non_empty(),
+                ip: bmc_info.ip.none_if_empty(),
+                mac: bmc_info.mac.none_if_empty(),
+                version: bmc_info.version.none_if_empty(),
+                firmware_version: bmc_info.firmware_version.none_if_empty(),
             }
         } else {
             Self::default()
@@ -622,9 +626,9 @@ impl From<Option<&DmiData>> for DmiDataDisplay {
     fn from(value: Option<&DmiData>) -> Self {
         if let Some(dmi_data) = value {
             Self {
-                product_serial: dmi_data.product_serial.clone().if_non_empty(),
-                chassis_serial: dmi_data.chassis_serial.clone().if_non_empty(),
-                bios_version: dmi_data.bios_version.clone().if_non_empty(),
+                product_serial: dmi_data.product_serial.clone().none_if_empty(),
+                chassis_serial: dmi_data.chassis_serial.clone().none_if_empty(),
+                bios_version: dmi_data.bios_version.clone().none_if_empty(),
             }
         } else {
             Self {
@@ -633,32 +637,6 @@ impl From<Option<&DmiData>> for DmiDataDisplay {
                 bios_version: None,
             }
         }
-    }
-}
-
-/// Simple if_non_empty() function to map an empty String (or a Option<String>::None) into None
-trait IfNonEmpty {
-    type SomeVal;
-    fn if_non_empty(self) -> Option<Self::SomeVal>;
-}
-
-impl IfNonEmpty for Option<String> {
-    type SomeVal = String;
-    fn if_non_empty(self) -> Option<Self::SomeVal> {
-        if let Some(s) = self
-            && !s.is_empty()
-        {
-            Some(s)
-        } else {
-            None
-        }
-    }
-}
-
-impl IfNonEmpty for String {
-    type SomeVal = String;
-    fn if_non_empty(self) -> Option<Self::SomeVal> {
-        if !self.is_empty() { Some(self) } else { None }
     }
 }
 
@@ -708,26 +686,6 @@ mod tests {
                 None => None,
                 Some(Timestamp::from(UNIX_EPOCH)) => Some("1970-01-01 00:00:00 UTC".to_string()),
                 Some(Timestamp::from(UNIX_EPOCH + Duration::from_secs(1_700_000_000))) => Some("2023-11-14 22:13:20 UTC".to_string()),
-            }
-        );
-    }
-
-    #[test]
-    fn filters_empty_display_fields() {
-        value_scenarios!(
-            run = |value| value.if_non_empty();
-            "option string" {
-                None::<String> => None,
-                Some(String::new()) => None,
-                Some("value".to_string()) => Some("value".to_string()),
-            }
-        );
-
-        value_scenarios!(
-            run = |value: String| value.if_non_empty();
-            "string" {
-                String::new() => None,
-                "value".to_string() => Some("value".to_string()),
             }
         );
     }

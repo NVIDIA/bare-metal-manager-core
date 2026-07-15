@@ -131,6 +131,8 @@ macro_rules! define_fetch_state_history_records {
         $fn_name:ident,
         // type of the ID (MachineId, SwitchId, ...)
         id_type = $Id:ty,
+        // canonical structured log field for this ID type
+        id_log_field = $id_log_field:ident,
         // field in the request holding the vector of IDs (machine_ids, switch_ids, ...)
         id_vec_field = $ids_field:ident,
         // RPC method on Api (find_machine_state_histories, find_switch_state_histories, ...)
@@ -162,7 +164,12 @@ macro_rules! define_fetch_state_history_records {
             {
                 Ok(response) => response.into_inner().histories,
                 Err(err) => {
-                    tracing::error!(%err, %id, stringify!($api_method));
+                    tracing::error!(
+                        error = %err,
+                        $id_log_field = %id,
+                        operation = stringify!($api_method),
+                        "State history request failed"
+                    );
                     return Err((
                         http::StatusCode::INTERNAL_SERVER_ERROR,
                         concat!("Failed ", stringify!($api_method)).to_string(),
@@ -186,6 +193,7 @@ macro_rules! define_fetch_state_history_records {
 define_fetch_state_history_records!(
     fetch_machine_state_history_records,
     id_type = MachineId,
+    id_log_field = machine_id,
     id_vec_field = machine_ids,
     api_method = find_machine_state_histories,
     request_type = MachineStateHistoriesRequest,
@@ -195,6 +203,7 @@ define_fetch_state_history_records!(
 define_fetch_state_history_records!(
     fetch_power_shelf_state_history_records,
     id_type = PowerShelfId,
+    id_log_field = power_shelf_id,
     id_vec_field = power_shelf_ids,
     api_method = find_power_shelf_state_histories,
     request_type = PowerShelfStateHistoriesRequest,
@@ -204,6 +213,7 @@ define_fetch_state_history_records!(
 define_fetch_state_history_records!(
     fetch_rack_state_history_records,
     id_type = RackId,
+    id_log_field = rack_id,
     id_vec_field = rack_ids,
     api_method = find_rack_state_histories,
     request_type = RackStateHistoriesRequest,
@@ -213,6 +223,7 @@ define_fetch_state_history_records!(
 define_fetch_state_history_records!(
     fetch_switch_state_history_records,
     id_type = SwitchId,
+    id_log_field = switch_id,
     id_vec_field = switch_ids,
     api_method = find_switch_state_histories,
     request_type = SwitchStateHistoriesRequest,

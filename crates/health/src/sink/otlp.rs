@@ -17,13 +17,13 @@
 
 use std::sync::Arc;
 
-use prometheus::Counter;
+use prometheus::{Counter, CounterVec, Opts};
 
 use super::dedup_queue::DedupQueue;
 use super::event_mapper::RedfishEventMapper;
 use super::{CollectorEvent, DataSink, EventContext, LogRecord, MetricSample};
 use crate::HealthError;
-use crate::config::OtlpSinkConfig;
+use crate::config::OtlpTargetConfig;
 use crate::metrics::MetricsManager;
 use crate::otlp::drain::OtlpDrainTask;
 use crate::otlp::metrics_drain::OtlpMetricsDrainTask;
@@ -84,65 +84,85 @@ fn metric_queue_key(context: &EventContext, sample: &MetricSample) -> OtlpMetric
 }
 
 impl OtlpSink {
-    pub fn new(
-        config: &OtlpSinkConfig,
+    /// Creates one independently queued sink for each configured OTLP target.
+    ///
+    /// The returned order matches `configs`. Each sink starts separate log and
+    /// metric drain tasks, and its queue replacement counters use its position
+    /// in `configs` as the bounded `target_index` label.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no Tokio runtime is active, or if Prometheus metrics
+    /// cannot be created, registered, or initialized for a target.
+    pub fn new_many(
+        configs: &[OtlpTargetConfig],
         mapper: Arc<dyn RedfishEventMapper>,
         metrics_manager: &MetricsManager,
         prefix: &str,
-    ) -> Result<Self, HealthError> {
+    ) -> Result<Vec<Self>, HealthError> {
         let handle = tokio::runtime::Handle::try_current().map_err(|e| {
             HealthError::GenericError(format!("otlp sink requires active tokio runtime: {e}"))
         })?;
 
-        let queue: Arc<OtlpQueue> = Arc::new(DedupQueue::new());
-        let metrics_queue: Arc<OtlpMetricsQueue> = Arc::new(DedupQueue::new());
-
-        let replaced_total = Counter::new(
-            format!("{prefix}_otlp_sink_replaced_total"),
-            "total log events replaced in the otlp queue before drain could process them",
+        let replaced_total = CounterVec::new(
+            Opts::new(
+                format!("{prefix}_otlp_sink_replaced_total"),
+                "total log events replaced in the otlp queue before drain could process them, labeled by configured target index",
+            ),
+            &["target_index"],
         )?;
 
         metrics_manager
             .global_registry()
             .register(Box::new(replaced_total.clone()))?;
 
-        let metrics_replaced_total = Counter::new(
-            format!("{prefix}_otlp_sink_metrics_replaced_total"),
-            "total metric samples replaced in the otlp queue before drain could process them",
+        let metrics_replaced_total = CounterVec::new(
+            Opts::new(
+                format!("{prefix}_otlp_sink_metrics_replaced_total"),
+                "total metric samples replaced in the otlp queue before drain could process them, labeled by configured target index",
+            ),
+            &["target_index"],
         )?;
 
         metrics_manager
             .global_registry()
             .register(Box::new(metrics_replaced_total.clone()))?;
 
-        let drain = OtlpDrainTask::new(
-            queue.clone(),
-            config.endpoint.clone(),
-            config.batch_size,
-            config.flush_interval,
-        );
-        handle.spawn(drain.run());
+        let mut sinks = Vec::with_capacity(configs.len());
 
-        // Metrics use a separate drain so either signal type can make progress
-        // when the other collector is slow or temporarily failing.
-        let metrics_drain = OtlpMetricsDrainTask::new(
-            metrics_queue.clone(),
-            config.endpoint.clone(),
-            config.batch_size,
-            config.flush_interval,
-            prefix.to_string(),
-        );
+        for (target_index, config) in configs.iter().enumerate() {
+            let queue: Arc<OtlpQueue> = Arc::new(DedupQueue::new());
+            let metrics_queue: Arc<OtlpMetricsQueue> = Arc::new(DedupQueue::new());
+            let target_index = target_index.to_string();
+            let replaced_total = replaced_total.get_metric_with_label_values(&[&target_index])?;
 
-        handle.spawn(metrics_drain.run());
+            let metrics_replaced_total =
+                metrics_replaced_total.get_metric_with_label_values(&[&target_index])?;
 
-        Ok(Self {
-            queue,
-            metrics_queue,
-            replaced_total,
-            metrics_replaced_total,
-            mapper,
-            include_diagnostics: config.include_diagnostics,
-        })
+            let drain = OtlpDrainTask::new(queue.clone(), config.clone());
+            handle.spawn(drain.run());
+
+            // Each target and signal owns a drain so a slow collector cannot
+            // block delivery to another target or signal.
+            let metrics_drain = OtlpMetricsDrainTask::new(
+                metrics_queue.clone(),
+                config.clone(),
+                prefix.to_string(),
+            );
+
+            handle.spawn(metrics_drain.run());
+
+            sinks.push(Self {
+                queue,
+                metrics_queue,
+                replaced_total,
+                metrics_replaced_total,
+                mapper: mapper.clone(),
+                include_diagnostics: config.include_diagnostics,
+            });
+        }
+
+        Ok(sinks)
     }
 
     /// Enqueues the emitted log record using the parent event identity.
@@ -259,7 +279,7 @@ mod tests {
 
     use super::*;
     use crate::sink::event_mapper::OpenBmcEventMapper;
-    use crate::sink::{DiagnosticLogRecord, LogRecord, MetricSample};
+    use crate::sink::{CompositeDataSink, DiagnosticLogRecord, LogRecord, MetricSample};
 
     fn test_context() -> EventContext {
         EventContext {
@@ -469,6 +489,83 @@ mod tests {
         let ctx = test_context();
         sink.handle_event(&ctx, &log_event("OpenBMC.0.1.Test", r#"["sensor1"]"#));
         assert!(sink.queue.pop().is_some());
+    }
+
+    #[test]
+    fn composite_fans_log_event_to_each_otlp_target_queue() {
+        let first = Arc::new(test_sink());
+        let second = Arc::new(test_sink());
+        let sinks: Vec<Arc<dyn DataSink>> = vec![first.clone(), second.clone()];
+
+        let metrics_manager = Arc::new(
+            MetricsManager::new("otlp_multi_target_test")
+                .expect("metrics manager should initialize"),
+        );
+
+        let composite = CompositeDataSink::new(sinks, metrics_manager);
+        let context = test_context();
+        let event = log_event("OpenBMC.0.1.Test", r#"["sensor1"]"#);
+
+        composite.handle_event(&context, &event);
+
+        assert!(first.queue.pop().is_some());
+        assert!(second.queue.pop().is_some());
+    }
+
+    #[tokio::test]
+    async fn new_many_labels_replacement_counters_by_target_index() {
+        let configs = vec![
+            OtlpTargetConfig {
+                endpoint: "http://first.example:4317".to_string(),
+                batch_size: 512,
+                flush_interval: std::time::Duration::from_secs(2),
+                include_diagnostics: false,
+                tls: None,
+            },
+            OtlpTargetConfig {
+                endpoint: "http://second.example:4317".to_string(),
+                batch_size: 512,
+                flush_interval: std::time::Duration::from_secs(2),
+                include_diagnostics: false,
+                tls: None,
+            },
+        ];
+
+        let metrics_manager = MetricsManager::new("otlp_replacement_manager")
+            .expect("metrics manager should initialize");
+
+        let sinks = OtlpSink::new_many(
+            &configs,
+            Arc::new(OpenBmcEventMapper),
+            &metrics_manager,
+            "otlp_replacement_test",
+        )
+        .expect("OTLP sinks should initialize");
+
+        sinks[0].replaced_total.inc();
+        sinks[1].metrics_replaced_total.inc();
+
+        let metrics = metrics_manager
+            .export_metrics()
+            .expect("metrics should export");
+
+        assert!(
+            metrics
+                .contains("otlp_replacement_test_otlp_sink_replaced_total{target_index=\"0\"} 1")
+        );
+
+        assert!(
+            metrics
+                .contains("otlp_replacement_test_otlp_sink_replaced_total{target_index=\"1\"} 0")
+        );
+
+        assert!(metrics.contains(
+            "otlp_replacement_test_otlp_sink_metrics_replaced_total{target_index=\"0\"} 0"
+        ));
+
+        assert!(metrics.contains(
+            "otlp_replacement_test_otlp_sink_metrics_replaced_total{target_index=\"1\"} 1"
+        ));
     }
 
     #[test]

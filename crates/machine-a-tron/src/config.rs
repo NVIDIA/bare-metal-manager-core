@@ -89,6 +89,10 @@ pub struct MachineConfig {
     pub template_dir: String,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
+    /// Relay address used when a host DHCPs directly through a plain NIC rather than a managed DPU.
+    /// If omitted, direct host DHCP falls back to `admin_dhcp_relay_address` for compatibility.
+    #[serde(default)]
+    pub host_inband_dhcp_relay_address: Option<Ipv4Addr>,
 
     #[serde(
         default = "default_run_interval_working",
@@ -126,6 +130,13 @@ pub struct MachineConfig {
 
     #[serde(default)]
     pub dpu_agent_version: Option<String>,
+}
+
+impl MachineConfig {
+    pub(crate) fn missing_host_inband_relay_for_direct_host_dhcp(&self) -> bool {
+        self.host_inband_dhcp_relay_address.is_none()
+            && (self.dpu_per_host_count == 0 || self.dpus_in_nic_mode)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -209,6 +220,10 @@ pub struct MachineATronConfig {
     /// for testing things like ssh-console.
     #[serde(default = "default_false")]
     pub mock_bmc_ssh_server: bool,
+
+    /// Opt in to an independent IPMI/SOL simulator for each IPMI-capable host BMC.
+    #[serde(default = "default_false")]
+    pub enable_ipmi_simulation: bool,
 
     /// Set this to configure the port to use when mocking a BMC SSH server. If unset and
     /// use_single_bmc_mock is true, it will pick a random port. If unset and use_single_bmc_mock
@@ -541,7 +556,7 @@ where
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
 
@@ -571,6 +586,7 @@ dpu_reboot_delay = 1 # in units of seconds
 host_reboot_delay = 1 # in units of seconds
 vpc_count = 0
 admin_dhcp_relay_address = "192.168.176.1"
+host_inband_dhcp_relay_address = "192.168.177.1"
 oob_dhcp_relay_address = "192.168.192.1"
 subnets_per_vpc = 0
 run_interval_working = "100ms"
@@ -590,6 +606,26 @@ scout_run_interval = "5s"
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
             .expect("Could not deserialize serialized config");
         assert_eq!(round_tripped, cfg);
+    }
+
+    #[test]
+    fn ipmi_simulation_is_disabled_by_default() {
+        assert!(!rack_config().enable_ipmi_simulation);
+    }
+
+    #[test]
+    fn host_inband_dhcp_relay_is_optional() {
+        let mut serialized =
+            toml::Value::try_from(rack_config()).expect("Could not serialize config");
+        serialized["machines"]["config"]
+            .as_table_mut()
+            .expect("machine config should be a TOML table")
+            .remove("host_inband_dhcp_relay_address");
+
+        let cfg: MachineATronConfig = serialized
+            .try_into()
+            .expect("legacy config without host_inband_dhcp_relay_address should deserialize");
+        assert_eq!(cfg.machines["config"].host_inband_dhcp_relay_address, None);
     }
 
     #[test]
@@ -648,6 +684,44 @@ scout_run_interval = "5s"
                 },
             ],
             |config| config.validate().map_err(drop),
+        );
+    }
+
+    #[test]
+    fn missing_host_inband_relay_warning_selection() {
+        let host_inband = Ipv4Addr::new(192, 168, 177, 1);
+
+        check_values(
+            [
+                Check {
+                    scenario: "zero-DPU host without HostInband",
+                    input: (0, false, None),
+                    expect: true,
+                },
+                Check {
+                    scenario: "NIC-mode host without HostInband",
+                    input: (1, true, None),
+                    expect: true,
+                },
+                Check {
+                    scenario: "managed-DPU host without HostInband",
+                    input: (1, false, None),
+                    expect: false,
+                },
+                Check {
+                    scenario: "zero-DPU host with HostInband",
+                    input: (0, false, Some(host_inband)),
+                    expect: false,
+                },
+            ],
+            |(dpu_per_host_count, dpus_in_nic_mode, host_inband_dhcp_relay_address)| {
+                let mut config = rack_config();
+                let machine = Arc::make_mut(config.machines.get_mut("config").unwrap());
+                machine.dpu_per_host_count = dpu_per_host_count;
+                machine.dpus_in_nic_mode = dpus_in_nic_mode;
+                machine.host_inband_dhcp_relay_address = host_inband_dhcp_relay_address;
+                machine.missing_host_inband_relay_for_direct_host_dhcp()
+            },
         );
     }
 }

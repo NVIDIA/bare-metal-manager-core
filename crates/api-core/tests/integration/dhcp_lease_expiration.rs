@@ -537,3 +537,70 @@ async fn test_expire_with_mismatched_mac_is_no_op(
 
     Ok(())
 }
+
+/// Regression for #3383 (review follow-up): the MAC-scoped expiry path must
+/// resync the interface that actually owned the deleted (ip, mac) row — derived
+/// from the delete itself — and leave other interfaces on the segment untouched.
+#[sqlx_test]
+async fn test_mac_scoped_expiry_resyncs_only_the_owner(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (env, admin_segment) = init(pool).await;
+    let owner_mac = "aa:bb:cc:dd:ee:20";
+    let other_mac = "aa:bb:cc:dd:ee:21";
+
+    // Two interfaces, each with its own DHCP address and IP-derived hostname.
+    let owner = env
+        .api()
+        .discover_dhcp(
+            DhcpDiscovery::builder(owner_mac, admin_segment.relay_address).tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let owner_ip = owner.address.clone();
+    let owner_id = owner.machine_interface_id.unwrap();
+
+    let other = env
+        .api()
+        .discover_dhcp(
+            DhcpDiscovery::builder(other_mac, admin_segment.relay_address).tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let other_id = other.machine_interface_id.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let other_hostname_before = db::machine_interface::find_one(&mut *txn, other_id)
+        .await?
+        .hostname;
+    txn.commit().await?;
+
+    // Expire the owner's lease scoped by (ip, mac).
+    let expire_response = env
+        .api()
+        .expire_dhcp_lease(Request::new(ExpireDhcpLeaseRequest {
+            ip_address: owner_ip,
+            mac_address: Some(owner_mac.to_string()),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(expire_response.status(), ExpireDhcpLeaseStatus::Released);
+
+    // The owner is resynced to the dormant placeholder; the other interface is
+    // left exactly as it was.
+    let mut txn = env.db_txn().await;
+    let owner_after = db::machine_interface::find_one(&mut *txn, owner_id).await?;
+    let other_after = db::machine_interface::find_one(&mut *txn, other_id).await?;
+    txn.commit().await?;
+    assert!(
+        owner_after.hostname.to_lowercase().starts_with("noip"),
+        "the (ip, mac) owner should be resynced to dormant, got: {}",
+        owner_after.hostname,
+    );
+    assert_eq!(
+        other_after.hostname, other_hostname_before,
+        "an unrelated interface must not be resynced"
+    );
+
+    Ok(())
+}

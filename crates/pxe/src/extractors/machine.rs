@@ -44,9 +44,10 @@ impl FromRequestParts<AppState> for Machine {
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| {
-                eprintln!(
-                    "error connecting to forge api from pxe - {:?} - url: {:?}",
-                    err, state.runtime_config.internal_api_url
+                tracing::error!(
+                    error = ?err,
+                    url = ?state.runtime_config.internal_api_url,
+                    "error connecting to forge api from pxe"
                 );
                 PxeRequestError::MissingClientConfig
             })?;

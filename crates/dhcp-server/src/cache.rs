@@ -57,14 +57,14 @@ pub fn get(
 ) -> Option<CacheEntry> {
     let key = &key(mac_address, link_address, circuit_id, remote_id, vendor_id);
     if key.len() < MIN_KEY_LEN {
-        tracing::debug!("Unexpected cache key, skipping: '{key}'");
+        tracing::debug!(key = key.as_str(), "Unexpected cache key, skipping");
         return None;
     }
     if let Some(entry) = cache.get(key) {
         if !entry.has_expired() {
             return Some(entry.clone());
         } else {
-            tracing::debug!("removed expired cached response for {mac_address:?}");
+            tracing::debug!(?mac_address, "removed expired cached response");
             let _removed = cache.pop_entry(key);
         }
     }

@@ -440,7 +440,7 @@ async fn allocate_vpc_vni(
                 tracing::error!(
                     owner_id,
                     pool = source_pool.name(),
-                    value = requested_vni,
+                    requested_vni,
                     "invalid pool value requested, cannot allocate"
                 );
                 CarbideError::FailedPrecondition(format!(

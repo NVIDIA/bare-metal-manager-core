@@ -447,7 +447,7 @@ fn log_carbide_error(error: &CarbideError, schema: &OperatorErrorSchema) {
             error_code = %schema.error_code,
             mitigation = %schema.mitigation_for_log(),
             text = %schema.text,
-            location = %location,
+            error_location = %location,
             handler = %handler,
             "Request failed"
         );

@@ -423,7 +423,10 @@ impl IntoResponse for AuthCallbackResponse {
         match self {
             AuthCallbackResponse::Response(response) => response,
             AuthCallbackResponse::Error(error) => {
-                tracing::error!("internal server error running auth_callback: {error}");
+                tracing::error!(
+                    error = %error,
+                    "internal server error running auth_callback",
+                );
                 (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
             }
         }
@@ -439,9 +442,9 @@ where
     fn from(value: (StatusCode, S)) -> Self {
         if !value.0.is_success() {
             tracing::info!(
-                "auth_callback was unsuccessful with status code {}: {}",
-                value.0.as_u16(),
-                value.1.to_string()
+                http_status = value.0.as_u16(),
+                response_detail = %value.1.to_string(),
+                "auth_callback returned an unsuccessful response",
             );
         }
         AuthCallbackResponse::Response((value.0, value.1.to_string()).into_response())
@@ -519,7 +522,7 @@ impl<'c> oauth2::AsyncHttpClient<'c> for AsyncRequestHandlerWithTimeouts<'_> {
 
             if status.is_server_error() || status.is_client_error() {
                 let body_str = std::str::from_utf8(&body).unwrap_or_default();
-                tracing::error!(body_str=%body_str,"error response when making http request for oauth2 flow");
+                tracing::error!(response_body = %body_str,"error response when making http request for oauth2 flow");
             }
 
             Ok(result.body(body).unwrap())

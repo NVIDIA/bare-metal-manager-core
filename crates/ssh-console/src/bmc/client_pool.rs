@@ -212,13 +212,13 @@ impl BmcPoolMetrics {
         Self {
             grpc_total_hosts: meter
                 .u64_gauge("ssh_console_grpc_total_machines")
-                .with_description("The total number of hosts reported by the Site Controller to the SSH Console service").build(),
+                .with_description("Number of hosts reported by the Site Controller to the SSH Console service").build(),
             total_machines: meter
                 .u64_gauge("ssh_console_total_machines")
-                .with_description("The total number of host BMCs the SSH Console service has attempted connecting to").build(),
+                .with_description("Number of host BMCs the SSH Console service has attempted to connect to").build(),
             _failed_machines: meter
                 .u64_observable_gauge("ssh_console_failed_machines")
-                .with_description("The number of host BMCs the SSH Console service has encountered multiple errors with")
+                .with_description("Number of host BMCs with connection errors")
                 .with_callback({
                     let members = members.clone();
                     move |observer| {
@@ -233,7 +233,7 @@ impl BmcPoolMetrics {
                 .build(),
             _healthy_machines: meter
                 .u64_observable_gauge("ssh_console_healthy_machines")
-                .with_description("The number of host BMCs the SSH Console service has working connections to")
+                .with_description("Number of host BMCs the SSH Console service has working connections to")
                 .with_callback({
                     let members = members.clone();
                     move |observer| {

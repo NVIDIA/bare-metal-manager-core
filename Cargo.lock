@@ -908,6 +908,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tar",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tower",
@@ -1091,6 +1092,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "mac_address",
+ "metrics-endpoint",
  "mockall",
  "netlink-packet-route 0.19.0",
  "nix 0.31.3",
@@ -1237,6 +1239,7 @@ dependencies = [
  "librms",
  "logfmt",
  "mac_address",
+ "metrics-endpoint",
  "mockito",
  "mqttea",
  "nras",
@@ -1774,6 +1777,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "carbide-test-support",
+ "carbide-utils",
  "carbide-uuid",
  "clap",
  "dashmap",
@@ -1865,6 +1869,7 @@ dependencies = [
  "carbide-dpu-agent-utils",
  "carbide-rpc",
  "carbide-tls",
+ "carbide-utils",
  "carbide-uuid",
  "eyre",
  "rand 0.10.1",
@@ -1960,6 +1965,7 @@ dependencies = [
  "hyper-util",
  "ipnetwork",
  "logfmt",
+ "metrics-endpoint",
  "netlink-packet-route 0.19.0",
  "nonzero_ext",
  "opentelemetry 0.32.0",
@@ -1987,6 +1993,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "base64",
+ "bmc-mock",
  "bytes",
  "carbide-health-report",
  "carbide-instrument",
@@ -2208,6 +2215,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "carbide-instrument",
  "carbide-secrets",
  "carbide-utils",
  "carbide-uuid",
@@ -2237,6 +2245,7 @@ dependencies = [
  "aes-gcm 0.10.3",
  "async-trait",
  "base64",
+ "carbide-instrument",
  "carbide-test-support",
  "hex",
  "rand 0.10.1",
@@ -2378,6 +2387,7 @@ dependencies = [
  "carbide-secrets",
  "carbide-state-controller-common",
  "carbide-test-harness",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2490,6 +2500,8 @@ name = "carbide-mqtt-common"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "carbide-instrument",
+ "carbide-test-support",
  "mqttea",
  "opentelemetry 0.32.0",
  "tokio",
@@ -2604,6 +2616,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-firmware",
+ "carbide-instrument",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-ssh",
@@ -2654,12 +2667,14 @@ dependencies = [
  "carbide-version",
  "clap",
  "http-body",
+ "logfmt",
  "metrics",
  "metrics-endpoint",
  "metrics-exporter-prometheus",
  "mime",
  "pin-project-lite",
  "prometheus",
+ "rand 0.10.1",
  "serde",
  "tempfile",
  "tera",
@@ -2670,6 +2685,8 @@ dependencies = [
  "tower-http",
  "tower-layer",
  "tower-service",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
@@ -2738,8 +2755,12 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "axum",
+ "axum-server",
+ "bmc-mock",
  "bmc-vendor",
  "carbide-api-model",
+ "carbide-instrument",
  "carbide-secrets",
  "carbide-utils",
  "chrono",
@@ -2748,6 +2769,7 @@ dependencies = [
  "mac_address",
  "nv-redfish",
  "reqwest 0.13.4",
+ "rustls",
  "serde",
  "serde_json",
  "state-controller",
@@ -2830,6 +2852,7 @@ dependencies = [
  "carbide-health-report",
  "carbide-rpc",
  "carbide-test-support",
+ "carbide-utils",
  "carbide-uuid",
  "chrono",
  "config-version",
@@ -2879,9 +2902,11 @@ version = "0.0.1"
 dependencies = [
  "axum",
  "carbide-host-support",
+ "carbide-instrument",
  "carbide-libmlx",
  "carbide-machine-validation",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -2894,6 +2919,7 @@ dependencies = [
  "hex",
  "http",
  "lazy_static",
+ "metrics-endpoint",
  "once_cell",
  "pwhash",
  "regex",
@@ -2923,12 +2949,14 @@ dependencies = [
  "async-trait",
  "base64",
  "bmc-vendor",
+ "carbide-instrument",
  "carbide-test-support",
  "carbide-uuid",
  "eyre",
  "figment",
  "hex",
  "mac_address",
+ "mockito",
  "notify",
  "opentelemetry 0.32.0",
  "p256 0.14.0-rc.9",
@@ -3209,6 +3237,7 @@ name = "carbide-utils"
 version = "0.0.0"
 dependencies = [
  "byte-unit",
+ "carbide-instrument",
  "carbide-network",
  "carbide-test-support",
  "chrono",
@@ -3224,6 +3253,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6684,7 +6714,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.18#855c57dc567301f36801ac39c3a00432b17de08f"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.19#b52345f45212c674245dffb6053b34dec53ac57b"
 dependencies = [
  "chrono",
  "clap",
@@ -7632,9 +7662,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.10.4"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "533f4a01b88cbb0e3b30e0bded7f11d9b8f9bd6553df387a1878af975d77ec4d"
+checksum = "8f381d59345a3974aacc20e44148621457b5002d32fe5c9850fbce9c11c22f90"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7649,9 +7679,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.10.4"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c063e5ccfb788c80d2ef292353e867b7c157ec1a7d9358bb576048b9537bcb11"
+checksum = "67abd866b1c01bd615cd18afc96305cd436076a16d7a76e53b25bed7fab8422b"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7673,9 +7703,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.10.4"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ce8bb8d42d73917156f22350b07dfc8d49aafac8b0a2bb0ec63e874d0c3d715"
+checksum = "e5ec054643796ede5865fff5f0e3913ddc2bf7f954975f6f512b40d78be07db7"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7688,9 +7718,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.10.4"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a6f5d4b81f9551289df0700879aa31b5056441aaddf107b280e99b6dba7c77d"
+checksum = "34c88dbe8742e28c0e733596661d9c4605ef6cab438cf2c54d1ceb9577053f9a"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7706,9 +7736,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-schema"
-version = "0.10.4"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d95a042ca3ee9446ee137ff814035501a6934be98a15714ced1f78fcb242fda"
+checksum = "bc0a401a80543b6d7c27f28614bc70aa37103cd95b03b0746419bd87e43977f3"
 dependencies = [
  "glob",
 ]
@@ -7717,6 +7747,7 @@ dependencies = [
 name = "nvue-client"
 version = "0.0.0"
 dependencies = [
+ "carbide-instrument",
  "glob",
  "reqwest 0.13.4",
  "serde",
@@ -11684,6 +11715,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
+ "rustls-native-certs",
  "socket2",
  "sync_wrapper",
  "tokio",

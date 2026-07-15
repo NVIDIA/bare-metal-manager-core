@@ -59,10 +59,10 @@ pub(crate) async fn set_firmware_update_time_window(
     let mut txn = api.txn_begin().await?;
 
     tracing::info!(
-        "set_firmware_update_time_window: Setting update start/end ({:?} {:?}) for {:?}",
-        chrono::Utc.timestamp_opt(start, 0),
-        chrono::Utc.timestamp_opt(end, 0),
-        request.machine_ids
+        start_time = ?chrono::Utc.timestamp_opt(start, 0),
+        end_time = ?chrono::Utc.timestamp_opt(end, 0),
+        machine_ids = ?request.machine_ids,
+        "Setting firmware update time window",
     );
 
     db::machine::update_firmware_update_time_window_start_end(

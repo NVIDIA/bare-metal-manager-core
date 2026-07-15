@@ -76,7 +76,7 @@ fn logfmt_subscriber() -> impl tracing::Subscriber {
 fn emit_line() {
     tracing::info!(
         machine_id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0",
-        state = "waiting_for_dpu_up",
+        machine_state = "waiting_for_dpu_up",
         previous_state = "dpu_reprovision",
         attempt = 3_i64,
         port = 8443_u64,

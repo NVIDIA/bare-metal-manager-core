@@ -65,6 +65,11 @@ pxe_server_port = "8080"
 #
 bmc_mock_port = 2000
 
+# Set to true to start an independent IPMI/SOL simulator for each IPMI-capable
+# host BMC. This requires ipmi_sim and ipmitool to be available in PATH.
+#
+enable_ipmi_simulation = false
+
 # If set, host/DPU BMC mocks start with the factory default password rotated
 # to this value. Leave unset to keep the factory default.
 #
@@ -85,6 +90,8 @@ host_reboot_delay = 10 # in units of seconds
 # only used for filling in gateway/relay fields in the DHCP request object
 # (which carbide uses to determine what network the request came from.)
 admin_dhcp_relay_address = "192.168.252.1"
+# Direct host DHCP for zero-DPU hosts and DPUs operating as plain NICs.
+host_inband_dhcp_relay_address = "192.168.253.1"
 oob_dhcp_relay_address = "192.168.2.1"
 # oob_dhcp_relay_address = "192.168.2.1"
 # admin_dhcp_relay_address = "192.164.0.1"

@@ -139,7 +139,7 @@ impl MqtteaClient {
             .as_ref()
             .and_then(|opts| opts.credentials_provider.clone());
 
-        info!("Created MQTT client for {}:{}", broker_host, broker_port);
+        info!(%broker_host, broker_port, "Created MQTT client");
 
         Ok(Arc::new(Self {
             client: Arc::new(client),
@@ -178,8 +178,9 @@ impl MqtteaClient {
         for (topic, qos) in subs_snapshot {
             if let Err(e) = self.client.subscribe(topic.as_str(), qos).await {
                 error!(
-                    "Failed to re-subscribe to {} after fresh session: {:?}",
-                    topic, e
+                    %topic,
+                    error = %e,
+                    "Failed to re-subscribe after fresh session",
                 );
             }
         }
@@ -273,8 +274,8 @@ impl MqtteaClient {
                                     }
                                     Err(mpsc::error::TrySendError::Full(_)) => {
                                         warn!(
-                                            "Message queue full, dropping message from topic: {}",
-                                            publish.topic
+                                            topic = %publish.topic,
+                                            "Message queue full, dropping message from topic",
                                         );
                                         queue_stats_producer.increment_dropped(payload_size);
                                         tokio::time::sleep(backoff_strategy.next_delay()).await;
@@ -292,13 +293,16 @@ impl MqtteaClient {
                             } else {
                                 queue_stats_producer.increment_unmatched_topics();
                                 if warn_on_unmatched_topic {
-                                    warn!("No registered pattern matched topic: {}", publish.topic);
+                                    warn!(
+                                        topic = %publish.topic,
+                                        "No registered pattern matched topic",
+                                    );
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        error!("MQTT event loop connection error: {:?}", e);
+                        error!(error = %e, "MQTT event loop connection error");
                         connection_state.set_connected(false);
                         queue_stats_producer.increment_event_loop_errors();
 
@@ -319,8 +323,8 @@ impl MqtteaClient {
                                 }
                                 Err(cred_err) => {
                                     error!(
-                                        "Failed to refresh credentials for reconnection: {:?}",
-                                        cred_err
+                                        error = %cred_err,
+                                        "Failed to refresh credentials for reconnection",
                                     );
                                 }
                             }
@@ -352,14 +356,19 @@ impl MqtteaClient {
                                 .decrement_pending_increment_processed(payload_size);
                         }
                         Err(e) => {
-                            error!("Handler error for {}: {}", msg.type_name, e);
+                            error!(
+                                message_type = %msg.type_name,
+                                error = %e,
+                                "Handler error",
+                            );
                             queue_stats_processor.decrement_pending_increment_failed(payload_size);
                         }
                     }
                 } else {
                     warn!(
-                        "No handler registered for message type '{}' on topic '{}'",
-                        msg.type_name, msg.topic
+                        message_type = %msg.type_name,
+                        topic = %msg.topic,
+                        "No handler registered for message type on topic",
                     );
                     queue_stats_processor.decrement_pending_increment_failed(payload_size);
                 }
@@ -450,8 +459,8 @@ impl MqtteaClient {
         let mut handlers_guard = self.handlers.write().await;
         handlers_guard.insert(std::any::type_name::<T>().to_string(), type_erased_handler);
         info!(
-            "Registered handler for message type: {}",
-            std::any::type_name::<T>()
+            message_type = std::any::type_name::<T>(),
+            "Registered handler for message type",
         );
     }
 
@@ -471,7 +480,7 @@ impl MqtteaClient {
             .await
             .map_err(MqtteaClientError::ConnectionError)?;
 
-        info!("Subscribed to topic: {} (QoS: {:?})", topic, qos);
+        info!(%topic, ?qos, "Subscribed to topic");
         Ok(())
     }
 
@@ -520,7 +529,7 @@ impl MqtteaClient {
         match self.client.publish(topic, qos, retain, payload).await {
             Ok(_) => {
                 self.publish_stats.increment_published(payload_size);
-                debug!("Published message to topic: {}", topic);
+                debug!(%topic, "Published message to topic");
                 Ok(())
             }
             Err(e) => {
@@ -709,8 +718,8 @@ impl SuperBasicBackoff {
         let delay = self.current;
         self.current = std::cmp::min(self.current * 2, self.max);
         warn!(
-            "Message event loop backoff updated: {}ms",
-            delay.as_millis()
+            delay_milliseconds = delay.as_millis(),
+            "Message event loop backoff updated"
         );
         delay
     }

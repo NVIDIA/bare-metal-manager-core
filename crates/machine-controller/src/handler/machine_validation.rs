@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 use carbide_uuid::machine_validation::MachineValidationId;
+use chrono::Utc;
 use libredfish::{EnabledDisabled, RedfishError, SystemPowerControl};
 use model::machine::{
-    FailureCause, MachineState, MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot,
-    SetBootOrderInfo, SetBootOrderState, UnlockHostState, ValidationState,
+    FailureCause, FailureDetails, FailureSource, MachineState, MachineValidatingState,
+    ManagedHostState, ManagedHostStateSnapshot, StateMachineArea, UnlockHostState, ValidationState,
 };
 use model::machine_validation::{MachineValidationState, MachineValidationStatus};
 use state_controller::state_handler::{
@@ -27,10 +28,14 @@ use state_controller::state_handler::{
 
 use super::{HostHandlerParams, is_machine_validation_requested, machine_validation_completed};
 use crate::context::{MachineStateHandlerContextObjects, MachineStateHandlerServices};
+use crate::handler::host_boot_config::{
+    HostBootConfigCheckOutcome, HostBootConfigDecision, HostBootConfigDpuFreshness,
+    HostBootConfigOutcome, HostBootConfigStage, check_host_boot_config, decide_host_boot_config,
+    initial_set_boot_order_info, inspect_host_boot_config, run_host_boot_config_stage,
+};
 use crate::handler::{
-    RequiredBootInterface, SetBootOrderOutcome, handler_host_power_control, host_power_control,
-    load_boot_predictions, rebooted, redfish_error, require_boot_interface, set_host_boot_order,
-    trigger_reboot_if_needed, wait,
+    RequiredBootInterface, handler_host_power_control, host_power_control, load_boot_predictions,
+    rebooted, redfish_error, require_boot_interface, trigger_reboot_if_needed, wait,
 };
 
 /// The validation flavor of the managed-host state, so the repair arms can
@@ -41,14 +46,103 @@ fn validating(machine_validation: MachineValidatingState) -> ManagedHostState {
     }
 }
 
-/// The starting point for the boot-order flow when validation boot repair
-/// re-drives it: the flow itself checks what is already in place and only
-/// re-applies what the reboot reverted.
-fn boot_repair_start() -> SetBootOrderInfo {
-    SetBootOrderInfo {
-        set_boot_order_jid: None,
-        set_boot_order_state: SetBootOrderState::SetBootOrder,
-        retry_count: 0,
+/// Handles a shared boot-configuration stage for machine validation.
+///
+/// Called by `handle_machine_validation_state` for its BIOS configuration,
+/// vendor-job, polling, and boot-order repair substates. This adapter preserves
+/// the validation ID, maps continued stages back into `MachineValidatingState`,
+/// continues to `LockAfterBootRepair` on completion, and closes the validation
+/// run before reporting a terminal boot-configuration failure.
+async fn handle_validation_boot_config_stage(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    host_handler_params: &HostHandlerParams,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    validation_id: MachineValidationId,
+    stage: HostBootConfigStage,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+        .await?;
+
+    match run_host_boot_config_stage(
+        ctx,
+        &host_handler_params.reachability_params,
+        redfish_client.as_ref(),
+        mh_snapshot,
+        stage,
+    )
+    .await?
+    {
+        HostBootConfigOutcome::Continue(stage) => {
+            let machine_validation = match stage {
+                HostBootConfigStage::ConfigureBios { retry_count } => {
+                    MachineValidatingState::ConfigureBootBios {
+                        validation_id,
+                        retry_count,
+                    }
+                }
+                HostBootConfigStage::WaitingForBiosJob { bios_config_info } => {
+                    MachineValidatingState::WaitingForBootBiosJob {
+                        validation_id,
+                        bios_config_info,
+                    }
+                }
+                HostBootConfigStage::PollingBiosSetup { retry_count } => {
+                    MachineValidatingState::PollingBootBiosSetup {
+                        validation_id,
+                        retry_count,
+                    }
+                }
+                HostBootConfigStage::SetBootOrder {
+                    set_boot_order_info,
+                } => MachineValidatingState::RepairBootConfig {
+                    validation_id,
+                    set_boot_order_info,
+                },
+            };
+
+            Ok(StateHandlerOutcome::transition(validating(
+                machine_validation,
+            )))
+        }
+        HostBootConfigOutcome::Complete => Ok(StateHandlerOutcome::transition(validating(
+            MachineValidatingState::LockAfterBootRepair { validation_id },
+        ))),
+        HostBootConfigOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
+        HostBootConfigOutcome::Failed { failure } => {
+            let machine_id = mh_snapshot.host_snapshot.id;
+            let mut txn = ctx.services.db_pool.begin().await?;
+            let completed = db::machine_validation::mark_machine_validation_complete(
+                txn.as_mut(),
+                &machine_id,
+                &validation_id,
+                MachineValidationStatus {
+                    state: MachineValidationState::Failed,
+                    ..MachineValidationStatus::default()
+                },
+            )
+            .await?;
+
+            if !completed {
+                tracing::info!(
+                    %machine_id,
+                    machine_validation_id = %validation_id,
+                    "Machine validation boot-config failure observed after the run was already terminal"
+                );
+            }
+
+            Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
+                details: FailureDetails {
+                    cause: FailureCause::BiosSetupFailed { err: failure },
+                    failed_at: Utc::now(),
+                    source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+                },
+                machine_id,
+                retry_count: 0,
+            })
+            .with_txn(txn))
+        }
     }
 }
 
@@ -137,12 +231,12 @@ pub(crate) async fn handle_machine_validation_state(
             is_enabled,
         } => {
             tracing::trace!(
-                "context = {} id = {} completed = {} total = {}, is_enabled = {} ",
-                context,
-                id,
-                completed,
-                total,
-                is_enabled,
+                machine_validation_context = %context,
+                machine_validation_id = %id,
+                completed_validation_count = completed,
+                total_validation_count = total,
+                validation_enabled = is_enabled,
+                "machine validation progress",
             );
             if !rebooted(&mh_snapshot.host_snapshot) {
                 // Ensure the boot config is still what it should be while
@@ -162,11 +256,20 @@ pub(crate) async fn handle_machine_validation_state(
                         .services
                         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
                         .await?;
-                    match boot_interface
-                        .run(|bi| redfish_client.is_bios_setup(Some(bi)))
-                        .await
+                    match inspect_host_boot_config(
+                        redfish_client.as_ref(),
+                        mh_snapshot,
+                        &boot_interface,
+                    )
+                    .await
                     {
-                        Ok(false) => {
+                        Ok(inspection)
+                            if matches!(
+                                decide_host_boot_config(inspection),
+                                HostBootConfigDecision::ConfigureBios
+                                    | HostBootConfigDecision::SetBootOrder
+                            ) =>
+                        {
                             tracing::warn!(
                                 machine_id = %mh_snapshot.host_snapshot.id,
                                 "Boot config reads reverted while waiting for the validation reboot; correcting it via boot repair",
@@ -175,7 +278,7 @@ pub(crate) async fn handle_machine_validation_state(
                                 MachineValidatingState::PrepareBootRepair { validation_id: *id },
                             )));
                         }
-                        Ok(true) => {}
+                        Ok(_) => {}
                         Err(e) => {
                             tracing::warn!(
                                 machine_id = %mh_snapshot.host_snapshot.id,
@@ -202,8 +305,8 @@ pub(crate) async fn handle_machine_validation_state(
             if machine_validation_completed(&mh_snapshot.host_snapshot) {
                 if mh_snapshot.host_snapshot.failure_details.cause == FailureCause::NoError {
                     tracing::info!(
-                        "{} machine validation completed",
-                        mh_snapshot.host_snapshot.id
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "machine validation completed"
                     );
                     let machine_validation =
                         db::machine_validation::find_by_id(&mut ctx.services.db_reader, id)
@@ -227,7 +330,10 @@ pub(crate) async fn handle_machine_validation_state(
                         },
                     ));
                 } else {
-                    tracing::info!("{} machine validation failed", mh_snapshot.host_snapshot.id);
+                    tracing::info!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "machine validation failed"
+                    );
                     return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
                         details: mh_snapshot.host_snapshot.failure_details.clone(),
                         machine_id: mh_snapshot.host_snapshot.id,
@@ -252,9 +358,8 @@ pub(crate) async fn handle_machine_validation_state(
                         machine_id = %mh_snapshot.host_snapshot.id,
                         "BMC vendor does not support checking lockdown status during validation boot repair",
                     );
-                    MachineValidatingState::RepairBootConfig {
+                    MachineValidatingState::CheckBootConfigForRepair {
                         validation_id: *validation_id,
-                        set_boot_order_info: boot_repair_start(),
                     }
                 }
                 Err(e) => {
@@ -277,9 +382,8 @@ pub(crate) async fn handle_machine_validation_state(
                         unlock_host_state: UnlockHostState::DisableLockdown,
                     }
                 }
-                Ok(_) => MachineValidatingState::RepairBootConfig {
+                Ok(_) => MachineValidatingState::CheckBootConfigForRepair {
                     validation_id: *validation_id,
-                    set_boot_order_info: boot_repair_start(),
                 },
             };
 
@@ -322,9 +426,8 @@ pub(crate) async fn handle_machine_validation_state(
                             unlock_host_state: UnlockHostState::RebootHost,
                         }
                     } else {
-                        MachineValidatingState::RepairBootConfig {
+                        MachineValidatingState::CheckBootConfigForRepair {
                             validation_id: *validation_id,
-                            set_boot_order_info: boot_repair_start(),
                         }
                     }
                 }
@@ -359,51 +462,112 @@ pub(crate) async fn handle_machine_validation_state(
                             mh_snapshot.host_snapshot.id
                         )));
                     }
-                    MachineValidatingState::RepairBootConfig {
+                    MachineValidatingState::CheckBootConfigForRepair {
                         validation_id: *validation_id,
-                        set_boot_order_info: boot_repair_start(),
                     }
                 }
             };
 
             Ok(StateHandlerOutcome::transition(validating(next)))
         }
-        MachineValidatingState::RepairBootConfig {
-            validation_id,
-            set_boot_order_info,
-        } => {
-            // Re-drive the boot-order flow: it checks what is already in
-            // place, re-asserts the reverted HTTP-boot device (rebooting to
-            // apply it), sets the boot order, and verifies -- the same engine
-            // the boot-configuration stages use.
+        MachineValidatingState::CheckBootConfigForRepair { validation_id } => {
             let redfish_client = ctx
                 .services
                 .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
                 .await?;
 
-            match set_host_boot_order(
-                ctx,
-                &host_handler_params.reachability_params,
+            let next = match check_host_boot_config(
                 redfish_client.as_ref(),
                 mh_snapshot,
-                set_boot_order_info.clone(),
+                &host_handler_params.reachability_params,
+                HostBootConfigDpuFreshness::CurrentHostState,
+                ctx,
             )
             .await?
             {
-                SetBootOrderOutcome::Continue(info) => Ok(StateHandlerOutcome::transition(
-                    validating(MachineValidatingState::RepairBootConfig {
+                HostBootConfigCheckOutcome::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
+                HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::ConfigureBios) => {
+                    MachineValidatingState::ConfigureBootBios {
                         validation_id: *validation_id,
-                        set_boot_order_info: info,
-                    }),
-                )),
-                SetBootOrderOutcome::Done => Ok(StateHandlerOutcome::transition(validating(
+                        retry_count: 0,
+                    }
+                }
+                HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::SetBootOrder) => {
+                    MachineValidatingState::RepairBootConfig {
+                        validation_id: *validation_id,
+                        set_boot_order_info: initial_set_boot_order_info(),
+                    }
+                }
+                HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::Complete) => {
                     MachineValidatingState::LockAfterBootRepair {
                         validation_id: *validation_id,
-                    },
-                ))),
-                SetBootOrderOutcome::WaitingForReboot(reason)
-                | SetBootOrderOutcome::Wait(reason) => Ok(StateHandlerOutcome::wait(reason)),
-            }
+                    }
+                }
+            };
+
+            Ok(StateHandlerOutcome::transition(validating(next)))
+        }
+        MachineValidatingState::ConfigureBootBios {
+            validation_id,
+            retry_count,
+        } => {
+            handle_validation_boot_config_stage(
+                ctx,
+                host_handler_params,
+                mh_snapshot,
+                *validation_id,
+                HostBootConfigStage::ConfigureBios {
+                    retry_count: *retry_count,
+                },
+            )
+            .await
+        }
+        MachineValidatingState::WaitingForBootBiosJob {
+            validation_id,
+            bios_config_info,
+        } => {
+            handle_validation_boot_config_stage(
+                ctx,
+                host_handler_params,
+                mh_snapshot,
+                *validation_id,
+                HostBootConfigStage::WaitingForBiosJob {
+                    bios_config_info: bios_config_info.clone(),
+                },
+            )
+            .await
+        }
+        MachineValidatingState::PollingBootBiosSetup {
+            validation_id,
+            retry_count,
+        } => {
+            handle_validation_boot_config_stage(
+                ctx,
+                host_handler_params,
+                mh_snapshot,
+                *validation_id,
+                HostBootConfigStage::PollingBiosSetup {
+                    retry_count: *retry_count,
+                },
+            )
+            .await
+        }
+        MachineValidatingState::RepairBootConfig {
+            validation_id,
+            set_boot_order_info,
+        } => {
+            handle_validation_boot_config_stage(
+                ctx,
+                host_handler_params,
+                mh_snapshot,
+                *validation_id,
+                HostBootConfigStage::SetBootOrder {
+                    set_boot_order_info: set_boot_order_info.clone(),
+                },
+            )
+            .await
         }
         MachineValidatingState::LockAfterBootRepair { validation_id } => {
             // Restore the lockdown that boot repair temporarily opened, then

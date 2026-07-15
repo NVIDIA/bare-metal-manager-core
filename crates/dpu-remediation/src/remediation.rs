@@ -21,6 +21,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
 use rand::RngExt;
@@ -127,7 +128,10 @@ impl RemediationExecutor {
                     let status_file_str = tokio::fs::read_to_string(&status_path).await?;
                     let results = if !status_file_str.is_empty() {
                         serde_json::from_str::<HashMap<String, String>>(&status_file_str).map_err(|err| {
-                                tracing::error!("Unable to deserialize json into hashmap from status output file, error was {:#?}", err);
+                                tracing::error!(
+                                    error = ?err,
+                                    "Unable to deserialize json into hashmap from status output file",
+                                );
                             }).unwrap_or_default()
                     } else {
                         HashMap::new()
@@ -154,9 +158,7 @@ impl RemediationExecutor {
             }
         };
 
-        let metadata = if results.is_empty() {
-            None
-        } else {
+        let metadata = results.none_if_empty().map(|results| {
             let labels = results
                 .into_iter()
                 .map(|(k, v)| rpc::forge::Label {
@@ -164,12 +166,12 @@ impl RemediationExecutor {
                     value: Some(v),
                 })
                 .collect();
-            Some(Metadata {
+            Metadata {
                 name: "".to_string(),
                 description: "".to_string(),
                 labels,
-            })
-        };
+            }
+        });
 
         let application_status = RemediationApplicationStatus {
             succeeded,
@@ -225,10 +227,7 @@ impl RemediationExecutor {
                                             tracing::debug!("Remediation successfully applied.");
                                         }
                                         Err(error) => {
-                                            tracing::error!(
-                                                "Remediation failed with error: {:#?}.",
-                                                error
-                                            );
+                                            tracing::error!(?error, "Remediation failed",);
                                         }
                                     }
                                 }
@@ -237,24 +236,26 @@ impl RemediationExecutor {
                                 }
                                 _ => {
                                     tracing::error!(
-                                        "received a response with one of id or script but not both, skipping, will retry next loop, response: {:#?}",
-                                        next_remediation
+                                        has_script = next_remediation.remediation_script.is_some(),
+                                        has_remediation_id =
+                                            next_remediation.remediation_id.is_some(),
+                                        "received a response with one of id or script but not both, skipping, will retry next loop",
                                     );
                                 }
                             }
                         }
                         Err(remediation_fetch_error) => {
                             tracing::error!(
-                                "Remediation executor unable to fetch next remediation this loop, will retry next loop, error was: {:#?}",
-                                remediation_fetch_error
+                                error = ?remediation_fetch_error,
+                                "Remediation executor unable to fetch next remediation this loop, will retry next loop",
                             );
                         }
                     }
                 }
                 Err(client_creation_error) => {
                     tracing::error!(
-                        "Remediation executor unable to create forge client this loop, will retry next loop, error was: {:#?}",
-                        client_creation_error
+                        error = ?client_creation_error,
+                        "Remediation executor unable to create forge client this loop, will retry next loop",
                     );
                 }
             }

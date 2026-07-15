@@ -34,12 +34,12 @@ use sqlx::PgConnection;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::CarbideResult;
 use crate::cfg::file::CarbideConfig;
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::machine_update_manager::machine_update_module::MachineUpdateModule;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host;
+use crate::{CarbideError, CarbideResult};
 
 const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
@@ -261,6 +261,48 @@ fn test_start(pool: sqlx::PgPool) {
     let end_count = test_module.get_start_updates_called();
 
     assert_eq!(start_count, end_count);
+}
+
+/// A lock acquisition that fails for infrastructure reasons (here: the work
+/// lock manager is gone, so the command channel is closed) must propagate out
+/// of `run_single_iteration` as an error rather than being swallowed as a
+/// benign yield -- it is what flips the loop's heartbeat to `outcome=error`.
+#[crate::sqlx_test()]
+fn test_run_single_iteration_propagates_lock_infrastructure_failure(pool: sqlx::PgPool) {
+    let test_module = Box::new(TestUpdateModule::new(vec![], HashSet::default()));
+    let mut join_set = JoinSet::new();
+    let work_lock_manager_handle =
+        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default())
+            .await
+            .unwrap();
+    join_set.shutdown().await;
+
+    let config: Arc<CarbideConfig> = Arc::new(
+        Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .extract()
+            .unwrap(),
+    );
+    let update_manager = MachineUpdateManager::new_with_modules(
+        pool,
+        config,
+        vec![test_module],
+        work_lock_manager_handle,
+    );
+
+    let err = update_manager
+        .run_single_iteration()
+        .await
+        .expect_err("a dead work lock manager is an infrastructure failure, not a yield");
+    assert!(
+        matches!(err, CarbideError::Internal { .. }),
+        "expected CarbideError::Internal, got {err:?}"
+    );
+    assert!(
+        err.to_string()
+            .contains("failed to acquire machine update work lock"),
+        "unexpected message: {err}"
+    );
 }
 
 #[crate::sqlx_test]

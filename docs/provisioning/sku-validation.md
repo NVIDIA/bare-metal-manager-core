@@ -34,6 +34,9 @@ Generally, SKUs must be manually added a site to configure its SKUs. At some poi
 bring-up process. However, for now, SKUs are only manually added to sites. It is also expected that, generally,
 the SKU assignments for individual machines are added automatically by NICo as those machines are reconfigured.
 
+An admin can also assign or remove a SKU on an individual host manually, either with the `nico-admin-cli sku assign` /
+`nico-admin-cli sku unassign` commands or from the machine detail page of the [NICo Debug WebUI](../operations/debug_webui.md).
+
 ### BOM Validation States
 Verifying a SKU against a machine goes through several steps to acquire updated machine inventory and perform the validation.  Depending on the inventory of the machine and the SKU configuration, the state machine needs to handle several situations.  The bom validation process is broken down into the following sub-states:
 - `MatchingSku` - The state machine will attempt to find an existing SKU that matches the machine inventory.

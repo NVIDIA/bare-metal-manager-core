@@ -130,7 +130,7 @@ pub async fn show(
         match fetch_network_security_groups(api, current_page, limit).await {
             Ok(all) => all,
             Err(err) => {
-                tracing::error!(%err, "fetch_nsgs");
+                tracing::error!(error = %err, "fetch_nsgs");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Error loading network security groups: {err}"),

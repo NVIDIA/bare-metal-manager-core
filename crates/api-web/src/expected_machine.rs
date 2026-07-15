@@ -171,7 +171,7 @@ pub async fn show_all_html(
     {
         Ok(machines) => machines,
         Err(err) => {
-            tracing::error!(%err, "get_all_expected_machines_linked");
+            tracing::error!(error = %err, "get_all_expected_machines_linked");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading expected machines from carbide-api",
@@ -194,7 +194,7 @@ pub async fn show_all_html(
     {
         Ok(list) => list,
         Err(err) => {
-            tracing::error!(%err, "get_all_unexpected_machines");
+            tracing::error!(error = %err, "get_all_unexpected_machines");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading unexpected machines from carbide-api",
@@ -216,7 +216,7 @@ pub async fn show_all_html(
     {
         Ok(last_run) => last_run.as_ref().map(Into::into),
         Err(err) => {
-            tracing::error!(%err, "get_site_explorer_last_run");
+            tracing::error!(error = %err, "get_site_explorer_last_run");
             None
         }
     };
@@ -285,7 +285,7 @@ pub async fn show_expected_machine_raw_json(AxumState(api): AxumState<Arc<Api>>)
     {
         Ok(machines) => machines,
         Err(err) => {
-            tracing::error!(%err, "show_expected_machine_raw_json");
+            tracing::error!(error = %err, "show_expected_machine_raw_json");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading expected machines from carbide-api",

@@ -182,7 +182,7 @@ pub async fn show(
     let (pages, instance_types) = match fetch_instance_types(api, current_page, limit).await {
         Ok(all) => all,
         Err(err) => {
-            tracing::error!(%err, "fetch_itypes");
+            tracing::error!(error = %err, "fetch_itypes");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Error loading instance types: {err}"),

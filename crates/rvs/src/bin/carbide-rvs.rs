@@ -155,7 +155,10 @@ async fn run_validation(ctx: &RvsCtx, cancel_token: CancellationToken) -> Result
             let report = validation::validate_partition(job).await?;
             validation::submit_report(report).await?;
         }
-        tracing::info!(poll_interval_secs, "validation: cycle complete, sleeping");
+        tracing::info!(
+            poll_interval_seconds = poll_interval_secs,
+            "validation: cycle complete, sleeping"
+        );
         if cancel_token
             .run_until_cancelled(tokio::time::sleep(interval))
             .await

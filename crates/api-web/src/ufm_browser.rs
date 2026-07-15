@@ -60,7 +60,7 @@ pub async fn query(
     let fabric_ids = match super::ib_fabric::fetch_ib_fabric_ids(state.clone()).await {
         Ok(fabric_ids) => fabric_ids,
         Err(err) => {
-            tracing::error!(%err, "fetch_ib_fabric_ids");
+            tracing::error!(error = %err, "fetch_ib_fabric_ids");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading IB fabrics",

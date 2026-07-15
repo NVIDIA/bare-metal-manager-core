@@ -155,17 +155,6 @@ pub struct SiteExplorerConfig {
     )]
     pub create_power_shelves: Arc<AtomicBool>,
 
-    /// Whether SiteExplorer should explore power shelves reachable only at
-    /// their `expected_power_shelves` static IP (no DHCP lease) and mark
-    /// them eligible for ingestion. Creation stays gated by
-    /// `create_power_shelves`. Defaults to true.
-    #[serde(
-        default = "SiteExplorerConfig::default_explore_power_shelves_from_static_ip",
-        deserialize_with = "deserialize_arc_atomic_bool",
-        serialize_with = "serialize_arc_atomic_bool"
-    )]
-    pub explore_power_shelves_from_static_ip: Arc<AtomicBool>,
-
     /// How many Power Shelves should be created in a single run.
     /// Default is 1.
     #[serde(default = "SiteExplorerConfig::default_power_shelves_created_per_run")]
@@ -221,8 +210,6 @@ impl Default for SiteExplorerConfig {
             admin_segment_type_non_dpu: Self::default_admin_segment_type_non_dpu(),
             allocate_secondary_vtep_ip: false,
             create_power_shelves: Self::default_create_power_shelves(),
-            explore_power_shelves_from_static_ip:
-                Self::default_explore_power_shelves_from_static_ip(),
             power_shelves_created_per_run: Self::default_power_shelves_created_per_run(),
             create_switches: Self::default_create_switches(),
             switches_created_per_run: Self::default_switches_created_per_run(),
@@ -254,7 +241,6 @@ impl PartialEq for SiteExplorerConfig {
             admin_segment_type_non_dpu,
             allocate_secondary_vtep_ip,
             create_power_shelves,
-            explore_power_shelves_from_static_ip,
             power_shelves_created_per_run,
             create_switches,
             switches_created_per_run,
@@ -286,10 +272,6 @@ impl PartialEq for SiteExplorerConfig {
             && *allocate_secondary_vtep_ip == other.allocate_secondary_vtep_ip
             && create_power_shelves.load(AtomicOrdering::Relaxed)
                 == other.create_power_shelves.load(AtomicOrdering::Relaxed)
-            && explore_power_shelves_from_static_ip.load(AtomicOrdering::Relaxed)
-                == other
-                    .explore_power_shelves_from_static_ip
-                    .load(AtomicOrdering::Relaxed)
             && *power_shelves_created_per_run == other.power_shelves_created_per_run
             && create_switches.load(AtomicOrdering::Relaxed)
                 == other.create_switches.load(AtomicOrdering::Relaxed)
@@ -337,10 +319,6 @@ impl SiteExplorerConfig {
     }
 
     pub fn default_create_power_shelves() -> Arc<AtomicBool> {
-        Arc::new(true.into())
-    }
-
-    pub fn default_explore_power_shelves_from_static_ip() -> Arc<AtomicBool> {
         Arc::new(true.into())
     }
 

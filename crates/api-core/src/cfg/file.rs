@@ -40,6 +40,7 @@ use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_utils::config::{as_duration, as_option_duration, as_std_duration};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
@@ -2991,7 +2992,7 @@ impl TrafficInterceptBridging {
             .join(",");
 
         // An empty map, or one with only skipped entries, means no provisioning config.
-        (!config.is_empty()).then_some(config)
+        config.none_if_empty()
     }
 }
 
@@ -3463,7 +3464,6 @@ mod tests {
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
-                explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
@@ -3672,7 +3672,6 @@ mod tests {
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
-                explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
@@ -4016,7 +4015,6 @@ mod tests {
                 admin_segment_type_non_dpu: Arc::new(false.into()),
                 allocate_secondary_vtep_ip: false,
                 create_power_shelves: Arc::new(true.into()),
-                explore_power_shelves_from_static_ip: Arc::new(true.into()),
                 power_shelves_created_per_run: 1,
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
@@ -4208,11 +4206,6 @@ mod tests {
         assert!(config.create_machines.load(AtomicOrdering::Relaxed));
         assert!(config.create_switches.load(AtomicOrdering::Relaxed));
         assert!(config.create_power_shelves.load(AtomicOrdering::Relaxed));
-        assert!(
-            config
-                .explore_power_shelves_from_static_ip
-                .load(AtomicOrdering::Relaxed)
-        );
         Ok(())
     }
 

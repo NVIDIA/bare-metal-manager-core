@@ -121,6 +121,9 @@ tags:
   - name: BMC Credential
     description: |-
       BMC Credential endpoints allow creating and updating BMC credentials across all Machines of a Site
+  - name: UEFI Credential
+    description: |-
+      UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
   - name: Allocation
     description: |-
       Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
@@ -1203,6 +1206,47 @@ paths:
       description: |-
         Create or update a site-wide or per-BMC root credential. Equivalent
         to `carbide-admin-cli credential add-bmc`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/credential/uefi':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create UEFI Credential
+      tags:
+        - UEFI Credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UEFICredentialRequest'
+      responses:
+        '201':
+          description: UEFI credential was created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UEFICredential'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: The selected site-default UEFI credential already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: create-uefi-credential
+      description: |-
+        Create a site-default host or DPU UEFI credential. The request fails
+        if the selected site-default credential already exists.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/allocation':
@@ -13559,6 +13603,47 @@ components:
         macAddress:
           type: string
           description: BMC MAC address. Required for kind BMCRoot, ignored for SiteWideRoot.
+    UEFICredentialRequest:
+      type: object
+      title: UEFICredentialRequest
+      description: Request to create a site-default UEFI credential.
+      required:
+        - siteId
+        - kind
+        - password
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the credential is stored.
+        kind:
+          type: string
+          description: Which site-default UEFI credential to create.
+          enum:
+            - Host
+            - DPU
+        password:
+          type: string
+          minLength: 1
+          description: Credential password.
+    UEFICredential:
+      type: object
+      title: UEFICredential
+      description: UEFI credential metadata returned after creation. The password is never returned.
+      required:
+        - siteId
+        - kind
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the credential is stored.
+        kind:
+          type: string
+          description: Which site-default UEFI credential was created.
+          enum:
+            - Host
+            - DPU
     BMCResetRequest:
       type: object
       title: BMCResetRequest

@@ -168,7 +168,7 @@ pub(crate) async fn resolve_cloud_init_instructions(
                 tracing::info!(
                     instance_id=%instance.id,
                     machine_id=%instance.machine_id,
-                    state=%managed_host_state,
+                    managed_host_state = %managed_host_state,
                     "cloud-init instructions: machine is not Assigned/Ready, using discovery cloud-init"
                 );
                 let machine_interface = resolve_machine_interface(&mut *conn, client_ip).await?;

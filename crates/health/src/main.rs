@@ -30,8 +30,8 @@ async fn main() -> Result<(), HealthError> {
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
 
-    // Counts events from startup; the metric registers once this binary's
-    // /metrics speaks OpenTelemetry (it serves a raw prometheus Registry today).
+    // Counts events from startup; `run_service` registers the metric with the
+    // framework registry its /metrics response exposes.
     let log_events = carbide_instrument::LogEventsMetric::new("nico-hardware-health");
     tracing_subscriber::registry()
         .with(log_events.layer())

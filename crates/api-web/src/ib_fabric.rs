@@ -39,7 +39,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let fabrics = match fetch_ib_fabric_ids(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_ib_fabric_ids");
+            tracing::error!(error = %err, "fetch_ib_fabric_ids");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading IB fabrics",
@@ -56,7 +56,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let fabrics = match fetch_ib_fabric_ids(state).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_ib_fabric_ids");
+            tracing::error!(error = %err, "fetch_ib_fabric_ids");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading IB fabrics",

@@ -16,6 +16,10 @@
  */
 
 use carbide_test_harness::prelude::*;
+use carbide_uuid::power_shelf::PowerShelfId;
+use rpc::forge::PowerShelfQuery;
+
+use crate::power_shelf::create_custom_power_shelf;
 
 #[sqlx_test]
 async fn test_find_power_shelf_ids_and_by_ids(
@@ -209,6 +213,91 @@ async fn test_find_power_shelves_by_ids_response_fields(
         ps.bmc_info.is_none(),
         "bmc_info should be None when no discovery data exists"
     );
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_find_power_shelf_by_id(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+    let power_shelf_id =
+        create_custom_power_shelf(&env, "Find Test Power Shelf", None, None).await?;
+
+    let find_response = env
+        .api()
+        .find_power_shelves(tonic::Request::new(PowerShelfQuery {
+            name: None,
+            power_shelf_id: Some(power_shelf_id),
+        }))
+        .await?;
+
+    let power_shelf_list = find_response.into_inner();
+    assert_eq!(power_shelf_list.power_shelves.len(), 1);
+
+    let found_power_shelf = &power_shelf_list.power_shelves[0];
+    assert_eq!(
+        found_power_shelf.id.as_ref().unwrap().to_string(),
+        power_shelf_id.to_string()
+    );
+    assert_eq!(
+        found_power_shelf.config.as_ref().unwrap().name,
+        "Find Test Power Shelf"
+    );
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_find_power_shelf_not_found(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+
+    let non_existent_id = PowerShelfId::from(uuid::Uuid::new_v4());
+    let find_response = env
+        .api()
+        .find_power_shelves(tonic::Request::new(PowerShelfQuery {
+            name: None,
+            power_shelf_id: Some(non_existent_id),
+        }))
+        .await?;
+
+    let power_shelf_list = find_response.into_inner();
+    assert_eq!(power_shelf_list.power_shelves.len(), 0);
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_find_power_shelf_all(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+
+    for (name, capacity, voltage) in [
+        ("Power Shelf 1", 5000, 240),
+        ("Power Shelf 2", 3000, 120),
+        ("Power Shelf 3", 4000, 208),
+    ] {
+        create_custom_power_shelf(&env, name, Some(capacity), Some(voltage)).await?;
+    }
+
+    let find_response = env
+        .api()
+        .find_power_shelves(tonic::Request::new(PowerShelfQuery {
+            name: None,
+            power_shelf_id: None,
+        }))
+        .await?;
+
+    let power_shelf_list = find_response.into_inner();
+    assert_eq!(power_shelf_list.power_shelves.len(), 3);
+
+    let names: Vec<String> = power_shelf_list
+        .power_shelves
+        .iter()
+        .map(|ps| ps.config.as_ref().unwrap().name.clone())
+        .collect();
+
+    assert!(names.contains(&"Power Shelf 1".to_string()));
+    assert!(names.contains(&"Power Shelf 2".to_string()));
+    assert!(names.contains(&"Power Shelf 3".to_string()));
 
     Ok(())
 }

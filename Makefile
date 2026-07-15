@@ -61,7 +61,7 @@ core/check-isolated-package-builds: ## Check each Rust package independently wit
 
 .PHONY: bootstrap
 
-bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, docker, cargo tooling (run once)
+bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, docker, multi-arch emulation, cargo tooling (run once)
 	./scripts/setup-build-host.sh
 
 # =============================================================================
@@ -79,71 +79,114 @@ bootstrap: ## Set up an Ubuntu/Debian build host: apt deps, rustup, submodules, 
 #   make images-core   NICo Core image (nico) only
 #   make images-rest   REST service images only
 #
-# Images are tagged $(IMAGE_REGISTRY)/<name>:$(IMAGE_TAG). Override IMAGE_REGISTRY
-# and IMAGE_TAG to build under your own registry/tag (defaults match rest-api/).
+# Images are pushed as amd64/arm64 manifests at
+# $(IMAGE_REGISTRY)/<name>:$(IMAGE_TAG). Override IMAGE_REGISTRY and IMAGE_TAG to
+# publish under your own registry/tag (defaults match rest-api/).
 
 IMAGE_REGISTRY ?= localhost:5000
 IMAGE_TAG ?= latest
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 CI_COMMIT_SHORT_SHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LOCAL_REGISTRY_CONTAINER ?= nico-build-registry
+BOOT_ARTIFACTS_RUNTIME_IMAGE ?= docker.io/library/alpine:3.20.10@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 
 # Intermediate base containers the Core and machine-validation images build FROM.
-CORE_BUILD_CONTAINER ?= nico-buildcontainer-x86_64
-CORE_RUNTIME_CONTAINER ?= nico-runtime-container-x86_64
+CORE_BUILD_CONTAINER_AMD64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)-amd64
+CORE_BUILD_CONTAINER_ARM64 ?= $(IMAGE_REGISTRY)/nico-buildcontainer:$(IMAGE_TAG)-arm64
+CORE_RUNTIME_CONTAINER_AMD64 ?= $(IMAGE_REGISTRY)/nico-runtime-container:$(IMAGE_TAG)-amd64
+CORE_RUNTIME_CONTAINER_ARM64 ?= $(IMAGE_REGISTRY)/nico-runtime-container:$(IMAGE_TAG)-arm64
+CORE_IMAGE_AMD64 := $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)-amd64
+CORE_IMAGE_ARM64 := $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)-arm64
+MACHINE_VALIDATION_IMAGE_AMD64 := $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG)-amd64
+MACHINE_VALIDATION_IMAGE_ARM64 := $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG)-arm64
+BOOT_ARTIFACTS_X86_IMAGE_AMD64 := $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG)-amd64
+BOOT_ARTIFACTS_X86_IMAGE_ARM64 := $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG)-arm64
+BOOT_ARTIFACTS_BFB_IMAGE_AMD64 := $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG)-amd64
+BOOT_ARTIFACTS_BFB_IMAGE_ARM64 := $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG)-arm64
 
-# Target platform for the deployable images. The NICo Dockerfiles are x86_64, so
-# this defaults to linux/amd64; on an arm64 host (e.g. Apple Silicon) the build
-# runs under emulation. Override PLATFORM=linux/arm64 to build native arm64.
-PLATFORM ?= linux/amd64
-
-.PHONY: images images-all images-base images-core images-rest \
+.PHONY: images images-all images-registry images-base images-core images-rest \
         images-machine-validation images-boot-artifacts images-bfb
 
 images: images-core images-rest ## Build the deployable service stack (NICo Core + REST images)
 	@echo ""
-	@echo "Deployable images built under $(IMAGE_REGISTRY) (tag: $(IMAGE_TAG)):"
+	@echo "Deployable multi-arch images pushed under $(IMAGE_REGISTRY) (tag: $(IMAGE_TAG)):"
 	@echo "  $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG)   (NICo Core)"
 	@echo "  $(IMAGE_REGISTRY)/nico-rest-*:$(IMAGE_TAG)       (REST services)"
 
 images-all: images images-machine-validation images-boot-artifacts images-bfb ## Build every image (stack + machine validation + boot artifacts; needs an mkosi build host)
 
-images-base: ## Build the x86 build + runtime base containers (prerequisite for core / machine validation)
-	docker build --platform $(PLATFORM) --file dev/docker/Dockerfile.build-container-x86_64 -t $(CORE_BUILD_CONTAINER) .
-	docker build --platform $(PLATFORM) --file dev/docker/Dockerfile.runtime-container-x86_64 -t $(CORE_RUNTIME_CONTAINER) .
+images-registry:
+	@if [ "$(IMAGE_REGISTRY)" = "localhost:5000" ] && ! curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then \
+		if docker inspect $(LOCAL_REGISTRY_CONTAINER) >/dev/null 2>&1; then \
+			docker start $(LOCAL_REGISTRY_CONTAINER); \
+		else \
+			docker run -d --rm --name $(LOCAL_REGISTRY_CONTAINER) -p 5000:5000 registry:2; \
+		fi; \
+	fi
+
+images-base: images-registry ## Build and push the amd64 + arm64 Core base containers
+	docker buildx build --platform linux/amd64 --push --file dev/docker/Dockerfile.build-container-x86_64 -t $(CORE_BUILD_CONTAINER_AMD64) .
+	docker buildx build --platform linux/arm64 --push --file dev/docker/Dockerfile.build-container-aarch64 -t $(CORE_BUILD_CONTAINER_ARM64) .
+	docker buildx build --platform linux/amd64 --push --file dev/docker/Dockerfile.runtime-container-x86_64 -t $(CORE_RUNTIME_CONTAINER_AMD64) .
+	docker buildx build --platform linux/arm64 --push --file dev/docker/Dockerfile.runtime-container-aarch64 -t $(CORE_RUNTIME_CONTAINER_ARM64) .
 
 images-core: images-base ## Build the NICo Core image (nico)
-	docker build --platform $(PLATFORM) \
-		--build-arg CONTAINER_BUILD_X86_64=$(CORE_BUILD_CONTAINER) \
-		--build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER) \
+	docker buildx build --platform linux/amd64 --push \
+		--build-arg CONTAINER_BUILD_X86_64=$(CORE_BUILD_CONTAINER_AMD64) \
+		--build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg CI_COMMIT_SHORT_SHA=$(CI_COMMIT_SHORT_SHA) \
 		--file dev/docker/Dockerfile.release-container-sa-x86_64 \
-		-t $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG) .
+		-t $(CORE_IMAGE_AMD64) .
+	docker buildx build --platform linux/arm64 --push \
+		--build-arg CONTAINER_BUILD_AARCH64=$(CORE_BUILD_CONTAINER_ARM64) \
+		--build-arg CONTAINER_RUNTIME_AARCH64=$(CORE_RUNTIME_CONTAINER_ARM64) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg CI_COMMIT_SHORT_SHA=$(CI_COMMIT_SHORT_SHA) \
+		--file dev/docker/Dockerfile.release-container-aarch64 \
+		-t $(CORE_IMAGE_ARM64) .
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/nico:$(IMAGE_TAG) \
+		$(CORE_IMAGE_AMD64) $(CORE_IMAGE_ARM64)
 
-images-rest: ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm)
+images-rest: images-registry ## Build the REST service images (api, workflow, site-manager, site-agent, db, cert-manager, flow, psm, nsm)
 	$(MAKE) -C rest-api docker-build IMAGE_REGISTRY=$(IMAGE_REGISTRY) IMAGE_TAG=$(IMAGE_TAG)
 
 images-machine-validation: images-base ## Build the machine-validation runner + config images
-	docker build --platform $(PLATFORM) --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER) \
+	docker buildx build --platform linux/amd64 --load --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
 		-t machine-validation-runner:$(IMAGE_TAG) \
 		--file dev/docker/Dockerfile.machine-validation-runner .
 	mkdir -p crates/machine-validation/images
 	docker save --output crates/machine-validation/images/machine-validation-runner.tar machine-validation-runner:$(IMAGE_TAG)
-	docker build --platform $(PLATFORM) --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER) \
-		-t $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG) \
+	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_X86_64=$(CORE_RUNTIME_CONTAINER_AMD64) \
+		-t $(MACHINE_VALIDATION_IMAGE_AMD64) \
 		--file dev/docker/Dockerfile.machine-validation-config .
+	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(CORE_RUNTIME_CONTAINER_ARM64) \
+		-t $(MACHINE_VALIDATION_IMAGE_ARM64) \
+		--file dev/docker/Dockerfile.machine-validation-config-aarch64 .
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/machine-validation:$(IMAGE_TAG) \
+		$(MACHINE_VALIDATION_IMAGE_AMD64) $(MACHINE_VALIDATION_IMAGE_ARM64)
 
-images-boot-artifacts: ## Build the x86 boot-artifact image (requires mkosi + rust toolchain on the host)
+images-boot-artifacts: images-registry ## Build the x86 boot-artifact image (requires mkosi + rust toolchain on the host)
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
-	docker build --platform $(PLATFORM) --build-arg CONTAINER_RUNTIME_X86_64=alpine:latest \
-		-t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) \
+	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_X86_64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
+		-t $(BOOT_ARTIFACTS_X86_IMAGE_AMD64) \
 		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
+	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_X86_64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
+		-t $(BOOT_ARTIFACTS_X86_IMAGE_ARM64) \
+		--file dev/docker/Dockerfile.release-artifacts-x86_64 .
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-x86_64:$(IMAGE_TAG) \
+		$(BOOT_ARTIFACTS_X86_IMAGE_AMD64) $(BOOT_ARTIFACTS_X86_IMAGE_ARM64)
 
-images-bfb: ## Build the aarch64 DPU BFB boot-artifact image (cross-arch; requires mkosi + aarch64 toolchain)
+images-bfb: images-registry ## Build the aarch64 DPU BFB boot-artifact image (cross-arch; requires mkosi + aarch64 toolchain)
 	cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa
-	docker build --platform $(PLATFORM) --build-arg CONTAINER_RUNTIME_AARCH64=alpine:latest \
-		-t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG) \
+	docker buildx build --platform linux/amd64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
+		-t $(BOOT_ARTIFACTS_BFB_IMAGE_AMD64) \
 		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
+	docker buildx build --platform linux/arm64 --push --build-arg CONTAINER_RUNTIME_AARCH64=$(BOOT_ARTIFACTS_RUNTIME_IMAGE) \
+		-t $(BOOT_ARTIFACTS_BFB_IMAGE_ARM64) \
+		--file dev/docker/Dockerfile.release-artifacts-aarch64 .
+	docker buildx imagetools create -t $(IMAGE_REGISTRY)/boot-artifacts-aarch64:$(IMAGE_TAG) \
+		$(BOOT_ARTIFACTS_BFB_IMAGE_AMD64) $(BOOT_ARTIFACTS_BFB_IMAGE_ARM64)
 
 # =============================================================================
 # Rest (delegate to rest-api/Makefile)

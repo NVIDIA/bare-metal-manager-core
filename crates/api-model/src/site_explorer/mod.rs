@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use carbide_network::BaseMac;
 use carbide_utils::arch::CpuArchitecture;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
@@ -171,7 +172,7 @@ impl EndpointExplorationReport {
             .iter()
             .flat_map(|s| s.ethernet_interfaces.iter())
             .find(|e| e.mac_address == Some(mac))
-            .and_then(|e| e.id.as_deref().filter(|id| !id.is_empty()))
+            .and_then(|e| e.id.as_deref().none_if_empty())
     }
 
     /// Yields a [`MachineBootInterface`] for every host ethernet interface that
@@ -253,9 +254,10 @@ impl ExploredEndpoint {
                 .find(|&x| fw_info.matching_version_id(&x.id, firmware_type))
             {
                 tracing::debug!(
-                    "find_version {}: For {firmware_type:?} found {:?}",
-                    self.address,
-                    matching_inventory.version
+                    bmc_ip_address = %self.address,
+                    firmware_type = ?firmware_type,
+                    version = ?matching_inventory.version,
+                    "Found matching firmware version",
                 );
                 return matching_inventory.version.as_ref();
             };
@@ -282,10 +284,11 @@ impl ExploredEndpoint {
         }
 
         tracing::debug!(
-            "find_all_versions {}: Found {} versions for {firmware_type:?}: {:?}",
-            self.address,
-            versions.len(),
-            versions
+            bmc_ip_address = %self.address,
+            version_count = versions.len(),
+            firmware_type = ?firmware_type,
+            versions = ?versions,
+            "Found firmware versions",
         );
 
         versions
@@ -944,7 +947,7 @@ impl EndpointExplorationReport {
         self.systems
             .first()
             .and_then(|system| system.serial_number.as_deref().map(str::trim))
-            .filter(|sn| !sn.is_empty())
+            .none_if_empty()
             .or_else(|| {
                 self.is_dpu().then(|| {
                     // BF4 reports no system serial in Redfish. The stable product serial is
@@ -958,7 +961,7 @@ impl EndpointExplorationReport {
                                 .serial_number
                                 .as_deref()
                                 .map(str::trim)
-                                .filter(|serial| !serial.is_empty())
+                                .none_if_empty()
                         })
                 })?
             })
@@ -1100,11 +1103,18 @@ impl EndpointExplorationReport {
         Some(
             self.get_inventory_map()
                 .iter()
-                .find(|s| s.0.contains("BMC_Firmware"))
+                // BF3 exposes BMC firmware as inventory id "BMC_Firmware"; BF4
+                // uses exactly "BlueField_FW_BMC_0". Matching the full BF4 id
+                // (via `ends_with`) excludes unrelated components — including
+                // "FW_BMC_0_x" / "FW_BMC_01" and any other id merely ending in
+                // "FW_BMC_0". Both ids are unique per report, so `find` selects
+                // the single BMC firmware entry unambiguously.
+                .find(|s| s.0.contains("BMC_Firmware") || s.0.ends_with("BlueField_FW_BMC_0"))
                 .and_then(|value| value.1.version.as_ref())
                 .unwrap_or(&"0".to_string())
                 .to_lowercase()
-                .replace("bf-", ""),
+                .replace("bf-", "")
+                .replace("bf4-", ""),
         )
     }
 
@@ -1791,15 +1801,11 @@ fn chassis_part_number(chassis: &Chassis) -> Option<&str> {
         .part_number
         .as_deref()
         .map(str::trim)
-        .filter(|part_number| !part_number.is_empty())
+        .none_if_empty()
 }
 
 fn chassis_model(chassis: &Chassis) -> Option<&str> {
-    chassis
-        .model
-        .as_deref()
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
+    chassis.model.as_deref().map(str::trim).none_if_empty()
 }
 
 // returns true if the passed in string is a BlueField part number
@@ -1989,7 +1995,7 @@ impl EndpointExplorationReport {
             .first()
             .and_then(|system| system.serial_number.as_deref())
             .map(str::trim)
-            .filter(|serial| !serial.is_empty())
+            .none_if_empty()
             .or_else(|| {
                 // BF4 Redfish does not currently expose the product serial or
                 // DPU/NIC mode on the system object. The stable product serial
@@ -2003,7 +2009,7 @@ impl EndpointExplorationReport {
                             .serial_number
                             .as_deref()
                             .map(str::trim)
-                            .filter(|serial| !serial.is_empty())
+                            .none_if_empty()
                     })
             })
     }
@@ -2047,7 +2053,7 @@ pub fn collect_explored_mlx_devices(endpoints: &[ExploredEndpoint]) -> Vec<Explo
                 .serial_number
                 .as_deref()
                 .map(str::trim)
-                .filter(|serial| !serial.is_empty())
+                .none_if_empty()
                 .and_then(|serial| dpu_by_serial.get(serial))
             {
                 device.dpu_bmc_ip = Some(dpu_ep.address);

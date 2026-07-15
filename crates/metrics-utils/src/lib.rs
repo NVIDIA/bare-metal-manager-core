@@ -69,7 +69,11 @@ pub fn new_view(
             .with_unit(i.unit().to_owned())
             .build()
             .inspect_err(|e| {
-                tracing::error!("BUG: Could not build stream from view {}: {}", i.name(), e)
+                tracing::error!(
+                    view = i.name(),
+                    error = %e,
+                    "BUG: Could not build stream from view"
+                )
             })
             .ok()
     }))

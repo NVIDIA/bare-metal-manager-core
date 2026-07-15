@@ -1308,6 +1308,23 @@ pub enum MachineValidatingState {
         validation_id: MachineValidationId,
         unlock_host_state: UnlockHostState,
     },
+    CheckBootConfigForRepair {
+        validation_id: MachineValidationId,
+    },
+    ConfigureBootBios {
+        validation_id: MachineValidationId,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    WaitingForBootBiosJob {
+        validation_id: MachineValidationId,
+        bios_config_info: BiosConfigInfo,
+    },
+    PollingBootBiosSetup {
+        validation_id: MachineValidationId,
+        #[serde(default)]
+        retry_count: u32,
+    },
     RepairBootConfig {
         validation_id: MachineValidationId,
         set_boot_order_info: SetBootOrderInfo,
@@ -1907,7 +1924,8 @@ pub struct BiosConfigInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bios_job_id: Option<String>,
     pub bios_config_state: BiosConfigState,
-    /// Full configure_host_bios retry count across HandleBiosJobFailure recovery cycles.
+    /// Shared host boot-configuration convergence retry count, including BIOS
+    /// job-failure recovery cycles.
     #[serde(default)]
     pub retry_count: u32,
 }
@@ -1933,7 +1951,8 @@ pub struct SetBootOrderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_boot_order_jid: Option<String>,
     pub set_boot_order_state: SetBootOrderState,
-    /// Retry counter for SetBootOrder state machine. Defaults to 0 for backwards compatibility.
+    /// Shared host boot-configuration convergence retry count. Defaults to 0
+    /// for backwards compatibility.
     #[serde(default)]
     pub retry_count: u32,
 }
@@ -1943,9 +1962,9 @@ pub struct SetBootOrderInfo {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
-    /// A reverted HTTP-boot device was re-asserted (`machine_setup`) and the
-    /// host restarted to apply it; polls the device across that reboot, then
-    /// returns to `SetBootOrder` to set the boot order.
+    /// Legacy persisted state from the former inline HTTP-device repair flow.
+    /// It polls the device across the already-started reboot, then either
+    /// resumes `SetBootOrder` or migrates to the shared BIOS repair stages.
     WaitForHttpBootDeviceApplied,
     WaitForSetBootOrderJobScheduled,
     RebootHost,
@@ -2542,7 +2561,8 @@ pub fn state_sla(
     {
         tracing::debug!(
             machine_id = %machine_id,
-            "Skipping state machine SLA for machine due to {exclude} classification"
+            health_alert_classification = %exclude,
+            "Skipping state machine SLA due to classification",
         );
         return StateSla::no_sla();
     }
@@ -2695,6 +2715,10 @@ pub fn state_sla(
                 }
                 MachineValidatingState::PrepareBootRepair { .. }
                 | MachineValidatingState::UnlockForBootRepair { .. }
+                | MachineValidatingState::CheckBootConfigForRepair { .. }
+                | MachineValidatingState::ConfigureBootBios { .. }
+                | MachineValidatingState::WaitingForBootBiosJob { .. }
+                | MachineValidatingState::PollingBootBiosSetup { .. }
                 | MachineValidatingState::RepairBootConfig { .. }
                 | MachineValidatingState::LockAfterBootRepair { .. } => {
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
@@ -2923,8 +2947,8 @@ pub fn dpf_based_dpu_provisioning_possible(
     // DPF should be enabled for host.
     if !state.host_snapshot.dpf.enabled {
         tracing::info!(
-            "DPF based DPU provisioning is not possible because DPF is not enabled for the host {}.",
-            state.host_snapshot.id
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU provisioning is not possible because DPF is not enabled for the host.",
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,
@@ -2947,9 +2971,8 @@ pub fn dpf_based_dpu_provisioning_possible(
             .all(|dpu| dpu.reprovision_requested.is_some())
     {
         tracing::info!(
-            "DPF based DPU reprovisioning is not possible for host {} because initial ingestion is not done with DPF \
-            and not all DPUs are being reprovisioned.",
-            state.host_snapshot.id
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU reprovisioning is not possible for host because initial ingestion is not done with DPF and not all DPUs are being reprovisioned.",
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,
@@ -2969,8 +2992,8 @@ pub fn dpf_based_dpu_provisioning_possible(
             .unwrap_or(false)
     }) {
         tracing::info!(
-            "DPF based DPU provisioning is not possible because some DPUs are Bluefield 2 in {}.",
-            state.host_snapshot.id
+            machine_id = %state.host_snapshot.id,
+            "DPF-based DPU provisioning is not possible because some DPUs are BlueField-2",
         );
         tracing::warn!(
             machine_id = %state.host_snapshot.id,

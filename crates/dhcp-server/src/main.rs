@@ -69,7 +69,7 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
     let config__ = match init(args.clone()).await {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!("Failed to initialise DHCP server config: {}", e);
+            tracing::error!(error = %e, "Failed to initialise DHCP server config");
             return;
         }
     };
@@ -88,7 +88,7 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
         // and pollute the logs. We could have read() skip NotFound errors, but that
         // could be misleading in other scenarios.  Let's just "init" the file.
         if let Err(e) = d.write() {
-            tracing::error!("Failed to init DHCP timestamps file: {}", e);
+            tracing::error!(error = %e, "Failed to init DHCP timestamps file");
             return;
         }
         d
@@ -116,10 +116,10 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
 
             let socket = get_socket(listen_address, interface.clone()).await;
             tracing::info!(
-                "Listening on {:?} on interface: {}, mode: {:?}",
-                listen_address,
-                interface,
-                handler
+                %listen_address,
+                interface_name = interface.as_str(),
+                mode = ?handler,
+                "DHCP server listening"
             );
 
             let mut server = Server {
@@ -140,8 +140,8 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
                 tokio::select! {
                     _ = cancel.cancelled() => {
                         tracing::info!(
-                            "DHCP server on interface {} received cancellation, shutting down",
-                            interface
+                            interface_name = interface.as_str(),
+                            "DHCP server received cancellation, shutting down"
                         );
                         break;
                     }
@@ -152,10 +152,19 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
                                 // We don't know after this read is failed, will we be able to read again
                                 // from this socket? Mostly no. In this case, recreate the socket.
                                 // We observed this fluctuation during admin to tenant network switch.
-                                tracing::error!("Socket recv failed with error: {err}");
+                                tracing::error!(
+                                    %listen_address,
+                                    interface_name = interface.as_str(),
+                                    error = %err,
+                                    "Socket receive failed"
+                                );
                                 // Try to close the existing socket.
                                 drop(server.socket);
-                                tracing::info!("Recreating the socket on {listen_address}, {interface}");
+                                tracing::info!(
+                                    %listen_address,
+                                    interface_name = interface.as_str(),
+                                    "Recreating the socket"
+                                );
                                 server.socket =
                                     Arc::new(get_socket(listen_address, interface.clone()).await);
                                 continue;
@@ -266,7 +275,7 @@ async fn handle_update_config(
         tokio::fs::write(&new_dhcp, &dhcp_yaml)
             .await
             .map_err(|e| -> Box<dyn Error> { format!("write {new_dhcp}: {e}").into() })?;
-        tracing::info!("dhcp_config changed – staged at {new_dhcp}");
+        tracing::info!(path = new_dhcp.as_str(), "dhcp_config changed – staged");
     }
 
     if let (Some(yaml), Some(path)) = (host_yaml, &args.host_config) {
@@ -276,7 +285,7 @@ async fn handle_update_config(
             tokio::fs::write(&new_host, &yaml)
                 .await
                 .map_err(|e| -> Box<dyn Error> { format!("write {new_host}: {e}").into() })?;
-            tracing::info!("host_config changed – staged at {new_host}");
+            tracing::info!(path = new_host.as_str(), "host_config changed – staged");
         }
     }
     Ok(())
@@ -382,7 +391,7 @@ async fn run_with_grpc_control(
             .map_err(|e| -> Box<dyn Error> {
                 format!("create_dir_all {}: {e}", dir.display()).into()
             })?;
-        tracing::info!("Created config directory {}", dir.display());
+        tracing::info!(path = %dir.display(), "Created config directory");
     }
 
     // Channel through which the gRPC handlers deliver control requests.
@@ -424,7 +433,13 @@ async fn run_with_grpc_control(
                     None => std::future::pending().await,
                 }
             } => {
-                tracing::error!("DHCP server exited unexpectedly: {:?}", result);
+                match result {
+                    Ok(()) => tracing::error!("DHCP server exited unexpectedly"),
+                    Err(error) => tracing::error!(
+                        error = ?error,
+                        "DHCP server exited unexpectedly"
+                    ),
+                }
                 return Ok(());
             }
 
@@ -503,14 +518,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             address: metrics_listen_addr,
             registry: metrics_setup.registry,
             health_controller: Some(metrics_setup.health_controller),
+            additional_prefix: None,
         };
         // The endpoint's /health and /ready report process liveness (the
         // default HealthController state), not packet-serving readiness --
         // don't point a DHCP-serving probe at them.
         tokio::spawn(async move {
-            tracing::info!("Spawning metrics endpoint on {}", metrics_config.address);
+            tracing::info!(metrics_address = %metrics_config.address, "Spawning metrics endpoint");
             if let Err(e) = run_metrics_endpoint(&metrics_config).await {
-                tracing::error!("Metrics endpoint error: {}", e);
+                tracing::error!(error = %e, "Metrics endpoint error");
             }
         });
     }
@@ -645,7 +661,7 @@ async fn process(
         return;
     }
 
-    tracing::debug!("Received packet [{}] from {}", buf[0], addr);
+    tracing::debug!(bootp_op = buf[0], source_address = %addr, "Received DHCP packet");
 
     let packet = match packet_handler::process_packet(
         buf,
@@ -687,8 +703,9 @@ async fn process(
         dhcp_timestamps.add_timestamp(host_config.host_interface_id, Utc::now().to_rfc3339());
         if let Err(e) = dhcp_timestamps.write() {
             tracing::error!(
-                "Failed writing to {}: {e}",
-                DhcpTimestampsFilePath::HbnTmp.path_str()
+                dhcp_timestamps_path = DhcpTimestampsFilePath::HbnTmp.path_str(),
+                error = %e,
+                "Failed to write DHCP timestamps file"
             );
         }
     }

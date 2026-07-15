@@ -127,7 +127,7 @@ impl<IO: StateControllerIO> StateController<IO> {
                 .run_single_iteration(std::time::Duration::MAX, allow_requeue)
                 .await
             {
-                tracing::error!(%err, "State processor iteration error");
+                tracing::error!(error = %err, "State processor iteration error");
             }
             if self.processor.in_flight.is_empty() {
                 break;

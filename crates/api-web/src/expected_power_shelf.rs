@@ -70,7 +70,7 @@ async fn fetch_expected_power_shelves(
     {
         Ok(response) => response.into_inner(),
         Err(err) => {
-            tracing::error!(%err, "get_all_expected_power_shelves_linked");
+            tracing::error!(error = %err, "get_all_expected_power_shelves_linked");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to list expected power shelves".to_string(),
