@@ -506,7 +506,7 @@ pub async fn reconcile_network_defs(
                 } else {
                     tracing::warn!(
                         network_name = name,
-                        count = candidates.len(),
+                        matching_network_segment_count = candidates.len(),
                         "Backfill skipped: multiple network_segments share this name; \
                          operator must reconcile by hand",
                     );

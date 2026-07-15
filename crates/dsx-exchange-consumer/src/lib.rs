@@ -70,6 +70,7 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
         address: metrics_endpoint,
         registry,
         health_controller: Some(metrics_setup.health_controller),
+        additional_prefix: None,
     };
     let join_listener =
         tokio::spawn(async move { metrics_endpoint::run_metrics_endpoint(&metrics_config).await });

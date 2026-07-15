@@ -140,7 +140,7 @@ pub async fn query(
     {
         Ok(r) => r.into_inner(),
         Err(err) => {
-            tracing::error!(%err, %bmc_ip, %browser.url, "redfish_browse");
+            tracing::error!(error = %err, bmc_ip_address = %bmc_ip, %browser.url, "redfish_browse");
             browser.error = format!("Failed to retrieve Redfish from API {err}");
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
@@ -150,7 +150,7 @@ pub async fn query(
         Ok(Some(machine_id)) => machine_id.to_string(),
         Ok(None) => String::new(),
         Err(err) => {
-            tracing::error!(%err, url = browser.url, "find_machine_id");
+            tracing::error!(error = %err, url = browser.url, "find_machine_id");
             browser.error = format!("Failed to look up Machine for URL {}", browser.url);
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }
@@ -169,7 +169,7 @@ pub async fn query(
             .map(TryInto::try_into)
             .collect::<Result<_, _>>(),
         Err(err) => {
-            tracing::error!(%err, bmc_ip = browser.bmc_ip, "fetch_action_requests");
+            tracing::error!(error = %err, bmc_ip_address = browser.bmc_ip, "fetch_action_requests");
             browser.error = format!(
                 "Failed to look up action requests for bmc_ip {}",
                 browser.bmc_ip
@@ -180,7 +180,7 @@ pub async fn query(
     browser.actions.action_requests = match requests {
         Ok(ok) => ok,
         Err(err) => {
-            tracing::error!(%err, bmc_ip = browser.bmc_ip, "fetch_action_requests");
+            tracing::error!(error = %err, bmc_ip_address = browser.bmc_ip, "fetch_action_requests");
             browser.error = format!(
                 "Failed to deserialize action requests for bmc_ip {}",
                 browser.bmc_ip

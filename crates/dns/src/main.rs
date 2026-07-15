@@ -63,11 +63,6 @@ async fn main() -> Result<(), eyre::Report> {
         Command::Run(run_command) => {
             let config: Config = run_command.try_into()?;
 
-            tracing::info!(
-                "OpenTelemetry tracing enabled, exporting to endpoint: {}",
-                &config.otlp_endpoint.to_string()
-            );
-
             let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
                 .with_endpoint(config.otlp_endpoint.to_string())
@@ -95,6 +90,11 @@ async fn main() -> Result<(), eyre::Report> {
                 .with(env_filter)
                 .with(otel_layer)
                 .try_init()?;
+
+            tracing::info!(
+                endpoint = %config.otlp_endpoint,
+                "OpenTelemetry tracing enabled",
+            );
 
             DnsServer::run(config)
                 .await

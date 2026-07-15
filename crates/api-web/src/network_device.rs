@@ -82,7 +82,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let network_devices = match fetch_network_devices(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_network_devices");
+            tracing::error!(error = %err, "fetch_network_devices");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network devices",
@@ -102,7 +102,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let network_devices = match fetch_network_devices(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_network_devices");
+            tracing::error!(error = %err, "fetch_network_devices");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network devices",

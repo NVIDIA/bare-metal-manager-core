@@ -609,7 +609,8 @@ async fn find_or_create_machine_interface_inner(
         None => {
             tracing::info!(
                 %mac_address,
-                "Found no existing machine with mac address {mac_address} using networks with relays {relaystr}",
+                relays = ?relays,
+                "No existing machine found",
             );
             let mut interface = validate_existing_mac_and_create_inner(
                 &mut *txn,
@@ -630,7 +631,7 @@ async fn find_or_create_machine_interface_inner(
                 n => {
                     tracing::warn!(
                         %mac_address,
-                        relay_ips = %relaystr,
+                        relay_ip_addresses = %relaystr,
                         matching_interface_count = n,
                         expected_interface_count = 1,
                         "Unexpected number of machine interfaces for MAC while machine is already known",
@@ -667,7 +668,8 @@ pub async fn find_or_create_observed_machine_interface(
         None => {
             tracing::info!(
                 %mac_address,
-                "Found no existing machine with mac address {mac_address} using networks with relays {relaystr}",
+                relays = ?relays,
+                "No existing machine found",
             );
 
             // Return an existing row when the MAC is already known on this segment.
@@ -737,7 +739,7 @@ pub async fn find_or_create_observed_machine_interface(
                 n => {
                     tracing::warn!(
                         %mac_address,
-                        relay_ips = %relaystr,
+                        relay_ip_addresses = %relaystr,
                         matching_interface_count = n,
                         expected_interface_count = 1,
                         "Unexpected number of machine interfaces for MAC while machine is already known",
@@ -797,7 +799,7 @@ pub async fn network_segments_for_dhcp_relays(
                 .any(|segment| segment.config.segment_type != network_segment_type)
         {
             tracing::warn!(
-                relay_ips = %relays.iter().join(", "),
+                relay_ip_addresses = %relays.iter().join(", "),
                 expected_network_segment_type = %network_segment_type,
                 exact_segment_ids = %exact_segments.iter().map(|segment| segment.id.to_string()).join(", "),
                 exact_segment_types = %exact_segments
@@ -1202,8 +1204,8 @@ async fn preallocate_machine_interface_with_type(
         Ok(_) => {
             tracing::info!(
                 %mac_address,
-                %static_ip,
-                segment_id = %segment.id,
+                static_ip_address = %static_ip,
+                network_segment_id = %segment.id,
                 "Pre-allocated static machine interface"
             );
             Ok(())
@@ -1947,8 +1949,8 @@ pub async fn find_by_ip_or_id(
     {
         // remove debug message by Apr 2024
         tracing::debug!(
-            interface_id = %interface.id,
-            %remote_ip,
+            machine_interface_id = %interface.id,
+            remote_ip_address = %remote_ip,
             "Loaded interface by remote IP"
         );
         return Ok(interface);
@@ -2070,7 +2072,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     tracing::info!(
         machine_id=%predicted_machine_interface.machine_id,
         mac_address=%predicted_machine_interface.mac_address,
-        %relay_ip,
+        relay_ip_address = %relay_ip,
         "Got DHCP from predicted machine interface, moving to machine"
     );
     let Some(network_segment) = crate::network_segment::for_relay(txn, relay_ip).await? else {
@@ -2963,8 +2965,8 @@ async fn reconcile_interface_segment(
 
         tracing::info!(
             mac_address = %existing_interface.mac_address,
-            old_segment_id = %existing_interface.segment_id,
-            new_segment_id = %relay_segment.id,
+            previous_network_segment_id = %existing_interface.segment_id,
+            next_network_segment_id = %relay_segment.id,
             "Moving interface from static-assignments into DHCP-managed segment"
         );
         update_segment_id(

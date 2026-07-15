@@ -92,10 +92,10 @@ impl InterfaceState {
             // Execute command only if interface state is changed.
             let mut cmd = needed_state.command();
             tracing::info!(
-                "Updating interface state from {:?} to {:?} with command: {:?}",
-                current_state,
-                needed_state,
-                cmd
+                current_interface_state = ?current_state,
+                target_interface_state = ?needed_state,
+                command = ?cmd,
+                "Updating interface state"
             );
             let result = cmd.output().await?;
             if !result.status.success() {
@@ -684,7 +684,11 @@ pub async fn update_nvue(
                     if !skip_post {
                         let cmd = acl_rules::RELOAD_CMD;
                         if let Err(err) = hbn::run_in_container_shell(cmd).await {
-                            tracing::error!("running nvue extra acl post '{}': {err:#}", cmd);
+                            tracing::error!(
+                                command = %cmd,
+                                error = format!("{err:#}"),
+                                "running nvue extra acl post"
+                            );
                         }
                         path_acl.del("BAK");
                     }
@@ -692,7 +696,7 @@ pub async fn update_nvue(
                 // ACLs didn't need changing, should be always this except on first boot
                 Ok(false) => {}
                 // Log the error but continue so that we get network working
-                Err(err) => tracing::error!("write nvue extra ACL: {err:#}"),
+                Err(err) => tracing::error!(error = format!("{err:#}"), "write nvue extra ACL"),
             }
 
             // nvue can save a copy of the config here. If that exists nvue uses it on boot.
@@ -702,8 +706,9 @@ pub async fn update_nvue(
                 && let Err(err) = fs::remove_file(&saved_config)
             {
                 tracing::warn!(
-                    "Failed removing old startup.yaml at {}: {err:#}",
-                    saved_config.display()
+                    saved_config_path = %saved_config.display(),
+                    error = format!("{err:#}"),
+                    "Failed removing old startup.yaml"
                 );
             }
 
@@ -827,7 +832,13 @@ pub async fn update_traffic_intercept_bridging(
             };
 
             interface_to_bridge.get(&name).map(|bridging| {
-                tracing::debug!("update_traffic_intercept_bridging representor={name} bridge={} vni={} gateway={}", bridging.bridge, i.vni, i.gateway);
+                tracing::debug!(
+                    representor = %name,
+                    bridge = %bridging.bridge,
+                    vni = i.vni,
+                    gateway = %i.gateway,
+                    "Created traffic-intercept bridge mapping"
+                );
                 traffic_intercept_bridging::TrafficInterceptBridgeMapping {
                     bridge: bridging.bridge.clone(),
                     patch_port: bridging.patch_port.clone(),
@@ -1297,7 +1308,11 @@ pub async fn interfaces(
                     Some(vlan_fdb) => match tenant_vf_mac(vlan_fdb).await {
                         Ok(mac) => Some(mac.to_string()),
                         Err(err) => {
-                            tracing::error!(%err, vlan_id=iface.vlan_id, "Error fetching tenant VF MAC");
+                            tracing::error!(
+                                error = %err,
+                                vlan_id = iface.vlan_id,
+                                "Error fetching tenant VF MAC"
+                            );
                             None
                         }
                     },
@@ -1403,7 +1418,7 @@ pub async fn reset(hbn_root: &Path, skip_post: bool) {
 
     let err_message = errs.join(", ");
     if !err_message.is_empty() {
-        tracing::error!(err_message);
+        tracing::error!(error = %err_message, "Failed to reset network configuration");
     }
 }
 
@@ -1428,7 +1443,11 @@ fn write_dhcp_v4_server_config(
             dhcp_relay_path.del("BAK");
         }
         Ok(false) => {}
-        Err(err) => tracing::warn!("Write blank DHCP relay {dhcp_relay_path}: {err:#}"),
+        Err(err) => tracing::warn!(
+            %dhcp_relay_path,
+            error = format!("{err:#}"),
+            "Write blank DHCP relay"
+        ),
     }
 
     let interfaces = if nc.use_admin_network {
@@ -1515,7 +1534,11 @@ fn write_dhcp_v4_server_config(
             dhcp_server_path.server.del("BAK");
         }
         Ok(false) => {}
-        Err(err) => tracing::error!("Write DHCP server {}: {err:#}", dhcp_server_path.server),
+        Err(err) => tracing::error!(
+            dhcp_server_path = %dhcp_server_path.server,
+            error = format!("{err:#}"),
+            "Write DHCP server"
+        ),
     }
 
     let next_contents = dhcp::build_server_config(
@@ -1537,8 +1560,9 @@ fn write_dhcp_v4_server_config(
         }
         Ok(false) => {}
         Err(err) => tracing::error!(
-            "Write DHCP server config {}: {err:#}",
-            dhcp_server_path.config
+            dhcp_server_config_path = %dhcp_server_path.config,
+            error = format!("{err:#}"),
+            "Write DHCP server config"
         ),
     }
 
@@ -1555,8 +1579,9 @@ fn write_dhcp_v4_server_config(
         }
         Ok(false) => {}
         Err(err) => tracing::error!(
-            "Write DHCP server host config {}: {err:#}",
-            dhcp_server_path.host_config
+            dhcp_server_host_config_path = %dhcp_server_path.host_config,
+            error = format!("{err:#}"),
+            "Write DHCP server host config"
         ),
     }
 
@@ -1599,7 +1624,7 @@ fn write(
     if !has_changed {
         return Ok(false);
     }
-    tracing::debug!("Applying new {file_type} config");
+    tracing::debug!(%file_type, "Applying new config");
 
     let path_bak = path.backup();
     if path.0.exists() {
@@ -1730,9 +1755,9 @@ async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
 
     if !ip_out.status.success() {
         tracing::debug!(
-            "STDERR {}: {}",
-            super::pretty_cmd(cmd.as_std()),
-            String::from_utf8_lossy(&ip_out.stderr)
+            command = %super::pretty_cmd(cmd.as_std()),
+            stderr = %String::from_utf8_lossy(&ip_out.stderr),
+            "STDERR"
         );
         return Err(eyre::eyre!(
             "{} for cmd '{}'",
@@ -1843,7 +1868,11 @@ impl FPath {
             match fs::remove_file(&p) {
                 Ok(_) => true,
                 Err(err) => {
-                    tracing::warn!("Failed removing {}: {err}.", p.display());
+                    tracing::warn!(
+                        file_path = %p.display(),
+                        error = %err,
+                        "Failed to remove file"
+                    );
                     false
                 }
             }
@@ -1896,10 +1925,14 @@ fn cleanup_old_acls(hbn_root: &Path) {
         if p.exists() {
             match fs::remove_file(p) {
                 Ok(_) => {
-                    tracing::info!("Cleaned up old ACL file {}", p.display());
+                    tracing::info!(acl_file_path = %p.display(), "Cleaned up old ACL file");
                 }
                 Err(err) => {
-                    tracing::warn!("Failed removing old ACL file {}: {err}.", p.display());
+                    tracing::warn!(
+                        acl_file_path = %p.display(),
+                        error = %err,
+                        "Failed removing old ACL file."
+                    );
                 }
             }
         }

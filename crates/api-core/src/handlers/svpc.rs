@@ -67,8 +67,8 @@ pub(crate) async fn process_scout_req(
 
     if dpa_snapshots.is_empty() {
         tracing::error!(
-            "process_scout_req no dpa_snapshots for machine: {:#?}",
-            machine_id
+            %machine_id,
+            "No DPA snapshots found",
         );
         return Ok(fac::Action::noop());
     }
@@ -113,7 +113,10 @@ pub(crate) async fn process_scout_req(
             Ok(action) => device_actions.push(action),
             Err(e) => {
                 // Would only happen if the op is an ApplyProfile command with invalid YAML
-                tracing::error!("process_scout_req Error encoding DpaCommand for dpa: {e}");
+                tracing::error!(
+                    error = %e,
+                    "Failed to encode DPA command",
+                );
             }
         }
     }
@@ -193,8 +196,8 @@ fn build_apply_firmware_command<'a>(
         {
             tracing::info!(
                 %machine_id, %pci_name, %part_number, %psid,
-                observed_fw_version = ?device_info.fw_version_current,
-                expected_fw_version = %fw_profile.firmware_spec.version,
+                observed_firmware_version = ?device_info.fw_version_current,
+                expected_firmware_version = %fw_profile.firmware_spec.version,
                 "firmware already at target version, skipping"
             );
             return None;
@@ -270,7 +273,7 @@ fn build_apply_profile_command(
     let serialized_profile = SerializableProfile::from_profile(mlxconfig_profile).map_err(|e| {
         tracing::error!(
             %machine_id, %pci_name, %profile_name,
-            %e,
+            error = %e,
             "failed to serialize mlxconfig profile"
         );
         CarbideError::Internal {
@@ -355,7 +358,7 @@ async fn process_mlx_observation(
     let req = request.into_inner();
 
     let Some(rep) = req.report else {
-        tracing::error!("process_mlx_observation without report req: {:#?}", req);
+        tracing::error!("MLX observation request is missing its report");
         return Err(CarbideError::GenericErrorFromReport(eyre!(
             "process_mlx_observation without report req: {:#?}",
             req
@@ -364,8 +367,8 @@ async fn process_mlx_observation(
 
     let Some(machine_id) = rep.machine_id else {
         tracing::error!(
-            "process_mlx_observation without machine_id report: {:#?}",
-            rep
+            observation_count = rep.observations.len(),
+            "MLX device report is missing its machine ID",
         );
         return Err(CarbideError::GenericErrorFromReport(eyre!(
             "process_mlx_observation without machine_id report: {:#?}",
@@ -383,8 +386,8 @@ async fn process_mlx_observation(
 
     if dpa_snapshots.is_empty() {
         tracing::error!(
-            "process_mlx_observation no dpa snapshots for machine: {:#?}",
-            machine_id
+            %machine_id,
+            "No DPA snapshots found",
         );
         return Err(CarbideError::GenericErrorFromReport(eyre!(
             "process_mlx_observation no dpa snapshots for machine: {:#?}",
@@ -394,8 +397,9 @@ async fn process_mlx_observation(
 
     if rep.observations.is_empty() {
         tracing::error!(
-            "process_mlx_observation no observations in report: {:#?}",
-            rep
+            %machine_id,
+            observation_count = rep.observations.len(),
+            "MLX device report contains no observations",
         );
         return Err(CarbideError::GenericErrorFromReport(eyre!(
             "process_mlx_observation no observations in report: {:#?}",
@@ -406,8 +410,8 @@ async fn process_mlx_observation(
     for obs in rep.observations {
         let Some(devinfo) = obs.device_info else {
             tracing::error!(
-                "process_mlx_observation no device_info observation: {:#?}",
-                obs
+                %machine_id,
+                "MLX device observation contains no device info",
             );
             continue;
         };
@@ -416,9 +420,10 @@ async fn process_mlx_observation(
             Ok(dpa) => dpa,
             Err(e) => {
                 tracing::error!(
-                    "process_mlx_observation dpa not found for device {:#?} error: {:#?}",
-                    devinfo,
-                    e
+                    pci_name = %devinfo.pci_name,
+                    mac_address = %devinfo.base_mac,
+                    error = %e,
+                    "DPA interface not found",
                 );
                 continue;
             }
@@ -426,8 +431,11 @@ async fn process_mlx_observation(
 
         if dpa.interface_type != DpaInterfaceType::Svpc {
             tracing::error!(
-                "process_mlx_observation dpa interface type is not Svpc, skipping: {:#?}",
-                dpa
+                dpa_interface_id = %dpa.id,
+                %machine_id,
+                pci_name = %dpa.pci_name,
+                interface_type = ?dpa.interface_type,
+                "DPA interface is not an SVPC interface; skipping",
             );
             continue;
         }
@@ -446,7 +454,10 @@ async fn process_mlx_observation(
             let ls = match DpaLockMode::try_from(lock_status) {
                 Ok(ls) => ls,
                 Err(e) => {
-                    tracing::error!("process_mlx_observation Error from LockStatus::try_from {e}");
+                    tracing::error!(
+                        error = %e,
+                        "Failed to convert DPA lock status",
+                    );
                     continue;
                 }
             };
@@ -474,7 +485,10 @@ async fn process_mlx_observation(
         match dpa_interface::update_card_state(&mut txn, dpa).await {
             Ok(_id) => (),
             Err(e) => {
-                tracing::error!("process_mlx_observation update_card_state error: {e}");
+                tracing::error!(
+                    error = %e,
+                    "Failed to update DPA card state",
+                );
             }
         }
     }
@@ -503,9 +517,9 @@ pub(crate) async fn publish_mlx_device_report(
             .try_into()
             .map_err(|e: String| CarbideError::Internal { message: e })?;
         tracing::info!(
-            "received MlxDeviceReport hostname={} device_count={}",
-            report.hostname,
-            report.devices.len(),
+            hostname = %report.hostname,
+            device_count = report.devices.len(),
+            "received MlxDeviceReport",
         );
 
         // Without a machine_id, we can't create dpa interfaces
@@ -555,7 +569,7 @@ pub(crate) async fn publish_mlx_device_report(
                     match crate::handlers::dpa::ensure_interface(api, new_interface).await {
                         Ok(ensured) => {
                             tracing::info!(
-                                dpa_id = %ensured.id,
+                                dpa_interface_id = %ensured.id,
                                 machine_id = %ensured.machine_id,
                                 pci_name = %ensured.pci_name,
                                 mac_address = %ensured.mac_address,
@@ -567,7 +581,7 @@ pub(crate) async fn publish_mlx_device_report(
                             tracing::warn!(
                                 %machine_id,
                                 %device_info.pci_name,
-                                %e,
+                                error = %e,
                                 "failed to ensure dpa interface"
                             );
                             continue;
@@ -583,7 +597,7 @@ pub(crate) async fn publish_mlx_device_report(
                         tracing::warn!(
                             mac_address = %ensured_interface.mac_address,
                             pci_name = %ensured_interface.pci_name,
-                            %e,
+                            error = %e,
                             "failed to begin txn for device info update"
                         );
                         continue;
@@ -603,7 +617,7 @@ pub(crate) async fn publish_mlx_device_report(
                             tracing::warn!(
                                 mac_address = %ensured_interface.mac_address,
                                 pci_name = %ensured_interface.pci_name,
-                                %e,
+                                error = %e,
                                 "failed to commit device info update"
                             );
                         }
@@ -612,7 +626,7 @@ pub(crate) async fn publish_mlx_device_report(
                         tracing::warn!(
                             mac_address = %ensured_interface.mac_address,
                             pci_name = %ensured_interface.pci_name,
-                            %e,
+                            error = %e,
                             "failed to update device info"
                         );
                     }
@@ -620,11 +634,16 @@ pub(crate) async fn publish_mlx_device_report(
             }
 
             tracing::info!(
-                "spx nics count: {spx_nics} machine_id: {:#?}",
-                report.machine_id
+                spx_nic_count = spx_nics,
+                %machine_id,
+                "counted SPX NICs",
             );
         } else {
-            tracing::warn!("MlxDeviceReport without machine_id: {:#?}", report);
+            tracing::warn!(
+                hostname = %report.hostname,
+                device_count = report.devices.len(),
+                "MLX device report is missing its machine ID",
+            );
         }
     } else {
         tracing::warn!("no embedded MlxDeviceReport published");

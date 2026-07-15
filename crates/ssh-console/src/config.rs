@@ -392,7 +392,10 @@ role_separator = {cert_authorization_keyid_format_role_separator:?}
 
     pub fn make_forge_api_client(&self) -> ForgeApiClient {
         let carbide_uri_string = self.carbide_uri.to_string();
-        tracing::info!("carbide_uri_string: {}", carbide_uri_string);
+        tracing::info!(
+            carbide_uri = carbide_uri_string.as_str(),
+            "Configured Carbide API URI"
+        );
 
         // TODO: The API's for ClientCert/ForgeClientConfig/etc really ought to take PathBufs, not Strings.
         let client_cert = ClientCert {

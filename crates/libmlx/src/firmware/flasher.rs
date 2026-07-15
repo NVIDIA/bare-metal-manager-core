@@ -152,7 +152,7 @@ impl FirmwareFlasher {
                 tracing::debug!(output = %output, "Flint output");
             }
             Err(crate::lockdown::error::MlxError::DryRun(cmd)) => {
-                tracing::debug!(cmd = %cmd, "Dry run");
+                tracing::debug!(command = %cmd, "Dry run");
             }
             Err(e) => return Err(FirmwareError::FlintError(e)),
         };
@@ -220,7 +220,7 @@ impl FirmwareFlasher {
                 Ok(output)
             }
             Err(crate::lockdown::error::MlxError::DryRun(cmd)) => {
-                tracing::debug!(cmd = %cmd, "Dry run");
+                tracing::debug!(command = %cmd, "Dry run");
                 Ok(format!("[DRY RUN] {cmd}"))
             }
             Err(e) => Err(FirmwareError::VerificationFailed(e.to_string())),
@@ -287,7 +287,7 @@ impl FirmwareFlasher {
     pub fn reset_with_level(&self, level: u8) -> FirmwareResult<String> {
         tracing::info!(
             device = %self.device_id,
-            level = %level,
+            reset_level = %level,
             "Resetting device via mlxfwreset"
         );
 
@@ -304,7 +304,7 @@ impl FirmwareFlasher {
                 Ok(output)
             }
             Err(FirmwareError::DryRun(cmd)) => {
-                tracing::debug!(cmd = %cmd, "Dry run");
+                tracing::debug!(command = %cmd, "Dry run");
                 Ok(format!("[DRY RUN] {cmd}"))
             }
             Err(e) => Err(e),
@@ -338,7 +338,7 @@ impl FirmwareFlasher {
             Some(match self.reset_with_level(options.reset_level) {
                 Ok(_) => true,
                 Err(e) => {
-                    tracing::error!(device = %self.device_id, %e, "post-flash reset failed");
+                    tracing::error!(device = %self.device_id, error = %e, "post-flash reset failed");
                     false
                 }
             })
@@ -352,7 +352,7 @@ impl FirmwareFlasher {
             Some(match self.verify_image(&profile.flash_spec).await {
                 Ok(_) => true,
                 Err(e) => {
-                    tracing::error!(device = %self.device_id, %e, "post-flash image verification failed");
+                    tracing::error!(device = %self.device_id, error = %e, "post-flash image verification failed");
                     false
                 }
             })
@@ -367,7 +367,7 @@ impl FirmwareFlasher {
                 Ok(info) => info.fw_version_current,
                 Err(e) => {
                     tracing::error!(
-                        device = %self.device_id, %e,
+                        device = %self.device_id, error = %e,
                         "failed to query device for observed firmware version"
                     );
                     None

@@ -121,7 +121,10 @@ impl DpaMonitor {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("DpaMonitor error: {}", e);
+                    tracing::warn!(
+                        error = %e,
+                        "DPA monitor error",
+                    );
                 }
             }
 
@@ -165,7 +168,8 @@ impl DpaMonitor {
             Ok(lock) => lock,
             Err(e) => {
                 tracing::warn!(
-                    "DpaMonitor failed to acquire work lock: Another instance of carbide running? {e}"
+                    error = %e,
+                    "DpaMonitor failed to acquire work lock: Another instance of carbide running?",
                 );
                 return Ok(0);
             }
@@ -426,11 +430,11 @@ impl DpaMonitor {
                             db::AnnotatedSqlxError::new("dpa_monitor hb begin txn", e)
                         })?;
                     let res = db::dpa_interface::update_last_hb_time(state, &mut txn).await;
-                    if res.is_err() {
+                    if let Err(error) = res {
                         tracing::error!(
-                            "Error updating last_hb_time for dpa id: {} res: {:#?}",
-                            state.id,
-                            res
+                            dpa_interface_id = %state.id,
+                            error = %error,
+                            "Error updating DPA interface heartbeat time",
                         );
                     }
                     Ok(Some(txn))

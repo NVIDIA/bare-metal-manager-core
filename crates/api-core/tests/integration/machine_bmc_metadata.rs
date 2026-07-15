@@ -100,7 +100,12 @@ async fn fetch_bmc_credentials(pool: PgPool) {
     ]
     .into_iter()
     {
-        tracing::info!("Looking up credentials for {:?}", request);
+        let lookup_selector = if request.machine_id.is_some() {
+            "machine_id"
+        } else {
+            "bmc_endpoint"
+        };
+        tracing::info!(lookup_selector, "Looking up BMC credentials");
         let metadata = env
             .api()
             .get_bmc_meta_data(tonic::Request::new(request))

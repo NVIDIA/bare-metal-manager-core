@@ -199,7 +199,10 @@ pub fn cli_make_cred(
         "tpm2 makecredential -u {ek_file_path_str} -s {session_key_path_str} -n {ak_name_hex} -o {cred_out_path_str} -G rsa -V --tcti=none"
     );
 
-    tracing::debug!("make credential command is {}", cmd_str);
+    tracing::debug!(
+        command = %cmd_str,
+        "make credential command",
+    );
     // execute the makecredential command
     let output = Command::new("sh")
         .arg("-c")
@@ -213,8 +216,8 @@ pub fn cli_make_cred(
 
     if !output.stderr.is_empty() {
         tracing::error!(
-            "tpm2 makecredential returned error: {}",
-            String::from_utf8_lossy(output.stderr.as_slice())
+            error = %String::from_utf8_lossy(output.stderr.as_slice()),
+            "tpm2 makecredential returned error",
         );
     }
 

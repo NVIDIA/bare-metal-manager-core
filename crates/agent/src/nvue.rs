@@ -938,7 +938,11 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
             Ok(applied)
         }
         Err(err) => {
-            tracing::error!("update_nvue post command failed: {err:#}");
+            tracing::error!(
+                error = %err,
+                error_chain = format!("{err:#}").replace('\n', "; "),
+                "NVUE post command failed"
+            );
 
             // If the config apply failed, we won't be using it, so move it out
             // of the way to an .error file for others to enjoy (while attempting
@@ -948,8 +952,9 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
                 && let Err(e) = fs::remove_file(path_error.clone())
             {
                 tracing::warn!(
-                    "Failed to remove previous error file ({}): {e}",
-                    path_error.display()
+                    error_file_path = %path_error.display(),
+                    error = %e,
+                    "Failed to remove previous error file"
                 );
             }
 

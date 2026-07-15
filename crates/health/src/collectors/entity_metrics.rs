@@ -391,7 +391,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
     async fn run_iteration(&mut self) -> Result<IterationResult, HealthError> {
         let Some(inventory) = self.shared.load_full() else {
             tracing::debug!(
-                bmc_addr = ?self.endpoint.addr,
+                bmc_address = ?self.endpoint.addr,
                 "No entity inventory available yet; skipping metrics iteration"
             );
             return Ok(IterationResult {
@@ -402,9 +402,9 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for MetricsCollector<B> {
         };
 
         tracing::debug!(
-            bmc_addr = ?self.endpoint.addr,
+            bmc_address = ?self.endpoint.addr,
             generation = inventory.generation,
-            inventory_age_secs = inventory.discovered_at.elapsed().as_secs(),
+            inventory_age_seconds = inventory.discovered_at.elapsed().as_secs(),
             entity_count = inventory.entities.len(),
             "Reading entity inventory snapshot for metrics iteration"
         );
@@ -528,7 +528,12 @@ impl<B: Bmc + 'static> MetricsCollector<B> {
             Ok(value) => Some(value),
             Err(error) => {
                 fetch_failures.fetch_add(1, Ordering::Relaxed);
-                tracing::warn!(?error, context, bmc_addr = ?self.endpoint.addr, "Failed to fetch metrics resource");
+                tracing::warn!(
+                    ?error,
+                    context,
+                    bmc_address = ?self.endpoint.addr,
+                    "Failed to fetch metrics resource"
+                );
                 None
             }
         }

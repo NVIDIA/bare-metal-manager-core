@@ -336,7 +336,7 @@ async fn run_common_parts(
     // Start forge-dpu-agent
     tokio::spawn(async move {
         if let Err(e) = crate::start(opts).await {
-            tracing::error!("Failed to start DPU agent: {:#}", e);
+            tracing::error!(error = ?e, "Failed to start DPU agent");
         }
     });
 
@@ -1029,7 +1029,7 @@ async fn handle_find_interfaces() -> impl axum::response::IntoResponse {
 }
 
 async fn handler(uri: Uri) -> impl IntoResponse {
-    tracing::debug!("general handler: {:?}", uri);
+    tracing::debug!(?uri, "General request handler received request");
     StatusCode::NOT_FOUND
 }
 

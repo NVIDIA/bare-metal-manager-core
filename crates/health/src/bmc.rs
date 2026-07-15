@@ -353,7 +353,7 @@ impl BmcClient {
                 };
                 tracing::warn!(
                     endpoint = ?self.addr,
-                    backoff_secs = CIRCUIT_INITIAL_BACKOFF.as_secs(),
+                    backoff_seconds = CIRCUIT_INITIAL_BACKOFF.as_secs(),
                     error = ?error,
                     "BMC connect failure; opening connection circuit to stop request flood"
                 );
@@ -368,7 +368,7 @@ impl BmcClient {
                 };
                 tracing::debug!(
                     endpoint = ?self.addr,
-                    backoff_secs = next.as_secs(),
+                    backoff_seconds = next.as_secs(),
                     "BMC still unreachable; extending connection circuit backoff"
                 );
             }

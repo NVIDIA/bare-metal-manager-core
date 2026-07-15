@@ -182,7 +182,7 @@ async fn handle_version() -> impl IntoResponse {
 }
 
 async fn handler(uri: Uri) -> impl IntoResponse {
-    tracing::debug!("general handler: {:?}", uri);
+    tracing::debug!(?uri, "General request handler received request");
     StatusCode::NOT_FOUND
 }
 
@@ -323,7 +323,7 @@ impl Ping for MockPinger {
         dpu_info: DpuInfo,
         _interface: IpAddr,
     ) -> Result<DpuPingResult, (NetworkMonitorError, eyre::Report)> {
-        info!("Received ping request for {}", dpu_info);
+        info!(%dpu_info, "Received ping request");
         let ping_result = DpuPingResult {
             dpu_info,
             success_count: 1,

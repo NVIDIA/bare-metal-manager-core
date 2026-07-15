@@ -209,7 +209,7 @@ pub(crate) async fn find_bmc_ips(
                 Ok(ip) => vec![ip],
                 Err(e) => {
                     tracing::warn!(
-                        %bmc_ip,
+                        bmc_ip_address = %bmc_ip,
                         error = %e,
                         "BMC IP from machine_interfaces did not parse; skipping"
                     );

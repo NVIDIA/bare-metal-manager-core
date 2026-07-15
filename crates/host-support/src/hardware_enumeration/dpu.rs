@@ -98,7 +98,7 @@ pub fn get_lldp_port_info(port: &str) -> Result<String, DpuEnumerationError> {
     if cfg!(test) {
         const TEST_DATA: &str = "test/lldp_query.json";
         std::fs::read_to_string(TEST_DATA).map_err(|e| {
-            warn!("Could not read LLDP json: {e}");
+            warn!(error = %e, "Could not read LLDP json");
             DpuEnumerationError::Read(TEST_DATA, e.to_string())
         })
     } else {
@@ -107,7 +107,7 @@ pub fn get_lldp_port_info(port: &str) -> Result<String, DpuEnumerationError> {
             .args(vec!["-c", lldp_cmd.as_str()])
             .output()
             .map_err(|e| {
-                warn!("Could not discover LLDP peer for {port}, {e}");
+                warn!(port, error = %e, "Could not discover LLDP peer");
                 DpuEnumerationError::Lldp(e.to_string())
             })
     }
@@ -134,7 +134,7 @@ pub fn wait_until_all_ports_available() {
         }
     }
 
-    debug!("lldp: Ports {:?} are read successfully.", ports_read);
+    debug!(ports = ?ports_read, "lldp: Ports are read successfully.");
 }
 
 // LLDP was broken in multiple forge versions. It was fixed in HBN 2.1/ doca 2.6, as per
@@ -164,7 +164,11 @@ pub fn get_port_lldp_info(port: &str) -> Result<LldpSwitchData, DpuEnumerationEr
     let lldp_resp: LldpResponse = match serde_json::from_str(lldp_json.as_str()) {
         Ok(x) => x,
         Err(e) => {
-            warn!("Could not deserialize LLDP response {lldp_json}, {e}");
+            warn!(
+                lldp_json = lldp_json.as_str(),
+                error = %e,
+                "Could not deserialize LLDP response"
+            );
             return Err(DpuEnumerationError::Lldp(e.to_string()));
         }
     };

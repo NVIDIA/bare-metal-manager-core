@@ -25,11 +25,12 @@ use crate::bmc::BmcClient;
 use crate::collectors::{
     AutoFailureBudget, BackoffConfig, BudgetDecision, Collector, CollectorStartContext,
     EntityDiscoveryCollector, EntityDiscoveryCollectorConfig, FailureKind, FirmwareCollector,
-    FirmwareCollectorConfig, LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector,
-    LogsCollectorConfig, MetricsCollector, MetricsCollectorConfig, NmxcCollector,
-    NmxcCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
-    NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, SseLogCollector,
-    SseLogCollectorConfig, StreamingCollectorStartContext, spawn_gnmi_collector,
+    FirmwareCollectorConfig, GpuInventoryCollector, GpuInventoryCollectorConfig,
+    LeakDetectorCollector, LeakDetectorCollectorConfig, LogsCollector, LogsCollectorConfig,
+    MetricsCollector, MetricsCollectorConfig, NmxcCollector, NmxcCollectorConfig, NmxtCollector,
+    NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig, SensorCollector,
+    SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig, StreamingCollectorStartContext,
+    spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode, PeriodicLogConfig};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata, SwitchEndpointRole};
@@ -80,8 +81,16 @@ fn spawn_generic_redfish_collectors(
 
     let sensors_enabled = matches!(ctx.sensors_config, Configurable::Enabled(_));
     let metrics_enabled = matches!(ctx.metrics_config, Configurable::Enabled(_));
+    // The GPU inventory collector reads GPU counts from the shared entity
+    // inventory, so entity discovery must also run wherever it does — even if
+    // sensors/metrics are disabled. Mirror the GPU collector's own spawn gate
+    // (enabled + API client present + machine endpoint) so discovery starts for
+    // exactly those endpoints and not for switches / power shelves.
+    let gpu_inventory_enabled = matches!(ctx.gpu_inventory_config, Configurable::Enabled(_))
+        && ctx.api_client.is_some()
+        && matches!(endpoint.metadata, Some(EndpointMetadata::Machine(_)));
 
-    if (sensors_enabled || metrics_enabled)
+    if (sensors_enabled || metrics_enabled || gpu_inventory_enabled)
         && !ctx.collectors.contains(CollectorKind::Discovery, &key)
     {
         let shared = ctx.collectors.inventory_for(&key);
@@ -108,15 +117,15 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Discovery, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_collectors = ctx.collectors.len(CollectorKind::Discovery),
+                    discovery_collector_count = ctx.collectors.len(CollectorKind::Discovery),
                     "Started entity discovery for BMC endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start entity discovery collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start entity discovery collector"
                 );
             }
         }
@@ -151,15 +160,15 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Sensor, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_collectors = ctx.collectors.len(CollectorKind::Sensor),
+                    sensor_collector_count = ctx.collectors.len(CollectorKind::Sensor),
                     "Started sensor collection for BMC endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start sensor collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start sensor collector"
                 );
             }
         }
@@ -193,15 +202,15 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Metrics, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_collectors = ctx.collectors.len(CollectorKind::Metrics),
+                    entity_metrics_collector_count = ctx.collectors.len(CollectorKind::Metrics),
                     "Started entity metrics collection for BMC endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start entity metrics collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start entity metrics collector"
                 );
             }
         }
@@ -238,6 +247,7 @@ fn spawn_generic_redfish_collectors(
                     service_refresh_interval: pcfg.state_refresh_interval,
                     data_sink,
                     include_diagnostics: ctx.logs_include_diagnostics,
+                    exclude_services: pcfg.exclude_services.clone(),
                 },
                 CollectorStartContext {
                     limiter: ctx.limiter.clone(),
@@ -328,7 +338,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::info!(
                     endpoint_key = %key,
                     mode = ?logs_cfg.mode,
-                    total_collectors = ctx.collectors.len(CollectorKind::Logs),
+                    log_collector_count = ctx.collectors.len(CollectorKind::Logs),
                     "Started logs collection for BMC endpoint"
                 );
             }
@@ -336,8 +346,8 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     mode = ?logs_cfg.mode,
-                    "Could not start logs collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start logs collector"
                 );
             }
             None => {}
@@ -369,16 +379,60 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Firmware, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
+                    firmware_collector_count = ctx.collectors.len(CollectorKind::Firmware),
                     "Started firmware collection for BMC endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start firmware collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start firmware collector"
                 )
+            }
+        }
+    }
+
+    if let Configurable::Enabled(gpu_cfg) = &ctx.gpu_inventory_config
+        && let Some(api_client) = &ctx.api_client
+        // GPU inventory validation only applies to machine endpoints (it needs a
+        // machine id + assigned SKU). Skip switch / power-shelf endpoints so we
+        // don't emit machine-target reports that get dropped for lack of context.
+        && matches!(endpoint.metadata, Some(EndpointMetadata::Machine(_)))
+        && !ctx.collectors.contains(CollectorKind::GpuInventory, &key)
+    {
+        let collector_registry = Arc::new(
+            ctx.metrics_manager
+                .create_collector_registry(format!("gpu_inventory_{key}"), metrics_prefix)?,
+        );
+        // Reuse the entity-discovery collector's inventory for this endpoint so GPU
+        // counting shares its Redfish enumeration instead of re-querying the BMC.
+        let shared = ctx.collectors.inventory_for(&key);
+        match Collector::start::<GpuInventoryCollector<BmcClient>>(
+            endpoint_arc.clone(),
+            bmc.clone(),
+            GpuInventoryCollectorConfig {
+                data_sink: data_sink.clone(),
+                api_client: api_client.clone(),
+                shared,
+            },
+            CollectorStartContext {
+                limiter: ctx.limiter.clone(),
+                iteration_interval: gpu_cfg.interval,
+                collector_registry,
+                metrics_manager: ctx.metrics_manager.clone(),
+            },
+        ) {
+            Ok(monitor) => {
+                ctx.collectors
+                    .insert(CollectorKind::GpuInventory, key.clone().into(), monitor);
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    endpoint = ?endpoint.addr,
+                    "Could not start GPU inventory collector"
+                );
             }
         }
     }
@@ -410,7 +464,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::LeakDetector, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_leak_detector_collectors =
+                    leak_detector_collector_count =
                         ctx.collectors.len(CollectorKind::LeakDetector),
                     "Started leak detector collection for BMC endpoint"
                 );
@@ -418,8 +472,8 @@ fn spawn_generic_redfish_collectors(
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start leak detector collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start leak detector collector"
                 )
             }
         }
@@ -468,15 +522,15 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::Nmxt, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
+                    nmxt_collector_count = ctx.collectors.len(CollectorKind::Nmxt),
                     "Started NMX-T collection for switch host endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start NMX-T collector for switch host: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start NMX-T collector for switch host"
                 )
             }
         }
@@ -520,7 +574,7 @@ fn spawn_switch_host_collectors(
 
                     tracing::info!(
                         endpoint_key = %key,
-                        total_nmxc_collectors = ctx.collectors.len(CollectorKind::Nmxc),
+                        nmxc_collector_count = ctx.collectors.len(CollectorKind::Nmxc),
                         "Started NMX-C streaming collection for switch endpoint"
                     );
                 }
@@ -571,15 +625,15 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::NvueRest, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
+                    nvue_rest_collector_count = ctx.collectors.len(CollectorKind::NvueRest),
                     "Started NVUE REST collection for switch host endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start NVUE REST collector for switch host: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start NVUE REST collector for switch host"
                 )
             }
         }
@@ -608,7 +662,7 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::NvueGnmi, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_nvue_gnmi_collectors = ctx.collectors.len(CollectorKind::NvueGnmi),
+                    nvue_gnmi_collector_count = ctx.collectors.len(CollectorKind::NvueGnmi),
                     "Started NVUE gNMI streaming collection for switch endpoint"
                 );
             }
@@ -635,8 +689,8 @@ mod tests {
     use super::*;
     use crate::collectors::DowngradeReason;
     use crate::config::{
-        AutoModeConfig, Config, Configurable, LogsCollectorConfig, NvueCollectorConfig,
-        NvueGnmiConfig, PeriodicLogConfig, TracingSinkConfig,
+        AutoModeConfig, CarbideApiConnectionConfig, Config, Configurable, LogsCollectorConfig,
+        NvueCollectorConfig, NvueGnmiConfig, PeriodicLogConfig, TracingSinkConfig,
     };
     use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{
@@ -1296,6 +1350,46 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Discovery), 1);
         assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Metrics), 1);
+    }
+
+    #[tokio::test]
+    async fn gpu_inventory_only_starts_discovery() {
+        // GpuInventoryCollector reads GPU counts from the shared entity inventory,
+        // so enabling it must start entity discovery even with sensors/metrics off,
+        // otherwise the collector would read an empty snapshot forever.
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.metrics = Configurable::Disabled;
+        config.collectors.logs = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.leak_detector = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+        // GPU inventory needs the API client (SKU lookup), which the context builds
+        // from the carbide_api source.
+        config.endpoint_sources.carbide_api =
+            Configurable::Enabled(CarbideApiConnectionConfig::default());
+        config.collectors.gpu_inventory = Configurable::Enabled(Default::default());
+
+        let mut ctx = context_with_config(config, "test_discovery_with_gpu_inventory");
+        let endpoint = test_endpoint(
+            Ipv4Addr::new(10, 0, 0, 23),
+            "aa:bb:cc:00:00:23",
+            Some(machine_metadata()),
+        );
+
+        spawn_collectors_for_endpoint(
+            &mut ctx,
+            &endpoint,
+            Some(Arc::new(NoopSink)),
+            "test_discovery_with_gpu_inventory",
+        )
+        .expect("spawn should succeed");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Discovery), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::GpuInventory), 1);
+        assert_eq!(ctx.collectors.len(CollectorKind::Sensor), 0);
+        assert_eq!(ctx.collectors.len(CollectorKind::Metrics), 0);
     }
 
     #[tokio::test]

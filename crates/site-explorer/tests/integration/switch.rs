@@ -107,7 +107,11 @@ async fn test_site_explorer_switch_discovery(
         )
         .await?
         .into_inner();
-    tracing::info!("DHCP with mac {} assigned ip {}", bmc_mac, response.address);
+    tracing::info!(
+        mac_address = %bmc_mac,
+        ip_address = %response.address,
+        "DHCP assigned ip"
+    );
     let switch_ip = response.address.clone();
 
     let mut txn = env.pool.begin().await?;

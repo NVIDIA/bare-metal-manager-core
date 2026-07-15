@@ -13,6 +13,11 @@ BUILD_DIR := build/binaries
 IMAGE_REGISTRY := localhost:5000
 IMAGE_TAG := latest
 DOCKERFILE_DIR := docker/production
+DOCKER_ARCHES := amd64 arm64
+LOCAL_REGISTRY_CONTAINER := nico-build-registry
+REST_IMAGES := nico-rest-api nico-rest-workflow nico-rest-site-manager \
+	nico-rest-site-agent nico-rest-db nico-rest-cert-manager nico-flow \
+	nico-psm nico-nsm nico-mcp
 
 # PostgreSQL container configuration
 POSTGRES_CONTAINER_NAME := project-test
@@ -264,16 +269,25 @@ nico-mcp:
 	@echo "Installed nico-mcp to $(INSTALL_DIR)/nico-mcp"
 
 docker-build:
-	docker build -t $(IMAGE_REGISTRY)/nico-rest-api:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-rest-api .
-	docker build -t $(IMAGE_REGISTRY)/nico-rest-workflow:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-rest-workflow .
-	docker build -t $(IMAGE_REGISTRY)/nico-rest-site-manager:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-rest-site-manager .
-	docker build -t $(IMAGE_REGISTRY)/nico-rest-site-agent:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-rest-site-agent .
-	docker build -t $(IMAGE_REGISTRY)/nico-rest-db:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-rest-db .
-	docker build -t $(IMAGE_REGISTRY)/nico-rest-cert-manager:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-rest-cert-manager .
-	docker build -t $(IMAGE_REGISTRY)/nico-flow:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-flow .
-	docker build -t $(IMAGE_REGISTRY)/nico-psm:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-psm .
-	docker build -t $(IMAGE_REGISTRY)/nico-nsm:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-nsm .
-	docker build -t $(IMAGE_REGISTRY)/nico-mcp:$(IMAGE_TAG) -f $(DOCKERFILE_DIR)/Dockerfile.nico-mcp .
+	@if [ "$(IMAGE_REGISTRY)" = "localhost:5000" ] && ! curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then \
+		if docker inspect $(LOCAL_REGISTRY_CONTAINER) >/dev/null 2>&1; then \
+			docker start $(LOCAL_REGISTRY_CONTAINER); \
+		else \
+			docker run -d --rm --name $(LOCAL_REGISTRY_CONTAINER) -p 5000:5000 registry:2; \
+		fi; \
+	fi
+	@set -e; \
+	for image in $(REST_IMAGES); do \
+		for arch in $(DOCKER_ARCHES); do \
+			docker buildx build --platform linux/$$arch --push \
+				--build-arg TARGETOS=linux --build-arg TARGETARCH=$$arch \
+				-t $(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-$$arch \
+				-f $(DOCKERFILE_DIR)/Dockerfile.$$image .; \
+		done; \
+		docker buildx imagetools create -t $(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG) \
+			$(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-amd64 \
+			$(IMAGE_REGISTRY)/$$image:$(IMAGE_TAG)-arm64; \
+	done
 
 core-proto:
 	$(MAKE) core-proto-clean

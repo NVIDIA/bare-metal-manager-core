@@ -192,11 +192,12 @@ async fn get_best_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientE
     // Try 512B format first (ds=9 means 2^9 = 512 bytes)
     if let Some((idx, lbaf)) = select_best_lba_format(&namespace_params.lbafs, 9) {
         tracing::info!(
-            "Selected FLBAS {} for {} with sector_size=512 bytes (ms={}, rp={})",
-            idx,
-            nvmename,
-            lbaf.ms,
-            lbaf.rp
+            flbas_index = idx,
+            device = nvmename,
+            sector_size_bytes = 512u64,
+            metadata_size_bytes = lbaf.ms,
+            relative_performance = lbaf.rp,
+            "Selected NVMe LBA format",
         );
         return Ok((idx as u8, 512u64));
     }
@@ -204,26 +205,27 @@ async fn get_best_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientE
     // Try 4K format (ds=12 means 2^12 = 4096 bytes)
     if let Some((idx, lbaf)) = select_best_lba_format(&namespace_params.lbafs, 12) {
         tracing::info!(
-            "Selected FLBAS {} for {} with sector_size=4096 bytes (ms={}, rp={})",
-            idx,
-            nvmename,
-            lbaf.ms,
-            lbaf.rp
+            flbas_index = idx,
+            device = nvmename,
+            sector_size_bytes = 4096u64,
+            metadata_size_bytes = lbaf.ms,
+            relative_performance = lbaf.rp,
+            "Selected NVMe LBA format",
         );
         return Ok((idx as u8, 4096u64));
     }
 
     // Fallback to FLBAS 0 - determine its actual sector size
     tracing::warn!(
-        "No 512B or 4K LBA format found for {}, falling back to FLBAS 0",
-        nvmename
+        device = nvmename,
+        "No 512B or 4K NVMe LBA format found; falling back to FLBAS 0",
     );
     if let Some(lbaf0) = namespace_params.lbafs.first() {
         let sector_size = 1u64 << lbaf0.ds;
         tracing::warn!(
-            "FLBAS 0 has sector_size={} bytes (ds={})",
-            sector_size,
-            lbaf0.ds
+            sector_size_bytes = sector_size,
+            data_size_exponent = lbaf0.ds,
+            "NVMe FLBAS 0 sector size",
         );
         Ok((0u8, sector_size))
     } else {
@@ -234,22 +236,22 @@ async fn get_best_lba_format(nvmename: &str) -> Result<(u8, u64), CarbideClientE
 }
 
 async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
-    tracing::debug!("cleaning {}", nvmename);
+    tracing::debug!(device = %nvmename, "Cleaning NVMe device");
 
     let nvme_drive_params = get_nvme_params(nvmename).await?;
 
     let namespaces_supported = nvme_drive_params.oacs & 0x8 == 0x8;
 
     tracing::debug!(
-        "nvme: device={} size={} cntlid={} oacs={} namespaces_supported={} sn={} mn={} fr={}",
-        nvmename,
-        nvme_drive_params.tnvmcap,
-        nvme_drive_params.cntlid,
-        nvme_drive_params.oacs,
+        device = %nvmename,
+        total_capacity_bytes = nvme_drive_params.tnvmcap,
+        controller_id = nvme_drive_params.cntlid,
+        optional_admin_commands = nvme_drive_params.oacs,
         namespaces_supported,
-        nvme_drive_params.sn,
-        nvme_drive_params.mn,
-        nvme_drive_params.fr
+        serial_number = %nvme_drive_params.sn,
+        model_number = %nvme_drive_params.mn,
+        firmware_revision = %nvme_drive_params.fr,
+        "Read NVMe device parameters",
     );
 
     if nvme_drive_params.mn.trim() == "M.2 NVMe 2-Bay RAID Kit" {
@@ -264,7 +266,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             ))
         })?;
 
-        tracing::info!("Using Lenovo mnv_cli at {}", lenovo_mnv_cli_prog);
+        tracing::info!(program = lenovo_mnv_cli_prog, "Using Lenovo mnv_cli",);
 
         let vd_out = cmdrun::run_prog(lenovo_mnv_cli_prog, ["info", "-o", "vd", "-i", "0"]).await?;
 
@@ -322,7 +324,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
                 None => continue,
             };
             let nsid = caps.get(1).map_or("", |m| m.as_str());
-            tracing::debug!("namespace {}", nsid);
+            tracing::debug!(namespace_id = nsid, "Found NVMe namespace");
 
             // format with "-s2" is secure erase
             match cmdrun::run_prog(NVME_CLI_PROG, ["format", nvmename, "-s2", "-f", "-n", nsid])
@@ -332,7 +334,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
                 Err(e) => {
                     if namespaces_supported {
                         // format can fail if there is a wrong params for namespace. We delete it anyway.
-                        tracing::debug!("nvme format error: {}", e);
+                        tracing::debug!(error = %e, "NVMe format error");
                     } else {
                         return Err(e);
                     }
@@ -350,11 +352,11 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             let flbas_str = flbas_index.to_string();
 
             tracing::debug!(
-                "Creating namespace on {} with flbas={}, sector_size={}, sectors={}",
-                nvmename,
+                device = %nvmename,
                 flbas_index,
-                sector_size,
-                sectors
+                sector_size_bytes = sector_size,
+                sector_count = sectors,
+                "Creating NVMe namespace",
             );
 
             let line_created_ns_id = cmdrun::run_prog(
@@ -393,7 +395,7 @@ async fn clean_this_nvme(nvmename: &String) -> Result<(), CarbideClientError> {
             .await?;
         }
     }
-    tracing::debug!("Cleanup completed for nvme device {}", nvmename);
+    tracing::debug!(device = %nvmename, "Cleanup completed for NVMe device");
     Ok(())
 }
 
@@ -542,7 +544,7 @@ async fn try_ata_secure_erase(devpath: &str) -> Result<(), CarbideClientError> {
 
     cmdrun::run_prog(HDPARM_CLI_PROG, ["--security-set-pass", "p", devpath]).await?;
 
-    tracing::info!("Using enhanced erase for {}", devpath);
+    tracing::info!(device = devpath, "Using enhanced erase");
     cmdrun::run_prog(HDPARM_CLI_PROG, ["--security-erase-enhanced", "p", devpath]).await?;
 
     Ok(())
@@ -679,10 +681,16 @@ fn block_device_cleanup_skip_reason(devname: &str) -> Option<BlockDeviceCleanupS
 async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError> {
     let devname = devpath.trim_start_matches("/dev/");
     if is_sata_device(devname) {
-        tracing::info!("{} detected as SATA, using ATA Secure Erase", devpath);
+        tracing::info!(
+            device = devpath,
+            "Detected SATA device; using ATA Secure Erase",
+        );
         try_ata_secure_erase(devpath).await
     } else {
-        tracing::info!("{} detected as SAS/SCSI, using SCSI Sanitize", devpath);
+        tracing::info!(
+            device = devpath,
+            "Detected SAS/SCSI device; using SCSI Sanitize",
+        );
         try_scsi_sanitize(devpath).await
     }
 }
@@ -919,12 +927,16 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
                     {
                         Ok(_) => {
                             tracing::info!(
-                                "set KEEP_IB_LINK_UP_P1=1 on IB device {} successfully.",
-                                slot
+                                device = %slot,
+                                "Set KEEP_IB_LINK_UP_P1=1 on IB device successfully",
                             );
                         }
                         Err(e) => {
-                            tracing::error!("{}", e);
+                            tracing::error!(
+                                device = %slot,
+                                error = %e,
+                                "Failed to set KEEP_IB_LINK_UP_P1=1 on IB device",
+                            );
                             return Err(e);
                         }
                     }
@@ -937,16 +949,16 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
                     {
                         Ok(_) => {
                             tracing::info!(
-                                "set KEEP_IB_LINK_UP_P2=1 on IB device {} successfully.",
-                                slot
+                                device = %slot,
+                                "Set KEEP_IB_LINK_UP_P2=1 on IB device successfully",
                             );
                         }
                         Err(e) => {
                             // P2 may not exist on single-port devices, ignore error
                             tracing::debug!(
-                                "KEEP_IB_LINK_UP_P2 not available on IB device {} (single-port): {}",
-                                slot,
-                                e
+                                device = %slot,
+                                error = %e,
+                                "KEEP_IB_LINK_UP_P2 not available on IB device (single-port)",
                             );
                         }
                     }
@@ -954,7 +966,7 @@ async fn set_ib_link_up() -> Result<(), CarbideClientError> {
             }
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!(error = %e, "Failed to discover IB devices");
             return Err(CarbideClientError::GenericError(format!(
                 "Failed to get ibs: {e}"
             )));
@@ -976,10 +988,14 @@ async fn reset_ib_devices() -> Result<(), CarbideClientError> {
                     let slot = p.slot.unwrap();
                     match cmdrun::run_prog("mlxconfig", ["-y", "-d", &slot, "reset"]).await {
                         Ok(_) => {
-                            tracing::info!("reset IB device {} successfully.", slot);
+                            tracing::info!(device = %slot, "Reset IB device successfully");
                         }
                         Err(e) => {
-                            tracing::error!("{}", e);
+                            tracing::error!(
+                                device = %slot,
+                                error = %e,
+                                "Failed to reset IB device",
+                            );
                             return Err(e);
                         }
                     }
@@ -987,7 +1003,7 @@ async fn reset_ib_devices() -> Result<(), CarbideClientError> {
             }
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!(error = %e, "Failed to discover IB devices");
             return Err(CarbideClientError::GenericError(format!(
                 "Failed to get ibs: {e}"
             )));
@@ -1025,7 +1041,7 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
                 });
             }
             Err(e) => {
-                tracing::error!("{}", e);
+                tracing::error!(error = %e, "NVMe cleanup failed");
                 cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
                     result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                     message: e.to_string(),
@@ -1042,7 +1058,7 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
                 });
             }
             Err(e) => {
-                tracing::error!("{}", e);
+                tracing::error!(error = %e, "HDD/SAS cleanup failed");
                 cleanup_result.hdd = Some(rpc::machine_cleanup_info::CleanupStepResult {
                     result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                     message: e.to_string(),
@@ -1051,7 +1067,10 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
             }
         }
     } else {
-        tracing::info!("stdin == {}. Skip nvme and HDD cleanup.", stdin_link);
+        tracing::info!(
+            stdin = %stdin_link,
+            "Skipping NVMe and HDD cleanup because stdin is not /dev/null",
+        );
     }
 
     match check_memory_overwrite_efi_var() {
@@ -1062,7 +1081,7 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
             });
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!(error = %e, "Memory overwrite check failed");
             cleanup_result.mem_overwrite = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                 message: e.to_string(),
@@ -1099,7 +1118,7 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
             });
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!(error = %e, "IB device reset failed");
             cleanup_result.ib = Some(rpc::machine_cleanup_info::CleanupStepResult {
                 result: rpc::machine_cleanup_info::CleanupResult::Error as _,
                 message: e.to_string(),

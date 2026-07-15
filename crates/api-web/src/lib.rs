@@ -481,8 +481,8 @@ fn routes_with_auth_mode(
         }
         WebAuthMode::None => {
             tracing::warn!(
-                auth_type_env = AUTH_TYPE_ENV,
-                "admin web UI has no in-process authentication; restrict access with network policy, a private network, or an authenticating reverse proxy (for example OAuth2 Proxy)"
+                auth_type_env_var = AUTH_TYPE_ENV,
+                "admin web UI has no in-process authentication; restrict access with network policy, a private network, or an authenticating reverse proxy (for example OAuth2 Proxy)",
             );
             WebAuth::None
         }
@@ -952,7 +952,7 @@ pub async fn web_auth_middleware_fn(
         let now_seconds = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| {
-                tracing::error!(%e, "failed to get system time for oauth2 expiration check");
+                tracing::error!(error = %e, "failed to get system time for oauth2 expiration check");
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
             .as_secs();
@@ -1235,7 +1235,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         Ok(x) if x == UpDown as i32 => "Upgrade and Downgrade",
         Ok(_) => "Unknown",
         Err(err) => {
-            tracing::error!(%err, "dpu_agent_upgrade_policy_action");
+            tracing::error!(error = %err, "dpu_agent_upgrade_policy_action");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
         }
     };
@@ -1275,7 +1275,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     let effective = match serde_json::to_value(state.runtime_config.redacted()) {
         Ok(value) => value,
         Err(err) => {
-            tracing::error!(%err, "serializing runtime config");
+            tracing::error!(error = %err, "serializing runtime config");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
         }
     };

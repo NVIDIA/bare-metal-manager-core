@@ -234,7 +234,7 @@ impl OAuth2TokenProvider {
         let expires_at = Instant::now() + expires_in;
 
         debug!(
-            expires_in_secs = expires_in.as_secs(),
+            expires_in_seconds = expires_in.as_secs(),
             "Successfully obtained OAuth2 access token"
         );
 
@@ -315,7 +315,7 @@ impl<'c> AsyncHttpClient<'c> for AsyncHttpClientWrapper<'_> {
             if status.is_server_error() || status.is_client_error() {
                 let body_str = std::str::from_utf8(&body).unwrap_or_default();
                 error!(
-                    body_str = %body_str,
+                    response_body = %body_str,
                     "Error response when making HTTP request for OAuth2 flow"
                 );
             }

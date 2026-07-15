@@ -155,6 +155,10 @@ make rest-kind-reset     # spin up the local kind dev cluster (~10 min)
 make rest-api/<target>   # pass any target through to rest-api/Makefile
 ```
 
+Published container artifacts must pin external base images by immutable
+digest. When architecture-specific targets share a base image, define one
+overridable variable so their versions cannot drift independently.
+
 ## Coding Conventions
 
 Follow the shared [Engineering Guidelines](CONTRIBUTING.md#engineering-guidelines)

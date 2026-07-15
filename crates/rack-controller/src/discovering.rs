@@ -107,8 +107,8 @@ pub async fn handle_discovering(
     }
 
     tracing::info!(
-        "Rack {} all devices ready, transitioning to Maintenance",
-        id
+        rack_id = %id,
+        "Rack all devices ready, transitioning to Maintenance",
     );
     Ok(StateHandlerOutcome::transition(RackState::Maintenance {
         maintenance_state: RackMaintenanceState::FirmwareUpgrade {

@@ -74,8 +74,8 @@ pub async fn update_preallocated_machine_interface(
 
             tracing::info!(
                 %bmc_mac_address,
-                %bmc_ip,
-                interface_id = %iface.id,
+                bmc_ip_address = %bmc_ip,
+                machine_interface_id = %iface.id,
                 "Assigned static address to existing interface without addresses"
             );
         } else {
@@ -84,7 +84,7 @@ pub async fn update_preallocated_machine_interface(
             // The caller updates the expected data table; we just log.
             tracing::info!(
                 %bmc_mac_address,
-                %bmc_ip,
+                bmc_ip_address = %bmc_ip,
                 existing_addresses = ?iface.addresses,
                 "Interface already has addresses, updated expected data only"
             );
@@ -105,8 +105,8 @@ pub async fn update_preallocated_machine_interface(
 
         tracing::info!(
             %bmc_mac_address,
-            %bmc_ip,
-            segment_id = %segment.id,
+            bmc_ip_address = %bmc_ip,
+            network_segment_id = %segment.id,
             "Pre-allocated static machine interface"
         );
     }
@@ -143,10 +143,10 @@ pub async fn assign_static_address(
         )
         .await?;
         tracing::info!(
-            %interface_id,
+            machine_interface_id = %interface_id,
             %ip_address,
-            old_segment_id = %current_iface.segment_id,
-            new_segment_id = %target_segment.id,
+            previous_network_segment_id = %current_iface.segment_id,
+            next_network_segment_id = %target_segment.id,
             "Moved interface to correct segment for static address"
         );
     }
@@ -154,7 +154,7 @@ pub async fn assign_static_address(
     txn.commit().await?;
 
     let status: rpc::AssignStaticAddressStatus = result.into();
-    tracing::info!(%interface_id, %ip_address, ?status, "Static address assignment");
+    tracing::info!(machine_interface_id = %interface_id, %ip_address, assignment_status = ?status, "Static address assignment");
 
     Ok(Response::new(rpc::AssignStaticAddressResponse {
         interface_id: Some(interface_id),
@@ -183,10 +183,10 @@ pub async fn remove_static_address(
     txn.commit().await?;
 
     let status = if deleted {
-        tracing::info!(%interface_id, %ip_address, "Removed static address");
+        tracing::info!(machine_interface_id = %interface_id, %ip_address, "Removed static address");
         rpc::RemoveStaticAddressStatus::Removed
     } else {
-        tracing::info!(%interface_id, %ip_address, "Static address not found");
+        tracing::info!(machine_interface_id = %interface_id, %ip_address, "Static address not found");
         rpc::RemoveStaticAddressStatus::NotFound
     };
 

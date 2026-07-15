@@ -220,7 +220,7 @@ async fn set_primary_interface_core(
     let boot_interface_id = new_primary_interface.boot_interface_id.clone();
 
     tracing::info!(
-        host = %host_machine_id,
+        machine_id = %host_machine_id,
         new_primary = %new_primary_interface_id,
         previous_primary = ?current_primary_interface_id,
         "moving the host's primary (boot) interface",

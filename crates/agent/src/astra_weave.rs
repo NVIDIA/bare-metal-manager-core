@@ -292,10 +292,7 @@ async fn create_weave_ew_vpc_virtual_networks(
             continue;
         }
 
-        tracing::info!(
-            "Created virtual network from astra attachment status {:?}",
-            astra_attachment_status
-        );
+        tracing::info!(?astra_attachment_status, "Created virtual network");
     }
 
     Ok(())
@@ -340,8 +337,8 @@ async fn delete_stale_weave_ew_vpc_virtual_networks(
         match weave_ew_vpc_delete_virtual_network(socket_path, delete_vni_req).await {
             Ok(_) => {
                 tracing::info!(
-                    "Deleted stale virtual network {:?} from DOCA Weave server",
-                    virtual_network
+                    ?virtual_network,
+                    "Deleted stale virtual network from DOCA Weave server"
                 );
             }
             Err(err) => {
@@ -566,8 +563,8 @@ async fn create_or_recreate_weave_ew_vpc_astra_attachment(
     }
 
     tracing::info!(
-        "Created virtual network attachment for attachment status {:?}",
-        astra_attachment_status
+        ?astra_attachment_status,
+        "Created virtual network attachment"
     );
 
     Ok(())
@@ -625,8 +622,8 @@ async fn delete_stale_weave_ew_vpc_astra_attachments(
             Ok(_) => {
                 deleted_attachment_ids.insert(del_attachment_id);
                 tracing::info!(
-                    "Deleted stale virtual network attachment {:?} from DOCA Weave server",
-                    virtual_network_attachment
+                    ?virtual_network_attachment,
+                    "Deleted stale virtual network attachment from DOCA Weave server"
                 );
             }
             Err(err) => {
@@ -699,8 +696,8 @@ pub async fn delete_match_attachment_with_vni_changed(
         Ok(_) => {
             deleted_attachment_ids.insert(delete_attachment_id);
             tracing::info!(
-                "Deleted mismatched virtual network attachment {:?} from DOCA Weave server",
-                match_attachment.as_ref().unwrap()
+                ?match_attachment,
+                "Deleted mismatched virtual network attachment from DOCA Weave server"
             );
         }
         Err(err) => {
@@ -835,7 +832,8 @@ async fn build_synced_astra_config_status_if_version_unchanged(
     // the astra config despite the matching revision, fall back to a full
     // reconcile (return None) rather than erroring, so the drift is repaired.
     tracing::trace!(
-        "AstraConfig version {nico_spx_version} has no changes, copying attachment status"
+        spx_version = %nico_spx_version,
+        "AstraConfig version has no changes, copying attachment status"
     );
     match sync_astra_config_status_from_weave_ew_vpc_attachments(
         astra_config,
@@ -845,7 +843,8 @@ async fn build_synced_astra_config_status_if_version_unchanged(
         Err(err) => {
             tracing::warn!(
                 error = format!("{err:#}"),
-                "AstraConfig version {nico_spx_version} matches, but DOCA Weave state drifted; running full reconcile"
+                spx_version = %nico_spx_version,
+                "AstraConfig version matches, but DOCA Weave state drifted; running full reconcile"
             );
             Ok(None)
         }

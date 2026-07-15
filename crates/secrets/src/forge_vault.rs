@@ -91,14 +91,15 @@ fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Rep
         Ok(env_path) if Path::new(&env_path).exists() => Ok(env_path),
         Ok(env_path) => {
             tracing::error!(
-                "VAULT_CACERT={env_path} does not exist. Refusing to connect without TLS verification."
+                %env_path,
+                "VAULT_CACERT does not exist. Refusing to connect without TLS verification.",
             );
             Err(eyre!("Vault root CA not found"))
         }
         Err(_) => {
             tracing::error!(
-                "Vault root CA not found at {}. Refusing to connect without TLS verification.",
-                configured_path
+                configured_path,
+                "Vault root CA not found. Refusing to connect without TLS verification.",
             );
             Err(eyre!("Vault root CA not found"))
         }
@@ -340,7 +341,10 @@ async fn vault_token_refresh(
         }
     };
 
-    tracing::info!("successfully refreshed vault token, with lifetime: {vault_token_expiry_secs}");
+    tracing::info!(
+        vault_token_expiry_seconds = vault_token_expiry_secs,
+        "successfully refreshed vault token"
+    );
 
     let vault_client_settings = create_vault_client_settings(vault_token, vault_client_config)?;
     let vault_client = VaultClient::new(vault_client_settings)?;
@@ -517,15 +521,16 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
                     Some(404) => {
                         // Not found errors are common and of no concern
                         tracing::debug!(
-                            "Credentials not found for key ({})",
-                            self.key.to_key_str().as_ref()
+                            credential_key = %self.key.to_key_str(),
+                            "Credentials not found",
                         );
                         Ok(None)
                     }
                     _ => {
                         tracing::error!(
-                            "Error getting credentials ({}). Error: {ce:?}",
-                            self.key.to_key_str().as_ref()
+                            credential_key = %self.key.to_key_str(),
+                            error = ?ce,
+                            "Error getting credentials",
                         );
                         Err(SecretsError::GenericError(ce.into()))
                     }
@@ -601,7 +606,7 @@ impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
 
         let _secret_version_metadata = vault_response.map_err(|err| {
             record_vault_client_error(&err, VaultRequestType::SetCredentials);
-            tracing::error!("Error setting credentials. Error: {err:?}");
+            tracing::error!(error = ?err, "Error setting credentials");
             err
         })?;
 
@@ -640,7 +645,7 @@ impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
 
         let _secret_version_metadata = vault_response.map_err(|err| {
             record_vault_client_error(&err, VaultRequestType::DeleteCredentials);
-            tracing::error!("Error deleting credentials. Error: {err:?}");
+            tracing::error!(error = ?err, "Error deleting credentials");
             err
         })?;
 
@@ -834,7 +839,10 @@ impl ForgeVaultClient {
         let paths = self
             .list_secrets_for_path("", EnumerationMode::BestEffort)
             .await?;
-        tracing::info!(count = paths.len(), "listed all vault secret paths");
+        tracing::info!(
+            secret_path_count = paths.len(),
+            "listed all vault secret paths"
+        );
         Ok(paths)
     }
 
@@ -849,7 +857,7 @@ impl ForgeVaultClient {
             .await?;
         tracing::info!(
             prefix = prefix.as_str(),
-            count = paths.len(),
+            secret_path_count = paths.len(),
             "listed vault secret paths for prefix"
         );
         Ok(paths)

@@ -23,7 +23,7 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use eyre::WrapErr;
 use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
-use tracing::log::error;
+use tracing::error;
 
 use crate::dpu::link::IpLink;
 use crate::dpu::{Action, DpuNetworkInterfaces};
@@ -68,11 +68,7 @@ impl Interface {
                         if let Some(networks) = networks
                             && !networks.is_empty()
                         {
-                            tracing::info!(
-                                "Adding addresses {:?} to Interface {:?}",
-                                networks,
-                                interface
-                            );
+                            tracing::info!(?networks, interface_name = %interface, "Adding addresses");
 
                             for network in networks {
                                 Interface::ip_addrs_add(&interface, network).await?;
@@ -113,8 +109,9 @@ impl Interface {
                         Interface::find_common_addresses(&current_addresses, &proposed_addresses)
                     {
                         tracing::trace!(
-                            "Proposed addresses already present on interface {interface}: {:?}",
-                            common_networks
+                            interface_name = %interface,
+                            ?common_networks,
+                            "Proposed addresses already present"
                         );
 
                         // If the proposed addresses are already present on the interface
@@ -124,8 +121,9 @@ impl Interface {
                         proposed_addresses.retain(|x| !common_networks.contains(x));
                     }
                     tracing::trace!(
-                        "Proposed addresses needing to be added to {interface}: {:?}",
-                        proposed_addresses
+                        interface_name = %interface,
+                        ?proposed_addresses,
+                        "Proposed addresses needing to be added"
                     );
                     let entry = interface_plan.entry(Action::Add).or_default();
                     entry.insert(interface.to_string(), Some(proposed_addresses.clone()));
@@ -133,7 +131,7 @@ impl Interface {
             }
         } else {
             tracing::error!(
-                interface,
+                interface_name = interface,
                 "FMDS cannot add IP address to non-existent interface"
             );
         }
@@ -146,7 +144,7 @@ impl Interface {
             let test_data_dir = PathBuf::from(crate::dpu::ARMOS_TEST_DATA_DIR);
 
             std::fs::read_to_string(test_data_dir.join("ipaddr.json")).map_err(|e| {
-                error!("Could not read ipaddr.json: {e}");
+                error!(error = %e, "Could not read ipaddr.json");
                 eyre::eyre!("Could not read ipaddr.json: {}", e)
             })
         } else {
@@ -167,7 +165,7 @@ impl Interface {
 
     pub async fn current_addresses(interface: &str) -> eyre::Result<Vec<IpInterface>> {
         let data = Self::ip_addrs(interface).await?;
-        tracing::trace!("interface data from ip addr show: {data:?}");
+        tracing::trace!(ip_address_data = ?data, "interface data from ip addr show");
         serde_json::from_str::<Vec<IpInterface>>(&data).map_err(|err| eyre::eyre!(err))
     }
 
@@ -185,7 +183,7 @@ impl Interface {
         cmd.kill_on_drop(true);
 
         let cmd_str = pretty_cmd(cmd.as_std());
-        tracing::trace!("Running command: {:?}", cmd_str);
+        tracing::trace!(command = ?cmd_str, "Running command");
 
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
@@ -195,7 +193,7 @@ impl Interface {
         if output.status.success() {
             Ok(true)
         } else {
-            tracing::error!("Failed to add address: {:?}", fout);
+            tracing::error!(command_output = ?fout, "Failed to add address");
             Ok(false)
         }
     }
@@ -204,7 +202,7 @@ impl Interface {
         interface: &str,
     ) -> eyre::Result<Vec<IpInterfaceAddress>> {
         let data = Self::ip_addrs(interface).await?;
-        tracing::trace!("interfaces data from ip show: {:?}", data);
+        tracing::trace!(ip_link_data = ?data, "interfaces data from ip show");
         let data =
             serde_json::from_str::<Vec<IpInterface>>(&data).map_err(|err| eyre::eyre!(err))?;
         let filtered_list: Vec<_> = data
@@ -326,7 +324,7 @@ mod tests {
         let interface = Interface::get_addresses_for_interface(HBNDeviceNames::hbn_23().sfs[0])
             .await
             .unwrap();
-        tracing::trace!("Interface: {:?}", interface);
+        tracing::trace!(?interface, "Interface");
 
         assert_eq!(interface[0].prefixlen, 30);
         assert_eq!(interface[0].local, IpAddr::from([192, 168, 0, 1]));
@@ -338,7 +336,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        tracing::trace!("Link: {:?}", link);
+        tracing::trace!(?link, "Link");
         assert_eq!(link.ifindex, 16);
     }
 
