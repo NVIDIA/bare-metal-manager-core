@@ -45,7 +45,14 @@ impl MachinePerObjectInfo {
                 "carbide_object_info",
                 "Stable traits of an object, for joining onto its per-object series \
                  (cf. kube_node_info). Trait labels are best-effort empty when unknown.",
-                &["object_type", "object_id", "rack_id", "sku", "vendor", "model"],
+                &[
+                    "object_type",
+                    "object_id",
+                    "rack_id",
+                    "sku",
+                    "vendor",
+                    "model",
+                ],
                 hold_period,
             )?,
             dpu_info: registry.gauge(
@@ -99,7 +106,9 @@ impl MachinePerObjectInfo {
                 ),
                 KeyValue::new(
                     "vendor",
-                    dmi_data.map(|dmi| dmi.sys_vendor.clone()).unwrap_or_default(),
+                    dmi_data
+                        .map(|dmi| dmi.sys_vendor.clone())
+                        .unwrap_or_default(),
                 ),
                 KeyValue::new(
                     "model",

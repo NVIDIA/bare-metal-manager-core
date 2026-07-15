@@ -133,12 +133,9 @@ impl PerObjectStateRecorder {
                 KeyValue::new("substate", substate),
             ]
         };
-        self.metrics.entered.set(
-            object_type,
-            object_id,
-            entered.timestamp() as f64,
-            labels(),
-        );
+        self.metrics
+            .entered
+            .set(object_type, object_id, entered.timestamp() as f64, labels());
         match sla {
             Some(sla) => self
                 .metrics
@@ -154,9 +151,10 @@ impl PerObjectStateRecorder {
                     .manual_intervention
                     .set(object_type, object_id, 1.0, labels);
             }
-            ManualIntervention::NotRequired => {
-                self.metrics.manual_intervention.clear(object_type, object_id)
-            }
+            ManualIntervention::NotRequired => self
+                .metrics
+                .manual_intervention
+                .clear(object_type, object_id),
             // Keep the series alive only while it still describes the state
             // the object is in — after an out-of-band state change the kept
             // fact would contradict the entered/sla series just recorded.
@@ -175,13 +173,17 @@ impl PerObjectStateRecorder {
     /// handler never ran — must not evict just because the database is
     /// degraded.
     pub fn touch(&self, object_id: &str) {
-        self.metrics.registry.touch_object(self.object_type, object_id);
+        self.metrics
+            .registry
+            .touch_object(self.object_type, object_id);
     }
 
     /// Removes all of the object's series across every per-object gauge
     /// (state, info, associations, classification), e.g. when the object was
     /// deleted.
     pub fn clear(&self, object_id: &str) {
-        self.metrics.registry.clear_object(self.object_type, object_id);
+        self.metrics
+            .registry
+            .clear_object(self.object_type, object_id);
     }
 }

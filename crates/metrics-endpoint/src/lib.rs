@@ -300,7 +300,10 @@ async fn handle_metrics_request(
             let _permit = state.encode_permits.acquire().await;
             let encode_state = state.clone();
             let encoded = tokio::task::spawn_blocking(move || {
-                encode_metrics(&encode_state.registry, encode_state.additional_prefix.as_ref())
+                encode_metrics(
+                    &encode_state.registry,
+                    encode_state.additional_prefix.as_ref(),
+                )
             })
             .await;
             match encoded {

@@ -1263,12 +1263,19 @@ async fn test_per_object_state_metrics_record_observed_state(
     pool: sqlx::PgPool,
 ) -> eyre::Result<()> {
     let (mut controller, prometheus_registry, _join_set) =
-        per_object_test_controller::<TestStateControllerIO>(&pool, Arc::new(TestManualInterventionStateHandler::default())).await?;
+        per_object_test_controller::<TestStateControllerIO>(
+            &pool,
+            Arc::new(TestManualInterventionStateHandler::default()),
+        )
+        .await?;
 
     // First iteration: the handler requires manual intervention.
     controller.run_single_iteration().await;
 
-    let entered = parsed_prometheus_metrics(&prometheus_registry, "carbide_object_state_entered_timestamp_seconds");
+    let entered = parsed_prometheus_metrics(
+        &prometheus_registry,
+        "carbide_object_state_entered_timestamp_seconds",
+    );
     assert_eq!(entered.len(), 1);
     let (attrs, value) = &entered[0];
     for expected in [
@@ -1292,7 +1299,10 @@ async fn test_per_object_state_metrics_record_observed_state(
             .is_empty()
     );
 
-    let intervention = parsed_prometheus_metrics(&prometheus_registry, "carbide_object_manual_intervention_required");
+    let intervention = parsed_prometheus_metrics(
+        &prometheus_registry,
+        "carbide_object_manual_intervention_required",
+    );
     assert_eq!(intervention.len(), 1);
     let (attrs, value) = &intervention[0];
     assert!(
@@ -1305,8 +1315,11 @@ async fn test_per_object_state_metrics_record_observed_state(
     // status undetermined — the series must survive, not flap.
     controller.run_single_iteration().await;
     assert_eq!(
-        parsed_prometheus_metrics(&prometheus_registry, "carbide_object_manual_intervention_required")
-            .len(),
+        parsed_prometheus_metrics(
+            &prometheus_registry,
+            "carbide_object_manual_intervention_required"
+        )
+        .len(),
         1
     );
 
@@ -1314,8 +1327,11 @@ async fn test_per_object_state_metrics_record_observed_state(
     // and the series disappears.
     controller.run_single_iteration().await;
     assert!(
-        parsed_prometheus_metrics(&prometheus_registry, "carbide_object_manual_intervention_required")
-            .is_empty()
+        parsed_prometheus_metrics(
+            &prometheus_registry,
+            "carbide_object_manual_intervention_required"
+        )
+        .is_empty()
     );
 
     Ok(())
@@ -1362,7 +1378,9 @@ impl StateControllerIO for SlaTestStateControllerIO {
         object_id: &Self::ObjectId,
         state: &Self::State,
     ) -> Result<Versioned<Self::ControllerState>, DatabaseError> {
-        self.inner.load_controller_state(txn, object_id, state).await
+        self.inner
+            .load_controller_state(txn, object_id, state)
+            .await
     }
 
     async fn persist_controller_state(
@@ -1430,12 +1448,19 @@ async fn test_per_object_state_metrics_sla_and_state_based_intervention(
     pool: sqlx::PgPool,
 ) -> eyre::Result<()> {
     let (mut controller, prometheus_registry, _join_set) =
-        per_object_test_controller::<SlaTestStateControllerIO>(&pool, Arc::new(TestTransitionStateHandler)).await?;
+        per_object_test_controller::<SlaTestStateControllerIO>(
+            &pool,
+            Arc::new(TestTransitionStateHandler),
+        )
+        .await?;
 
     // First iteration transitions A -> B and records the committed state B
     // immediately, including B's resolved SLA; B needs no manual intervention.
     controller.run_single_iteration().await;
-    let entered = parsed_prometheus_metrics(&prometheus_registry, "carbide_object_state_entered_timestamp_seconds");
+    let entered = parsed_prometheus_metrics(
+        &prometheus_registry,
+        "carbide_object_state_entered_timestamp_seconds",
+    );
     assert_eq!(entered.len(), 1);
     assert!(entered[0].0.contains(r#"state="b""#), "{}", entered[0].0);
     let sla = parsed_prometheus_metrics(&prometheus_registry, "carbide_object_state_sla_seconds");
@@ -1443,17 +1468,26 @@ async fn test_per_object_state_metrics_sla_and_state_based_intervention(
     assert!(sla[0].0.contains(r#"state="b""#), "{}", sla[0].0);
     assert_eq!(sla[0].1, "1800");
     assert!(
-        parsed_prometheus_metrics(&prometheus_registry, "carbide_object_manual_intervention_required")
-            .is_empty()
+        parsed_prometheus_metrics(
+            &prometheus_registry,
+            "carbide_object_manual_intervention_required"
+        )
+        .is_empty()
     );
 
     // B -> C: the committed state C is flagged by the IO as requiring
     // intervention as soon as it is entered.
     controller.run_single_iteration().await;
-    let entered = parsed_prometheus_metrics(&prometheus_registry, "carbide_object_state_entered_timestamp_seconds");
+    let entered = parsed_prometheus_metrics(
+        &prometheus_registry,
+        "carbide_object_state_entered_timestamp_seconds",
+    );
     assert_eq!(entered.len(), 1);
     assert!(entered[0].0.contains(r#"state="c""#), "{}", entered[0].0);
-    let intervention = parsed_prometheus_metrics(&prometheus_registry, "carbide_object_manual_intervention_required");
+    let intervention = parsed_prometheus_metrics(
+        &prometheus_registry,
+        "carbide_object_manual_intervention_required",
+    );
     assert_eq!(intervention.len(), 1);
     let (attrs, value) = &intervention[0];
     for expected in [r#"state="c""#, r#"reason="test_stuck""#] {
@@ -1502,16 +1536,21 @@ impl StateHandler for TestDeletionStateHandler {
 }
 
 #[carbide_macros::sqlx_test]
-async fn test_per_object_state_metrics_cleared_on_deletion(
-    pool: sqlx::PgPool,
-) -> eyre::Result<()> {
+async fn test_per_object_state_metrics_cleared_on_deletion(pool: sqlx::PgPool) -> eyre::Result<()> {
     let (mut controller, prometheus_registry, _join_set) =
-        per_object_test_controller::<TestStateControllerIO>(&pool, Arc::new(TestDeletionStateHandler::default())).await?;
+        per_object_test_controller::<TestStateControllerIO>(
+            &pool,
+            Arc::new(TestDeletionStateHandler::default()),
+        )
+        .await?;
 
     controller.run_single_iteration().await;
     assert_eq!(
-        parsed_prometheus_metrics(&prometheus_registry, "carbide_object_state_entered_timestamp_seconds")
-            .len(),
+        parsed_prometheus_metrics(
+            &prometheus_registry,
+            "carbide_object_state_entered_timestamp_seconds"
+        )
+        .len(),
         1
     );
 
@@ -1519,8 +1558,11 @@ async fn test_per_object_state_metrics_cleared_on_deletion(
     // leaving them to assert a deleted object's state until eviction.
     controller.run_single_iteration().await;
     assert!(
-        parsed_prometheus_metrics(&prometheus_registry, "carbide_object_state_entered_timestamp_seconds")
-            .is_empty()
+        parsed_prometheus_metrics(
+            &prometheus_registry,
+            "carbide_object_state_entered_timestamp_seconds"
+        )
+        .is_empty()
     );
 
     Ok(())
@@ -1556,7 +1598,9 @@ impl StateHandler for TestLockLossStateHandler {
                 .execute(&self.pool)
                 .await
                 .unwrap();
-            Ok(StateHandlerOutcome::transition(TestObjectControllerState::B))
+            Ok(StateHandlerOutcome::transition(
+                TestObjectControllerState::B,
+            ))
         } else {
             Ok(StateHandlerOutcome::do_nothing())
         }
@@ -1568,10 +1612,14 @@ async fn test_lock_loss_requeues_without_publishing_the_transition(
     pool: sqlx::PgPool,
 ) -> eyre::Result<()> {
     let (mut controller, prometheus_registry, _join_set) =
-        per_object_test_controller::<TestStateControllerIO>(&pool, Arc::new(TestLockLossStateHandler {
-            pool: pool.clone(),
-            calls: Default::default(),
-        })).await?;
+        per_object_test_controller::<TestStateControllerIO>(
+            &pool,
+            Arc::new(TestLockLossStateHandler {
+                pool: pool.clone(),
+                calls: Default::default(),
+            }),
+        )
+        .await?;
 
     controller.run_single_iteration().await;
 

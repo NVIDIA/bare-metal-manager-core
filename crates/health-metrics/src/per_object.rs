@@ -98,7 +98,13 @@ impl PerObjectGauge {
     }
 
     /// Replaces the object's series with a single one.
-    pub fn set(&self, object_type: &'static str, object_id: &str, value: f64, labels: Vec<KeyValue>) {
+    pub fn set(
+        &self,
+        object_type: &'static str,
+        object_id: &str,
+        value: f64,
+        labels: Vec<KeyValue>,
+    ) {
         self.set_all(object_type, object_id, vec![(value, labels)]);
     }
 
@@ -111,10 +117,17 @@ impl PerObjectGauge {
         series: Vec<(f64, Vec<KeyValue>)>,
     ) {
         let key = ObjectKey::new(object_type, object_id);
-        let mut entries = self.0.entries.lock().expect("per-object gauge mutex poisoned");
+        let mut entries = self
+            .0
+            .entries
+            .lock()
+            .expect("per-object gauge mutex poisoned");
         if series.is_empty() {
             entries.remove(&key);
-        } else if let Some(entry) = entries.get_mut(&key).filter(|entry| *entry.series == series) {
+        } else if let Some(entry) = entries
+            .get_mut(&key)
+            .filter(|entry| *entry.series == series)
+        {
             // Unchanged series (the common case: controllers re-record every
             // iteration): keep the entry — and its cached Prometheus encoding
             // — and only extend the eviction deadline.
@@ -143,7 +156,11 @@ impl PerObjectGauge {
     /// [`PerObjectMetricsRegistry::touch_object`] or [`Self::touch_if_labels`],
     /// which cannot keep a series whose labels went stale.
     fn touch_key(&self, key: &ObjectKey) {
-        let mut entries = self.0.entries.lock().expect("per-object gauge mutex poisoned");
+        let mut entries = self
+            .0
+            .entries
+            .lock()
+            .expect("per-object gauge mutex poisoned");
         if let Some(entry) = entries.get_mut(key) {
             entry.updated_at = Instant::now();
         }
@@ -169,7 +186,11 @@ impl PerObjectGauge {
         required_labels: &[KeyValue],
     ) {
         let key = ObjectKey::new(object_type, object_id);
-        let mut entries = self.0.entries.lock().expect("per-object gauge mutex poisoned");
+        let mut entries = self
+            .0
+            .entries
+            .lock()
+            .expect("per-object gauge mutex poisoned");
         if let Some(entry) = entries.get_mut(&key) {
             let still_current = entry.series.iter().all(|(_, labels)| {
                 required_labels
@@ -207,9 +228,14 @@ impl PerObjectGauge {
     /// Locks the gauge, evicts stale entries, and visits the survivors.
     fn for_each_live(&self, mut visit: impl FnMut(&ObjectKey, &SeriesEntry)) {
         let now = Instant::now();
-        let mut entries = self.0.entries.lock().expect("per-object gauge mutex poisoned");
-        entries
-            .retain(|_, entry| now.saturating_duration_since(entry.updated_at) <= self.0.hold_period);
+        let mut entries = self
+            .0
+            .entries
+            .lock()
+            .expect("per-object gauge mutex poisoned");
+        entries.retain(|_, entry| {
+            now.saturating_duration_since(entry.updated_at) <= self.0.hold_period
+        });
         for (key, entry) in entries.iter() {
             visit(key, entry);
         }
@@ -705,10 +731,8 @@ mod tests {
 
     #[test]
     fn clear_object_sweeps_all_registry_gauges() {
-        let registry = PerObjectMetricsRegistry::new(
-            classifications(&["Hardware"]),
-            Duration::from_secs(60),
-        );
+        let registry =
+            PerObjectMetricsRegistry::new(classifications(&["Hardware"]), Duration::from_secs(60));
         let prometheus_registry = prometheus::Registry::new();
         let gauge_a = registry
             .gauge(
