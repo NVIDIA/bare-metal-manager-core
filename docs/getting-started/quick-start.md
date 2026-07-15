@@ -88,9 +88,17 @@ export NICO_REST_IMAGE_TAG=<nico-rest-image-tag>         # e.g. v2.0.0
 # Optional for authenticated registries:
 # export REGISTRY_PULL_USERNAME='$oauthtoken'            # default for NGC API-key auth
 # export REGISTRY_PULL_SECRET=<pull-secret-or-api-key>   # registry password or API key
+
+# DPF DPU provisioning is installed by default. Set these three, or pass
+# --skip-dpf to setup.sh (sites with no DPUs / still on iPXE):
+export NICO_DPF_DPU_INTERFACE=<control-plane-nic>     # NIC facing the DPUs
+export NICO_DPF_DPU_CLUSTER_VIP=<free-routable-ip>    # DPU cluster control-plane VIP
+# Prompt for the BMC password so it isn't recorded in shell history:
+read -r -s -p "Site-wide BMC root password: " NICO_DPF_BMC_ROOT_PASSWORD; echo
+export NICO_DPF_BMC_ROOT_PASSWORD
 ```
 
-`NICO_IMAGE_REGISTRY` is used for both NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). Push all images to this registry before running setup.
+`NICO_IMAGE_REGISTRY` is used for both NICo Core (`<registry>/nvmetal-carbide`) and NICo REST (`<registry>/nico-rest-*`). Push all images to this registry before running setup. DPF operator/DOCA images pull anonymously from public NGC by default; to mirror or self-build them into your registry, see [helm-prereqs → DPF images and registries](https://github.com/NVIDIA/infra-controller/blob/main/helm-prereqs/README.md#dpf-images-and-registries).
 
 For authenticated NGC pulls, obtain an API key at [ngc.nvidia.com](https://ngc.nvidia.com) → **API Keys** → **Generate Personal Key**. You do not need to set `REGISTRY_PULL_SECRET` when images are public, preloaded, or an existing pull secret is configured in the values files.
 
@@ -102,6 +110,7 @@ For authenticated NGC pulls, obtain an API key at [ngc.nvidia.com](https://ngc.n
 | `NICO_CORE_IMAGE_TAG` | Unless `--skip-core` | NICo Core image tag (e.g. `v2.0.0`). |
 | `NICO_REST_IMAGE_TAG` | Unless `--skip-rest` | NICo REST image tag (e.g. `v2.0.0`). |
 | `KUBECONFIG` | No | Path to the target cluster kubeconfig. Omit when the current `kubectl` context is already correct. |
+| `NICO_DPF_DPU_INTERFACE`, `NICO_DPF_DPU_CLUSTER_VIP`, `NICO_DPF_BMC_ROOT_PASSWORD` | **Yes**, unless `--skip-dpf` | DPF DPU provisioning (default-on): the control-plane NIC facing the DPUs, a free DPU-routable VIP for the DPU cluster control plane, and the site-wide BMC root password. See [helm-prereqs → DPF](https://github.com/NVIDIA/infra-controller/blob/main/helm-prereqs/README.md#dpf). |
 | `NICO_SITE_UUID` | No | Stable UUID for this site. If unset, `setup.sh` tries to reuse the UUID from a prior install (site-agent ConfigMap). If that fails, it adopts an existing REST site with the same name, or mints a UUID and seeds the site record itself. |
 
 ### 3b. Set your Site Name
@@ -341,6 +350,7 @@ The `setup.sh` script installs all prerequisites and NICo components in sequenti
 | 3 | HashiCorp Vault (3-node HA Raft) |
 | 4 | Vault init + unseal + SSH host key |
 | 5 | external-secrets + nico-prereqs + nico-pg-cluster |
+| 5b | DPF stack for DPU provisioning (default; `--skip-dpf` to opt out) |
 | 6 | **NICo Core** (nico helm release) |
 | 7a-7g | **NICo REST** base stack (source and CA setup, PostgreSQL, Keycloak, Temporal, REST services) |
 | 7h | **NICo Flow** (Flow, PSM, and NSM), unless `--skip-flow` is used |
@@ -355,6 +365,8 @@ postgres-operator          (zalando/postgres-operator 1.10.1 - manages nico-pg-c
 cert-manager               (jetstack/cert-manager v1.17.1)
 vault                      (hashicorp/vault 0.25.0, 3-node HA Raft, TLS)
 external-secrets           (external-secrets/external-secrets 0.14.3)
+DPF stack                  (default; --skip-dpf to opt out: argo-cd, kamaji, NFD,
+                            maintenance-operator, dpf-operator — see docs/manuals/dpf.md)
 nico-prereqs               (this Helm chart - nico-system namespace)
 NICo Core                  (../helm - nico-core.yaml values)
 NICo REST                  (../helm/rest/nico-rest)
@@ -612,6 +624,12 @@ Prepare an `expected_machines.json` with the BMC MAC address, factory default cr
   ]
 }
 ```
+
+> **DPF is the per-host default.** With no `dpf_enabled` field, each host is
+> DPF-provisioned (the field defaults to `true`). Add `"dpf_enabled": false` to
+> keep a host on the deprecated iPXE path. DPF-based provisioning also requires
+> `[dpf].enabled = true` in the site config, which `setup.sh` sets by default
+> (unless `--skip-dpf`). See [DPF Setup](../manuals/dpf.md).
 
 Upload the manifest:
 

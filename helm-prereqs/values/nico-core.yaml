@@ -334,6 +334,29 @@ nico-api:
         { start = "51008", end = "51011" },
       ]
 
+      # -----------------------------------------------------------------------
+      # DPF — DPU provisioning via the DOCA Platform Framework.
+      # setup.sh uncomments this block automatically when installing DPF (the default; the
+      # '#dpf# ' prefixes are its marker). To enable manually: install the DPF
+      # stack (docs/manuals/dpf.md), remove every '#dpf# ' prefix, and restart
+      # carbide-api — [dpf] is read at startup only.
+      # docker_image_pull_secret is created by setup.sh phase 5b.
+      # -----------------------------------------------------------------------
+      #dpf# [dpf]
+      #dpf# enabled = true
+      #dpf# docker_image_pull_secret = "nico-pull-secret"
+
+      # BF3 deployment defaults, shown for reference — these match the built-in
+      # defaults and only need uncommenting to override (e.g. a different BFB).
+      # BF4 is opt-in via an additional [dpf.deployments.bf4_generic] table;
+      # see docs/manuals/dpf.md §3.5.
+      #
+      # [dpf.deployments.bf3]
+      # bfb_url         = "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.2-125_26.02_ubuntu-24.04_64k_prod.bfb"
+      # flavor_name     = "carbide-dpu-flavor"
+      # deployment_name = "nico-deployment-v2"
+      # node_label_key  = "carbide.nvidia.com/controlled.node.v2"
+
 ## ---------------------------------------------------------------------------
 ## Service VIP assignments - MetalLB loadBalancerIPs
 ##

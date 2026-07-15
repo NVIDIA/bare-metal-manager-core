@@ -193,7 +193,7 @@ explicitly enabled in the TOML.
 | `[component_manager]` | Compute tray, NvLink switch, and power shelf management | RMS backends require rack profile data for node descriptors. |
 | `[vmaas_config]` | VM system integration / VM-aware traffic intercept | Requires `public_prefixes`. |
 | `[rms]` | Rack Manager Service (mTLS connectivity to external RMS) | |
-| `[dpf]` | DPU Platform Framework — Kubernetes DPU workload deployment | Requires the DPF operator deployed in-cluster. |
+| `[dpf]` | DPU Platform Framework — Kubernetes DPU workload deployment | Requires the DPF operator deployed in-cluster (`helm-prereqs/setup.sh` installs it by default; `--skip-dpf` to opt out). |
 | `rack_management_enabled` | Standalone infrastructure manager mode (GB200/GB300/VR144) | Top-level boolean, not a sub-section. |
 
 For RMS component-manager backends, NICo builds RMS node descriptors from rack
@@ -1415,7 +1415,7 @@ on or off.
 | RBAC bypass (dev only) | siteConfig | `bypass_rbac = true` | off | Disables RBAC; never set in production. |
 | Passive mode (debug only) | siteConfig | `listen_only = true` | off | RPC/web only, no background controllers. CI/dev shells only. |
 | TPM bypass (testing only) | siteConfig | `tpm_required = false` | required | Allows machine registration without TPM. Testing only. |
-| DPF (Kubernetes DPU workloads) | siteConfig | `[dpf].enabled` | off | Requires the DPF operator. |
+| DPF (Kubernetes DPU workloads) | siteConfig | `[dpf].enabled` | off | Requires the DPF operator (`setup.sh` installs and enables it by default; `--skip-dpf` to opt out). |
 | Loki sidecar (REST stack) | Helm (REST) | `nico-rest-*` log shipping | off | Optional; pairs with the same OTel collector pattern used by Core. |
 | Bundled dev Keycloak | Helm (REST) | `nico-rest-api.config.keycloak.enabled` | on | Disable for production — use external IdP. |
 

@@ -321,6 +321,23 @@ siteConfig:
   enabled: true
   nicoApiSiteConfig: ""  # Must include [pools.lo-ip], [pools.vlan-id], [pools.vni], [pools.vpc-vni]
 
+## DPF (DOCA Platform Framework) integration.
+## rbacCreate: create a Role/RoleBinding in the DPF operator namespace so the
+## API can manage DPF CRs (templates/dpf-rbac.yaml). Enabled by setup.sh (DPF is
+## the default); pair with a [dpf] block in siteConfig.nicoApiSiteConfig
+## (docs/manuals/dpf.md §3.5).
+## HARD PRECONDITION: operatorNamespace must already exist when rbacCreate=true,
+## or `helm install` fails with "namespaces ... not found" and rolls back the
+## whole release. setup.sh sets rbacCreate=true only after phase 5b creates the
+## namespace. Leave it false unless the DPF operator stack is installed.
+## This value must MATCH the namespace the DPF operator + prereqs run in — the
+## prereq stack hardcodes dpf-operator-system, so changing it here alone would
+## put the Role/RoleBinding in a different namespace than the operator it grants
+## carbide-api access to, silently breaking DPF CR management.
+dpf:
+  rbacCreate: false
+  operatorNamespace: dpf-operator-system
+
 ## NICo Web UI hostname (always created as ConfigMap)
 hostname: "nico.local"
 
