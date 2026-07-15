@@ -1623,14 +1623,16 @@ async fn test_lock_loss_requeues_without_publishing_the_transition(
 
     controller.run_single_iteration().await;
 
-    // The transition lost the version check: it never happened, so the
-    // per-object gauges must still report the observed state A...
-    let entered = parsed_prometheus_metrics(
-        &prometheus_registry,
-        "carbide_object_state_entered_timestamp_seconds",
+    // The transition lost the version check: the state this iteration
+    // observed is provably outdated, so nothing may be published (existing
+    // series would only be kept alive, and here there are none)...
+    assert!(
+        parsed_prometheus_metrics(
+            &prometheus_registry,
+            "carbide_object_state_entered_timestamp_seconds",
+        )
+        .is_empty()
     );
-    assert_eq!(entered.len(), 1);
-    assert!(entered[0].0.contains(r#"state="a""#), "{}", entered[0].0);
 
     // ...but the object must be requeued to promptly re-read the state the
     // concurrent writer committed.

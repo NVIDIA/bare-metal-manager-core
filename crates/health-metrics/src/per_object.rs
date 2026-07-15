@@ -175,10 +175,10 @@ impl PerObjectGauge {
             .remove(key);
     }
 
-    /// Like [`Self::touch`], but only while every series still carries all of
-    /// `required_labels`; otherwise the entry is removed — the recorded fact
-    /// no longer describes the object's current state, so keeping it alive
-    /// would publish contradictory labels.
+    /// Refreshes the entry's eviction deadline, but only while every series
+    /// still carries all of `required_labels`; otherwise the entry is removed
+    /// — the recorded fact no longer describes the object's current state, so
+    /// keeping it alive would publish contradictory labels.
     pub fn touch_if_labels(
         &self,
         object_type: &'static str,

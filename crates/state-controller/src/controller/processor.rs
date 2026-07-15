@@ -843,14 +843,16 @@ async fn process_object<IO: StateControllerIO>(
     if let Some(recorder) = &per_object_state {
         if object_gone {
             recorder.clear(&object_id.to_string());
-        } else if let (Some(final_state), Some(entered)) = (
-            metrics
-                .common
-                .next_state
-                .as_ref()
-                .or(metrics.common.initial_state.as_ref()),
-            metrics.common.state_entered_at,
-        ) {
+        } else if !metrics.common.transition_conflict
+            && let (Some(final_state), Some(entered)) = (
+                metrics
+                    .common
+                    .next_state
+                    .as_ref()
+                    .or(metrics.common.initial_state.as_ref()),
+                metrics.common.state_entered_at,
+            )
+        {
             let (state, substate) = IO::metric_state_names(final_state);
             let manual_intervention = match (
                 IO::manual_intervention_reason(final_state),
@@ -879,10 +881,13 @@ async fn process_object<IO: StateControllerIO>(
                 manual_intervention,
             );
         } else {
-            // The object exists but its state could not be loaded this
-            // iteration (e.g. a DB error or timeout during load): keep any
-            // existing series alive instead of letting them evict — and the
-            // triage alerts flap — mid-incident.
+            // The object's current state is unknowable this iteration: either
+            // it could not be loaded (e.g. a DB error or timeout during
+            // load), or the optimistic version check failed — positive
+            // evidence a concurrent writer replaced the state this iteration
+            // observed. Keep existing series alive instead of asserting stale
+            // facts or letting triage alerts flap; the requeued/next pass
+            // records the current state.
             recorder.touch(&object_id.to_string());
         }
     }
