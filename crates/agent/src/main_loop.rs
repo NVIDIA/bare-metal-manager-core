@@ -29,6 +29,7 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
+use carbide_instrument::{Outcome, emit};
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -55,7 +56,9 @@ use crate::ethernet_virtualization::{
 use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
-use crate::instrumentation::{create_metrics, get_dpu_agent_meter, get_prometheus_registry};
+use crate::instrumentation::{
+    ReportLoop, ReportLoopCompleted, create_metrics, get_dpu_agent_meter, get_prometheus_registry,
+};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::get_host_boot_timestamp;
@@ -171,7 +174,7 @@ pub async fn setup_and_run(
             fmds_address = fmds_addr,
             "Using FmdsUpdater::External FMDS service"
         );
-        match crate::fmds_client::FmdsGrpcClient::connect(
+        let updater = match crate::fmds_client::FmdsGrpcClient::connect(
             fmds_addr,
             agent_config.machine_identity.clone(),
         )
@@ -185,7 +188,20 @@ pub async fn setup_and_run(
                 );
                 FmdsUpdater::Embedded(instance_metadata_state.clone())
             }
-        }
+        };
+        // External FMDS was configured: expose whether we reached it (1) or fell
+        // back to embedded (0). A gauge, not a counter -- the fallback is decided
+        // once at startup, so a single pre-scrape counter bump would be invisible
+        // to rate()/increase(); a gauge reports the state at every scrape.
+        let reached_external = matches!(updater, FmdsUpdater::External(_));
+        get_dpu_agent_meter()
+            .u64_observable_gauge("carbide_dpu_agent_fmds_external_connected")
+            .with_description(
+                "Whether the DPU agent reached its configured external FMDS (1) or fell back to embedded (0)",
+            )
+            .with_callback(move |observer| observer.observe(reached_external as u64, &[]))
+            .build();
+        updater
     } else {
         if options.enable_metadata_service {
             crate::metadata_service::spawn_metadata_service(
@@ -1423,16 +1439,25 @@ pub async fn record_network_status(
                 error = format!("{err:#}"),
                 "record_network_status: Could not connect to Forge API server. Will retry."
             );
+            emit(ReportLoopCompleted {
+                report_loop: ReportLoop::NetworkStatus,
+                outcome: Outcome::Error,
+            });
             return;
         }
     };
     let request = tonic::Request::new(status);
-    if let Err(err) = client.record_dpu_network_status(request).await {
+    let result = client.record_dpu_network_status(request).await;
+    if let Err(err) = &result {
         tracing::error!(
             error = format!("{err:#}"),
             "Error while executing the record_network_status gRPC call"
         );
     }
+    emit(ReportLoopCompleted {
+        report_loop: ReportLoop::NetworkStatus,
+        outcome: Outcome::from(&result),
+    });
 }
 
 // Get the link type, carrier status, MTU, and whatever else for our uplinks

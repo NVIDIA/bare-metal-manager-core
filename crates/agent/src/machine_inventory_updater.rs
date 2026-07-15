@@ -19,11 +19,13 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
+use carbide_instrument::{Outcome, emit};
 use carbide_uuid::machine::MachineId;
 
 use crate::command_line::AgentPlatformType;
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
+use crate::instrumentation::{ReportLoop, ReportLoopCompleted};
 
 #[derive(Debug, Clone)]
 pub struct MachineInventoryUpdaterConfig {
@@ -37,81 +39,87 @@ pub struct MachineInventoryUpdaterConfig {
 }
 
 pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<()> {
-    tracing::trace!(
-        machine_id = %config.machine_id,
-        "Updating machine inventory"
-    );
-
-    let machine_id = config.machine_id;
-
-    // We won't be able to see these containers unless we're in the DPU OS.
-    let result = if config.agent_platform_type.is_dpu_os() {
-        let containers = container::Containers::list().await?;
-
-        let images = container::Images::list().await?;
-
-        tracing::trace!(?containers, "Containers");
-
-        let mut result: Vec<ContainerSummary> = Vec::new();
-
-        // Map container images to container names
-        for mut c in containers.containers {
-            let images_clone = images.clone();
-            let images_names = images_clone.find_by_id(&c.image.id)?;
-            c.image_ref = images_names.names;
-            result.push(c);
-        }
-        result
-    } else {
-        vec![]
-    };
-
-    let mut inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
-        .into_iter()
-        .flat_map(|c| {
-            c.image_ref
-                .into_iter()
-                .map(|n| rpc::MachineInventorySoftwareComponent {
-                    name: n.name.clone(),
-                    version: n.version.clone(),
-                    url: n.repository,
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    // Add the DPU agent version to the inventory
-    inventory.push(rpc::MachineInventorySoftwareComponent {
-        name: "forge-dpu-agent".to_string(),
-        version: config.dpu_agent_version.clone(),
-        url: String::new(),
-    });
-
-    let inventory = rpc::MachineInventory {
-        components: inventory,
-    };
-
-    let agent_report = rpc::DpuAgentInventoryReport {
-        machine_id: Some(machine_id),
-        inventory: Some(inventory),
-    };
-
-    if let Err(e) = update_agent_reported_inventory(
-        agent_report,
-        &config.forge_client_config,
-        &config.forge_api,
-    )
-    .await
-    {
-        tracing::error!(
-            error = ?e,
-            "Failed to update agent-reported inventory"
+    // Measure the whole iteration: the container and image lookups below can
+    // fail with `?` before the report RPC, and those failures must count too.
+    let result: eyre::Result<()> = async {
+        tracing::trace!(
+            machine_id = %config.machine_id,
+            "Updating machine inventory"
         );
-    } else {
+
+        let machine_id = config.machine_id;
+
+        // We won't be able to see these containers unless we're in the DPU OS.
+        let result = if config.agent_platform_type.is_dpu_os() {
+            let containers = container::Containers::list().await?;
+
+            let images = container::Images::list().await?;
+
+            tracing::trace!(?containers, "Containers");
+
+            let mut result: Vec<ContainerSummary> = Vec::new();
+
+            // Map container images to container names
+            for mut c in containers.containers {
+                let images_clone = images.clone();
+                let images_names = images_clone.find_by_id(&c.image.id)?;
+                c.image_ref = images_names.names;
+                result.push(c);
+            }
+            result
+        } else {
+            vec![]
+        };
+
+        let mut inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
+            .into_iter()
+            .flat_map(|c| {
+                c.image_ref
+                    .into_iter()
+                    .map(|n| rpc::MachineInventorySoftwareComponent {
+                        name: n.name.clone(),
+                        version: n.version.clone(),
+                        url: n.repository,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        // Add the DPU agent version to the inventory
+        inventory.push(rpc::MachineInventorySoftwareComponent {
+            name: "forge-dpu-agent".to_string(),
+            version: config.dpu_agent_version.clone(),
+            url: String::new(),
+        });
+
+        let inventory = rpc::MachineInventory {
+            components: inventory,
+        };
+
+        let agent_report = rpc::DpuAgentInventoryReport {
+            machine_id: Some(machine_id),
+            inventory: Some(inventory),
+        };
+
+        update_agent_reported_inventory(
+            agent_report,
+            &config.forge_client_config,
+            &config.forge_api,
+        )
+        .await
+    }
+    .await;
+
+    // The scheduler logs a propagated error; success is quiet at debug.
+    if result.is_ok() {
         tracing::debug!("Successfully updated machine inventory");
     }
+    emit(ReportLoopCompleted {
+        report_loop: ReportLoop::Inventory,
+        outcome: Outcome::from(&result),
+    });
 
-    Ok(())
+    result
 }
 
 async fn update_agent_reported_inventory(
