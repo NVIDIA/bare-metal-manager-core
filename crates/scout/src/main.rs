@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
 use carbide_host_support::registration;
+use carbide_instrument::{Outcome, emit};
 use carbide_uuid::machine::MachineId;
 use cfg::{AutoDetect, Command, MlxAction, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
@@ -54,6 +55,7 @@ mod deprovision;
 mod discovery;
 mod firmware_upgrade;
 mod machine_validation;
+mod metrics;
 mod mlx_device;
 mod platform;
 mod register;
@@ -171,6 +173,35 @@ async fn initial_setup(config: &Options) -> Result<(uuid::Uuid, MachineId), eyre
 }
 
 async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
+    // Stand up the metrics/scrape endpoint when it is configured. The meter
+    // provider must stay alive for the lifetime of the service: dropping it
+    // shuts down the Prometheus exporter. The endpoint is opt-in -- without
+    // --metrics-listen-addr scout installs no meter and the counters below are
+    // no-ops.
+    let _metrics_guard = match config.metrics_listen_addr {
+        Some(address) => {
+            let metrics_setup =
+                metrics_endpoint::new_metrics_setup("nico-scout", "forge-system", true)?;
+            carbide_instrument::log_events::register(&metrics_setup.meter);
+            let metrics_config = metrics_endpoint::MetricsEndpointConfig {
+                address,
+                registry: metrics_setup.registry,
+                health_controller: Some(metrics_setup.health_controller),
+                additional_prefix: None,
+            };
+            // The endpoint's /health and /ready report process liveness (the
+            // default HealthController state), not scout readiness.
+            tokio::spawn(async move {
+                tracing::info!("Spawning metrics endpoint on {}", metrics_config.address);
+                if let Err(e) = metrics_endpoint::run_metrics_endpoint(&metrics_config).await {
+                    tracing::error!("Metrics endpoint error: {e}");
+                }
+            });
+            Some(metrics_setup.meter_provider)
+        }
+        None => None,
+    };
+
     // Implement the logic to run as a service here
     let (machine_interface_id, machine_id) = initial_setup(config).await?;
 
@@ -223,7 +254,14 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
         };
         if let Some(action) = controller_response.action {
             let action_str = action.as_str_name().to_owned();
-            match handle_action(action, &machine_id, machine_interface_id, config).await {
+            // Capture the action label before handle_action consumes `action`.
+            let scout_action = metrics::ScoutAction::from(&action);
+            let result = handle_action(action, &machine_id, machine_interface_id, config).await;
+            emit(metrics::ScoutActionHandled {
+                action: scout_action,
+                outcome: Outcome::from(&result),
+            });
+            match result {
                 Ok(_) => tracing::info!(action = %action_str, "Successfully served action"),
                 Err(e) => tracing::info!(
                     action = %action_str,
@@ -365,13 +403,13 @@ async fn handle_action(
             unimplemented!("Rebuild not written yet");
         }
         fac::Action::Noop(_) => {}
-        fac::Action::LogError(_) => match logerror_to_carbide(config, machine_interface_id).await {
-            Ok(()) => (),
-            Err(e) => tracing::info!(
-                error = %e,
-                "Failed to report Scout error to Carbide",
-            ),
-        },
+        fac::Action::LogError(_) => logerror_to_carbide(config, machine_interface_id)
+            .await
+            // Propagate the failure so `carbide_scout_actions_total` records this
+            // as `outcome = error`, not a silent success.
+            .map_err(|e| {
+                CarbideClientError::GenericError(format!("logerror_to_carbide failed: {e}"))
+            })?,
         fac::Action::Retry(_) => {
             panic!(
                 "Retrieved Retry action, which should be handled internally by query_api_with_retries"

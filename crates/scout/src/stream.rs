@@ -17,6 +17,7 @@
 
 use std::time::Duration;
 
+use carbide_instrument::{Outcome, emit};
 use carbide_uuid::machine::MachineId;
 use libmlx::profile::error::MlxProfileError;
 use rpc::forge::ScoutStreamApiBoundMessage;
@@ -24,6 +25,7 @@ use rpc::protos::forge::{scout_stream_api_bound_message, scout_stream_scout_boun
 use tokio::sync::mpsc;
 
 use crate::cfg::Options;
+use crate::metrics::{ScoutStreamConnection, ScoutStreamReconnect};
 use crate::{client, mlx_device};
 
 // ScoutStreamError represents errors that can
@@ -75,6 +77,7 @@ pub fn start_scout_stream(machine_id: MachineId, options: &Options) -> tokio::ta
                     );
                 }
             }
+            emit(ScoutStreamReconnect {});
             tracing::warn!(
                 api_endpoint = %options.api,
                 %machine_id,
@@ -91,9 +94,12 @@ async fn run_scout_stream_loop(
     machine_id: MachineId,
     options: &Options,
 ) -> Result<(), ScoutStreamError> {
-    let mut client = client::create_forge_client(options)
-        .await
-        .map_err(|e| ScoutStreamError::ClientError(e.to_string()))?;
+    let mut client = client::create_forge_client(options).await.map_err(|e| {
+        emit(ScoutStreamConnection {
+            outcome: Outcome::Error,
+        });
+        ScoutStreamError::ClientError(e.to_string())
+    })?;
 
     // Create channels for bidirectional streaming.
     let (tx, rx) = mpsc::channel::<ScoutStreamApiBoundMessage>(100);
@@ -115,7 +121,20 @@ async fn run_scout_stream_loop(
     })?;
 
     // Now create the response handler.
-    let mut response_stream = client.scout_stream(request_stream).await?.into_inner();
+    let mut response_stream = client
+        .scout_stream(request_stream)
+        .await
+        .map_err(|e| {
+            emit(ScoutStreamConnection {
+                outcome: Outcome::Error,
+            });
+            ScoutStreamError::from(e)
+        })?
+        .into_inner();
+
+    emit(ScoutStreamConnection {
+        outcome: Outcome::Ok,
+    });
 
     tracing::info!(
         api_endpoint = %options.api,
