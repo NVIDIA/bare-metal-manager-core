@@ -175,7 +175,6 @@ with `client error (Connect)`. Re-copy the CA and delete the old cert secret
 (`nico-machine-a-tron-certificate`) so cert-manager reissues from the current
 CA:
 
-
 ### BMC credentials in Vault (required for site-explorer)
 
 site-explorer's `check_preconditions` requires three site-default Vault
@@ -382,7 +381,6 @@ If the prefix is exhausted from previous runs, do one of the following:
 Do NOT hand-delete rows from the `machine_interfaces`, `dhcp_entries`, or `machine_interface_addresses` tables to free leases.
 
 The `machine_dhcp_records` view inner-joins the singleton control row `machine_interfaces_deletion` (id=1); if that row is deleted (easy to do by accident when clearing related tables) the view returns zero rows and `DiscoverDhcp` fails for **every** BMC with `Database Error: no rows returned by a query that expected to return at least one row`. If you hit that, restore the row:
-
 
 ## Non-Obvious Fixes
 

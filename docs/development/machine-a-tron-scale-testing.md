@@ -146,23 +146,23 @@ Additional issue found at stage 3:
    (commit `9a9ba072a`)? Until a nico-api image with it is deployed, the
    script registers expected machines via direct DB insert — okay as a
    documented simulation-only fallback?
-2. **Seed-once reconcile semantics**: networks, and resource-pool
+1. **Seed-once reconcile semantics**: networks, and resource-pool
    definitions are all create-once; config changes on established sites are
    silently ignored (or warn-only). The script works around this with direct
    DB writes (segment clone-insert, pool row insertion). Should NICo support
    declarative updates for these instead?
-3. **AvoidLockout at scale**: one-way latches are right for real BMCs, but
+1. **AvoidLockout at scale**: one-way latches are right for real BMCs, but
    simulation fleets guarantee latch storms during resets. Worth a
    site-config escape hatch (e.g. `site_explorer.lockout_protection = false`)
    instead of the script's DB-level clearing?
-4. **Mock fidelity**: the mock returns to its configured password after a
+1. **Mock fidelity**: the mock returns to its configured password after a
    BMC reset. Real BMCs persist a rotated password across resets. Should
    bmc-mock persist rotated credentials so the rotation path can be exercised
    at scale without pinning?
-5. **lo-ip per machine**: is one loopback IP per machine the intended
+1. **lo-ip per machine**: is one loopback IP per machine the intended
    allocation at 13.5k machines, and is there guidance for sizing this pool
    in production site templates (dev templates ship 3)?
-6. **Cycle economics**: identification/creation only run at the end of a
+1. **Cycle economics**: identification/creation only run at the end of a
    completed `explore_site` cycle, so `explorations_per_run` trades sweep
    throughput against creation latency in a non-obvious way. Worth
    documenting (or decoupling creation from the exploration cycle)?
