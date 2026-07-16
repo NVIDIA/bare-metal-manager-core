@@ -8,10 +8,11 @@ image:
   name: nico-rest-db
 
 waitForPostgres:
-  # Prefer repository + tag (they win when set); combined `image` kept for backward compat.
-  repository: postgres
-  tag: 14.4-alpine
-  # image: postgres:14.4-alpine
+  # Set `repository` + `tag` to override (they win when both are set); otherwise the
+  # combined `image` below is used.
+  # repository: postgres
+  # tag: 14.4-alpine
+  image: postgres:14.4-alpine
 
 db:
   host: nico-pg-cluster.postgres.svc.cluster.local
