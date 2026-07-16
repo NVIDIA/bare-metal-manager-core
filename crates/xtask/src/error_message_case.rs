@@ -69,13 +69,13 @@ const CONV_METHODS: &[&str] = &["into", "to_string", "to_owned", "into_owned"];
 const FORMAT_MACROS: &[&str] = &["format", "format_args"];
 
 // TODO: `format!(...)` is now peeled when it's the message argument of a
-// recognized error slot (see `leading_str_lit`), but a few forms remain out of
-// reach: a `format!` behind a *block*-bodied closure (`.wrap_err_with(|| {
-// format!(...) })`), struct-literal error fields (`CarbideError::Internal {
-// message: "..." }`), other error enums' constructors, a manual `impl Display`
-// (`write!`), and an error site nested inside another macro's body (a `bail!`
-// inside `tokio::select!`, which `syn` keeps as an opaque token stream). Those
-// are left as-is; widening the checker further, and re-sweeping, is a follow-up.
+// recognized error slot, through expression- or block-bodied closures (see
+// `leading_str_lit`). A few forms still remain out of reach: struct-literal
+// error fields (`CarbideError::Internal { message: "..." }`), other error enums'
+// constructors, a manual `impl Display` (`write!`), and an error site nested
+// inside another macro's body (a `bail!` inside `tokio::select!`, which `syn`
+// keeps as an opaque token stream). Those are left as-is; widening the checker
+// further, and re-sweeping what it then catches, is a follow-up.
 
 pub fn check(fix: bool) -> eyre::Result<CheckOutcome> {
     let repo_root = PathBuf::from(REPO_ROOT).canonicalize()?;
@@ -251,10 +251,18 @@ impl CheckOutcome {
                 Problem::Capitalized => (c + 1, p),
                 Problem::TrailingPeriod => (c, p + 1),
             });
+        let total = self.violations.len();
         println!(
-            "{} error-message style violations ({cap} capitalized, {period} trailing period). \
-             Run `cargo xtask lint-error-messages --fix` to fix.",
-            self.violations.len(),
+            "\n{total} error-message style violation(s) ({cap} capitalized, {period} trailing period)."
+        );
+        println!(
+            "Error messages should be a lowercase phrase with no trailing period (C-GOOD-ERR)."
+        );
+        println!("\nTo fix these automatically, run:\n");
+        println!("    cargo xtask lint-error-messages --fix");
+        println!(
+            "\nA deliberate capital (an acronym or a case-sensitive token) can be kept with a \
+             `// xtask:allow-error-case` comment on that line. See STYLE_GUIDE.md."
         );
         std::process::exit(1);
     }
@@ -408,9 +416,10 @@ fn macro_message(mac: &Macro) -> Option<LitStr> {
     leading_str_lit(args.iter().nth(index)?)
 }
 
-/// Peels closures, references, trivial conversions, and a wrapping `format!` to
-/// find a leading string literal — the message inside `|| "...".into()`, `&"..."`,
-/// `"...".to_string()`, or `CarbideError::invalid_argument(format!("...", x))`.
+/// Peels closures (expression- or block-bodied), references, trivial conversions,
+/// and a wrapping `format!` to find a leading string literal — the message inside
+/// `|| "...".into()`, `&"..."`, `"...".to_string()`, `|| { format!("...") }`, or
+/// `CarbideError::invalid_argument(format!("...", x))`.
 /// Returns an owned `LitStr` (it may be parsed out of a `format!` body), but its
 /// span still points at the real source literal, so a fix rewrites the right bytes.
 fn leading_str_lit(expr: &Expr) -> Option<LitStr> {
@@ -439,6 +448,13 @@ fn leading_str_lit(expr: &Expr) -> Option<LitStr> {
             leading_str_lit(args.first()?)
         }
         Expr::Closure(closure) => leading_str_lit(&closure.body),
+        // A block-bodied closure (or a bare block) forwards to its tail
+        // expression -- the block's value -- so `.wrap_err_with(|| { format!(...) })`
+        // is reached just like the expression-bodied `|| format!(...)`.
+        Expr::Block(block) => block.block.stmts.last().and_then(|tail| match tail {
+            syn::Stmt::Expr(e, None) => leading_str_lit(e),
+            _ => None,
+        }),
         Expr::Reference(reference) => leading_str_lit(&reference.expr),
         Expr::Paren(paren) => leading_str_lit(&paren.expr),
         Expr::Group(group) => leading_str_lit(&group.expr),
@@ -781,5 +797,32 @@ mod tests {
         // a bare format!/log macro outside an error slot is untouched
         assert!(fixed.contains(r#""Bare log line stays""#), "{fixed}");
         assert!(fixed.contains(r#""Plain format stays""#), "{fixed}");
+    }
+
+    /// A `format!` inside a *block*-bodied closure is reached too -- the common
+    /// `.wrap_err_with(|| { format!(...) })` form, not just `|| format!(...)`.
+    #[test]
+    fn end_to_end_rewrite_reaches_block_closure() {
+        let src = concat!(
+            "fn f() -> anyhow::Result<()> {\n",
+            "    thing().wrap_err_with(|| {\n",
+            "        format!(\"Couldn't reach {host}\")\n",
+            "    })?;\n",
+            "    Ok(())\n",
+            "}\n",
+        );
+        let ast = syn::parse_file(src).unwrap();
+        let mut findings = Vec::new();
+        let mut collector = Collector {
+            lines: src.lines().collect(),
+            out: &mut findings,
+        };
+        collector.visit_file(&ast);
+        let (fixed, applied) = apply_fixes(src, &findings);
+        assert_eq!(applied, 1, "{fixed}");
+        assert!(
+            fixed.contains(r#"format!("couldn't reach {host}")"#),
+            "{fixed}"
+        );
     }
 }

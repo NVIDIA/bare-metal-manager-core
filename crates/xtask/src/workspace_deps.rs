@@ -185,7 +185,7 @@ impl Workspace {
                     } else if let Some(version) = dep.as_str() {
                         let version = Version::from(version).with_context(|| {
                             format!(
-                                "Error parsing version for dependency `{}` in {}",
+                                "error parsing version for dependency `{}` in {}",
                                 dep_name,
                                 toml_path.display()
                             )
