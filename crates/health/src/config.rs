@@ -706,7 +706,7 @@ impl Default for CarbideApiConnectionConfig {
             root_ca: "/var/run/secrets/spiffe.io/ca.crt".to_string(),
             client_cert: "/var/run/secrets/spiffe.io/tls.crt".to_string(),
             client_key: "/var/run/secrets/spiffe.io/tls.key".to_string(),
-            api_url: Url::parse("https://carbide-api.forge-system.svc.cluster.local:1079").unwrap(),
+            api_url: Url::parse("https://carbide-api.nico-system.svc.cluster.local:1079").unwrap(),
         }
     }
 }
@@ -2243,7 +2243,7 @@ mod tests {
                 carbide_api
                     .api_url
                     .as_str()
-                    .starts_with("https://carbide-api.forge-system.svc.cluster.local:1079"),
+                    .starts_with("https://nico-api.nico-system.svc.cluster.local:1079"),
             );
         } else {
             panic!("carbide api empty for sources")
