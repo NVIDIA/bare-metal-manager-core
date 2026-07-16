@@ -58,7 +58,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "More than 10% of machines stuck above SLA"
+            summary: "At least 10% of machines stuck above SLA"
             description: "Critical: machines have been in assigned state longer than allowed."
             runbook_url: "https://github.com/NVIDIA/infra-controller/blob/main/docs/playbooks/stuck_objects/stuck_objects.md"
 
