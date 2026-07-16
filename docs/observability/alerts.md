@@ -79,7 +79,7 @@ Applies to machine, network-segment and IB-partition state handlers.
 
 | Alert | Expression | Duration |
 |-------|------------|----------|
-| NicoAPIDown | `(carbide_api_ready == 0) or absent(carbide_api_ready == 1)` | 15m |
+| NicoAPIDown | `max(carbide_api_ready) == 0 or absent(carbide_api_ready)` | 15m |
 | NicoAPIFluctuating | `changes(carbide_api_ready[15m]) > 5` | 15m |
 
 ### 1.7 DPU metrics
@@ -112,12 +112,13 @@ error rate from the `_count` series split by gRPC status:
 )
 ```
 
-**API latency** uses the same histogram. Extract p95 or p99 percentiles:
+**API latency** uses the same histogram. Extract p95 or p99 percentiles and convert to
+seconds (metric is in milliseconds, SLO target is 1 second = 1000ms):
 
 ```promql
 histogram_quantile(0.95,
   sum(rate(carbide_api_grpc_server_duration_milliseconds_bucket[5m])) by (le)
-)
+) / 1000 < 1
 ```
 
 **State update / reconciliation** uses `carbide_machines_handler_latency_in_state_milliseconds`
@@ -128,17 +129,15 @@ per-state thresholds.
 
 ## 3. Site-related thresholds
 
-The following metrics are useful for alerting but lack production-validated thresholds.
+The following metrics are useful for alerting but site-specific.
 Use these as starting points and tune based on your site characteristics:
 
 | Metric | Expression | Suggested approach |
-|--------|------------|-------------------|
+|--------|------------|--------------------|
 | Hosts usable | `carbide_hosts_usable_count` | Site-relative percentage of total hosts |
 | GPUs usable | `carbide_gpus_usable_count` | Site-relative percentage of total GPUs |
 | DPU unhealthy | `(carbide_dpus_up_count - carbide_dpus_healthy_count) / carbide_dpus_up_count` | Warning at > 5%, treat as warning-class with longer `for:` duration |
 | DB pool exhaustion | `carbide_db_pool_idle_conns` | Alert on low idle connections or pool timeout errors |
-
-No evidence was found that large sites use different alert thresholds.
 
 ## 4. Deploying alert rules
 
@@ -197,7 +196,7 @@ For detailed troubleshooting of health alerts, see the
 
 ## 6. References
 
-- [NICo alerting rules](https://github.com/NVIDIA/infra-controller/tree/main/helm/observability/alerts/nico-alerts.yaml) - Prometheus-compatible rule examples
+- [NICo alerting rules](https://github.com/NVIDIA/infra-controller/blob/main/helm/observability/alerts/nico-alerts.yaml) - Prometheus-compatible rule examples
 - [Health alerts playbook](../playbooks/stuck_objects/health_alerts.md)
 - [Health alert classifications](../architecture/health/health_alert_classifications.md)
 - [Full metrics reference](core_metrics.md)

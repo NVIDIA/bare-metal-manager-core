@@ -75,7 +75,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "DPUs with a recent health report (less than five minutes old).",
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "text" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "text", "value": null } ] }, "unit": "none" }, "overrides": [] },
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
       "id": 5,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": [ "lastNotNull" ], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
@@ -88,7 +88,7 @@
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "description": "DPUs whose most recent report declared them healthy.",
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "text" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "text", "value": null } ] }, "unit": "none" }, "overrides": [] },
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
       "id": 6,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": [ "lastNotNull" ], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },

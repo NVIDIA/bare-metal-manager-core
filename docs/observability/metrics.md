@@ -164,7 +164,9 @@ telemetryServiceMonitor:
 
 ### 3.2 OTel Collector configuration
 
-Configure the prometheus receiver for Kubernetes service discovery.
+Configure the prometheus receiver for Kubernetes service discovery. This example scrapes
+only the `/metrics` endpoint. For nico-hardware-health `/telemetry` (high-cardinality
+sensor data), add a separate scrape job targeting the `telemetry` port name.
 
 > **Note:** If running as a DaemonSet, each replica will independently discover and scrape
 > all targets, duplicating samples. For DaemonSet deployments implement target

@@ -16,7 +16,7 @@ spec:
       rules:
         # Production-validated: API not ready for 15m
         - alert: NicoAPIDown
-          expr: (carbide_api_ready == 0) or absent(carbide_api_ready == 1)
+          expr: max(carbide_api_ready) == 0 or absent(carbide_api_ready)
           for: 15m
           labels:
             severity: critical
@@ -49,18 +49,18 @@ spec:
 
     - name: nico-sla
       rules:
-        # Production-validated: Machines stuck >10% is critical, >0% is warning
+        # Production-validated: Machines stuck >=10% is critical, <10% is warning
         - alert: NicoMachinesStuckAboveSLACritical
           expr: |
             (sum(carbide_machines_per_state_above_sla{state="assigned"})
-            / sum(carbide_machines_total)) > 0.1
+            / sum(carbide_machines_total)) >= 0.1
           for: 30m
           labels:
             severity: critical
           annotations:
             summary: "More than 10% of machines stuck above SLA"
             description: "Critical: machines have been in assigned state longer than allowed."
-            runbook_url: "https://github.com/NVIDIA/nico/blob/main/docs/playbooks/stuck_objects/"
+            runbook_url: "https://github.com/NVIDIA/infra-controller/blob/main/docs/playbooks/stuck_objects/stuck_objects.md"
 
         - alert: NicoMachinesStuckAboveSLAWarning
           expr: |
@@ -68,18 +68,18 @@ spec:
             / sum(carbide_machines_total)) > 0
             and
             (sum(carbide_machines_per_state_above_sla{state="assigned"})
-            / sum(carbide_machines_total)) <= 0.1
+            / sum(carbide_machines_total)) < 0.1
           for: 30m
           labels:
             severity: warning
           annotations:
             summary: "Machines stuck above SLA (< 10%)"
             description: "Some machines have been in assigned state longer than allowed."
-            runbook_url: "https://github.com/NVIDIA/nico/blob/main/docs/playbooks/stuck_objects/"
+            runbook_url: "https://github.com/NVIDIA/infra-controller/blob/main/docs/playbooks/stuck_objects/stuck_objects.md"
 
         # Production-validated: Network segments/IB partitions stuck
         - alert: NicoNetworkSegmentsStuckCritical
-          expr: sum(carbide_network_segments_per_state_above_sla) > 10
+          expr: sum(carbide_network_segments_per_state_above_sla) >= 10
           for: 60m
           labels:
             severity: critical
@@ -89,15 +89,15 @@ spec:
         - alert: NicoNetworkSegmentsStuckWarning
           expr: |
             sum(carbide_network_segments_per_state_above_sla) > 0
-            and sum(carbide_network_segments_per_state_above_sla) <= 10
+            and sum(carbide_network_segments_per_state_above_sla) < 10
           for: 60m
           labels:
             severity: warning
           annotations:
-            summary: "Network segments stuck above SLA (1-10)"
+            summary: "Network segments stuck above SLA (1-9)"
 
         - alert: NicoIBPartitionsStuckCritical
-          expr: sum(carbide_ib_partitions_per_state_above_sla) > 10
+          expr: sum(carbide_ib_partitions_per_state_above_sla) >= 10
           for: 60m
           labels:
             severity: critical
@@ -107,12 +107,12 @@ spec:
         - alert: NicoIBPartitionsStuckWarning
           expr: |
             sum(carbide_ib_partitions_per_state_above_sla) > 0
-            and sum(carbide_ib_partitions_per_state_above_sla) <= 10
+            and sum(carbide_ib_partitions_per_state_above_sla) < 10
           for: 60m
           labels:
             severity: warning
           annotations:
-            summary: "IB partitions stuck above SLA (1-10)"
+            summary: "IB partitions stuck above SLA (1-9)"
 
     - name: nico-capacity
       rules:
