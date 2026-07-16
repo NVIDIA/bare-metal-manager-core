@@ -77,25 +77,17 @@ use mac_address::MacAddress;
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
+use crate::db_read::DbReader;
 
 /// Mirrors the `credential_rotation_type` Postgres enum
 /// (`20260623120000_credential_rotation.sql`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "credential_rotation_type", rename_all = "snake_case")]
 pub enum CredentialRotationType {
-    /// Baseboard-management-controller root credential.
     Bmc,
-
-    /// Host firmware setup credential.
     HostUefi,
-
-    /// DPU firmware setup credential.
     DpuUefi,
-
-    /// NVOS administrative credential for NVLink switches.
     Nvos,
-
-    /// DPU lockdown key material.
     LockdownIkm,
 }
 
@@ -796,6 +788,27 @@ pub struct DeviceRotationStatus {
     pub rotate_last_error_redacted: Option<String>,
 }
 
+/// Query row for NVOS status while the site-wide target may be unpublished.
+///
+/// The query starts from the live switch and left-joins the target, so these
+/// target fields must be nullable. The helper converts a complete row into
+/// [`DeviceRotationStatus`] and maps a missing target to
+/// [`DatabaseError::MissingSitewideRotationTarget`].
+#[derive(sqlx::FromRow)]
+struct NvosDeviceRotationStatusRow {
+    target_version: Option<i32>,
+    started_at: Option<DateTime<Utc>>,
+    device_mac: String,
+    current_version: Option<i32>,
+    rotating_to_version: Option<i32>,
+    converged: bool,
+    quarantined: bool,
+    quarantined_until: Option<DateTime<Utc>>,
+    rotate_attempts: i32,
+    rotate_last_attempt_at: Option<DateTime<Utc>>,
+    rotate_last_error_redacted: Option<String>,
+}
+
 /// Durable per-device operation fields used to resume rotation reconciliation.
 ///
 /// The staged target identifies unresolved mutation work, the optional job ID
@@ -827,7 +840,7 @@ pub struct DeviceRotationOperationState {
 /// submit work, poll an existing backend job, preserve a terminal failure, or
 /// treat the device as converged.
 pub async fn device_rotation_operation_state(
-    conn: &mut PgConnection,
+    conn: impl DbReader<'_>,
     credential_type: CredentialRotationType,
     device_mac: MacAddress,
 ) -> Result<Option<DeviceRotationOperationState>, DatabaseError> {
@@ -842,20 +855,18 @@ pub async fn device_rotation_operation_state(
     sqlx::query_as::<_, DeviceRotationOperationState>(query)
         .bind(credential_type)
         .bind(device_mac)
-        .fetch_optional(&mut *conn)
+        .fetch_optional(conn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// Convergence status for a single device's `credential_type` credential.
 ///
-/// Returns `None` when no `device_credential_rotation` row exists for the
-/// `(device_mac, credential_type)` pair -- the caller surfaces that as
-/// `NotFound` rather than fabricating a "not established" status for a device
-/// NICo has no record of (e.g. a mistyped MAC). The inner JOIN to
-/// `sitewide_credential_rotation` means a credential type with no target row
-/// also yields `None`; uninitialized credential types intentionally have no
-/// target row.
+/// Returns `None` when the device does not belong to the credential type's
+/// device universe; the caller surfaces that as `NotFound` rather than
+/// fabricating a status for an unknown device. For NVOS, a live switch remains
+/// distinguishable from an unknown device before the initial target is
+/// published, and produces [`DatabaseError::MissingSitewideRotationTarget`].
 pub async fn device_rotation_status(
     conn: &mut PgConnection,
     credential_type: CredentialRotationType,
@@ -911,19 +922,44 @@ async fn nvos_device_rotation_status(
                         COALESCE(d.rotate_attempts, 0) AS rotate_attempts, \
                         d.rotate_last_attempt_at, \
                         d.rotate_last_error_redacted \
-                 FROM sitewide_credential_rotation s \
-                 JOIN live_device ld ON TRUE \
+                 FROM live_device ld \
+                 LEFT JOIN sitewide_credential_rotation s \
+                     ON s.credential_type = $1 \
                  LEFT JOIN device_credential_rotation d \
-                     ON d.credential_type = s.credential_type \
-                    AND d.device_mac = ld.device_mac \
-                 WHERE s.credential_type = $1";
+                     ON d.credential_type = $1 \
+                    AND d.device_mac = ld.device_mac";
 
-    sqlx::query_as::<_, DeviceRotationStatus>(query)
+    let status = sqlx::query_as::<_, NvosDeviceRotationStatusRow>(query)
         .bind(CredentialRotationType::Nvos)
         .bind(device_mac)
         .fetch_optional(conn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    let Some(status) = status else {
+        return Ok(None);
+    };
+
+    let (Some(target_version), Some(started_at)) = (status.target_version, status.started_at)
+    else {
+        return Err(DatabaseError::MissingSitewideRotationTarget(
+            CredentialRotationType::Nvos,
+        ));
+    };
+
+    Ok(Some(DeviceRotationStatus {
+        target_version,
+        started_at,
+        device_mac: status.device_mac,
+        current_version: status.current_version,
+        rotating_to_version: status.rotating_to_version,
+        converged: status.converged,
+        quarantined: status.quarantined,
+        quarantined_until: status.quarantined_until,
+        rotate_attempts: status.rotate_attempts,
+        rotate_last_attempt_at: status.rotate_last_attempt_at,
+        rotate_last_error_redacted: status.rotate_last_error_redacted,
+    }))
 }
 
 // Tests for the SQL-only `*_credential_rotation_backfill` data migration. It has
@@ -1219,7 +1255,7 @@ mod tests {
 
         assert!(!stale_release);
 
-        let state = device_rotation_operation_state(&mut conn, CredentialRotationType::Nvos, mac)
+        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
             .expect("operation state should exist");
@@ -1275,7 +1311,7 @@ mod tests {
         .unwrap()
         .expect("operator should publish the next target");
 
-        let state = device_rotation_operation_state(&mut conn, CredentialRotationType::Nvos, mac)
+        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
             .expect("operation state should exist");
@@ -1428,7 +1464,7 @@ mod tests {
 
         assert_eq!(stale_retry, None);
 
-        let state = device_rotation_operation_state(&mut conn, CredentialRotationType::Nvos, mac)
+        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
             .expect("operation state should exist");
@@ -1492,7 +1528,7 @@ mod tests {
 
         assert_eq!(retry, Some(attempt + 1));
 
-        let state = device_rotation_operation_state(&mut conn, CredentialRotationType::Nvos, mac)
+        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
             .expect("operation state should exist");
@@ -1531,7 +1567,7 @@ mod tests {
         );
 
         let submitted_state =
-            device_rotation_operation_state(&mut conn, CredentialRotationType::Nvos, mac)
+            device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
                 .await
                 .unwrap()
                 .expect("submitted operation state should exist");
@@ -1587,7 +1623,7 @@ mod tests {
 
         assert!(promoted);
 
-        let state = device_rotation_operation_state(&mut conn, CredentialRotationType::Nvos, mac)
+        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
             .expect("operation state should exist");
@@ -1618,7 +1654,7 @@ mod tests {
 
         assert_eq!(next_started, Some(2));
 
-        let state = device_rotation_operation_state(&mut conn, CredentialRotationType::Nvos, mac)
+        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
             .expect("next operation state should exist");
@@ -1677,7 +1713,7 @@ mod tests {
             "a converged revision must not be staged again"
         );
 
-        let state = device_rotation_operation_state(&mut conn, CredentialRotationType::Nvos, mac)
+        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
             .expect("operation state should exist");
@@ -1909,10 +1945,30 @@ mod tests {
         let mut conn = pool.acquire().await.unwrap();
         let live_mac: MacAddress = "02:00:00:00:50:01".parse().unwrap();
         let deleted_mac: MacAddress = "02:00:00:00:50:02".parse().unwrap();
+        let unknown_mac: MacAddress = "02:00:00:00:50:ff".parse().unwrap();
 
-        publish_nvos_target(&mut conn, 1).await;
         insert_switch(&mut conn, "nvos-device-live", "02:00:00:00:50:01", false).await;
         insert_switch(&mut conn, "nvos-device-deleted", "02:00:00:00:50:02", true).await;
+
+        let before_publish =
+            device_rotation_status(&mut conn, CredentialRotationType::Nvos, live_mac).await;
+
+        assert!(matches!(
+            before_publish,
+            Err(crate::DatabaseError::MissingSitewideRotationTarget(
+                CredentialRotationType::Nvos
+            ))
+        ));
+
+        assert!(
+            device_rotation_status(&mut conn, CredentialRotationType::Nvos, unknown_mac)
+                .await
+                .unwrap()
+                .is_none(),
+            "an unknown switch must remain NotFound before target publication"
+        );
+
+        publish_nvos_target(&mut conn, 1).await;
 
         let pending = device_rotation_status(&mut conn, CredentialRotationType::Nvos, live_mac)
             .await
