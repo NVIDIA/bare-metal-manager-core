@@ -434,7 +434,10 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	statusDetails := []cdbm.StatusDetail{*ssd}
 
 	// Make a best-effort attempt to return a response with the allocated VNI.
-	if activeVni := cdbm.VpcProtoAllocatedVNI(controllerVpc); activeVni != nil {
+	controllerVpcModel := &cdbm.Vpc{}
+	controllerVpcModel.FromProto(controllerVpc)
+	activeVni := controllerVpcModel.ActiveVni
+	if activeVni != nil {
 		uvpcInput := cdbm.VpcUpdateInput{
 			VpcID:     vpc.ID,
 			ActiveVni: activeVni,

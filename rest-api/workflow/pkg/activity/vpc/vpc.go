@@ -159,17 +159,20 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			controllerVpcID = &ctrlID
 		}
 
+		reportedVpc := &cdbm.Vpc{}
+		reportedVpc.FromProto(controllerVpc)
+
 		// Initialized Network virtualization type
 		var networkVirtualizationType *string
 		// If the VPC in the DB has Network Virtualization Type, but Site reported different one then update it
-		reportedVirtType := cdbm.VpcProtoNetworkVirtualizationType(controllerVpc)
+		reportedVirtType := reportedVpc.NetworkVirtualizationType
 		if reportedVirtType != nil && !util.PtrsEqual(vpc.NetworkVirtualizationType, reportedVirtType) {
 			networkVirtualizationType = reportedVirtType
 		}
 
-		controllerActiveVni := cdbm.VpcProtoAllocatedVNI(controllerVpc)
-		reportedRoutingProfile := cdbm.VpcProtoRoutingProfile(controllerVpc)
-		reportedNSGID := cdbm.VpcProtoNetworkSecurityGroupID(controllerVpc)
+		controllerActiveVni := reportedVpc.ActiveVni
+		reportedRoutingProfile := reportedVpc.RoutingProfile
+		reportedNSGID := reportedVpc.NetworkSecurityGroupID
 
 		needsUpdate := isMissingOnSite != nil ||
 			controllerVpcID != nil ||

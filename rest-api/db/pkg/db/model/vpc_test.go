@@ -1599,6 +1599,15 @@ func TestVpc_ToProto(t *testing.T) {
 		assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.Config.NetworkVirtualizationType)
 	})
 
+	t.Run("maps NetworkVirtualizationType FLAT string to the FLAT enum", func(t *testing.T) {
+		flat := VpcFlat
+		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &flat}
+		got := v.ToProto()
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_FLAT, *got.Config.NetworkVirtualizationType)
+	})
+
 	t.Run("maps NetworkVirtualizationType ethernet string to ETHERNET_VIRTUALIZER", func(t *testing.T) {
 		eth := VpcEthernetVirtualizer
 		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &eth}
@@ -1613,6 +1622,15 @@ func TestVpc_ToProto(t *testing.T) {
 		got := v.ToProto()
 		require.NotNil(t, got.Config)
 		assert.Nil(t, got.Config.NetworkVirtualizationType)
+	})
+
+	t.Run("defaults an unrecognized NetworkVirtualizationType to ETHERNET_VIRTUALIZER", func(t *testing.T) {
+		unknown := "unknown"
+		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &unknown}
+		got := v.ToProto()
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER, *got.Config.NetworkVirtualizationType)
 	})
 }
 
@@ -1684,6 +1702,25 @@ func TestVpc_FromProto(t *testing.T) {
 		require.NotNil(t, v.Description)
 		assert.Equal(t, "primary", *v.Description)
 		assert.Equal(t, Labels{"env": "prod"}, v.Labels)
+	})
+
+	t.Run("maps proto network virtualization types", func(t *testing.T) {
+		cases := []struct {
+			name string
+			in   corev1.VpcVirtualizationType
+			want string
+		}{
+			{name: "FLAT", in: corev1.VpcVirtualizationType_FLAT, want: VpcFlat},
+			{name: "unhandled defaults to ETHERNET_VIRTUALIZER", in: corev1.VpcVirtualizationType_FNN_CLASSIC, want: VpcEthernetVirtualizer},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				v := &Vpc{}
+				v.FromProto(&corev1.Vpc{Config: &corev1.VpcConfig{NetworkVirtualizationType: &tc.in}})
+				require.NotNil(t, v.NetworkVirtualizationType)
+				assert.Equal(t, tc.want, *v.NetworkVirtualizationType)
+			})
+		}
 	})
 
 	t.Run("clears stale fields and ignores deprecated flat fields", func(t *testing.T) {
@@ -1777,68 +1814,6 @@ func TestVpc_FromProto(t *testing.T) {
 	})
 }
 
-// TestVpcProtoCompatHelpers covers the exported accessor helpers used by
-// the site-sync activity: they read exclusively from the structured
-// `config`/`status` and return nil for a nil proto, an absent config, or
-// an absent status (the deprecated flat fields are never consulted).
-func TestVpcProtoCompatHelpers(t *testing.T) {
-	fnnEnum := corev1.VpcVirtualizationType_FNN
-	routingProfile := "EXTERNAL"
-	nsg := "nsg-flat"
-
-	t.Run("reads structured config, ignoring deprecated flat fields", func(t *testing.T) {
-		proto := &corev1.Vpc{
-			Config: &corev1.VpcConfig{
-				NetworkVirtualizationType: &fnnEnum,
-				RoutingProfileType:        &routingProfile,
-				NetworkSecurityGroupId:    &nsg,
-			},
-			// Deprecated flat mirrors are present but must be ignored.
-			NetworkVirtualizationType: cutil.GetPtr(corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER),
-			RoutingProfileType:        cutil.GetPtr("INTERNAL"),
-			NetworkSecurityGroupId:    cutil.GetPtr("nsg-deprecated"),
-		}
-
-		virtType := VpcProtoNetworkVirtualizationType(proto)
-		require.NotNil(t, virtType)
-		assert.Equal(t, VpcFNN, *virtType)
-		assert.Equal(t, routingProfile, *VpcProtoRoutingProfile(proto))
-		assert.Equal(t, nsg, *VpcProtoNetworkSecurityGroupID(proto))
-	})
-
-	t.Run("allocated VNI reads status.vni", func(t *testing.T) {
-		statusVni := uint32(100)
-		proto := &corev1.Vpc{Status: &corev1.VpcStatus{Vni: &statusVni}}
-		got := VpcProtoAllocatedVNI(proto)
-		require.NotNil(t, got)
-		assert.Equal(t, 100, *got)
-	})
-
-	t.Run("allocated VNI is nil when status is absent (deprecated_vni ignored)", func(t *testing.T) {
-		deprecatedVni := uint32(200)
-		proto := &corev1.Vpc{DeprecatedVni: &deprecatedVni}
-		assert.Nil(t, VpcProtoAllocatedVNI(proto))
-	})
-
-	t.Run("nil proto yields nil", func(t *testing.T) {
-		assert.Nil(t, VpcProtoAllocatedVNI(nil))
-		assert.Nil(t, VpcProtoNetworkVirtualizationType(nil))
-		assert.Nil(t, VpcProtoRoutingProfile(nil))
-		assert.Nil(t, VpcProtoNetworkSecurityGroupID(nil))
-	})
-
-	t.Run("config absent yields nil (deprecated flat fields ignored)", func(t *testing.T) {
-		proto := &corev1.Vpc{
-			NetworkVirtualizationType: &fnnEnum,
-			RoutingProfileType:        &routingProfile,
-			NetworkSecurityGroupId:    &nsg,
-		}
-		assert.Nil(t, VpcProtoNetworkVirtualizationType(proto))
-		assert.Nil(t, VpcProtoRoutingProfile(proto))
-		assert.Nil(t, VpcProtoNetworkSecurityGroupID(proto))
-	})
-}
-
 // TestVpc_ToProtoFromProto_RoundTrip verifies the entity survives a
 // ToProto -> FromProto round trip. ID round-trips cleanly only when
 // ControllerVpcID is unset (ToProto sources proto.Id from GetSiteID).
@@ -1875,52 +1850,4 @@ func TestVpc_ToProtoFromProto_RoundTrip(t *testing.T) {
 	assert.Equal(t, orig.Vni, got.Vni)
 	assert.Equal(t, orig.ActiveVni, got.ActiveVni)
 	assert.Equal(t, orig.NVLinkLogicalPartitionID, got.NVLinkLogicalPartitionID)
-}
-
-// TestVpcVirtualizationTypeConversions exercises both directions of the
-// VPC virtualization-type mapping, including the documented default
-// (unrecognized string -> ETHERNET_VIRTUALIZER) and nil handling.
-func TestVpcVirtualizationTypeConversions(t *testing.T) {
-	t.Run("string to proto", func(t *testing.T) {
-		cases := []struct {
-			name string
-			in   *string
-			want *corev1.VpcVirtualizationType
-		}{
-			{"nil yields nil", nil, nil},
-			{"FNN", cutil.GetPtr(VpcFNN), cutil.GetPtr(corev1.VpcVirtualizationType_FNN)},
-			{"FLAT", cutil.GetPtr(VpcFlat), cutil.GetPtr(corev1.VpcVirtualizationType_FLAT)},
-			{"ETHERNET_VIRTUALIZER", cutil.GetPtr(VpcEthernetVirtualizer), cutil.GetPtr(corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER)},
-			{"unrecognized defaults to ETHERNET_VIRTUALIZER", cutil.GetPtr("bogus"), cutil.GetPtr(corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER)},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				got := vpcStringToProtoVirtualizationType(tc.in)
-				if tc.want == nil {
-					assert.Nil(t, got)
-					return
-				}
-				require.NotNil(t, got)
-				assert.Equal(t, *tc.want, *got)
-			})
-		}
-	})
-
-	t.Run("proto to string", func(t *testing.T) {
-		cases := []struct {
-			name string
-			in   corev1.VpcVirtualizationType
-			want string
-		}{
-			{"FNN", corev1.VpcVirtualizationType_FNN, VpcFNN},
-			{"FLAT", corev1.VpcVirtualizationType_FLAT, VpcFlat},
-			{"ETHERNET_VIRTUALIZER", corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER, VpcEthernetVirtualizer},
-			{"unhandled enum defaults to ETHERNET_VIRTUALIZER", corev1.VpcVirtualizationType_FNN_CLASSIC, VpcEthernetVirtualizer},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				assert.Equal(t, tc.want, vpcProtoVirtualizationTypeToString(tc.in))
-			})
-		}
-	})
 }
