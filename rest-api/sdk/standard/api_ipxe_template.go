@@ -69,6 +69,8 @@ GetAllIpxeTemplate Get all iPXE templates
 
 Get all iPXE templates propagated from nico-core. Optionally restrict to one or more sites with the siteId query parameter.
 
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
+
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
 	@return ApiGetAllIpxeTemplateRequest
@@ -207,6 +209,8 @@ func (r ApiGetIpxeTemplateRequest) Execute() (*IpxeTemplate, *http.Response, err
 GetIpxeTemplate Retrieve an iPXE template
 
 Retrieve an iPXE template by its stable core ID. The caller must be authorized for at least one Site at which the template is available.
+
+The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

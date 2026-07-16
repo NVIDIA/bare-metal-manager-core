@@ -11723,7 +11723,10 @@ paths:
         description: Name of the Org
     get:
       summary: Get all iPXE templates
-      description: 'Get all iPXE templates propagated from nico-core. Optionally restrict to one or more sites with the siteId query parameter.'
+      description: |-
+        Get all iPXE templates propagated from nico-core. Optionally restrict to one or more sites with the siteId query parameter.
+
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
       operationId: get-all-ipxe-template
       tags:
         - iPXE Template
@@ -11799,7 +11802,10 @@ paths:
         description: Stable template ID (UUID from core)
     get:
       summary: Retrieve an iPXE template
-      description: 'Retrieve an iPXE template by its stable core ID. The caller must be authorized for at least one Site at which the template is available.'
+      description: |-
+        Retrieve an iPXE template by its stable core ID. The caller must be authorized for at least one Site at which the template is available.
+
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
       operationId: get-ipxe-template
       tags:
         - iPXE Template
@@ -17295,7 +17301,6 @@ components:
             - string
             - 'null'
           enum:
-            - Local
             - Global
             - Limited
             - null

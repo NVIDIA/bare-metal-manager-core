@@ -46,12 +46,13 @@ CreateOperatingSystem Create Operating System
 
 Create an Operating System for the org.
 
-Ownership is derived from the caller's role:
+Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
 
-- Tenant admin (`TENANT_ADMIN`): creates a Tenant-owned Operating System of any type (Image, iPXE, or Templated iPXE).
-- Provider admin (`PROVIDER_ADMIN`): may only create Provider-owned Operating Systems of type `Templated iPXE`.
+If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query parameter value. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
-The `tenantId` field in the request body is deprecated; if provided, it must match the org's Tenant.
+If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query parameter value. User must have authorization role with `TENANT_ADMIN` suffix.
+
+Only Tenants are allowed to create Operating System for MVP.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -356,13 +357,9 @@ func (r ApiGetAllOperatingSystemRequest) Execute() ([]OperatingSystem, *http.Res
 /*
 GetAllOperatingSystem Retrieve all Operating Systems
 
-List Operating Systems visible to the caller.
+List Operating Systems visible to the caller's Tenant.
 
-User must have an authorization role with either the `PROVIDER_ADMIN` or `TENANT_ADMIN` suffix for the org.
-
-- Provider admin: returns only Operating Systems owned by the org's Infrastructure Provider.
-- Tenant admin: returns Operating Systems owned by the caller's Tenant, plus Provider-owned Operating Systems that are associated with at least one Site the Tenant can access.
-- Dual-role (both Provider and Tenant): returns the union of the Tenant's and the Provider's Operating Systems.
+Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix. Only Operating Systems whose `tenantId` matches the caller's Tenant are returned.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
@@ -517,8 +514,6 @@ GetOperatingSystem Retrieve Operating System
 If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix.
-
-A Tenant admin may also read a Provider-owned Operating System when it is associated with at least one Site the Tenant can access.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
