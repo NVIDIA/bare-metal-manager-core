@@ -113,12 +113,6 @@ func (cm *ClaimMapping) GetRoles(claims jwt.MapClaims) ([]string, error) {
 	return cm.Roles, nil
 }
 
-// HasAnyAudience reports whether the token satisfies this mapping's audience requirements.
-// It returns true when the mapping has no configured audiences.
-func (cm *ClaimMapping) HasAnyAudience(claims jwt.MapClaims) bool {
-	return hasAnyAudience(claims, cm.Audiences)
-}
-
 // GetOrgNameAndDisplayName extracts org and display name from claims (dynamic mappings only).
 func (cm *ClaimMapping) GetOrgNameAndDisplayName(claims jwt.MapClaims) (orgName string, displayName string) {
 	if !cm.IsOrgDynamic() {
@@ -600,7 +594,7 @@ func (jcfg *JwksConfig) GetOrgDataFromClaim(claims jwt.MapClaims, reqOrgFromRout
 			return nil, false, core.ErrReservedOrgName
 		}
 
-		if !cm.HasAnyAudience(claims) {
+		if !hasAnyAudience(claims, cm.Audiences) {
 			return nil, false, core.ErrOrgAudienceDenied
 		}
 
