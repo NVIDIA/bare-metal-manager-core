@@ -175,6 +175,15 @@ with `client error (Connect)`. Re-copy the CA and delete the old cert secret
 (`nico-machine-a-tron-certificate`) so cert-manager reissues from the current
 CA:
 
+```bash
+kubectl get secret nico-roots -n nico-system -o json \
+  | jq 'del(.metadata.namespace,.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.ownerReferences)' \
+  | kubectl apply -n nico-mat -f -
+kubectl delete secret nico-machine-a-tron-certificate -n nico-mat --ignore-not-found
+```
+
+</Warning>
+
 ### BMC credentials in Vault (required for site-explorer)
 
 site-explorer's `check_preconditions` requires three site-default Vault
@@ -379,6 +388,14 @@ If the prefix is exhausted from previous runs, do one of the following:
 
 <Warning>
 Do NOT hand-delete rows from the `machine_interfaces`, `dhcp_entries`, or `machine_interface_addresses` tables to free leases.
+
+The `machine_dhcp_records` view inner-joins the singleton control row `machine_interfaces_deletion` (id=1); if that row is deleted (easy to do by accident when clearing related tables) the view returns zero rows and `DiscoverDhcp` fails for **every** BMC with `Database Error: no rows returned by a query that expected to return at least one row`. If you hit that, restore the row:
+
+```sql
+INSERT INTO machine_interfaces_deletion (id) VALUES (1) ON CONFLICT DO NOTHING;
+```
+
+</Warning>
 
 The `machine_dhcp_records` view inner-joins the singleton control row `machine_interfaces_deletion` (id=1); if that row is deleted (easy to do by accident when clearing related tables) the view returns zero rows and `DiscoverDhcp` fails for **every** BMC with `Database Error: no rows returned by a query that expected to return at least one row`. If you hit that, restore the row:
 
