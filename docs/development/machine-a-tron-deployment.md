@@ -1,4 +1,4 @@
-# machine-a-tron — Build & Deployment Guide
+# machine-a-tron Build & Deployment Guide
 
 machine-a-tron is a bare-metal simulator for NICo testing. It hosts mock DPUs and
 servers via Redfish BMC, allowing end-to-end NICo flows without real hardware. This
@@ -11,7 +11,7 @@ machine-a-tron runs in **Override Mode**: site-explorer redirects all Redfish tr
 to the mock BMC server running inside the pod. It is only suitable for
 simulation-only clusters (no real hardware).
 
-## Quick path: `setup-machine-a-tron.sh`
+## Quick path: setup-machine-a-tron.sh
 
 For a running NICo Core site, the fastest and most reliable way to deploy is the
 end-to-end script, which performs every step in this guide (namespace, pull
@@ -25,7 +25,7 @@ export REGISTRY_PULL_SECRET=<NVIDIA_API_KEY>   # only if the pull secret is abse
 helm-prereqs/setup-machine-a-tron.sh           # add -y for non-interactive
 ```
 
-## Quick start: a 4500-host simulated fleet
+## Quick start with 4500-host simulated fleet
 
 Build and push the image to the registry of your choice, then run the setup
 script in scale mode. Nothing registry-specific is committed — the image
@@ -51,12 +51,14 @@ kubectl exec -n postgres <patroni-primary> -- su postgres -c \
      (SELECT count(*) FROM machines) || ' machines';\""
 ```
 
-### What to expect (measured on a 3-node dev cluster, dev-sized postgres)
+### What to expect
+
+The following is measured on a 3-node dev cluster, with dev-sized Postgres.
 
 4500 hosts × 2 DPUs = 13,500 BMC endpoints → 13,500 machines.
 
 | Phase | Duration | Notes |
-|---|---|---|
+|-------|----------|-------|
 | Deploy + DHCP registration | ~60–90 min | ~150–180 interfaces/min while 13.5k mock FSMs boot |
 | Exploration sweep | ~3–5 h | overlaps DHCP; `explorations_per_run=120` per cycle |
 | Preingestion | tracks the sweep | ~90% conversion, completes shortly after it |
@@ -73,7 +75,7 @@ The rest of this document explains what that script does and why, and is the
 reference for manual deployment or debugging. The script's header comments
 enumerate the non-obvious failure modes it guards against.
 
-## 1. Prerequisites
+## Prerequisites
 
 - Docker with `buildx` and a `linux/arm64` builder available (see below)
 - A container registry you can push to and the cluster can pull from
@@ -83,7 +85,7 @@ enumerate the non-obvious failure modes it guards against.
 - The image pull secret `machine-a-tron-pull` in the `nico-mat` namespace
   (created automatically by the setup script from `REGISTRY_PULL_SECRET`)
 
-## 2. Building the Container Image
+## Building the Container Image
 
 ### Why cross-compilation is required
 
@@ -115,9 +117,9 @@ docker buildx build \
   .
 ```
 
-> **Note**: `--load` does not work for cross-platform builds — use `--push` directly.
-> The build takes ~4–5 minutes on a cold cache; subsequent builds with warm cache are
-> under 30 seconds.
+<Note>
+`--load` does not work for cross-platform builds — use `--push` directly. The build takes ~4–5 minutes on a cold cache; subsequent builds with warm cache are under 30 seconds.
+</Note>
 
 ### Registry authentication
 
@@ -129,7 +131,7 @@ docker login "${NICO_IMAGE_REGISTRY%%/*}" \
 
 Some registries use a fixed username with API-key auth — set `REGISTRY_PULL_USERNAME` accordingly (default: `$oauthtoken`).
 
-## 3. Cluster Prerequisites
+## Cluster Prerequisites
 
 ### Namespaces and secrets
 
@@ -164,19 +166,15 @@ for secret in nico-vault-approle-tokens nico-vault-token vault-cluster-info; do
 done
 ```
 
-> **Critical after a site reprovision:** re-copy `nico-roots` from `nico-system`
-> as well. A reprovision recreates the nico-system CA; a machine-a-tron carried
-> over from before will trust the *old* CA (stale `nico-roots`) and present a
-> client cert signed by the old CA, so **every** mTLS call to nico-api fails
-> with `client error (Connect)`. Re-copy the CA and delete the old cert secret
-> (`nico-machine-a-tron-certificate`) so cert-manager reissues from the current
-> CA:
-> ```bash
-> kubectl get secret nico-roots -n nico-system -o json \
->   | jq 'del(.metadata.namespace,.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.ownerReferences)' \
->   | kubectl apply -n nico-mat -f -
-> kubectl delete secret nico-machine-a-tron-certificate -n nico-mat --ignore-not-found
-> ```
+<Warning>
+After a site reprovision, you **must re-copy** `nico-roots` from `nico-system`
+as well. A reprovision recreates the nico-system CA; a machine-a-tron carried
+over from before will trust the *old* CA (stale `nico-roots`) and present a
+client cert signed by the old CA, so **every** mTLS call to nico-api fails
+with `client error (Connect)`. Re-copy the CA and delete the old cert secret
+(`nico-machine-a-tron-certificate`) so cert-manager reissues from the current
+CA:
+
 
 ### BMC credentials in Vault (required for site-explorer)
 
@@ -193,7 +191,7 @@ Beyond the preconditions, the **credential rotation flow** requires this exact
 chain (all handled by `setup-machine-a-tron.sh` Phase 4):
 
 | Vault path | Value | Why |
-|---|---|---|
+|------------|-------|-----|
 | `machines/all_hosts/factory_default/bmc-metadata-items/dell` | `root`/`factory_password` | Host BMC factory default (mock's `DUMMY_FACTORY_PASSWORD`). Path segment is **lowercase** `dell` — `BMCVendor`'s `Display` impl lowercases. |
 | `machines/all_dpus/factory_default/bmc-metadata-items/root` | `root`/`0penBmc` | DPU BMC factory default (mock's `DUMMY_FACTORY_DPU_PASSWORD`) — note it differs from the host factory password. |
 | `machines/bmc/site/root` | `root`/&lt;distinct&gt; | Rotation target. **Must differ from both factory passwords**, or the rotation is a no-op and the mock rejects with `403 Factory-default password must be changed` forever. |
@@ -204,20 +202,24 @@ site root equal to factory) yields `401 Unauthorized`, which latches a
 self-perpetuating `AvoidLockout` (NICO-SITEEXPLORER-144) until an operator
 clears it (`nico-admin-cli site-explorer refresh <bmc-ip>`).
 
-## 4. Deploying the Helm Chart
+## Deploying the Helm Chart
 
 ### Site values file
 
 Copy `helm-prereqs/values/machine-a-tron.yaml` and fill in the site-specific values:
 
 | Field | Description |
-|---|---|
-| `image.tag` | Tag produced by step 2 (e.g. `8c35783af-amd64`) |
+|-------|-------------|
+| `image.tag` | Tag produced by [building the container image](#building-the-container-image) (e.g. `8c35783af-amd64`) |
 | `machines.dell-hosts.oobDhcpRelayAddress` | Gateway of the OOB/underlay network from nico-core site config |
 | `machines.dell-hosts.adminDhcpRelayAddress` | Gateway of the admin network from nico-core site config |
 | `machines.dell-hosts.hostCount` | Must not exceed available OOB DHCP addresses (`hostCount + hostCount×dpuPerHostCount`) |
 
-### Critical: SPIFFE URI override
+### SPIFFE URI override
+
+<Warning title=Critical step>
+This step is critical. Double-check that your values file includes this override.
+</Warning>
 
 The cert-manager `Certificate` resource auto-generates a SPIFFE URI based on the
 deployment namespace: `spiffe://nico.local/nico-mat/sa/nico-machine-a-tron`.
@@ -248,7 +250,7 @@ helm upgrade --install nico-machine-a-tron \
   -f helm-prereqs/values/machine-a-tron.yaml
 ```
 
-## 5. Configuring Override Mode
+## Configuring Override Mode
 
 Configure nico-core's site-explorer to redirect all Redfish traffic to the mock.
 Add this to the nico-core site config under `[site_explorer]`:
@@ -258,20 +260,20 @@ Add this to the nico-core site config under `[site_explorer]`:
 bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local:1266"
 ```
 
-> **Use the cross-namespace FQDN.** site-explorer runs inside nico-api in
-> `nico-system`; a bare service name resolves against that namespace and fails
-> ("connection refused" on every Redfish call) because the mock's Service lives
-> in `nico-mat`.
->
-> **This setting does not survive a nico-core `helm upgrade`** — the ConfigMap
-> is chart-owned, so an upgrade silently reverts it. Re-run
-> `setup-machine-a-tron.sh` (idempotent) after any nico-core upgrade.
+**Use the cross-namespace FQDN.** site-explorer runs inside nico-api in
+`nico-system`; a bare service name resolves against that namespace and fails
+("connection refused" on every Redfish call) because the mock's Service lives
+in `nico-mat`.
 
-> **Field name matters.** The config field is `bmc_proxy` — a single
-> `"host:port"` string (`crates/site-explorer/src/config.rs`). The older
-> `override_target_ip` / `override_target_port` fields are **deprecated**, and
-> `override_target_host` was never a valid field at all (earlier revisions of
-> this guide were wrong — a value under that key is silently ignored).
+**This setting does not survive a nico-core `helm upgrade`** — the ConfigMap
+is chart-owned, so an upgrade silently reverts it. Re-run
+`setup-machine-a-tron.sh` (idempotent) after any nico-core upgrade.
+
+**Field name matters.** The config field is `bmc_proxy` — a single
+`"host:port"` string (`crates/site-explorer/src/config.rs`). The older
+`override_target_ip` / `override_target_port` fields are **deprecated**, and
+`override_target_host` was never a valid field at all (earlier revisions of
+this guide were wrong — a value under that key is silently ignored).
 
 Setting `bmc_proxy` at launch also makes `allow_changing_bmc_proxy` default to
 `true`. That is what allows the chart value `machineATron.configureBmcProxyHost`
@@ -299,7 +301,7 @@ matching `expected_machines` row exists (by BMC MAC) — otherwise it logs
 auto-registers these when `machineATron.registerExpectedMachines: true` (the
 default in the values file). DHCP discovery alone is **not** sufficient.
 
-## 5b. Multi-pod simulation with per-BMC ClusterIP services (`bmcServices`)
+## Multi-pod simulation with per-BMC ClusterIP services (bmcServices)
 
 The chart can shard the simulated fleet across several machine-a-tron pods,
 each with a dedicated ClusterIP range where every simulated BMC gets its own
@@ -309,30 +311,30 @@ each BMC IP directly — no `bmc_proxy`. A validated two-pod example lives at
 `wiwynn_gb200_nvl` hosts × 2 DPUs → 30 machines, 15 per pod).
 
 Everything single-pod mode needs still applies (namespaces, CA copy, Vault
-seeds, SPIFFE URI). Multi-pod adds five requirements, all hit in practice:
+seeds, SPIFFE URI). Multi-pod adds the following requirements, all hit in practice:
 
 1. **Kubernetes 1.29+** for the `ServiceCIDR` object. On older clusters set
    `bmcServices.serviceCIDR.create: false` and pick pod CIDRs **inside** the
    apiserver's `--service-cluster-ip-range` — a static `clusterIP` outside
    that range is rejected ("the provided IP is not in the valid range").
    Check the chosen sub-ranges are free of existing ClusterIPs first.
-2. **Image with the `Host`-header routing fallback (PR #3190).** Without a
+1. **Image with the `Host`-header routing fallback (PR #3190).** Without a
    `bmc_proxy` the Redfish client sends no `Forwarded` header; older bmc-mock
    builds then 404 every request with `no router configured`. Leave
    `site_explorer.bmc_proxy` unset in this mode.
-3. **Disjoint MAC pools per pod.** All machine-a-tron instances derive MACs
+1. **Disjoint MAC pools per pod.** All machine-a-tron instances derive MACs
    from the same default pools, so the pod that leases second is rejected on
    every DHCP with `Network segment mismatch for existing MAC address` and
    simulates nothing. Until the chart grows a per-pod MAC knob, supply full
    per-pod TOML overrides via `configFiles.matConfigs.<pod>` setting distinct
    `mac_address_pool` / `hw_mac_address_ranges` bases (see the example
    values file).
-4. **One NICo network segment per pod CIDR.** `network_prefixes` allows one
+1. **One NICo network segment per pod CIDR.** `network_prefixes` allows one
    IPv4 prefix per segment, so each pod CIDR needs its own cloned underlay
    segment (same technique as the scale-mode segment fallback), gateway `.1`,
    `num_reserved 1` — BMC Service IPs start at `.2`, matching the DHCP
    allocator.
-5. **Hardware-type specifics.** Vendors libredfish does not recognize (e.g.
+1. **Hardware-type specifics.** Vendors libredfish does not recognize (e.g.
    `wiwynn_gb200_nvl` reports `WIWYNN`) resolve to `unknown`, so seed the
    host factory credential at
    `machines/all_hosts/factory_default/bmc-metadata-items/unknown`. GB-class
@@ -344,7 +346,7 @@ seeds, SPIFFE URI). Multi-pod adds five requirements, all hit in practice:
    **pinned** password (`hostBmcPassword`), not the factory default. DPU BMCs
    explore without expected rows.
 
-## 6. Verifying Startup
+## Verifying Startup
 
 Check that machine-a-tron passes the initial API calls:
 
@@ -360,7 +362,7 @@ Check nico-api for denied requests (should be empty after the SPIFFE fix):
 kubectl logs -n nico-system deployment/nico-api | grep "Request denied.*machine-a-tron"
 ```
 
-## 7. DHCP Address Space
+## DHCP Address Space
 
 machine-a-tron allocates one OOB IP per BMC interface (1 per host + 1 per DPU). With
 5 hosts and 2 DPUs each that is **15 IPs** (`5 + 5×2`). Ensure the OOB DHCP prefix in
@@ -371,42 +373,37 @@ broadcast, gateway, and any reserved addresses — on dev6 a `/28` yielded 10, s
 for the default counts, or reduce `hostCount` / `dpuPerHostCount`. Symptom of
 overflow: `No IP addresses left in prefix ...` and machines stuck in `BmcInit`.
 
-If the prefix is exhausted from previous runs, either:
+If the prefix is exhausted from previous runs, do one of the following:
 
-- Force-delete old machine records via the admin CLI, or
-- Reprovision the site (which clears the database) and redeploy from scratch.
+- Force-delete old machine records via the admin CLI
+- Reprovision the site (which clears the database) and redeploy from scratch
 
-> **Do NOT hand-delete rows** from `machine_interfaces`, `dhcp_entries`, or
-> `machine_interface_addresses` to free leases. The `machine_dhcp_records` view
-> inner-joins the singleton control row `machine_interfaces_deletion` (id=1); if
-> that row is deleted (easy to do by accident when clearing related tables) the
-> view returns zero rows and `DiscoverDhcp` fails for **every** BMC with
-> `Database Error: no rows returned by a query that expected to return at least
-> one row`. If you hit that, restore the row:
-> ```sql
-> INSERT INTO machine_interfaces_deletion (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
-> ```
+<Warning>
+Do NOT hand-delete rows from the `machine_interfaces`, `dhcp_entries`, or `machine_interface_addresses` tables to free leases.
+
+The `machine_dhcp_records` view inner-joins the singleton control row `machine_interfaces_deletion` (id=1); if that row is deleted (easy to do by accident when clearing related tables) the view returns zero rows and `DiscoverDhcp` fails for **every** BMC with `Database Error: no rows returned by a query that expected to return at least one row`. If you hit that, restore the row:
+
 
 ## Non-Obvious Fixes
 
 | Problem | Root cause | Fix |
-|---|---|---|
+|---------|------------|-----|
+| `--load` fails for cross-platform builds | Docker limitation | Use `--push` directly to registry |
+| All endpoints latch `AvoidLockout` (NICO-SITEEXPLORER-144) after a cred fix | A previous Unauthorized is self-perpetuating in the exploration report | `nico-admin-cli site-explorer refresh <bmc-ip>` per endpoint (or re-run setup-machine-a-tron.sh, which clears it) |
+| `client error (Connect)` on every nico-api call after a reprovision | Stale `nico-roots` CA + client cert signed by the old CA | Re-copy `nico-roots` from nico-system; delete `nico-machine-a-tron-certificate` so cert-manager reissues from the current CA |
+| `DiscoverDhcp`: `no rows ... expected to return at least one row` | `machine_interfaces_deletion` singleton (id=1) deleted; breaks `machine_dhcp_records` view | `INSERT INTO machine_interfaces_deletion (id) VALUES (1) ON CONFLICT DO NOTHING;` — never hand-delete lease rows |
+| DPU explorations stuck at `403 Factory-default password must be changed` | Site root password equals the factory password → rotation is a no-op | Seed `machines/bmc/site/root` with a password distinct from both factory defaults |
 | `exec format error` in pod | Image was built for `arm64`, nodes are `x86_64` | Cross-compile with `--platform linux/amd64` and `x86_64-unknown-linux-gnu` Rust target |
-| `SIGSEGV` compiling `aws-lc-sys` | QEMU emulates the `.S` assembler, which crashes | True cross-compilation (native arm64 host → x86_64 target) instead of QEMU |
 | `File not found: google/protobuf/timestamp.proto` | `libprotobuf-dev` absent in build image | Add `libprotobuf-dev` to `apt-get install` in builder stage |
 | `git fetch ... (exit status: 127)` | `libredfish` is a git dependency, `git` not in slim image | Add `git` to builder stage |
-| `--load` fails for cross-platform builds | Docker limitation | Use `--push` directly to registry |
-| HTTP 403 on every gRPC call | machine-a-tron cert SPIFFE URI not in nico-api's `service_base_paths` | Set `certificate.uris: ["spiffe://nico.local/nico-system/sa/machine-a-tron"]` in values |
-| `client error (Connect)` on every nico-api call after a reprovision | Stale `nico-roots` CA + client cert signed by the old CA | Re-copy `nico-roots` from nico-system; delete `nico-machine-a-tron-certificate` so cert-manager reissues from the current CA |
-| site-explorer aborts with `MissingCredentials machines/bmc/site/root` | Site BMC root cred not in default `kvSeeds` | Seed `secrets/machines/bmc/site/root` = `root`/&lt;non-factory password&gt; in Vault |
-| site-explorer aborts with `MissingCredentials .../uefi-metadata-items/auth` | kvSeeds create the UEFI creds with **empty** passwords, which fail validation | Re-seed both site_default UEFI creds with any non-empty password |
-| Redfish redirect ignored; `endpoint_explorations=0` | Wrong config field (`override_target_host` is not real) | Use `bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local:1266"` under `[site_explorer]` |
-| Redfish `connection refused` on every endpoint despite bmc_proxy set | Bare service name resolves against nico-system, not nico-mat | Use the cross-namespace FQDN in `bmc_proxy` |
 | Host BMCs 401 while DPUs explore fine | Host and DPU factory passwords differ (`factory_password` vs `0penBmc`); host factory cred missing or wrong | Seed `machines/all_hosts/factory_default/bmc-metadata-items/dell` = `root`/`factory_password` (lowercase `dell`) |
-| DPU explorations stuck at `403 Factory-default password must be changed` | Site root password equals the factory password → rotation is a no-op | Seed `machines/bmc/site/root` with a password distinct from both factory defaults |
-| All endpoints latch `AvoidLockout` (NICO-SITEEXPLORER-144) after a cred fix | A previous Unauthorized is self-perpetuating in the exploration report | `nico-admin-cli site-explorer refresh <bmc-ip>` per endpoint (or re-run setup-machine-a-tron.sh, which clears it) |
-| `Refusing to create managed host`; machine-a-tron logs `PermissionDenied` on registration | nico-api build lacks the `Machineatron` → `AddExpectedMachine` RBAC grant | Rebuild nico-api with the grant (internal_rbac_rules.rs); the setup script also has a DB fallback |
+| HTTP 403 on every gRPC call | machine-a-tron cert SPIFFE URI not in nico-api's `service_base_paths` | Set `certificate.uris: ["spiffe://nico.local/nico-system/sa/machine-a-tron"]` in values |
 | Machine creation fails `No IP addresses left in prefix <admin-cidr>` | Admin pool too small: creation needs one host-PF IP per DPU | Fit `hostCount×dpuPerHostCount` ≤ usable admin-pool IPs (the script auto-fits) |
-| `Refusing to create managed host, expected machines entry not found` | No `expected_machines` row for the discovered BMC MAC | Set `machineATron.registerExpectedMachines: true` (default) so machine-a-tron auto-registers them |
 | `No IP addresses left in prefix ...`; machines stuck in `BmcInit` | OOB DHCP pool too small for host×DPU count | Sizing: `hostCount + hostCount×dpuPerHostCount` ≤ usable pool IPs; use ≥ /27 or reduce counts |
-| `DiscoverDhcp`: `no rows ... expected to return at least one row` | `machine_interfaces_deletion` singleton (id=1) deleted; breaks `machine_dhcp_records` view | `INSERT INTO machine_interfaces_deletion (id) VALUES (1) ON CONFLICT DO NOTHING;` — never hand-delete lease rows |
+| Redfish `connection refused` on every endpoint despite bmc_proxy set | Bare service name resolves against nico-system, not nico-mat | Use the cross-namespace FQDN in `bmc_proxy` |
+| Redfish redirect ignored; `endpoint_explorations=0` | Wrong config field (`override_target_host` is not real) | Use `bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local:1266"` under `[site_explorer]` |
+| `Refusing to create managed host, expected machines entry not found` | No `expected_machines` row for the discovered BMC MAC | Set `machineATron.registerExpectedMachines: true` (default) so machine-a-tron auto-registers them |
+| `Refusing to create managed host`; machine-a-tron logs `PermissionDenied` on registration | nico-api build lacks the `Machineatron` → `AddExpectedMachine` RBAC grant | Rebuild nico-api with the grant (internal_rbac_rules.rs); the setup script also has a DB fallback |
+| `SIGSEGV` compiling `aws-lc-sys` | QEMU emulates the `.S` assembler, which crashes | True cross-compilation (native arm64 host → x86_64 target) instead of QEMU |
+| site-explorer aborts with `MissingCredentials .../uefi-metadata-items/auth` | kvSeeds create the UEFI creds with **empty** passwords, which fail validation | Re-seed both site_default UEFI creds with any non-empty password |
+| site-explorer aborts with `MissingCredentials machines/bmc/site/root` | Site BMC root cred not in default `kvSeeds` | Seed `secrets/machines/bmc/site/root` = `root`/&lt;non-factory password&gt; in Vault |
