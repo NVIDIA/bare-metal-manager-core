@@ -925,8 +925,12 @@ impl TryFrom<forge::BmcCredentials> for BmcCredentials {
 /// A bare IPv6 address such as `2001:db8::1` is not a valid URI authority — it
 /// must be bracketed (`[2001:db8::1]`). Without brackets, `http::uri::Authority`
 /// parsing (used by the caller to build the upstream URI) rejects the host, and
-/// an appended port is misparsed as part of the address. IPv4 addresses,
-/// hostnames, and already-bracketed IPv6 literals are left unchanged.
+/// an appended port is misparsed as part of the address.
+///
+/// The parse guard here covers operator-supplied override hosts, which are
+/// genuinely strings; the BMC's own typed `IpAddr` is bracketed off its enum
+/// variant by the caller and passes through unchanged (as do IPv4 addresses
+/// and hostnames).
 fn build_authority(host: Cow<'_, str>, port: Option<u16>) -> Cow<'_, str> {
     let host = if host.parse::<Ipv6Addr>().is_ok() {
         Cow::Owned(format!("[{host}]"))
@@ -946,15 +950,21 @@ async fn create_client(
     client_cache: &HttpClientCache,
     bmc_proxy: &Option<HostPortPair>,
 ) -> Result<BmcClientInfo, BmcProxyError> {
+    // Bracket the BMC's own IP off its typed variant (IPv4 renders unchanged),
+    // mirroring health::BmcAddr::to_url() and the nv-redfish client.
+    let bmc_host = match ip {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => format!("[{v6}]"),
+    };
     let (host, port, add_custom_header) = match bmc_proxy {
         // No override
-        None => (Cow::<str>::Owned(ip.to_string()), None, false),
+        None => (Cow::<str>::Owned(bmc_host), None, false),
         // Override the host and port
         Some(HostPortPair::HostAndPort(h, p)) => (Cow::Borrowed(h.as_str()), Some(*p), true),
         // Only override the host
         Some(HostPortPair::HostOnly(h)) => (Cow::Borrowed(h.as_str()), None, true),
         // Only override the port
-        Some(HostPortPair::PortOnly(p)) => (Cow::Owned(ip.to_string()), Some(*p), false),
+        Some(HostPortPair::PortOnly(p)) => (Cow::Owned(bmc_host), Some(*p), false),
     };
     let mut header_map = HeaderMap::new();
     if add_custom_header {
