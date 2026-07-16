@@ -187,12 +187,12 @@ fn get_config_file_location() -> Result<Option<PathBuf>, ClientConfigError> {
     let home = Path::new(&home);
 
     let config_path = home.join(CONFIG_FILE_LOCATION);
-    if config_path.exists() {
+    if config_path.is_file() {
         return Ok(Some(config_path));
     }
 
     let legacy_path = home.join(LEGACY_CONFIG_FILE_LOCATION);
-    if legacy_path.exists() {
+    if legacy_path.is_file() {
         eprintln!(
             "warning: config file `$HOME/{LEGACY_CONFIG_FILE_LOCATION}` is deprecated; \
              rename it to `$HOME/{CONFIG_FILE_LOCATION}`."

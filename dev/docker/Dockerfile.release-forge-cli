@@ -49,7 +49,7 @@ RUN ln -s /app/nico-admin-cli /app/carbide-admin-cli
 RUN mkdir -p /root/.config/carbide/certs && \
 mkdir -p /opt/forge
 COPY ./dev/certs/forge_root.pem /opt/forge
-RUN echo '{"forge_root_ca_path": "/opt/forge/forge_root.pem","client_key_path": "/root/.config/carbide/certs/client","client_cert_path": "/root/.config/carbide/certs/client.crt"}' > /root/.config/nico_api_cli.json
+RUN echo '{"root_ca_path": "/opt/forge/forge_root.pem","client_key_path": "/root/.config/carbide/certs/client","client_cert_path": "/root/.config/carbide/certs/client.crt"}' > /root/.config/nico_api_cli.json
 ENV PATH="$PATH:/app"
 
 ENTRYPOINT ["/app/nico-admin-cli"]
