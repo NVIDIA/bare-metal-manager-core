@@ -1400,6 +1400,7 @@ pub async fn create_test_env_with_overrides(
             power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
             compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
             nv_switch_use_state_controller: true,
+            power_shelf_use_state_controller: true,
             ..Default::default()
         },
         component_manager_rack_profiles,
