@@ -89,10 +89,10 @@ async fn handle_rotate_os_password(
     let update_device_password = false;
 
     if update_device_password {
-        // Activation must authenticate an exact target version, persist and
-        // read back the per-device credential, then call
-        // `record_device_converged_if_target_matches`. Fail closed until that
-        // complete sequence is implemented.
+        // Activation must stage an exact target before dispatch, then persist
+        // and read back the per-device credential before promoting the matching
+        // target, attempt, and backend job. Fail closed until that complete
+        // sequence is implemented.
         Ok(StateHandlerOutcome::transition(
             SwitchControllerState::Error {
                 cause: "NVOS password rotation is not implemented".to_string(),
