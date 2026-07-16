@@ -137,6 +137,97 @@ Key fields:
 - `claimMappings` is required and controls the organization and roles assigned to authenticated users.
 - A claim mapping may also set `audiences`. The token `aud` claim must contain at least one exact, case-sensitive match for the requested organization's mapping. If issuer and mapping audiences are both configured, both gates must pass.
 
+#### Audience Matching Examples
+
+Audience matching is an exact, case-sensitive overlap check. A configured list uses ANY-match semantics: the token needs at least one value from that list.
+
+With one issuer-level audience:
+
+```yaml
+issuers:
+  - name: "shared-issuer"
+    issuer: "https://idp.example.com"
+    jwks: "https://idp.example.com/.well-known/jwks.json"
+    origin: "custom"
+    audiences: ["api-audience"]
+    claimMappings:
+      - orgName: "tenant-org"
+        orgDisplayName: "Tenant Organization"
+        roles: ["TENANT_ADMIN"]
+```
+
+A token with `aud: ["api-audience", "tenant-client-a"]` passes because `api-audience` overlaps the configured issuer list.
+
+With multiple issuer-level audiences:
+
+```yaml
+issuers:
+  - name: "shared-issuer"
+    issuer: "https://idp.example.com"
+    jwks: "https://idp.example.com/.well-known/jwks.json"
+    origin: "custom"
+    audiences: ["api-audience", "admin-api-audience"]
+    claimMappings:
+      - orgName: "tenant-org"
+        orgDisplayName: "Tenant Organization"
+        roles: ["TENANT_ADMIN"]
+```
+
+The token needs either `api-audience` or `admin-api-audience`; it does not need both.
+
+Mapping audiences can be used without issuer-level audiences:
+
+```yaml
+issuers:
+  - name: "shared-issuer"
+    issuer: "https://idp.example.com"
+    jwks: "https://idp.example.com/.well-known/jwks.json"
+    origin: "custom"
+    claimMappings:
+      - orgName: "automation-org"
+        orgDisplayName: "Automation Organization"
+        isServiceAccount: true
+        audiences: ["automation-client-a"]
+      - orgName: "tenant-org"
+        orgDisplayName: "Tenant Organization"
+        roles: ["TENANT_ADMIN"]
+        audiences: ["tenant-client-a", "tenant-client-b"]
+```
+
+For `automation-org`, the token must contain `automation-client-a`. For `tenant-org`, either `tenant-client-a` or `tenant-client-b` is sufficient. The service-account mapping requires disconnected mode.
+
+When issuer-level and mapping audiences are both configured, they are independent gates:
+
+```yaml
+issuers:
+  - name: "shared-issuer"
+    issuer: "https://idp.example.com"
+    jwks: "https://idp.example.com/.well-known/jwks.json"
+    origin: "custom"
+    audiences: ["api-audience", "admin-api-audience"]
+    claimMappings:
+      - orgName: "automation-org"
+        orgDisplayName: "Automation Organization"
+        isServiceAccount: true
+        audiences: ["automation-client-a", "automation-client-b"]
+      - orgName: "tenant-org"
+        orgDisplayName: "Tenant Organization"
+        roles: ["TENANT_ADMIN"]
+        audiences: ["tenant-client-a", "tenant-client-b"]
+```
+
+A token requesting `automation-org` needs:
+
+- at least one of `api-audience` or `admin-api-audience`; and
+- at least one of `automation-client-a` or `automation-client-b`.
+
+A token requesting `tenant-org` needs:
+
+- at least one of `api-audience` or `admin-api-audience`; and
+- at least one of `tenant-client-a` or `tenant-client-b`.
+
+For example, `aud: ["api-audience", "tenant-client-a"]` authorizes `tenant-org` but not `automation-org`.
+
 NICo supports `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `ES512`, and `EdDSA` signed tokens.
 
 ### Claim Mapping Recipes

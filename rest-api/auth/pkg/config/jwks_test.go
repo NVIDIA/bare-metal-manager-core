@@ -955,7 +955,7 @@ func TestGetOrgDataFromClaimMappingAudiences(t *testing.T) {
 			}}},
 			claims:     jwt.MapClaims{"aud": "different-audience"},
 			requestOrg: "acme",
-			wantErr:    core.ErrOrgAudienceDenied,
+			wantErr:    core.ErrInvalidAudience,
 		},
 		{
 			name: "mapping without audiences remains allowed",

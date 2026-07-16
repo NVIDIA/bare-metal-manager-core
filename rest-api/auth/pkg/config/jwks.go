@@ -576,7 +576,7 @@ func (jcfg *JwksConfig) ValidateScopes(claims jwt.MapClaims) error {
 // GetOrgDataFromClaim extracts org data for the requested org from claim mappings.
 // This method validates org access and returns errors if:
 //   - core.ErrReservedOrgName: dynamic org claims a statically-configured org name
-//   - core.ErrOrgAudienceDenied: token audience is not authorized for the requested org
+//   - core.ErrInvalidAudience: token audience is not authorized for the requested org
 //   - core.ErrInvalidConfiguration: no claim mapping configured for the requested org
 //   - core.ErrNoClaimRoles: no roles found for the requested org
 //
@@ -595,7 +595,7 @@ func (jcfg *JwksConfig) GetOrgDataFromClaim(claims jwt.MapClaims, reqOrgFromRout
 		}
 
 		if !hasAnyAudience(claims, cm.Audiences) {
-			return nil, false, core.ErrOrgAudienceDenied
+			return nil, false, core.ErrInvalidAudience
 		}
 
 		roles, err := cm.GetRoles(claims)

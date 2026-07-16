@@ -93,7 +93,7 @@ func (h *CustomProcessor) ProcessToken(c echo.Context, tokenStr string, jwksConf
 		case errors.Is(err, core.ErrReservedOrgName):
 			logger.Warn().Err(err).Str("requested_org", reqOrgFromRoute).Msg("Organization cannot be authorized dynamically using claims data")
 			return nil, util.NewAPIError(http.StatusForbidden, "Organization cannot be authorized dynamically using claims data", nil)
-		case errors.Is(err, core.ErrOrgAudienceDenied):
+		case errors.Is(err, core.ErrInvalidAudience):
 			logger.Warn().Err(err).Str("requested_org", reqOrgFromRoute).Msg("Token audience is not authorized for organization specified in URL")
 			return nil, util.NewAPIError(http.StatusForbidden, "Token audience is not authorized for organization specified in URL", nil)
 		case errors.Is(err, core.ErrInvalidConfiguration):
