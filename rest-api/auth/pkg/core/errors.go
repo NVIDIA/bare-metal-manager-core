@@ -40,6 +40,8 @@ var (
 	ErrNoClaimRoles = errors.New("no roles found in token claims for organization")
 	// ErrReservedOrgName is returned when token claims a reserved organization name (403)
 	ErrReservedOrgName = errors.New("token claims a reserved organization name")
+	// ErrOrgAudienceDenied is returned when token audience is not authorized for the requested organization (403)
+	ErrOrgAudienceDenied = errors.New("token audience is not authorized for the requested organization")
 	// ErrInvalidRole is returned when role is not in allowed roles set
 	ErrInvalidRole = errors.New("role is not in allowed roles set")
 )

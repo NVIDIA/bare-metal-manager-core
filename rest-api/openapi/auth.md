@@ -135,6 +135,7 @@ Key fields:
 - `audiences` is optional. If set, the token `aud` claim must contain at least one configured audience.
 - `scopes` is optional. If set, the token must contain all configured scopes. NICo checks the `scope`, `scopes`, and `scp` claims.
 - `claimMappings` is required and controls the organization and roles assigned to authenticated users.
+- A claim mapping may also set `audiences`. The token `aud` claim must contain at least one exact, case-sensitive match for the requested organization's mapping. If issuer and mapping audiences are both configured, both gates must pass.
 
 NICo supports `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `ES512`, and `EdDSA` signed tokens.
 
@@ -215,7 +216,7 @@ All three attributes support dot notation for nested claims. For example, if `or
 }
 ```
 
-Dynamic organizations cannot use an organization name already reserved by a static `orgName` mapping.
+Dynamic organizations cannot use an organization name already reserved by a static `orgName` mapping. A dynamic mapping may set `audiences`, but the same flat audience set gates every organization it resolves; audience values are not bound to resolved organization names.
 
 ### Common Configuration Examples
 #### SaaS Service Account
@@ -341,6 +342,7 @@ Use these rules when reviewing a configuration before rollout:
 If requests fail after authentication is enabled, check the token and REST API configuration together.
 
 - `401 Unauthorized` with an audience error usually means the token `aud` claim does not match any configured `audiences`. Update the IdP client audience, update NICo `audiences`, or omit `audiences` if audience enforcement is not needed.
+- `403 Forbidden` with an organization audience error means issuer validation passed, but token `aud` did not match the requested claim mapping's `audiences`.
 - `403 Forbidden` with a scope error usually means the token is missing one or more configured `scopes`. NICo checks `scope`, `scopes`, and `scp`.
 - Invalid token errors often come from an unreachable `jwks` URL, an unsupported signing key, or an `issuer` value that does not exactly match the token `iss` claim.
 - Missing authorization usually means the selected `claimMappings` entry did not produce a valid organization and role set. Check `orgName`, `orgAttribute`, `roles`, and `rolesAttribute`.
