@@ -79,7 +79,7 @@ Top-level `global:` values are automatically passed to all subcharts.
 The chart packages three dashboards built from NICo's exported Prometheus
 metrics: a site overview, object lifecycle diagnostics, and API performance.
 They are disabled by default because this chart does not install Grafana.
-The source JSON files live in [`dashboards/`](./dashboards/) and can also be
+The source JSON files live in [`observability/dashboards/`](./observability/dashboards/) and can also be
 imported into Grafana directly.
 
 To expose the dashboards to a Grafana dashboard sidecar in the release
