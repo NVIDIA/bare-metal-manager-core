@@ -216,7 +216,7 @@ Copy `helm-prereqs/values/machine-a-tron.yaml` and fill in the site-specific val
 
 ### SPIFFE URI override
 
-<Warning title=Critical step>
+<Warning title="Critical step">
 This step is critical. Double-check that your values file includes this override.
 </Warning>
 
