@@ -710,6 +710,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         };
 
         tracing::info!(
+            target: "carbide_diagnostics::bmc_redfish_supported",
             %bmc_ip_address,
             %vendor,
             "BMC supports Redfish"

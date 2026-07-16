@@ -47,7 +47,8 @@ pub async fn run_local(
     app_config.validate()?;
 
     let forge_root_ca_path = get_root_ca_path(None, None); // Will get it from the local repo
-    let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
+    let mut forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
+    forge_client_config.suppress_insecure_tls_warning = true;
 
     let api_config = ApiConfig::new_with_multiple_urls(
         &app_config.carbide_api_url,
