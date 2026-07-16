@@ -21,7 +21,6 @@ use std::error::Error;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use carbide_utils::none_if_empty::NoneIfEmpty;
 use model::errors::OperatorError;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
