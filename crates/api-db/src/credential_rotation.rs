@@ -52,7 +52,7 @@
 //! job, or failed job claims another attempt through
 //! [`record_device_rotation_retry_started`] before redispatching the same
 //! resumable RMS mutation. A matching completed job is promoted through
-//! [`record_device_rotation_completed`] only after the per-device target
+//! [`record_device_rotation_succeeded`] only after the per-device target
 //! credential has been written and read back. Each transition compares the
 //! durable attempt number so a stale worker or late backend response cannot
 //! overwrite a retry.
@@ -406,7 +406,7 @@ pub async fn record_device_rotation_retry_started(
 /// supersede it. Matching the attempt number and requiring no job ID prevents a
 /// late dispatch error from terminating newer or accepted work. Returns `false`
 /// when that exact pre-submission attempt is no longer active.
-pub async fn record_device_rotation_not_accepted(
+pub async fn record_device_rotation_rejected(
     conn: &mut PgConnection,
     device_mac: MacAddress,
     credential_type: CredentialRotationType,
@@ -442,7 +442,7 @@ pub async fn record_device_rotation_not_accepted(
 /// staged target, attempt number, and job ID prevents stale completion from
 /// promoting a newer retry. Returns `false` when that exact operation is no
 /// longer active.
-pub async fn record_device_rotation_completed(
+pub async fn record_device_rotation_succeeded(
     conn: &mut PgConnection,
     device_mac: MacAddress,
     credential_type: CredentialRotationType,
@@ -941,9 +941,9 @@ mod tests {
     use super::{
         CredentialRotationType, current_target_version, delete_device_converged,
         device_rotation_operation_state, device_rotation_status, mark_device_rotating_to_version,
-        promote_rotating_to_current, record_device_converged, record_device_rotation_completed,
-        record_device_rotation_not_accepted, record_device_rotation_retry_started,
-        record_device_rotation_started, record_device_rotation_submitted, rotation_status,
+        promote_rotating_to_current, record_device_converged, record_device_rotation_rejected,
+        record_device_rotation_retry_started, record_device_rotation_started,
+        record_device_rotation_submitted, record_device_rotation_succeeded, rotation_status,
         set_initial_target_version, set_next_target_version,
     };
 
@@ -1169,7 +1169,7 @@ mod tests {
                 .expect("the first attempt should be staged");
 
         assert!(
-            record_device_rotation_not_accepted(
+            record_device_rotation_rejected(
                 &mut conn,
                 mac,
                 CredentialRotationType::Nvos,
@@ -1206,7 +1206,7 @@ mod tests {
 
         assert_eq!(retry_attempt, attempt + 1);
 
-        let stale_release = record_device_rotation_not_accepted(
+        let stale_release = record_device_rotation_rejected(
             &mut conn,
             mac,
             CredentialRotationType::Nvos,
@@ -1244,7 +1244,7 @@ mod tests {
                 .unwrap()
                 .expect("the first attempt should be staged");
 
-        record_device_rotation_not_accepted(
+        record_device_rotation_rejected(
             &mut conn,
             mac,
             CredentialRotationType::Nvos,
@@ -1548,7 +1548,7 @@ mod tests {
         .await
         .unwrap();
 
-        let stale_completion = record_device_rotation_completed(
+        let stale_completion = record_device_rotation_succeeded(
             &mut conn,
             mac,
             CredentialRotationType::Nvos,
@@ -1561,7 +1561,7 @@ mod tests {
 
         assert!(!stale_completion);
 
-        let wrong_job = record_device_rotation_completed(
+        let wrong_job = record_device_rotation_succeeded(
             &mut conn,
             mac,
             CredentialRotationType::Nvos,
@@ -1574,7 +1574,7 @@ mod tests {
 
         assert!(!wrong_job);
 
-        let promoted = record_device_rotation_completed(
+        let promoted = record_device_rotation_succeeded(
             &mut conn,
             mac,
             CredentialRotationType::Nvos,
@@ -1598,7 +1598,7 @@ mod tests {
         assert_eq!(state.rotate_attempts, attempt);
         assert_eq!(state.rotate_last_error_redacted, None);
 
-        let promoted_again = record_device_rotation_completed(
+        let promoted_again = record_device_rotation_succeeded(
             &mut conn,
             mac,
             CredentialRotationType::Nvos,
@@ -1655,7 +1655,7 @@ mod tests {
         );
 
         assert!(
-            record_device_rotation_completed(
+            record_device_rotation_succeeded(
                 &mut conn,
                 mac,
                 CredentialRotationType::Nvos,
