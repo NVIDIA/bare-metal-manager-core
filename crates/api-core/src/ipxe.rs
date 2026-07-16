@@ -269,7 +269,7 @@ impl PxeInstructions {
 
         renderer
             .render(ipxeos, &reserved_params)
-            .map_err(|e| CarbideError::internal(format!("Failed to render iPXE script: {}", e)))
+            .map_err(|e| CarbideError::internal(format!("failed to render iPXE script: {}", e)))
     }
 
     pub async fn get_pxe_instructions(
@@ -391,7 +391,7 @@ exit ||
 
         let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
             .await
-            .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
+            .map_err(|e| CarbideError::InvalidArgument(format!("get machine failed, error: {e}")))?
             .ok_or(CarbideError::InvalidArgument(
                 "invalid machine id. not found in db".to_string(),
             ))?;

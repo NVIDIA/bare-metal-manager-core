@@ -533,7 +533,7 @@ impl DnsServer {
 
         if records.is_empty() {
             return Err(tonic::Status::not_found(format!(
-                "No {} records found for {}",
+                "no {} records found for {}",
                 qtype, qname
             )));
         }

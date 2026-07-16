@@ -1015,7 +1015,7 @@ pub(crate) async fn invoke_power(
 
             if rr.started_at.is_some() {
                 return Err(CarbideError::DpuReprovisioningInProgress(format!(
-                    "Can't reboot host: {machine_id}"
+                    "can't reboot host: {machine_id}"
                 ))
                 .into());
             }
@@ -1108,7 +1108,7 @@ pub(crate) async fn invoke_power(
     client
         .power(libredfish::SystemPowerControl::ForceRestart)
         .await
-        .map_err(|e| CarbideError::internal(format!("Failed redfish ForceRestart subtask: {e}")))?;
+        .map_err(|e| CarbideError::internal(format!("failed redfish ForceRestart subtask: {e}")))?;
 
     Ok(Response::new(rpc::InstancePowerResult {}))
 }
@@ -1218,7 +1218,7 @@ pub(crate) async fn update_instance_config(
         Some(metadata) => metadata.try_into().map_err(CarbideError::from)?,
     };
     metadata.validate(true).map_err(|e| {
-        CarbideError::InvalidArgument(format!("Instance metadata is not valid: {e}"))
+        CarbideError::InvalidArgument(format!("instance metadata is not valid: {e}"))
     })?;
 
     let mut txn = api.txn_begin().await?;
@@ -1293,7 +1293,7 @@ pub(crate) async fn update_instance_config(
         .is_none()
         {
             return Err(CarbideError::FailedPrecondition(format!(
-                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                "NetworkSecurityGroup `{}` does not exist or is not owned by tenant `{}`",
                 nsg_id,
                 tenant_org.clone(),
             ))
@@ -1333,7 +1333,7 @@ pub(crate) async fn update_instance_config(
         for service in service_configs.iter() {
             if !services.contains_key(&service.service_id) {
                 return Err(CarbideError::FailedPrecondition(format!(
-                    "Extension service {} does not exist",
+                    "extension service {} does not exist",
                     service.service_id,
                 ))
                 .into());
@@ -1344,7 +1344,7 @@ pub(crate) async fn update_instance_config(
                 .contains(&service.version)
             {
                 return Err(CarbideError::FailedPrecondition(format!(
-                    "Extension service {} version {} does not exist or is deleted",
+                    "extension service {} version {} does not exist or is deleted",
                     service.service_id, service.version,
                 ))
                 .into());
@@ -1558,7 +1558,7 @@ async fn validate_auto_inband_segment_vpc_bindings(
 
         if vpc.id != requested_vpc_id {
             return Err(CarbideError::FailedPrecondition(format!(
-                "zero-DPU host {} has HostInband segment {} bound to VPC {}, but auto networking requested VPC {}; shared Flat segments must be left unbound",
+                "zero-DPU host {} has HostInband segment {} bound to VPC {}, but auto networking requested VPC {}; shared flat segments must be left unbound",
                 mh_snapshot.host_snapshot.id, segment_id, vpc.id, requested_vpc_id,
             )));
         }
@@ -1693,7 +1693,7 @@ fn snapshot_to_instance(
         .map_err(CarbideError::from)?
         .ok_or_else(|| {
             CarbideError::internal(format!(
-                "Instance on Machine {machine_id} can be converted from snapshot"
+                "instance on machine {machine_id} can be converted from snapshot"
             ))
         })
 }
@@ -1706,7 +1706,7 @@ pub async fn force_delete_instance(
     let instance = db::instance::find_by_id(&api.database_connection, instance_id)
         .await?
         .ok_or_else(|| {
-            CarbideError::internal(format!("Could not find an instance for {instance_id}"))
+            CarbideError::internal(format!("could not find an instance for {instance_id}"))
         })?
         .to_owned();
 

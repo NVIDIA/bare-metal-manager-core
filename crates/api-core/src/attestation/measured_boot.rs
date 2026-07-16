@@ -144,23 +144,23 @@ pub fn cli_make_cred(
 ) -> Result<(Vec<u8>, Vec<u8>), CarbideError> {
     // now construct the temp directory
     let tmp_dir = TempDir::with_prefix("make_cred")
-        .map_err(|e| CarbideError::AttestBindKeyError(format!("Could not create TempDir: {e}")))?;
+        .map_err(|e| CarbideError::AttestBindKeyError(format!("could not create TempDir: {e}")))?;
     let tmp_dir_path = tmp_dir.path();
 
     // create a file to write the EK key to
     let ek_file_path = tmp_dir_path.join("ek.dat");
     let mut ek_file = File::create(ek_file_path.clone())
-        .map_err(|e| CarbideError::AttestBindKeyError(format!("Could not create EK file: {e}")))?;
+        .map_err(|e| CarbideError::AttestBindKeyError(format!("could not create EK file: {e}")))?;
 
     // serialize the public key to a PEM format and write it to the file
     let pem_pub_key = pub_key.to_pkcs1_pem(LineEnding::default()).map_err(|e| {
         CarbideError::AttestBindKeyError(format!(
-            "Could not convert EK RsaPublicKey to PEM format: {e}"
+            "could not convert EK RsaPublicKey to PEM format: {e}"
         ))
     })?;
 
     ek_file.write_all(pem_pub_key.as_bytes()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not write EK Pub to PEM file: {e}"))
+        CarbideError::AttestBindKeyError(format!("could not write EK pub to PEM file: {e}"))
     })?;
 
     // now write AK name to the file in hexadecimal format
@@ -175,10 +175,10 @@ pub fn cli_make_cred(
             ))?;
 
     let mut session_key_file = File::create(session_key_path.clone()).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create file for session key: {e}"))
+        CarbideError::AttestBindKeyError(format!("could not create file for session key: {e}"))
     })?;
     session_key_file.write_all(session_key).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not write session key to file: {e}"))
+        CarbideError::AttestBindKeyError(format!("could not write session key to file: {e}"))
     })?;
 
     // construct the command to execute make_credential
@@ -210,7 +210,7 @@ pub fn cli_make_cred(
         .output()
         .map_err(|e| {
             CarbideError::AttestBindKeyError(format!(
-                "Could not execute makecredential command: {e}"
+                "could not execute makecredential command: {e}"
             ))
         })?;
 
@@ -222,7 +222,7 @@ pub fn cli_make_cred(
     }
 
     let creds = fs::read(cred_out_path).map_err(|e| {
-        CarbideError::AttestBindKeyError(format!("Could not create creds file: {e}"))
+        CarbideError::AttestBindKeyError(format!("could not create creds file: {e}"))
     })?;
 
     let (cred_blob, encr_secret) = extract_cred_secret(&creds)?;
@@ -242,11 +242,11 @@ pub fn verify_signature(
         use tss_esapi::traits::UnMarshall;
 
         let ak_pub = Public::unmarshall(ak_pub).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshal AK Pub: {e}"))
+            CarbideError::AttestQuoteError(format!("could not unmarshal AK pub: {e}"))
         })?;
 
         let signature = Signature::unmarshall(rsa_signature).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshall Signature struct: {e}"))
+            CarbideError::AttestQuoteError(format!("could not unmarshall signature struct: {e}"))
         })?;
 
         linux_build::verify_signature(&ak_pub, attest_vec, &signature)
@@ -264,7 +264,7 @@ pub fn verify_pcr_hash(attestation: &[u8], pcr_values: &[Vec<u8>]) -> CarbideRes
         use tss_esapi::structures::Attest;
         use tss_esapi::traits::UnMarshall;
         let attest = Attest::unmarshall(attestation).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not unmarshall Attest struct: {e}"))
+            CarbideError::AttestQuoteError(format!("could not unmarshall attest struct: {e}"))
         })?;
         linux_build::verify_pcr_hash(&attest, pcr_values)
     }
@@ -284,7 +284,7 @@ fn extract_cred_secret(creds: &[u8]) -> CarbideResult<(Vec<u8>, Vec<u8>)> {
 
     if creds.len() < magic_header_offset + cred_blob_offset {
         return Err(CarbideError::AttestBindKeyError(format!(
-            "Creds file is too short: {0} bytes",
+            "creds file is too short: {0} bytes",
             creds.len()
         )));
     }
@@ -298,7 +298,7 @@ fn extract_cred_secret(creds: &[u8]) -> CarbideResult<(Vec<u8>, Vec<u8>)> {
 
     if creds.len() < cred_blob_end_idx + secret_offset - 1 {
         return Err(CarbideError::AttestBindKeyError(format!(
-            "Creds file is too short: {0} bytes",
+            "creds file is too short: {0} bytes",
             creds.len()
         )));
     }
@@ -418,12 +418,12 @@ pub mod linux_build {
 
         let cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
             .map_err(|e| {
-                CarbideError::AttestBindKeyError(format!("Could not unmarshall EK Cert: {e}"))
+                CarbideError::AttestBindKeyError(format!("could not unmarshall EK cert: {e}"))
             })?
             .1;
 
         let pub_key_cert_data = cert.public_key().parsed().map_err(|e| {
-            CarbideError::AttestBindKeyError(format!("Could not get EK Cert Data: {e}"))
+            CarbideError::AttestBindKeyError(format!("could not get EK cert data: {e}"))
         })?;
 
         let ek_cert_modulus = match pub_key_cert_data {
@@ -443,12 +443,12 @@ pub mod linux_build {
         // actually do coincide!
         let pub_key_cert = RsaPublicKey::new(modulus, exponent).map_err(|e| {
             CarbideError::AttestBindKeyError(format!(
-                "Could not create RsaPublicKey from EK Cert: {e}"
+                "could not create RsaPublicKey from EK cert: {e}"
             ))
         })?;
         // construct the Public structure and extract the PublicKeyRsa from it, which is really just the modulus
         let ek_pub = Public::unmarshall(ek_pub).map_err(|e| {
-            CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {e}"))
+            CarbideError::AttestBindKeyError(format!("could not unmarshall EK: {e}"))
         })?;
 
         let unique = match ek_pub {
@@ -466,7 +466,7 @@ pub mod linux_build {
 
         let pub_key_ek = RsaPublicKey::new(modulus, exponent).map_err(|e| {
             CarbideError::AttestBindKeyError(format!(
-                "Could not create RsaPublicKey from TPM's EK Pub: {e}"
+                "could not create RsaPublicKey from TPM's EK pub: {e}"
             ))
         })?;
 
@@ -497,7 +497,7 @@ pub mod linux_build {
         let exponent: BigUint = BigUint::from(RSA_PUBKEY_EXPONENT);
 
         let pub_key = RsaPublicKey::new(modulus, exponent).map_err(|e| {
-            CarbideError::AttestQuoteError(format!("Could not create RsaPublicKey: {e}"))
+            CarbideError::AttestQuoteError(format!("could not create RsaPublicKey: {e}"))
         })?;
 
         let rsa_signature = match signature {
@@ -534,7 +534,7 @@ mod tests {
             Ok(..) => panic!("Failed: Should have received an error"),
             Err(e) => assert_eq!(
                 e.to_string(),
-                "attest bind key error: Creds file is too short: 3 bytes"
+                "attest bind key error: creds file is too short: 3 bytes"
             ),
         }
     }

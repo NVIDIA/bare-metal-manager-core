@@ -655,7 +655,7 @@ pub(crate) async fn remove_machine_association(
         && instance.deleted.is_none()
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "machine {} has instance assigned. This operation is allowed only in terminating state.",
+            "machine {} has instance assigned. this operation is allowed only in terminating state",
             &machine.id
         ))
         .into());

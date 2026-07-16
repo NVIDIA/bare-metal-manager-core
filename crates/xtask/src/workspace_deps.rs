@@ -232,7 +232,7 @@ impl Workspace {
     fn write_all(&self) -> eyre::Result<()> {
         for (path, document) in &self.non_workspace_cargo_tomls {
             std::fs::write(path, document.to_string())
-                .with_context(|| format!("Error writing to {}", path.display()))?;
+                .with_context(|| format!("error writing to {}", path.display()))?;
         }
 
         let workspace_cargo_toml_path = self.toplevel_cargo_toml_path();

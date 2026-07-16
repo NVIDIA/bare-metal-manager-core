@@ -328,7 +328,7 @@ pub(crate) async fn update(
 
         let version_change =
             ConfigVersion::new(current_service.version_ctr.try_into().map_err(|e| {
-                CarbideError::internal(format!("Invalid version for extension service: {e}"))
+                CarbideError::internal(format!("invalid version for extension service: {e}"))
             })?)
             .incremental_change();
 
@@ -782,7 +782,7 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
 
     let root = serde_yaml::from_str::<serde_yaml::Value>(data).map_err(|e| {
         CarbideError::InvalidArgument(format!(
-            "Invalid pod spec file for KubernetesPod service: {}",
+            "invalid pod spec file for KubernetesPod service: {}",
             e
         ))
     })?;
@@ -875,7 +875,7 @@ fn validate_extension_service_data(
 ) -> Result<(), CarbideError> {
     if data.len() > MAX_POD_SPEC_SIZE {
         return Err(CarbideError::InvalidArgument(format!(
-            "Extension service data exceeds the maximum size: {} bytes",
+            "extension service data exceeds the maximum size: {} bytes",
             MAX_POD_SPEC_SIZE
         )));
     }
@@ -944,14 +944,14 @@ fn detect_extension_service_spec_change(
             let old_data_yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(old_data).map_err(|e| {
                     CarbideError::internal(format!(
-                        "Found corrupted data for KubernetesPod service: {}",
+                        "found corrupted data for KubernetesPod service: {}",
                         e
                     ))
                 })?;
             let new_data_yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(new_data).map_err(|e| {
                     CarbideError::InvalidArgument(format!(
-                        "Invalid pod spec file for KubernetesPod service: {}",
+                        "invalid pod spec file for KubernetesPod service: {}",
                         e
                     ))
                 })?;
@@ -1009,7 +1009,7 @@ async fn create_extension_service_credential(
                         .await
                         .map_err(|e| {
                             CarbideError::internal(format!(
-                                "Error creating credential for extension service: {e}"
+                                "error creating credential for extension service: {e}"
                             ))
                         })
                 }

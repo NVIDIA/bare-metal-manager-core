@@ -73,7 +73,7 @@ pub(crate) fn set_dynamic_config(
     let req = request.into_inner();
     let exp_str = req.expiry.as_deref().unwrap_or("1h");
     let expiry = duration_str::parse(exp_str).map_err(|err| {
-        CarbideError::InvalidArgument(format!("Invalid expiry string '{exp_str}'. {err}"))
+        CarbideError::InvalidArgument(format!("invalid expiry string '{exp_str}'. {err}"))
     })?;
     const MAX_SET_INTERNAL_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
     if MAX_SET_INTERNAL_EXPIRY < expiry {
@@ -86,7 +86,7 @@ pub(crate) fn set_dynamic_config(
 
     let Ok(requested_setting) = rpc::ConfigSetting::try_from(req.setting) else {
         return Err(CarbideError::InvalidArgument(format!(
-            "Not a supported dynamic config setting: {}",
+            "not a supported dynamic config setting: {}",
             req.setting
         ))
         .into());
@@ -101,7 +101,7 @@ pub(crate) fn set_dynamic_config(
             let level = &api.dynamic_settings.log_filter;
             level.update(&req.value, Some(expire_at)).map_err(|err| {
                 CarbideError::InvalidArgument(format!(
-                    "Invalid log filter string '{}'. {err}",
+                    "invalid log filter string '{}'. {err}",
                     req.value
                 ))
             })?;
@@ -114,7 +114,7 @@ pub(crate) fn set_dynamic_config(
         rpc::ConfigSetting::CreateMachines => {
             let is_enabled = req.value.parse::<bool>().map_err(|err| {
                 CarbideError::InvalidArgument(format!(
-                    "Invalid create_machines string '{}'. {err}",
+                    "invalid create_machines string '{}'. {err}",
                     req.value
                 ))
             })?;
@@ -129,7 +129,7 @@ pub(crate) fn set_dynamic_config(
         rpc::ConfigSetting::SiteExplorerEnabled => {
             let is_enabled = req.value.parse::<bool>().map_err(|err| {
                 CarbideError::InvalidArgument(format!(
-                    "Invalid site_explorer_enabled string '{}'. {err}",
+                    "invalid site_explorer_enabled string '{}'. {err}",
                     req.value
                 ))
             })?;
@@ -154,7 +154,7 @@ pub(crate) fn set_dynamic_config(
             } else {
                 let host_port_pair = req.value.parse::<HostPortPair>().map_err(|err| {
                     CarbideError::InvalidArgument(format!(
-                        "Invalid bmc_proxy string '{}': {err}",
+                        "invalid bmc_proxy string '{}': {err}",
                         req.value
                     ))
                 })?;
@@ -178,7 +178,7 @@ pub(crate) fn set_dynamic_config(
             }
             let enable = req.value.parse().map_err(|_| {
                 CarbideError::InvalidArgument(format!(
-                    "Expected bool for TracingEnabled, got {}",
+                    "expected bool for TracingEnabled, got {}",
                     &req.value
                 ))
             })?;

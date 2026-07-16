@@ -209,7 +209,7 @@ impl KubernetesPodServicesHandler {
             .args(["restart", service])
             .output()
             .await
-            .wrap_err(format!("Failed to restart {}", service))?;
+            .wrap_err(format!("failed to restart {}", service))?;
 
         if !restart.status.success() {
             let stderr = String::from_utf8_lossy(&restart.stderr);
@@ -267,7 +267,7 @@ impl KubernetesPodServicesHandler {
             .truncate(true)
             .open(&tmp_path)
             .await
-            .wrap_err_with(|| format!("Failed to create tmp file {}", tmp_path.display()))?;
+            .wrap_err_with(|| format!("failed to create tmp file {}", tmp_path.display()))?;
 
         tmp_file
             .write_all(labeled_yaml.as_bytes())

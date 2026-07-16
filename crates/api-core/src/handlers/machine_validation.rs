@@ -668,7 +668,7 @@ pub(crate) async fn on_demand_machine_validation(
             )
             .await?
             .ok_or_else(|| {
-                CarbideError::InvalidArgument(format!("Machine id {machine_id} not found."))
+                CarbideError::InvalidArgument(format!("machine id {machine_id} not found"))
             })?;
             if machine
                 .on_demand_machine_validation_request

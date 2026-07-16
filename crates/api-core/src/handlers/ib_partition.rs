@@ -319,7 +319,7 @@ async fn allocate_pkey(
         {
             Ok(val) => Ok(Some(
                 PartitionKey::try_from(val)
-                .map_err(|_| CarbideError::internal(format!("Partition key {val} return from pool is not a valid pkey. Pool Definition is invalid")))?)),
+                .map_err(|_| CarbideError::internal(format!("partition key {val} return from pool is not a valid pkey. pool definition is invalid")))?)),
             Err(ResourcePoolDatabaseError::ResourcePool(resource_pool::ResourcePoolError::Empty)) => {
                 tracing::error!(owner_id, pool = "pkey", "Pool exhausted, cannot allocate");
                 Err(CarbideError::ResourceExhausted("pool pkey".to_string()))

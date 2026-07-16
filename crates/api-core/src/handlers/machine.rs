@@ -429,10 +429,10 @@ pub(crate) async fn admin_force_delete_machine(
         && !request.allow_delete_with_orphaned_dpf_crds
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "Failed force-delete host {}: DPF was used for ingestion \
-                    but DPF is not configured. Use \
+            "failed force-delete host {}: DPF was used for ingestion \
+                    but DPF is not configured. use \
                     --allow-delete-with-orphaned-dpf-crds to proceed, \
-                    though this will require manual cleanup of DPF CRDs.",
+                    though this will require manual cleanup of DPF CRDs",
             machine.id
         ))
         .into());

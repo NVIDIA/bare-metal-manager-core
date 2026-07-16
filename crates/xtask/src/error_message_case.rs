@@ -62,15 +62,20 @@ const ERROR_TYPE_OWNERS: &[&str] = &["CarbideError", "Status"];
 /// Conversion calls to peel through when hunting for the underlying literal
 /// (`CarbideError::internal("id is required".into())`).
 const CONV_METHODS: &[&str] = &["into", "to_string", "to_owned", "into_owned"];
+/// Format macros to peel through when they wrap the message in an error position
+/// (`CarbideError::invalid_argument(format!("..."))`, `.context(format!("..."))`).
+/// A format macro's first argument is always a string literal, so it lints like
+/// any other message; `{placeholder}` names are left alone by the rewriter.
+const FORMAT_MACROS: &[&str] = &["format", "format_args"];
 
-// TODO: this only reaches messages passed as a bare string literal to the
-// constructs above. It doesn't yet look inside `format!(...)` (e.g.
-// `.context(format!("Could not ..."))`) or at struct-literal error fields (e.g.
-// `CarbideError::Internal { message: "..." }`), nor at other error enums'
-// constructors. It also can't see an error site nested inside another macro's
-// body (e.g. a `bail!` inside `tokio::select!`), which `syn` keeps as an opaque
-// token stream. Those are left as-is for now; widening the checker, and
-// re-sweeping what it then catches, is a follow-up.
+// TODO: `format!(...)` is now peeled when it's the message argument of a
+// recognized error slot (see `leading_str_lit`), but a few forms remain out of
+// reach: a `format!` behind a *block*-bodied closure (`.wrap_err_with(|| {
+// format!(...) })`), struct-literal error fields (`CarbideError::Internal {
+// message: "..." }`), other error enums' constructors, a manual `impl Display`
+// (`write!`), and an error site nested inside another macro's body (a `bail!`
+// inside `tokio::select!`, which `syn` keeps as an opaque token stream). Those
+// are left as-is; widening the checker further, and re-sweeping, is a follow-up.
 
 pub fn check(fix: bool) -> eyre::Result<CheckOutcome> {
     let repo_root = PathBuf::from(REPO_ROOT).canonicalize()?;
@@ -344,7 +349,7 @@ impl<'ast> Visit<'ast> for Collector<'_> {
             && let Some(arg) = node.args.first()
             && let Some(lit) = leading_str_lit(arg)
         {
-            self.inspect(lit);
+            self.inspect(&lit);
         }
         visit::visit_expr_method_call(self, node);
     }
@@ -358,7 +363,7 @@ impl<'ast> Visit<'ast> for Collector<'_> {
                 && let Some(arg) = node.args.first()
                 && let Some(lit) = leading_str_lit(arg)
             {
-                self.inspect(lit);
+                self.inspect(&lit);
             }
         }
         visit::visit_expr_call(self, node);
@@ -400,18 +405,38 @@ fn macro_message(mac: &Macro) -> Option<LitStr> {
     let args = mac
         .parse_body_with(syn::punctuated::Punctuated::<Expr, syn::Token![,]>::parse_terminated)
         .ok()?;
-    leading_str_lit(args.iter().nth(index)?).cloned()
+    leading_str_lit(args.iter().nth(index)?)
 }
 
-/// Peels closures, references, and trivial conversions to find a leading string
-/// literal — the message inside `|| "...".into()`, `&"..."`, `"...".to_string()`.
-fn leading_str_lit(expr: &Expr) -> Option<&LitStr> {
+/// Peels closures, references, trivial conversions, and a wrapping `format!` to
+/// find a leading string literal — the message inside `|| "...".into()`, `&"..."`,
+/// `"...".to_string()`, or `CarbideError::invalid_argument(format!("...", x))`.
+/// Returns an owned `LitStr` (it may be parsed out of a `format!` body), but its
+/// span still points at the real source literal, so a fix rewrites the right bytes.
+fn leading_str_lit(expr: &Expr) -> Option<LitStr> {
     match expr {
         Expr::Lit(ExprLit {
             lit: Lit::Str(lit), ..
-        }) => Some(lit),
+        }) => Some(lit.clone()),
         Expr::MethodCall(call) if CONV_METHODS.contains(&call.method.to_string().as_str()) => {
             leading_str_lit(&call.receiver)
+        }
+        // A `format!(...)` sitting in a message slot: peel to its format string,
+        // which the compiler guarantees is a leading string literal.
+        Expr::Macro(m)
+            if m.mac
+                .path
+                .segments
+                .last()
+                .is_some_and(|s| FORMAT_MACROS.contains(&s.ident.to_string().as_str())) =>
+        {
+            let args = m
+                .mac
+                .parse_body_with(
+                    syn::punctuated::Punctuated::<Expr, syn::Token![,]>::parse_terminated,
+                )
+                .ok()?;
+            leading_str_lit(args.first()?)
         }
         Expr::Closure(closure) => leading_str_lit(&closure.body),
         Expr::Reference(reference) => leading_str_lit(&reference.expr),
@@ -717,5 +742,44 @@ mod tests {
             "{fixed}"
         );
         assert!(fixed.contains(r#"bail!("invalid config")"#), "{fixed}");
+    }
+
+    /// The `format!` peel reaches a message wrapped in a format macro inside an
+    /// error position (a `CarbideError` constructor or a `.context`) and only
+    /// there — a bare `format!` or log macro is left alone.
+    #[test]
+    fn end_to_end_rewrite_reaches_format() {
+        let src = concat!(
+            "fn f() -> anyhow::Result<()> {\n",
+            "    let _ = CarbideError::invalid_argument(format!(\"Duplicate services for {id}\"));\n",
+            "    thing().context(format!(\"Failed to open {MachineId}\"))?;\n",
+            "    tracing::info!(\"Bare log line stays\");\n",
+            "    let _ = format!(\"Plain format stays\");\n",
+            "    Ok(())\n",
+            "}\n",
+        );
+        let ast = syn::parse_file(src).unwrap();
+        let mut findings = Vec::new();
+        let mut collector = Collector {
+            lines: src.lines().collect(),
+            out: &mut findings,
+        };
+        collector.visit_file(&ast);
+
+        let (fixed, applied) = apply_fixes(src, &findings);
+        // only the two format! messages in error positions are rewritten
+        assert_eq!(applied, 2, "{fixed}");
+        assert!(
+            fixed.contains(r#"format!("duplicate services for {id}")"#),
+            "{fixed}"
+        );
+        // leading word lowered, the `{MachineId}` interpolation left intact
+        assert!(
+            fixed.contains(r#"format!("failed to open {MachineId}")"#),
+            "{fixed}"
+        );
+        // a bare format!/log macro outside an error slot is untouched
+        assert!(fixed.contains(r#""Bare log line stays""#), "{fixed}");
+        assert!(fixed.contains(r#""Plain format stays""#), "{fixed}");
     }
 }

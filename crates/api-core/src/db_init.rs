@@ -116,12 +116,12 @@ pub async fn create_initial_networks(
                 }
                 [] => {
                     return Err(CarbideError::InvalidArgument(format!(
-                        "Network segment {name} references VPC {vpc_name}, but no VPC with that name exists"
+                        "network segment {name} references VPC {vpc_name}, but no VPC with that name exists"
                     )));
                 }
                 _ => {
                     return Err(CarbideError::InvalidArgument(format!(
-                        "Network segment {name} references VPC {vpc_name}, but multiple VPCs with that name exist"
+                        "network segment {name} references VPC {vpc_name}, but multiple VPCs with that name exist"
                     )));
                 }
             }
@@ -405,7 +405,7 @@ pub(crate) async fn create_admin_vpc(
             .await?;
             if vpcs.len() != 1 {
                 return Err(CarbideError::internal(format!(
-                    "Admin network segment references missing VPC {admin_vpc_id}."
+                    "admin network segment references missing VPC {admin_vpc_id}"
                 )));
             }
             Some(vpcs.remove(0))
@@ -417,7 +417,7 @@ pub(crate) async fn create_admin_vpc(
                 db::vpc::find_by_vni(&mut txn, configured_vni).await?.pop()
             {
                 return Err(CarbideError::internal(format!(
-                    "Configured admin VPC VNI {configured_vni} is already used by VPC {}, but no admin VPC is attached to admin network segments.",
+                    "configured admin VPC VNI {configured_vni} is already used by VPC {}, but no admin VPC is attached to admin network segments",
                     conflicting_vpc.id
                 )));
             }
@@ -425,7 +425,7 @@ pub(crate) async fn create_admin_vpc(
         }
         _ => {
             return Err(CarbideError::internal(format!(
-                "Admin network segments are attached to multiple VPCs: {}.",
+                "admin network segments are attached to multiple VPCs: {}",
                 attached_admin_vpc_ids.iter().join(", ")
             )));
         }
@@ -440,7 +440,7 @@ pub(crate) async fn create_admin_vpc(
                 .find(|vpc| vpc.id != existing_vpc.id)
             {
                 return Err(CarbideError::internal(format!(
-                    "Configured admin VPC VNI {configured_vni} is already used by VPC {}, but admin network segments are attached to VPC {}.",
+                    "configured admin VPC VNI {configured_vni} is already used by VPC {}, but admin network segments are attached to VPC {}",
                     conflicting_vpc.id, existing_vpc.id
                 )));
             }
@@ -458,7 +458,7 @@ pub(crate) async fn create_admin_vpc(
             match admin_segment.config.vpc_id {
                 Some(vpc_id) if vpc_id != existing_vpc.id => {
                     return Err(CarbideError::internal(format!(
-                        "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",
+                        "mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}",
                         existing_vpc.id
                     )));
                 }

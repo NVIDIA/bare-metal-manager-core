@@ -210,7 +210,7 @@ pub async fn lookup_record(
     );
 
     let rrtype = DnsResourceRecordType::try_from(lookup_request.qtype)
-        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid qtype supplied: {}", e)))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("invalid qtype supplied: {}", e)))?;
 
     let qname = lookup_request.qname;
 

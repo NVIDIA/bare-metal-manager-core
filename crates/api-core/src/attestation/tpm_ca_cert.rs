@@ -34,7 +34,7 @@ pub fn extract_ca_fields(
     ca_cert_bytes: &[u8],
 ) -> CarbideResult<(DateTime<Utc>, DateTime<Utc>, Vec<u8>)> {
     let ca_cert = X509Certificate::from_der(ca_cert_bytes)
-        .map_err(|e| CarbideError::InvalidArgument(format!("Could not parse CA cert: {e}")))?
+        .map_err(|e| CarbideError::InvalidArgument(format!("could not parse CA cert: {e}")))?
         .1;
 
     Ok((
@@ -54,7 +54,7 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
     machine_id: &MachineId,
 ) -> CarbideResult<()> {
     let ek_cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
-        .map_err(|e| CarbideError::InvalidArgument(format!("Could not parse EK cert: {e}")))?
+        .map_err(|e| CarbideError::InvalidArgument(format!("could not parse EK cert: {e}")))?
         .1;
 
     // get the issuer
@@ -67,7 +67,7 @@ pub async fn match_insert_new_ek_cert_status_against_ca(
         Some(ca_cert_db_entry) => {
             let ca_cert = X509Certificate::from_der(ca_cert_db_entry.ca_cert_der.as_slice())
                 .map_err(|e| {
-                    CarbideError::InvalidArgument(format!("Could not parse CA cert: {e}"))
+                    CarbideError::InvalidArgument(format!("could not parse CA cert: {e}"))
                 })?
                 .1;
 
@@ -177,12 +177,12 @@ pub async fn match_update_existing_ek_cert_status_against_ca(
 
     // create X509 EK cert
     let ek_cert = X509Certificate::from_der(tpm_ek_cert.as_bytes())
-        .map_err(|e| CarbideError::internal(format!("Could not parse EK cert: {e}")))?
+        .map_err(|e| CarbideError::internal(format!("could not parse EK cert: {e}")))?
         .1;
 
     // create X509 CA cert
     let ca_cert = X509Certificate::from_der(ca_cert_bytes)
-        .map_err(|e| CarbideError::internal(format!("Could not parse CA cert: {e}")))?
+        .map_err(|e| CarbideError::internal(format!("could not parse CA cert: {e}")))?
         .1;
 
     // verify signature
@@ -207,7 +207,7 @@ pub async fn match_update_existing_ek_cert_status_against_ca(
     .await
     .map_err(|e| {
         CarbideError::internal(format!(
-            "Could not update CA verification status for EK serial - {}, issuer - {}, error: {}",
+            "could not update CA verification status for EK serial - {}, issuer - {}, error: {}",
             ek_cert.raw_serial_as_string(),
             ek_cert.issuer,
             e

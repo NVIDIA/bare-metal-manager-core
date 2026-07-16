@@ -56,7 +56,7 @@ pub async fn create(
         let prefix = new_prefix.config.prefix;
         if !site_prefixes.contains(prefix) {
             return Err(CarbideError::InvalidArgument(format!(
-                "The VPC prefix {prefix} is not contained within the site fabric prefixes"
+                "the VPC prefix {prefix} is not contained within the site fabric prefixes"
             ))
             .into());
         }
@@ -190,7 +190,7 @@ pub async fn create(
     .await?
     .pop()
     .ok_or_else(|| {
-        CarbideError::internal(format!("Created VPC prefix {vpc_prefix_id} was not found"))
+        CarbideError::internal(format!("created VPC prefix {vpc_prefix_id} was not found"))
     })?;
 
     txn.commit().await?;
@@ -232,7 +232,7 @@ pub async fn search(
                 .ok_or_else(|| CarbideError::MissingArgument("prefix_match_type"))?;
             let prefix_match_type = PrefixMatchType::try_from(prefix_match_type).map_err(|_e| {
                 CarbideError::InvalidArgument(format!(
-                    "Unknown PrefixMatchType value: {prefix_match_type}"
+                    "unknown PrefixMatchType value: {prefix_match_type}"
                 ))
             })?;
             use model::vpc_prefix::PrefixMatch;

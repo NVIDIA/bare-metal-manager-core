@@ -59,7 +59,7 @@ impl Forge for MockApiServer {
             .find(|host| host.instance_id == instance_id)
         else {
             return Err(Status::not_found(format!(
-                "No instance found with ID {instance_id}"
+                "no instance found with ID {instance_id}"
             )));
         };
 

@@ -59,7 +59,7 @@ impl ManagedFile {
     /// comparison of timestamps or contents is performed.
     pub fn copy_if_not_present(self, source_path: &Path) -> eyre::Result<()> {
         let destination_exists = self.path.try_exists().context(format!(
-            "Couldn't check existence of destination file {f}",
+            "couldn't check existence of destination file {f}",
             f = self.path.display()
         ))?;
         if !destination_exists {
@@ -120,7 +120,7 @@ fn safe_copy(destination_path: &Path, source_path: &Path) -> eyre::Result<()> {
         )
     })?;
     let mut source_file = File::open(source_path)
-        .with_context(|| format!("Couldn't open source file {f}", f = source_path.display()))?;
+        .with_context(|| format!("couldn't open source file {f}", f = source_path.display()))?;
     let mut tmp_destination = NamedTempFile::with_suffix_in(".tmp", destination_dirname)
         .with_context(|| {
             format!(

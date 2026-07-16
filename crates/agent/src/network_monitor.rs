@@ -405,7 +405,7 @@ pub(crate) async fn fetch_dpu_info_list(
         .await
         .map_err(|err| {
             eyre::Report::new(err).wrap_err(format!(
-                "Could not connect to Forge API server at {forge_api}"
+                "could not connect to forge API server at {forge_api}"
             ))
         })?;
 

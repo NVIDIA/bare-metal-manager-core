@@ -90,7 +90,7 @@ pub(crate) async fn discover_machine(
     // Generate a stable Machine ID based on the hardware information
     let stable_machine_id = from_hardware_info(&hardware_info).map_err(|e| {
             CarbideError::InvalidArgument(
-                format!("Insufficient HardwareInfo to derive a Stable Machine ID for Machine on InterfaceId {interface_id:?}: {e}"),
+                format!("insufficient HardwareInfo to derive a stable machine ID for machine on InterfaceId {interface_id:?}: {e}"),
             )
         })?;
     log_machine_id(&stable_machine_id);
@@ -137,7 +137,7 @@ pub(crate) async fn discover_machine(
         && api.runtime_config.tpm_required
     {
         return Err(CarbideError::InvalidArgument(format!(
-                "Ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {interface_id:?}"
+                "ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {interface_id:?}"
             ))
             .into());
     } else if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_some() {
@@ -193,7 +193,7 @@ pub(crate) async fn discover_machine(
             .await?
             .ok_or_else(|| {
                 CarbideError::InvalidArgument(format!(
-                    "Machine id {stable_machine_id} was not discovered by site-explorer."
+                    "machine id {stable_machine_id} was not discovered by site-explorer"
                 ))
             })?;
         }
@@ -227,7 +227,7 @@ pub(crate) async fn discover_machine(
             )
             .await?
             .ok_or_else(|| {
-                CarbideError::InvalidArgument(format!("Machine id {stable_machine_id} not found."))
+                CarbideError::InvalidArgument(format!("machine id {stable_machine_id} not found"))
             })?
         };
 

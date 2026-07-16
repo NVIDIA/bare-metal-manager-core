@@ -259,7 +259,7 @@ pub(crate) async fn clear_host_uefi_password(
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to run clear_host_uefi_password call");
             CarbideError::internal(format!(
-                "Failed redfish clear_host_uefi_password subtask: {e}"
+                "failed redfish clear_host_uefi_password subtask: {e}"
             ))
         })?;
 
@@ -369,7 +369,7 @@ pub(crate) async fn set_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to run uefi_setup call");
-            CarbideError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
+            CarbideError::internal(format!("failed redfish uefi_setup subtask: {e}"))
         })?;
     // uefi_setup returns a BMC job_id; the password change completes
     // asynchronously on the device and we do not poll it here. We optimistically

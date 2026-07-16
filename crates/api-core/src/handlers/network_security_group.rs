@@ -450,7 +450,7 @@ pub(crate) async fn delete(
 
     if nsg.tenant_organization_id != tenant_organization_id {
         return Err(CarbideError::InvalidArgument(format!(
-            "NetworkSecurityGroup `{}` is not owned by Tenant `{}`",
+            "NetworkSecurityGroup `{}` is not owned by tenant `{}`",
             nsg.id.clone(),
             tenant_organization_id.clone()
         ))

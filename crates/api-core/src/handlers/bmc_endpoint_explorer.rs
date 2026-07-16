@@ -752,13 +752,13 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
 
     let dpu_ip: std::net::IpAddr = ip_str
         .parse()
-        .map_err(|_| CarbideError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
+        .map_err(|_| CarbideError::InvalidArgument(format!("invalid DPU IP: {ip_str}")))?;
 
     if req.host_bmc_ip.is_empty() {
         return Err(CarbideError::MissingArgument("host_bmc_ip").into());
     }
     let host_bmc_ip: std::net::IpAddr = req.host_bmc_ip.parse().map_err(|_| {
-        CarbideError::InvalidArgument(format!("Invalid host BMC IP: {}", req.host_bmc_ip))
+        CarbideError::InvalidArgument(format!("invalid host BMC IP: {}", req.host_bmc_ip))
     })?;
 
     let pre_copy_powercycle = req.pre_copy_powercycle;
@@ -769,8 +769,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
             .map_err(|e| CarbideError::internal(e.to_string()))?;
     if dpu_in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot trigger BFB recovery: DPU {dpu_ip} is already ingested. \
-             Force-delete the managed host first.",
+            "cannot trigger BFB recovery: DPU {dpu_ip} is already ingested. \
+             force-delete the managed host first",
         ))
         .into());
     }
@@ -791,10 +791,10 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     // eventually, time out (SLA), and then the host will mark as failed.
     if dpu_endpoint.report.nic_mode() == Some(NicMode::Nic) {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot trigger BFB recovery: DPU {dpu_ip} is in NIC mode. \
-             Update the host's `ExpectedMachine.dpu_mode` to `DpuMode` \
+            "cannot trigger BFB recovery: DPU {dpu_ip} is in NIC mode. \
+             update the host's `ExpectedMachine.dpu_mode` to `DpuMode` \
              and wait for site-explorer to reconcile the DPU back to \
-             DPU mode before retrying.",
+             DPU mode before retrying",
         ))
         .into());
     }
@@ -805,8 +805,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         | PreingestionState::Failed { .. } => {}
         other => {
             return Err(CarbideError::InvalidArgument(format!(
-                "Cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
-                 Wait for it to complete or fail first.",
+                "cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
+                 wait for it to complete or fail first",
             ))
             .into());
         }
@@ -825,8 +825,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
             PreingestionState::Complete | PreingestionState::Failed { .. } => {}
             other => {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "Cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
-                     Retry after host preingestion completes.",
+                    "cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
+                     retry after host preingestion completes",
                 ))
                 .into());
             }
@@ -872,7 +872,7 @@ async fn resolve_bmc_interface(
     let mut addrs = lookup_host(address).await?;
     let Some(bmc_addr) = addrs.next() else {
         return Err(CarbideError::InvalidArgument(format!(
-            "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
+            "could not resolve {}. must be hostname[:port] or IPv4[:port]",
             request.ip_address
         ))
         .into());
@@ -1183,7 +1183,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 
             let bmc_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
                 CarbideError::internal(format!(
-                    "Machine found for {machine_id} but BMC IP is missing"
+                    "machine found for {machine_id} but BMC IP is missing"
                 ))
             })?;
 

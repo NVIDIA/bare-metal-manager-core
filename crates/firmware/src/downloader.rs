@@ -240,13 +240,13 @@ async fn download_and_publish(
     download(filename, url, dst_filename, client, fake_sleep).await?;
     verify_sha256(dst_filename, sha256)
         .wrap_err(format!(
-            "Downloaded artifact from {} failed verification",
+            "downloaded artifact from {} failed verification",
             loggable_url(url)
         ))
         .map_err(fail(DownloadOutcome::Checksum))?;
     std::fs::rename(dst_filename, filename)
         .wrap_err(format!(
-            "Unable to rename {dst_filename} to {}",
+            "unable to rename {dst_filename} to {}",
             filename.display()
         ))
         .map_err(fail(DownloadOutcome::Io))?;
@@ -314,11 +314,11 @@ async fn download(
     };
 
     std::fs::create_dir_all(dirname)
-        .wrap_err(format!("Unable to create directory {}", dirname.display()))
+        .wrap_err(format!("unable to create directory {}", dirname.display()))
         .map_err(fail(DownloadOutcome::Io))?;
     let mut dst_file = File::create(dst_filename)
         .await
-        .wrap_err(format!("Unable to create file {dst_filename}"))
+        .wrap_err(format!("unable to create file {dst_filename}"))
         .map_err(fail(DownloadOutcome::Io))?;
 
     if let Some(duration) = fake_sleep {

@@ -1052,7 +1052,7 @@ async fn initialize_and_start_controllers<'a>(
         tracing::debug!(path = path_used, "Loading expected_machines.json");
         let file_str = tokio::fs::read_to_string(path_used)
             .await
-            .wrap_err_with(|| format!("Failed to read {path_used}"))?;
+            .wrap_err_with(|| format!("failed to read {path_used}"))?;
         let expected_machines = serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str()).inspect_err(|err| {
                 tracing::error!(
                     error = %err,

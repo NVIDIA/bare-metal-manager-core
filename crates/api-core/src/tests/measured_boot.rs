@@ -227,7 +227,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "attest quote error: Could not unmarshal AK Pub: response code not recognized"
+                    "attest quote error: could not unmarshal AK pub: response code not recognized"
                 );
             }
         }
@@ -260,7 +260,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "attest quote error: Could not unmarshall Attest struct: not currently used"
+                    "attest quote error: could not unmarshall attest struct: not currently used"
                 );
             }
         }
@@ -293,7 +293,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "attest quote error: Could not unmarshall Signature struct: response code not recognized"
+                    "attest quote error: could not unmarshall signature struct: response code not recognized"
                 );
             }
         }
@@ -482,7 +482,7 @@ pub mod tests {
             }
             Err(e) => match e {
                 AttestBindKeyError(d) => {
-                    assert_eq!(d, "Could not unmarshall EK: response code not recognized")
+                    assert_eq!(d, "could not unmarshall EK: response code not recognized")
                 }
                 _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
@@ -559,7 +559,7 @@ pub mod tests {
                 AttestBindKeyError(d) => {
                     assert_eq!(
                         d,
-                        "Could not create RsaPublicKey from TPM's EK Pub: invalid modulus"
+                        "could not create RsaPublicKey from TPM's EK pub: invalid modulus"
                     )
                 }
                 _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
@@ -588,7 +588,7 @@ pub mod tests {
                 AttestBindKeyError(d) => {
                     assert_eq!(
                         d,
-                        "Could not unmarshall EK Cert: Parsing Error: NomError(Eof)"
+                        "could not unmarshall EK cert: Parsing Error: NomError(Eof)"
                     )
                 }
                 _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
@@ -756,7 +756,7 @@ pub mod tests {
             }
             Err(e) => match e {
                 AttestQuoteError(d) => {
-                    assert_eq!(d, "Could not create RsaPublicKey: invalid modulus")
+                    assert_eq!(d, "could not create RsaPublicKey: invalid modulus")
                 }
                 _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },

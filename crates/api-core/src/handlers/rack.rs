@@ -54,7 +54,7 @@ pub async fn get_rack(
 
     let racks = if let Some(id) = req.id {
         let rack_id = RackId::from_str(&id)
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
+            .map_err(|e| CarbideError::InvalidArgument(format!("invalid rack ID: {}", e)))?;
         db_rack::find_by(
             reader.as_mut(),
             ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
@@ -185,7 +185,7 @@ pub async fn delete_rack(
     api.with_txn(|txn| {
         async move {
             let rack_id = RackId::from_str(&req.id)
-                .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
+                .map_err(|e| CarbideError::InvalidArgument(format!("invalid rack ID: {}", e)))?;
             let _rack = db_rack::find_by(
                 txn.as_mut(),
                 ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
@@ -567,7 +567,7 @@ pub(crate) async fn on_demand_rack_maintenance(
         RackState::Ready | RackState::Error { .. }
     ) {
         return Err(CarbideError::InvalidArgument(format!(
-            "Rack {} is not in Ready or Error state (current: {:?}). Maintenance can only be requested when the rack is Ready or in Error.",
+            "rack {} is not in ready or error state (current: {:?}). maintenance can only be requested when the rack is ready or in error",
             rack_id, *rack.controller_state
         ))
         .into());
@@ -575,7 +575,7 @@ pub(crate) async fn on_demand_rack_maintenance(
 
     if rack.config.maintenance_requested.is_some() {
         return Err(CarbideError::InvalidArgument(format!(
-            "On-demand maintenance for rack {} is already scheduled.",
+            "on-demand maintenance for rack {} is already scheduled",
             rack_id,
         ))
         .into());
@@ -653,19 +653,19 @@ pub(crate) async fn on_demand_rack_maintenance(
             .iter()
             .map(|s| MachineId::from_str(s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine_id: {e}")))?,
+            .map_err(|e| CarbideError::InvalidArgument(format!("invalid machine_id: {e}")))?,
         switch_ids: proto_scope
             .switch_ids
             .iter()
             .map(|s| SwitchId::from_str(s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid switch_id: {e}")))?,
+            .map_err(|e| CarbideError::InvalidArgument(format!("invalid switch_id: {e}")))?,
         power_shelf_ids: proto_scope
             .power_shelf_ids
             .iter()
             .map(|s| PowerShelfId::from_str(s))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid power_shelf_id: {e}")))?,
+            .map_err(|e| CarbideError::InvalidArgument(format!("invalid power_shelf_id: {e}")))?,
         activities,
     };
 

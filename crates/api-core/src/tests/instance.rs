@@ -6528,7 +6528,7 @@ async fn test_allocate_instance_with_duplicate_extension_services(
     assert!(instance.is_err());
     let err = instance.unwrap_err();
     assert!(err.message().starts_with(
-        "Duplicate extension services in configuration. Only one version of each service is allowed"
+        "duplicate extension services in configuration. only one version of each service is allowed"
     ));
 
     Ok(())

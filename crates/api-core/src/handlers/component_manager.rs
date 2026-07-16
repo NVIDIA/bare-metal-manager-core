@@ -418,7 +418,7 @@ fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Statu
             Ok(rpc::NvSwitchComponent::Bios) => Ok(NvSwitchComponent::Bios),
             Ok(rpc::NvSwitchComponent::Nvos) => Ok(NvSwitchComponent::Nvos),
             _ => Err(Status::invalid_argument(format!(
-                "unknown NV-Switch component: {v}"
+                "unknown NV-switch component: {v}"
             ))),
         })
         .collect()

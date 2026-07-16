@@ -76,7 +76,7 @@ pub(crate) async fn create_credential(
                 .await
                 .map_err(|e| {
                     CarbideError::internal(format!(
-                        "Error setting Site Wide BMC Root credentials: {e:?} "
+                        "error setting site wide BMC root credentials: {e:?} "
                     ))
                 })?;
         }
@@ -85,7 +85,7 @@ pub(crate) async fn create_credential(
                 .await
                 .map_err(|e| {
                     CarbideError::internal(format!(
-                        "Error setting Site Wide NIC lockdown IKM: {e:?} "
+                        "error setting site wide NIC lockdown IKM: {e:?} "
                     ))
                 })?;
         }
@@ -104,7 +104,7 @@ pub(crate) async fn create_credential(
                     .await
                     .map_err(|e| {
                         CarbideError::internal(format!(
-                            "Error setting credential for Ufm {}: {:?} ",
+                            "error setting credential for ufm {}: {:?} ",
                             username.clone(),
                             e
                         ))
@@ -141,7 +141,7 @@ pub(crate) async fn create_credential(
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!("Error setting credential for DPU UEFI: {e:?} "))
+                    CarbideError::internal(format!("error setting credential for DPU UEFI: {e:?} "))
                 })?
         }
         rpc::CredentialType::HostUefi => {
@@ -170,7 +170,7 @@ pub(crate) async fn create_credential(
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!("Error setting credential for Host UEFI: {e:?}"))
+                    CarbideError::internal(format!("error setting credential for host UEFI: {e:?}"))
                 })?
         }
         rpc::CredentialType::HostBmcFactoryDefault => {
@@ -191,7 +191,7 @@ pub(crate) async fn create_credential(
                 .await
                 .map_err(|e| {
                     CarbideError::internal(format!(
-                        "Error setting Host factory default credential: {e:?}"
+                        "error setting host factory default credential: {e:?}"
                     ))
                 })?
         }
@@ -209,7 +209,7 @@ pub(crate) async fn create_credential(
                 .await
                 .map_err(|e| {
                     CarbideError::internal(format!(
-                        "Error setting DPU factory default credential: {e:?}"
+                        "error setting DPU factory default credential: {e:?}"
                     ))
                 })?
         }
@@ -226,7 +226,7 @@ pub(crate) async fn create_credential(
                 .await
                 .map_err(|e| {
                     CarbideError::internal(format!(
-                        "Error setting Site Wide BMC Root credentials: {e:?} "
+                        "error setting site wide BMC root credentials: {e:?} "
                     ))
                 })?;
         }
@@ -252,7 +252,7 @@ pub(crate) async fn create_credential(
                     .await
                     .map_err(|e| {
                         CarbideError::internal(format!(
-                            "Error setting credential for NmxM {}: {:?} ",
+                            "error setting credential for NmxM {}: {:?} ",
                             username.clone(),
                             e
                         ))
@@ -278,7 +278,7 @@ pub(crate) async fn create_credential(
                 )
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!("Error setting BGP credential: {e:?}"))
+                    CarbideError::internal(format!("error setting BGP credential: {e:?}"))
                 })?;
         }
     };
@@ -316,7 +316,7 @@ pub(crate) async fn delete_credential(
                     .await
                     .map_err(|e| {
                         CarbideError::internal(format!(
-                            "Error deleting credential for Ufm {}: {:?} ",
+                            "error deleting credential for ufm {}: {:?} ",
                             username.clone(),
                             e
                         ))
@@ -364,7 +364,7 @@ pub(crate) async fn delete_credential(
                 })
                 .await
                 .map_err(|e| {
-                    CarbideError::internal(format!("Error deleting BGP credential: {e:?}"))
+                    CarbideError::internal(format!("error deleting BGP credential: {e:?}"))
                 })?;
         }
     };
@@ -601,7 +601,7 @@ async fn set_sitewide_nic_lockdown_ikm(api: &Api, password: String) -> Result<()
         .set_credentials(&credential_key, &credentials)
         .await
         .map_err(|e| {
-            CarbideError::internal(format!("Error setting NIC lockdown IKM credential: {e:?}"))
+            CarbideError::internal(format!("error setting NIC lockdown IKM credential: {e:?}"))
         })
 }
 
@@ -617,7 +617,7 @@ pub(crate) async fn delete_bmc_root_credentials_by_mac(
         .delete_credentials(&credential_key)
         .await
         .map_err(|e| {
-            CarbideError::internal(format!("Error deleting credential for BMC: {e:?} "))
+            CarbideError::internal(format!("error deleting credential for BMC: {e:?} "))
         })?;
 
     // Drop the bmc convergence marker alongside the Vault secret it depends on:
@@ -673,7 +673,7 @@ async fn set_bmc_credentials(
     api.credential_manager
         .set_credentials(credential_key, credentials)
         .await
-        .map_err(|e| CarbideError::internal(format!("Error setting credential for BMC: {e:?} ")))
+        .map_err(|e| CarbideError::internal(format!("error setting credential for BMC: {e:?} ")))
 }
 
 pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideError> {
@@ -697,37 +697,37 @@ pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideErr
 
     let mut cert_filename = format!("{CERT_PATH}/{fabric}-ufm-ca-intermediate.crt");
     let mut cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
+        CarbideError::internal(format!("could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.issuing_ca.as_slice())
         .map_err(|e| {
             CarbideError::internal(format!(
-                "Failed to write certificate to: {cert_filename} error: {e:?}"
+                "failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
 
     cert_filename = format!("{CERT_PATH}/{fabric}-ufm-server.key");
     cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
+        CarbideError::internal(format!("could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.private_key.as_slice())
         .map_err(|e| {
             CarbideError::internal(format!(
-                "Failed to write certificate to: {cert_filename} error: {e:?}"
+                "failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
 
     cert_filename = format!("{CERT_PATH}/{fabric}-ufm-server.crt");
     cert_file = File::create(cert_filename.clone()).map_err(|e| {
-        CarbideError::internal(format!("Could not create: {cert_filename} err: {e:?}"))
+        CarbideError::internal(format!("could not create: {cert_filename} err: {e:?}"))
     })?;
     cert_file
         .write_all(certificate.public_key.as_slice())
         .map_err(|e| {
             CarbideError::internal(format!(
-                "Failed to write certificate to: {cert_filename} error: {e:?}"
+                "failed to write certificate to: {cert_filename} error: {e:?}"
             ))
         })?;
 
