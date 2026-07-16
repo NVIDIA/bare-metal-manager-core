@@ -1,53 +1,105 @@
-- Feature Name: dpf-helm-chart-extension-services
-- Design Start: 1-July-2026
-- Github Issue: [#3103](https://github.com/NVIDIA/infra-controller/issues/3103)
+# DPU Extension Service Integration with DPF
 
-# Summary
+GitHub Issue: [#3103](https://github.com/NVIDIA/infra-controller/issues/3103)
 
-[summary]: #summary
+## 1. Revision History
 
-Today, extension services are deployed as local static pods by the DPU agent. That works for `KUBERNETES_POD`, but it does not use DPF's service lifecycle. For DPF-based sites, we want tenant-created extension services to be installed through DPF and then only run on the DPUs when tenant attaches them to instances.
+| Version |    Date    | Modified By | Description     |
+| :-----: | :--------: | :---------- | :-------------- |
+|   0.1   | 07/01/2026 | Felicity Xu | Initial version |
 
-This design adds a new DPU Extension Service type called `DPF_HELM_CHART`. The main idea is:
+## 2. Summary
 
-- A user creates a versioned extension service with a Helm chart reference and values.
-- NICo installs that version once into each compatible shared `DPUDeployment`.
-- The service does not run anywhere yet.
-- When an instance attaches that service version, NICo adds a generated Node label to the selected `DPUDevice`s.
-- DPF propagates that label into the DPU cluster.
-- The chart's DaemonSet uses that label to run only on the selected DPU Nodes.
+NICo currently supports DPU Extension Services of type `KUBERNETES_POD`. A `KUBERNETES_POD` service is attached to an instance, delivered to the instance's DPUs through `GetManagedHostNetworkConfig`, and deployed locally by the DPU agent as a static Kubernetes Pod.
 
-This keeps the existing extension-service API and lifecycle model, but moves the actual DPF Helm service reconciliation into the Site Controller.
+As NICo moves to DPF, extension services should use DPF instead of being deployed directly by the DPU agent. This design introduces `DPF_HELM_CHART` for versioned Helm services managed through DPF.
 
-Existing `KUBERNETES_POD` behavior should not change.
+A user creates a `DPF_HELM_CHART` service version with a Helm chart reference, values, and required credentials. The NICo Site Controller converts it into DPF resources, registers the service with `DPUDeployment` objects, and monitors deployment status.
 
-# Goals
+The feature is delivered in two stages:
+- **Stage 1 — `ALL_DPUS`:** the service is deployed to every DPU in each compatible `DPUDeployment`.
+- **Stage 2 — `INSTANCE_DPUS`:** the service is attached to an instance and deployed only to the DPUs used by that instance.
 
-- preserve the existing tenant-facing extension-service workflow;
-- install a versioned Helm service once in each compatible shared DPUDeployment;
-- activate that version only on DPUs selected for instances that request it;
-- support private chart and image registries without exposing credentials;
-- report per-DPU status through the existing instance status and lifecycle gates; and
-- make create, attach, detach, and delete idempotent and recoverable.
+Stage 1 is implemented first. Stage 2 depends on the "Propagating labels from `DPUDevice` to the corresponding `v1.node` object" feature from DPF team. Until that dependency is available, `INSTANCE_DPUS` service creation should be rejected.
 
-The initial release does not support:
+Existing `KUBERNETES_POD` behavior remains unchanged.
 
-- arbitrary or unreviewed Helm charts;
-- `DPUServiceInterface`, `DPUServiceNAD`, service-chain, PF, VF, or SF creation;
-- BFB or DPUFlavor changes;
-- disruptive Node Effects;
+## 3. API Model
 
-# Design Details
+### 3.1 Overall Changes
 
-[implementation]: #implementation
+The existing DPU Extension Service APIs are reused for `DPF_HELM_CHART`.
 
-This feature depends on the "Add Labels & Annotations from DPUDevic to V1.Node object for DPU" feature from DPF. See this [feature](https://redmine.mellanox.com/issues/4885907).
+The main API changes are:
+- add the `DPF_HELM_CHART` service type;
+- add an immutable deployment scope field for `DPF_HELM_CHART`;
+- retain the existing `data` field, but tenants need to provide a different, Helm-specific data format when creating a `DPF_HELM_CHART` version;
+- support multiple purpose-qualified credentials for each Helm service version; and
+- add asynchronous deployment status to service-version responses.
 
-## RPC Change
+```proto
+message CreateDpuExtensionServiceRequest {
+  optional string service_id = 1;
+  string service_name = 2;
+  optional string description = 3;
+  DpuExtensionServiceType service_type = 4;
+  string tenant_organization_id = 5;
 
-### Service type
+  // Immutable, service-type-specific specification for the initial version.
+  string data = 6;
 
-Add the enum value in forge.proto gRPC message:
+  // KUBERNETES_POD only.
+  optional DpuExtensionServiceCredential credential = 7;
+
+  optional DpuExtensionServiceObservability observability = 8;
+
+  // DPF_HELM_CHART only.
+  repeated DpuExtensionServiceCredential dpf_helm_chart_credentials = 9;
+
+  // DPF_HELM_CHART only.
+  DpuExtensionServiceDeploymentScope deployment_scope = 10; // Defaults to ALL_DPUS.
+}
+
+message UpdateDpuExtensionServiceRequest {
+  string service_id = 1;
+
+  optional string service_name = 2;
+  optional string description = 3;
+
+  // Creates a new immutable service version.
+  string data = 4;
+
+  // KUBERNETES_POD only.
+  optional DpuExtensionServiceCredential credential = 5;
+
+  optional int32 if_version_ctr_match = 6;
+
+  optional DpuExtensionServiceObservability observability = 7;
+
+  // DPF_HELM_CHART only.
+  repeated DpuExtensionServiceCredential dpf_helm_chart_credentials = 8;
+}
+
+message DpuExtensionService {
+  // Existing fields unchanged.
+
+  // Present only for DPF_HELM_CHART.
+  optional DpuExtensionServiceDeploymentScope deployment_scope = 11;
+}
+
+message DpuExtensionServiceVersionInfo {
+  // Existing fields unchanged.
+
+  // Present only for DPF_HELM_CHART.
+  optional DpuExtensionServiceVersionDeploymentStatus deployment_status = 6;
+}
+```
+
+`deployment_scope` is not included in `UpdateDpuExtensionServiceRequest` because it is immutable at the service level. Updating `data` or credentials creates a new immutable version with the same service type and deployment scope.
+
+### 3.2 Service Type
+
+Add a new extension service type:
 
 ```proto
 enum DpuExtensionServiceType {
@@ -56,48 +108,73 @@ enum DpuExtensionServiceType {
 }
 ```
 
-The service type is immutable after creation.
+The service type is immutable and determines how the workload is deployed and reconciled:
+- `KUBERNETES_POD` is delivered to the DPU and managed locally by the DPU agent through kubelet. This behavior is unchanged.
+- `DPF_HELM_CHART` is reconciled through DPF by the `ExtensionServiceReconciliationController`.
 
-### Create and update requests
+### 3.3 Deployment Scope
+
+Add `deployment_scope` to `CreateDpuExtensionServiceRequest` to describe where a `DPF_HELM_CHART` service runs.
 
 ```proto
-message CreateDpuExtensionServiceRequest {
-  // ===================== EXISTING FIELDS =========================
-  // Metadata
-  optional string service_id = 1; // If not provided, a new UUID will be generated
-  string service_name = 2;
-  optional string description = 3;
-  DpuExtensionServiceType service_type = 4; // Immutable
-
-  string tenant_organization_id = 5; // Immutable
-
-  // Versioned extension service spec
-  string data = 6;
-  optional DpuExtensionServiceCredential credential = 7;
-
-  // Metrics configuration to be added to the existing
-  // metrics collection service that runs on the DPU.
-  optional DpuExtensionServiceObservability observability = 8;
-
-  // ===================== NEW FIELD ===============================
-  repeated DpuExtensionServiceCredential dpf_helm_chart_credentials = 9;
+enum DpuExtensionServiceDeploymentScope {
+  ALL_DPUS = 0;
+  INSTANCE_DPUS = 1;
 }
 ```
 
-#### Data
+Deployment scope applies only to `DPF_HELM_CHART`. For `KUBERNETES_POD`, the default zero value is ignored; existing instance configuration still determines deployment.
 
-The existing `data` field remains the immutable, type-specific payload. This preserves the current gRPC, REST, Temporal, and database model.
+For `DPF_HELM_CHART`, omission defaults to `ALL_DPUS`. The value is stored on the parent service and shared by all versions. There is no `UNSPECIFIED` value.
 
-For a `DPF_HELM_CHART` extension service, the tenant supplies `data` field as a JSON object containing the required chart definition. For example:
+Deployment scope cannot be changed by an update. A tenant that requires a different scope must create a new extension service.
+
+#### 3.3.1 `ALL_DPUS`
+
+`ALL_DPUS` is supported in Stage 1. When a service version is created, NICo adds it to every compatible shared `DPUDeployment`. DPF then deploys the workload to all DPUs selected by those deployments.
+
+An `ALL_DPUS` service:
+- is deployed automatically to all DPUs in every compatible `DPUDeployment` after creation;
+- is not attached to an instance;
+- must not be included in an instance's extension service configuration;
+- is rejected if referenced through `updateInstance`; and
+- reports deployment state at the service-version level.
+
+#### 3.3.2 `INSTANCE_DPUS`
+
+`INSTANCE_DPUS` is supported in Stage 2 as it requires the "Propagating labels from `DPUDevice` to the corresponding `v1.node` object" feature from DPF team. When a service version is created, NICo registers it with every compatible shared `DPUDeployment`, but injects a generated Node selector that initially matches no DPU. The version can therefore become ready for attachment without running a workload.
+
+When an instance references the version through `updateInstance`, NICo:
+
+1. determines which DPUs are selected by the instance;
+2. adds a generated label to the corresponding `DPUDevice` resources;
+3. waits for DPF to propagate the label to the corresponding Kubernetes Nodes; and
+4. observes the workload running on those Nodes.
+
+The workload runs only on DPUs selected by instances that reference that exact service version.
+
+`INSTANCE_DPUS` is accepted only after the site's Stage 2 capability is enabled. Until the required DPF Node-label propagation feature is available and configured, creation requests using this scope are rejected.
+
+### 3.4 Data: Helm Chart and Values
+
+The existing `data` field remains the immutable, service-type-specific payload for each extension service version.
+
+For `DPF_HELM_CHART`, tenants must provide `data` as a JSON object describing the Helm chart and values.
+
 ```json
 {
   "repoURL": "oci://registry.example.com/charts",
-  "chart": "tenant-chart",
+  "chart": "tenant-service",
   "chartVersion": "1.2.3",
-  "imageRegistries": ["registry.example.com"],
+  "deploymentTypes": [
+    "BF3"
+  ],
+  "imageRegistries": [
+    "registry.example.com"
+  ],
   "values": {
     "image": {
-      "repository": "registry.example.com/tenant/repo",
+      "repository": "registry.example.com/tenant/service",
       "tag": "1.2.3"
     },
     "service": {
@@ -107,31 +184,44 @@ For a `DPF_HELM_CHART` extension service, the tenant supplies `data` field as a 
 }
 ```
 
-| Field | Required | Meaning |
-| --- | --- | --- |
-| `repoURL` | Yes | Helm repo URL used by DPF / Argo CD. |
-| `chart` | Yes | Chart name in the repo. |
-| `chartVersion` | Yes | Pinned chart version.  |
-| `imageRegistries` | No | List of registries that need image pull credentials. |
-| `values` | No | Chart-specific Helm values for this immutable version. |
+| Field             | Required | Description                                             |
+| ----------------- | -------- | ------------------------------------------------------- |
+| `repoURL`         | Yes      | Approved HTTPS or OCI Helm repository URL.              |
+| `chart`           | Yes      | Qualified chart name.                                   |
+| `chartVersion`    | Yes      | Exact pinned chart version.                             |
+| `deploymentTypes` | Yes      | DPU deployment types supported by this version.         |
+| `imageRegistries` | No       | Image registries for which credentials may be supplied. |
+| `values`          | No       | Immutable chart-specific Helm values.                   |
 
-The tenant-supplied chart source and `values` belong in `DPUServiceTemplate` because they define the reusable service version. In the initial implementation, no tenant field maps into `DPUServiceConfiguration`. NICo creates the configuration because DPUDeployment requires both a template and a configuration, and sets only the generated `deploymentServiceName` and `upgradePolicy.applyNodeEffect: false` there. This keeps deployment policy under NICo control and prevents configuration values from overriding the protected template values.
+The API parses, validates, normalizes, and stores this JSON. Unknown top-level fields are rejected.
 
-NICo also generates the release name, DPF object names, placement selector, and image-pull Secret names. The selector and Secret name are merged into the template Helm values after validating that the tenant did not provide those reserved paths. They are intentionally absent from the tenant schema.
+`repoURL`, `chart`, and `chartVersion` are mapped into `DPUServiceTemplate.spec.helmChart.source`. Tenant-provided `values` form the base of `DPUServiceTemplate.spec.helmChart.values`.
 
-NOTE: A Helm chart acceptable for this feature must first satisfy the DPF requirements described in [DPUService Helm Chart](https://gitlab-master.nvidia.com/doca-platform-foundation/doca-platform-foundation/-/blob/main/docs/public/developer-guides/services/dpuservice-development.md?ref_type=heads#dpuservice-helm-chart). Those requirements define the baseline chart contract needed for DPF to render and manage the service correctly.
+NICo generates and owns values required for deployment and resource management, including:
 
-In addition to the DPF contract, NICo requires the chart to expose an `additionalNodeSelector`. The chart must support this value, but the tenant must not provide it in `data.values`. `additionalNodeSelector` is a NICo-reserved value: during reconciliation, NICo generates and injects the selector that limits the workload to DPU Nodes associated with instances to which the extension service is attached. Validation rejects a request whose tenant-supplied `values` contains `additionalNodeSelector`, preventing a tenant from weakening or replacing NICo's placement constraint.
+* DPF resource names;
+* Helm release name;
+* `deploymentServiceName`;
+* ownership labels;
+* image pull Secret names;
+* the Stage 2 `INSTANCE_DPUS` Node selector; and
+* `upgradePolicy.applyNodeEffect`.
 
-#### Credentials
+Tenant-provided values must not override NICo-owned fields. Reserved paths include:
+```text
+additionalNodeSelector
+imagePullSecrets
+```
 
-`DPF_HELM_CHART` type requires this new field because one helm chart may require a chart-repository credential and multiple credentials for image registries.
+The complete reserved path list is defined by the [qualified chart contract in Appendix A](#appendix-a).
 
-The old single `credential` field is enough for `KUBERNETES_POD`, but Helm services may need more than one credential:
-- one chart repository credential
-- zero or more image registry credentials
+### 3.5 Credentials
 
-Therefore, a new field `dpf_helm_chart_credentials` is added to `CreateDpuExtensionServiceRequest` and a purpose field is added to `DpuExtensionServiceCredential`.
+The existing singular `credential` field remains specific to `KUBERNETES_POD`.
+
+A `DPF_HELM_CHART` version may require more than one credential:
+- one credential for accessing the Helm chart repository; and
+- zero or more credentials for pulling container images.
 
 ```proto
 enum DpuExtensionServiceCredentialPurpose {
@@ -141,58 +231,25 @@ enum DpuExtensionServiceCredentialPurpose {
 }
 
 message DpuExtensionServiceCredential {
-  // ===================== EXISTING FIELDS =========================
   string registry_url = 1;
 
   oneof type {
     UsernamePassword username_password = 2;
   }
 
-  // ===================== NEW FIELD ===============================
   DpuExtensionServiceCredentialPurpose purpose = 3;
-}
-
-message CreateDpuExtensionServiceRequest {
-  // Fields 1-8 unchanged, including legacy optional credential = 7
-  // ===================== NEW FIELD ===============================
-  repeated DpuExtensionServiceCredential dpf_helm_chart_credentials = 9;
-}
-
-message UpdateDpuExtensionServiceRequest {
-  // fields 1-7 unchanged, including legacy optional credential = 5
-  // ===================== NEW FIELD ===============================
-  repeated DpuExtensionServiceCredential dpf_helm_chart_credentials = 8;
 }
 ```
 
-- `credential` is still only for `KUBERNETES_POD`.
-- `dpf_helm_chart_credentials` is only for `DPF_HELM_CHART`.
-- Supplying both is invalid.
-- A chart repo credential must match `data.repoURL`.
-- Image registry credentials must match `data.imageRegistries`.
-- Credentials are write-only. Read APIs only expose `has_credential`.
+Credentials are stored through `CredentialManager` and are write-only. Read APIs only report whether credentials exist for a version.
+```text
+machines/extension-services/<service-id>/versions/<version>/chart-repository
+machines/extension-services/<service-id>/versions/<version>/image-registries/<sha256-registry-url>
+```
 
-#### Request Validation
+### 3.6 Version Deployment Status
 
-The API should reject the create request if:
-- the tenant, service name, service type, or version checks fail;
-- `data` is not valid JSON or has unknown top-level fields;
-- `repoURL` is not `https://` or `oci://`, has embedded credentials, or is not allowed by site config;
-- `chartVersion` is not pinned;
-- `values` is too large or tries to set NICo-owned paths;
-- credential purpose, endpoint, or duplicate checks fail.
-
-The API does not download or render the chart in the request path. Chart review is an admin process. That process should run DPF schema validation, `helm lint`, rendered-resource review, privilege review, and a test for the NICo placement contract before the chart is added to the allow-list.
-
-### Version deployment status
-
-Creating a DPF Helm service version is asynchronous. A successful create API call means only that NICo validated and persisted the version; it does not mean the service has been added to the selected `DPUDeployment` objects or accepted by DPF.
-
-Because of this, we need a version-level deployment status separate from the `InstanceDpuExtensionServiceStatus`. The `InstanceDpuExtensionServiceStatus` is aboue what happens after a version is attached to an instance. It tracks things like placement label propagation and whether the workload is ready on selected DPU. The version deployment status, on the other hand, tracks whether NICo has successfully registered the reusable service with DPF. This means NICo has reconciled the `DPUServiceTemplate`, `DPUServiceConfiguration`, and related Secrets, added them to every compatible `DPUDeployment.spec.services`, and DPF has accepted the current generated DPUService.
-
-To support this, extend the existing protobuf message `DpuExtensionServiceVersionInfo` with an optional deployment status that includes a state and a redacted message.
-
-For this status, `READY` means the service version is available to attach through its selected DPUDeployments. It does not mean that a workload Pod is already running on any DPU. The field is populated only for `DPF_HELM_CHART`, and older clients ignore it.
+A successful create or update response means that NICo validated and stored the version. It does not mean that DPF resources or workloads are ready.
 
 ```proto
 enum DpuExtensionServiceVersionDeploymentState {
@@ -208,28 +265,61 @@ message DpuExtensionServiceVersionDeploymentStatus {
   DpuExtensionServiceVersionDeploymentState state = 1;
   string message = 2;
 }
-
-message DpuExtensionServiceVersionInfo {
-  // Fields 1-5 unchanged
-
-  // ===================== NEW FIELD ===============================
-  optional DpuExtensionServiceVersionDeploymentStatus deployment_status = 6;
-}
 ```
 
-## Database Changes
+The status is populated only for `DPF_HELM_CHART`.
 
-The existing tables `extension_services` and `extension_service_versions` still store the service and immutable version data.
+- For `ALL_DPUS`, `READY` means the service has been deployed through every compatible `DPUDeployment` and the required workload readiness conditions are satisfied.
+- For `INSTANCE_DPUS`, `READY` means the reusable service has been registered and is available for attachment. It does not mean that a workload is already running on a DPU.
 
-Two new DPF-specific tables are introduced: `dpf_extension_service_reconciliations` and `dpf_extension_service_attachments`.
+### 3.7 Request Validation
 
-### `dpf_extension_service_reconciliations`
+For `DPF_HELM_CHART`, the API rejects a create or update request when:
 
-One row per `DPF_HELM_CHART` service version. This table is the durable work item for the controller. 
-The API inserts it in the same transaction as the version and uses `id` as the State Controller object ID. The initial values are `desired_state = 'ACTIVE'`, `deployment_state = 'ACCEPTED'`, and `next_reconcile_at = CURRENT_TIMESTAMP`.
+* the deployment scope is invalid or is not enabled for the site;
+* `data` is not valid Helm service JSON;
+* required chart fields are missing;
+* the repository URL is unsupported or contains embedded credentials;
+* the chart version is not pinned;
+* tenant values override NICo-owned fields;
+* the wrong credential field is used;
+* credential purposes or endpoints do not match the chart data; or
+* duplicate credentials are provided.
+
+Implementation-specific limits, such as maximum value size and exact repository URL validation, are enforced by the API but are not specified in this design.
+
+The API validates the request against stored chart qualification and site configuration. It does not download, render, or install the Helm chart in the request path.
+
+## 4. Database Changes
+
+The existing `extension_services` and `extension_service_versions` tables continue to store extension service metadata and immutable version data.
+
+`DPF_HELM_CHART` adds two kinds of persistent state:
+- service-version reconciliation state for both scopes; and
+- per-instance, per-DPU attachment state for `INSTANCE_DPUS`.
+
+### 4.1 Extension Service Deployment Scope
+
+Deployment scope is stored on `extension_services` because it is immutable and shared by all versions of the service. The column remains `NULL` for `KUBERNETES_POD`.
 
 ```sql
-CREATE TABLE dpf_extension_service_reconciliations (
+ALTER TABLE extension_services
+    ADD COLUMN deployment_scope VARCHAR(32),
+    ADD CONSTRAINT extension_services_deployment_scope_check
+        CHECK (deployment_scope IS NULL OR
+               deployment_scope IN ('ALL_DPUS', 'INSTANCE_DPUS'));
+```
+
+Note:
+- When a `DPF_HELM_CHART` create request omits `deployment_scope`, the API stores `ALL_DPUS`.
+- During Stage 1, only `ALL_DPUS` services can be created. During Stage 2, the API may also create services with `INSTANCE_DPUS` after the site capability is enabled.
+
+### 4.2 Extension Service Version Reconciliation
+
+Create `extension_service_reconciliations` with one row for each `DPF_HELM_CHART` service version.
+
+```sql
+CREATE TABLE extension_service_reconciliations (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     service_id           UUID NOT NULL,
     service_version      VARCHAR(64) NOT NULL,
@@ -237,7 +327,6 @@ CREATE TABLE dpf_extension_service_reconciliations (
     dpf_service_name     VARCHAR(63) NOT NULL,
 
     desired_state        VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
-
     deployment_state     VARCHAR(16) NOT NULL DEFAULT 'ACCEPTED',
     status_message       VARCHAR(2048),
 
@@ -250,135 +339,108 @@ CREATE TABLE dpf_extension_service_reconciliations (
     created_at           TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT dpf_extension_service_reconciliations_version_fk
-        FOREIGN KEY (service_id, service_version)
+    FOREIGN KEY (service_id, service_version)
         REFERENCES extension_service_versions (service_id, version),
-    CONSTRAINT dpf_extension_service_reconciliations_version_unique
-        UNIQUE (service_id, service_version),
-    CONSTRAINT dpf_extension_service_reconciliations_name_unique
-        UNIQUE (dpf_service_name),
-    CONSTRAINT dpf_extension_service_reconciliations_desired_state_check
-        CHECK (desired_state IN ('ACTIVE', 'DELETING')),
-    CONSTRAINT dpf_extension_service_reconciliations_deployment_state_check
-        CHECK (deployment_state IN (
-            'ACCEPTED', 'DEPLOYING', 'READY', 'ERROR', 'DELETING'
-        )),
-    CONSTRAINT dpf_extension_service_reconciliations_attempts_check
-        CHECK (reconcile_attempts >= 0),
-    CONSTRAINT dpf_extension_service_reconciliations_cleanup_check
-        CHECK (
-            cleanup_completed_at IS NULL
-            OR desired_state = 'DELETING'
-        )
+    UNIQUE (service_id, service_version),
+    UNIQUE (dpf_service_name),
+    CHECK (desired_state IN ('ACTIVE', 'DELETING')),
+    CHECK (deployment_state IN
+        ('ACCEPTED', 'DEPLOYING', 'READY', 'ERROR', 'DELETING'))
 );
-
-CREATE INDEX dpf_extension_service_reconciliations_due_idx
-    ON dpf_extension_service_reconciliations
-       (next_reconcile_at, id)
-    WHERE cleanup_completed_at IS NULL;
 ```
 
-`desired_state` is written by API create/delete operations. All other mutable fields are written by the controller. The controller increments `reconcile_attempts` and updates `last_attempted_at` when an attempt begins. After observing DPF it updates `deployment_state`, the bounded and redacted `status_message`, `last_observed_at`, `next_reconcile_at`, and `updated_at`. `READY` rows remain periodically scheduled to detect drift; transient failures use backoff. The due-row index supports periodic discovery and restart recovery, while the existing `WorkLockManager` prevents concurrent reconciliation of the same `id`.
+The row is the durable work item for `ExtensionServiceReconciliationController` and stores the desired lifecycle state, current deployment state, generated DPF service name, and retry metadata. The API creates it in the same transaction as the immutable service version.
 
-### `dpf_extension_service_attachments`
+The table is used by both scopes:
 
-One row per targeted DPU machine for an instance/service version.
+- For `ALL_DPUS`, it tracks deployment of the version to every compatible DPUDeployment.
+- For `INSTANCE_DPUS`, it tracks registration of the reusable DPF service. Instance-specific state is stored in `extension_service_attachments`.
+
+### 4.3 Extension Service Instance Attachment
+
+Create `extension_service_attachments` with per-DPU state for `INSTANCE_DPUS`.
 
 ```sql
-CREATE TABLE dpf_extension_service_attachments (
-    instance_id                      UUID NOT NULL,
-    dpu_machine_id                   UUID NOT NULL,
-    service_id                       UUID NOT NULL,
-    service_version                  VARCHAR(64) NOT NULL,
+CREATE TABLE extension_service_attachments (
+    instance_id                       UUID NOT NULL,
+    dpu_machine_id                    UUID NOT NULL,
+    service_id                        UUID NOT NULL,
+    service_version                   VARCHAR(64) NOT NULL,
 
     extension_services_config_version VARCHAR(64) NOT NULL,
     instance_config_version           VARCHAR(64),
 
-    placement_state                  VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
-    deployment_state                 VARCHAR(16) NOT NULL DEFAULT 'PENDING',
-    components                       JSONB NOT NULL DEFAULT '[]'::jsonb,
-    status_message                   VARCHAR(2048),
-    observed_at                      TIMESTAMPTZ,
+    attachment_state                  VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+    deployment_state                  VARCHAR(16) NOT NULL DEFAULT 'PENDING',
 
-    created_at                       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at                       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    components                        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    status_message                    VARCHAR(2048),
+    observed_at                       TIMESTAMPTZ,
+    created_at                        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at                        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT dpf_extension_service_attachments_pk
-        PRIMARY KEY (
-            instance_id,
-            dpu_machine_id,
-            service_id,
-            service_version
-        ),
-    CONSTRAINT dpf_extension_service_attachments_instance_fk
-        FOREIGN KEY (instance_id) REFERENCES instances (id),
-    CONSTRAINT dpf_extension_service_attachments_machine_fk
-        FOREIGN KEY (dpu_machine_id) REFERENCES machines (id),
-    CONSTRAINT dpf_extension_service_attachments_version_fk
-        FOREIGN KEY (service_id, service_version)
-        REFERENCES extension_service_versions (service_id, version),
-
-    CONSTRAINT dpf_extension_service_attachments_placement_check
-        CHECK (placement_state IN ('ACTIVE', 'REMOVING')),
-    CONSTRAINT dpf_extension_service_attachments_deployment_check
-        CHECK (deployment_state IN (
-            'PENDING', 'RUNNING', 'TERMINATING',
-            'TERMINATED', 'ERROR', 'UNKNOWN'
-        )),
-    CONSTRAINT dpf_extension_service_attachments_components_check
-        CHECK (jsonb_typeof(components) = 'array')
+    CHECK (attachment_state IN ('ACTIVE', 'REMOVING')),
+    CHECK (deployment_state IN (
+        'PENDING',
+        'RUNNING',
+        'TERMINATING',
+        'TERMINATED',
+        'ERROR',
+        'UNKNOWN'
+    ))
 );
-
-CREATE INDEX dpf_extension_service_attachments_version_idx
-    ON dpf_extension_service_attachments
-       (service_id, service_version, placement_state);
-
-CREATE INDEX dpf_extension_service_attachments_machine_idx
-    ON dpf_extension_service_attachments
-       (dpu_machine_id);
 ```
 
-The controller inserts the row with `PENDING` before adding a label. It changes `deployment_state` only after observing the DPU, Node, and workload state. Detach or a selected-DPU-set change moves the row to `placement_state = 'REMOVING'`; the row remains until it reports `TERMINATED` and the corresponding instance-config tombstone is removed. The row can then be deleted. The foreign keys prevent the instance, DPU machine, or service version from being physically deleted while placement cleanup is still recorded.
+Each row begins in `PENDING` and is updated as NICo observes label propagation and workload state. On detach or a selected-DPU-set change, affected rows move to `REMOVING` until deployment labels and workloads are gone and the attachment reaches `TERMINATED`.
 
-This table ensures detach and instance deletion remove labels from every DPU ever targeted, not only the current network configuration.
+## 5. Architecture and Lifecycle
 
-We should not write DPF Helm observations into `machines.network_status_observation` as that is for `KUBERNETES_POD` type of extension service.
+### 5.1 Architecture Overview
 
-## Create service workflow
+The NICo API validates and stores each immutable `DPF_HELM_CHART` version. `ExtensionServiceReconciliationController`, running in the Site Controller, creates reusable DPF resources and registers them with compatible shared `DPUDeployment` objects.Deployment scope determines the resulting workload placement:
+- In Stage 1, an `ALL_DPUS` service is deployed immediately to all DPUs selected by compatible deployments.
+- In Stage 2, an `INSTANCE_DPUS` service initially matches no DPU. Deployment begins only when an instance references the version and NICo labels the instance's selected DPUs.
+DPF owns the Helm release and workload lifecycle. The controller observes DPF and workload state and stores the result in PostgreSQL.
 
-For `DPF_HELM_CHART` type services, `CreateDpuExtensionService` has a synchronous API phase and an asynchronous controller phase. The API validates and persists an immutable version and its reconciliation row; the Site Controller then materializes that desired state in DPF. External Kubernetes and credential operations therefore remain retryable without holding the API request open.
+`DPF_HELM_CHART` does not flow through the DPU agent. The DPU agent remains responsible only for `KUBERNETES_POD`.
+
+### 5.2 Service Version Creation
 
 ```mermaid
 sequenceDiagram
     participant User
     participant API as NICo API
-    participant Vault as CredentialManager
+    participant Credentials as CredentialManager
     participant DB as PostgreSQL
-    participant C as DPF Extension Service Controller
+    participant Controller as ExtensionServiceReconciliationController
     participant DPF as DPF Management Cluster
     participant K8s as DPU Kubernetes Cluster
 
-    User->>API: CreateDpuExtensionService(DPF_HELM_CHART)
-    API->>API: Parse, normalize, and validate
-    API->>Vault: Store chart/image credentials
+    User->>API: CreateDpuExtensionService
+    API->>API: Validate and normalize
+    API->>Credentials: Store version credentials
     API->>DB: Store service, version, and reconciliation row
-    API-->>User: Return version with ACCEPTED status
+    API-->>User: Return ACCEPTED
 
-    C->>DB: Claim reconciliation row and load version
-    C->>Vault: Read credentials
-    C->>DPF: Reconcile Secrets
-    C->>DPF: Apply Template and Configuration
-    C->>DPF: Add service to compatible DPUDeployments
-    DPF->>K8s: Create DaemonSet with unmatched placement selector
-    C->>DPF: Observe current-generation conditions
-    C->>DB: Persist DEPLOYING, READY, or ERROR
+    Controller->>DB: Load due reconciliation
+    Controller->>Credentials: Read credentials
+    Controller->>DPF: Reconcile Secrets and service resources
+    Controller->>DPF: Register service with compatible DPUDeployments
+
+    alt scope = ALL_DPUS
+        DPF->>K8s: Deploy workload to compatible DPUs
+    else scope = INSTANCE_DPUS
+        DPF->>K8s: Create workload with unmatched selector
+    end
+
+    Controller->>DPF: Observe generated resources
+    Controller->>K8s: Observe workload when required
+    Controller->>DB: Store DEPLOYING, READY, or ERROR
 ```
-
-### API phase
 
 For a valid request, the API handler:
 
-1. Validates or creates the `ExtensionServiceId` and uses the initial `ConfigVersion` for the new service. When an update call is received, the API handler will use the next version.
+1. Validates or creates the `ExtensionServiceId`, validates the immutable deployment scope, and uses the initial `ConfigVersion` for the new service. When an update call is received, the API handler will use the next version without changing the scope.
 2. Parses `data` into the new `carbide_dpf::types::DpfHelmChartServiceData` model proposed above and serializes the normalized JSON.
 3. Validates and stores credentials using deterministic `CredentialManager` paths:
    ```text
@@ -386,53 +448,52 @@ For a valid request, the API handler:
    machines/extension-services/<service-id>/versions/<version>/image-registries/<sha256-registry-url>
    ```
 4. In one PostgreSQL transaction:
-   - inserts the `extension_services` record;
+   - inserts the `extension_services` record with its immutable `deployment_scope`;
    - inserts `extension_service_versions` with normalized JSON and `has_credential`;
-   - inserts a `dpf_extension_service_reconciliations` row with `desired_state = 'ACTIVE'` and `deployment_state = 'ACCEPTED'`; and
+   - inserts a `extension_service_reconciliations` row with `desired_state = 'ACTIVE'` and `deployment_state = 'ACCEPTED'`; and
    - reserves the deterministic DPF service name through that row's unique `dpf_service_name` constraint.
 5. Commits and enqueues the reconciliation `id`. Periodic due-row listing is the fallback if enqueueing is lost after commit.
 6. Returns the normal `DpuExtensionService` response.
 
 If the DB transaction fails after credentials were written, the handler should best-effort delete the credentials, following the existing compensation pattern.
 
-### Controller phase
+### 5.3 Extension Service Reconciliation Controller
 
-Following the existing controller pattern, add a `DpfExtensionServiceController` and start it from from `api-core::setup`. 
+Following the existing pattern, add an `ExtensionServiceReconciliationController` and start it from `api-core::setup`. It reconciles stored DPF Helm versions with the DPF management cluster. External operations are idempotent and retryable after partial failure or restart.
 
-The controller is responsible for reconciling DPF Helm service versions with the DPF management cluster. The API only validates and stores the desired state. The controller does the external work, so Kubernetes, DPF, Argo CD, and credential operations can be retried safely if something fails. Therefore, the controller operations should be idempotent. Re-running the same reconciliation should be safe, whether the previous attempt finished, partially finished, or failed in the middle.
-
-For each due row in `dpf_extension_service_reconciliations` with `desired_state = 'ACTIVE'`, the controller
+For each row in `extension_service_reconciliations` with `desired_state = 'ACTIVE'`, the controller
 1. Acquires a lock keyed by the reconciliation `id`, then re-reads the row so a concurrent delete cannot be missed.
-2. Loads the service version, site DPF configuration, and purpose-qualified credentials.
+2. Loads the service, immutable deployment scope, version, site DPF configuration, and purpose-qualified credentials.
 3. Sets `deployment_state = 'DEPLOYING'`, increments `reconcile_attempts`, and records `last_attempted_at`.
 4. Revalidates deployment availability, generated-object ownership, and DPUDeployment capacity.
 5. Reconciles chart-repository and image-pull Secrets.
 6. Applies the owned `DPUServiceTemplate` and `DPUServiceConfiguration`.
-7. Adds the service entry to every compatible shared DPUDeployment using conflict retries.
-8. Observes DPF and Argo CD conditions.
-9. Atomically persists `READY`, `DEPLOYING` with a retry time, or `ERROR` with a redacted message.
+7. Registers the service under `DPUDeployment.spec.services`.
+8. Observes the generated DPF resources and workload state. 
+9. Records the resulting deployment status.
 
-The DPF service name and Node label are deterministic hashes of the full service UUID and version because the `DPUDeployment.spec.services` key and both `deploymentServiceName` fields are limited to 28 characters.
+The DPF service name and `INSTANCE_DPUS` Node label are deterministic hashes of the full service UUID and version because the `DPUDeployment.spec.services` key and both `deploymentServiceName` fields are limited to 28 characters.
 - DPF service name: `ext-<20-character-base32-hash>`
 - Node label key: `carbide.nvidia.com/extsvc-<hash>`
 - Node label value: `enabled`
 
-#### Build DPF service resources
+#### 5.3.1 Generate DPF Resources
 
 NICo does not build a `DPUService` directly. The controller parses `extension_service_versions.data`, builds the owned `DPUServiceTemplate` and `DPUServiceConfiguration`, and adds references to them under `DPUDeployment.spec.services`. DPF then generates and reconciles the resulting `DPUService`.
 
-| Source | DPF destination |
-| --- | --- |
-| Generated service name | Template/configuration names, release name, both `deploymentServiceName` fields, and DPUDeployment service key |
-| `repoURL` | `DPUServiceTemplate.spec.helmChart.source.repoURL` |
-| `chart` | `DPUServiceTemplate.spec.helmChart.source.chart` |
-| `chartVersion` | `DPUServiceTemplate.spec.helmChart.source.version` |
-| Tenant `values` | Base of `DPUServiceTemplate.spec.helmChart.values` |
-| Generated label | `helmChart.values.additionalNodeSelector` |
-| Generated image Secret | Qualified chart's reserved `imagePullSecrets` value |
-| Constant `false` | `DPUServiceConfiguration.spec.upgradePolicy.applyNodeEffect` |
+| Source                                 | DPF destination                                                                                                |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Generated service name                 | Template/configuration names, release name, both `deploymentServiceName` fields, and DPUDeployment service key |
+| `repoURL`                              | `DPUServiceTemplate.spec.helmChart.source.repoURL`                                                             |
+| `chart`                                | `DPUServiceTemplate.spec.helmChart.source.chart`                                                               |
+| `chartVersion`                         | `DPUServiceTemplate.spec.helmChart.source.version`                                                             |
+| `deploymentTypes`                      | Compatible `DPUDeployment` selection                                                                           |
+| Tenant `values`                        | Base of `DPUServiceTemplate.spec.helmChart.values`                                                             |
+| Generated label (`INSTANCE_DPUS` only) | `helmChart.values.additionalNodeSelector`                                                                      |
+| Generated image Secret                 | Qualified chart's reserved `imagePullSecrets` value                                                            |
+| Constant `false`                       | `DPUServiceConfiguration.spec.upgradePolicy.applyNodeEffect`                                                   |
 
-For the example request, the generated resources are equivalent to:
+For the `INSTANCE_DPUS` data example in Section 3.4, the generated resources are equivalent to:
 
 ```yaml
 apiVersion: svc.dpu.nvidia.com/v1alpha1
@@ -448,12 +509,12 @@ spec:
   helmChart:
     source:
       repoURL: oci://registry.example.com/charts
-      chart: tenant-chart
+      chart: tenant-service
       version: 1.2.3
       releaseName: ext-abc123
     values:
       image:
-        repository: registry.example.com/tenant/repo
+        repository: registry.example.com/tenant/service
         tag: 1.2.3
       service:
         logLevel: info
@@ -473,7 +534,7 @@ spec:
     applyNodeEffect: false
 ```
 
-For every supported deployment type, the controller resolves the configured DPUDeployment and merges only this entry:
+For each declared deployment type (`BF3` in this example), the controller resolves the configured DPUDeployment and merges only this entry:
 
 ```yaml
 spec:
@@ -485,168 +546,163 @@ spec:
 
 The update uses a resource-version precondition and conflict retry. It does not force-apply or replace the shared DPUDeployment. The controller re-reads the live object and enforces the CRD limit of 50 service entries before adding the key.
 
-#### Why create produces no workload Pod
+#### 5.3.2 Service Deployment to DPU
 
-Creating the DPF resources makes the version available but does not attach it to an instance. A qualified chart combines:
+**Stage 1 — `ALL_DPUS`:** The controller omits `additionalNodeSelector`; charts used only with this scope need not support it. After registration, DPF deploys the workload to every DPU selected by each compatible deployment. The version becomes `READY` after all compatible deployments reference it and required resources and workloads are ready. `ALL_DPUS` creates no attachment rows, has no instance status, and cannot be detached from an instance. A new version does not remove the previous one.
 
-- DPF's `serviceDaemonSet.nodeSelector`, selecting Nodes belonging to the DPUDeployment; and
-- NICo's `additionalNodeSelector`, selecting Nodes belonging to instances requesting this version.
+**Stage 2 — `INSTANCE_DPUS`:** The controller injects a generated `additionalNodeSelector`. No Node initially has this label, so a DaemonSet with no Pods is ready for attachment. When `updateInstance` references the version, NICo stores the instance configuration and creates one `extension_service_attachments` row per selected DPU before adding the generated label to its `DPUDevice`. DPF propagates the label to the Node. The chart combines the DPF and NICo selectors:
 
 ```yaml
 affinity:
   nodeAffinity:
     requiredDuringSchedulingIgnoredDuringExecution:
       {{- toYaml .Values.serviceDaemonSet.nodeSelector | nindent 6 }}
+
 nodeSelector:
   {{- toYaml .Values.additionalNodeSelector | nindent 2 }}
 ```
 
-Before attachment, no DPU-cluster Node has the generated `carbide.nvidia.com/extsvc-*` label. A DaemonSet with no matching Nodes is therefore the expected post-create state, not a failure.
+The controller then observes label propagation and the current workload Pod on each target Node.
 
-## Attach service version workflow
+### 5.4 Status and Instance Lifecycle
 
-The existing RPC API continues to accept `(service_id, version)` entries through `InstanceDpuExtensionServicesConfig`. The API converts that protobuf message to the existing Rust model `InstanceExtensionServicesConfig`, stores it in `instances.extension_services_config`, and increments `instances.extension_services_config_version`.
+Every `DPF_HELM_CHART` version exposes version-level deployment status.
 
-For each active `DPF_HELM_CHART` service version attachment, the controller:
+For Stage 2 `ALL_DPUS`, `READY` means the service is deployed and ready across every compatible deployment.
 
-1. Uses the same `get_used_dpus` rule as the machine controller to find the instance's selected DPUs.
-2. Writes durable target rows before changing external state.
-3. Resolves each DPU machine ID to its DPUDevice and `DpuDeploymentType`.
-4. Verifies that the version supports that deployment type and that shared DPF resources have no blocking error.
-5. Checks the generated key against the selected DPUSet template's Node labels.
-6. Adds only the generated key/value to `DPUDevice.spec.k8scluster.nodeLabels`, preserving all other keys.
-7. Waits for DPF to copy the key to `DPU.spec.cluster.nodeLabels` and the corresponding DPU-cluster Node.
-8. Observes the current DaemonSet Pod on that Node and writes config-versioned status.
+For Stage 2 `INSTANCE_DPUS`, `READY` means the reusable service is registered and available for attachment.
 
-`DPUDevice.spec.k8scluster.nodeLabels` is the name from the pending DPF API described in this design's dependency. It is not present in the currently vendored DPF CRD; the implementation must update the CRD and generated Rust type after DPF finalizes that field name and schema.
+The status of the `INSTNACE_DPUS` will be reported in the instance status like existing KUBERNETES_POD type. But the observations will be produced by the ExtensionServicReconlicationController. 
 
-## Status and instance lifecycle
+`INSTANCE_DPUS` also records per-DPU attachment state:
 
-A shared DPUService/Argo CD Ready condition does not prove that a Pod is running on a particular DPU. Per-DPU state combines management-cluster readiness, label propagation, and DPU-cluster Pod readiness:
+| State         | Meaning                                                                          |
+| ------------- | -------------------------------------------------------------------------------- |
+| `PENDING`     | Placement, label propagation, Node mapping, or workload readiness is incomplete. |
+| `RUNNING`     | The deployment label is present and the current service Pod is ready.            |
+| `TERMINATING` | Placement is being removed but a label or workload remains.                      |
+| `TERMINATED`  | Placement labels and matching workloads are gone.                                |
+| `ERROR`       | A non-transient attachment failure occurred.                                     |
+| `UNKNOWN`     | NICo cannot observe enough state to determine status.                            |
 
-- `PENDING`: shared resources are not current-generation Ready, propagation is incomplete, or no current-revision Pod is Ready on the target Node.
-- `RUNNING`: the DPU and Node have the desired label and a current-revision DaemonSet Pod is Ready on that Node.
-- `TERMINATING`: placement is being removed but a DPU/Node label or matching Pod remains.
-- `TERMINATED`: the labels are absent and no matching non-terminal Pod remains.
-- `ERROR`: validation, ownership, collision, capacity, credential, DPF, Argo CD, or workload state has a non-transient failure.
-- `UNKNOWN`: required state cannot be observed or the DPUDevice cannot be mapped to a Node.
+A shared `DPUService` or Argo CD ready condition does not prove that a workload is running on a particular DPU. Per-DPU status therefore combines management-cluster readiness, label propagation, Node mapping, and Pod readiness.
 
-Instance status should keep the two observation sources separate:
+`KUBERNETES_POD` observations continue to come from the DPU agent through `RecordDpuNetworkStatus`.
 
-- DPU-agent observations for `KUBERNETES_POD`
-- DB-backed DPF observations for `DPF_HELM_CHART`
+`DPF_HELM_CHART` observations are produced by the `ExtensionServiceReconciliationController` and stored in PostgreSQL.
 
-## Update, detach, and delete workflows
+The two observation sources remain separate internally and are combined only when NICo constructs user-facing instance status.
 
-Updating service data or credentials creates a new immutable version and reconciliation row. Existing instances stay on the previous version until explicitly updated. During an instance version change, the old attachment is marked removed and the new attachment is active until the old one reaches `TERMINATED`.
+`INSTANCE_DPUS` uses the existing instance lifecycle gates. Provisioning waits for active attachments to become `RUNNING`, and instance deletion waits for removed attachments to become `TERMINATED`.
 
-Detaching marks the attachment `removed`. The controller removes only that version's label from every DPUDevice it previously targeted, waits for labels and Pods to disappear, and reports `TERMINATED`. The machine controller then removes the tombstone without another config-version increment.
+### 5.5 Detach and Instance Deletion
 
-Deleting a service version is allowed only when no active or terminating instance references it. In one transaction, the API sets `desired_state = 'DELETING'`, `deployment_state = 'DELETING'`, and `next_reconcile_at = CURRENT_TIMESTAMP` on its reconciliation row. Instance validation immediately rejects new attachments to that version. The version remains readable with deployment status `DELETING` while the controller:
+Detach applies only to `INSTANCE_DPUS`.
 
-1. removes the service key from every compatible DPUDeployment;
-2. waits for generated DPUService and Argo CD workloads to disappear;
-3. deletes the owned configuration, template, and generated Secrets;
-4. deletes source credentials from `CredentialManager`; and
-5. sets `cleanup_completed_at`, soft-deletes the version, and soft-deletes the parent service if no active versions remain.
+When a service version is removed from an instance configuration, the corresponding attachment rows move to `REMOVING`.
 
-Source credentials remain available until generated resources are removed. Every step is idempotent and retryable after restart or dependency failure.
+The controller removes the generated label only when no other active attachment for the same service version targets that DPU, then waits for the propagated Node label and workload to disappear.
 
-## Credential handling
+The attachment remains `TERMINATING` while any deployment label or matching workload remains. It becomes `TERMINATED` after both are removed.
 
-Credentials are stored through `CredentialManager`, not in PostgreSQL:
+The durable attachment rows preserve every DPU previously targeted by the service. This ensures cleanup remains correct even if the instance's current DPU selection has changed.
+
+Instance deletion uses the same removal path and waits for all `INSTANCE_DPUS` attachments to reach `TERMINATED`.
+
+### 5.7 Service Version Deletion
+
+A service version cannot be deleted while an active or terminating `INSTANCE_DPUS` attachment references it.
+
+When deletion is accepted, the API updates the reconciliation row to:
 
 ```text
-machines/extension-services/<service-id>/versions/<version>/chart-repository
-machines/extension-services/<service-id>/versions/<version>/image-registries/<sha256-registry-url>
+desired_state = DELETING
+deployment_state = DELETING
+next_reconcile_at = CURRENT_TIMESTAMP
 ```
 
-The secrets must not appear in any version data, helm values, logs etc.
+New attachments to the version are rejected immediately.
 
-The controller builds:
+The controller removes the service entry from each compatible `DPUDeployment` and waits for the generated `DPUService` and workload to disappear. It then deletes the owned `DPUServiceConfiguration`, `DPUServiceTemplate`, and generated Secrets.
 
-- an Argo CD repository Secret for the chart repo;
-- a `kubernetes.io/dockerconfigjson` Secret for image pulls.
+Source credentials remain available until the generated resources no longer require them. The controller then deletes the credentials, records cleanup completion, and soft-deletes the version.
 
+If no active versions remain, the parent extension service may also be soft-deleted.
 
-# Testing & QA
+All deletion operations are idempotent and can resume after a controller restart or dependency failure.
 
-[qa]: #qa
+## 6. Testing
 
-Required tests include:
+Testing should cover:
 
-- Migration tests for both new tables, including foreign keys, state checks, uniqueness, JSON-array validation, and due/version indexes.
-- Attachment-row grouping into `extension_services.dpf`, DPU-agent loading into `extension_services.dpu_agent`, service-type-based source selection, and matching/stale config-version handling.
-- API JSON normalization, required/unknown fields, limits, reserved paths, allow-list, deployment types, credential purposes, duplicate endpoints, and legacy/new field exclusivity.
-- Vault compensation when a database transaction fails.
-- Version deployment status transitions and cloud REST status mapping.
-- Exact input-to-DPUServiceTemplate/DPUServiceConfiguration mapping.
-- Safe concurrent mutation of shared DPUDeployments and DPUDevices.
-- BF3-only, BF4 Generic-only, and dual-compatible versions.
-- DPUDeployment capacity and generated-name/ownership collisions.
-- DPUDevice/DPUSet Node-label collision handling.
-- Private HTTPS/OCI chart and image pulls.
-- Create followed by immediate attach while shared resources are pending.
-- Multiple instances sharing one version and one instance changing versions.
-- Selected DPU-set changes without leaked labels or Pods.
-- Detach, instance deletion, and asynchronous version deletion.
-- Mixed `KUBERNETES_POD` and `DPF_HELM_CHART` config-version/status aggregation.
-- Restart and DPF, Argo CD, DPU-cluster, Vault, and database outage recovery.
-- No Node Effect, reboot, BFB/flavor change, reprovision, or readiness regression.
-- Existing `KUBERNETES_POD` regression tests.
+- creation of `DPF_HELM_CHART`;
+- omitted DPF scope defaulting to `ALL_DPUS`;
+- rejection of non-default deployment scope for `KUBERNETES_POD`;
+- rejection of `INSTANCE_DPUS` before Stage 2 enablement;
+- Helm data and reserved-value validation;
+- credential purpose and endpoint matching;
+- asynchronous version deployment status;
+- deterministic resource generation and ownership validation;
+- shared `DPUDeployment` conflict handling;
+- controller restart and dependency recovery;
+- global Stage 1 deployment and deletion;
+- Stage 2 unmatched initial selector;
+- attachment only to selected DPUs;
+- label propagation and Pod observation;
+- detach and selected-DPU-set changes;
+- instance version transitions;
+- per-DPU status aggregation;
+- version deletion blocking while attachments remain; and
+- compatibility with existing `KUBERNETES_POD` behavior.
 
-Definition of Done:
+<a id="appendix-a"></a>
+## Appendix A: External Service Contract
 
-- [ ] A qualified DPF Helm version can be created, attached, updated, detached, and deleted through existing workflows.
-- [ ] Workloads run only on selected DPUs for instances requesting that exact version.
-- [ ] Operations are idempotent and recover after restart or dependency failure.
-- [ ] Status correctly gates provisioning and deletion.
-- [ ] Credentials are encrypted, redacted, and finalized in dependency order.
-- [ ] Supported operations are non-disruptive.
-- [ ] Existing extension-service behavior remains backward compatible.
+A team providing a `DPF_HELM_CHART` service must supply a chart that satisfies both the DPF chart contract and the NICo-specific requirements below.
 
-# Operational Changes / Concerns
+### A.1 Chart Requirements
 
-[operations]: #operations
+The chart must:
 
-The Site Controller needs management-cluster RBAC for DPUServiceTemplate, DPUServiceConfiguration, DPUService, DPUDeployment, DPUSet, DPU, DPUDevice, DPUCluster, and generated Secrets. DPU-cluster status access needs read-only permission for Nodes, Pods, DaemonSets, and ControllerRevisions.
+- be hosted in an approved HTTPS or OCI repository;
+- use a pinned chart version;
+- satisfy the DPF `DPUService` Helm chart contract;
+- consume DPF-provided `serviceDaemonSet.nodeSelector`;
+- for `INSTANCE_DPUS`, support NICo-provided `additionalNodeSelector`;
+- use the approved image pull Secret value path;
+- avoid disruptive Node Effects; and
+- support all declared DPU deployment types.
 
-A DPUDeployment permits at most 50 service entries, including mandatory services and every retained extension-service version. Metrics and alerts cover remaining capacity, reconcile failures/latency, label propagation, Pod readiness, stuck attachments, and credential cleanup.
+```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      {{- toYaml .Values.serviceDaemonSet.nodeSelector | nindent 6 }}
 
-Rollout order is DPF/CRD upgrade, NICo migrations with the controller disabled, chart qualification and RBAC, then site enablement and canary testing. Before rollback or disabling the controller, all DPF Helm attachments and versions must be removed so labels, resources, and Secrets are finalized.
+nodeSelector:
+  {{- toYaml .Values.additionalNodeSelector | nindent 2 }}
+```
 
-# Drawbacks and alternatives
+For `ALL_DPUS`, NICo omits `additionalNodeSelector`.
 
-[drawbacks]: #drawbacks
+For `INSTANCE_DPUS`, NICo supplies the selector. The service owner must not provide or override it.
 
-- The workflow depends on PostgreSQL, Vault, DPF, Argo CD, and the DPU cluster.
-- Every retained version consumes limited shared DPUDeployment capacity even while unattached.
-- Modifying a shared DPUDeployment has a wider control-plane blast radius than a local static Pod.
-- Charts implement both the DPF contract and NICo placement/image-pull values.
-- Accurate per-DPU status requires DPU-cluster access and stable identity labels.
-- Interfaces and disruptive service changes are not supported initially.
+### A.2 Chart Qualification
 
-Alternatives considered:
+Chart qualification happens outside the create request.
 
-- Keep only `KUBERNETES_POD`: simpler, but it bypasses DPF's service lifecycle.
-- Create a DPUDeployment per instance: gives natural placement but duplicates shared deployment, firmware, and flavor configuration.
-- Add/remove a shared service for every attachment: cannot target one instance's DPUs and creates unnecessary shared reconciliation and Node Effect risk.
-- Hard-code the placement key in a chart: prevents safe reuse across service IDs and versions.
+Qualification should include:
 
-# Unresolved Questions
+* repository and chart allow-list review;
+* DPF schema validation;
+* `helm lint`;
+* representative rendering;
+* privilege and host-access review;
+* image registry review;
+* image signing or provenance checks;
+* DPF Node Effect review;
+* image pull Secret integration testing;
+* `serviceDaemonSet.nodeSelector` testing; and
+* `additionalNodeSelector` testing.
 
-[unresolved-questions]: #unresolved-questions
-
-- Which `repoURL` and chart pairs should be included in the initial administrative allow-list?
-- Which DPF release contains the final DPUDevice Node-label API, and what is its exact field/schema?
-- Does that release resolve the additional-selector readiness problem?
-- What stable label or API maps a DPU-cluster Node to its DPUDevice and a rendered DaemonSet to its DPUService?
-- Can DPF provide a least-privilege DPU-cluster observation kubeconfig instead of an admin kubeconfig?
-- Is one site-managed credential per normalized Helm repository URL acceptable for the first release?
-- Which charts, privileges, and image-signing policies are approved for the initial use case?
-
-# Future Possibilities
-
-[future-possibilities]: #future-possibilities
-
-Future work can add administrator-defined interface profiles, service chains, richer observability, additional credential types, signed-chart enforcement, and planned disruptive upgrades. Native DPF support for targeting a DPUService to a subset of a DPUDeployment could eventually replace the chart-specific additional selector.
+The API validates the requested chart against stored qualification metadata but does not download or render the chart in the request path.
