@@ -19,8 +19,8 @@ for every forwarded request.
 ### Production: ClusterIP Alongside NICo REST
 
 The supported production topology deploys `nico-mcp` in Kubernetes alongside
-NICo REST with the Helm chart at `helm/rest/nico-mcp`. The chart creates a
-`ClusterIP` Service on port `8080` and serves MCP requests at `/mcp` by default.
+NICo REST with the Helm chart at `helm/rest/nico-mcp`. By default, the chart
+creates a `ClusterIP` Service on port `8080` and serves MCP requests at `/mcp`.
 
 Configure one fixed NICo REST base URL at startup. An in-cluster Service URL is
 the normal choice:
@@ -129,8 +129,9 @@ service token.
 
 ## Runtime Configuration
 
-The standalone binary accepts these startup settings. A command-line flag takes
-its value from the corresponding environment variable when the flag is omitted.
+The standalone binary accepts these startup settings. When running the binary
+directly, a command-line flag takes its value from the corresponding environment
+variable when the flag is omitted.
 
 | Flag | Environment variable | Default | Helm value |
 | --- | --- | --- | --- |
@@ -142,6 +143,11 @@ its value from the corresponding environment variable when the flag is omitted.
 | `--api-name` | `NICO_API_NAME` | `nico` | `config.apiName` |
 | `--token` | `NICO_TOKEN` | none | not exposed |
 | `--debug` | none | `false` | `config.debug` |
+
+The Helm chart explicitly renders `--listen`, `--path`, and
+`--shutdown-timeout` from `service.port`, `config.path`, and
+`config.shutdownTimeout`. Those Helm values take precedence over the
+corresponding `NICO_MCP_*` environment variables.
 
 `nico-mcp` does not read `~/.nico/config.yaml`.
 
