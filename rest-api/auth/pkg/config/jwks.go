@@ -537,7 +537,10 @@ func (jcfg *JwksConfig) GetSubjectPrefix() string {
 	return jcfg.subjectPrefix
 }
 
-func hasAnyAudience(claims jwt.MapClaims, audiences []string) bool {
+func (jcfg *JwksConfig) hasAnyAudience(claims jwt.MapClaims, audiences []string) bool {
+	if audiences == nil {
+		audiences = jcfg.Audiences
+	}
 	if len(audiences) == 0 {
 		return true
 	}
@@ -553,7 +556,7 @@ func hasAnyAudience(claims jwt.MapClaims, audiences []string) bool {
 
 // ValidateAudience checks token has at least one configured audience. Returns nil if none configured.
 func (jcfg *JwksConfig) ValidateAudience(claims jwt.MapClaims) error {
-	if !hasAnyAudience(claims, jcfg.Audiences) {
+	if !jcfg.hasAnyAudience(claims, nil) {
 		return core.ErrInvalidAudience
 	}
 	return nil
@@ -594,7 +597,7 @@ func (jcfg *JwksConfig) GetOrgDataFromClaim(claims jwt.MapClaims, reqOrgFromRout
 			return nil, false, core.ErrReservedOrgName
 		}
 
-		if !hasAnyAudience(claims, cm.Audiences) {
+		if !jcfg.hasAnyAudience(claims, cm.Audiences) {
 			return nil, false, core.ErrInvalidAudience
 		}
 
