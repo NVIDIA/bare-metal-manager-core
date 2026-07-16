@@ -28,7 +28,7 @@ spec:
       {{- end }}
       initContainers:
         - name: wait-for-postgres
-          image: {{ if .Values.waitForPostgres.repository }}{{ .Values.waitForPostgres.repository }}:{{ .Values.waitForPostgres.tag }}{{ else }}{{ .Values.waitForPostgres.image }}{{ end }}
+          image: {{ if and .Values.waitForPostgres.repository .Values.waitForPostgres.tag }}{{ .Values.waitForPostgres.repository }}:{{ .Values.waitForPostgres.tag }}{{ else }}{{ .Values.waitForPostgres.image }}{{ end }}
           command:
             - pg_isready
             - -h
