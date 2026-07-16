@@ -242,8 +242,13 @@ async fn backfill_records_v0_for_existing_devices(pool: PgPool) {
     .unwrap();
     assert_eq!(nvos_rows, 0, "nvos must not be backfilled");
 
+    // `IS DISTINCT FROM 0`, not `<> 0`: a plain `<>` treats `NULL <> 0` as NULL
+    // and silently drops NULL rows, so a future backfill that left
+    // current_version unset would slip past. Assert every row is confirmed at
+    // exactly 0.
     let non_v0: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM device_credential_rotation WHERE current_version <> 0",
+        "SELECT count(*) FROM device_credential_rotation \
+         WHERE current_version IS DISTINCT FROM 0",
     )
     .fetch_one(&pool)
     .await

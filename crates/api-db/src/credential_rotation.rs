@@ -953,14 +953,14 @@ mod tests {
     use sqlx::{PgConnection, PgPool};
 
     use super::{
-        CredentialRotationType, RecordDeviceConvergedOutcome, current_target_version,
-        delete_device_converged, device_rotation_operation_state, device_rotation_status,
-        mark_device_rotating_to_version, promote_rotating_to_current, record_device_converged,
-        record_device_converged_if_target_matches, record_device_rotation_failed,
-        record_device_rotation_not_accepted, record_device_rotation_outcome_unknown,
-        record_device_rotation_reconciled_to_previous, record_device_rotation_reconciled_to_target,
-        record_device_rotation_started, record_device_rotation_submitted, rotation_status,
-        set_next_target_version,
+        CredentialRotationType, DatabaseError, RecordDeviceConvergedOutcome,
+        current_target_version, delete_device_converged, device_rotation_operation_state,
+        device_rotation_status, mark_device_rotating_to_version, promote_rotating_to_current,
+        record_device_converged, record_device_converged_if_target_matches,
+        record_device_rotation_failed, record_device_rotation_not_accepted,
+        record_device_rotation_outcome_unknown, record_device_rotation_reconciled_to_previous,
+        record_device_rotation_reconciled_to_target, record_device_rotation_started,
+        record_device_rotation_submitted, rotation_status, set_next_target_version,
     };
 
     // Inserts a device convergence row with an explicit current_version (and no
@@ -1128,6 +1128,92 @@ mod tests {
         assert_eq!(
             version_of(&mut conn, "02:00:00:00:00:09", "nvos").await,
             Some(2)
+        );
+    }
+
+    // The race test above exercises `Recorded` and `TargetChanged`. These cover
+    // the remaining outcomes of `record_device_converged_if_target_matches`:
+    // `AlreadyPresent`, `TargetMissing`, and the negative-version rejection. Each
+    // uses a distinct credential type so its setup cannot bleed across cases.
+    #[crate::sqlx_test]
+    async fn if_target_matches_reports_already_present(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:0b".parse().unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+
+        // Establish the baseline first: the backfill seeds the bmc target at 0,
+        // so this records the device at 0.
+        record_device_converged(&mut conn, mac, CredentialRotationType::Bmc)
+            .await
+            .unwrap();
+
+        // A second baseline attempt at the same target must find the row already
+        // present, leave it untouched, and report the no-op explicitly rather
+        // than as a target mismatch.
+        let outcome = record_device_converged_if_target_matches(
+            &mut conn,
+            mac,
+            CredentialRotationType::Bmc,
+            0,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, RecordDeviceConvergedOutcome::AlreadyPresent);
+        assert_eq!(
+            version_of(&mut conn, "02:00:00:00:00:0b", "bmc").await,
+            Some(0)
+        );
+    }
+
+    #[crate::sqlx_test]
+    async fn if_target_matches_reports_missing_target(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:0c".parse().unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+
+        // nvos is the one type the backfill never seeds a site-wide target for,
+        // so a baseline attempt has nothing to match against.
+        let outcome = record_device_converged_if_target_matches(
+            &mut conn,
+            mac,
+            CredentialRotationType::Nvos,
+            0,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, RecordDeviceConvergedOutcome::TargetMissing);
+        assert_eq!(
+            version_of(&mut conn, "02:00:00:00:00:0c", "nvos").await,
+            None
+        );
+    }
+
+    #[crate::sqlx_test]
+    async fn if_target_matches_rejects_negative_version(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:0d".parse().unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+
+        // A published target exists, so the rejection is purely the argument
+        // guard, not a missing target.
+        publish_nvos_target(&mut conn, 1).await;
+
+        let err = record_device_converged_if_target_matches(
+            &mut conn,
+            mac,
+            CredentialRotationType::Nvos,
+            -1,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, DatabaseError::InvalidArgument(_)),
+            "a negative expected version must be rejected, got {err:?}"
+        );
+        // The guard runs before any statement, so no device row is created.
+        assert_eq!(
+            version_of(&mut conn, "02:00:00:00:00:0d", "nvos").await,
+            None
         );
     }
 
