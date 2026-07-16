@@ -293,8 +293,6 @@ navigation:
                 path: development/build-guide.md
               - page: Machine-a-tron Deployment
                 path: development/machine-a-tron-deployment.md
-              - page: Machine-a-tron Scale Testing
-                path: development/machine-a-tron-scale-testing.md
           - page: Glossary
             path: glossary.md
 
