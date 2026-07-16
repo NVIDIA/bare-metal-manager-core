@@ -285,14 +285,7 @@ where
                 }
 
                 // This represents the source location where the error was converted to a tonic::Status.
-                request_span.record(
-                    "nico.error_location",
-                    location
-                        .to_string()
-                        .as_str()
-                        .none_if_empty()
-                        .unwrap_or("foo"),
-                );
+                request_span.record("nico.error_location", location.to_string());
             }
 
             request_span.record(
