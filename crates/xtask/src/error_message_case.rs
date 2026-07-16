@@ -85,12 +85,14 @@ pub fn check(fix: bool) -> eyre::Result<CheckOutcome> {
     // vendored crate sources land *inside* the walk root; those are third-party
     // and must never be linted or rewritten, so skip CARGO_HOME's conventional
     // directory names alongside `target/` and `.git`.
-    let walk = WalkDir::new(&repo_root).into_iter().filter_entry(|e| {
-        !matches!(
-            e.file_name().to_str(),
-            Some("target" | ".git" | "cargo" | ".cargo")
-        )
-    });
+    let walk = WalkDir::new(repo_root.join("crates"))
+        .into_iter()
+        .filter_entry(|e| {
+            !matches!(
+                e.file_name().to_str(),
+                Some("target" | ".git" | "cargo" | ".cargo")
+            )
+        });
     for entry in walk.filter_map(Result::ok) {
         let path = entry.path();
         if path.extension().is_none_or(|ext| ext != "rs") {
