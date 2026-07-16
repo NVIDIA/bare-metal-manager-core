@@ -170,7 +170,7 @@ pub fn flavor_bf4(
             containerd_config: None,
             grub: Some(bf4_grub_params()),
             host_network_interface_configs: None,
-            nvconfig: Some(vec![get_default_nvconfig()]),
+            nvconfig: Some(vec![get_bf4_default_nvconfig()]),
             ovs: Some(crate::crds::dpuflavors_generated::DpuFlavorOvs {
                 raw_config_script: Some(get_bf4_ovs_defaults()),
             }),
@@ -348,6 +348,34 @@ fn get_config_files(
     }
 
     Ok(config_files)
+}
+
+fn get_bf4_default_nvconfig() -> DpuFlavorNvconfig {
+    // TODO: HIDE_PORT2_PF is not supported, so reoving it for now.
+    // We need to find the equivalent field in Bf4 and configure it again.
+    let parameters = vec![
+        "PF_BAR2_ENABLE=0".to_string(),
+        "PER_PF_NUM_SF=1".to_string(),
+        "PF_TOTAL_SF=30".to_string(),
+        "PF_SF_BAR_SIZE=10".to_string(),
+        "NUM_PF_MSIX_VALID=0".to_string(),
+        "PF_NUM_PF_MSIX_VALID=1".to_string(),
+        "PF_NUM_PF_MSIX=228".to_string(),
+        "INTERNAL_CPU_MODEL=1".to_string(),
+        "INTERNAL_CPU_OFFLOAD_ENGINE=0".to_string(),
+        "SRIOV_EN=1".to_string(),
+        "LAG_RESOURCE_ALLOCATION=1".to_string(),
+        "NUM_OF_VFS=16".to_string(),
+        "NUM_OF_PF=1".to_string(),
+        "LINK_TYPE_P1=ETH".to_string(),
+        "LINK_TYPE_P2=ETH".to_string(),
+    ];
+
+    DpuFlavorNvconfig {
+        // DPF does not allow anyother wild card. It takes only '*'
+        device: Some(DpuFlavorNvconfigDevice::KopiumVariant0), //"*"
+        parameters: Some(parameters),
+    }
 }
 
 fn get_default_nvconfig() -> DpuFlavorNvconfig {

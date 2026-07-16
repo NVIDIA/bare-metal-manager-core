@@ -25,6 +25,9 @@ authors.workspace = true
 [lib]
 name = "db"
 
+[features]
+test-support = []
+
 [dependencies]
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.

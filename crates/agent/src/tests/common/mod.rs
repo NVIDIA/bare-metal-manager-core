@@ -97,7 +97,7 @@ pub fn setup_agent_run_env(
     }
 
     let hbn_root = td.path();
-    tracing::info!("Using hbn_root: {:?}", hbn_root);
+    tracing::info!(?hbn_root, "Using HBN root");
     fs::create_dir_all(hbn_root.join("etc/frr"))?;
     fs::create_dir_all(hbn_root.join("etc/network"))?;
     fs::create_dir_all(hbn_root.join("etc/supervisor/conf.d"))?;
@@ -169,7 +169,7 @@ fn make_rustls_server_config() -> eyre::Result<ServerConfig> {
         })
         .map(|data| PrivateKeyDer::try_from(data).map_err(|s| eyre::eyre!("{s}")))
         .next()
-        .ok_or(eyre::eyre!("No keys in key file"))??;
+        .ok_or(eyre::eyre!("no keys in key file"))??;
 
     let mut server_config = ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::aws_lc_rs::default_provider(),
@@ -196,7 +196,7 @@ async fn wait_for_server_to_start(addr: SocketAddr) -> eyre::Result<()> {
             }
             Ok(resp) => {
                 eyre::bail!(
-                    "Invalid status code from /up on mock grpc server: {}",
+                    "invalid status code from /up on mock grpc server: {}",
                     resp.status(),
                 );
             }
@@ -204,7 +204,7 @@ async fn wait_for_server_to_start(addr: SocketAddr) -> eyre::Result<()> {
         }
     }
     if Instant::now() >= deadline {
-        eyre::bail!("Timed out waiting for mock grpc server to start");
+        eyre::bail!("timed out waiting for mock grpc server to start");
     }
     Ok(())
 }

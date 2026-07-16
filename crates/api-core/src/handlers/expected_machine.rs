@@ -151,8 +151,8 @@ pub(crate) async fn create_missing_from(
     for expected_machine in expected_machines {
         if existing_macs.contains(&expected_machine.bmc_mac_address.to_string()) {
             tracing::debug!(
-                "Not overwriting expected-machine with mac_addr: {}",
-                expected_machine.bmc_mac_address
+                bmc_mac_address = %expected_machine.bmc_mac_address,
+                "Expected machine already exists; not overwriting",
             );
             continue;
         }

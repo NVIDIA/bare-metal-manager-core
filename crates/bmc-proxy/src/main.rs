@@ -45,13 +45,13 @@ pub struct Args {
 
 #[derive(thiserror::Error, Debug)]
 enum Error {
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     Config(Box<ConfigError>),
-    #[error("Error setting up bmc-proxy: {0}")]
+    #[error("error setting up bmc-proxy: {0}")]
     Setup(#[from] SetupError),
-    #[error("Error running bmc-proxy: {0}")]
+    #[error("error running bmc-proxy: {0}")]
     BmcProxy(#[from] BmcProxyError),
-    #[error("Error running metrics endpoint: {0}")]
+    #[error("error running metrics endpoint: {0}")]
     Metrics(io::Error),
 }
 
@@ -102,7 +102,6 @@ async fn main() -> Result<(), Error> {
     bmc_proxy::start(
         BmcProxyParams {
             config: Arc::new(config),
-            meter,
         },
         cancel_token.clone(),
         &mut join_set,

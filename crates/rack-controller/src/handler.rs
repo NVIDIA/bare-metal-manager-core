@@ -101,15 +101,19 @@ impl StateHandler for RackStateHandler {
         controller_state: &Self::ControllerState,
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
-        tracing::info!("Rack {} is in state {}", id, controller_state.to_string());
+        tracing::info!(
+            rack_id = %id,
+            rack_state = %controller_state,
+            "Rack is in state",
+        );
 
         self.record_metrics(state, ctx);
 
         if state.deleted.is_some() && !matches!(controller_state, RackState::Deleting) {
             tracing::info!(
-                "Rack {} is marked as deleted, transitioning from {} to Deleting",
-                id,
-                controller_state
+                rack_id = %id,
+                rack_state = %controller_state,
+                "Rack is marked as deleted, transitioning to Deleting",
             );
             return Ok(StateHandlerOutcome::transition(RackState::Deleting));
         }

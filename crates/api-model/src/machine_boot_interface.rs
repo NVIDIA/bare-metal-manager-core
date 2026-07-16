@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
@@ -54,7 +55,7 @@ impl MachineBootInterface {
     ) -> Option<Self> {
         Some(Self {
             mac_address: mac_address?,
-            interface_id: interface_id.filter(|s| !s.is_empty())?,
+            interface_id: interface_id.none_if_empty()?,
         })
     }
 

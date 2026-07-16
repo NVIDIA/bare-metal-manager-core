@@ -120,7 +120,10 @@ pub async fn lookup(
             })),
         };
         tracing::info!(
-            "Overriding bmc connection to {machine_or_instance_id} with {connection_details:?}"
+            %machine_or_instance_id,
+            bmc_address = %connection_details.addr(),
+            bmc_machine_id = %connection_details.machine_id(),
+            "Overriding BMC connection"
         );
         return Ok(connection_details);
     }
@@ -203,7 +206,9 @@ pub async fn lookup(
 
     let addr = if let Some(override_ssh_addr) = config.override_bmc_ssh_addr(port).await? {
         tracing::info!(
-            "Overriding bmc connection to {ip} with {override_ssh_addr} per configuration"
+            bmc_ip_address = %ip,
+            override_bmc_ssh_address = %override_ssh_addr,
+            "Overriding BMC connection per configuration"
         );
         override_ssh_addr
     } else {
@@ -234,25 +239,25 @@ pub async fn lookup(
 
 #[derive(thiserror::Error, Debug)]
 pub enum LookupError {
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     Config(#[from] ConfigError),
-    #[error("Error looking up instance ID {instance_id}: {tonic_status}")]
+    #[error("error looking up instance ID {instance_id}: {tonic_status}")]
     InstanceIdLookup {
         instance_id: InstanceId,
         tonic_status: tonic::Status,
     },
-    #[error("Could not find instance with id {instance_id}")]
+    #[error("could not find instance with id {instance_id}")]
     CouldNotFindInstance { instance_id: InstanceId },
-    #[error("Instance {instance_id} has no machine_id")]
+    #[error("instance {instance_id} has no machine_id")]
     InstanceHasNoMachineId { instance_id: InstanceId },
-    #[error("Could not parse {machine_or_instance_id} into a machine ID or instance ID")]
+    #[error("could not parse {machine_or_instance_id} into a machine ID or instance ID")]
     CouldNotParseId { machine_or_instance_id: String },
-    #[error("Cannot detect BMC vendor for machine: {machine_id}: {error}")]
+    #[error("cannot detect BMC vendor for machine: {machine_id}: {error}")]
     BmcVendorDetection {
         machine_id: MachineId,
         error: BmcVendorDetectionError,
     },
-    #[error("Error calling forge.GetBmcMetaData for {machine_id}: {tonic_status}")]
+    #[error("error calling forge.GetBmcMetaData for {machine_id}: {tonic_status}")]
     BmcMetaDataLookup {
         machine_id: String,
         tonic_status: tonic::Status,

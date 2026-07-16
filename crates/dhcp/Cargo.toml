@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 chrono = { workspace = true }
 derive_builder = { workspace = true }
+dhcproto = { workspace = true }
 eyre = { workspace = true }
 hyper = { workspace = true, features = ["http2"] }
 hyper-util = { workspace = true, features = ["tokio"] }
@@ -37,7 +38,6 @@ metrics-endpoint = { path = "../metrics-endpoint" }
 
 [dev-dependencies]
 eyre = { workspace = true }
-dhcproto = { workspace = true }
 serde_json = { workspace = true }
 test-cdylib = { workspace = true }
 tempfile = { workspace = true }

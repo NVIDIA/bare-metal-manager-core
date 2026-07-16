@@ -25,7 +25,7 @@ pub async fn create(
     prefix: &str,
     name: &str,
 ) -> eyre::Result<String> {
-    tracing::info!("Creating VPC prefix {prefix} ({name})");
+    tracing::info!(prefix, vpc_prefix_name = name, "Creating VPC prefix",);
 
     let data = serde_json::json!({
         "vpc_id": { "value": vpc_id },
@@ -38,6 +38,9 @@ pub async fn create(
         },
     });
     let prefix_id = grpcurl_id(carbide_api_addrs, "CreateVpcPrefix", &data.to_string()).await?;
-    tracing::info!("VPC prefix created with ID {prefix_id}");
+    tracing::info!(
+        vpc_prefix_id = %prefix_id,
+        "VPC prefix created",
+    );
     Ok(prefix_id)
 }

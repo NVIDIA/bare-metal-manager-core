@@ -26,7 +26,7 @@ pub fn convert_and_log_machine_id(id: Option<&MachineId>) -> Result<MachineId, C
     let machine_id = match id {
         Some(id) => *id,
         None => {
-            return Err(CarbideError::MissingArgument("Machine ID"));
+            return Err(CarbideError::MissingArgument("machine ID"));
         }
     };
     log_machine_id(&machine_id);
@@ -54,7 +54,7 @@ pub(crate) enum WakeupTrigger {
     log = warn,
     metric = counter,
     message = "Failed to wake up state handler for machine",
-    describe = "The amount of times a machine's state handler could not be woken after an \
+    describe = "Number of times a machine's state handler could not be woken after an \
                 agent-reported event"
 )]
 pub(crate) struct StateHandlerWakeupFailed {

@@ -121,6 +121,8 @@ type APIClient struct {
 
 	TrayAPI *TrayAPIService
 
+	UEFICredentialAPI *UEFICredentialAPIService
+
 	UserAPI *UserAPIService
 
 	VPCAPI *VPCAPIService
@@ -181,6 +183,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.TenantAccountAPI = (*TenantAccountAPIService)(&c.common)
 	c.TenantIdentityAPI = (*TenantIdentityAPIService)(&c.common)
 	c.TrayAPI = (*TrayAPIService)(&c.common)
+	c.UEFICredentialAPI = (*UEFICredentialAPIService)(&c.common)
 	c.UserAPI = (*UserAPIService)(&c.common)
 	c.VPCAPI = (*VPCAPIService)(&c.common)
 	c.VPCPeeringAPI = (*VPCPeeringAPIService)(&c.common)

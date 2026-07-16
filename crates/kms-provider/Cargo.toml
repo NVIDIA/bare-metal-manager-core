@@ -28,6 +28,7 @@ name = "carbide_kms_provider"
 aes-gcm = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
+carbide-instrument = { path = "../instrument" }
 hex = { workspace = true }
 rand = { workspace = true }
 serde = { features = ["derive"], workspace = true }

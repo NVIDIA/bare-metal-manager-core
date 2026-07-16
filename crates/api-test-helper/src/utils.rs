@@ -341,7 +341,7 @@ pub fn find_prerequisites() -> eyre::Result<HashMap<String, PathBuf>> {
                 full_paths.insert(k.to_string(), full_path);
             }
             None => {
-                eyre::bail!("Missing prerequisite binary: {k}");
+                eyre::bail!("missing prerequisite binary: {k}");
             }
         }
     }

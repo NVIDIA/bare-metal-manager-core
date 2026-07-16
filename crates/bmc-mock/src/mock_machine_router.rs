@@ -41,9 +41,9 @@ pub type SetSystemPowerResult = Result<(), SetSystemPowerError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetSystemPowerError {
-    #[error("Mock BMC reported bad request when setting system power: {0}")]
+    #[error("mock BMC reported bad request when setting system power: {0}")]
     BadRequest(String),
-    #[error("Mock BMC failed to send power command: {0}")]
+    #[error("mock BMC failed to send power command: {0}")]
     CommandSendError(String),
 }
 
@@ -124,12 +124,16 @@ pub fn machine_router(
         session_service_state,
         injection: injection.clone(),
         callbacks: Some(callbacks.clone()),
+        exposes_computer_systems: machine_info.exposes_computer_systems(),
     };
     let account_service_state = state.account_service_state.clone();
     let session_service_state = state.session_service_state.clone();
     let permit_factory_default_password = matches!(
         &machine_info,
-        MachineInfo::Host(h) if h.hw_type == HostHardwareType::LiteOnPowerShelf
+        MachineInfo::Host(h) if matches!(
+            h.hw_type,
+            HostHardwareType::LiteOnPowerShelf | HostHardwareType::DeltaPowerShelf
+        )
     );
     let router = ([
         Box::new(redfish::expander_router::append),

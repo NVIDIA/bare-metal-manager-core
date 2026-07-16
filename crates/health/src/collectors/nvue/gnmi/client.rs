@@ -252,7 +252,7 @@ impl GnmiClient {
 
         tracing::debug!(
             switch_id = %self.switch_id,
-            sample_interval_nanos,
+            sample_interval_nanoseconds = sample_interval_nanos,
             "gNMI SAMPLE stream opened"
         );
 

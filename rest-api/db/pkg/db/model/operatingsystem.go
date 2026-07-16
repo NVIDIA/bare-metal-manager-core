@@ -339,6 +339,55 @@ type OperatingSystemCreateInput struct {
 	CreatedBy              uuid.UUID
 }
 
+// FromProto fills the proto-derived definition fields of the receiver from a
+// nico-core OperatingSystem proto: OS type, status, scalar flags, iPXE script /
+// template reference, template parameters, artifacts and definition hash.
+//
+// Ownership and sync-context fields (ID, Org, InfrastructureProviderID, TenantID,
+// IpxeOsScope, CreatedBy and the image-* fields) are not carried on this proto and
+// must be set by the caller after calling FromProto. A nil proto is a no-op.
+func (in *OperatingSystemCreateInput) FromProto(protoOS *corev1.OperatingSystem) {
+	if protoOS == nil {
+		return
+	}
+
+	in.Name = protoOS.Name
+	in.Description = protoOS.Description
+	in.UserData = protoOS.UserData
+	in.IpxeScript = protoOS.IpxeScript
+	in.AllowOverride = protoOS.AllowOverride
+	in.PhoneHomeEnabled = protoOS.PhoneHomeEnabled
+	in.IpxeOSHash = protoOS.IpxeTemplateDefinitionHash
+
+	in.OsType = OperatingSystemTypeFromProtoMap[protoOS.Type]
+
+	status := OperatingSystemStatusFromProtoMap[protoOS.Status]
+	if status == "" {
+		status = OperatingSystemStatusSyncing
+	}
+	in.Status = status
+
+	// Only persist a template reference when non-empty; non-templated OS types
+	// carry no template.
+	if v := protoOS.GetIpxeTemplateId().GetValue(); v != "" {
+		in.IpxeTemplateId = &v
+	}
+
+	in.IpxeTemplateParameters = make([]OperatingSystemIpxeParameter, 0, len(protoOS.IpxeTemplateParameters))
+	for _, p := range protoOS.IpxeTemplateParameters {
+		var param OperatingSystemIpxeParameter
+		param.FromProto(p)
+		in.IpxeTemplateParameters = append(in.IpxeTemplateParameters, param)
+	}
+
+	in.IpxeTemplateArtifacts = make([]OperatingSystemIpxeArtifact, 0, len(protoOS.IpxeTemplateArtifacts))
+	for _, a := range protoOS.IpxeTemplateArtifacts {
+		var artifact OperatingSystemIpxeArtifact
+		artifact.FromProto(a)
+		in.IpxeTemplateArtifacts = append(in.IpxeTemplateArtifacts, artifact)
+	}
+}
+
 // OperatingSystemUpdateInput input parameters for Update method
 type OperatingSystemUpdateInput struct {
 	OperatingSystemId           uuid.UUID

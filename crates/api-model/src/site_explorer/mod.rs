@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use carbide_network::BaseMac;
 use carbide_utils::arch::CpuArchitecture;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::{MachineId, MachineType};
 use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
 use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
@@ -171,7 +172,7 @@ impl EndpointExplorationReport {
             .iter()
             .flat_map(|s| s.ethernet_interfaces.iter())
             .find(|e| e.mac_address == Some(mac))
-            .and_then(|e| e.id.as_deref().filter(|id| !id.is_empty()))
+            .and_then(|e| e.id.as_deref().none_if_empty())
     }
 
     /// Yields a [`MachineBootInterface`] for every host ethernet interface that
@@ -253,9 +254,10 @@ impl ExploredEndpoint {
                 .find(|&x| fw_info.matching_version_id(&x.id, firmware_type))
             {
                 tracing::debug!(
-                    "find_version {}: For {firmware_type:?} found {:?}",
-                    self.address,
-                    matching_inventory.version
+                    bmc_ip_address = %self.address,
+                    firmware_type = ?firmware_type,
+                    version = ?matching_inventory.version,
+                    "Found matching firmware version",
                 );
                 return matching_inventory.version.as_ref();
             };
@@ -282,10 +284,11 @@ impl ExploredEndpoint {
         }
 
         tracing::debug!(
-            "find_all_versions {}: Found {} versions for {firmware_type:?}: {:?}",
-            self.address,
-            versions.len(),
-            versions
+            bmc_ip_address = %self.address,
+            version_count = versions.len(),
+            firmware_type = ?firmware_type,
+            versions = ?versions,
+            "Found firmware versions",
         );
 
         versions
@@ -944,7 +947,7 @@ impl EndpointExplorationReport {
         self.systems
             .first()
             .and_then(|system| system.serial_number.as_deref().map(str::trim))
-            .filter(|sn| !sn.is_empty())
+            .none_if_empty()
             .or_else(|| {
                 self.is_dpu().then(|| {
                     // BF4 reports no system serial in Redfish. The stable product serial is
@@ -958,7 +961,7 @@ impl EndpointExplorationReport {
                                 .serial_number
                                 .as_deref()
                                 .map(str::trim)
-                                .filter(|serial| !serial.is_empty())
+                                .none_if_empty()
                         })
                 })?
             })
@@ -1100,11 +1103,18 @@ impl EndpointExplorationReport {
         Some(
             self.get_inventory_map()
                 .iter()
-                .find(|s| s.0.contains("BMC_Firmware"))
+                // BF3 exposes BMC firmware as inventory id "BMC_Firmware"; BF4
+                // uses exactly "BlueField_FW_BMC_0". Matching the full BF4 id
+                // (via `ends_with`) excludes unrelated components — including
+                // "FW_BMC_0_x" / "FW_BMC_01" and any other id merely ending in
+                // "FW_BMC_0". Both ids are unique per report, so `find` selects
+                // the single BMC firmware entry unambiguously.
+                .find(|s| s.0.contains("BMC_Firmware") || s.0.ends_with("BlueField_FW_BMC_0"))
                 .and_then(|value| value.1.version.as_ref())
                 .unwrap_or(&"0".to_string())
                 .to_lowercase()
-                .replace("bf-", ""),
+                .replace("bf-", "")
+                .replace("bf4-", ""),
         )
     }
 
@@ -1166,22 +1176,22 @@ pub enum EndpointExplorationError {
     /// a DPU doesn't expose a Redfish API, you will see ConnectionRefused. This
     /// is ultimately tripped by a reqwest is_connect error in the current
     /// implementation.
-    #[error("The connection to the endpoint was refused: {details:?}")]
+    #[error("the connection to the endpoint was refused: {details:?}")]
     #[serde(rename_all = "PascalCase")]
     ConnectionRefused { details: String },
     /// Some other generic error happened while attempting to connect
     /// and make a request (or receive a response) from the endpoint
     /// which was not otherwise handled by connection timeout or
     /// connection refused handlers.
-    #[error("The endpoint was not reachable due to a generic network issue: {details:?}")]
+    #[error("the endpoint was not reachable due to a generic network issue: {details:?}")]
     #[serde(rename_all = "PascalCase")]
     Unreachable { details: Option<String> },
     /// A Redfish variant we don't support, typically a new vendor
-    #[error("Redfish vendor '{vendor}' not supported")]
+    #[error("redfish vendor '{vendor}' not supported")]
     UnsupportedVendor { vendor: String },
     /// A generic redfish error. No additional details are available
     #[error(
-        "Error while performing Redfish request: {details}: {response_body:?} (response code: {response_code:?})"
+        "error while performing redfish request: {details}: {response_body:?} (response code: {response_code:?})"
     )]
     #[serde(rename_all = "PascalCase")]
     RedfishError {
@@ -1190,29 +1200,29 @@ pub enum EndpointExplorationError {
         response_code: Option<u16>,
     },
     /// The endpoint returned a 401 Unauthorized or 403 Forbidden Status
-    #[error("Unauthorized: {details}")]
+    #[error("unauthorized: {details}")]
     #[serde(rename_all = "PascalCase")]
     Unauthorized {
         details: String,
         response_body: Option<String>,
         response_code: Option<u16>,
     },
-    #[error("Missing credential {key}")]
+    #[error("missing credential {key}")]
     MissingCredentials {
         #[serde(default)]
         key: String,
         cause: String,
     },
-    #[error("Secrets engine error occurred: {cause}")]
+    #[error("secrets engine error occurred: {cause}")]
     SecretsEngineError {
         #[serde(default)]
         cause: String,
     },
-    #[error("Failed setting credential {key}: {cause}")]
+    #[error("failed setting credential {key}: {cause}")]
     SetCredentials { key: String, cause: String },
     /// Deprecated. Replaced by `RedfishError`.
     /// This field just exists here until site-explorer updates existing records
-    #[error("Endpoint is not a BMC with Redfish support at the specified URI")]
+    #[error("endpoint is not a BMC with redfish support at the specified URI")]
     MissingRedfish { uri: Option<String> },
     /// The BMC's Redfish ServiceRoot (`/redfish/v1`) did not yield a vendor we
     /// recognize. `observed` is the raw vendor string we read from the root —
@@ -1221,18 +1231,18 @@ pub enum EndpointExplorationError {
     /// initializing/syncing (exploration will retry). `Some(value)` means the BMC
     /// reported a vendor we don't support yet — `value` is what it sent.
     #[error(
-        "BMC ServiceRoot (/redfish/v1) did not report a recognized vendor (observed Vendor/Oem = {observed:?}); an empty value usually means the BMC is still initializing and exploration will retry"
+        "BMC ServiceRoot (/redfish/v1) did not report a recognized vendor (observed vendor/oem = {observed:?}); an empty value usually means the BMC is still initializing and exploration will retry"
     )]
     MissingVendor {
         #[serde(default)]
         observed: Option<String>,
     },
     #[error(
-        "Site explorer will not explore this endpoint to avoid lockout: it could not login previously"
+        "site explorer will not explore this endpoint to avoid lockout: it could not login previously"
     )]
     AvoidLockout,
     /// An error which is not further detailed
-    #[error("Error: {details}")]
+    #[error("error: {details}")]
     #[serde(rename_all = "PascalCase")]
     Other { details: String },
 
@@ -1248,7 +1258,7 @@ pub enum EndpointExplorationError {
         response_code: Option<u16>,
     },
 
-    #[error("Invalid Redfish response for DPU BIOS: {details}")]
+    #[error("invalid redfish response for DPU BIOS: {details}")]
     #[serde(rename_all = "PascalCase")]
     InvalidDpuRedfishBiosResponse {
         details: String,
@@ -1260,7 +1270,7 @@ pub enum EndpointExplorationError {
     /// credentials are already set. This is a transient error that should be
     /// retried rather than triggering AvoidLockout behavior.
     /// After `consecutive_count` reaches the threshold, escalates to regular Unauthorized.
-    #[error("Intermittent unauthorized error (attempt {consecutive_count}): {details}")]
+    #[error("intermittent unauthorized error (attempt {consecutive_count}): {details}")]
     #[serde(rename_all = "PascalCase")]
     IntermittentUnauthorized {
         details: String,
@@ -1791,15 +1801,11 @@ fn chassis_part_number(chassis: &Chassis) -> Option<&str> {
         .part_number
         .as_deref()
         .map(str::trim)
-        .filter(|part_number| !part_number.is_empty())
+        .none_if_empty()
 }
 
 fn chassis_model(chassis: &Chassis) -> Option<&str> {
-    chassis
-        .model
-        .as_deref()
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
+    chassis.model.as_deref().map(str::trim).none_if_empty()
 }
 
 // returns true if the passed in string is a BlueField part number
@@ -1989,7 +1995,7 @@ impl EndpointExplorationReport {
             .first()
             .and_then(|system| system.serial_number.as_deref())
             .map(str::trim)
-            .filter(|serial| !serial.is_empty())
+            .none_if_empty()
             .or_else(|| {
                 // BF4 Redfish does not currently expose the product serial or
                 // DPU/NIC mode on the system object. The stable product serial
@@ -2003,7 +2009,7 @@ impl EndpointExplorationReport {
                             .serial_number
                             .as_deref()
                             .map(str::trim)
-                            .filter(|serial| !serial.is_empty())
+                            .none_if_empty()
                     })
             })
     }
@@ -2047,7 +2053,7 @@ pub fn collect_explored_mlx_devices(endpoints: &[ExploredEndpoint]) -> Vec<Explo
                 .serial_number
                 .as_deref()
                 .map(str::trim)
-                .filter(|serial| !serial.is_empty())
+                .none_if_empty()
                 .and_then(|serial| dpu_by_serial.get(serial))
             {
                 device.dpu_bmc_ip = Some(dpu_ep.address);
@@ -2581,7 +2587,7 @@ mod tests {
         assert!(
             schema
                 .text
-                .contains("Invalid Redfish response for DPU BIOS")
+                .contains("invalid redfish response for DPU BIOS")
         );
     }
 

@@ -60,10 +60,12 @@ nv-redfish = { workspace = true, features = [
   "oem-hpe",
   "oem-ami",
   "oem-liteon",
+  "oem-delta",
   "bmc-http",
 ] }
 regex = { workspace = true }
 lazy_static = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 
@@ -79,7 +81,6 @@ bmc-mock = { path = "../bmc-mock" }
 # Self dev-dependency so the crate's own integration tests get the test-support
 # helpers; applies only to test/bench targets, never the production library.
 bmc-explorer = { path = ".", features = ["test-support"] }
-serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]

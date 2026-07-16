@@ -38,24 +38,26 @@ pub(crate) fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
             CarbideClientError::TpmError(format!("tpm2_dictionarylockout call failed: {e}"))
         })?;
     tracing::info!(
-        "Tried setting TPM_PT_MAX_AUTH_FAIL to 256. Return code is: {0}",
-        output
+        return_code = %output
             .status
             .code()
             .map(|v| v.to_string())
-            .unwrap_or_else(|| "NO RETURN CODE PRESENT".to_string())
+            .unwrap_or_else(|| "NO RETURN CODE PRESENT".to_string()),
+        "Tried setting TPM_PT_MAX_AUTH_FAIL to 256",
     );
 
     if !output.stderr.is_empty() {
         tracing::error!(
-            "TPM_PT_MAX_AUTH_FAIL stderr is {0}",
-            String::from_utf8(output.stderr).unwrap_or_else(|_| "Invalid UTF8".to_string())
+            stderr = %String::from_utf8(output.stderr)
+                .unwrap_or_else(|_| "Invalid UTF8".to_string()),
+            "TPM_PT_MAX_AUTH_FAIL command wrote to stderr",
         );
     }
     if !output.stdout.is_empty() {
         tracing::info!(
-            "TPM_PT_MAX_AUTH_FAIL stdout is {0}",
-            String::from_utf8(output.stdout).unwrap_or_else(|_| "Invalid UTF8".to_string())
+            stdout = %String::from_utf8(output.stdout)
+                .unwrap_or_else(|_| "Invalid UTF8".to_string()),
+            "TPM_PT_MAX_AUTH_FAIL command wrote to stdout",
         );
     }
 

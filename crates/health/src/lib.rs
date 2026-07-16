@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use nv_redfish::bmc_http::reqwest::{
     BmcError, Client as ReqwestClient, ClientParams as ReqwestClientParams,
 };
@@ -41,8 +42,11 @@ pub use config::Config;
 pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
 
 use crate::api_client::{ApiClientWrapper, ApiEndpointSource};
+use crate::collectors::BackoffConfig;
 use crate::config::Configurable;
-use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
+use crate::endpoint::{
+    ClusterEndpointSource, CompositeEndpointSource, EndpointSource, StaticEndpointSource,
+};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::processor::{
@@ -59,34 +63,34 @@ use crate::sink::{
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("unable to connect to carbide API: {0}")]
     ApiConnectFailed(String),
 
-    #[error("The API call to the Carbide API server returned {0}")]
+    #[error("the API call to the carbide API server returned {0}")]
     ApiInvocationError(tonic::Status),
 
-    #[error("Generic Error: {0}")]
+    #[error("generic error: {0}")]
     GenericError(String),
 
-    #[error("Logger Error: {0}")]
+    #[error("logger error: {0}")]
     LoggerError(String),
 
-    #[error("Error while handling json: {0}")]
+    #[error("error while handling json: {0}")]
     JsonError(#[from] serde_json::Error),
 
-    #[error("Tokio Task Join Error {0}")]
+    #[error("tokio task join error {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
 
-    #[error("Prometheus Error {0}")]
+    #[error("prometheus error {0}")]
     PrometheusError(#[from] prometheus::Error),
 
-    #[error("BMC Error: {0}")]
+    #[error("BMC error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("HTTP(S) error: {0}")]
     HttpError(String),
 
-    #[error("Redfish SSE not available: {0}")]
+    #[error("redfish SSE not available: {0}")]
     SseNotAvailable(String),
 
     #[error("gNMI error: {0}")]
@@ -99,7 +103,7 @@ pub enum HealthError {
     NmxcStatus(tonic::Status),
 
     /// Client TLS material could not be read, validated, or applied.
-    #[error("mTLS profile error: {0}")]
+    #[error("TLS profile error: {0}")]
     Tls(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -155,11 +159,21 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
         ));
         let endpoint_source = Arc::new(ApiEndpointSource::new(
             api_client,
-            reqwest,
+            reqwest.clone(),
             config.bmc_proxy_url.clone(),
             config.cache_size,
         ));
         sources.push(endpoint_source as Arc<dyn EndpointSource>);
+    }
+
+    if let Configurable::Enabled(ref source_cfg) = config.endpoint_sources.cluster {
+        let cluster_source = ClusterEndpointSource::from_config(
+            source_cfg.clone(),
+            &reqwest,
+            config.bmc_proxy_url.as_ref(),
+            config.cache_size,
+        );
+        sources.push(Arc::new(cluster_source));
     }
 
     let composite_source = CompositeEndpointSource::new(sources);
@@ -242,12 +256,17 @@ fn build_data_sink(
 
     if let Configurable::Enabled(ref otlp_cfg) = config.sinks.otlp {
         let mapper: Arc<dyn RedfishEventMapper> = Arc::new(OpenBmcEventMapper);
-        sinks.push(Arc::new(OtlpSink::new(
-            otlp_cfg,
+
+        let otlp_sinks = OtlpSink::new_many(
+            &otlp_cfg.targets,
             mapper,
             &metrics_manager,
             &config.metrics.prefix,
-        )?));
+        )?;
+
+        for sink in otlp_sinks {
+            sinks.push(Arc::new(sink));
+        }
     }
 
     if sinks.is_empty() {
@@ -268,15 +287,82 @@ fn build_data_sink(
     ))))
 }
 
+/// The per-pass work of the endpoint discovery loop: one discovery iteration
+/// plus the gauge updates its stats feed.
+struct ServiceDiscoveryIteration {
+    endpoint_source: Arc<dyn EndpointSource>,
+    shard_manager: ShardManager,
+    ctx: DiscoveryLoopContext,
+    data_sink: Option<Arc<dyn DataSink>>,
+    config: Arc<Config>,
+    discovery_endpoints_gauge: GaugeVec,
+    active_endpoints_gauge: Gauge,
+}
+
+#[async_trait]
+impl discovery::DiscoveryIteration for ServiceDiscoveryIteration {
+    async fn run_once(&mut self) -> Result<(), HealthError> {
+        let stats = discovery::run_discovery_iteration(
+            self.endpoint_source.clone(),
+            &self.shard_manager,
+            &mut self.ctx,
+            self.data_sink.clone(),
+            &self.config.metrics.prefix,
+        )
+        .await?;
+
+        self.discovery_endpoints_gauge
+            .get_metric_with_label_values(&["discovered"])?
+            .set(stats.discovered_endpoints as f64);
+        self.discovery_endpoints_gauge
+            .get_metric_with_label_values(&["sharded"])?
+            .set(stats.sharded_endpoints as f64);
+        self.active_endpoints_gauge
+            .set(stats.active_monitors as f64);
+
+        Ok(())
+    }
+}
+
+/// Runs the hardware-health service after validating configured TLS profiles.
+///
+/// Switch and OTLP TLS material is preflighted before listeners and background
+/// tasks start, so invalid certificate configuration fails startup.
+///
+/// # Errors
+///
+/// Returns an error when startup validation or initialization fails, or when a
+/// long-running service task exits with an error.
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
     if let Some(tls_config) = &config.tls.switch {
         tls::preflight(tls_config).await?;
+    }
+
+    if let Configurable::Enabled(otlp) = &config.sinks.otlp {
+        for target in &otlp.targets {
+            if let Some(tls_config) = &target.tls {
+                tls::otlp_preflight(tls_config).await?;
+            }
+        }
     }
 
     let tls_config = config.tls.switch.clone();
 
     let metrics_endpoint = config.metrics_addr()?;
     let metrics_manager = Arc::new(MetricsManager::new(&config.metrics.prefix)?);
+
+    // Back the global OpenTelemetry meter with a prometheus registry and
+    // merge that registry into this binary's /metrics exposition, so events
+    // emitted through the instrumentation framework -- and the log-event
+    // counts accumulating since startup -- are scrapeable alongside the raw
+    // prometheus pipeline. The setup must outlive the servers: dropping it
+    // would drop the meter provider and stop the exported values.
+    let framework_metrics =
+        metrics_endpoint::new_metrics_setup("carbide-hw-health", "carbide", true).map_err(|e| {
+            HealthError::GenericError(format!("framework metrics setup failed: {e}"))
+        })?;
+    carbide_instrument::log_events::register(&framework_metrics.meter);
+    metrics_manager.expose_framework_registry(framework_metrics.registry.clone());
 
     let join_listener = tokio::spawn(run_metrics_server(
         metrics_endpoint,
@@ -289,7 +375,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
             "{metrics_prefix}_active_endpoints",
             metrics_prefix = &config.metrics.prefix
         ),
-        "Current number of active endpoints",
+        "Number of active endpoints",
     )?;
     registry.register(Box::new(active_endpoints_gauge.clone()))?;
 
@@ -313,7 +399,7 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
 
     let config_arc = Arc::new(config);
 
-    let join_discovery: tokio::task::JoinHandle<Result<(), HealthError>> = tokio::spawn({
+    let join_discovery: tokio::task::JoinHandle<()> = tokio::spawn({
         let config = config_arc.clone();
         let shard_manager = ShardManager {
             shard: config.shard,
@@ -329,41 +415,26 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
             } else {
                 Arc::new(NoopLimiter)
             };
-        let metrics_manager = metrics_manager.clone();
-        let active_endpoints_gauge = active_endpoints_gauge.clone();
-        let discovery_endpoints_gauge = discovery_endpoints_gauge.clone();
-        let endpoint_source = endpoint_source.clone();
-        let data_sink = data_sink.clone();
 
-        let mut ctx = DiscoveryLoopContext::new_with_tls_config(
+        let ctx = DiscoveryLoopContext::new_with_tls_config(
             limiter,
-            metrics_manager,
+            metrics_manager.clone(),
             config.clone(),
             tls_config,
         )?;
 
-        async move {
-            loop {
-                let stats = discovery::run_discovery_iteration(
-                    endpoint_source.clone(),
-                    &shard_manager,
-                    &mut ctx,
-                    data_sink.clone(),
-                    &config.metrics.prefix,
-                )
-                .await?;
+        let interval = config.endpoint_discovery_interval;
+        let iteration = ServiceDiscoveryIteration {
+            endpoint_source: endpoint_source.clone(),
+            shard_manager,
+            ctx,
+            data_sink: data_sink.clone(),
+            config,
+            discovery_endpoints_gauge: discovery_endpoints_gauge.clone(),
+            active_endpoints_gauge: active_endpoints_gauge.clone(),
+        };
 
-                discovery_endpoints_gauge
-                    .get_metric_with_label_values(&["discovered"])?
-                    .set(stats.discovered_endpoints as f64);
-                discovery_endpoints_gauge
-                    .get_metric_with_label_values(&["sharded"])?
-                    .set(stats.sharded_endpoints as f64);
-                active_endpoints_gauge.set(stats.active_monitors as f64);
-
-                tokio::time::sleep(config.endpoint_discovery_interval).await;
-            }
-        }
+        discovery::run_discovery_loop(interval, BackoffConfig::default(), iteration)
     });
 
     tokio::select! {
@@ -382,11 +453,8 @@ pub async fn run_service(config: Config) -> Result<(), HealthError> {
         }
         res = join_discovery => {
             match res {
-                Ok(Ok(_)) => {
-                    tracing::error!("Discovery loop shutdown");
-                }
-                Ok(Err(e)) => {
-                    tracing::error!(error=?e, "Discovery loop ended unexpectedly");
+                Ok(()) => {
+                    tracing::error!("Discovery loop ended unexpectedly");
                 }
                 Err(e) => {
                     tracing::error!(error=?e, "Discovery loop join error");

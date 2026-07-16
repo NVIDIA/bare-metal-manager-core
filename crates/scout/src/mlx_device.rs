@@ -67,7 +67,7 @@ pub async fn publish_mlx_device_report(
     config: &Options,
     req: PublishMlxDeviceReportRequest,
 ) -> CarbideClientResult<PublishMlxDeviceReportResponse> {
-    tracing::info!("sending PublishMlxDeviceReportRequest: {req:?}");
+    tracing::info!(request = ?req, "sending PublishMlxDeviceReportRequest");
     let request = tonic::Request::new(req);
     let mut client = client::create_forge_client(config).await?;
     let response = client
@@ -81,7 +81,10 @@ pub async fn publish_mlx_observation_report(
     config: &Options,
     req: PublishMlxObservationReportRequest,
 ) -> CarbideClientResult<PublishMlxObservationReportResponse> {
-    tracing::info!("sending PublishMlxObservationReportRequest: {req:?}");
+    tracing::info!(
+        request = ?req,
+        "sending PublishMlxObservationReportRequest",
+    );
     let request = tonic::Request::new(req);
     let mut client = client::create_forge_client(config).await?;
     let response = client
@@ -115,9 +118,9 @@ pub fn handle_profile_sync(
     request: mlx_device_pb::MlxDeviceProfileSyncRequest,
 ) -> mlx_device_pb::MlxDeviceProfileSyncResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] profile sync to device requested (device_id:{}, profile_name:{})",
-        request.device_id,
-        request.profile_name
+        device_id = %request.device_id,
+        profile_name = %request.profile_name,
+        "[scout_stream::mlx_device] profile sync to device requested",
     );
 
     let Some(serializable_profile_pb) = request.serializable_profile else {
@@ -136,7 +139,10 @@ pub fn handle_profile_sync(
     let serializable_profile: SerializableProfile = match serializable_profile_pb.try_into() {
         Ok(profile) => profile,
         Err(e) => {
-            tracing::error!("[scout_stream::mlx_device] failed to parse profile: {e}");
+            tracing::error!(
+                error = %e,
+                "[scout_stream::mlx_device] failed to parse profile",
+            );
             return mlx_device_pb::MlxDeviceProfileSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -153,9 +159,9 @@ pub fn handle_profile_sync(
     match load_and_sync_profile(&request.device_id, serializable_profile) {
         Ok(sync_result) => {
             tracing::info!(
-                "[scout_stream::mlx_device] profile sync to device successful (device_id:{}, profile_name:{})",
-                request.device_id,
-                request.profile_name
+                device_id = %request.device_id,
+                profile_name = %request.profile_name,
+                "[scout_stream::mlx_device] profile sync to device successful",
             );
 
             match sync_result.try_into() {
@@ -168,7 +174,8 @@ pub fn handle_profile_sync(
                 },
                 Err(e) => {
                     tracing::error!(
-                        "[scout_stream::mlx_device] profile sync result failed to serialize: {e}"
+                        error = %e,
+                        "[scout_stream::mlx_device] profile sync result failed to serialize",
                     );
                     mlx_device_pb::MlxDeviceProfileSyncResponse {
                         reply: Some(
@@ -186,9 +193,10 @@ pub fn handle_profile_sync(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] profile sync to device failed (device_id:{}, profile_name:{}): {e}",
-                request.device_id,
-                request.profile_name
+                device_id = %request.device_id,
+                profile_name = %request.profile_name,
+                error = %e,
+                "[scout_stream::mlx_device] profile sync to device failed",
             );
             mlx_device_pb::MlxDeviceProfileSyncResponse {
                 reply: Some(
@@ -208,9 +216,9 @@ pub fn handle_profile_compare(
     request: mlx_device_pb::MlxDeviceProfileCompareRequest,
 ) -> mlx_device_pb::MlxDeviceProfileCompareResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] profile compare against device requested (device_id:{}, profile_name:{})",
-        request.device_id,
-        request.profile_name
+        device_id = %request.device_id,
+        profile_name = %request.profile_name,
+        "[scout_stream::mlx_device] profile compare against device requested",
     );
 
     let Some(serializable_profile_pb) = request.serializable_profile else {
@@ -229,7 +237,10 @@ pub fn handle_profile_compare(
     let serializable_profile: SerializableProfile = match serializable_profile_pb.try_into() {
         Ok(profile) => profile,
         Err(e) => {
-            tracing::error!("[scout_stream::mlx_device] failed to parse profile: {e}");
+            tracing::error!(
+                error = %e,
+                "[scout_stream::mlx_device] failed to parse profile",
+            );
             return mlx_device_pb::MlxDeviceProfileCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -246,9 +257,9 @@ pub fn handle_profile_compare(
     match load_and_compare_profile(&request.device_id, serializable_profile) {
         Ok(comparison_result) => {
             tracing::info!(
-                "[scout_stream::mlx_device] profile compare against device successful (device_id:{}, profile_name:{})",
-                request.device_id,
-                request.profile_name
+                device_id = %request.device_id,
+                profile_name = %request.profile_name,
+                "[scout_stream::mlx_device] profile compare against device successful",
             );
 
             match comparison_result.try_into() {
@@ -261,7 +272,8 @@ pub fn handle_profile_compare(
                 },
                 Err(e) => {
                     tracing::error!(
-                        "[scout_stream::mlx_device] profile compare result failed to serialize: {e}"
+                        error = %e,
+                        "[scout_stream::mlx_device] profile compare result failed to serialize",
                     );
                     mlx_device_pb::MlxDeviceProfileCompareResponse {
                         reply: Some(
@@ -279,9 +291,10 @@ pub fn handle_profile_compare(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] profile compare against device failed (device_id:{}, profile_name:{}): {e}",
-                request.device_id,
-                request.profile_name
+                device_id = %request.device_id,
+                profile_name = %request.profile_name,
+                error = %e,
+                "[scout_stream::mlx_device] profile compare against device failed",
             );
             mlx_device_pb::MlxDeviceProfileCompareResponse {
                 reply: Some(
@@ -302,15 +315,16 @@ pub fn handle_lockdown_lock(
     request: mlx_device_pb::MlxDeviceLockdownLockRequest,
 ) -> mlx_device_pb::MlxDeviceLockdownResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] lockdown lock requested (device_id:{})",
-        request.device_id
+        device_id = %request.device_id,
+        "[scout_stream::mlx_device] lockdown lock requested",
     );
 
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] lockdown manager initialization failed: {e}"
+                error = %e,
+                "[scout_stream::mlx_device] lockdown manager initialization failed",
             );
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
@@ -326,8 +340,9 @@ pub fn handle_lockdown_lock(
     match manager.lock_device(&request.device_id, &request.key) {
         Ok(status) => {
             tracing::info!(
-                "[scout_stream::mlx_device] lockdown lock successful (device_id:{}, status:{status})",
-                request.device_id
+                device_id = %request.device_id,
+                lockdown_status = %status,
+                "[scout_stream::mlx_device] lockdown lock successful",
             );
             let report = StatusReport::new(request.device_id.clone(), status);
             mlx_device_pb::MlxDeviceLockdownResponse {
@@ -338,8 +353,9 @@ pub fn handle_lockdown_lock(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] lockdown lock failed (device_id:{}): {e}",
-                request.device_id
+                device_id = %request.device_id,
+                error = %e,
+                "[scout_stream::mlx_device] lockdown lock failed",
             );
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
@@ -358,15 +374,16 @@ pub fn handle_lockdown_unlock(
     request: mlx_device_pb::MlxDeviceLockdownUnlockRequest,
 ) -> mlx_device_pb::MlxDeviceLockdownResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] lockdown unlock requested (device_id:{})",
-        request.device_id
+        device_id = %request.device_id,
+        "[scout_stream::mlx_device] lockdown unlock requested",
     );
 
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] lockdown manager initialization failed: {e}"
+                error = %e,
+                "[scout_stream::mlx_device] lockdown manager initialization failed",
             );
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
@@ -382,8 +399,9 @@ pub fn handle_lockdown_unlock(
     match manager.unlock_device(&request.device_id, &request.key) {
         Ok(status) => {
             tracing::info!(
-                "[scout_stream::mlx_device] lockdown unlock successful (device_id:{}, status:{status})",
-                request.device_id
+                device_id = %request.device_id,
+                lockdown_status = %status,
+                "[scout_stream::mlx_device] lockdown unlock successful",
             );
             let report = StatusReport::new(request.device_id.clone(), status);
             mlx_device_pb::MlxDeviceLockdownResponse {
@@ -394,8 +412,9 @@ pub fn handle_lockdown_unlock(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] lockdown unlock failed (device_id:{}): {e}",
-                request.device_id
+                device_id = %request.device_id,
+                error = %e,
+                "[scout_stream::mlx_device] lockdown unlock failed",
             );
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
@@ -414,15 +433,16 @@ pub fn handle_lockdown_status(
     request: mlx_device_pb::MlxDeviceLockdownStatusRequest,
 ) -> mlx_device_pb::MlxDeviceLockdownResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] lockdown status check requested (device_id:{})",
-        request.device_id
+        device_id = %request.device_id,
+        "[scout_stream::mlx_device] lockdown status check requested",
     );
 
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] lockdown manager initialization failed: {e}"
+                error = %e,
+                "[scout_stream::mlx_device] lockdown manager initialization failed",
             );
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
@@ -438,8 +458,9 @@ pub fn handle_lockdown_status(
     match manager.get_status(&request.device_id) {
         Ok(status) => {
             tracing::info!(
-                "[scout_stream::mlx_device] lockdown status check successful (device_id:{}, status: {status})",
-                request.device_id
+                device_id = %request.device_id,
+                lockdown_status = %status,
+                "[scout_stream::mlx_device] lockdown status check successful",
             );
             let report = StatusReport::new(request.device_id.clone(), status);
             mlx_device_pb::MlxDeviceLockdownResponse {
@@ -450,8 +471,9 @@ pub fn handle_lockdown_status(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] lockdown status check failed (device_id:{}): {e}",
-                request.device_id
+                device_id = %request.device_id,
+                error = %e,
+                "[scout_stream::mlx_device] lockdown status check failed",
             );
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
@@ -469,15 +491,15 @@ pub fn handle_info_device(
     request: mlx_device_pb::MlxDeviceInfoDeviceRequest,
 ) -> mlx_device_pb::MlxDeviceInfoDeviceResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] device info request (device_id:{})",
-        request.device_id
+        device_id = %request.device_id,
+        "[scout_stream::mlx_device] device info request",
     );
 
     match discovery::discover_device(&request.device_id) {
         Ok(device_info) => {
             tracing::info!(
-                "[scout_stream::mlx_device] device info retrieved successfully (device_id:{})",
-                request.device_id
+                device_id = %request.device_id,
+                "[scout_stream::mlx_device] device info retrieved successfully",
             );
             mlx_device_pb::MlxDeviceInfoDeviceResponse {
                 reply: Some(
@@ -489,8 +511,9 @@ pub fn handle_info_device(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] device info request failed (device_id:{}): {e}",
-                request.device_id
+                device_id = %request.device_id,
+                error = %e,
+                "[scout_stream::mlx_device] device info request failed",
             );
             mlx_device_pb::MlxDeviceInfoDeviceResponse {
                 reply: Some(
@@ -516,7 +539,8 @@ pub fn handle_info_report(
             Ok(filters) => MlxDeviceReport::new().with_filter_set(filters),
             Err(e) => {
                 tracing::error!(
-                    "[scout_stream::mlx_device] device report request failed to parse filters: {e}"
+                    error = %e,
+                    "[scout_stream::mlx_device] device report request failed to parse filters",
                 );
                 return mlx_device_pb::MlxDeviceInfoReportResponse {
                     reply: Some(
@@ -537,8 +561,8 @@ pub fn handle_info_report(
     match report.collect() {
         Ok(report) => {
             tracing::info!(
-                "[scout_stream::mlx_device] device report generated (device_count:{})",
-                report.devices.len()
+                device_count = report.devices.len(),
+                "[scout_stream::mlx_device] device report generated",
             );
             mlx_device_pb::MlxDeviceInfoReportResponse {
                 reply: Some(
@@ -549,7 +573,10 @@ pub fn handle_info_report(
             }
         }
         Err(e) => {
-            tracing::error!("[scout_stream::mlx_device] device report generation failed: {e}");
+            tracing::error!(
+                error = %e,
+                "[scout_stream::mlx_device] device report generation failed",
+            );
             mlx_device_pb::MlxDeviceInfoReportResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_info_report_response::Reply::Error(
@@ -585,16 +612,16 @@ pub fn handle_registry_show(
     request: mlx_device_pb::MlxDeviceRegistryShowRequest,
 ) -> mlx_device_pb::MlxDeviceRegistryShowResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] variable registry details requested (registry_name:{})",
-        request.registry_name
+        registry_name = %request.registry_name,
+        "[scout_stream::mlx_device] variable registry details requested",
     );
 
     match registries::get(&request.registry_name) {
         Some(registry) => {
             let registry_pb = registry.clone().into();
             tracing::info!(
-                "[scout_stream::mlx_device] variable registry details generated (registry_name:{})",
-                request.registry_name
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] variable registry details generated",
             );
             mlx_device_pb::MlxDeviceRegistryShowResponse {
                 reply: Some(
@@ -606,8 +633,8 @@ pub fn handle_registry_show(
         }
         None => {
             tracing::error!(
-                "[scout_stream::mlx_device] variable registry not found (registry_name:{})",
-                request.registry_name
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] variable registry not found",
             );
             mlx_device_pb::MlxDeviceRegistryShowResponse {
                 reply: Some(
@@ -629,19 +656,19 @@ pub fn handle_config_query(
     request: mlx_device_pb::MlxDeviceConfigQueryRequest,
 ) -> mlx_device_pb::MlxDeviceConfigQueryResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] config query requested (device_id:{}, registry_name:{}): {:?}",
-        request.device_id,
-        request.registry_name,
-        request.variables,
+        device_id = %request.device_id,
+        registry_name = %request.registry_name,
+        variables = ?request.variables,
+        "[scout_stream::mlx_device] config query requested",
     );
 
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
             tracing::warn!(
-                "[scout_stream::mlx_device] config registry not found (device_id:{}, registry_name:{})",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] config registry not found",
             );
             return mlx_device_pb::MlxDeviceConfigQueryResponse {
                 reply: Some(
@@ -672,9 +699,9 @@ pub fn handle_config_query(
     match result {
         Ok(query_result) => {
             tracing::info!(
-                "[scout_stream::mlx_device] config query against device successful (device_id:{}, registry_name:{})",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] config query against device successful",
             );
 
             match query_result.try_into() {
@@ -687,9 +714,10 @@ pub fn handle_config_query(
                 },
                 Err(e) => {
                     tracing::error!(
-                        "[scout_stream::mlx_device] config query result failed to serialize (device_id:{}, registry_name:{}): {e}",
-                        request.device_id,
-                        request.registry_name
+                        device_id = %request.device_id,
+                        registry_name = %request.registry_name,
+                        error = %e,
+                        "[scout_stream::mlx_device] config query result failed to serialize",
                     );
                     mlx_device_pb::MlxDeviceConfigQueryResponse {
                         reply: Some(
@@ -710,9 +738,10 @@ pub fn handle_config_query(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] config query against device failed (device_id:{}, registry_name:{}): {e}",
-                request.device_id,
-                request.registry_name
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                error = %e,
+                "[scout_stream::mlx_device] config query against device failed",
             );
             mlx_device_pb::MlxDeviceConfigQueryResponse {
                 reply: Some(
@@ -736,19 +765,19 @@ pub fn handle_config_set(
     request: mlx_device_pb::MlxDeviceConfigSetRequest,
 ) -> mlx_device_pb::MlxDeviceConfigSetResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] config set assignment requested (device_id:{}, registry_name:{}): {:?}",
-        request.device_id,
-        request.registry_name,
-        request.assignments
+        device_id = %request.device_id,
+        registry_name = %request.registry_name,
+        assignments = ?request.assignments,
+        "[scout_stream::mlx_device] config set assignment requested",
     );
 
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
             tracing::warn!(
-                "[scout_stream::mlx_device] config registry not found (device_id:{}, registry_name:{})",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] config registry not found",
             );
             return mlx_device_pb::MlxDeviceConfigSetResponse {
                 reply: Some(mlx_device_pb::mlx_device_config_set_response::Reply::Error(
@@ -780,9 +809,9 @@ pub fn handle_config_set(
     match runner.set(assignments) {
         Ok(_) => {
             tracing::info!(
-                "[scout_stream::mlx_device] config set on device successfully (device_id:{}, registry_name:{})",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] config set on device successfully",
             );
             mlx_device_pb::MlxDeviceConfigSetResponse {
                 reply: Some(
@@ -794,9 +823,10 @@ pub fn handle_config_set(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] config set to device failed (device_id:{}, registry_name:{}): {e}",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                error = %e,
+                "[scout_stream::mlx_device] config set to device failed",
             );
             mlx_device_pb::MlxDeviceConfigSetResponse {
                 reply: Some(mlx_device_pb::mlx_device_config_set_response::Reply::Error(
@@ -819,19 +849,19 @@ pub fn handle_config_sync(
     request: mlx_device_pb::MlxDeviceConfigSyncRequest,
 ) -> mlx_device_pb::MlxDeviceConfigSyncResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] config sync requested (device_id:{}, registry_name:{}): {:?}",
-        request.device_id,
-        request.registry_name,
-        request.assignments
+        device_id = %request.device_id,
+        registry_name = %request.registry_name,
+        assignments = ?request.assignments,
+        "[scout_stream::mlx_device] config sync requested",
     );
 
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
             tracing::warn!(
-                "[scout_stream::mlx_device] config registry not found (device_id:{}, registry_name:{})",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] config registry not found",
             );
             return mlx_device_pb::MlxDeviceConfigSyncResponse {
                 reply: Some(
@@ -863,9 +893,9 @@ pub fn handle_config_sync(
     match runner.sync(assignments) {
         Ok(sync_result) => {
             tracing::info!(
-                "[scout_stream::mlx_device] config sync to device successful (device_id:{}, registry_name:{})",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] config sync to device successful",
             );
 
             match sync_result.try_into() {
@@ -878,9 +908,10 @@ pub fn handle_config_sync(
                 },
                 Err(e) => {
                     tracing::error!(
-                        "[scout_stream::mlx_device] config sync result failed to serialize (device_id:{}, registry_name:{}): {e}",
-                        request.device_id,
-                        request.registry_name,
+                        device_id = %request.device_id,
+                        registry_name = %request.registry_name,
+                        error = %e,
+                        "[scout_stream::mlx_device] config sync result failed to serialize",
                     );
                     mlx_device_pb::MlxDeviceConfigSyncResponse {
                         reply: Some(
@@ -901,9 +932,10 @@ pub fn handle_config_sync(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] config sync to device failed (device_id:{}, registry_name:{}): {e}",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                error = %e,
+                "[scout_stream::mlx_device] config sync to device failed",
             );
             mlx_device_pb::MlxDeviceConfigSyncResponse {
                 reply: Some(
@@ -928,19 +960,19 @@ pub fn handle_config_compare(
     request: mlx_device_pb::MlxDeviceConfigCompareRequest,
 ) -> mlx_device_pb::MlxDeviceConfigCompareResponse {
     tracing::info!(
-        "[scout_stream::mlx_device] config compare requested (device_id:{}, registry_name:{}): {:?}",
-        request.device_id,
-        request.registry_name,
-        request.assignments
+        device_id = %request.device_id,
+        registry_name = %request.registry_name,
+        assignments = ?request.assignments,
+        "[scout_stream::mlx_device] config compare requested",
     );
 
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
             tracing::warn!(
-                "[scout_stream::mlx_device] config registry not found (device_id:{}, registry_name:{})",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] config registry not found",
             );
             return mlx_device_pb::MlxDeviceConfigCompareResponse {
                 reply: Some(
@@ -972,9 +1004,9 @@ pub fn handle_config_compare(
     match runner.compare(assignments) {
         Ok(comparison_result) => {
             tracing::info!(
-                "[scout_stream::mlx_device] config compare against device successful (device_id:{}, registry_name:{})",
-                request.device_id,
-                request.registry_name,
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                "[scout_stream::mlx_device] config compare against device successful",
             );
 
             match comparison_result.try_into() {
@@ -987,9 +1019,10 @@ pub fn handle_config_compare(
                 },
                 Err(e) => {
                     tracing::error!(
-                        "[scout_stream::mlx_device] config compare result failed to serialize (device_id:{}, registry_name:{}): {e}",
-                        request.device_id,
-                        request.registry_name
+                        device_id = %request.device_id,
+                        registry_name = %request.registry_name,
+                        error = %e,
+                        "[scout_stream::mlx_device] config compare result failed to serialize",
                     );
                     mlx_device_pb::MlxDeviceConfigCompareResponse {
                         reply: Some(
@@ -1010,9 +1043,10 @@ pub fn handle_config_compare(
         }
         Err(e) => {
             tracing::error!(
-                "[scout_stream::mlx_device] config compare against device failed (device_id:{}, registry_name:{}): {e}",
-                request.device_id,
-                request.registry_name
+                device_id = %request.device_id,
+                registry_name = %request.registry_name,
+                error = %e,
+                "[scout_stream::mlx_device] config compare against device failed",
             );
             mlx_device_pb::MlxDeviceConfigCompareResponse {
                 reply: Some(
@@ -1060,8 +1094,8 @@ pub async fn apply_firmware(
         psid = %profile.firmware_spec.psid,
         firmware_url = %profile.flash_spec.firmware_url,
         firmware_credential_type,
-        device_conf_url = profile.flash_spec.device_conf_url.as_deref().unwrap_or("none"),
-        device_conf_credential_type,
+        device_configuration_url = profile.flash_spec.device_conf_url.as_deref().unwrap_or("none"),
+        device_configuration_credential_type = device_conf_credential_type,
         target_version = %profile.firmware_spec.version,
         "applying firmware"
     );
@@ -1075,7 +1109,7 @@ pub async fn apply_firmware(
                 device = %device,
                 part_number = %profile.firmware_spec.part_number,
                 psid = %profile.firmware_spec.psid,
-                %e,
+                error = %e,
                 "failed to create FirmwareFlasher"
             );
             return None;
@@ -1104,7 +1138,7 @@ pub async fn apply_firmware(
                 psid = %profile.firmware_spec.psid,
                 firmware_url = %profile.flash_spec.firmware_url,
                 target_version = %profile.firmware_spec.version,
-                %e,
+                error = %e,
                 "firmware flash failed"
             );
             None
@@ -1129,7 +1163,7 @@ pub(crate) fn apply_profile(
     if let Err(e) = applier.reset_config() {
         tracing::error!(
             device = %device,
-            %e,
+            error = %e,
             "mlxconfig reset failed"
         );
         return (profile.map(|p| p.name), Some(false));
@@ -1157,7 +1191,7 @@ pub(crate) fn apply_profile(
             tracing::error!(
                 device = %device,
                 profile = %name,
-                %e,
+                error = %e,
                 "mlxconfig profile sync failed"
             );
             (Some(name), Some(false))

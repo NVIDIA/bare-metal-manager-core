@@ -104,15 +104,18 @@ async fn generate_missing_sku_for_machine(
     }
     let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.as_ref() else {
         tracing::debug!(
-            "No SKU assigned to machine {}",
-            mh_snapshot.host_snapshot.id
+            machine_id = %mh_snapshot.host_snapshot.id,
+            "No SKU assigned"
         );
         return false;
     };
 
     // its unlikely we got here without a bmc mac
     let Some(bmc_mac_address) = mh_snapshot.host_snapshot.bmc_info.mac else {
-        tracing::debug!("No bmc mac for machine {}", mh_snapshot.host_snapshot.id);
+        tracing::debug!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            "No BMC MAC address configured"
+        );
         return false;
     };
 
@@ -123,7 +126,11 @@ async fn generate_missing_sku_for_machine(
         .flatten()
         .is_none_or(|em| em.data.sku_id.as_ref().is_none_or(|id| id != sku_id))
     {
-        tracing::debug!("No expected machine for bmc {}", bmc_mac_address);
+        tracing::debug!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            %bmc_mac_address,
+            "No expected machine for bmc"
+        );
         return false;
     }
 
@@ -552,7 +559,11 @@ pub(crate) async fn handle_bom_validation_state(
 
                 let diffs = diff_skus(&actual_sku, &expected_sku);
                 for diff in &diffs {
-                    tracing::error!(machine_id=%mh_snapshot.host_snapshot.id, "{}", diff);
+                    tracing::error!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        difference = %diff,
+                        "SKU validation mismatch",
+                    );
                 }
 
                 if diffs.is_empty() {

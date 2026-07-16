@@ -84,7 +84,7 @@ pub async fn handle_show_measurement_journal(
                 match db::measured_boot::journal::get_latest_journal_for_id(
                     &mut txn,
                     MachineId::from_str(&machine_id).map_err(|e| {
-                        CarbideError::InvalidArgument(format!("Could not parse MachineId: {e}"))
+                        CarbideError::InvalidArgument(format!("could not parse MachineId: {e}"))
                     })?,
                 )
                 .await

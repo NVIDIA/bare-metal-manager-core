@@ -115,6 +115,12 @@ func TestSSHKeyHandler_Create(t *testing.T) {
 	skg2 := testBuildSSHKeyGroup(t, dbSession, "sre-ssh-group-2", tnOrg, nil, tn1.ID, nil, cdbm.SSHKeyGroupStatusDeleting, tnu1.ID)
 	assert.NotNil(t, skg2)
 
+	skg3 := testBuildSSHKeyGroup(t, dbSession, "sre-ssh-group-3", tnOrg, nil, tn1.ID, nil, cdbm.SSHKeyGroupStatusSynced, tnu1.ID)
+	assert.NotNil(t, skg3)
+
+	skgsa3 := testBuildSSHKeyGroupSiteAssociation(t, dbSession, skg3.ID, st1.ID, nil, cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu1.ID)
+	assert.NotNil(t, skgsa3)
+
 	goodPublicKey1 := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICip4hl6WjuVHs60PeikVUs0sWE/kPhk2D0rRHWsIuyL jdoe@test.com"
 	goodPublicKeyRSA1 := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDBlrwxTSSkPGrJ5nfJsx1AXHP/JCLMO1ukrSJqZThZ+CHrk5l2UeRFc0eD6RM+DoQ/YWoSoFItMIV8SdcDBKfG4lXrMLkr13IyBZ5c6RaEn9a4BEhhfFzWuXJoxnvPSSOboiuhYNDa58oj0Qp+TYX475NDBoE48ZmHA8RWPirD7KgzAgsq3Tdj1CZG60Zy2ff/mpcpNkmoU0KuVhtIy0eqXtv3GQmuKKiJf8GNIMZ7gjzZsQkSmYmpUmCQbQGQ7VzuRLVjUElcI8oAedIWSkk7fWoJBBd1jAGr4ATxbf0ltzcVvnCeNmU3f6n1sjKIuKavPRQnD3IntR2O38RgSOuv jdoe1@test1.com"
 	goodPublicKeyRSA2 := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCKAzJrQfiWS2z/fOfDkSromUi7wv9KYwtL4IROE8hBoF8KRPysSzIglcqE65+xjJP1utFFh3YXgpe+MQMeRTshVXyqqGo04nNAO+/XvgakAdPH2w6zC30Yd+Ex4AbeJkvV0NfVZdOad52W3LnDic5t1dyhcam4Ig8o97RH919Ih08RGcewKNF46WQODJr7SdA3o0/iPVHatkKmU2HNEx2gVbVMyttn4iuYmm12UeN7KESFEkHO5Ayu5hJS74mBwvytQH5iz63G7lVIa2bGPpK8/korRS/++gMl0oncFQYJ07FlInDhlT+BmotpMtWvHWI5Ajf+3rOfSSQ6w/whDh05"
@@ -132,6 +138,9 @@ func TestSSHKeyHandler_Create(t *testing.T) {
 	errBodyPublicKeyConflict, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok5", PublicKey: goodPublicKey1})
 	assert.Nil(t, err)
 	okBodyWithDeletingSSHKeyGroup, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok6", PublicKey: goodPublicKeyRSA2, SSHKeyGroupID: cutil.GetPtr(skg2.ID.String())})
+	assert.Nil(t, err)
+	goodPublicKeyRSA3 := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCBlrwxTSSkPGrJ5nfJsx1AXHP/JCLMO1ukrSJqZThZ+CHrk5l2UeRFc0eD6RM+DoQ/YWoSoFItMIV8SdcDBKfG4lXrMLkr13IyBZ5c6RaEn9a4BEhhfFzWuXJoxnvPSSOboiuhYNDa58oj0Qp+TYX475NDBoE48ZmHA8RWPirD7KgzAgsq3Tdj1CZG60Zy2ff/mpcpNkmoU0KuVhtIy0eqXtv3GQmuKKiJf8GNIMZ7gjzZsQkSmYmpUmCQbQGQ7VzuRLVjUElcI8oAedIWSkk7fWoJBBd1jAGr4ATxbf0ltzcVvnCeNmU3f6n1sjKIuKavPRQnD3IntR2O38RgSOuv jdoe3@test.com"
+	okBodyWithSSHKeyGroupWithSite, err := json.Marshal(model.APISSHKeyCreateRequest{Name: "ok7", PublicKey: goodPublicKeyRSA3, SSHKeyGroupID: cutil.GetPtr(skg3.ID.String())})
 	assert.Nil(t, err)
 
 	errBodyDoesntValidate, err := json.Marshal(struct{ Name string }{Name: "test"})
@@ -252,10 +261,21 @@ func TestSSHKeyHandler_Create(t *testing.T) {
 			expectedStatus: http.StatusCreated,
 		},
 		{
-			name:                      "success case sshkeygroup specified",
+			name:                      "success case sshkeygroup specified with no site associations, status unchanged",
 			reqOrgName:                tnOrg,
 			reqBody:                   string(okBodyWithSSHKeyGroup),
 			reqSSHKeyGroupID:          skg1.ID,
+			user:                      tnu1,
+			expectedErr:               false,
+			expectedStatus:            http.StatusCreated,
+			expectedSSHKeyGroup:       true,
+			expectedSSHKeyGroupStatus: cdbm.SSHKeyGroupStatusSynced,
+		},
+		{
+			name:                      "success case sshkeygroup specified with a site association, status set to syncing",
+			reqOrgName:                tnOrg,
+			reqBody:                   string(okBodyWithSSHKeyGroupWithSite),
+			reqSSHKeyGroupID:          skg3.ID,
 			user:                      tnu1,
 			expectedErr:               false,
 			expectedStatus:            http.StatusCreated,

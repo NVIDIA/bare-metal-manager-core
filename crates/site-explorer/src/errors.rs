@@ -21,9 +21,9 @@ use model::site_explorer::EndpointExplorationError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SiteExplorerError {
-    #[error("Database error: {0}")]
+    #[error("database error: {0}")]
     DatabaseError(#[from] DatabaseError),
-    #[error("Model error: {0}")]
+    #[error("model error: {0}")]
     ModelError(#[from] ModelError),
     #[error("{kind} already exists: {id}")]
     AlreadyFoundError {
@@ -39,7 +39,7 @@ pub enum SiteExplorerError {
         /// The ID of the resource that was not found
         id: String,
     },
-    #[error("Argument is invalid: {0}")]
+    #[error("argument is invalid: {0}")]
     InvalidArgument(String),
     #[error("EndpointExplorationError for {action}: {err}")]
     EndpointExplorationError {
@@ -47,7 +47,7 @@ pub enum SiteExplorerError {
         /// Actual endpiing exploration error.
         err: EndpointExplorationError,
     },
-    #[error("Internal error: {message}")]
+    #[error("internal error: {message}")]
     Internal { message: String },
 }
 

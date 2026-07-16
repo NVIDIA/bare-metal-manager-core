@@ -208,13 +208,13 @@ pub struct Ufm {
 
 #[derive(Error, Debug)]
 pub enum UFMError {
-    #[error("Invalid argument: {0}")]
+    #[error("invalid argument: {0}")]
     InvalidArgument(String),
-    #[error("Invalid pkey '{0}'")]
+    #[error("invalid pkey '{0}'")]
     InvalidPKey(String),
-    #[error("Invalid configuration: '{0}'")]
+    #[error("invalid configuration: '{0}'")]
     InvalidConfig(String),
-    #[error("Response body can not be deserialized: {body}")]
+    #[error("response body can not be deserialized: {body}")]
     MalformedResponse {
         status_code: u16,
         body: String,
@@ -231,7 +231,7 @@ pub enum UFMError {
     /// This error type is just needed because UFM in some cases does not return a 404 status
     /// code but a 200 status code with a body containing {}
     #[error(
-        "Resource at path {path} was not found. UFM returned: '{body}'. Status code: {status_code}"
+        "resource at path {path} was not found. UFM returned: '{body}'. status code: {status_code}"
     )]
     NotFound {
         path: String,

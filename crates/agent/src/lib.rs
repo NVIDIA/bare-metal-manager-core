@@ -119,7 +119,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // development overrides
         Some(config_path) => (
             AgentConfig::load_from(&config_path).wrap_err(format!(
-                "Error loading agent configuration from {}",
+                "error loading agent configuration from {}",
                 config_path.display()
             ))?,
             config_path.display().to_string(),
@@ -129,7 +129,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         .machine_identity
         .validate()
         .map_err(|e| eyre::eyre!("invalid [machine-identity] in agent config: {e}"))?;
-    tracing::info!("Using configuration from {path}: {agent:?}");
+    tracing::info!(config_path = path.as_str(), ?agent, "Using configuration");
 
     if agent.machine.is_fake_dpu {
         tracing::warn!("Pretending local host is a DPU. Dev only.");
@@ -243,7 +243,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 None => NetworkPingerType::OobNetBind,
             };
 
-            tracing::info!("Using {}", pinger_type);
+            tracing::info!(%pinger_type, "Using pinger");
             let pinger: Arc<dyn Ping> = Arc::from(pinger_type);
 
             let mut network_monitor =
@@ -299,7 +299,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             {
                 Ok(id) => id,
                 Err(e) => {
-                    tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+                    tracing::error!(error = ?e, "Failed to get host machine ID after retries");
                     return Err(e);
                 }
             };
@@ -313,7 +313,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             // Legacy ETV write targets are no longer supported
             WriteTarget::Frr(_) | WriteTarget::Interfaces(_) | WriteTarget::Dhcp(_) => {
                 eyre::bail!(
-                    "Legacy ETV write targets (frr, interfaces, dhcp) are no longer supported. Use 'write nvue' instead."
+                    "legacy ETV write targets (frr, interfaces, dhcp) are no longer supported. use 'write nvue' instead"
                 );
             }
 
@@ -509,12 +509,12 @@ async fn register(
     let factory_mac_address: MacAddress = match hardware_info.dpu_info.as_ref() {
         Some(dpu_info) => dpu_info.factory_mac_address.parse().map_err(|e| {
             eyre::eyre!(
-                "Failed to parse factory MAC address from DPU info: {} (err: {})",
+                "failed to parse factory MAC address from DPU info: {} (err: {})",
                 dpu_info.factory_mac_address,
                 e
             )
         })?,
-        None => eyre::bail!("Missing DPU info, should be impossible"),
+        None => eyre::bail!("missing DPU info, should be impossible"),
     };
 
     let (registration_data, ..) = register_machine(

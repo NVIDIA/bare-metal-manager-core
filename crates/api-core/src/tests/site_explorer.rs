@@ -59,7 +59,6 @@ async fn test_disable_machine_creation_outside_site_explorer(
         create_machines: Arc::new(true.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -595,7 +594,7 @@ async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::
     assert_eq!(
         error.message(),
         format!(
-            "Cannot delete endpoint {host_ip} because a machine exists for it. Did you mean to force-delete the machine?"
+            "cannot delete endpoint {host_ip} because a machine exists for it. did you mean to force-delete the machine?"
         )
     );
 
@@ -612,7 +611,7 @@ async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::
     assert_eq!(
         error.message(),
         format!(
-            "Cannot delete endpoint {dpu_ip} because a machine exists for it. Did you mean to force-delete the machine?"
+            "cannot delete endpoint {dpu_ip} because a machine exists for it. did you mean to force-delete the machine?"
         )
     );
 

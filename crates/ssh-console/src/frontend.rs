@@ -130,7 +130,7 @@ impl Handler {
             return Some(state);
         }
 
-        tracing::error!(peer_addr = self.peer_addr, "Request on unknown channel");
+        tracing::error!(peer_address = self.peer_addr, "Request on unknown channel");
         session.channel_failure(channel_id).ok();
         session
             .data(channel_id, "ssh-console error: Unknown channel\n")
@@ -142,7 +142,7 @@ impl Handler {
 
 impl Drop for Handler {
     fn drop(&mut self) {
-        tracing::info!(peer_addr = self.peer_addr, "end frontend connection");
+        tracing::info!(peer_address = self.peer_addr, "end frontend connection");
         // All auth failure paths set self.last_auth_failure, but auth can still succeed (they may
         // be trying multiple pubkeys, etc.) So if authenticated_user is None but last_auth_failure
         // is Some, bump the metrics.
@@ -152,14 +152,14 @@ impl Drop for Handler {
             let machine = last_auth_failure.machine_string();
             if let Some(user) = &last_auth_failure.detected_user() {
                 tracing::warn!(
-                    peer_addr = self.peer_addr,
+                    peer_address = self.peer_addr,
                     %user,
                     %machine,
                     "authentication failed",
                 );
             } else {
                 tracing::warn!(
-                    peer_addr = self.peer_addr,
+                    peer_address = self.peer_addr,
                     %machine,
                     "authentication failed",
                 );
@@ -180,7 +180,7 @@ impl russh::server::Handler for Handler {
         session: &mut Session,
     ) -> Result<bool, Self::Error> {
         use HandlerError::*;
-        tracing::trace!(peer_addr = self.peer_addr, "channel_open_session");
+        tracing::trace!(peer_address = self.peer_addr, "channel_open_session");
         let Some(machine) = &self.authenticated_machine_string else {
             return Err(MissingAuthenticatedUser {
                 method: "channel_open_session",
@@ -224,7 +224,7 @@ impl russh::server::Handler for Handler {
     }
 
     async fn auth_none(&mut self, _user: &str) -> Result<Auth, Self::Error> {
-        tracing::trace!(peer_addr = self.peer_addr, "auth_none");
+        tracing::trace!(peer_address = self.peer_addr, "auth_none");
         Ok(Auth::Reject {
             // Note: openssh_certificate auth is just another kind of PublicKey auth, this should
             // imply either one.
@@ -238,7 +238,7 @@ impl russh::server::Handler for Handler {
         machine_string: &str,
         certificate: &Certificate,
     ) -> Result<Auth, Self::Error> {
-        tracing::trace!(peer_addr = self.peer_addr, "auth_openssh_certificate");
+        tracing::trace!(peer_address = self.peer_addr, "auth_openssh_certificate");
         let Some(admin_certificate_role) = self.config.admin_certificate_role.as_ref() else {
             tracing::debug!("skipping ssh certificate auth, no admin role is configured");
             return Ok(Auth::Reject {
@@ -257,7 +257,7 @@ impl russh::server::Handler for Handler {
 
         if !is_trusted {
             tracing::warn!(
-                peer_addr = self.peer_addr,
+                peer_address = self.peer_addr,
                 machine = machine_string,
                 "openssh certificate CA certificate not trusted, rejecting authentication"
             );
@@ -277,8 +277,10 @@ impl russh::server::Handler for Handler {
             &self.config.openssh_certificate_authorization,
         ) {
             tracing::warn!(
-                peer_addr = self.peer_addr,
-                "certificate auth failed for user {machine_string}, not in role {admin_certificate_role}",
+                peer_address = self.peer_addr,
+                machine = machine_string,
+                role = admin_certificate_role.as_str(),
+                "certificate auth failed because the required role is missing",
             );
             self.last_auth_failure = Some(AuthFailureReason::Certificate {
                 user,
@@ -292,13 +294,18 @@ impl russh::server::Handler for Handler {
 
         if let Some(user) = &user {
             tracing::info!(
-                peer_addr = self.peer_addr,
-                "certificate auth succeeded for user {user} to machine {machine_string}, in role {admin_certificate_role}"
+                peer_address = self.peer_addr,
+                user = user.as_str(),
+                machine = machine_string,
+                role = admin_certificate_role.as_str(),
+                "certificate auth succeeded"
             );
         } else {
             tracing::info!(
-                peer_addr = self.peer_addr,
-                "certificate auth succeeded to machine {machine_string}, in role {admin_certificate_role}"
+                peer_address = self.peer_addr,
+                machine = machine_string,
+                role = admin_certificate_role.as_str(),
+                "certificate auth succeeded"
             );
         }
         self.authenticated_machine_string = Some(machine_string.to_owned());
@@ -311,7 +318,7 @@ impl russh::server::Handler for Handler {
         public_key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
         use HandlerError::*;
-        tracing::trace!(peer_addr = self.peer_addr, "auth_publickey");
+        tracing::trace!(peer_address = self.peer_addr, "auth_publickey");
 
         // Authentication flow:
         // 1. If authorized_keys_path is set, check against file first
@@ -334,16 +341,16 @@ impl russh::server::Handler for Handler {
                 })?
         } else {
             tracing::debug!(
-                peer_addr = self.peer_addr,
-                machine_string,
-                "rejecting public key for user {machine_string}"
+                peer_address = self.peer_addr,
+                ssh_username = machine_string,
+                "rejecting public key for user"
             );
             false
         };
 
         let success = if !success && self.config.insecure {
             tracing::info!(
-                peer_addr = self.peer_addr,
+                peer_address = self.peer_addr,
                 "Overriding public-key rejection because we are in insecure (testing) mode"
             );
             true
@@ -372,7 +379,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(peer_addr = self.peer_addr, "data");
+        tracing::trace!(peer_address = self.peer_addr, "data");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
                 .bmc_connection
@@ -394,7 +401,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(peer_addr = self.peer_addr, "extended_data");
+        tracing::trace!(peer_address = self.peer_addr, "extended_data");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
                 .bmc_connection
@@ -422,7 +429,7 @@ impl russh::server::Handler for Handler {
         _modes: &[(Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(peer_addr = self.peer_addr, "pty_request");
+        tracing::trace!(peer_address = self.peer_addr, "pty_request");
         session.channel_success(channel)?;
         Ok(())
     }
@@ -432,7 +439,7 @@ impl russh::server::Handler for Handler {
         channel_id: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(peer_addr = self.peer_addr, "shell_request");
+        tracing::trace!(peer_address = self.peer_addr, "shell_request");
         let peer_addr = self.peer_addr.clone();
         let Some(client_state) = self.get_client_state_or_report_error(session, channel_id) else {
             return Ok(());
@@ -444,7 +451,7 @@ impl russh::server::Handler for Handler {
         // (which makes sense.)
         let Some(channel) = client_state.client_channel.take() else {
             tracing::error!(
-                peer_addr = self.peer_addr,
+                peer_address = self.peer_addr,
                 "Channel unavailable, cannot service shell request"
             );
             session.channel_failure(channel_id).ok();
@@ -514,7 +521,7 @@ impl russh::server::Handler for Handler {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(peer_addr = self.peer_addr, "exec_request");
+        tracing::trace!(peer_address = self.peer_addr, "exec_request");
         let Some(PerClientState {
             client_channel,
             bmc_connection,
@@ -526,7 +533,7 @@ impl russh::server::Handler for Handler {
         // Drop the client channel when we're done, so that it properly disconnects.
         let Some(channel) = client_channel.take() else {
             tracing::error!(
-                peer_addr = self.peer_addr,
+                peer_address = self.peer_addr,
                 "Channel unavailable, cannot service exec request"
             );
             session.channel_failure(channel_id).ok();
@@ -590,7 +597,7 @@ impl russh::server::Handler for Handler {
         pix_height: u32,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        tracing::trace!(peer_addr = self.peer_addr, "window_change_request");
+        tracing::trace!(peer_address = self.peer_addr, "window_change_request");
         if let Some(client_state) = self.get_client_state_or_report_error(session, channel) {
             client_state
                 .bmc_connection
@@ -614,7 +621,7 @@ impl russh::server::Handler for Handler {
 pub enum HandlerError {
     #[error("BUG: {method} called but we don't have an authenticated user")]
     MissingAuthenticatedUser { method: &'static str },
-    #[error("Could not get BMC connection for {machine}: {error}")]
+    #[error("could not get BMC connection for {machine}: {error}")]
     GettingBmcConnection {
         machine: String,
         error: GetConnectionError,
@@ -629,7 +636,7 @@ pub enum HandlerError {
     WritingToChannel { what: &'static str },
     #[error("BMC connection for {machine_id} dropped before we could subscribe to messages")]
     BmcDisconnectedBeforeSubscribe { machine_id: MachineId },
-    #[error("Error performing pubkey auth via admin authorized_keys for {machine_id}: {error}")]
+    #[error("error performing pubkey auth via admin authorized_keys for {machine_id}: {error}")]
     PubkeyAuthAdminAuthorizedKeys {
         machine_id: String,
         error: PubkeyAuthError,
@@ -645,12 +652,12 @@ pub enum HandlerError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum PubkeyAuthError {
-    #[error("Error reading authorized_keys file at {path}: {error}")]
+    #[error("error reading authorized_keys file at {path}: {error}")]
     ReadingAuthorizedKeys {
         path: String,
         error: russh::keys::ssh_key::Error,
     },
-    #[error("Unexpected error calling carbide-api to validate pubkey for {user}: {tonic_status}")]
+    #[error("unexpected error calling carbide-api to validate pubkey for {user}: {tonic_status}")]
     CarbideApi {
         user: String,
         tonic_status: tonic::Status,
@@ -760,7 +767,8 @@ async fn pubkey_auth_tenant(
             Code::InvalidArgument => {
                 // InvalidArgument can happen if the user is not a valid instance ID.
                 tracing::warn!(
-                    "InvalidArgument when calling carbide-api to validate pubkey for {user}"
+                    user,
+                    "InvalidArgument when validating public key via carbide-api"
                 );
                 false
             }

@@ -44,7 +44,10 @@ pub async fn request_ip(
     api_client: ApiClient,
     request_info: DhcpRequestInfo,
 ) -> DhcpRelayResult<DhcpResponseInfo> {
-    tracing::debug!("requesting ip for mac: {}", request_info.mac_address);
+    tracing::debug!(
+        mac_address = %request_info.mac_address,
+        "Requesting IP address",
+    );
 
     let dhcp_record = api_client
         .discover_dhcp(
@@ -55,15 +58,18 @@ pub async fn request_ip(
         )
         .await
         .inspect_err(|e| {
-            tracing::warn!("discover_dhcp failed: {e}");
+            tracing::warn!(
+                error = %e,
+                "discover_dhcp failed",
+            );
         })?;
 
     tracing::info!(
-        "dhcp request for {} through relay {} got address {} (machine id {:?})",
-        request_info.mac_address,
-        request_info.relay_address,
-        dhcp_record.address,
-        dhcp_record.machine_id,
+        mac_address = %request_info.mac_address,
+        relay_address = %request_info.relay_address,
+        assigned_address = %dhcp_record.address,
+        machine_id = ?dhcp_record.machine_id,
+        "DHCP request received an address",
     );
 
     let interface_uuid = dhcp_record.machine_interface_id.ok_or_else(|| {
@@ -85,9 +91,9 @@ pub async fn request_ip(
 
 #[derive(thiserror::Error, Debug)]
 pub enum DhcpRelayError {
-    #[error("Client API error: {0}")]
+    #[error("client API error: {0}")]
     ClientApiError(#[from] ClientApiError),
-    #[error("Invalid DHCP record: {0}")]
+    #[error("invalid DHCP record: {0}")]
     InvalidDhcpRecord(String),
 }
 

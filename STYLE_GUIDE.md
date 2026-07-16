@@ -162,26 +162,79 @@ count, like per-machine or per-instance attributes.
 All services should emit logs in "logfmt" syntax. This structured logging format allows administrators to efficiently
 search logs by certain attributes (key/value pairs).
 
-When writing log messages, prefer placing common fields as attributes passed to tracing function, instead of using
-string interpolation. For example:
+Tracing events must use a stable, human-readable string literal for the message and record dynamic operational values
+as structured fields whenever a meaningful field name can be derived. Do not interpolate such values into the message,
+including when the event already contains other structured fields.
+
+Describe the event in the message; do not narrate fields that already describe themselves. For example, prefer
+`info!(%domain_id, "Domain created")` over `info!(%domain_id, "Domain created with ID")`, and prefer
+`info!(%instance_id, %ip_address, "Instance is terminating")` over a message ending in `"at address"`. Keep wording
+that conveys a relationship, source, destination, or behavior that the field names alone do not express.
+
+Use native field shorthand for types that implement `tracing::Value`, `%field` for `Display`, and `?field` for `Debug`.
+Use consistent semantic field names rather than incidental local variable names; for example, record an error held in
+`e` as `error = %e`. Do not reuse formatter metadata keys such as `level`, `msg`, `location`, or `span_id`; choose a
+domain-specific key such as `configured_log_level` or `error_location` instead.
+
+Field names are part of the operational interface: dashboards, alerts, and ad hoc searches depend on them. The table
+below defines the common vocabulary. It is not an exhaustive schema -- event-specific fields should still describe
+their values precisely -- but do not introduce an alias for one of these concepts.
+
+| Concept | Field name | Notes |
+|---|---|---|
+| Rust error | `error` | Normalize incidental bindings such as `e` and `err` with `error = %e`. Supplemental forms such as `error_chain` may accompany, but not replace, `error`. |
+| gRPC status code | `grpc_status_code` | Keep the transport namespace explicit; do not shorten it to `code`. |
+| HTTP status | `http_status` | Use for the complete HTTP status or its numeric code; do not introduce `status_code` aliases. |
+| Domain explanation | `reason` | Use for an outcome or persisted explanation that is not a Rust error. Keep typed domain fields such as `failure_cause` when that is the model's actual name. |
+| IP address | `ip_address` | Add a semantic role when known, such as `bmc_ip_address`, `source_ip_address`, or `host_bmc_ip_address`; do not shorten it to `ip` or `addr`. |
+| MAC address | `mac_address` | Add a semantic role when known, such as `bmc_mac_address` or `interface_mac_address`; do not shorten it to `mac`. |
+| Socket or service address | role-specific `*_address` | Prefer names such as `listen_address`, `peer_address`, `metrics_address`, or `endpoint_address`; reserve `*_ip_address` for an IP without a port. |
+| Entity state | role-specific `*_state` | Prefer `machine_state` or `instance_state` over bare `state`. Use `previous_state`, `next_state`, and `target_state` for transitions. |
+| Cardinality | `<thing>_count` | Name what is counted; avoid bare `count`, `total`, or `num_*`. Put qualifiers before the noun, as in `pending_partition_count`. |
+| Quantity | `<thing>_<unit>` | Include the unit when it is not encoded by the type, such as `file_size_bytes`, `retry_delay_seconds`, or `elapsed_milliseconds`. |
+| Command | `command` | Do not introduce local abbreviations such as `cmd`. Use the same full-word rule for keys such as `interface_name` and `firmware_type`. |
+
+For a typed identifier, derive the default field name from the Rust type name in snake case. Common examples include
+`MachineId` -> `machine_id`, `MachineInterfaceId` -> `machine_interface_id`, `InstanceId` -> `instance_id`, `VpcId` ->
+`vpc_id`, `VpcPrefixId` -> `vpc_prefix_id`, `NetworkSegmentId` -> `network_segment_id`, `NetworkPrefixId` ->
+`network_prefix_id`, `DpaInterfaceId` -> `dpa_interface_id`, `ExtensionServiceId` -> `extension_service_id`,
+`SpxPartitionId` -> `spx_partition_id`, `IBPartitionId` -> `ib_partition_id`, and `NvLinkLogicalPartitionId` ->
+`nvlink_logical_partition_id`. Preserve established product tokenization in field names; for example, the `NvLink`
+product name remains the single token `nvlink` rather than `nv_link`.
+
+Use a role qualifier when it distinguishes multiple values of the same type or preserves important lifecycle context,
+as in `host_machine_id`, `dpu_machine_id`, `source_machine_id`, or `failed_machine_id`. Otherwise prefer the type-derived
+name. Avoid bare or abbreviated identifiers such as `id`, `segment_id`, `dpa_id`, and `service_id` when the concrete
+identifier type is known. For network segments specifically, use `network_segment`, `network_segment_id`, and
+`network_segment_name` for the value, identifier, and name respectively.
+
+For example:
 
 ```rust
-fn avoid(machine_id: MachineId) {
+fn avoid(machine_id: MachineId, attempt_number: u32) {
     if let Err(e) = process_machine(machine_id) {
-        tracing::error!("process_machine failed for {machine_id}: {e}");
+        tracing::error!(
+            "failed to process machine {machine_id} on attempt {attempt_number}: {e}"
+        );
     }
 }
-fn prefer(machine_id: MachineId) {
+fn prefer(machine_id: MachineId, attempt_number: u32) {
     if let Err(e) = process_machine(machine_id) {
-        tracing::error!(%machine_id, error=%e, "process_machine failed");
+        tracing::error!(
+            %machine_id,
+            attempt_number,
+            error = %e,
+            "failed to process machine",
+        );
     }
 }
-
 ```
 
-This helps in log parsing, especially when we want to find logs corresponding to a given machine_id. `error` and
-`machine_id` are probably the two most important examples, but try to express other relevant data as fields instead of
-using interpolation if it makes sense.
+Keep intentional presentation formatting intact when the rendered text is itself the payload, such as CLI output,
+aligned tables, or multi-line displays. Passthrough helpers and macros whose purpose is to forward caller-supplied text
+unchanged are also exempt from the literal-message requirement. Preserve special or custom formatting when converting
+it would change behavior; add structured fields alongside it when that can be done without changing the rendered
+output.
 
 ## Core API handlers
 
@@ -695,3 +748,103 @@ fn prefer() {
     fails().ok();
 }
 ```
+
+### Avoid stringly-typed values
+
+When a value has a known, finite set of possibilities, model it with an enum
+(or a struct of enums) and implement traits `Display` and `FromStr` — do not
+pass it around as a bare `String` or `&str` literal. Stringly-typed values are
+easy to misspell (`NICO-` vs `NICOO-`), silently break log filters and alerts,
+and can't be exhaustively checked by the compiler. See
+[`ErrorCode`](crates/api-model/src/errors.rs) for the pattern: typed
+`ErrorSystem`/`ErrorSubsystem` parts plus a `code`, rendered to the wire string
+in one place. Reserve raw strings for genuinely open-ended values.
+
+### Prefer methods over free functions
+
+When a function operates primarily on a specific type, define it as a method on that type rather than a free-standing function. This keeps related behavior co-located with the type, makes it easier to discover via autocomplete, and reads more naturally at the call site.
+
+```rust
+// Avoid — free function that operates on a specific type
+fn machine_display_name(machine: &Machine) -> String {
+    format!("{} ({})", machine.hostname, machine.id)
+}
+
+fn is_machine_ready(machine: &Machine) -> bool {
+    machine.state == MachineState::Ready && machine.health.is_ok()
+}
+
+// Prefer — methods on the type itself
+impl Machine {
+    fn display_name(&self) -> String {
+        format!("{} ({})", self.hostname, self.id)
+    }
+
+    fn is_ready(&self) -> bool {
+        self.state == MachineState::Ready && self.health.is_ok()
+    }
+}
+```
+
+This applies to enums as well:
+
+```rust
+// Avoid
+fn is_terminal_state(state: &MachineState) -> bool {
+    matches!(state, MachineState::Failed | MachineState::Decommissioned)
+}
+
+fn state_label(state: &MachineState) -> &'static str {
+    match state {
+        MachineState::Ready => "ready",
+        MachineState::Failed => "failed",
+        MachineState::Decommissioned => "decommissioned",
+    }
+}
+
+// Prefer
+impl MachineState {
+    fn is_terminal(&self) -> bool {
+        matches!(self, Self::Failed | Self::Decommissioned)
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Failed => "failed",
+            Self::Decommissioned => "decommissioned",
+        }
+    }
+}
+```
+
+Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather than a single type, or is a utility with no natural owner.
+
+### Error message style
+
+Error messages follow the Rust API Guidelines ([C-GOOD-ERR]): the `Display` text of an error should
+be a lowercase phrase with no trailing period. Errors are frequently wrapped into a larger chain, and
+lowercase fragments compose cleanly where a capitalized, punctuated sentence would not:
+
+```rust
+// Avoid — capitalized and punctuated; jarring once it's wrapped
+#[error("Failed to open the config file.")]
+// -> "error starting service: Failed to open the config file.: permission denied"
+
+// Prefer — lowercase, no trailing period
+#[error("failed to open the config file")]
+// -> "error starting service: failed to open the config file: permission denied"
+```
+
+This applies to every error-message surface: `thiserror`'s `#[error("...")]`, `anyhow!`/`bail!`,
+`.context()`/`.wrap_err()`, and `CarbideError`/`Status` constructors. Every plain capitalized word is
+lowercased (`Generic Quote Error: {0}` becomes `generic quote error: {0}`); a word carrying an internal
+capital -- an acronym (`BMC`), an acronym-prefix (`DHCPv4`), or a CamelCase identifier
+(`CreateVirtualNetwork`) -- is left as-is, as is a lone capital letter (which can't be told
+apart from a single-letter identifier such as a DNS `A` record).
+
+`cargo make lint-error-messages` enforces this in CI; `cargo xtask lint-error-messages --fix` rewrites
+offenders in place. For the rare message that must keep its casing (a quoted external string, say), add
+a `// xtask:allow-error-case` comment on, or directly above, the line.
+
+[C-GOOD-ERR]: https://rust-lang.github.io/api-guidelines/interoperability.html#c-good-err

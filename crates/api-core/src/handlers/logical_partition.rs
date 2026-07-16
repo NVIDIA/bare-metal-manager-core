@@ -204,12 +204,12 @@ pub(crate) async fn update(
 
     let config = req
         .config
-        .ok_or_else(|| CarbideError::InvalidArgument("Config must be provided".to_string()))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("config must be provided".to_string()))?;
 
     let metadata: model::metadata::Metadata = config
         .metadata
         .clone()
-        .ok_or_else(|| CarbideError::InvalidArgument("Metadata must be provided".to_string()))?
+        .ok_or_else(|| CarbideError::InvalidArgument("metadata must be provided".to_string()))?
         .try_into()?;
     metadata.validate(true).map_err(CarbideError::from)?;
 
@@ -237,7 +237,7 @@ pub(crate) async fn update(
 
     if config.tenant_organization_id != partition.tenant_organization_id.to_string() {
         return Err(CarbideError::InvalidArgument(
-            "Tenant organization ID should not be updated".to_string(),
+            "tenant organization ID should not be updated".to_string(),
         )
         .into());
     }

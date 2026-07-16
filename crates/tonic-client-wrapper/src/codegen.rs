@@ -29,18 +29,18 @@ use crate::utils::{base_types, field_is_optional, resolve_field_primitive_type};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Invalid token for {target}: {error}")]
+    #[error("invalid token for {target}: {error}")]
     InvalidToken {
         target: String,
         error: proc_macro2::LexError,
     },
     #[error(transparent)]
     Lex(#[from] LexError),
-    #[error("Invalid protobuf type: {0}")]
+    #[error("invalid protobuf type: {0}")]
     InvalidProtobufType(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    #[error("Syntax error in generated code: {0}")]
+    #[error("syntax error in generated code: {0}")]
     Syntax(#[from] syn::Error),
 }
 

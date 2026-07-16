@@ -55,8 +55,9 @@ pub async fn create_initial_domain(
         let names: Vec<String> = domains.into_iter().map(|d| d.name).collect();
         if !names.iter().any(|n| n == domain_name) {
             tracing::warn!(
-                "Initial domain name '{domain_name}' in config file does not match existing database domains: {:?}",
-                names
+                domain_name,
+                domains = ?names,
+                "Initial domain name in config file does not match existing database domains",
             );
         }
         Ok(false)
@@ -96,7 +97,10 @@ pub async fn create_initial_networks(
             // Network segments are only created the first time we start carbide-api;
             // `reconcile_network_defs` above has already recorded the snapshot if
             // it was missing (the backfill path).
-            tracing::debug!("Network segment {name} exists");
+            tracing::debug!(
+                network_segment_name = %name,
+                "Network segment exists",
+            );
             continue;
         }
 
@@ -112,12 +116,12 @@ pub async fn create_initial_networks(
                 }
                 [] => {
                     return Err(CarbideError::InvalidArgument(format!(
-                        "Network segment {name} references VPC {vpc_name}, but no VPC with that name exists"
+                        "network segment {name} references VPC {vpc_name}, but no VPC with that name exists"
                     )));
                 }
                 _ => {
                     return Err(CarbideError::InvalidArgument(format!(
-                        "Network segment {name} references VPC {vpc_name}, but multiple VPCs with that name exist"
+                        "network segment {name} references VPC {vpc_name}, but multiple VPCs with that name exist"
                     )));
                 }
             }
@@ -129,12 +133,19 @@ pub async fn create_initial_networks(
         // the id because `network_def.segment_id` is FK-bound to it.
         let segment_id = ns.id;
         // update_network_segments_svi_ip will take care of allocating svi ip.
-        tracing::info!("Creating network segment {name} from config: {ns:?}");
+        tracing::info!(
+            network_segment_name = %name,
+            network_segment = ?ns,
+            "Creating network segment from config",
+        );
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
         // Snapshot the network definition in the same transaction as the network_segment row,
         // so the two stay consistent across restarts.
         db::network_segment::insert_network_def(&mut txn, name, segment_id, def).await?;
-        tracing::info!("Created network segment {name}");
+        tracing::info!(
+            network_segment_name = %name,
+            "Created network segment",
+        );
     }
 
     ensure_static_assignments_segment(api, &mut txn, Some(domain_id)).await?;
@@ -154,7 +165,10 @@ pub async fn create_initial_vpcs(
             .await
             .is_ok_and(|v| !v.is_empty())
         {
-            tracing::debug!("VPC {name} exists");
+            tracing::debug!(
+                vpc_name = %name,
+                "VPC exists",
+            );
             continue;
         }
 
@@ -194,7 +208,10 @@ pub async fn create_initial_vpcs(
         }
 
         db::vpc::persist(vpc, VpcStatus { vni: Some(vni) }, &mut txn).await?;
-        tracing::info!("Created VPC {name}");
+        tracing::info!(
+            vpc_name = %name,
+            "Created VPC",
+        );
     }
 
     txn.commit().await?;
@@ -246,7 +263,10 @@ pub async fn ensure_static_assignments_segment(
         allocation_strategy: model::network_segment::AllocationStrategy::Reserved,
     };
     crate::handlers::network_segment::save(api, txn, ns, true, false).await?;
-    tracing::info!("Created internal {segment_name} segment for holding static assignments");
+    tracing::info!(
+        network_segment_name = segment_name,
+        "Created internal segment for holding static assignments",
+    );
 
     Ok(())
 }
@@ -311,8 +331,9 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
             }
             Err(err) => {
                 tracing::error!(
-                    "Updating SVI IP filed for segment: {} - Error: {err}",
-                    segment.id
+                    network_segment_id = %segment.id,
+                    error = %err,
+                    "Failed to update SVI IP",
                 );
                 txn.rollback().await?;
             }
@@ -350,7 +371,7 @@ pub(crate) async fn create_admin_vpc(
 ) -> Result<(), CarbideError> {
     let Some(vpc_vni) = vpc_vni else {
         return Err(CarbideError::internal(
-            "No VNI is configured for admin VPC.".to_string(),
+            "no VNI is configured for admin VPC".to_string(),
         ));
     };
 
@@ -384,7 +405,7 @@ pub(crate) async fn create_admin_vpc(
             .await?;
             if vpcs.len() != 1 {
                 return Err(CarbideError::internal(format!(
-                    "Admin network segment references missing VPC {admin_vpc_id}."
+                    "admin network segment references missing VPC {admin_vpc_id}"
                 )));
             }
             Some(vpcs.remove(0))
@@ -396,7 +417,7 @@ pub(crate) async fn create_admin_vpc(
                 db::vpc::find_by_vni(&mut txn, configured_vni).await?.pop()
             {
                 return Err(CarbideError::internal(format!(
-                    "Configured admin VPC VNI {configured_vni} is already used by VPC {}, but no admin VPC is attached to admin network segments.",
+                    "configured admin VPC VNI {configured_vni} is already used by VPC {}, but no admin VPC is attached to admin network segments",
                     conflicting_vpc.id
                 )));
             }
@@ -404,7 +425,7 @@ pub(crate) async fn create_admin_vpc(
         }
         _ => {
             return Err(CarbideError::internal(format!(
-                "Admin network segments are attached to multiple VPCs: {}.",
+                "admin network segments are attached to multiple VPCs: {}",
                 attached_admin_vpc_ids.iter().join(", ")
             )));
         }
@@ -419,7 +440,7 @@ pub(crate) async fn create_admin_vpc(
                 .find(|vpc| vpc.id != existing_vpc.id)
             {
                 return Err(CarbideError::internal(format!(
-                    "Configured admin VPC VNI {configured_vni} is already used by VPC {}, but admin network segments are attached to VPC {}.",
+                    "configured admin VPC VNI {configured_vni} is already used by VPC {}, but admin network segments are attached to VPC {}",
                     conflicting_vpc.id, existing_vpc.id
                 )));
             }
@@ -437,7 +458,7 @@ pub(crate) async fn create_admin_vpc(
             match admin_segment.config.vpc_id {
                 Some(vpc_id) if vpc_id != existing_vpc.id => {
                     return Err(CarbideError::internal(format!(
-                        "Mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}.",
+                        "mismatch found in admin vpc id {} and admin network segment's attached vpc id {vpc_id}",
                         existing_vpc.id
                     )));
                 }

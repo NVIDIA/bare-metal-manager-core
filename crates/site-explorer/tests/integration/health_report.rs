@@ -46,7 +46,6 @@ fn health_site_explorer_config() -> SiteExplorerConfig {
     SiteExplorerConfig {
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -156,7 +155,7 @@ async fn test_site_explorer_health_report(pool: PgPool) -> Result<(), Box<dyn st
             id: "BmcExplorationFailure".to_string(),
             target: Some(host_bmc_ip.to_string()),
             in_alert_since: None,
-            message: "Endpoint exploration failed: The endpoint was not reachable due to a generic network issue: None"
+            message: "Endpoint exploration failed: the endpoint was not reachable due to a generic network issue: None"
                 .to_string(),
             tenant_message: None,
             classifications: vec!["PreventAllocations".to_string()]

@@ -98,7 +98,10 @@ pub async fn apply(sh_path: &super::FPath) -> eyre::Result<()> {
             Ok(())
         }
         Err(err) => {
-            tracing::error!("update_intercept_bridging command failed: {err:#}");
+            tracing::error!(
+                error = format!("{err:#}"),
+                "update_intercept_bridging command failed"
+            );
 
             // If the config apply failed, we won't be using it, so move it out
             // of the way to an .error file for others to enjoy (while attempting
@@ -108,8 +111,9 @@ pub async fn apply(sh_path: &super::FPath) -> eyre::Result<()> {
                 && let Err(e) = fs::remove_file(path_error.clone())
             {
                 tracing::warn!(
-                    "Failed to remove previous error file ({}): {e}",
-                    path_error.display()
+                    error_file_path = %path_error.display(),
+                    error = %e,
+                    "Failed to remove previous error file"
                 );
             }
 
@@ -141,21 +145,22 @@ pub async fn run_apply(sh_path: &super::FPath) -> eyre::Result<()> {
     let mut cmd = tokio::process::Command::new("bash");
     cmd.arg(sh_path.to_string()).kill_on_drop(true);
     let cmd_str = super::pretty_cmd(cmd.as_std());
-    tracing::debug!("running intercept bridging commands: {cmd_str}");
+    tracing::debug!(
+        command = cmd_str.as_str(),
+        "running intercept bridging commands"
+    );
 
     let out = tokio::time::timeout(std::time::Duration::from_secs(3), cmd.output())
         .await
-        .wrap_err("Timeout")?
-        .wrap_err("Error running command")?;
+        .wrap_err("timeout")?
+        .wrap_err("error running command")?;
 
     if !out.status.success() {
         tracing::error!(
-            " STDOUT {cmd_str}: {}",
-            String::from_utf8_lossy(&out.stdout)
-        );
-        tracing::error!(
-            " STDERR {cmd_str}: {}",
-            String::from_utf8_lossy(&out.stderr)
+            command = cmd_str.as_str(),
+            stdout = %String::from_utf8_lossy(&out.stdout),
+            stderr = %String::from_utf8_lossy(&out.stderr),
+            "Intercept bridging command failed"
         );
 
         let path_error = sh_path.with_ext("error");

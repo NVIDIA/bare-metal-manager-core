@@ -302,12 +302,14 @@ impl BmcEndpointExplorer {
                     (Ok(report), Ok(nv_report)) => warn_report_diff(report, nv_report),
                     (Ok(_), Err(_)) => {
                         tracing::warn!(
-                            "libredfish returned success when nv-redfish error: {nvredfish:?}"
+                            nvredfish = ?nvredfish,
+                            "libredfish succeeded while nv-redfish returned an error"
                         );
                     }
                     (Err(_), Ok(_)) => {
                         tracing::warn!(
-                            "libredfish returned error: {libredfish:?}, when nv-redfish success"
+                            libredfish = ?libredfish,
+                            "libredfish returned an error while nv-redfish succeeded"
                         );
                     }
                     (Err(_), Err(_)) => (),
@@ -445,7 +447,7 @@ impl BmcEndpointExplorer {
         ) {
             tracing::info!(
                 %bmc_mac_address,
-                "Storing NVOS admin credentials in vault for switch {bmc_mac_address}"
+                "Storing NVOS admin credentials in vault"
             );
             self.credential_client
                 .set_bmc_nvos_admin_credentials(
@@ -653,7 +655,11 @@ impl EndpointExplorer for BmcEndpointExplorer {
         let vendor = match self.redfish_client.get_redfish_vendor(bmc_ip_address).await {
             Ok(vendor) => vendor,
             Err(e) => {
-                tracing::error!(%bmc_ip_address, "Failed to probe Redfish service root endpoint: {e}");
+                tracing::error!(
+                    %bmc_ip_address,
+                    error = %e,
+                    "Failed to probe Redfish service root endpoint"
+                );
 
                 // Lite-On power shelf BMCs don't expose Vendor details in the
                 // service root, so we fall back to probing the Chassis endpoint.
@@ -684,7 +690,11 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 {
                     Ok(v) => v,
                     Err(chassis_err) => {
-                        tracing::error!(%bmc_ip_address, "Failed to probe vendor from chassis: {chassis_err}");
+                        tracing::error!(
+                            %bmc_ip_address,
+                            error = %chassis_err,
+                            "Failed to probe vendor from chassis"
+                        );
                         return Err(e);
                     }
                 };
@@ -699,7 +709,11 @@ impl EndpointExplorer for BmcEndpointExplorer {
             }
         };
 
-        tracing::info!(%bmc_ip_address, "Is a {vendor} BMC that supports Redfish");
+        tracing::info!(
+            %bmc_ip_address,
+            %vendor,
+            "BMC supports Redfish"
+        );
 
         // Authenticate and set the BMC root account credentials
 
@@ -734,7 +748,10 @@ impl EndpointExplorer for BmcEndpointExplorer {
 
                         if consecutive_count > MAX_AUTH_RETRIES {
                             tracing::warn!(
-                                %bmc_ip_address, %bmc_mac_address, %details, consecutive_count,
+                                %bmc_ip_address,
+                                %bmc_mac_address,
+                                reason = %details,
+                                consecutive_unauthorized_count = consecutive_count,
                                 "BMC unauthorized error persisted - escalating to Unauthorized"
                             );
                             return Err(EndpointExplorationError::Unauthorized {
@@ -745,7 +762,10 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         }
 
                         tracing::warn!(
-                            %bmc_ip_address, %bmc_mac_address, %details, consecutive_count,
+                            %bmc_ip_address,
+                            %bmc_mac_address,
+                            reason = %details,
+                            consecutive_unauthorized_count = consecutive_count,
                             "BMC unauthorized error - treating as intermittent"
                         );
                         return Err(EndpointExplorationError::IntermittentUnauthorized {
@@ -773,12 +793,18 @@ impl EndpointExplorer for BmcEndpointExplorer {
 
                 tracing::info!(
                     %bmc_ip_address,
-                    "Site explorer could not find an entry in vault at 'bmc/{bmc_mac_address}/root' - this is expected if the BMC has never been seen before.",
+                    %bmc_mac_address,
+                    "Site explorer could not find a BMC root credential entry in vault - this is expected if the BMC has never been seen before.",
                 );
 
                 let bmc_cred_data = match expected {
                     Some(v) => {
-                        tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected {} for this BMC mac address", v.name());
+                        tracing::info!(
+                            %bmc_ip_address,
+                            %bmc_mac_address,
+                            expected_entity = v.name(),
+                            "Found an expected entity"
+                        );
                         v.bmc_credentials_data()
                     }
                     None => {
@@ -863,13 +889,15 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     Ok(_) => {
                         tracing::trace!(
                             %bmc_ip_address, %bmc_mac_address,
-                            "NVOS admin credentials already exist in vault for switch {bmc_mac_address}"
+                            "NVOS admin credentials already exist in vault"
                         );
                     }
-                    Err(_) => {
+                    Err(e) => {
                         tracing::info!(
-                            %bmc_ip_address, %bmc_mac_address,
-                            "Site explorer could not find NVOS admin credentials in vault for switch {bmc_mac_address} - setting them up.",
+                            %bmc_ip_address,
+                            %bmc_mac_address,
+                            error = %e,
+                            "Failed to load NVOS admin credentials; attempting credential setup",
                         );
                         self.set_sitewide_switch_nvos_admin_credentials(
                             bmc_mac_address,
@@ -896,8 +924,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "Site explorer does not support resetting the BMCs that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for BMC reset",
                 );
                 Err(e)
             }
@@ -935,8 +964,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "Site explorer cannot fetch live power state for an endpoint without credentials: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for fetching live power state",
                 );
                 Err(e)
             }
@@ -959,8 +989,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "Site explorer does not support rebooting the endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for power control",
                 );
                 Err(e)
             }
@@ -979,8 +1010,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support disabling secure boot for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for disabling secure boot",
                 );
                 Err(e)
             }
@@ -1000,8 +1032,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support lockdown for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for changing lockdown state",
                 );
                 Err(e)
             }
@@ -1020,8 +1053,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support lockdown status for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for checking lockdown status",
                 );
                 Err(e)
             }
@@ -1040,8 +1074,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support enabling infinite boot for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for enabling infinite boot",
                 );
                 Err(e)
             }
@@ -1063,8 +1098,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support checking infinite boot status for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for checking infinite boot status",
                 );
                 Err(e)
             }
@@ -1087,8 +1123,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support starting machine_setup for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for machine setup",
                 );
                 Err(e)
             }
@@ -1111,8 +1148,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support configuring the boot order on host BMCs that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for configuring boot order",
                 );
                 Err(e)
             }
@@ -1132,8 +1170,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for setting NIC mode",
                 );
                 Err(e)
             }
@@ -1152,8 +1191,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support is_viking for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for checking BMC hardware type",
                 );
                 Err(e)
             }
@@ -1172,8 +1212,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support clear_nvram for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for clearing NVRAM",
                 );
                 Err(e)
             }
@@ -1198,8 +1239,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support create_bmc_user for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for creating BMC user",
                 );
                 Err(e)
             }
@@ -1222,8 +1264,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support delete_bmc_user for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for deleting BMC user",
                 );
                 Err(e)
             }
@@ -1238,12 +1281,15 @@ impl EndpointExplorer for BmcEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
-        let current_credentials =
-            self.get_bmc_root_credentials(bmc_mac_address).await.inspect_err(|_| {
+        let current_credentials = self
+            .get_bmc_root_credentials(bmc_mac_address)
+            .await
+            .inspect_err(|e| {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support set_bmc_root_password for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for setting BMC root password",
                 );
             })?;
 
@@ -1281,12 +1327,15 @@ impl EndpointExplorer for BmcEndpointExplorer {
     ) -> Result<RedfishVendor, EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
-        let credentials =
-            self.get_bmc_root_credentials(bmc_mac_address).await.inspect_err(|_| {
+        let credentials = self
+            .get_bmc_root_credentials(bmc_mac_address)
+            .await
+            .inspect_err(|e| {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support probe_bmc_vendor for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
+                    %bmc_mac_address,
+                    error = %e,
+                    "Failed to load BMC root credentials for probing BMC vendor",
                 );
             })?;
 
@@ -1301,98 +1350,102 @@ impl EndpointExplorer for BmcEndpointExplorer {
 fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplorationReport) {
     if report1.endpoint_type != report2.endpoint_type {
         tracing::warn!(
-            "endpoint_type are not equal: {:?} != {:?}",
-            report1.endpoint_type,
-            report2.endpoint_type
+            libredfish_endpoint_type = ?report1.endpoint_type,
+            nvredfish_endpoint_type = ?report2.endpoint_type,
+            "endpoint types are not equal"
         );
     }
 
     if report1.vendor != report2.vendor {
         tracing::warn!(
-            "vendors are not equal: {:?} != {:?}",
-            report1.vendor,
-            report2.vendor
+            libredfish_vendor = ?report1.vendor,
+            nvredfish_vendor = ?report2.vendor,
+            "vendors are not equal"
         );
     }
 
     if report1.managers != report2.managers {
         tracing::warn!(
-            "managers are not equal: {:?} != {:?}",
-            report1.managers,
-            report2.managers
+            libredfish_managers = ?report1.managers,
+            nvredfish_managers = ?report2.managers,
+            "managers are not equal"
         );
     }
 
     if report1.systems.len() != report2.systems.len() {
         tracing::warn!(
-            "reported different number of systems: {:?} != {:?}",
-            report1.systems.len(),
-            report2.systems.len(),
+            libredfish_system_count = report1.systems.len(),
+            nvredfish_system_count = report2.systems.len(),
+            "reported different number of systems",
         );
     }
 
     for (s1, s2) in report1.systems.iter().zip(report2.systems.iter()) {
         if s1.id != s2.id {
-            tracing::warn!("systems.id are not equal: {:?} != {:?}", s1.id, s2.id);
+            tracing::warn!(
+                libredfish_system_id = ?s1.id,
+                nvredfish_system_id = ?s2.id,
+                "system IDs are not equal"
+            );
         } else {
             if s1.ethernet_interfaces != s2.ethernet_interfaces {
                 tracing::warn!(
-                    "systems[{:?}].ethernet_interfaces are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.ethernet_interfaces,
-                    s2.ethernet_interfaces
+                    system_id = ?s1.id,
+                    libredfish_ethernet_interfaces = ?s1.ethernet_interfaces,
+                    nvredfish_ethernet_interfaces = ?s2.ethernet_interfaces,
+                    "system Ethernet interfaces are not equal"
                 );
             }
 
             if s1.manufacturer != s2.manufacturer {
                 tracing::warn!(
-                    "systems[{:?}].manufacturer are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.manufacturer,
-                    s2.manufacturer
+                    system_id = ?s1.id,
+                    libredfish_manufacturer = ?s1.manufacturer,
+                    nvredfish_manufacturer = ?s2.manufacturer,
+                    "system manufacturers are not equal"
                 );
             }
 
             if s1.model != s2.model {
                 tracing::warn!(
-                    "systems[{:?}].model are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.model,
-                    s2.model
+                    system_id = ?s1.id,
+                    libredfish_model = ?s1.model,
+                    nvredfish_model = ?s2.model,
+                    "system models are not equal"
                 );
             }
 
             if s1.serial_number != s2.serial_number {
                 tracing::warn!(
-                    "systems[{:?}].serial_number are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.serial_number,
-                    s2.serial_number
+                    system_id = ?s1.id,
+                    libredfish_serial_number = ?s1.serial_number,
+                    nvredfish_serial_number = ?s2.serial_number,
+                    "system serial numbers are not equal"
                 );
             }
 
             if s1.attributes != s2.attributes {
                 tracing::warn!(
-                    "systems[{:?}].attributes are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.attributes,
-                    s2.attributes
+                    system_id = ?s1.id,
+                    libredfish_attributes = ?s1.attributes,
+                    nvredfish_attributes = ?s2.attributes,
+                    "system attributes are not equal"
                 );
             }
 
             if s1.pcie_devices != s2.pcie_devices {
                 if s1.pcie_devices.len() != s2.pcie_devices.len() {
                     tracing::warn!(
-                        "systems[{:?}].pcie_devices.len() are not equal: ids1: {:?}, ids2: {:?}",
-                        s1.id,
-                        s1.pcie_devices
+                        system_id = ?s1.id,
+                        libredfish_pcie_device_ids = ?s1.pcie_devices
                             .iter()
                             .map(|v| v.id.as_ref())
                             .collect::<Vec<_>>(),
-                        s2.pcie_devices
+                        nvredfish_pcie_device_ids = ?s2.pcie_devices
                             .iter()
                             .map(|v| v.id.as_ref())
                             .collect::<Vec<_>>(),
+                        "system PCIe device counts are not equal",
                     );
                 } else {
                     let s2devices = s2
@@ -1404,18 +1457,18 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
                         if let Some(s2dev) = s2devices.get(&s1dev.id) {
                             if s1dev != *s2dev {
                                 tracing::warn!(
-                                    "systems[{:?}].pcie_devices[{:?}] devices not equal: {:?} != {:?}",
-                                    s1.id,
-                                    s1dev.id,
-                                    s1dev,
-                                    s2dev,
+                                    system_id = ?s1.id,
+                                    device_id = ?s1dev.id,
+                                    libredfish_pcie_device = ?s1dev,
+                                    nvredfish_pcie_device = ?s2dev,
+                                    "system PCIe devices are not equal",
                                 );
                             }
                         } else {
                             tracing::warn!(
-                                "systems[{:?}].pcie_devices.len() device {:?} is not found in second report",
-                                s1.id,
-                                s1dev.id
+                                system_id = ?s1.id,
+                                device_id = ?s1dev.id,
+                                "system PCIe device is missing from the second report"
                             );
                         }
                     }
@@ -1424,37 +1477,37 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
 
             if s1.base_mac != s2.base_mac {
                 tracing::warn!(
-                    "systems[{:?}].base_mac are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.base_mac,
-                    s2.base_mac
+                    system_id = ?s1.id,
+                    libredfish_base_mac_address = ?s1.base_mac,
+                    nvredfish_base_mac_address = ?s2.base_mac,
+                    "system base MAC addresses are not equal"
                 );
             }
 
             if s1.power_state != s2.power_state {
                 tracing::warn!(
-                    "systems[{:?}].power_state are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.power_state,
-                    s2.power_state
+                    system_id = ?s1.id,
+                    libredfish_power_state = ?s1.power_state,
+                    nvredfish_power_state = ?s2.power_state,
+                    "system power states are not equal"
                 );
             }
 
             if s1.sku != s2.sku {
                 tracing::warn!(
-                    "systems[{:?}].sku are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.sku,
-                    s2.sku
+                    system_id = ?s1.id,
+                    libredfish_sku = ?s1.sku,
+                    nvredfish_sku = ?s2.sku,
+                    "system SKUs are not equal"
                 );
             }
 
             if s1.boot_order != s2.boot_order {
                 tracing::warn!(
-                    "systems[{:?}].boot_order are not equal: {:?} != {:?}",
-                    s1.id,
-                    s1.boot_order,
-                    s2.boot_order
+                    system_id = ?s1.id,
+                    libredfish_boot_order = ?s1.boot_order,
+                    nvredfish_boot_order = ?s2.boot_order,
+                    "system boot orders are not equal"
                 );
             }
         }
@@ -1462,34 +1515,52 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
 
     if report1.chassis.len() != report2.chassis.len() {
         tracing::warn!(
-            "reported different number of chassis: {:?} != {:?}",
-            report1.chassis.len(),
-            report2.chassis.len(),
+            libredfish_chassis_count = report1.chassis.len(),
+            nvredfish_chassis_count = report2.chassis.len(),
+            "reported different number of chassis",
         );
     }
 
     for (c1, c2) in report1.chassis.iter().zip(report2.chassis.iter()) {
         if c1.id != c2.id {
-            tracing::warn!("chassis.id are not equal: {:?} != {:?}", c1.id, c2.id);
+            tracing::warn!(
+                libredfish_chassis_id = ?c1.id,
+                nvredfish_chassis_id = ?c2.id,
+                "chassis IDs are not equal"
+            );
         } else if c1 != c2 {
-            tracing::warn!("chassis[{:?}] are not equal: {:?} != {:?}", c1.id, c1, c2);
+            tracing::warn!(
+                chassis_id = ?c1.id,
+                libredfish_chassis = ?c1,
+                nvredfish_chassis = ?c2,
+                "chassis reports are not equal"
+            );
         }
     }
 
     if report1.service.len() != report2.service.len() {
         tracing::warn!(
-            "reported different number of service: {:?} != {:?}",
-            report1.service.len(),
-            report2.service.len(),
+            libredfish_service_count = report1.service.len(),
+            nvredfish_service_count = report2.service.len(),
+            "reported different number of service",
         );
     }
 
     for (s1, s2) in report1.service.iter().zip(report2.service.iter()) {
         if s1.id != s2.id {
-            tracing::warn!("service.id are not equal: {:?} != {:?}", s1.id, s2.id);
+            tracing::warn!(
+                libredfish_service_id = ?s1.id,
+                nvredfish_service_id = ?s2.id,
+                "service IDs are not equal"
+            );
         } else {
             if s1.inventories.len() != s2.inventories.len() {
-                tracing::warn!("service[{:?}] are not equal: {:?} != {:?}", s1.id, s1, s2);
+                tracing::warn!(
+                    service_id = ?s1.id,
+                    libredfish_service = ?s1,
+                    nvredfish_service = ?s2,
+                    "service reports are not equal"
+                );
             }
             // Stable ordering of FW by id. Dell PowerEdge R770 doesn't
             // provide stable order of FW versions.
@@ -1514,10 +1585,10 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
                             .and_then(|v| if v == "00:00:00Z" { None } else { Some(v) })
                 {
                     tracing::warn!(
-                        "service[{:?}].inventories are not equal: {:?} != {:?}",
-                        s1.id,
-                        i1,
-                        i2
+                        service_id = ?s1.id,
+                        libredfish_inventory = ?i1,
+                        nvredfish_inventory = ?i2,
+                        "service inventories are not equal"
                     );
                 }
             }
@@ -1526,15 +1597,19 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
 
     if report1.machine_setup_status.is_some() != report2.machine_setup_status.is_some() {
         tracing::warn!(
-            "forge_setup_status(es) are not equal: {:?} != {:?}",
-            report1.machine_setup_status,
-            report2.machine_setup_status,
+            libredfish_machine_setup_status = ?report1.machine_setup_status,
+            nvredfish_machine_setup_status = ?report2.machine_setup_status,
+            "machine setup statuses are not equal",
         );
     } else if let Some(r1) = &report1.machine_setup_status
         && let Some(r2) = &report2.machine_setup_status
     {
         if r1.is_done != r2.is_done {
-            tracing::warn!("forge_setup_status(es) are not equal: {r1:?} != {r2:?}",);
+            tracing::warn!(
+                libredfish_machine_setup_status = ?r1,
+                nvredfish_machine_setup_status = ?r2,
+                "machine setup statuses are not equal"
+            );
         }
 
         let mut sst1_idx = (0..r1.diffs.len()).collect::<Vec<_>>();
@@ -1543,16 +1618,20 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
         sst2_idx.sort_by_key(|i| &r2.diffs[*i].key);
         if sst1_idx.len() != sst2_idx.len() {
             tracing::warn!(
-                "machine_setup_status diffs are not equal: {:?} != {:?}",
-                r1.diffs,
-                r2.diffs
+                libredfish_machine_setup_diffs = ?r1.diffs,
+                nvredfish_machine_setup_diffs = ?r2.diffs,
+                "machine setup status differences are not equal"
             );
         } else {
             for (i1, i2) in sst1_idx.into_iter().zip(sst2_idx) {
                 let d1 = &r1.diffs[i1];
                 let d2 = &r2.diffs[i2];
                 if d1 != d2 {
-                    tracing::warn!("machine_setup_status diffs are not equal: {d1:?} != {d2:?}");
+                    tracing::warn!(
+                        libredfish_machine_setup_diff = ?d1,
+                        nvredfish_machine_setup_diff = ?d2,
+                        "machine setup status differences are not equal"
+                    );
                 }
             }
         }
@@ -1560,65 +1639,65 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
 
     if report1.secure_boot_status != report2.secure_boot_status {
         tracing::warn!(
-            "secure_boot_status(es) are not equal: {:?} != {:?}",
-            report1.secure_boot_status,
-            report2.secure_boot_status,
+            libredfish_secure_boot_status = ?report1.secure_boot_status,
+            nvredfish_secure_boot_status = ?report2.secure_boot_status,
+            "secure boot statuses are not equal",
         );
     }
 
     if report1.lockdown_status != report2.lockdown_status {
         tracing::warn!(
-            "lockdown_status(es) are not equal: {:?} != {:?}",
-            report1.lockdown_status,
-            report2.lockdown_status,
+            libredfish_lockdown_status = ?report1.lockdown_status,
+            nvredfish_lockdown_status = ?report2.lockdown_status,
+            "lockdown statuses are not equal",
         );
     }
 
     if report1.power_shelf_id != report2.power_shelf_id {
         tracing::warn!(
-            "power_shelf_id are not equal: {:?} != {:?}",
-            report1.power_shelf_id,
-            report2.power_shelf_id
+            libredfish_power_shelf_id = ?report1.power_shelf_id,
+            nvredfish_power_shelf_id = ?report2.power_shelf_id,
+            "power shelf IDs are not equal"
         )
     }
 
     if report1.switch_id != report2.switch_id {
         tracing::warn!(
-            "switch_id are not equal: {:?} != {:?}",
-            report1.switch_id,
-            report2.switch_id
+            libredfish_switch_id = ?report1.switch_id,
+            nvredfish_switch_id = ?report2.switch_id,
+            "switch IDs are not equal"
         )
     }
 
     if report1.physical_slot_number != report2.physical_slot_number {
         tracing::warn!(
-            "physical_slot_number are not equal: {:?} != {:?}",
-            report1.physical_slot_number,
-            report2.physical_slot_number
+            libredfish_physical_slot_number = ?report1.physical_slot_number,
+            nvredfish_physical_slot_number = ?report2.physical_slot_number,
+            "physical slot numbers are not equal"
         )
     }
 
     if report1.compute_tray_index != report2.compute_tray_index {
         tracing::warn!(
-            "compute_tray_index are not equal: {:?} != {:?}",
-            report1.compute_tray_index,
-            report2.compute_tray_index
+            libredfish_compute_tray_index = ?report1.compute_tray_index,
+            nvredfish_compute_tray_index = ?report2.compute_tray_index,
+            "compute tray indexes are not equal"
         )
     }
 
     if report1.topology_id != report2.topology_id {
         tracing::warn!(
-            "topology_id are not equal: {:?} != {:?}",
-            report1.topology_id,
-            report2.topology_id
+            libredfish_topology_id = ?report1.topology_id,
+            nvredfish_topology_id = ?report2.topology_id,
+            "topology IDs are not equal"
         )
     }
 
     if report1.revision_id != report2.revision_id {
         tracing::warn!(
-            "revision_id are not equal: {:?} != {:?}",
-            report1.revision_id,
-            report2.revision_id
+            libredfish_revision_id = ?report1.revision_id,
+            nvredfish_revision_id = ?report2.revision_id,
+            "revision IDs are not equal"
         )
     }
 }

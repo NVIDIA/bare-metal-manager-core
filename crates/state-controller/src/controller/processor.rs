@@ -160,7 +160,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                     }
                 }
                 Err(err) => {
-                    tracing::error!(controller=IO::LOG_SPAN_CONTROLLER_NAME, %err, "State processor iteration error")
+                    tracing::error!(controller=IO::LOG_SPAN_CONTROLLER_NAME, error = %err, "State processor iteration error")
                 }
             }
 
@@ -325,15 +325,15 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
 
         tracing::info!(
             controller = IO::LOG_SPAN_CONTROLLER_NAME,
-            tasks_in_flight = self.in_flight.len(),
-            completed_tasks = stats.num_completed_tasks,
-            dispatched_tasks = stats.num_dispatched_tasks,
-            requeued_objects = stats.num_requeued_objects,
-            errored_tasks = stats.num_errored_tasks,
-            sql_queries = db_metrics_since_last_query.num_queries,
-            sql_total_rows_affected = db_metrics_since_last_query.total_rows_affected,
-            sql_total_rows_returned = db_metrics_since_last_query.total_rows_returned,
-            sql_total_query_duration_us =
+            in_flight_task_count = self.in_flight.len(),
+            completed_task_count = stats.num_completed_tasks,
+            dispatched_task_count = stats.num_dispatched_tasks,
+            requeued_object_count = stats.num_requeued_objects,
+            errored_task_count = stats.num_errored_tasks,
+            sql_query_count = db_metrics_since_last_query.num_queries,
+            sql_affected_row_count = db_metrics_since_last_query.total_rows_affected,
+            sql_returned_row_count = db_metrics_since_last_query.total_rows_returned,
+            sql_total_query_duration_microseconds =
                 db_metrics_since_last_query.total_query_duration.as_micros(),
             "state_processor",
         );
@@ -370,7 +370,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                 }
             }
             _ = tokio::time::sleep(max_duration) => {
-                tracing::error!(in_flight=self.in_flight.len(), "Timed out waiting for state controller object handling tasks to complete")
+                tracing::error!(in_flight_task_count = self.in_flight.len(), "Timed out waiting for state controller object handling tasks to complete")
             }
         };
 
@@ -421,8 +421,8 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                 Err(_) => {
                     tracing::error!(
                         controller = IO::LOG_SPAN_CONTROLLER_NAME,
-                        "Can not convert queued object ID \"{}\" to IO::ObjectID format",
-                        object.object_id
+                        object_id = object.object_id.as_str(),
+                        "Can not convert queued object ID to IO::ObjectID format"
                     );
                     None
                 }
@@ -483,6 +483,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                     }) {
                         tracing::error!(
                             object_id = %e.0.object_id,
+                            error = %e,
                             "Can't send result back to StateProcessor"
                         );
                     }
@@ -582,13 +583,13 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum IterationError {
-    #[error("Unable to perform database transaction: {0}")]
+    #[error("unable to perform database transaction: {0}")]
     TransactionError(#[from] sqlx::Error),
-    #[error("Unable to perform database transaction: {0}")]
+    #[error("unable to perform database transaction: {0}")]
     DatabaseError(#[from] DatabaseError),
     #[error("A task panicked: {0}")]
     Panic(#[from] tokio::task::JoinError),
-    #[error("State handler error: {0}")]
+    #[error("state handler error: {0}")]
     StateHandlerError(#[from] StateHandlerError),
 }
 
@@ -685,7 +686,7 @@ async fn process_object<IO: StateControllerIO>(
             next_state = Some(next.clone());
 
             if *next == controller_state.value {
-                tracing::warn!(state=?next, %object_id, "Transition to current state");
+                tracing::warn!(next_state = ?next, %object_id, "Transition to current state");
             }
             let new_version = controller_state.version.increment();
             if io
@@ -779,7 +780,7 @@ async fn process_object<IO: StateControllerIO>(
         }),
     };
     if let Err(e) = result {
-        tracing::warn!(%object_id, state = ?metrics.common.initial_state, error = ?e, "State handler error");
+        tracing::warn!(%object_id, initial_state = ?metrics.common.initial_state, error = ?e, "State handler error");
         metrics.common.error = Some(e);
     }
 
@@ -811,28 +812,28 @@ impl ProcessorMetricsEmitter {
         let dispatched_tasks_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_dispatched"))
             .with_description(format!(
-                "The amount of types that object handling tasks that have been dequeued and dispatched for processing for objects of type {object_type}"
+                "Number of object handling tasks dequeued and dispatched for processing for objects of type {object_type}"
             ))
             .build();
 
         let completed_tasks_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_completed"))
             .with_description(format!(
-                "The amount of object handling tasks that have been completed for objects of type {object_type}"
+                "Number of object handling tasks completed for objects of type {object_type}"
             ))
             .build();
 
         let requeued_tasks_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_requeued"))
             .with_description(format!(
-                "The amount of object handling tasks that have been requeued for objects of type {object_type}"
+                "Number of object handling tasks requeued for objects of type {object_type}"
             ))
             .build();
 
         let errored_tasks_counter = meter
             .u64_counter(format!("{object_type}_object_tasks_errored"))
             .with_description(format!(
-                "Number of object handling tasks that have completed with an error for objects of type {object_type}"
+                "Number of object handling tasks completed with an error for objects of type {object_type}"
             ))
             .build();
 
@@ -899,5 +900,13 @@ fn emit_object_metrics_as_log<IO: StateControllerIO>(iteration_metrics: &Iterati
         serde_json::to_string(&states_above_sla).unwrap_or_else(|_| "{}".to_string());
     let error_types = serde_json::to_string(&error_types).unwrap_or_else(|_| "{}".to_string());
 
-    tracing::info!(name: "state_controller_object_metrics", controller = IO::LOG_SPAN_CONTROLLER_NAME, %total_objects, %states, %states_above_sla, %error_types);
+    tracing::info!(
+        name: "state_controller_object_metrics",
+        controller = IO::LOG_SPAN_CONTROLLER_NAME,
+        total_object_count = total_objects,
+        %states,
+        %states_above_sla,
+        %error_types,
+        "State controller object metrics"
+    );
 }

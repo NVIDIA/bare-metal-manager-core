@@ -190,6 +190,33 @@ pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
     .await
 }
 
+pub async fn delta_powershelf_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        &host_info(HostHardwareType::DeltaPowerShelf),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
+/// Delta power shelf whose PSUs report the given per-bay on/off states under
+/// `Oem.deltaenergysystems.Power`. Lets tests exercise off and mixed shelves
+/// (the default [`delta_powershelf_bmc`] is an all-on six-bay shelf).
+pub async fn delta_powershelf_bmc_with_psu_power(states: Vec<bool>) -> TestBmcHandle {
+    let machine_info = match host_info(HostHardwareType::DeltaPowerShelf) {
+        MachineInfo::Host(host) => MachineInfo::Host(host.with_delta_psu_power(states)),
+        MachineInfo::Dpu(_) => unreachable!("Delta power shelf must be a host"),
+    };
+    test_bmc(machine_router(
+        &machine_info,
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+        false,
+    ))
+    .await
+}
+
 pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
         &host_info(HostHardwareType::NvidiaSwitchNd5200Ld),
@@ -354,14 +381,16 @@ mod test {
         };
 
         let interfaces = machine.discovery_info().network_interfaces;
-        assert_eq!(interfaces.len(), 1);
-        assert_eq!(interfaces[0].mac_address, expected_mac);
-
-        let pci = interfaces[0]
+        assert_eq!(interfaces.len(), 12);
+        let dpu_interface = interfaces
+            .iter()
+            .find(|interface| interface.mac_address == expected_mac)
+            .expect("discovery must include the DPU host interface");
+        let pci = dpu_interface
             .pci_properties
             .as_ref()
             .expect("DPU host interface must include PCI properties");
         assert!(pci.vendor.to_ascii_lowercase().contains("mellanox"));
-        assert_eq!(pci.slot.as_deref(), Some("0000:03:00.0"));
+        assert_eq!(pci.slot.as_deref(), Some("0016:01:00.0"));
     }
 }

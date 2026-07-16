@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+mod error_message_case;
 mod isolated_package_builds;
 mod squash_migrations;
 mod workspace_deps;
@@ -38,6 +39,21 @@ enum Xtask {
         about = "Create a single squashed migration from all existing migrations in crates/api-db/migrations"
     )]
     SquashMigrations(squash_migrations::Args),
+    #[clap(
+        name = "lint-error-messages",
+        about = "Check that error messages follow C-GOOD-ERR (lowercase, no trailing period)"
+    )]
+    LintErrorMessages(LintErrorMessages),
+}
+
+#[derive(Parser, Debug)]
+struct LintErrorMessages {
+    #[clap(
+        short,
+        long,
+        help = "Rewrite offending error messages in place instead of just reporting them"
+    )]
+    fix: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -58,6 +74,9 @@ async fn main() -> eyre::Result<()> {
         }
         Xtask::IsolatedPackageBuilds => isolated_package_builds::check()?,
         Xtask::SquashMigrations(args) => squash_migrations::run(args).await?,
+        Xtask::LintErrorMessages(LintErrorMessages { fix }) => {
+            error_message_case::check(fix)?.report_and_exit()
+        }
     }
     Ok(())
 }

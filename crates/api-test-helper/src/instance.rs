@@ -25,17 +25,70 @@ use super::machine::wait_for_state;
 pub async fn create(
     addrs: &[SocketAddr],
     host_machine_id: &MachineId,
-    segment_id: Option<&str>,
+    segment_id: &str,
     hostname: Option<&str>,
     phone_home_enable: bool,
     wait_until_ready: bool,
     keyset_ids: &[&str],
 ) -> eyre::Result<String> {
     tracing::info!(
-        "Creating instance with machine: {host_machine_id}, with network segment: {}",
-        segment_id.unwrap_or("<none>")
+        host_machine_id = %host_machine_id,
+        network_segment_id = segment_id,
+        "Creating instance",
     );
 
+    let network = serde_json::json!({
+        "interfaces": [{
+            "function_type": "PHYSICAL",
+            "network_segment_id": {"value": segment_id}
+        }]
+    });
+
+    create_with_network(
+        addrs,
+        host_machine_id,
+        network,
+        hostname,
+        phone_home_enable,
+        wait_until_ready,
+        keyset_ids,
+    )
+    .await
+}
+
+/// Creates an instance whose HostInband interfaces are resolved automatically
+/// within the requested Flat VPC.
+pub async fn create_with_auto_host_inband_networking(
+    addrs: &[SocketAddr],
+    host_machine_id: &MachineId,
+    flat_vpc_id: &str,
+) -> eyre::Result<String> {
+    tracing::info!(
+        host_machine_id = %host_machine_id,
+        flat_vpc_id,
+        "Creating automatically-networked instance",
+    );
+
+    let network = serde_json::json!({
+        "interfaces": [],
+        "auto": true,
+        "auto_config": {
+            "vpc_id": {"value": flat_vpc_id}
+        }
+    });
+
+    create_with_network(addrs, host_machine_id, network, None, false, false, &[]).await
+}
+
+async fn create_with_network(
+    addrs: &[SocketAddr],
+    host_machine_id: &MachineId,
+    network: serde_json::Value,
+    hostname: Option<&str>,
+    phone_home_enable: bool,
+    wait_until_ready: bool,
+    keyset_ids: &[&str],
+) -> eyre::Result<String> {
     let mut tenant = serde_json::json!({
         "tenant_organization_id": "tenant_organization",
         "tenantKeysetIds": keyset_ids,
@@ -56,31 +109,11 @@ pub async fn create(
         "user_data": "hello",
     });
 
-    let instance_config = match segment_id {
-        Some(segment_id) => serde_json::json!({
-            "tenant": tenant,
-            "network": {
-                "interfaces": [{
-                    "function_type": "PHYSICAL",
-                    "network_segment_id": {"value": segment_id}
-                }]
-            },
-            "os": os,
-        }),
-        // segment_id is None, i.e. this is the zero-DPU path.
-        // The allocator requires `auto: true` and an empty `interfaces`
-        // list, and will resolve the host's HostInband segments into
-        // the stored config (status reflects the resolved per-interface
-        // details).
-        None => serde_json::json!({
-            "tenant": tenant,
-            "network": {
-                "interfaces": [],
-                "auto": true,
-            },
-            "os": os,
-        }),
-    };
+    let instance_config = serde_json::json!({
+        "tenant": tenant,
+        "network": network,
+        "os": os,
+    });
 
     let data = serde_json::json!({
         "machine_id": {"id": host_machine_id},
@@ -91,7 +124,10 @@ pub async fn create(
         },
     });
     let instance_id = grpcurl_id(addrs, "AllocateInstance", &data.to_string()).await?;
-    tracing::info!("Instance created with ID {instance_id}");
+    tracing::info!(
+        instance_id = %instance_id,
+        "Instance created",
+    );
 
     if !wait_until_ready {
         return Ok(instance_id);
@@ -114,7 +150,10 @@ pub async fn create(
     wait_for_instance_state(addrs, &instance_id, "READY").await?;
     wait_for_state(addrs, host_machine_id, "Assigned/Ready").await?;
 
-    tracing::info!("Instance with ID {instance_id} is ready");
+    tracing::info!(
+        instance_id = %instance_id,
+        "Instance is ready",
+    );
 
     Ok(instance_id)
 }
@@ -129,12 +168,12 @@ pub async fn create_with_vpc_prefixes(
     tracing::info!(
         %host_machine_id,
         ?vpc_prefix_ids,
-        "Creating instance with VPC prefix allocation",
+        "Creating instance",
     );
 
     let v4_id = vpc_prefix_ids
         .first()
-        .ok_or_else(|| eyre::eyre!("At least one VPC prefix ID required"))?;
+        .ok_or_else(|| eyre::eyre!("at least one VPC prefix ID required"))?;
 
     let mut iface = serde_json::json!({
         "function_type": "PHYSICAL",
@@ -169,7 +208,11 @@ pub async fn create_with_vpc_prefixes(
     });
 
     let instance_id = grpcurl_id(addrs, "AllocateInstance", &data.to_string()).await?;
-    tracing::info!("Dual-stack instance created with ID {instance_id}");
+    tracing::info!(
+        instance_id = %instance_id,
+        ?vpc_prefix_ids,
+        "Instance created",
+    );
     Ok(instance_id)
 }
 
@@ -179,13 +222,20 @@ pub async fn release(
     instance_id: &str,
     wait_until_ready: bool,
 ) -> eyre::Result<()> {
-    tracing::info!("Releasing instance {instance_id} on machine: {host_machine_id}");
+    tracing::info!(
+        instance_id,
+        host_machine_id = %host_machine_id,
+        "Releasing instance",
+    );
 
     let data = serde_json::json!({
         "id": {"value": instance_id}
     });
     let resp = grpcurl(addrs, "ReleaseInstance", Some(data)).await?;
-    tracing::info!("ReleaseInstance response: {}", resp);
+    tracing::info!(
+        release_instance_response = %resp,
+        "ReleaseInstance response",
+    );
 
     if !wait_until_ready {
         return Ok(());
@@ -211,9 +261,9 @@ pub async fn release(
             })
         });
     if let Some(ip_address) = ip_address {
-        tracing::info!("Instance with ID {instance_id} at {ip_address} is terminating");
+        tracing::info!(instance_id, ip_address, "Instance is terminating",);
     } else {
-        tracing::info!("Instance with ID {instance_id} is terminating");
+        tracing::info!(instance_id, "Instance is terminating",);
     }
 
     wait_for_state(addrs, host_machine_id, "WaitingForCleanup/HostCleanup").await?;
@@ -222,10 +272,13 @@ pub async fn release(
     });
     let response = grpcurl(addrs, "FindInstancesByIds", Some(&data)).await?;
     let resp: serde_json::Value = serde_json::from_str(&response)?;
-    tracing::info!("FindInstancesByIds Response: {}", resp);
+    tracing::info!(
+        find_instances_response = %resp,
+        "FindInstancesByIds Response",
+    );
     assert!(resp["instances"].as_array().unwrap().is_empty());
 
-    tracing::info!("Instance with ID {instance_id} is released");
+    tracing::info!(instance_id, "Instance is released",);
 
     Ok(())
 }
@@ -239,7 +292,11 @@ pub async fn phone_home(
         "instance_id": {"value": instance_id},
     });
 
-    tracing::info!(%host_machine_id, "Phoning home for instance {instance_id}");
+    tracing::info!(
+        %host_machine_id,
+        instance_id,
+        "Phoning home",
+    );
 
     grpcurl(addrs, "UpdateInstancePhoneHomeLastContact", Some(&data)).await?;
 
@@ -257,7 +314,10 @@ pub async fn get_instance_state(addrs: &[SocketAddr], instance_id: &str) -> eyre
         .as_str()
         .unwrap()
         .to_string();
-    tracing::info!("\tCurrent instance state: {state}");
+    tracing::info!(
+        instance_state = %state,
+        "Current instance state",
+    );
 
     Ok(state)
 }
@@ -271,6 +331,22 @@ pub async fn get_instance_json_by_machine_id(
     Ok(serde_json::from_str(&response)?)
 }
 
+pub async fn get_instance_json_by_id(
+    addrs: &[SocketAddr],
+    instance_id: &str,
+) -> eyre::Result<serde_json::Value> {
+    let data = serde_json::json!({
+        "instance_ids": [{"value": instance_id}]
+    });
+    let response = grpcurl(addrs, "FindInstancesByIds", Some(&data)).await?;
+    let response: serde_json::Value = serde_json::from_str(&response)?;
+    response["instances"]
+        .as_array()
+        .and_then(|instances| instances.first())
+        .cloned()
+        .ok_or_else(|| eyre::eyre!("instance {instance_id} was not returned by FindInstancesByIds"))
+}
+
 /// Waits for an instance to reach a certain state
 pub async fn wait_for_instance_state(
     addrs: &[SocketAddr],
@@ -282,19 +358,22 @@ pub async fn wait_for_instance_state(
 
     let mut latest_state = String::new();
 
-    tracing::info!("Waiting for Instance {instance_id} state {target_state}");
+    tracing::info!(instance_id, target_state, "Waiting for Instance state",);
     while start.elapsed() < MAX_WAIT {
         latest_state = get_instance_state(addrs, instance_id).await?;
 
         if latest_state.contains(target_state) {
             return Ok(());
         }
-        tracing::info!("\tCurrent instance state: {latest_state}");
+        tracing::info!(
+            instance_state = %latest_state,
+            "Current instance state",
+        );
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
     eyre::bail!(
-        "Even after {MAX_WAIT:?} time, {instance_id} did not reach state {target_state}\n
-        Latest state: {latest_state}"
+        "even after {MAX_WAIT:?} time, {instance_id} did not reach state {target_state}\n
+        latest state: {latest_state}"
     );
 }

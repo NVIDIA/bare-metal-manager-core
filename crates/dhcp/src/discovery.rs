@@ -19,6 +19,7 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use derive_builder::Builder;
 use mac_address::MacAddress;
+use rpc::forge as rpc;
 
 use crate::machine::Machine;
 use crate::metrics::set_service_healthy;
@@ -400,6 +401,7 @@ unsafe fn discovery_fetch_machine_at(
 
             let mut cache_entry_status = cache::CacheEntryStatus::DiscoveryFailing(0);
             if let Some(cache_entry) = cache::get(
+                rpc::AddressFamily::V4,
                 mac_address,
                 addr_for_dhcp,
                 &circuit_id,
@@ -473,6 +475,7 @@ unsafe fn discovery_fetch_machine_at(
                     }
 
                     cache::put(
+                        rpc::AddressFamily::V4,
                         mac_address,
                         addr_for_dhcp,
                         circuit_id,
@@ -488,6 +491,7 @@ unsafe fn discovery_fetch_machine_at(
                         "Error getting info back from the machine discovery: mac={mac_address} addr={addr_for_dhcp} err={e_str} api_url={url}"
                     );
                     cache::put(
+                        rpc::AddressFamily::V4,
                         mac_address,
                         addr_for_dhcp,
                         circuit_id,

@@ -305,8 +305,7 @@ flows.
 | `reset_rate_limit` | `Duration` | `1h` | Minimum time between SiteExplorer-initiated BMC resets. |
 | `admin_segment_type_non_dpu` | `bool` | `false` | Non-DPU hosts use `HostInband` admin segment type. |
 | `allocate_secondary_vtep_ip` | `bool` | `false` | Allocate secondary VTEP IP for GENEVE traffic intercept. |
-| `create_power_shelves` | `bool` | `true` | Auto-create Power Shelf state machines for explored shelves with a matching `expected_power_shelves` record. |
-| `explore_power_shelves_from_static_ip` | `bool` | `true` | Discover declared power shelves at their `expected_power_shelves` static IP (no DHCP lease required); creation still requires `create_power_shelves`. |
+| `create_power_shelves` | `bool` | `true` | Auto-create Power Shelf state machines for explored shelves with a matching `expected_power_shelves` record. Shelves are discovered at their `expected_power_shelves` static IP even without a DHCP lease. |
 | `power_shelves_created_per_run` | `u64` | `1` | Max power shelves created per run. |
 | `create_switches` | `bool` | `true` | Auto-create Switch state machines for explored switches with a matching `expected_switches` record. |
 | `switches_created_per_run` | `u64` | `9` | Max switches created per run. |
@@ -348,7 +347,7 @@ Extends `StateControllerConfig` with:
 | `dpu_up_threshold` | `Duration` | `5m`    | Max time without DPU health report before assuming it's down. |
 | `scout_reporting_timeout` | `Duration` | `5m`    | Duration without scout report before host is unhealthy. |
 | `uefi_boot_wait` | `Duration` | `5m`    | Wait time for UEFI boot completion after host reboot. |
-| `max_bios_config_retries` | `u32` | `3` | Max HandleBiosJobFailure recovery cycles during BIOS configuration. |
+| `max_bios_config_retries` | `u32` | `3` | Shared retry budget for automated host boot-configuration convergence across BIOS recovery and boot-order verification. |
 | `polling_bios_setup_stuck_threshold` | `Duration` | `15m` | Time in PollingBiosSetup with `is_bios_setup == false` before recovery escalation. |
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
 

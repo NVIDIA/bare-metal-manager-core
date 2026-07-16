@@ -103,7 +103,7 @@ impl StateHandler for NetworkSegmentStateHandler {
         match controller_state {
             NetworkSegmentControllerState::Provisioning => {
                 let new_state = NetworkSegmentControllerState::Ready;
-                tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
+                tracing::info!(network_segment_id = %segment_id, next_state = ?new_state, "Network Segment state transition");
                 Ok(StateHandlerOutcome::transition(new_state))
             }
             NetworkSegmentControllerState::Ready => {
@@ -116,7 +116,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                             delete_at,
                         },
                     };
-                    tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
+                    tracing::info!(network_segment_id = %segment_id, next_state = ?new_state, "Network Segment state transition");
                     Ok(StateHandlerOutcome::transition(new_state))
                 } else {
                     Ok(StateHandlerOutcome::do_nothing())
@@ -137,7 +137,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 .unwrap_or_else(chrono::Utc::now);
                             tracing::info!(
                                 ?delete_at,
-                                %segment_id,
+                                network_segment_id = %segment_id,
                                 "Segment still has allocated IPs; waiting until the drain deadline to delete",
                             );
                             let new_state = NetworkSegmentControllerState::Deleting {
@@ -145,13 +145,13 @@ impl StateHandler for NetworkSegmentStateHandler {
                                     delete_at,
                                 },
                             };
-                            tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
+                            tracing::info!(network_segment_id = %segment_id, next_state = ?new_state, "Network Segment state transition");
                             Ok(StateHandlerOutcome::transition(new_state).with_txn(txn))
                         } else if chrono::Utc::now() >= *delete_at {
                             let new_state = NetworkSegmentControllerState::Deleting {
                                 deletion_state: NetworkSegmentDeletionState::DBDelete,
                             };
-                            tracing::info!(%segment_id, state = ?new_state, "Network Segment state transition");
+                            tracing::info!(network_segment_id = %segment_id, next_state = ?new_state, "Network Segment state transition");
                             Ok(StateHandlerOutcome::transition(new_state).with_txn(txn))
                         } else {
                             Ok(StateHandlerOutcome::wait(format!(
@@ -171,7 +171,7 @@ impl StateHandler for NetworkSegmentStateHandler {
                                 .await?;
                         }
                         tracing::info!(
-                            %segment_id,
+                            network_segment_id = %segment_id,
                             "Network Segment getting removed from the database",
                         );
                         db::network_segment::final_delete(*segment_id, &mut txn).await?;

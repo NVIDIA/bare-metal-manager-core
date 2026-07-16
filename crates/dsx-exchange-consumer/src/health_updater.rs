@@ -19,6 +19,7 @@
 
 use std::sync::Arc;
 
+use carbide_instrument::emit;
 use health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport};
 use moka::future::Cache;
 use moka::ops::compute::Op;
@@ -29,6 +30,7 @@ use crate::ConsumerMetrics;
 use crate::api_client::{HEALTH_REPORT_SOURCE, RackHealthReportSink};
 use crate::config::CacheConfig;
 use crate::messages::{FaultValue, LeakMetadata, LeakPointType, ValueMessage};
+use crate::metrics::{MessageAge, MessageDeduplicated, MessageProcessed};
 use crate::mqtt_consumer::MqttMessage;
 
 /// Health status updater that processes MQTT messages and updates the API.
@@ -109,6 +111,15 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
     }
 
     async fn handle_value_message(&self, topic: &str, msg: ValueMessage) {
+        // Consumer lag: how far behind the BMS event time we are when this
+        // message reaches processing. BMS-vs-consumer clock skew can make the
+        // delta negative, and `to_std()` errors on a negative duration, so
+        // clamp to zero.
+        let age = (chrono::Utc::now() - msg.timestamp)
+            .to_std()
+            .unwrap_or_default();
+        emit(MessageAge { age });
+
         let point_path = match extract_point_path(topic, &self.topic_prefix) {
             Some(path) => path,
             None => {
@@ -160,7 +171,7 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
                     if let Some(entry) = &maybe_entry
                         && *entry.value() == value
                     {
-                        metrics.record_dedup_skipped();
+                        emit(MessageDeduplicated);
                         tracing::trace!(
                             point_path = %point_path,
                             point_type = %metadata.point_type,
@@ -208,7 +219,7 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
 
         match result {
             Ok(_) => {
-                self.metrics.record_message_processed();
+                emit(MessageProcessed);
             }
             Err(_) => {
                 // API call failed - will retry on next message

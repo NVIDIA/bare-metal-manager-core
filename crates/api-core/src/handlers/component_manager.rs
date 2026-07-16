@@ -24,6 +24,7 @@ use carbide_rack::firmware_object::rms_access_token_or_noauth;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
@@ -72,6 +73,8 @@ fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
         ComponentManagerError::Unavailable(msg) => Status::unavailable(msg),
         ComponentManagerError::NotFound(msg) => Status::not_found(msg),
         ComponentManagerError::InvalidArgument(msg) => Status::invalid_argument(msg),
+        ComponentManagerError::Unsupported(msg) => Status::unimplemented(msg),
+        ComponentManagerError::OperationOutcomeUnknown(msg) => Status::failed_precondition(msg),
         ComponentManagerError::Internal(msg) => Status::internal(msg),
         ComponentManagerError::Transport(e) => Status::unavailable(format!("transport error: {e}")),
         ComponentManagerError::Status(s) => s,
@@ -380,7 +383,7 @@ fn map_compute_tray_component_names(raw: &[i32]) -> Result<Vec<String>, Status> 
             Ok(rpc::ComputeTrayComponent::Gpu) => Ok("GPU".to_string()),
             Ok(rpc::ComputeTrayComponent::Cx7) => Ok("CX7".to_string()),
             Ok(rpc::ComputeTrayComponent::Unknown) => Err(Status::invalid_argument(
-                "compute tray component must not be Unknown",
+                "compute tray component must not be unknown",
             )),
             Err(e) => Err(Status::invalid_argument(format!(
                 "unrecognized compute tray component value {v}: {e}"
@@ -415,7 +418,7 @@ fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Statu
             Ok(rpc::NvSwitchComponent::Bios) => Ok(NvSwitchComponent::Bios),
             Ok(rpc::NvSwitchComponent::Nvos) => Ok(NvSwitchComponent::Nvos),
             _ => Err(Status::invalid_argument(format!(
-                "unknown NV-Switch component: {v}"
+                "unknown NV-switch component: {v}"
             ))),
         })
         .collect()
@@ -429,7 +432,7 @@ fn map_compute_tray_components(raw: &[i32]) -> Result<Vec<ModelComputeTrayCompon
             Ok(rpc::ComputeTrayComponent::CpldMb) => Ok(ModelComputeTrayComponent::Cpld),
             Ok(rpc::ComputeTrayComponent::Cx7) => Ok(ModelComputeTrayComponent::Cx7),
             Ok(rpc::ComputeTrayComponent::Unknown) => Err(Status::invalid_argument(
-                "compute tray component must not be Unknown",
+                "compute tray component must not be unknown",
             )),
             Ok(other) => Err(Status::invalid_argument(format!(
                 "compute tray component {other:?} is not supported for direct dispatch"
@@ -928,7 +931,7 @@ async fn resolve_switch_endpoints(
                 id: row.switch_id,
                 reason: "NVOS MAC or IP not available".into(),
             };
-            tracing::warn!(%u, "skipping switch");
+            tracing::warn!(switch_id = %u.id, reason = %u.reason, "skipping switch");
             unresolved.push(u);
             resolved_ids.insert(row.switch_id);
             continue;
@@ -947,7 +950,7 @@ async fn resolve_switch_endpoints(
                     id: row.switch_id,
                     reason: format!("BMC credentials unavailable: {e}"),
                 };
-                tracing::warn!(%u, "skipping switch");
+                tracing::warn!(switch_id = %u.id, reason = %u.reason, "skipping switch");
                 unresolved.push(u);
                 continue;
             }
@@ -962,7 +965,7 @@ async fn resolve_switch_endpoints(
                         id: row.switch_id,
                         reason: format!("NVOS credentials unavailable: {e}"),
                     };
-                    tracing::warn!(%u, "skipping switch");
+                    tracing::warn!(switch_id = %u.id, reason = %u.reason, "skipping switch");
                     unresolved.push(u);
                     continue;
                 }
@@ -976,7 +979,7 @@ async fn resolve_switch_endpoints(
             nvos_mac,
             bmc_credentials,
             nvos_credentials,
-            nvos_host_name: row.nvos_hostname.filter(|hostname| !hostname.is_empty()),
+            nvos_host_name: row.nvos_hostname.none_if_empty(),
         });
     }
 
@@ -986,14 +989,14 @@ async fn resolve_switch_endpoints(
                 id: *id,
                 reason: "switch not found in database".into(),
             };
-            tracing::warn!(%u, "skipping switch");
+            tracing::warn!(switch_id = %u.id, reason = %u.reason, "skipping switch");
             unresolved.push(u);
         }
     }
 
     if !unresolved.is_empty() {
         tracing::warn!(
-            count = unresolved.len(),
+            unresolved_switch_count = unresolved.len(),
             "some switches could not be resolved to endpoints"
         );
     }
@@ -1036,21 +1039,23 @@ async fn resolve_power_shelf_endpoints(
     for row in rows {
         resolved_ids.insert(row.power_shelf_id);
 
-        let pmc_credentials =
-            match fetch_powershelf_pmc_credentials(api.credential_manager.as_ref(), row.pmc_mac)
-                .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    let u = UnresolvedDevice {
-                        id: row.power_shelf_id,
-                        reason: format!("PMC credentials unavailable: {e}"),
-                    };
-                    tracing::warn!(%u, "skipping power shelf");
-                    unresolved.push(u);
-                    continue;
-                }
-            };
+        let pmc_credentials = match fetch_powershelf_pmc_credentials(
+            api.credential_manager.as_ref(),
+            row.pmc_mac,
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let u = UnresolvedDevice {
+                    id: row.power_shelf_id,
+                    reason: format!("PMC credentials unavailable: {e}"),
+                };
+                tracing::warn!(power_shelf_id = %u.id, reason = %u.reason, "skipping power shelf");
+                unresolved.push(u);
+                continue;
+            }
+        };
 
         mac_to_id.insert(row.pmc_mac, row.power_shelf_id);
         endpoints.push(PowerShelfEndpoint {
@@ -1068,14 +1073,14 @@ async fn resolve_power_shelf_endpoints(
                 id: *id,
                 reason: "power shelf not found in database".into(),
             };
-            tracing::warn!(%u, "skipping power shelf");
+            tracing::warn!(power_shelf_id = %u.id, reason = %u.reason, "skipping power shelf");
             unresolved.push(u);
         }
     }
 
     if !unresolved.is_empty() {
         tracing::warn!(
-            count = unresolved.len(),
+            unresolved_power_shelf_count = unresolved.len(),
             "some power shelves could not be resolved to endpoints"
         );
     }
@@ -1181,7 +1186,7 @@ async fn resolve_compute_tray_endpoints(
 
     if !unresolved.is_empty() {
         tracing::warn!(
-            count = unresolved.len(),
+            unresolved_compute_tray_count = unresolved.len(),
             "some compute trays could not be resolved to endpoints"
         );
     }
@@ -1438,7 +1443,7 @@ pub(crate) async fn component_power_control(
 
                 tracing::info!(
                     backend = cm.nv_switch.name(),
-                    count = endpoints.resolved.endpoints.len(),
+                    switch_count = endpoints.resolved.endpoints.len(),
                     ?action,
                     "power control for switches"
                 );
@@ -1483,7 +1488,7 @@ pub(crate) async fn component_power_control(
 
             tracing::info!(
                 backend = cm.power_shelf.name(),
-                count = endpoints.resolved.endpoints.len(),
+                power_shelf_count = endpoints.resolved.endpoints.len(),
                 ?action,
                 "power control for power shelves"
             );
@@ -1574,7 +1579,7 @@ pub(crate) async fn component_power_control(
 
                 tracing::info!(
                     backend = cm.compute_tray.name(),
-                    count = resolved.resolved.endpoints.len(),
+                    compute_tray_count = resolved.resolved.endpoints.len(),
                     ?action,
                     "power control for compute trays"
                 );
@@ -1660,7 +1665,7 @@ pub(crate) async fn component_configure_switch_certificate(
 
     tracing::info!(
         backend = cm.nv_switch.name(),
-        count = endpoints.resolved.endpoints.len(),
+        switch_count = endpoints.resolved.endpoints.len(),
         "configure switch certificate for switches"
     );
 
@@ -1744,7 +1749,8 @@ async fn power_control_health_override(
         tracing::warn!(
             %machine_id,
             error = %e,
-            "failed to {action} health report override for power control"
+            action,
+            "Failed to apply health report override for power control",
         );
     }
 
@@ -1773,7 +1779,7 @@ async fn request_re_exploration(api: &Api, ips: &[IpAddr]) {
         })
         .await;
     if let Err(e) | Ok(Err(e)) = result {
-        tracing::warn!(?e, "failed to request re-exploration after power control");
+        tracing::warn!(error = ?e, "failed to request re-exploration after power control");
     }
 }
 
@@ -2576,6 +2582,18 @@ mod tests {
                 error: ComponentManagerError::InvalidArgument("bad".into()),
                 expected_code: Code::InvalidArgument,
                 message_contains: None,
+            },
+            ErrorToStatusCase {
+                scenario: "unsupported operation",
+                error: ComponentManagerError::Unsupported("not implemented".into()),
+                expected_code: Code::Unimplemented,
+                message_contains: Some("not implemented"),
+            },
+            ErrorToStatusCase {
+                scenario: "operation outcome unknown",
+                error: ComponentManagerError::OperationOutcomeUnknown("lost job id".into()),
+                expected_code: Code::FailedPrecondition,
+                message_contains: Some("lost job id"),
             },
             ErrorToStatusCase {
                 scenario: "internal",

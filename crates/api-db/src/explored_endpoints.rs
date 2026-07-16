@@ -401,28 +401,34 @@ WHERE address=$4 AND version=$5";
     Ok(query_result.rows_affected() > 0)
 }
 
-/// Clears `LastExplorationError` on the endpoint's report and sets
-/// `waiting_for_explorer_refresh = true` so preingestion waits for a fresh probe.
+/// Clears the last known error in `explored_endpoints` for the BMC identified by IP.
 ///
-/// Intentionally does NOT bump `version`: clearing an operator-visible error
-/// does not freshen the underlying Redfish data, so the report's age (used by
-/// the UI "Last updated" bubble and by the periodic loop's oldest-first
-/// rotation) must keep tracking the last real probe. Leaves `exploration_requested`
-/// untouched so a previously queued priority probe is not cancelled.
+/// Lock the endpoint while reading its report so a concurrent exploration
+/// update either commits first and is preserved, or loses its optimistic update
+/// after this clear commits.
 pub async fn clear_last_known_error(
     address: IpAddr,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let query = "
-UPDATE explored_endpoints
-SET exploration_report = jsonb_set(exploration_report, '{LastExplorationError}', 'null'::jsonb),
-    waiting_for_explorer_refresh = true
-WHERE address = $1";
-    sqlx::query(query)
+    let query = "SELECT * FROM explored_endpoints WHERE address = $1 FOR UPDATE";
+    let Some(row) = sqlx::query_as::<_, DbExploredEndpoint>(query)
         .bind(address)
-        .execute(txn)
+        .fetch_optional(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?
+    else {
+        return Ok(());
+    };
+
+    let mut report = row.report;
+    report.last_exploration_error = None;
+    if !try_update(address, row.report_version, &report, true, txn).await? {
+        return Err(DatabaseError::ConcurrentModificationError(
+            "ExploredEndpoint",
+            row.report_version.version_string(),
+        ));
+    }
+
     Ok(())
 }
 

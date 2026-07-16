@@ -855,6 +855,29 @@ func TestNewApp_CurrentSingletonCommandSurface(t *testing.T) {
 	}
 }
 
+func TestNewApp_UEFICredentialCreateCommand(t *testing.T) {
+	app, err := NewApp(openapi.Spec)
+	require.NoError(t, err, "NewApp failed")
+
+	var credential *cli.Command
+	for _, command := range app.Commands {
+		if command.Name == "uefi-credential" {
+			credential = command
+			break
+		}
+	}
+	require.NotNil(t, credential, "UEFI credential must be exposed by the embedded OpenAPI spec")
+
+	var create *cli.Command
+	for _, command := range credential.Subcommands {
+		if command.Name == "create" {
+			create = command
+			break
+		}
+	}
+	require.NotNil(t, create, "UEFI credential must expose a create command")
+}
+
 // TestBuildCommands_CurrentSingletonsAreRunnable asserts that every
 // get-current-<resource> singleton in the embedded spec is reachable from the
 // non-interactive CLI under the `current` action that the interactive TUI

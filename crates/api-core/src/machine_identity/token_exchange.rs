@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use ::rpc::forge::MachineIdentityResponse;
 use base64::Engine;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use serde::Deserialize;
 use tonic::Status;
 
@@ -49,7 +50,7 @@ pub(crate) fn token_exchange_http_client(
     let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none());
-    if let Some(proxy_url) = token_endpoint_http_proxy.filter(|s| !s.is_empty()) {
+    if let Some(proxy_url) = token_endpoint_http_proxy.none_if_empty() {
         let proxy = reqwest::Proxy::all(proxy_url).map_err(|e| {
             CarbideError::InvalidArgument(format!(
                 "invalid machine_identity.token_endpoint_http_proxy: {e}"
@@ -125,7 +126,7 @@ pub(crate) async fn token_exchange_request(
     if !status.is_success() {
         let snippet = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
         tracing::warn!(
-            status = %status,
+            http_status = %status,
             body_prefix = %snippet,
             "token exchange endpoint returned error"
         );

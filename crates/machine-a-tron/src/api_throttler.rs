@@ -56,7 +56,10 @@ pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
                                     chunk.iter().map(|id| **id).collect(),
                                 )
                                 .await
-                                .inspect_err(|e| tracing::error!("API failure getting machines: {e}")).unwrap_or_default();
+                                .inspect_err(|e| tracing::error!(
+                                    error = %e,
+                                    "API failure getting machines",
+                                )).unwrap_or_default();
 
                                 // Index the result by ID
                                 for m in machines {

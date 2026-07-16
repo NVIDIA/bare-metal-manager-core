@@ -100,7 +100,10 @@ impl MeasuredBootMetricsCollector {
     async fn run(&self, cancel_token: CancellationToken) {
         loop {
             if let Err(e) = self.run_single_iteration().await {
-                tracing::warn!("MeasuredBootMetricsCollector error: {}", e);
+                tracing::warn!(
+                    error = %e,
+                    "MeasuredBootMetricsCollector error",
+                );
             }
 
             tokio::select! {

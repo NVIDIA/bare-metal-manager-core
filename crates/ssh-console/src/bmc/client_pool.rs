@@ -170,14 +170,14 @@ impl BmcConnectionStore {
 pub enum GetConnectionError {
     #[error("{machine_or_instance_id} is not a valid machine_id or instance ID")]
     InvalidMachineId { machine_or_instance_id: String },
-    #[error("Error looking up instance ID {instance_id}: {tonic_status}")]
+    #[error("error looking up instance ID {instance_id}: {tonic_status}")]
     InstanceIdLookupFailure {
         instance_id: InstanceId,
         tonic_status: tonic::Status,
     },
-    #[error("Could not find instance with id {instance_id}")]
+    #[error("could not find instance with id {instance_id}")]
     CouldNotFindInstanceId { instance_id: InstanceId },
-    #[error("Instance {instance_id} has no machine ID")]
+    #[error("instance {instance_id} has no machine ID")]
     InstanceMissingMachineId { instance_id: InstanceId },
     #[error("no machine with instance_id {instance_id}")]
     NoMachineWithInstanceId { instance_id: InstanceId },
@@ -212,13 +212,13 @@ impl BmcPoolMetrics {
         Self {
             grpc_total_hosts: meter
                 .u64_gauge("ssh_console_grpc_total_machines")
-                .with_description("The total number of hosts reported by the Site Controller to the SSH Console service").build(),
+                .with_description("Number of hosts reported by the Site Controller to the SSH Console service").build(),
             total_machines: meter
                 .u64_gauge("ssh_console_total_machines")
-                .with_description("The total number of host BMCs the SSH Console service has attempted connecting to").build(),
+                .with_description("Number of host BMCs the SSH Console service has attempted to connect to").build(),
             _failed_machines: meter
                 .u64_observable_gauge("ssh_console_failed_machines")
-                .with_description("The number of host BMCs the SSH Console service has encountered multiple errors with")
+                .with_description("Number of host BMCs with connection errors")
                 .with_callback({
                     let members = members.clone();
                     move |observer| {
@@ -233,7 +233,7 @@ impl BmcPoolMetrics {
                 .build(),
             _healthy_machines: meter
                 .u64_observable_gauge("ssh_console_healthy_machines")
-                .with_description("The number of host BMCs the SSH Console service has working connections to")
+                .with_description("Number of host BMCs the SSH Console service has working connections to")
                 .with_callback({
                     let members = members.clone();
                     move |observer| {
@@ -434,6 +434,6 @@ impl BmcPool {
 
 #[derive(thiserror::Error, Debug)]
 enum RefreshBmcsError {
-    #[error("Error fetching machine ids: {tonic_status}")]
+    #[error("error fetching machine ids: {tonic_status}")]
     FetchingMachineIdsFailure { tonic_status: tonic::Status },
 }

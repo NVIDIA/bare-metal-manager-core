@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use bms_dsx_exchange::{BmsDsxExchangePublisher, Publication, PublisherConfig, SourceUpdate};
 use carbide_mqtt_common::hook::MqttPublisher;
-use carbide_mqtt_common::metrics::MqttHookMetrics;
+use carbide_mqtt_common::metrics::{MqttHookMetrics, PublishComponent};
 use carbide_uuid::rack::RackId;
 use chrono::Utc;
 use db::db_read::PgPoolReader;
@@ -79,7 +79,7 @@ impl BmsDsxExchangeHandle {
             .heartbeat_interval
             .min(publisher_config.republish_interval);
         let (sender, receiver) = mpsc::channel(queue_capacity);
-        let metrics = MqttHookMetrics::new(meter, sender.downgrade(), "bms");
+        let metrics = MqttHookMetrics::new(meter, sender.downgrade(), PublishComponent::Bms);
 
         let handle = Arc::new(BmsDsxExchangeHandle { sender });
 
@@ -97,7 +97,7 @@ impl BmsDsxExchangeHandle {
             .register_raw_message::<BmsMetadataMessage>(METADATA_PATTERN)
             .await
             .map_err(|error| {
-                eyre::eyre!("Failed to register BMS metadata message type: {error}")
+                eyre::eyre!("failed to register BMS metadata message type: {error}")
             })?;
 
         client
@@ -115,7 +115,7 @@ impl BmsDsxExchangeHandle {
         client
             .subscribe(METADATA_SUBSCRIPTION, QoS::AtMostOnce)
             .await
-            .map_err(|error| eyre::eyre!("Failed to subscribe to BMS metadata topics: {error}"))?;
+            .map_err(|error| eyre::eyre!("failed to subscribe to BMS metadata topics: {error}"))?;
 
         seed_current_rack_state(db_pool, handle.as_ref()).await?;
 
@@ -398,7 +398,8 @@ mod tests {
         let mut join_set = JoinSet::new();
         let cancel_token = CancellationToken::new();
         let (sender, receiver) = mpsc::channel(32);
-        let metrics = MqttHookMetrics::new(&test_meter(), sender.downgrade(), "bms-test");
+        let metrics =
+            MqttHookMetrics::new(&test_meter(), sender.downgrade(), PublishComponent::Bms);
 
         join_set.spawn(run_worker(
             receiver,

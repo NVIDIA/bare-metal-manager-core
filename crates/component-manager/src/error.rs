@@ -12,6 +12,20 @@ pub enum ComponentManagerError {
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
 
+    /// The selected backend does not implement or enable the requested operation.
+    #[error("unsupported operation: {0}")]
+    Unsupported(String),
+
+    /// A mutating request may have reached the backend, but no job handle is
+    /// available. Callers must reconcile observed credential state
+    /// instead of retrying the mutation directly.
+    ///
+    /// For [`crate::nv_switch_manager::NvSwitchManager::start_password_rotation`],
+    /// every other error guarantees that the backend did not accept the password
+    /// mutation and the caller may release any staged submission marker.
+    #[error("operation outcome unknown: {0}")]
+    OperationOutcomeUnknown(String),
+
     #[error("internal error: {0}")]
     Internal(String),
 

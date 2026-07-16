@@ -159,7 +159,10 @@ impl FirmwareDownloader {
         }
 
         if url.is_empty() {
-            tracing::error!("Firmware with file not present has no URL: {filename:?}");
+            tracing::error!(
+                firmware_path = ?filename,
+                "Firmware artifact is missing and has no URL",
+            );
             return false;
         }
 
@@ -237,13 +240,13 @@ async fn download_and_publish(
     download(filename, url, dst_filename, client, fake_sleep).await?;
     verify_sha256(dst_filename, sha256)
         .wrap_err(format!(
-            "Downloaded artifact from {} failed verification",
+            "downloaded artifact from {} failed verification",
             loggable_url(url)
         ))
         .map_err(fail(DownloadOutcome::Checksum))?;
     std::fs::rename(dst_filename, filename)
         .wrap_err(format!(
-            "Unable to rename {dst_filename} to {}",
+            "unable to rename {dst_filename} to {}",
             filename.display()
         ))
         .map_err(fail(DownloadOutcome::Io))?;
@@ -273,14 +276,16 @@ fn cached_file_status(filename: &Path, sha256: &str) -> CachedFileStatus {
         Ok(()) => CachedFileStatus::Available,
         Err(err) => {
             tracing::warn!(
-                "Cached firmware artifact {} failed checksum verification: {err}",
-                filename.display()
+                filename = %filename.display(),
+                error = %err,
+                "Cached firmware artifact failed checksum verification",
             );
 
             if let Err(err) = std::fs::remove_file(filename) {
                 tracing::error!(
-                    "Failed to remove stale cached firmware artifact {}: {err}",
-                    filename.display()
+                    filename = %filename.display(),
+                    error = %err,
+                    "Failed to remove stale cached firmware artifact",
                 );
                 return CachedFileStatus::Unusable;
             }
@@ -302,18 +307,18 @@ async fn download(
         Some(x) => x,
         None => {
             return Err(fail(DownloadOutcome::Io)(eyre!(
-                "Could not find dirname of {}",
+                "could not find dirname of {}",
                 filename.to_string_lossy()
             )));
         }
     };
 
     std::fs::create_dir_all(dirname)
-        .wrap_err(format!("Unable to create directory {}", dirname.display()))
+        .wrap_err(format!("unable to create directory {}", dirname.display()))
         .map_err(fail(DownloadOutcome::Io))?;
     let mut dst_file = File::create(dst_filename)
         .await
-        .wrap_err(format!("Unable to create file {dst_filename}"))
+        .wrap_err(format!("unable to create file {dst_filename}"))
         .map_err(fail(DownloadOutcome::Io))?;
 
     if let Some(duration) = fake_sleep {
@@ -409,7 +414,7 @@ fn verify_sha256(filename: &str, checksum: &str) -> Result<(), Report> {
 
     if checksum_actual != checksum {
         return Err(eyre!(
-            "Checksum mismatch: Expected {checksum} downloaded {checksum_actual}"
+            "checksum mismatch: expected {checksum} downloaded {checksum_actual}"
         ));
     }
     Ok(())

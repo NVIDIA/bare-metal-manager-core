@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bmc_explorer::test_support::generate_managed_host_reports;
 use bmc_mock::HostHardwareType;
@@ -79,9 +80,9 @@ impl DiscoverDhcp for FakeMachine {
             .await?
             .into_inner();
         tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            self.mac,
-            response.address
+            mac_address = %self.mac,
+            ip_address = %response.address,
+            "DHCP assigned ip"
         );
         self.ip = response.address;
         Ok(())
@@ -140,7 +141,6 @@ fn last_run_test_config() -> SiteExplorerConfig {
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(false.into()),
         create_power_shelves: Arc::new(false.into()),
-        explore_power_shelves_from_static_ip: Arc::new(false.into()),
         create_switches: Arc::new(false.into()),
         ..Default::default()
     }
@@ -659,7 +659,6 @@ async fn test_site_explorer_unknown_vendor(pool: PgPool) -> Result<(), Box<dyn s
         create_machines: Arc::new(true.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -859,7 +858,6 @@ async fn test_expected_machine_device_type_metrics(
         create_machines: Arc::new(false.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -1237,7 +1235,6 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -1641,7 +1638,6 @@ async fn test_site_explorer_audit_exploration_results(
         admin_segment_type_non_dpu: Arc::new(false.into()),
         allocate_secondary_vtep_ip: false,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -1954,7 +1950,6 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(false.into()),
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -2044,7 +2039,7 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
     assert_eq!(
         e.message(),
         format!(
-            "An object of type explored_endpoint was intended to be modified did not have the expected version {}",
+            "an object of type explored_endpoint was intended to be modified did not have the expected version {}",
             unexpected_version.version_string()
         )
     );
@@ -2091,6 +2086,9 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+// This regression intentionally keeps the exploration transaction open while
+// awaiting the competing clear, so it can verify both row-lock orderings.
+#[allow(txn_held_across_await)]
 #[sqlx_test]
 async fn test_site_explorer_clear_last_known_error(
     pool: PgPool,
@@ -2098,8 +2096,10 @@ async fn test_site_explorer_clear_last_known_error(
     let env = Env::new(pool).await;
     let ip_address = "192.168.1.1";
     let bmc_ip: IpAddr = IpAddr::from_str(ip_address)?;
-    let last_error = Some(EndpointExplorationError::Unreachable {
-        details: Some("test_unreachable_detail".to_string()),
+    let last_error = Some(EndpointExplorationError::Unauthorized {
+        details: "Not authorized".to_string(),
+        response_body: None,
+        response_code: Some(401),
     });
 
     let mut dpu_report1: EndpointExplorationReport = DpuConfig {
@@ -2117,8 +2117,9 @@ async fn test_site_explorer_clear_last_known_error(
     let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     txn.commit().await?;
     assert_eq!(nodes.len(), 1);
-    let node = nodes.first();
-    assert_eq!(node.unwrap().report.last_exploration_error, last_error);
+    let node = nodes.first().unwrap();
+    assert_eq!(node.report.last_exploration_error, last_error);
+    let old_version = node.report_version;
 
     env.api()
         .clear_site_exploration_error(Request::new(rpc::forge::ClearSiteExplorationErrorRequest {
@@ -2132,8 +2133,74 @@ async fn test_site_explorer_clear_last_known_error(
     let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     txn.commit().await?;
     assert_eq!(nodes.len(), 1);
-    let node = nodes.first();
-    assert_eq!(node.unwrap().report.last_exploration_error, None);
+    let node = nodes.first().unwrap();
+    assert_eq!(node.report.last_exploration_error, None);
+    assert_eq!(
+        node.report_version.version_nr(),
+        old_version.version_nr() + 1
+    );
+
+    let mut txn = db::Transaction::begin(&env.pool).await?;
+    let stale_write_applied = db::explored_endpoints::try_update_last_exploration_error(
+        bmc_ip,
+        old_version,
+        &EndpointExplorationError::AvoidLockout,
+        Duration::from_secs(1),
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+    assert!(
+        !stale_write_applied,
+        "a stale exploration result must not overwrite a cleared error"
+    );
+
+    let mut txn = env.pool.begin().await?;
+    let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes.first().unwrap().report.last_exploration_error, None);
+
+    // Exercise the inverse race: an exploration write acquires the row lock
+    // first. The clear must wait for that write to commit, then clear the error
+    // from the freshly persisted report.
+    let version_before_race = nodes.first().unwrap().report_version;
+    let mut exploration_txn = db::Transaction::begin(&env.pool).await?;
+    let exploration_write_applied = db::explored_endpoints::try_update_last_exploration_error(
+        bmc_ip,
+        version_before_race,
+        &EndpointExplorationError::AvoidLockout,
+        Duration::from_secs(2),
+        &mut exploration_txn,
+    )
+    .await?;
+    assert!(exploration_write_applied);
+
+    let mut clear_txn = db::Transaction::begin(&env.pool).await?;
+    {
+        let clear = db::explored_endpoints::clear_last_known_error(bmc_ip, &mut clear_txn);
+        tokio::pin!(clear);
+        tokio::select! {
+            result = &mut clear => {
+                panic!("clear unexpectedly completed while the exploration write held the row lock: {result:?}");
+            }
+            () = tokio::time::sleep(Duration::from_millis(100)) => {}
+        }
+
+        exploration_txn.commit().await?;
+        clear.await?;
+    }
+    clear_txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    txn.commit().await?;
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(
+        nodes.first().unwrap().report.last_exploration_error,
+        None,
+        "the clear must retry after the exploration write wins the race"
+    );
 
     Ok(())
 }
@@ -2234,7 +2301,6 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         create_machines: Arc::new(true.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
@@ -2539,7 +2605,6 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
         create_machines: Arc::new(true.into()),
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,

@@ -150,6 +150,42 @@ impl ApiClientWrapper {
 
         Ok(())
     }
+    /// Fetch SKU manifests by id — the expected-hardware source of truth used
+    /// to validate out-of-band GPU count against the assigned SKU.
+    pub async fn find_skus_by_ids(
+        &self,
+        ids: Vec<String>,
+    ) -> Result<Vec<rpc::forge::Sku>, HealthError> {
+        let request = rpc::forge::SkusByIdsRequest { ids };
+
+        let response = self
+            .client
+            .find_skus_by_ids(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(response.skus)
+    }
+
+    /// Fetch a machine's currently-assigned SKU id, re-read live each call so SKU
+    /// assignments/changes after a collector starts are picked up (no caching).
+    pub async fn machine_hw_sku(
+        &self,
+        machine_id: carbide_uuid::machine::MachineId,
+    ) -> Result<Option<String>, HealthError> {
+        let request = rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![machine_id],
+            ..Default::default()
+        };
+
+        let response = self
+            .client
+            .find_machines_by_ids(request)
+            .await
+            .map_err(HealthError::ApiInvocationError)?;
+
+        Ok(response.machines.into_iter().next().and_then(|m| m.hw_sku))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -278,7 +314,7 @@ impl ApiEndpointSource {
 
         self.prune_bmc_client_cache(&endpoints);
 
-        tracing::info!("Prepared total {} endpoints", endpoints.len());
+        tracing::info!(endpoint_count = endpoints.len(), "Prepared endpoints");
 
         Ok(endpoints)
     }
@@ -291,8 +327,8 @@ impl ApiEndpointSource {
         let removed = before - cache.len();
         if removed > 0 {
             tracing::info!(
-                removed,
-                remaining = cache.len(),
+                removed_bmc_client_count = removed,
+                remaining_bmc_client_count = cache.len(),
                 "Pruned stale BmcClient cache entries"
             );
         }
@@ -309,7 +345,10 @@ impl ApiEndpointSource {
             .await
             .map_err(HealthError::ApiInvocationError)?;
 
-        tracing::info!("Found {} machines", machine_ids.machine_ids.len(),);
+        tracing::info!(
+            machine_count = machine_ids.machine_ids.len(),
+            "Found machines"
+        );
 
         let mut endpoints = Vec::new();
 
@@ -325,8 +364,9 @@ impl ApiEndpointSource {
                 .await
                 .map_err(HealthError::ApiInvocationError)?;
             tracing::debug!(
-                "Fetched details for {} machines with chunk size of 100",
-                machines.machines.len(),
+                machine_count = machines.machines.len(),
+                requested_machine_count = ids_chunk.len(),
+                "Fetched machine details"
             );
 
             for machine in machines.machines {
@@ -375,7 +415,10 @@ impl ApiEndpointSource {
                     }
                 }
 
-                tracing::debug!(count = endpoints.len(), "Fetched switch endpoints");
+                tracing::debug!(
+                    switch_endpoint_count = endpoints.len(),
+                    "Fetched switch endpoints"
+                );
                 endpoints
             }
             Err(error) => {
@@ -406,7 +449,10 @@ impl ApiEndpointSource {
                     }
                 }
 
-                tracing::debug!(count = endpoints.len(), "Fetched power shelf endpoints");
+                tracing::debug!(
+                    power_shelf_endpoint_count = endpoints.len(),
+                    "Fetched power shelf endpoints"
+                );
                 endpoints
             }
             Err(error) => {

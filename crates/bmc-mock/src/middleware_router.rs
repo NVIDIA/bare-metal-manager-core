@@ -58,7 +58,12 @@ async fn process(State(mut state): State<Middleware>, request: Request<Body>) ->
     let response = state.injection.post_handle(&path, response).await;
 
     if !response.status().is_success() {
-        tracing::warn!(method = %method, path, status = %response.status());
+        tracing::warn!(
+            method = %method,
+            path,
+            http_status = %response.status(),
+            "BMC mock request returned unsuccessful response"
+        );
     }
     if !is_safe && response.status().is_success() {
         state.callbacks.state_refresh_indication();

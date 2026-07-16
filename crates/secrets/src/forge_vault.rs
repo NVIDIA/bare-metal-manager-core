@@ -24,9 +24,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use carbide_instrument::{Event, LabelValue, emit};
 use eyre::{ContextCompat, WrapErr, eyre};
-use opentelemetry::KeyValue;
-use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
+use opentelemetry::StringValue;
+use opentelemetry::metrics::{Gauge, Meter};
 use rand::RngExt;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::sleep;
@@ -90,16 +91,17 @@ fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Rep
         Ok(env_path) if Path::new(&env_path).exists() => Ok(env_path),
         Ok(env_path) => {
             tracing::error!(
-                "VAULT_CACERT={env_path} does not exist. Refusing to connect without TLS verification."
+                %env_path,
+                "VAULT_CACERT does not exist. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
         Err(_) => {
             tracing::error!(
-                "Vault root CA not found at {}. Refusing to connect without TLS verification.",
-                configured_path
+                configured_path,
+                "Vault root CA not found. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
     }
 }
@@ -149,13 +151,105 @@ pub(crate) fn machine_spiffe_uri(
     }
 }
 
+/// The Vault request kind, as the bounded `request_type` label carried by the
+/// attempted / succeeded / failed counters and the duration histogram. Each
+/// variant renders to the exact snake_case string the metrics have always
+/// reported, so the variant names are the label contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum VaultRequestType {
+    ServiceAccountLogin,
+    GetCredentials,
+    SetCredentials,
+    DeleteCredentials,
+    GetCertificate,
+}
+
+/// The HTTP status code of a failed Vault request, as the bounded
+/// `http_response_status_code` label on the failure counter: the status code
+/// rendered as a string, or the empty string when the client error carried no
+/// HTTP response. HTTP status codes are a closed set, so this is a bounded
+/// label value; the hand-written `LabelValue` impl is the reviewed escape hatch
+/// for a bounded-but-not-enum value, and reproduces the previous
+/// `code.to_string()`-or-empty rendering byte for byte.
+struct VaultFailureStatusCode(Option<u16>);
+
+impl LabelValue for VaultFailureStatusCode {
+    fn label_value(&self) -> StringValue {
+        StringValue::from(self.0.map(|code| code.to_string()).unwrap_or_default())
+    }
+}
+
+/// A Vault request was attempted. Metric-only (`log = off`): counted, never
+/// logged.
+#[derive(Event)]
+#[event(
+    name = "carbide_api_vault_requests_attempted_total",
+    component = "nico-api",
+    log = off,
+    metric = counter,
+    describe = "Number of attempted Vault requests"
+)]
+struct VaultRequestAttempted {
+    #[label]
+    request_type: VaultRequestType,
+}
+
+/// A Vault request succeeded. Metric-only (`log = off`): counted, never logged.
+#[derive(Event)]
+#[event(
+    name = "carbide_api_vault_requests_succeeded_total",
+    component = "nico-api",
+    log = off,
+    metric = counter,
+    describe = "Number of successful Vault requests"
+)]
+struct VaultRequestSucceeded {
+    #[label]
+    request_type: VaultRequestType,
+}
+
+/// A Vault request failed. Metric-only (`log = off`): the callers keep their
+/// own `tracing` error/debug lines unchanged; this event only moves the failure
+/// counter beside them. `http_response_status_code` is the HTTP status when the
+/// client error carried one, and empty otherwise.
+#[derive(Event)]
+#[event(
+    name = "carbide_api_vault_requests_failed_total",
+    component = "nico-api",
+    log = off,
+    metric = counter,
+    describe = "Number of failed Vault requests"
+)]
+struct VaultRequestFailed {
+    #[label]
+    request_type: VaultRequestType,
+    #[label]
+    http_response_status_code: VaultFailureStatusCode,
+}
+
+/// The wall-clock duration of an outbound Vault request, in whole
+/// milliseconds. Metric-only (`log = off`).
+#[derive(Event)]
+#[event(
+    name = "carbide_api_vault_request_duration_milliseconds",
+    component = "nico-api",
+    log = off,
+    metric = histogram,
+    describe = "Duration of outbound Vault requests, in milliseconds"
+)]
+struct VaultRequestDuration {
+    #[label]
+    request_type: VaultRequestType,
+    #[observation]
+    duration_ms: u64,
+}
+
+/// The one Vault metric that stays a hand-rolled OpenTelemetry instrument: a
+/// periodic state gauge for the time remaining on the current token, recorded
+/// from the refresher loop rather than emitted per request.
 #[derive(Debug, Clone)]
 pub struct ForgeVaultMetrics {
-    pub vault_requests_total_counter: Counter<u64>,
-    pub vault_requests_succeeded_counter: Counter<u64>,
-    pub vault_requests_failed_counter: Counter<u64>,
     pub vault_token_gauge: Gauge<f64>,
-    pub vault_request_duration_histogram: Histogram<u64>,
 }
 
 struct RefresherMessage {
@@ -163,7 +257,6 @@ struct RefresherMessage {
 }
 
 pub struct ForgeVaultClient {
-    vault_metrics: ForgeVaultMetrics,
     vault_client_config: ForgeVaultClientConfig,
     vault_refresher_tx: Sender<RefresherMessage>,
 }
@@ -192,7 +285,6 @@ where
 
 async fn vault_token_refresh(
     vault_client_config: &ForgeVaultClientConfig,
-    vault_metrics: &ForgeVaultMetrics,
 ) -> Result<(ForgeVaultAuthentication, Arc<VaultClient>), eyre::ErrReport> {
     let (vault_token, vault_token_expiry_secs) = match vault_client_config.auth_type {
         ForgeVaultAuthenticationType::Root(ref root_token) => {
@@ -218,9 +310,9 @@ async fn vault_token_refresh(
                 vault_client_config,
             )?;
             let vault_client = VaultClient::new(vault_client_settings)?;
-            vault_metrics
-                .vault_requests_total_counter
-                .add(1, &[KeyValue::new("request_type", "service_account_login")]);
+            emit(VaultRequestAttempted {
+                request_type: VaultRequestType::ServiceAccountLogin,
+            });
             let time_started_vault_request = Instant::now();
             let vault_response = vaultrs::auth::kubernetes::login(
                 &vault_client,
@@ -230,26 +322,29 @@ async fn vault_token_refresh(
             )
             .await;
             let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
-            vault_metrics.vault_request_duration_histogram.record(
-                elapsed_request_duration,
-                &[KeyValue::new("request_type", "service_account_login")],
-            );
+            emit(VaultRequestDuration {
+                request_type: VaultRequestType::ServiceAccountLogin,
+                duration_ms: elapsed_request_duration,
+            });
             let auth_info = vault_response
                 .inspect_err(|err| {
-                    record_vault_client_error(err, "service_account_login", vault_metrics);
+                    record_vault_client_error(err, VaultRequestType::ServiceAccountLogin);
                 })
-                .wrap_err("Failed to execute kubernetes service account login request")?;
+                .wrap_err("failed to execute kubernetes service account login request")?;
 
-            vault_metrics
-                .vault_requests_succeeded_counter
-                .add(1, &[KeyValue::new("request_type", "service_account_login")]);
+            emit(VaultRequestSucceeded {
+                request_type: VaultRequestType::ServiceAccountLogin,
+            });
             // start refreshing before it expires
             let lease_expiry_secs = (0.9 * auth_info.lease_duration as f64) as u64;
             (auth_info.client_token, lease_expiry_secs)
         }
     };
 
-    tracing::info!("successfully refreshed vault token, with lifetime: {vault_token_expiry_secs}");
+    tracing::info!(
+        vault_token_expiry_seconds = vault_token_expiry_secs,
+        "successfully refreshed vault token"
+    );
 
     let vault_client_settings = create_vault_client_settings(vault_token, vault_client_config)?;
     let vault_client = VaultClient::new(vault_client_settings)?;
@@ -297,7 +392,7 @@ async fn maybe_refresh_vault_client(
     vault_metrics: &ForgeVaultMetrics,
     vault_auth_status: ForgeVaultAuthenticationStatus,
 ) -> Result<(ForgeVaultAuthentication, Arc<VaultClient>), eyre::ErrReport> {
-    let refresh_fut = vault_token_refresh(vault_client_config, vault_metrics);
+    let refresh_fut = vault_token_refresh(vault_client_config);
     match vault_auth_status {
         ForgeVaultAuthenticationStatus::Initialized => refresh_fut.await,
         ForgeVaultAuthenticationStatus::Authenticated(authentication, client) => {
@@ -354,17 +449,11 @@ impl ForgeVaultClient {
     fn new(vault_client_config: ForgeVaultClientConfig, vault_metrics: ForgeVaultMetrics) -> Self {
         let (vault_refresher_tx, vault_refresher_rx) = tokio::sync::mpsc::channel(1);
         let vault_client_config_clone = vault_client_config.clone();
-        let vault_metrics_clone = vault_metrics.clone();
         tokio::spawn(async move {
-            vault_refresher_loop(
-                vault_refresher_rx,
-                vault_client_config_clone,
-                vault_metrics_clone,
-            )
-            .await;
+            vault_refresher_loop(vault_refresher_rx, vault_client_config_clone, vault_metrics)
+                .await;
         });
         Self {
-            vault_metrics,
             vault_client_config,
             vault_refresher_tx,
         }
@@ -388,11 +477,7 @@ impl ForgeVaultClient {
 
 #[async_trait]
 trait VaultTask<T> {
-    async fn execute(
-        &self,
-        vault_client: Arc<VaultClient>,
-        vault_metrics: &ForgeVaultMetrics,
-    ) -> Result<T, SecretsError>;
+    async fn execute(&self, vault_client: Arc<VaultClient>) -> Result<T, SecretsError>;
 }
 
 struct GetCredentialsHelper<'key, 'location> {
@@ -405,11 +490,10 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
     async fn execute(
         &self,
         vault_client: Arc<VaultClient>,
-        vault_metrics: &ForgeVaultMetrics,
     ) -> Result<Option<Credentials>, SecretsError> {
-        vault_metrics
-            .vault_requests_total_counter
-            .add(1, &[KeyValue::new("request_type", "get_credentials")]);
+        emit(VaultRequestAttempted {
+            request_type: VaultRequestType::GetCredentials,
+        });
 
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::read(
@@ -419,65 +503,56 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
         )
         .await;
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
-        vault_metrics.vault_request_duration_histogram.record(
-            elapsed_request_duration,
-            &[KeyValue::new("request_type", "get_credentials")],
-        );
+        emit(VaultRequestDuration {
+            request_type: VaultRequestType::GetCredentials,
+            duration_ms: elapsed_request_duration,
+        });
 
-        let credentials = match vault_response {
-            Ok(creds) => Ok(Some(creds)),
+        match vault_response {
+            Ok(creds) => {
+                emit(VaultRequestSucceeded {
+                    request_type: VaultRequestType::GetCredentials,
+                });
+                Ok(Some(creds))
+            }
             Err(ce) => {
-                let status_code = record_vault_client_error(&ce, "get_credentials", vault_metrics);
+                let status_code = record_vault_client_error(&ce, VaultRequestType::GetCredentials);
                 match status_code {
                     Some(404) => {
                         // Not found errors are common and of no concern
                         tracing::debug!(
-                            "Credentials not found for key ({})",
-                            self.key.to_key_str().as_ref()
+                            credential_key = %self.key.to_key_str(),
+                            "Credentials not found",
                         );
                         Ok(None)
                     }
                     _ => {
                         tracing::error!(
-                            "Error getting credentials ({}). Error: {ce:?}",
-                            self.key.to_key_str().as_ref()
+                            credential_key = %self.key.to_key_str(),
+                            error = ?ce,
+                            "Error getting credentials",
                         );
                         Err(SecretsError::GenericError(ce.into()))
                     }
                 }
             }
-        };
-
-        vault_metrics
-            .vault_requests_succeeded_counter
-            .add(1, &[KeyValue::new("request_type", "get_credentials")]);
-        credentials
+        }
     }
 }
 
 /// Tracks client errors if an invocation to a Vault server failed
 ///
 /// Returns the status code of the HTTP request if available
-fn record_vault_client_error(
-    err: &ClientError,
-    request_type: &'static str,
-    vault_metrics: &ForgeVaultMetrics,
-) -> Option<u16> {
+fn record_vault_client_error(err: &ClientError, request_type: VaultRequestType) -> Option<u16> {
     let status_code = match err {
         ClientError::APIError { code, errors: _ } => Some(*code),
         _ => None,
     };
 
-    vault_metrics.vault_requests_failed_counter.add(
-        1,
-        &[
-            KeyValue::new("request_type", request_type),
-            KeyValue::new(
-                "http.response.status_code",
-                status_code.map(|code| code.to_string()).unwrap_or_default(),
-            ),
-        ],
-    );
+    emit(VaultRequestFailed {
+        request_type,
+        http_response_status_code: VaultFailureStatusCode(status_code),
+    });
 
     status_code
 }
@@ -491,14 +566,10 @@ struct SetCredentialsHelper<'key, 'location> {
 
 #[async_trait]
 impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
-    async fn execute(
-        &self,
-        vault_client: Arc<VaultClient>,
-        vault_metrics: &ForgeVaultMetrics,
-    ) -> Result<(), SecretsError> {
-        vault_metrics
-            .vault_requests_total_counter
-            .add(1, &[KeyValue::new("request_type", "set_credentials")]);
+    async fn execute(&self, vault_client: Arc<VaultClient>) -> Result<(), SecretsError> {
+        emit(VaultRequestAttempted {
+            request_type: VaultRequestType::SetCredentials,
+        });
 
         let time_started_vault_request = Instant::now();
 
@@ -528,20 +599,20 @@ impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
         };
 
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
-        vault_metrics.vault_request_duration_histogram.record(
-            elapsed_request_duration,
-            &[KeyValue::new("request_type", "set_credentials")],
-        );
+        emit(VaultRequestDuration {
+            request_type: VaultRequestType::SetCredentials,
+            duration_ms: elapsed_request_duration,
+        });
 
         let _secret_version_metadata = vault_response.map_err(|err| {
-            record_vault_client_error(&err, "set_credentials", vault_metrics);
-            tracing::error!("Error setting credentials. Error: {err:?}");
+            record_vault_client_error(&err, VaultRequestType::SetCredentials);
+            tracing::error!(error = ?err, "Error setting credentials");
             err
         })?;
 
-        vault_metrics
-            .vault_requests_succeeded_counter
-            .add(1, &[KeyValue::new("request_type", "set_credentials")]);
+        emit(VaultRequestSucceeded {
+            request_type: VaultRequestType::SetCredentials,
+        });
         Ok(())
     }
 }
@@ -553,14 +624,10 @@ struct DeleteCredentialsHelper<'key, 'location> {
 
 #[async_trait]
 impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
-    async fn execute(
-        &self,
-        vault_client: Arc<VaultClient>,
-        vault_metrics: &ForgeVaultMetrics,
-    ) -> Result<(), SecretsError> {
-        vault_metrics
-            .vault_requests_total_counter
-            .add(1, &[KeyValue::new("request_type", "delete_credentials")]);
+    async fn execute(&self, vault_client: Arc<VaultClient>) -> Result<(), SecretsError> {
+        emit(VaultRequestAttempted {
+            request_type: VaultRequestType::DeleteCredentials,
+        });
 
         let time_started_vault_request = Instant::now();
         let vault_response = kv2::delete_metadata(
@@ -571,20 +638,20 @@ impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
         .await;
 
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
-        vault_metrics.vault_request_duration_histogram.record(
-            elapsed_request_duration,
-            &[KeyValue::new("request_type", "delete_credentials")],
-        );
+        emit(VaultRequestDuration {
+            request_type: VaultRequestType::DeleteCredentials,
+            duration_ms: elapsed_request_duration,
+        });
 
         let _secret_version_metadata = vault_response.map_err(|err| {
-            record_vault_client_error(&err, "delete_credentials", vault_metrics);
-            tracing::error!("Error deleting credentials. Error: {err:?}");
+            record_vault_client_error(&err, VaultRequestType::DeleteCredentials);
+            tracing::error!(error = ?err, "Error deleting credentials");
             err
         })?;
 
-        vault_metrics
-            .vault_requests_succeeded_counter
-            .add(1, &[KeyValue::new("request_type", "delete_credentials")]);
+        emit(VaultRequestSucceeded {
+            request_type: VaultRequestType::DeleteCredentials,
+        });
         Ok(())
     }
 }
@@ -601,9 +668,7 @@ impl CredentialReader for ForgeVaultClient {
             key,
         };
         let vault_client = self.vault_client().await?;
-        get_credentials_helper
-            .execute(vault_client, &self.vault_metrics)
-            .await
+        get_credentials_helper.execute(vault_client).await
     }
 }
 
@@ -622,9 +687,7 @@ impl CredentialWriter for ForgeVaultClient {
             allow_overwrite: true,
         };
         let vault_client = self.vault_client().await?;
-        set_credentials_helper
-            .execute(vault_client, &self.vault_metrics)
-            .await
+        set_credentials_helper.execute(vault_client).await
     }
 
     async fn create_credentials(
@@ -640,9 +703,7 @@ impl CredentialWriter for ForgeVaultClient {
             allow_overwrite: false,
         };
         let vault_client = self.vault_client().await?;
-        set_credentials_helper
-            .execute(vault_client, &self.vault_metrics)
-            .await
+        set_credentials_helper.execute(vault_client).await
     }
 
     async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
@@ -652,9 +713,7 @@ impl CredentialWriter for ForgeVaultClient {
             kv_mount_location,
         };
         let vault_client = self.vault_client().await?;
-        delete_credentials_helper
-            .execute(vault_client, &self.vault_metrics)
-            .await
+        delete_credentials_helper.execute(vault_client).await
     }
 }
 
@@ -677,14 +736,10 @@ struct GetCertificateHelper {
 
 #[async_trait]
 impl VaultTask<Certificate> for GetCertificateHelper {
-    async fn execute(
-        &self,
-        vault_client: Arc<VaultClient>,
-        vault_metrics: &ForgeVaultMetrics,
-    ) -> Result<Certificate, SecretsError> {
-        vault_metrics
-            .vault_requests_total_counter
-            .add(1, &[KeyValue::new("request_type", "get_certificate")]);
+    async fn execute(&self, vault_client: Arc<VaultClient>) -> Result<Certificate, SecretsError> {
+        emit(VaultRequestAttempted {
+            request_type: VaultRequestType::GetCertificate,
+        });
 
         let spiffe_id = machine_spiffe_uri(
             &self.spiffe_trust_domain,
@@ -720,18 +775,18 @@ impl VaultTask<Certificate> for GetCertificateHelper {
         )
         .await;
         let elapsed_request_duration = time_started_vault_request.elapsed().as_millis() as u64;
-        vault_metrics.vault_request_duration_histogram.record(
-            elapsed_request_duration,
-            &[KeyValue::new("request_type", "get_certificate")],
-        );
+        emit(VaultRequestDuration {
+            request_type: VaultRequestType::GetCertificate,
+            duration_ms: elapsed_request_duration,
+        });
 
         let generate_certificate_response = vault_response.inspect_err(|err| {
-            record_vault_client_error(err, "get_certificate", vault_metrics);
+            record_vault_client_error(err, VaultRequestType::GetCertificate);
         })?;
 
-        vault_metrics
-            .vault_requests_succeeded_counter
-            .add(1, &[KeyValue::new("request_type", "get_certificate")]);
+        emit(VaultRequestSucceeded {
+            request_type: VaultRequestType::GetCertificate,
+        });
 
         Ok(Certificate {
             issuing_ca: generate_certificate_response.issuing_ca.into_bytes(),
@@ -759,9 +814,7 @@ impl CertificateProvider for ForgeVaultClient {
             ttl,
         };
         let vault_client = self.vault_client().await?;
-        get_certificate_helper
-            .execute(vault_client, &self.vault_metrics)
-            .await
+        get_certificate_helper.execute(vault_client).await
     }
 }
 
@@ -786,7 +839,10 @@ impl ForgeVaultClient {
         let paths = self
             .list_secrets_for_path("", EnumerationMode::BestEffort)
             .await?;
-        tracing::info!(count = paths.len(), "listed all vault secret paths");
+        tracing::info!(
+            secret_path_count = paths.len(),
+            "listed all vault secret paths"
+        );
         Ok(paths)
     }
 
@@ -801,7 +857,7 @@ impl ForgeVaultClient {
             .await?;
         tracing::info!(
             prefix = prefix.as_str(),
-            count = paths.len(),
+            secret_path_count = paths.len(),
             "listed vault secret paths for prefix"
         );
         Ok(paths)
@@ -1038,37 +1094,19 @@ pub fn create_vault_client(
         ForgeVaultAuthenticationType::Root(vault_config.token()?)
     };
 
-    let vault_requests_total_counter = meter
-        .u64_counter("carbide-api.vault.requests_attempted")
-        .with_description("The amount of tls connections that were attempted")
-        .build();
-    let vault_requests_succeeded_counter = meter
-        .u64_counter("carbide-api.vault.requests_succeeded")
-        .with_description("The amount of tls connections that were successful")
-        .build();
-    let vault_requests_failed_counter = meter
-        .u64_counter("carbide-api.vault.requests_failed")
-        .with_description("The amount of tcp connections that were failures")
-        .build();
+    // The attempted / succeeded / failed counters and the request-duration
+    // histogram are now `carbide-instrument` events (the `VaultRequest*` types);
+    // only the token-refresh state gauge stays a hand-rolled instrument.
     let vault_token_time_remaining_until_refresh_gauge = meter
         .f64_gauge("carbide-api.vault.token_time_until_refresh")
         .with_description(
-            "The amount of time, in seconds, until the vault token is required to be refreshed",
+            "The amount of time, in seconds, until the Vault token is required to be refreshed",
         )
         .with_unit("s")
         .build();
-    let vault_request_duration_histogram = meter
-        .u64_histogram("carbide-api.vault.request_duration")
-        .with_description("the duration of outbound vault requests, in milliseconds")
-        .with_unit("ms")
-        .build();
 
     let forge_vault_metrics = ForgeVaultMetrics {
-        vault_requests_total_counter,
-        vault_requests_succeeded_counter,
-        vault_requests_failed_counter,
         vault_token_gauge: vault_token_time_remaining_until_refresh_gauge,
-        vault_request_duration_histogram,
     };
 
     let vault_client_config = ForgeVaultClientConfig {
@@ -1203,5 +1241,221 @@ mod tests {
     fn rejects_random_json() {
         let jwt = jwt_from_payload(json!({"foo": ["bar"]}));
         assert!(service_account_role_name_from_jwt(&jwt).is_err());
+    }
+
+    /// The `request_type` label values are the metric's contract: each variant
+    /// renders to the exact snake_case string the vault counters and histogram
+    /// have always reported.
+    #[test]
+    fn vault_request_type_renders_expected_label_values() {
+        use carbide_instrument::LabelValue;
+        use carbide_test_support::{Check, check_values};
+
+        use super::VaultRequestType;
+
+        check_values(
+            [
+                Check {
+                    scenario: "service account login",
+                    input: VaultRequestType::ServiceAccountLogin,
+                    expect: "service_account_login".to_string(),
+                },
+                Check {
+                    scenario: "get credentials",
+                    input: VaultRequestType::GetCredentials,
+                    expect: "get_credentials".to_string(),
+                },
+                Check {
+                    scenario: "set credentials",
+                    input: VaultRequestType::SetCredentials,
+                    expect: "set_credentials".to_string(),
+                },
+                Check {
+                    scenario: "delete credentials",
+                    input: VaultRequestType::DeleteCredentials,
+                    expect: "delete_credentials".to_string(),
+                },
+                Check {
+                    scenario: "get certificate",
+                    input: VaultRequestType::GetCertificate,
+                    expect: "get_certificate".to_string(),
+                },
+            ],
+            |request_type| request_type.label_value().to_string(),
+        );
+    }
+
+    /// The failure counter's `http_response_status_code` label: an HTTP status
+    /// rendered as a string, or the empty string when the client error carried
+    /// no HTTP response. Pins both the code strings and the empty case.
+    #[test]
+    fn vault_failure_status_code_renders_codes_and_empty() {
+        use carbide_instrument::LabelValue;
+        use carbide_test_support::{Check, check_values};
+
+        use super::VaultFailureStatusCode;
+
+        check_values(
+            [
+                Check {
+                    scenario: "no http response renders empty",
+                    input: VaultFailureStatusCode(None),
+                    expect: String::new(),
+                },
+                Check {
+                    scenario: "not found",
+                    input: VaultFailureStatusCode(Some(404)),
+                    expect: "404".to_string(),
+                },
+                Check {
+                    scenario: "forbidden",
+                    input: VaultFailureStatusCode(Some(403)),
+                    expect: "403".to_string(),
+                },
+                Check {
+                    scenario: "server error",
+                    input: VaultFailureStatusCode(Some(500)),
+                    expect: "500".to_string(),
+                },
+            ],
+            |status| status.label_value().to_string(),
+        );
+    }
+
+    /// Builds a `VaultClient` pointed at a plaintext `mockito` server, so the
+    /// get-credentials helper's real `kv2::read` round-trips through a response
+    /// we control. An `http://` address skips TLS, so no CA wiring is needed.
+    fn mock_backed_vault_client(
+        server: &mockito::ServerGuard,
+    ) -> std::sync::Arc<vaultrs::client::VaultClient> {
+        use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+
+        let settings = VaultClientSettingsBuilder::default()
+            .address(server.url())
+            .token("test-token")
+            .verify(false)
+            .build()
+            .expect("vault client settings for mock server");
+        std::sync::Arc::new(VaultClient::new(settings).expect("vault client for mock server"))
+    }
+
+    /// A failed `get_credentials` read counts the attempt, times it once, and
+    /// moves ONLY the failed counter (carrying the HTTP status code) -- never
+    /// the succeeded counter -- while a successful read moves the succeeded
+    /// counter and leaves the failed one alone. Regression: the helper used to
+    /// emit `VaultRequestSucceeded` unconditionally after the response match, so
+    /// a failed read double-counted as both failed and succeeded, corrupting the
+    /// success/error split for `request_type="get_credentials"`.
+    #[tokio::test]
+    async fn get_credentials_failed_read_counts_failed_not_succeeded() {
+        use carbide_instrument::testing::MetricsCapture;
+
+        use super::{GetCredentialsHelper, VaultTask};
+        use crate::credentials::CredentialKey;
+
+        let mount = "secret".to_string();
+        let key = CredentialKey::UfmAuth {
+            fabric: "regression".to_string(),
+        };
+        let get = &[("request_type", "get_credentials")][..];
+        let failed_403 = &[
+            ("request_type", "get_credentials"),
+            ("http_response_status_code", "403"),
+        ][..];
+
+        // A non-404 error (here 403) must surface as an error and move the
+        // failed counter with its status code -- and must NOT move succeeded.
+        {
+            let mut server = mockito::Server::new_async().await;
+            let _mock = server
+                .mock("GET", mockito::Matcher::Any)
+                .with_status(403)
+                .with_header("content-type", "application/json")
+                .with_body(r#"{"errors":["permission denied"]}"#)
+                .create_async()
+                .await;
+
+            let helper = GetCredentialsHelper {
+                kv_mount_location: &mount,
+                key: &key,
+            };
+
+            let metrics = MetricsCapture::start();
+            let result = helper.execute(mock_backed_vault_client(&server)).await;
+
+            assert!(result.is_err(), "a 403 read must surface as an error");
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_failed_total", failed_403),
+                1.0,
+                "a failed read must move the failed counter once with its status code; exposition:\n{}",
+                metrics.render()
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_succeeded_total", get),
+                0.0,
+                "a failed read must not move the succeeded counter",
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_attempted_total", get),
+                1.0,
+                "every read counts exactly one attempt",
+            );
+            assert_eq!(
+                metrics
+                    .histogram_count_delta("carbide_api_vault_request_duration_milliseconds", get),
+                1,
+                "every read records exactly one duration observation",
+            );
+        }
+
+        // A successful read moves the succeeded counter and leaves the failed
+        // series untouched.
+        {
+            let mut server = mockito::Server::new_async().await;
+            let _mock = server
+                .mock("GET", mockito::Matcher::Any)
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    r#"{"request_id":"test","lease_id":"","lease_duration":0,"renewable":false,"data":{"data":{"UsernamePassword":{"username":"u","password":"p"}},"metadata":{"created_time":"2024-01-01T00:00:00Z","deletion_time":"","custom_metadata":null,"destroyed":false,"version":1}}}"#,
+                )
+                .create_async()
+                .await;
+
+            let helper = GetCredentialsHelper {
+                kv_mount_location: &mount,
+                key: &key,
+            };
+
+            let metrics = MetricsCapture::start();
+            let result = helper.execute(mock_backed_vault_client(&server)).await;
+
+            assert!(
+                matches!(&result, Ok(Some(_))),
+                "a 200 read with a valid body must succeed, got {result:?}"
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_succeeded_total", get),
+                1.0,
+                "a successful read must move the succeeded counter once; exposition:\n{}",
+                metrics.render()
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_failed_total", failed_403),
+                0.0,
+                "a successful read must not move the failed counter",
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_attempted_total", get),
+                1.0,
+                "every read counts exactly one attempt",
+            );
+            assert_eq!(
+                metrics
+                    .histogram_count_delta("carbide_api_vault_request_duration_milliseconds", get),
+                1,
+                "every read records exactly one duration observation",
+            );
+        }
     }
 }

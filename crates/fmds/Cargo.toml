@@ -39,6 +39,7 @@ carbide-tls = { path = "../tls" }
 carbide-uuid = { path = "../uuid" }
 carbide-version = { path = "../version" }
 logfmt = { path = "../logfmt" }
+metrics-endpoint = { path = "../metrics-endpoint" }
 
 arc-swap = { workspace = true }
 async-trait = { workspace = true }

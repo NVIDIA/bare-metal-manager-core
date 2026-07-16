@@ -37,7 +37,7 @@ async fn metrics(state: State<AppState>) -> ([(axum::http::HeaderName, &'static 
         Ok(()) => exposition.push_str(&String::from_utf8_lossy(&buffer)),
         // Keep the scrape serveable: on an encode failure the OTel section
         // is absent from this response rather than corrupting it.
-        Err(error) => eprintln!("unable to encode the OTel metrics registry: {error}"),
+        Err(error) => tracing::error!(error = %error, "unable to encode the OTel metrics registry"),
     }
 
     // The official Prometheus exposition content type. The endpoint has

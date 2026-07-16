@@ -287,8 +287,8 @@ async fn ensure_dhcp_address_for_family(
     }
 
     tracing::info!(
-        interface_id = %machine_interface.id,
-        %parsed_mac,
+        machine_interface_id = %machine_interface.id,
+        client_mac_address = %parsed_mac,
         ?address_family,
         "Interface missing DHCP address for family, allocating from segment"
     );
@@ -419,9 +419,9 @@ async fn handle_dhcp_from_dpa(
         // Log cases where len is neither 0 nor 1.
         if !dpa_ifs.is_empty() {
             tracing::error!(
-                "handle_dpa_message -  invalid dpa_ifs len from find_by_mac_addr maddr: {} len: {}",
-                macaddr,
-                dpa_ifs.len()
+                mac_address = %macaddr,
+                dpa_interface_count = dpa_ifs.len(),
+                "Unexpected number of DPA interfaces found",
             );
         }
         return Ok(None);
@@ -671,7 +671,7 @@ pub async fn discover_dhcp(
             .or_else(|| network_segments.first())
             .ok_or_else(|| {
                 CarbideError::internal(format!(
-                    "No network segment defined for DHCPv6 relay address {parsed_relay}"
+                    "no network segment defined for DHCPv6 relay address {parsed_relay}"
                 ))
             })?;
         ensure_dhcpv6_enabled(segment)?;
@@ -685,8 +685,8 @@ pub async fn discover_dhcp(
             // Fall through so the existing global MAC guard rejects or handles
             // static-assignment moves exactly as IPv4/stateful DHCP does.
             tracing::debug!(
-                %parsed_mac,
-                segment_id = %segment.id,
+                client_mac_address = %parsed_mac,
+                network_segment_id = %segment.id,
                 "DHCPv6 options request will use global MAC segment reconciliation"
             );
         } else if segment.config.allocation_strategy == AllocationStrategy::Reserved
@@ -794,7 +794,7 @@ pub async fn discover_dhcp(
         && segment.config.segment_type == NetworkSegmentType::Admin
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "DHCP request received on dormant non-primary admin interface {}. Ignoring.",
+            "DHCP request received on dormant non-primary admin interface {}. ignoring",
             machine_interface.id
         )));
     }
@@ -825,7 +825,7 @@ pub async fn discover_dhcp(
         let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
         if !dpus.is_empty() {
             return Err(CarbideError::internal(format!(
-                "DHCP request received for instance: {instance_id}. Ignoring."
+                "DHCP request received for instance: {instance_id}. ignoring"
             )));
         }
     }

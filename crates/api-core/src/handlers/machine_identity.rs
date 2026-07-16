@@ -23,6 +23,7 @@ use ::rpc::forge::{
     self as rpc, Jwks, JwksKind, JwksRequest, MachineIdentityResponse, OpenIdConfigRequest,
     OpenIdConfiguration,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use db::{WithTransaction, tenant_identity_config};
@@ -43,7 +44,7 @@ use crate::machine_identity::{
 pub(crate) fn require_machine_identity_site_enabled(api: &Api) -> Result<(), Status> {
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::InvalidArgument(
-            "Machine identity must be enabled in site config".to_string(),
+            "machine identity must be enabled in site config".to_string(),
         )
         .into());
     }
@@ -146,7 +147,7 @@ pub(crate) async fn sign_machine_identity(
 
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::UnavailableError(
-            "Machine identity is disabled in site config".into(),
+            "machine identity is disabled in site config".into(),
         )
         .into());
     }
@@ -154,17 +155,17 @@ pub(crate) async fn sign_machine_identity(
     let auth_context = request
         .extensions()
         .get::<AuthContext>()
-        .ok_or_else(|| Status::unauthenticated("No authentication context found"))?;
+        .ok_or_else(|| Status::unauthenticated("no authentication context found"))?;
 
     let machine_id_str = auth_context
         .get_spiffe_machine_id()
-        .ok_or_else(|| Status::unauthenticated("No machine identity in client certificate"))?;
+        .ok_or_else(|| Status::unauthenticated("no machine identity in client certificate"))?;
 
     tracing::info!(machine_id = %machine_id_str, "Processing machine identity request");
 
     let machine_id: MachineId = machine_id_str
         .parse()
-        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine ID format: {e}")))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("invalid machine ID format: {e}")))?;
 
     let req = request.get_ref();
 
@@ -193,8 +194,8 @@ pub(crate) async fn sign_machine_identity(
             .await
             .inspect_err(|e| {
                 tracing::error!(
-                    org_id = %identity_row.organization_id.as_str(),
-                    message = %e.message(),
+                    organization_id = %identity_row.organization_id.as_str(),
+                    error = %e.message(),
                     "tenant signing key decrypt failed"
                 );
             })
@@ -211,14 +212,11 @@ pub(crate) async fn sign_machine_identity(
     let now = Utc::now().timestamp();
 
     if let (Some(token_endpoint), Some(subject_token_audience), Some(auth_method)) = (
-        identity_row
-            .token_endpoint
-            .as_deref()
-            .filter(|u| !u.is_empty()),
+        identity_row.token_endpoint.as_deref().none_if_empty(),
         identity_row
             .subject_token_audience
             .as_deref()
-            .filter(|a| !a.is_empty()),
+            .none_if_empty(),
         identity_row.auth_method,
     ) {
         let subject_ttl = i64::from(identity_row.token_ttl_sec);
@@ -246,8 +244,8 @@ pub(crate) async fn sign_machine_identity(
         .await
         .inspect_err(|e| {
             tracing::error!(
-                org_id = %identity_row.organization_id.as_str(),
-                message = %e.message(),
+                organization_id = %identity_row.organization_id.as_str(),
+                error = %e.message(),
                 "token delegation auth config decrypt failed"
             );
         })?;

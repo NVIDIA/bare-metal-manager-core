@@ -34,7 +34,7 @@ pub async fn create(
         }
     });
     grpcurl(carbide_api_addrs, "CreateTenant", Some(&data.to_string())).await?;
-    tracing::info!("Tenant created with name {name}");
+    tracing::info!(tenant_name = name, "Tenant created",);
     Ok(())
 }
 
@@ -69,7 +69,10 @@ pub mod keyset {
             Some(&data.to_string()),
         )
         .await?;
-        tracing::info!("Tenant keyset created with id {id}");
+        tracing::info!(
+            keyset_id = %id,
+            "Tenant keyset created",
+        );
         Ok(())
     }
 }

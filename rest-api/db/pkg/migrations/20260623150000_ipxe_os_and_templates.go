@@ -42,7 +42,7 @@ func init() {
 
 		_, err = tx.Exec("CREATE INDEX IF NOT EXISTS ipxe_template_name_idx ON ipxe_template(name)")
 		handleError(tx, err)
-		_, err = tx.Exec("CREATE INDEX IF NOT EXISTS ipxe_template_scope_idx ON ipxe_template(scope)")
+		_, err = tx.Exec("CREATE INDEX IF NOT EXISTS ipxe_template_visibility_idx ON ipxe_template(visibility)")
 		handleError(tx, err)
 		_, err = tx.Exec("CREATE INDEX IF NOT EXISTS ipxe_template_created_idx ON ipxe_template(created)")
 		handleError(tx, err)

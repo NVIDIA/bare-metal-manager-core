@@ -389,7 +389,7 @@ async fn test_preingestion_preupdate_powercycling(
     let underlay_segment = nc.create_underlay_segment(&domain).await;
 
     let config = default_config::get();
-    tracing::debug!("{:?}", config.host_models);
+    tracing::debug!(host_models = ?config.host_models, "Using host models");
 
     let mgr = PreingestionManager::new(
         pool.clone(),
@@ -523,7 +523,10 @@ async fn test_preingestion_preupdate_powercycling(
         let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
         assert!(endpoints.len() == 1);
         let mut endpoint = endpoints.into_iter().next().unwrap();
-        tracing::debug!("State should be {state:?}");
+        tracing::debug!(
+            expected_power_drain_state = ?state,
+            "Checking expected preingestion state"
+        );
         match &endpoint.preingestion_state {
             PreingestionState::ResetForNewFirmware {
                 delay_until,

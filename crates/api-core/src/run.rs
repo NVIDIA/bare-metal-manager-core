@@ -38,7 +38,6 @@ use crate::cfg::file::{
     CarbideConfig, CredentialBackend, ImportSource, ProviderConfig, SecretsConfig,
 };
 use crate::listener::AdminUiRoutesBuilder;
-use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoint};
 use crate::logging::setup::{
     Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
@@ -132,12 +131,15 @@ pub async fn run(
     // Redact credentials before printing the config
     let print_config = carbide_config.redacted();
 
-    tracing::info!("Using configuration: {:#?}", print_config);
     tracing::info!(
-        "Tokio worker thread count: {} (num_cpus::get()={}, TOKIO_WORKER_THREADS={})",
-        tokio::runtime::Handle::current().metrics().num_workers(),
-        num_cpus::get(),
-        std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string())
+        print_config = ?print_config,
+        "Using configuration",
+    );
+    tracing::info!(
+        worker_count = tokio::runtime::Handle::current().metrics().num_workers(),
+        cpu_count = num_cpus::get(),
+        tokio_worker_threads = %std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string()),
+        "Tokio worker thread configuration",
     );
 
     let metrics = create_metrics()?;
@@ -155,24 +157,33 @@ pub async fn run(
     // Spin up the webserver which servers `/metrics` requests
     if let Some(metrics_address) = carbide_config.metrics_endpoint {
         // If a replacement prefix for "carbide_" is configured, also emit metrics under that
-        let additional_prefix = carbide_config
-            .alt_metric_prefix
-            .clone()
-            .map(|alt_prefix| ("carbide_".to_string(), alt_prefix));
+        let additional_prefix =
+            carbide_config
+                .alt_metric_prefix
+                .clone()
+                .map(|alt| metrics_endpoint::PrefixMigration {
+                    old: "carbide_".to_string(),
+                    new: alt,
+                });
         join_set.build_task().name("metrics_endpoint").spawn({
             let cancel_token = cancel_token.clone();
             async move {
-                if let Err(e) = run_metrics_endpoint(
-                    &MetricsEndpointConfig {
+                if let Err(e) = metrics_endpoint::run_metrics_endpoint_with_cancellation(
+                    &metrics_endpoint::MetricsEndpointConfig {
                         address: metrics_address,
                         registry: metrics.registry,
+                        health_controller: None,
                         additional_prefix,
                     },
                     cancel_token,
                 )
                 .await
                 {
-                    tracing::error!("Metrics endpoint failed with error: {}", e);
+                    tracing::error!(
+                        metrics_address = %metrics_address,
+                        error = %e,
+                        "Metrics endpoint failed",
+                    );
                 }
             }
         })?;
@@ -193,7 +204,7 @@ pub async fn run(
     );
 
     tracing::info!(
-        address = carbide_config.listen.to_string(),
+        listen_address = carbide_config.listen.to_string(),
         build_version = carbide_version::v!(build_version),
         build_date = carbide_version::v!(build_date),
         rust_version = carbide_version::v!(rust_version),
@@ -261,14 +272,11 @@ pub async fn run(
             &cancel_token,
         )?;
 
-        let pg_mgr = Arc::new(
-            crate::secrets::PostgresCredentialManager::new(
-                db_pool.clone(),
-                routing.clone(),
-                kms.clone(),
-            )
-            .with_metrics(crate::secrets::SecretsMetrics::new(&metrics.meter)),
-        );
+        let pg_mgr = Arc::new(crate::secrets::PostgresCredentialManager::new(
+            db_pool.clone(),
+            routing.clone(),
+            kms.clone(),
+        ));
         tracing::info!(
             active_provider = %secrets_config.kms.active,
             backends = ?secrets_config.backends,
@@ -343,7 +351,7 @@ pub async fn run(
             "memory" => Arc::new(MemoryCredentialStore::default()),
             other => {
                 return Err(eyre::eyre!(
-                    "Invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
+                    "invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
                 ));
             }
         };
@@ -473,9 +481,9 @@ fn build_kms_backend(
                 // roots and fails TLS against a site-CA-signed vault.
                 let vault_settings =
                     carbide_secrets::create_raw_vault_client_settings(vault_config).wrap_err(
-                        "building the Transit KMS vault client (Transit requires a static \
-                         VAULT_TOKEN; the Kubernetes service-account login flow is not \
-                         supported for Transit yet)",
+                        "building the transit KMS vault client (transit requires a static \
+                         VAULT_TOKEN; the kubernetes service-account login flow is not \
+                         supported for transit yet)",
                     )?;
                 let vault_client = Arc::new(
                     vaultrs::client::VaultClient::new(vault_settings)
@@ -623,13 +631,13 @@ async fn import_vault_secrets_once(
     if vault_secrets.is_empty() {
         return Err(eyre::eyre!(
             "vault enumeration returned no secrets; refusing to record an import from an \
-             empty vault. If this site really has no vault secrets, remove import_from \
+             empty vault. if this site really has no vault secrets, remove import_from \
              from the [secrets] config; otherwise fix vault and restart"
         ));
     }
 
     tracing::info!(
-        count = vault_secrets.len(),
+        vault_secret_count = vault_secrets.len(),
         approach = ?secrets_config.import_approach,
         "Importing secrets from vault"
     );
@@ -646,8 +654,8 @@ async fn import_vault_secrets_once(
     .wrap_err("vault secret import")?;
 
     tracing::info!(
-        imported = result.imported,
-        skipped = result.skipped,
+        imported_secret_count = result.imported,
+        skipped_secret_count = result.skipped,
         "Vault secret import completed"
     );
 

@@ -101,8 +101,8 @@ pub mod vpc_peering;
 pub mod vpc_prefix;
 pub mod work_lock_manager;
 
-#[cfg(test)]
-mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::error::Error;
@@ -323,7 +323,7 @@ impl AnnotatedSqlxError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum DatabaseError {
-    #[error("Generic error from report: {0}")]
+    #[error("generic error from report: {0}")]
     GenericErrorFromReport(#[from] eyre::ErrReport),
     #[error(transparent)]
     Sqlx(#[from] AnnotatedSqlxError),
@@ -334,13 +334,13 @@ pub enum DatabaseError {
         /// The ID of the resource that was not found
         id: String,
     },
-    #[error("Internal error: {message}")]
+    #[error("internal error: {message}")]
     Internal { message: String },
-    #[error("Unable to parse string into IP Address: {0}")]
+    #[error("unable to parse string into IP address: {0}")]
     AddressParseError(#[from] std::net::AddrParseError),
     #[error(transparent)]
     AddressAlreadyInUse(#[from] AddressAlreadyInUseError),
-    #[error("Unable to parse string into IP Network: {0}")]
+    #[error("unable to parse string into IP network: {0}")]
     NetworkParseError(#[from] ipnetwork::IpNetworkError),
     #[error("{kind} already exists: {id}")]
     AlreadyFoundError {
@@ -349,57 +349,57 @@ pub enum DatabaseError {
         /// The ID of the resource that already exists.
         id: String,
     },
-    #[error("Argument is invalid: {0}")]
+    #[error("argument is invalid: {0}")]
     InvalidArgument(String),
-    #[error("Duplicate MAC address for expected host BMC interface: {0}")]
+    #[error("duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
     #[error("NVOS MAC address is already claimed by another expected switch: {0}")]
     ExpectedSwitchDuplicateNvosMacAddress(MacAddress),
-    #[error("Argument is missing in input: {0}")]
+    #[error("argument is missing in input: {0}")]
     MissingArgument(&'static str),
-    #[error("Uuid type conversion error: {0}")]
+    #[error("uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
-    #[error("RPC Uuid type conversion error: {0}")]
+    #[error("RPC uuid type conversion error: {0}")]
     RpcUuidConversionError(#[from] carbide_uuid::UuidConversionError),
     #[error(
-        "An object of type {0} was intended to be modified did not have the expected version {1}"
+        "an object of type {0} was intended to be modified did not have the expected version {1}"
     )]
     ConcurrentModificationError(&'static str, String),
     #[error("{0}")]
     FailedPrecondition(String),
-    #[error("All Network Segments are not allocated yet.")]
+    #[error("all network segments are not allocated yet")]
     NetworkSegmentNotAllocated,
-    #[error("Find one returned no results but should return one for uuid - {0}")]
+    #[error("find one returned no results but should return one for uuid - {0}")]
     FindOneReturnedNoResultsError(uuid::Uuid),
-    #[error("Find one returned many results but should return one for uuid - {0}")]
+    #[error("find one returned many results but should return one for uuid - {0}")]
     FindOneReturnedManyResultsError(uuid::Uuid),
-    #[error("Resource {0} is empty")]
+    #[error("resource {0} is empty")]
     ResourceExhausted(String),
-    #[error("Invalid configuration: {0}")]
+    #[error("invalid configuration: {0}")]
     InvalidConfiguration(#[from] ConfigValidationError),
-    #[error("Resource pool error: {0}")]
+    #[error("resource pool error: {0}")]
     ResourcePoolError(#[from] model::resource_pool::ResourcePoolError),
-    #[error("Only one interface per machine can be marked as primary")]
+    #[error("only one interface per machine can be marked as primary")]
     OnePrimaryInterface,
-    #[error("Duplicate MAC address for network: {0}")]
+    #[error("duplicate MAC address for network: {0}")]
     NetworkSegmentDuplicateMacAddress(MacAddress),
-    #[error("Admin network is not configured.")]
+    #[error("admin network is not configured")]
     AdminNetworkNotConfigured,
-    #[error("Network has attached VPC or Subdomain : {0}")]
+    #[error("network has attached VPC or subdomain : {0}")]
     NetworkSegmentDelete(String),
-    #[error("Tenant handling error: {0}")]
+    #[error("tenant handling error: {0}")]
     TenantError(#[from] TenantError),
-    #[error("Hardware info error: {0}")]
+    #[error("hardware info error: {0}")]
     HardwareInfoError(#[from] HardwareInfoError),
-    #[error("The function is not implemented")]
+    #[error("the function is not implemented")]
     NotImplemented,
-    #[error("Error in DHCP allocation/handling: {0}")]
+    #[error("error in DHCP allocation/handling: {0}")]
     DhcpError(#[from] DhcpError),
-    #[error("Maximum one association per interface")]
+    #[error("maximum one association per interface")]
     MaxOneInterfaceAssociation,
-    #[error("Fast-path allocation failed and can be retried")]
+    #[error("fast-path allocation failed and can be retried")]
     TryAgain,
-    #[error("No site-wide rotation target for credential type: {0:?}")]
+    #[error("no site-wide rotation target for credential type: {0:?}")]
     MissingSitewideRotationTarget(crate::credential_rotation::CredentialRotationType),
 }
 
@@ -534,7 +534,12 @@ impl From<DatabaseError> for tonic::Status {
             if f.len() == 2 {
                 let handler = f[0].trim();
                 let location = f[1].trim().replace("at ", "");
-                tracing::error!("{from} location={location} handler='{handler}'");
+                tracing::error!(
+                    error = %from,
+                    error_location = %location,
+                    handler,
+                    "database error conversion",
+                );
                 true
             } else {
                 false
@@ -546,7 +551,7 @@ impl From<DatabaseError> for tonic::Status {
         if !printed {
             match from {
                 DatabaseError::NotImplemented => {}
-                _ => tracing::error!("{from}"),
+                _ => tracing::error!(error = %from, "database error conversion"),
             }
         }
 
