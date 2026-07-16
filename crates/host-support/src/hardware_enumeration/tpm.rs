@@ -37,7 +37,8 @@ struct EkCertNvIndex {
     index: &'static str,
 }
 
-// Keep this in the same order as tpm2_getekcertificate's ek_index_maps table.
+// Keep this in the same order as the tpm2_getekcertificate versions deployed in
+// the runtime image: standard RSA first, then standard ECC.
 const TPM_EK_CERT_NV_INDICES: &[EkCertNvIndex] = &[
     EkCertNvIndex {
         name: "rsa",
@@ -45,44 +46,9 @@ const TPM_EK_CERT_NV_INDICES: &[EkCertNvIndex] = &[
         index: "0x01c00002",
     },
     EkCertNvIndex {
-        name: "rsa2048",
-        key_type: EkKeyType::Rsa,
-        index: "0x01c00012",
-    },
-    EkCertNvIndex {
         name: "ecc",
         key_type: EkKeyType::Ecc,
         index: "0x01c0000a",
-    },
-    EkCertNvIndex {
-        name: "ecc_nist_p256",
-        key_type: EkKeyType::Ecc,
-        index: "0x01c00014",
-    },
-    EkCertNvIndex {
-        name: "rsa3072",
-        key_type: EkKeyType::Rsa,
-        index: "0x01c0001c",
-    },
-    EkCertNvIndex {
-        name: "rsa4096",
-        key_type: EkKeyType::Rsa,
-        index: "0x01c0001e",
-    },
-    EkCertNvIndex {
-        name: "ecc_nist_p384",
-        key_type: EkKeyType::Ecc,
-        index: "0x01c00016",
-    },
-    EkCertNvIndex {
-        name: "ecc_nist_p521",
-        key_type: EkKeyType::Ecc,
-        index: "0x01c00018",
-    },
-    EkCertNvIndex {
-        name: "ecc_sm2_p256",
-        key_type: EkKeyType::Ecc,
-        index: "0x01c0001a",
     },
 ];
 
@@ -238,11 +204,9 @@ fn cert_from_output(source: &'static str, output: CommandOutput) -> Result<Vec<u
 
 fn cert_from_nv_output(source: &'static str, output: CommandOutput) -> Result<Vec<u8>, TpmError> {
     let stdout = checked_stdout(output)?;
-    let (remaining, _) =
-        X509Certificate::from_der(&stdout).map_err(|_| TpmError::InvalidEkCertificate(source))?;
-    let cert_len = stdout.len() - remaining.len();
+    X509Certificate::from_der(&stdout).map_err(|_| TpmError::InvalidEkCertificate(source))?;
 
-    Ok(stdout[..cert_len].to_vec())
+    Ok(stdout)
 }
 
 fn checked_stdout(output: CommandOutput) -> Result<Vec<u8>, TpmError> {
@@ -367,8 +331,10 @@ mod tests {
     fn nv_fallback_matches_normal_tool_rsa_ecc_stdout_bytes() {
         let rsa_cert = test_ek_cert_der("rsa");
         let ecc_cert = test_ek_cert_der("ecc");
-        let mut normal_tool_stdout = rsa_cert.clone();
-        normal_tool_stdout.extend_from_slice(&ecc_cert);
+        let rsa_nv = cert_with_trailing_nv_bytes(&rsa_cert);
+        let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
+        let mut normal_tool_stdout = rsa_nv.clone();
+        normal_tool_stdout.extend_from_slice(&ecc_nv);
 
         let normal_runner = FakeRunner::new(vec![FakeCall {
             program: TPM2_GET_EK_CERTIFICATE,
@@ -381,22 +347,17 @@ mod tests {
             "normal runner not drained"
         );
 
-        let rsa_nv = cert_with_trailing_nv_bytes(&rsa_cert);
-        let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
-        let mut fallback_calls = vec![
+        let fallback_runner = FakeRunner::new(vec![
             primary_tool_failed_call(),
             nv_read_call(
                 TPM_EK_CERT_NV_INDICES[0].index,
                 Ok(successful_output(&rsa_nv)),
             ),
-            failed_nv_read_call(TPM_EK_CERT_NV_INDICES[1].index),
             nv_read_call(
-                TPM_EK_CERT_NV_INDICES[2].index,
+                TPM_EK_CERT_NV_INDICES[1].index,
                 Ok(successful_output(&ecc_nv)),
             ),
-        ];
-        fallback_calls.extend(failing_nv_tail(3));
-        let fallback_runner = FakeRunner::new(fallback_calls);
+        ]);
         let fallback_cert = get_ek_certificate_with_runner(&fallback_runner).unwrap();
         assert!(
             fallback_runner.calls.borrow().is_empty(),
@@ -420,14 +381,14 @@ mod tests {
         let fallback_cert = test_ek_cert_der("fallback");
         let valid_cert = test_ek_cert_der("valid");
         let first_cert = test_ek_cert_der("first");
-        let second_cert = test_ek_cert_der("second");
         let ecc_cert = test_ek_cert_der("ecc");
-        let second_ecc_cert = test_ek_cert_der("second-ecc");
-        let rsa_cert = test_ek_cert_der("rsa");
-        let mut rsa_ecc_certs = first_cert.clone();
-        rsa_ecc_certs.extend_from_slice(&ecc_cert);
-        let mut rsa_ecc_certs_with_extra = first_cert.clone();
-        rsa_ecc_certs_with_extra.extend_from_slice(&ecc_cert);
+        let fallback_nv = cert_with_trailing_nv_bytes(&fallback_cert);
+        let valid_nv = cert_with_trailing_nv_bytes(&valid_cert);
+        let first_nv = cert_with_trailing_nv_bytes(&first_cert);
+        let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
+        let ecc_nv_for_nonstandard = ecc_nv.clone();
+        let mut first_ecc_nv = first_nv.clone();
+        first_ecc_nv.extend_from_slice(&ecc_nv);
 
         // Input is a (runner, expected-bytes-if-any) pair; the closure runs the
         // runner and returns the cert vec, dropping the non-PartialEq error.
@@ -447,17 +408,16 @@ mod tests {
 
             "primary fails, falls back to first NV index" {
                 {
-                    let nv_stdout = cert_with_trailing_nv_bytes(&fallback_cert);
                     let mut calls = vec![
                         primary_tool_failed_call(),
                         nv_read_call(
                             TPM_EK_CERT_NV_INDICES[0].index,
-                            Ok(successful_output(&nv_stdout)),
+                            Ok(successful_output(&fallback_nv)),
                         ),
                     ];
                     calls.extend(failing_nv_tail(1));
                     FakeRunner::new(calls)
-                } => Yields(fallback_cert),
+                } => Yields(fallback_nv),
             }
 
             "skips NV index whose stdout is not a certificate" {
@@ -470,73 +430,17 @@ mod tests {
                         ),
                         nv_read_call(
                             TPM_EK_CERT_NV_INDICES[1].index,
-                            Ok(successful_output(&valid_cert)),
+                            Ok(successful_output(&valid_nv)),
                         ),
                     ];
                     calls.extend(failing_nv_tail(2));
                     FakeRunner::new(calls)
-                } => Yields(valid_cert),
+                } => Yields(valid_nv),
             }
 
             "fallback matches normal path with concatenated RSA and ECC cert output" {
                 {
-                    let first_nv = cert_with_trailing_nv_bytes(&first_cert);
-                    let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
-                    let mut calls = vec![
-                        primary_tool_failed_call(),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[0].index,
-                            Ok(successful_output(&first_nv)),
-                        ),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[1].index),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[2].index,
-                            Ok(successful_output(&ecc_nv)),
-                        ),
-                    ];
-                    calls.extend(failing_nv_tail(3));
-                    FakeRunner::new(calls)
-                } => Yields(rsa_ecc_certs),
-            }
-
-            "extra readable RSA and ECC certs do not change the tool-compatible output" {
-                {
-                    let first_nv = cert_with_trailing_nv_bytes(&first_cert);
-                    let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
-                    let second_nv = cert_with_trailing_nv_bytes(&second_cert);
-                    let second_ecc_nv = cert_with_trailing_nv_bytes(&second_ecc_cert);
-                    let mut calls = vec![
-                        primary_tool_failed_call(),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[0].index,
-                            Ok(successful_output(&first_nv)),
-                        ),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[1].index),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[2].index,
-                            Ok(successful_output(&ecc_nv)),
-                        ),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[3].index),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[4].index,
-                            Ok(successful_output(&second_nv)),
-                        ),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[5].index),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[6].index,
-                            Ok(successful_output(&second_ecc_nv)),
-                        ),
-                    ];
-                    calls.extend(failing_nv_tail(7));
-                    FakeRunner::new(calls)
-                } => Yields(rsa_ecc_certs_with_extra),
-            }
-
-            "first RSA cert is selected when multiple RSA certs are readable" {
-                {
-                    let first_nv = cert_with_trailing_nv_bytes(&first_cert);
-                    let second_nv = cert_with_trailing_nv_bytes(&second_cert);
-                    let mut calls = vec![
+                    FakeRunner::new(vec![
                         primary_tool_failed_call(),
                         nv_read_call(
                             TPM_EK_CERT_NV_INDICES[0].index,
@@ -544,76 +448,40 @@ mod tests {
                         ),
                         nv_read_call(
                             TPM_EK_CERT_NV_INDICES[1].index,
-                            Ok(successful_output(&second_nv)),
-                        ),
-                    ];
-                    calls.extend(failing_nv_tail(2));
-                    FakeRunner::new(calls)
-                } => Yields(first_cert),
-            }
-
-            "RSA cert is emitted before earlier ECC cert" {
-                {
-                    let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
-                    let rsa_nv = cert_with_trailing_nv_bytes(&rsa_cert);
-                    let mut expected = rsa_cert;
-                    expected.extend_from_slice(&ecc_cert);
-                    let mut calls = vec![
-                        primary_tool_failed_call(),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[0].index),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[1].index),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[2].index,
                             Ok(successful_output(&ecc_nv)),
                         ),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[3].index),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[4].index,
-                            Ok(successful_output(&rsa_nv)),
-                        ),
-                    ];
-                    calls.extend(failing_nv_tail(5));
-                    FakeRunner::new(calls)
-                } => Yields(expected),
+                    ])
+                } => Yields(first_ecc_nv),
             }
 
             "falls back to first ECC cert when no RSA cert is readable" {
                 {
-                    let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
                     let mut calls = vec![
                         primary_tool_failed_call(),
                         failed_nv_read_call(TPM_EK_CERT_NV_INDICES[0].index),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[1].index),
                         nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[2].index,
+                            TPM_EK_CERT_NV_INDICES[1].index,
                             Ok(successful_output(&ecc_nv)),
                         ),
                     ];
-                    calls.extend(failing_nv_tail(3));
+                    calls.extend(failing_nv_tail(2));
                     FakeRunner::new(calls)
-                } => Yields(ecc_cert.clone()),
+                } => Yields(ecc_nv),
             }
 
-            "multiple readable ECC certs select the first ECC cert when no RSA cert is readable" {
+            "non-standard RSA indices are not probed when standard RSA is missing" {
                 {
-                    let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
-                    let second_ecc_nv = cert_with_trailing_nv_bytes(&second_ecc_cert);
                     let mut calls = vec![
                         primary_tool_failed_call(),
                         failed_nv_read_call(TPM_EK_CERT_NV_INDICES[0].index),
-                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[1].index),
                         nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[2].index,
-                            Ok(successful_output(&ecc_nv)),
-                        ),
-                        nv_read_call(
-                            TPM_EK_CERT_NV_INDICES[3].index,
-                            Ok(successful_output(&second_ecc_nv)),
+                            TPM_EK_CERT_NV_INDICES[1].index,
+                            Ok(successful_output(&ecc_nv_for_nonstandard)),
                         ),
                     ];
-                    calls.extend(failing_nv_tail(4));
+                    calls.extend(failing_nv_tail(2));
                     FakeRunner::new(calls)
-                } => Yields(ecc_cert),
+                } => Yields(ecc_nv_for_nonstandard),
             }
 
             "primary fails and every NV index fails: no cert found" {
@@ -718,8 +586,8 @@ mod tests {
         );
     }
 
-    /// `cert_from_nv_output`: parses a DER X.509 from the front of stdout and
-    /// trims any trailing NV padding, returning only the certificate bytes.
+    /// `cert_from_nv_output`: validates that stdout starts with a DER X.509 and
+    /// returns the full NV buffer, including any trailing padding.
     #[test]
     fn cert_from_nv_output_cases() {
         let cert = test_ek_cert_der("nv");
@@ -728,11 +596,11 @@ mod tests {
         scenarios!(
             run = |output| cert_from_nv_output(TPM2_NV_READ, output).map_err(drop);
             "exact-length DER returns it unchanged" {
-                successful_output(&cert) => Yields(cert.clone()),
+                successful_output(&cert) => Yields(cert),
             }
 
-            "trailing NV padding is trimmed to the cert bytes" {
-                successful_output(&cert_with_trailing) => Yields(cert),
+            "trailing NV padding is retained" {
+                successful_output(&cert_with_trailing) => Yields(cert_with_trailing),
             }
 
             "non-certificate stdout fails to parse" {
