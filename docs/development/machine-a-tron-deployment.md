@@ -387,7 +387,7 @@ If the prefix is exhausted from previous runs, either:
 > INSERT INTO machine_interfaces_deletion (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 > ```
 
-## 8. Summary of Non-Obvious Fixes Discovered
+## Non-Obvious Fixes
 
 | Problem | Root cause | Fix |
 |---|---|---|
