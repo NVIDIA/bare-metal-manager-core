@@ -1187,6 +1187,17 @@ pub(crate) async fn update_instance_config(
         .instance_id
         .ok_or(CarbideError::MissingArgument("id"))?;
 
+    // RPC conversion intentionally ignores the deprecated boolean. Remember the exact legacy
+    // wire form so the stored auto config can be restored after the instance lookup.
+    #[allow(deprecated)]
+    let uses_deprecated_auto_without_config = request
+        .config
+        .as_ref()
+        .and_then(|config| config.network.as_ref())
+        .is_some_and(|network| {
+            network.auto && network.auto_config.is_none() && network.interfaces.is_empty()
+        });
+
     let mut config: InstanceConfig = match request.config {
         None => return Err(CarbideError::MissingArgument("config").into()),
         Some(config) => config.try_into().map_err(CarbideError::from)?,
@@ -1254,6 +1265,17 @@ pub(crate) async fn update_instance_config(
             "configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
+    }
+
+    if uses_deprecated_auto_without_config {
+        let Some(auto_config) = instance.config.network.auto_config else {
+            return Err(CarbideError::InvalidArgument(
+                "cannot enable automatic networking on an existing instance through deprecated `InstanceNetworkConfig.auto`"
+                    .to_string(),
+            )
+            .into());
+        };
+        config.network.auto_config = Some(auto_config);
     }
 
     // Check whether the update is allowed

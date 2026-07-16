@@ -20,19 +20,23 @@ use std::collections::HashMap;
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::instance::{default_tenant_config, single_interface_network_config};
 use common::api_fixtures::{
-    TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides,
+    TestEnvOverrides, create_managed_host, create_managed_host_with_config, create_test_env,
+    create_test_env_with_host_inband, create_test_env_with_overrides,
 };
 use config_version::ConfigVersion;
+use model::test_support::ManagedHostConfig;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::instance_interface_config::NetworkDetails;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tonic::Request;
 
 use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
+use crate::test_support::fixture_config::ManagedHostConfigExt as _;
 use crate::tests::common::api_fixtures::instance::advance_created_instance_into_ready_state;
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, get_vpc_fixture_id};
 use crate::tests::common::rpc_builder::{
-    InstanceAllocationRequest, InstanceConfigUpdateRequest, VpcCreationRequest,
+    InstanceAllocationRequest, InstanceConfigExt as _, InstanceConfigUpdateRequest,
+    VpcCreationRequest,
 };
 use crate::tests::common::{self};
 
@@ -333,6 +337,210 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
 }
 
 #[crate::sqlx_test]
+async fn test_update_instance_config_restores_deprecated_auto_config(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_test_support::Outcome::FailsWith;
+    use carbide_test_support::{Case, check_cases_async};
+
+    let env = create_test_env_with_host_inband(pool).await;
+    let (flat_vpc_id, _) =
+        common::api_fixtures::vpc::create_flat_vpc(&env, "legacy-auto-update".to_string(), None)
+            .await;
+    let (different_flat_vpc_id, _) =
+        common::api_fixtures::vpc::create_flat_vpc(&env, "different-auto-update".to_string(), None)
+            .await;
+
+    env.run_network_segment_controller_iteration().await;
+    env.run_network_segment_controller_iteration().await;
+
+    let managed_host = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let mut txn = env.db_txn().await;
+    let host_inband_segment =
+        db::network_segment::find_by_name(txn.as_mut(), "HOST_INBAND").await?;
+    assert!(
+        host_inband_segment.config.vpc_id.is_none(),
+        "the compatibility path must not depend on a segment VPC binding"
+    );
+    drop(txn);
+
+    let initial_metadata = rpc::Metadata {
+        name: "legacy-auto-update".to_string(),
+        description: "initial metadata".to_string(),
+        labels: vec![],
+    };
+    let instance = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(managed_host.id)
+                .config(rpc::InstanceConfig::default_tenant_and_os().network(
+                    rpc::InstanceNetworkConfig {
+                        interfaces: vec![],
+                        #[allow(deprecated)]
+                        auto: true,
+                        auto_config: Some(rpc::forge::InstanceNetworkAutoConfig {
+                            vpc_id: Some(flat_vpc_id),
+                        }),
+                    },
+                ))
+                .metadata(initial_metadata)
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    let mut legacy_config = instance
+        .config
+        .clone()
+        .expect("instance config must be set");
+    let legacy_network = legacy_config
+        .network
+        .as_mut()
+        .expect("instance network config must be set");
+    #[allow(deprecated)]
+    {
+        legacy_network.auto = true;
+    }
+    legacy_network.auto_config = None;
+
+    let mut updated_metadata = instance
+        .metadata
+        .clone()
+        .expect("instance metadata must be set");
+    updated_metadata.description = "updated through the legacy wire format".to_string();
+    let updated = env
+        .api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            instance_id: instance.id,
+            if_version_match: None,
+            config: Some(legacy_config),
+            metadata: Some(updated_metadata.clone()),
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(updated.metadata.as_ref(), Some(&updated_metadata));
+    let updated_network = updated
+        .config
+        .as_ref()
+        .and_then(|config| config.network.as_ref())
+        .expect("updated instance network config must be set");
+    #[allow(deprecated)]
+    let updated_auto = updated_network.auto;
+    assert!(updated_auto, "automatic networking must remain enabled");
+    assert_eq!(
+        updated_network
+            .auto_config
+            .as_ref()
+            .and_then(|config| config.vpc_id),
+        Some(flat_vpc_id),
+        "the stored VPC must survive a legacy update"
+    );
+    assert!(
+        updated_network.interfaces.is_empty(),
+        "resolved HostInband interfaces must remain internal"
+    );
+
+    let mut disable_auto = updated_network.clone();
+    #[allow(deprecated)]
+    {
+        disable_auto.auto = false;
+    }
+    disable_auto.auto_config = None;
+
+    let mut explicit_interface = updated_network.clone();
+    explicit_interface.auto_config = None;
+    explicit_interface.interfaces = vec![rpc::InstanceInterfaceConfig {
+        function_type: rpc::InterfaceFunctionType::Physical as i32,
+        network_segment_id: Some(host_inband_segment.id),
+        network_details: None,
+        device: None,
+        device_instance: 0,
+        virtual_function_id: None,
+        ip_address: None,
+        ipv6_interface_config: None,
+        routing_profile: None,
+    }];
+
+    let mut different_auto_config = updated_network.clone();
+    different_auto_config.auto_config = Some(rpc::forge::InstanceNetworkAutoConfig {
+        vpc_id: Some(different_flat_vpc_id),
+    });
+
+    let mut incomplete_auto_config = updated_network.clone();
+    incomplete_auto_config.auto_config =
+        Some(rpc::forge::InstanceNetworkAutoConfig { vpc_id: None });
+
+    struct RejectInput {
+        network: rpc::InstanceNetworkConfig,
+        expected_message: &'static str,
+    }
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "deprecated auto=false cannot disable automatic networking",
+                input: RejectInput {
+                    network: disable_auto,
+                    expected_message: "cannot change `InstanceNetworkConfig.auto_config`",
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+            Case {
+                scenario: "deprecated auto with explicit interfaces remains invalid",
+                input: RejectInput {
+                    network: explicit_interface,
+                    expected_message: "cannot change `InstanceNetworkConfig.auto_config`",
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+            Case {
+                scenario: "an explicit different auto_config remains authoritative",
+                input: RejectInput {
+                    network: different_auto_config,
+                    expected_message: "cannot change `InstanceNetworkConfig.auto_config`",
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+            Case {
+                scenario: "a present but incomplete auto_config remains a conversion error",
+                input: RejectInput {
+                    network: incomplete_auto_config,
+                    expected_message: "vpc_id",
+                },
+                expect: FailsWith((tonic::Code::InvalidArgument, true)),
+            },
+        ],
+        |RejectInput {
+             network,
+             expected_message,
+         }| {
+            let env = &env;
+            let updated = &updated;
+            async move {
+                let mut rejected_config =
+                    updated.config.clone().expect("instance config must be set");
+                rejected_config.network = Some(network);
+                env.api
+                    .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+                        instance_id: updated.id,
+                        if_version_match: None,
+                        config: Some(rejected_config),
+                        metadata: updated.metadata.clone(),
+                    }))
+                    .await
+                    .map(|_| ())
+                    .map_err(|err| (err.code(), err.message().contains(expected_message)))
+            }
+        },
+    )
+    .await;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
@@ -428,6 +636,35 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(
         err.message(),
         "configuration value cannot be modified: TenantConfig::tenant_organization_id"
+    );
+
+    // A deprecated auto request cannot turn an explicitly networked instance into an auto one.
+    let mut deprecated_auto_config = valid_config.clone();
+    let deprecated_auto_network = deprecated_auto_config
+        .network
+        .as_mut()
+        .expect("network config must be set");
+    deprecated_auto_network.interfaces.clear();
+    #[allow(deprecated)]
+    {
+        deprecated_auto_network.auto = true;
+    }
+    deprecated_auto_network.auto_config = None;
+    let err = env
+        .api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            instance_id: Some(tinstance.id),
+            if_version_match: None,
+            config: Some(deprecated_auto_config),
+            metadata: Some(initial_metadata.clone()),
+        }))
+        .await
+        .expect_err("deprecated auto must not enable automatic networking");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("deprecated `InstanceNetworkConfig.auto`"),
+        "unexpected error: {err}"
     );
 
     // Requesting IPs is not allowed with network segments.
