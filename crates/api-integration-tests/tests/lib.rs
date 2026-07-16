@@ -1248,7 +1248,7 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     if state == "Ready" {
                         eyre::ensure!(
                             current_host_id == host_id,
-                            "re-ingested NicMode host reached Ready without promotion to its \
+                            "re-ingested NicMode host reached ready without promotion to its \
                              original stable ID (current={current_host_id}, expected={host_id})"
                         );
                         tracing::info!(
@@ -1260,7 +1260,7 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     }
                     if time::Instant::now() >= ready_deadline {
                         panic!(
-                            "re-ingested NicMode host with BMC MAC {bmc_mac} did not reach Ready \
+                            "Re-ingested NicMode host with BMC MAC {bmc_mac} did not reach Ready \
                              within the timeout (current_host_id={current_host_id}, \
                              stable_host_id={host_id}, last_state={state})"
                         );

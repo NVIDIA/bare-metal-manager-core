@@ -529,10 +529,7 @@ impl<'a> ForgeTlsClient<'a> {
                     base_config_builder().with_root_certificates(roots)
                 } else {
                     #[cfg(feature = "test-support")]
-                    let verifier = if self
-                        .forge_client_config
-                        .suppress_insecure_tls_warning
-                    {
+                    let verifier = if self.forge_client_config.suppress_insecure_tls_warning {
                         DummyTlsVerifier::new_for_tests()
                     } else {
                         DummyTlsVerifier::new_for_prod()
