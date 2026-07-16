@@ -22,7 +22,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
-use bmc_mock::injection::{Rule, RuleId};
+use bmc_mock::injection::{InjectionStore, Rule, RuleId};
 use carbide_uuid::machine::MachineId;
 use tower::Service;
 use uuid::Uuid;
@@ -76,18 +76,29 @@ impl ControlState {
         }
     }
 
-    fn machine(&self, id: &str) -> Option<HostMachineHandle> {
+    fn machine(&self, id: &str) -> Option<Arc<InjectionStore>> {
         let mat_id = Uuid::parse_str(id).ok();
         let machine_id = id.parse::<MachineId>().ok();
-        self.machine_handles
-            .iter()
-            .find(|machine| {
-                mat_id.is_some_and(|id| machine.mat_id() == id)
-                    || machine_id
-                        .as_ref()
-                        .is_some_and(|id| machine.observed_machine_id().as_ref() == Some(id))
-            })
-            .cloned()
+        let matches = |candidate_mat_id, candidate_machine_id: Option<MachineId>| {
+            mat_id.is_some_and(|id| candidate_mat_id == id)
+                || machine_id
+                    .as_ref()
+                    .is_some_and(|id| candidate_machine_id.as_ref() == Some(id))
+        };
+
+        for machine in self.machine_handles.iter() {
+            if matches(machine.mat_id(), machine.observed_machine_id()) {
+                return Some(machine.bmc_injection_store());
+            }
+            if let Some(dpu) = machine
+                .dpus()
+                .iter()
+                .find(|dpu| matches(dpu.mat_id(), dpu.observed_machine_id()))
+            {
+                return Some(dpu.bmc_injection_store());
+            }
+        }
+        None
     }
 }
 
@@ -112,7 +123,7 @@ async fn list_bmc_injection_rules(
     let Some(machine) = state.control_state.machine(&id) else {
         return machine_not_found();
     };
-    Json(machine.list_bmc_injection_rules()).into_response()
+    Json(list_rules(&machine)).into_response()
 }
 
 async fn upsert_bmc_injection_rule(
@@ -123,7 +134,8 @@ async fn upsert_bmc_injection_rule(
     let Some(machine) = state.control_state.machine(&id) else {
         return machine_not_found();
     };
-    Json(machine.upsert_bmc_injection_rule(rule)).into_response()
+    machine.upsert(rule);
+    Json(list_rules(&machine)).into_response()
 }
 
 async fn delete_bmc_injection_rule(
@@ -134,8 +146,8 @@ async fn delete_bmc_injection_rule(
         return machine_not_found();
     };
     let rule_id = RuleId::from(rule_id);
-    if machine.delete_bmc_injection_rule(&rule_id) {
-        Json(machine.list_bmc_injection_rules()).into_response()
+    if machine.delete(&rule_id) {
+        Json(list_rules(&machine)).into_response()
     } else {
         (
             StatusCode::NOT_FOUND,
@@ -143,6 +155,14 @@ async fn delete_bmc_injection_rule(
         )
             .into_response()
     }
+}
+
+fn list_rules(machine: &InjectionStore) -> Vec<Rule> {
+    machine
+        .list()
+        .into_iter()
+        .map(|rule| (*rule).clone())
+        .collect()
 }
 
 fn machine_not_found() -> Response {
@@ -172,8 +192,11 @@ mod tests {
     use axum::http::{Method, Request, StatusCode};
     use axum::routing::get;
     use tower::ServiceExt;
+    use uuid::Uuid;
 
     use super::{ControlState, append};
+    use crate::dpu_machine::DpuMachineHandle;
+    use crate::host_machine::HostMachineHandle;
     use crate::status::MachineStatusConfig;
 
     #[tokio::test]
@@ -266,6 +289,54 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(delete_response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn bmc_injection_rules_accept_dpu_id() {
+        let dpu_id = Uuid::new_v4();
+        let observed_dpu_id = "fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng"
+            .parse()
+            .unwrap();
+        let dpu = DpuMachineHandle::for_control_test(dpu_id, Some(observed_dpu_id));
+        let host = HostMachineHandle::for_control_test(vec![dpu]);
+        let router = append(
+            Router::new(),
+            ControlState::new(vec![host.clone()], MachineStatusConfig::new(1266)),
+        );
+
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/machines/{dpu_id}/bmc/injection/rules"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"id":"dpu-test","selector":{"Path":{"method":"GET","glob":"/**"}},"action":{"Status":503}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("dpu-test"));
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/machines/{observed_dpu_id}/bmc/injection/rules"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("dpu-test"));
+        assert!(host.bmc_injection_store().list().is_empty());
     }
 
     #[tokio::test]

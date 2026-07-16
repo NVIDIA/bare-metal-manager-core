@@ -19,7 +19,7 @@ use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use bmc_mock::injection::{InjectionStore, Rule, RuleId};
+use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
@@ -545,6 +545,32 @@ struct HostMachineActor {
 pub struct HostMachineHandle(Arc<HostMachineActor>);
 
 impl HostMachineHandle {
+    #[cfg(test)]
+    pub(crate) fn for_control_test(dpus: Vec<DpuMachineHandle>) -> Self {
+        let (message_tx, _message_rx) = mpsc::unbounded_channel();
+        let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 2]);
+        Self(Arc::new(HostMachineActor {
+            message_tx,
+            join_handle: Mutex::new(None),
+            live_state: Arc::new(RwLock::new(LiveState::default())),
+            mat_id: Uuid::new_v4(),
+            host_info: HostMachineInfo {
+                hw_type: Default::default(),
+                bmc_mac_address: mac,
+                serial: "test-host".to_string(),
+                dpus: Vec::new(),
+                non_dpu_mac_address: None,
+                nvos_mac_addresses: Vec::new(),
+                switch_serial_number: None,
+                hw_mac_addr_pool: MacAddressPoolConfig::new(mac, 24).unwrap(),
+                delta_psu_power: None,
+            },
+            dpus,
+            machine_config_section: "test".to_string(),
+            bmc_injection: Arc::new(InjectionStore::new()),
+        }))
+    }
+
     pub fn mat_id(&self) -> Uuid {
         self.0.mat_id
     }
@@ -567,22 +593,8 @@ impl HostMachineHandle {
         Ok(rx.await?)
     }
 
-    pub(crate) fn list_bmc_injection_rules(&self) -> Vec<Rule> {
-        self.0
-            .bmc_injection
-            .list()
-            .into_iter()
-            .map(|rule| (*rule).clone())
-            .collect()
-    }
-
-    pub(crate) fn upsert_bmc_injection_rule(&self, rule: Rule) -> Vec<Rule> {
-        self.0.bmc_injection.upsert(rule);
-        self.list_bmc_injection_rules()
-    }
-
-    pub(crate) fn delete_bmc_injection_rule(&self, rule_id: &RuleId) -> bool {
-        self.0.bmc_injection.delete(rule_id)
+    pub(crate) fn bmc_injection_store(&self) -> Arc<InjectionStore> {
+        self.0.bmc_injection.clone()
     }
 
     pub async fn wait_until_machine_up_with_api_state(
