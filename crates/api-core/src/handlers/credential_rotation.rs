@@ -89,8 +89,8 @@ fn to_rotation_type(credential_type: i32) -> Result<RotationType, CarbideError> 
         rpc::RotationCredentialType::RotationDpuUefi => Ok(RotationType::DpuUefi),
         rpc::RotationCredentialType::RotationLockdownIkm => Ok(RotationType::LockdownIkm),
         rpc::RotationCredentialType::RotationNvos => Err(CarbideError::FailedPrecondition(
-            "NVOS rotation is not supported yet: NICo does not own the NVOS password until \
-             set-NVOS-from-factory (REQ-6) ships"
+            "NVOS rotation is not supported yet: the end-to-end NVOS rotation path \
+             remains disabled"
                 .to_string(),
         )),
         // The proto3 zero value. Rejected rather than defaulted so a caller that
