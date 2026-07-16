@@ -2038,7 +2038,7 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
     assert_eq!(
         e.message(),
         format!(
-            "An object of type explored_endpoint was intended to be modified did not have the expected version {}",
+            "an object of type explored_endpoint was intended to be modified did not have the expected version {}",
             unexpected_version.version_string()
         )
     );

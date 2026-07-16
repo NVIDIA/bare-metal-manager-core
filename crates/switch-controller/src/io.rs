@@ -84,7 +84,7 @@ impl StateControllerIO for SwitchStateControllerIO {
                 "Switch::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
-                        "Searching for Switch {} returned multiple results",
+                        "searching for switch {} returned multiple results",
                         switch_id
                     )
                     .into(),

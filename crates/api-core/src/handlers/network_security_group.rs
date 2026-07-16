@@ -508,7 +508,7 @@ pub(crate) async fn get_propagation_status(
 
     if req.vpc_ids.is_empty() && req.instance_ids.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "at least one VPC ID or Instance ID must be provided".to_string(),
+            "at least one VPC ID or instance ID must be provided".to_string(),
         )
         .into());
     }

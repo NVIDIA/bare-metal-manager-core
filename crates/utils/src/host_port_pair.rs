@@ -140,9 +140,9 @@ pub enum HostPortParseError {
     UriUnsupported,
     #[error("empty string")]
     EmptyString,
-    #[error("Invalid port: {0}")]
+    #[error("invalid port: {0}")]
     InvalidPort(String),
-    #[error("Invalid string")]
+    #[error("invalid string")]
     InvalidString,
 }
 

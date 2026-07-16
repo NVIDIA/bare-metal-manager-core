@@ -39,10 +39,10 @@ pub fn extract_ca_fields(
 
     Ok((
         DateTime::<Utc>::from_timestamp(ca_cert.validity.not_before.timestamp(), 0).ok_or(
-            CarbideError::internal("Could not parse CA's NOT BEFORE field".to_string()),
+            CarbideError::internal("could not parse CA's NOT BEFORE field".to_string()),
         )?,
         DateTime::<Utc>::from_timestamp(ca_cert.validity.not_after.timestamp(), 0).ok_or(
-            CarbideError::internal("Could not parse CA's NOT AFTER field".to_string()),
+            CarbideError::internal("could not parse CA's NOT AFTER field".to_string()),
         )?,
         (*(ca_cert.subject.as_raw())).to_vec(),
     ))

@@ -248,10 +248,10 @@ pub async fn setup_and_run(
     }
 
     let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
-        "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to Version"
+        "unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to version"
     ))?;
     let nvue_minimum_hbn_version = Version::from(NVUE_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
-        "Unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to Version"
+        "unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to version"
     ))?;
 
     if options.agent_platform_type.is_dpu_os()
@@ -812,14 +812,14 @@ impl MainLoop {
                             match nvue_system_build.strip_prefix("HBN ") {
                                 Some(hbn_version) => Ok(hbn_version.into()),
                                 None => Err(eyre::format_err!(
-                                    "Couldn't parse HBN version from NVUE system build (\"{nvue_system_build}\")"
+                                    "couldn't parse HBN version from NVUE system build (\"{nvue_system_build}\")"
                                 )),
                             }?
                         }
                     };
 
                     let hbn_version = Version::from(hbn_version.as_str())
-                        .ok_or(eyre::eyre!("Unable to convert string to version"))?;
+                        .ok_or(eyre::eyre!("unable to convert string to version"))?;
                     // HBN changed their naming scheme in HBN 2.3 from _sf to _if so we will pass that little bit around
                     // after doing an initial version check instead of assuming _sf
                     self.hbn_device_names = HBNDeviceNames::new(hbn_version.clone());
@@ -828,7 +828,7 @@ impl MainLoop {
                     // HBN/DOCA is too old to support NVUE, we cannot configure it.
                     if hbn_version < self.nvue_minimum_hbn_version {
                         return Err(eyre::eyre!(
-                            "HBN version {hbn_version} is older than the minimum required for NVUE ({NVUE_MINIMUM_HBN_VERSION})."
+                            "HBN version {hbn_version} is older than the minimum required for NVUE ({NVUE_MINIMUM_HBN_VERSION})"
                         ));
                     }
 
@@ -1522,7 +1522,7 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
 
         std::fs::read_to_string(test_data_dir.join("bfvcheck.out")).map_err(|e| {
             error!(error = %e, "Could not read bfvcheck.out");
-            eyre::eyre!("Could not read bfvcheck.out: {}", e)
+            eyre::eyre!("could not read bfvcheck.out: {}", e)
         })?
     } else {
         let mut cmd = tokio::process::Command::new("bash");

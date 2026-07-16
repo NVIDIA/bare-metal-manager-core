@@ -130,7 +130,7 @@ where
             .await
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre!(
-                    "No EkCertVerificationStatus found for MachineId {} due to error: {}",
+                    "no EkCertVerificationStatus found for MachineId {} due to error: {}",
                     machine_id,
                     e
                 ))

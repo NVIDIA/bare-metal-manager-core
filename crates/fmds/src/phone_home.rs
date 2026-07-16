@@ -50,7 +50,7 @@ pub async fn phone_home(state: &Arc<FmdsState>) -> Result<(), eyre::Error> {
         .instances
         .first()
         .cloned()
-        .ok_or_else(|| eyre!("No instance found for machine {}", machine_id))?;
+        .ok_or_else(|| eyre!("no instance found for machine {}", machine_id))?;
 
     let instance_id = instance.id;
 

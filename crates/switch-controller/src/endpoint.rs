@@ -55,7 +55,7 @@ pub fn switch_endpoint_from_row(
 ) -> Result<SwitchEndpoint, StateHandlerError> {
     let (Some(nvos_mac), Some(nvos_ip)) = (row.nvos_mac, row.nvos_ip) else {
         return Err(StateHandlerError::GenericError(eyre::eyre!(
-            "Switch {:?}: missing NVOS MAC or IP required for component manager operations",
+            "switch {:?}: missing NVOS MAC or IP required for component manager operations",
             row.switch_id
         )));
     };
@@ -83,7 +83,7 @@ pub async fn resolve_switch_endpoint(
         .map_err(StateHandlerError::from)?;
     let row = rows.into_iter().next().ok_or_else(|| {
         StateHandlerError::GenericError(eyre::eyre!(
-            "Switch {:?}: no endpoint row found in database",
+            "switch {:?}: no endpoint row found in database",
             switch_id
         ))
     })?;

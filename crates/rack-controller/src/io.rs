@@ -70,7 +70,7 @@ impl StateControllerIO for RackStateControllerIO {
             return Err(DatabaseError::new(
                 "Rack::find()",
                 sqlx::Error::Decode(
-                    eyre::eyre!("Searching for Rack {} returned multiple results", rack_id).into(),
+                    eyre::eyre!("searching for rack {} returned multiple results", rack_id).into(),
                 ),
             ));
         }

@@ -320,12 +320,12 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
                 }
                 forgerpc::MacOwner::ExploredEndpoint => {
                     color_eyre::eyre::bail!(
-                        "Searching explored-endpoints from MAC not yet implemented"
+                        "searching explored-endpoints from MAC not yet implemented"
                     );
                 }
                 forgerpc::MacOwner::ExpectedMachine => {
                     color_eyre::eyre::bail!(
-                        "Searching expected-machines from MAC not yet implemented"
+                        "searching expected-machines from MAC not yet implemented"
                     );
                 }
                 forgerpc::MacOwner::DpaInterface => {
@@ -373,5 +373,5 @@ pub async fn jump(args: Cmd, ctx: &mut RuntimeContext) -> color_eyre::Result<()>
     }
 
     // Do we have no idea what it is?
-    color_eyre::eyre::bail!("Unable to determine ID type");
+    color_eyre::eyre::bail!("unable to determine ID type");
 }

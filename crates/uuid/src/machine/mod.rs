@@ -453,11 +453,11 @@ pub const MACHINE_ID_LENGTH: usize =
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum MachineIdParseError {
-    #[error("The Machine ID has an invalid length of {0}")]
+    #[error("the machine ID has an invalid length of {0}")]
     Length(usize),
-    #[error("The Machine ID {0} has an invalid prefix")]
+    #[error("the machine ID {0} has an invalid prefix")]
     Prefix(String),
-    #[error("The Machine ID {0} has an invalid encoding")]
+    #[error("the machine ID {0} has an invalid encoding")]
     Encoding(String),
 }
 

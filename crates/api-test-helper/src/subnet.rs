@@ -87,7 +87,7 @@ pub async fn wait_for_network_segment_state(
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    eyre::bail!("Even after {MAX_RETRY} retries, {segment_id} did not reach state {target_state}");
+    eyre::bail!("even after {MAX_RETRY} retries, {segment_id} did not reach state {target_state}");
 }
 
 pub async fn create_dual_stack(

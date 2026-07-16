@@ -282,7 +282,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     assert_eq!(
         status.message(),
         format!(
-            "An object of type instance was intended to be modified did not have the expected version {}",
+            "an object of type instance was intended to be modified did not have the expected version {}",
             initial_config_version.version_string()
         ),
         "Message is {}",
@@ -402,7 +402,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Invalid value: InlineIpxe::ipxe_script is empty"
+        "invalid value: InlineIpxe::ipxe_script is empty"
     );
 
     // The tenant of an instance can not be updated
@@ -427,7 +427,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Configuration value cannot be modified: TenantConfig::tenant_organization_id"
+        "configuration value cannot be modified: TenantConfig::tenant_organization_id"
     );
 
     // Requesting IPs is not allowed with network segments.
@@ -507,7 +507,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert!(
         err.message()
-            .starts_with("Invalid value: Missing Physical Function")
+            .starts_with("invalid value: Missing Physical Function")
     );
 
     // Try to update to duplicated tenant keyset IDs
@@ -530,7 +530,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .await
         .expect_err("Duplicate keyset IDs should not be accepted");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert_eq!(err.message(), "Duplicate Tenant KeySet ID found: a");
+    assert_eq!(err.message(), "duplicate tenant KeySet ID found: a");
 
     // Try to update to over max tenant keyset IDs
     let mut maxed_keysets_config = valid_config.clone();
@@ -566,7 +566,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "More than 10 Tenant KeySet IDs are not allowed"
+        "more than 10 tenant KeySet IDs are not allowed"
     );
 
     // Try to update to invalid metadata

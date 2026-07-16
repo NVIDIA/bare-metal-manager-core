@@ -52,7 +52,7 @@ pub(crate) async fn find_interfaces(
             },
             Err(_) => {
                 return Err(CarbideError::internal(
-                    "Could not marshall an IP from the request".to_string(),
+                    "could not marshall an IP from the request".to_string(),
                 )
                 .into());
             }

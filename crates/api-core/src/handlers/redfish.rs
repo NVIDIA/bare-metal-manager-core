@@ -210,7 +210,7 @@ pub async fn redfish_apply_action(
 
     let is_applied = set_applied(applier, request, &mut txn).await?;
     if !is_applied {
-        return Err(CarbideError::InvalidArgument("Request was already applied".to_owned()).into());
+        return Err(CarbideError::InvalidArgument("request was already applied".to_owned()).into());
     }
 
     let mut uris: Vec<(Uri, usize)> = Vec::with_capacity(action_request.machine_ips.len());

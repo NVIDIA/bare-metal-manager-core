@@ -65,7 +65,7 @@ pub fn init() -> eyre::Result<(Registry, HttpRequestMetrics)> {
         .without_scope_info()
         .without_target_info()
         .build()
-        .wrap_err("Could not build Prometheus exporter")?;
+        .wrap_err("could not build prometheus exporter")?;
 
     let resource_attributes = opentelemetry_sdk::Resource::builder()
         .with_attributes([

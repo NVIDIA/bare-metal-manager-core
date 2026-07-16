@@ -721,22 +721,22 @@ impl<'a> ForgeTlsClient<'a> {
 pub enum ForgeTlsClientError {
     #[error("ConnectError error: {0}")]
     Connection(String),
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     Configuration(#[from] ConfigurationError),
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConfigurationError {
-    #[error("Invalid URI {uri_string}: {error}")]
+    #[error("invalid URI {uri_string}: {error}")]
     InvalidUri {
         uri_string: String,
         error: hyper::http::uri::InvalidUri,
     },
-    #[error("Could not read Root CA cert at {path}: {error}")]
+    #[error("could not read root CA cert at {path}: {error}")]
     CouldNotReadRootCa { path: String, error: io::Error },
-    #[error("Invalid client cert: {0}")]
+    #[error("invalid client cert: {0}")]
     InvalidClientCert(rustls::Error),
-    #[error("Error configuring resolver: {0}")]
+    #[error("error configuring resolver: {0}")]
     Resolver(#[from] ResolverError),
 }
 
@@ -866,7 +866,7 @@ mod tests {
         struct Inner;
 
         #[derive(thiserror::Error, Debug)]
-        #[error("client error (Connect)")]
+        #[error("client error (connect)")]
         struct Outer(#[from] Inner);
 
         #[derive(thiserror::Error, Debug)]
@@ -878,7 +878,7 @@ mod tests {
         value_scenarios!(
             run = |err| format_error_chain(err.as_ref());
             "walks source chain to the root cause" {
-                Box::new(Outer::from(Inner)) as Box<dyn std::error::Error> => "client error (Connect): invalid peer certificate: UnknownIssuer"
+                Box::new(Outer::from(Inner)) as Box<dyn std::error::Error> => "client error (connect): invalid peer certificate: UnknownIssuer"
                 .to_string(),
             }
 

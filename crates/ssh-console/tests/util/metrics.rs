@@ -21,7 +21,7 @@ use prometheus_text_parser::ParsedPrometheusMetrics;
 use ssh_console_mock_api_server::MockHost;
 
 pub async fn assert_metrics(metrics_str: String, mock_hosts: &[MockHost]) -> eyre::Result<()> {
-    let metrics: ParsedPrometheusMetrics = metrics_str.parse().context("Error parsing metrics")?;
+    let metrics: ParsedPrometheusMetrics = metrics_str.parse().context("error parsing metrics")?;
     let metrics = metrics.metrics;
 
     let expected_metrics = [

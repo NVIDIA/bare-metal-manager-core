@@ -171,7 +171,7 @@ async fn try_start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
             break;
         }
         if std::time::Instant::now() >= cert_ready_deadline {
-            eyre::bail!("Vault CA cert never appeared at {ca_cert} after 10 seconds");
+            eyre::bail!("vault CA cert never appeared at {ca_cert} after 10 seconds");
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

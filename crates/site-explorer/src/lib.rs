@@ -4398,7 +4398,7 @@ mod tests {
                 Case {
                     scenario: "legacy sys-image MAC fails sanitization",
                     input: with_sys_image("b83f:d203:0090:95fz"),
-                    expect: FailsWith("Failed to build sanitized MAC from legacy/service MAC: Invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string()),
+                    expect: FailsWith("Failed to build sanitized MAC from legacy/service MAC: invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string()),
                 },
                 Case {
                     scenario: "legacy sys-image is too short",

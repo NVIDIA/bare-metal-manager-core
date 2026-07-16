@@ -255,7 +255,7 @@ pub async fn delete_switch(
     let switch_id = match req.id {
         Some(id) => id,
         None => {
-            return Err(CarbideError::InvalidArgument("Switch ID is required".to_string()).into());
+            return Err(CarbideError::InvalidArgument("switch ID is required".to_string()).into());
         }
     };
 

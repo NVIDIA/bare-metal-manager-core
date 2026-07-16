@@ -295,7 +295,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::Browse(cmd) => cmd.dispatch(ctx).await?,
         // Redfish is handled before the API client is built (see above).
         CliCommand::Redfish(_) => unreachable!("redfish is dispatched before client init"),
-        _ => return Err(eyre!("Unsupported command")),
+        _ => return Err(eyre!("unsupported command")),
     }
 
     Ok(())

@@ -819,3 +819,32 @@ impl MachineState {
 ```
 
 Free functions are still appropriate when the logic genuinely spans multiple unrelated types, belongs in a module rather than a single type, or is a utility with no natural owner.
+
+### Error message style
+
+Error messages follow the Rust API Guidelines ([C-GOOD-ERR]): the `Display` text of an error should
+be a lowercase phrase with no trailing period. Errors are frequently wrapped into a larger chain, and
+lowercase fragments compose cleanly where a capitalized, punctuated sentence would not:
+
+```rust
+// Avoid — capitalized and punctuated; jarring once it's wrapped
+#[error("Failed to open the config file.")]
+// -> "error starting service: Failed to open the config file.: permission denied"
+
+// Prefer — lowercase, no trailing period
+#[error("failed to open the config file")]
+// -> "error starting service: failed to open the config file: permission denied"
+```
+
+This applies to every error-message surface: `thiserror`'s `#[error("...")]`, `anyhow!`/`bail!`,
+`.context()`/`.wrap_err()`, and `CarbideError`/`Status` constructors. Every plain capitalized word is
+lowercased (`Generic Quote Error: {0}` becomes `generic quote error: {0}`); a word carrying an internal
+capital -- an acronym (`BMC`), an acronym-prefix (`DHCPv4`), or a CamelCase identifier
+(`CreateVirtualNetwork`) -- is left as-is, as is a lone capital letter (which can't be told
+apart from a single-letter identifier such as a DNS `A` record).
+
+`cargo make lint-error-messages` enforces this in CI; `cargo xtask lint-error-messages --fix` rewrites
+offenders in place. For the rare message that must keep its casing (a quoted external string, say), add
+a `// xtask:allow-error-case` comment on, or directly above, the line.
+
+[C-GOOD-ERR]: https://rust-lang.github.io/api-guidelines/interoperability.html#c-good-err

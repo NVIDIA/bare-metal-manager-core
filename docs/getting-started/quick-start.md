@@ -146,6 +146,7 @@ Open `helm-prereqs/values/nico-core.yaml` and update the following values:
   | `sitename` | Short identifier matching `siteName` in `values.yaml` |
   | `initial_domain_name` | Base DNS domain for the site (e.g. `mysite.example.com`) |
   | `dhcp_servers` | List of DHCP server IPs reachable from bare-metal hosts, or `[]` |
+  | `ntp_servers` | List of enterprise NTP server IPs for BMC time setup and DHCP option 42, or `[]` to use the legacy DHCP/DNS fallback |
   | `site_fabric_prefixes` | CIDRs that are part of the site fabric (instance-to-instance traffic) |
   | `deny_prefixes` | CIDRs instances must not reach (OOB, control plane, management) |
   | `[pools.lo-ip]` ranges | Loopback IP range allocated to bare-metal hosts |
@@ -156,9 +157,11 @@ Open `helm-prereqs/values/nico-core.yaml` and update the following values:
 
 All fields are documented with inline comments in the file.
 
-- **Required fields--do not leave empty:** `[networks.admin]`, `prefix`, and `gateway` must be set to real values. `nico-api` crashes at startup with a parse error if these are empty strings. Similarly, `[pools.lo-ip]`, `[pools.vlan-id]`, and `[pools.vni]` ranges must be non-empty.
- 
-  These fields are safe to leave as empty arrays: `dhcp_servers`, `site_fabric_prefixes`, `deny_prefixes`. Do not delete any field from the TOML block; missing keys cause a different crash than empty ones.
+**Required fields--do not leave empty:** You must set `[networks.admin]`, `prefix`, and `gateway` to real values. `nico-api` crashes at startup with a parse error if these are empty strings. Similarly, `[pools.lo-ip]`, `[pools.vlan-id]`, and `[pools.vni]` ranges must be non-empty.
+
+<Tip>
+The following fields are safe to leave as empty arrays: `dhcp_servers`, `ntp_servers`, `site_fabric_prefixes`, and `deny_prefixes`. Do not delete any field from the TOML block; missing keys cause a different crash than empty ones.
+</Tip>
 
 ### 3d. NICo REST source tree
 
@@ -218,7 +221,9 @@ envConfig:
 
 MetalLB provides LoadBalancer IPs for NICo Core services (nico-api, DHCP, DNS, PXE, SSH console). Without it, those services stay in `<pending>` state and the site is unreachable.
 
-> **NTP note:** NICo does not run a standalone NTP service. Instead, NTP server addresses are provided to managed hosts via DHCP option 42--configured in the `nico-dhcp` chart Kea hook parameters (`nico-ntpserver`). Point this to your enterprise NTP servers.
+<Note>
+NICo does not run a standalone NTP service. Configure enterprise NTP server IPs in `siteConfig.ntp_servers`; NICo uses that list to configure BMC NTP during pre-ingestion and to advertise DHCP option 42 to managed hosts. The `nico-dhcp` chart Kea hook parameter (`nico-ntpserver`) remains a fallback when `ntp_servers` is empty.
+</Note>
 
 Edit `helm-prereqs/values/metallb-config.yaml`--this file ships pre-populated with example values. Replace all values labeled `# EXAMPLE` with your site-specific configuration before running `setup.sh`.
 

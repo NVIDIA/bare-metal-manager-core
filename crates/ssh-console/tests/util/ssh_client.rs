@@ -116,7 +116,7 @@ pub async fn assert_connection_works(
                 ),
             )
             .await
-            .context("Error authenticating with public key")?;
+            .context("error authenticating with public key")?;
 
         Ok::<_, eyre::Error>(session)
     }?;
@@ -125,13 +125,13 @@ pub async fn assert_connection_works(
     let mut channel = session
         .channel_open_session()
         .await
-        .context("Error opening session")?;
+        .context("error opening session")?;
 
     // Request PTY
     channel
         .request_pty(false, "xterm", 80, 24, 0, 0, &[])
         .await
-        .context("Error requesting PTY")?;
+        .context("error requesting PTY")?;
 
     // Request Shell
     channel.request_shell(false).await?;
@@ -275,7 +275,7 @@ pub async fn fill_logs(
                 ),
             )
             .await
-            .context("Error authenticating with public key")?;
+            .context("error authenticating with public key")?;
 
         Ok::<_, eyre::Error>(session)
     }?;
@@ -284,13 +284,13 @@ pub async fn fill_logs(
     let channel = session
         .channel_open_session()
         .await
-        .context("Error opening session")?;
+        .context("error opening session")?;
 
     // Request PTY
     channel
         .request_pty(false, "xterm", 80, 24, 0, 0, &[])
         .await
-        .context("Error requesting PTY")?;
+        .context("error requesting PTY")?;
 
     // Request Shell
     channel.request_shell(false).await?;
@@ -365,7 +365,7 @@ pub async fn assert_reboot_behavior(
                 ),
             )
             .await
-            .context("Error authenticating with public key")?;
+            .context("error authenticating with public key")?;
 
         Ok::<_, eyre::Error>(session)
     }?;
@@ -374,7 +374,7 @@ pub async fn assert_reboot_behavior(
     let mut channel = session
         .channel_open_session()
         .await
-        .context("Error opening session")?;
+        .context("error opening session")?;
 
     // Issue reboot command
     channel.exec(true, POWER_RESET_COMMAND).await?;
@@ -394,7 +394,7 @@ pub async fn assert_reboot_behavior(
 
     let Some(exit_status) = exit_status else {
         return Err(eyre::format_err!(
-            "Sending reboot command did not return an exit status"
+            "sending reboot command did not return an exit status"
         ));
     };
 
@@ -404,23 +404,23 @@ pub async fn assert_reboot_behavior(
     if supported {
         if !has_successful_response {
             return Err(eyre::format_err!(
-                "Sending reboot command did not return expected output. output={output}, exit_status={exit_status}"
+                "sending reboot command did not return expected output. output={output}, exit_status={exit_status}"
             ));
         }
         if exit_status != 0 {
             return Err(eyre::format_err!(
-                "Sending reboot command returned a nonzero exit status. output={output}, exit_status={exit_status}"
+                "sending reboot command returned a nonzero exit status. output={output}, exit_status={exit_status}"
             ));
         }
     } else {
         if has_successful_response {
             return Err(eyre::format_err!(
-                "Sending reboot command returned successful output, but was not supposed to. output={output}, exit_status={exit_status}"
+                "sending reboot command returned successful output, but was not supposed to. output={output}, exit_status={exit_status}"
             ));
         }
         if exit_status == 0 {
             return Err(eyre::format_err!(
-                "Sending reboot command returned successful exit status, but was not supposed to. output={output}, exit_status={exit_status}"
+                "sending reboot command returned successful exit status, but was not supposed to. output={output}, exit_status={exit_status}"
             ));
         }
     }

@@ -41,9 +41,9 @@ pub type SetSystemPowerResult = Result<(), SetSystemPowerError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetSystemPowerError {
-    #[error("Mock BMC reported bad request when setting system power: {0}")]
+    #[error("mock BMC reported bad request when setting system power: {0}")]
     BadRequest(String),
-    #[error("Mock BMC failed to send power command: {0}")]
+    #[error("mock BMC failed to send power command: {0}")]
     CommandSendError(String),
 }
 

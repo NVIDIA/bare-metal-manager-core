@@ -51,7 +51,7 @@ pub(crate) async fn scout_stream(
         }
         _ => {
             return Err(CarbideError::InvalidArgument(
-                "first ScoutStream client message must be an Init message".into(),
+                "first ScoutStream client message must be an init message".into(),
             )
             .into());
         }

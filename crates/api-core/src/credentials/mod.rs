@@ -56,7 +56,7 @@ impl UpdateCredentials {
                     credential_type: BmcCredentialType::BmcRoot {
                         bmc_mac_address: self
                             .mac_address
-                            .ok_or_else(|| CarbideError::MissingArgument("MAC Address"))?,
+                            .ok_or_else(|| CarbideError::MissingArgument("MAC address"))?,
                     },
                 },
             };

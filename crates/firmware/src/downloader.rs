@@ -307,7 +307,7 @@ async fn download(
         Some(x) => x,
         None => {
             return Err(fail(DownloadOutcome::Io)(eyre!(
-                "Could not find dirname of {}",
+                "could not find dirname of {}",
                 filename.to_string_lossy()
             )));
         }
@@ -414,7 +414,7 @@ fn verify_sha256(filename: &str, checksum: &str) -> Result<(), Report> {
 
     if checksum_actual != checksum {
         return Err(eyre!(
-            "Checksum mismatch: Expected {checksum} downloaded {checksum_actual}"
+            "checksum mismatch: expected {checksum} downloaded {checksum_actual}"
         ));
     }
     Ok(())

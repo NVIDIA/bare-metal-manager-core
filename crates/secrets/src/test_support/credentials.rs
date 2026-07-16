@@ -92,7 +92,7 @@ impl CredentialWriter for TestCredentialManager {
         let key_str = key.to_key_str();
         if data.contains_key(key_str.as_ref()) {
             return Err(SecretsError::GenericError(eyre::eyre!(
-                "Secret already exists with key {key_str}"
+                "secret already exists with key {key_str}"
             )));
         }
 

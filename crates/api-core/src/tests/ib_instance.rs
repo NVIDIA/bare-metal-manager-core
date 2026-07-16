@@ -565,7 +565,7 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     )
     .await;
 
-    let expected_err = "Host is not available for allocation due to health probe alert";
+    let expected_err = "host is not available for allocation due to health probe alert";
     assert!(result.is_err());
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(

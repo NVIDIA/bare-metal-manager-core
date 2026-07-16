@@ -639,7 +639,7 @@ pub(crate) async fn on_demand_rack_maintenance(
             Some(ProtoActivity::PowerSequence(_)) => MaintenanceActivity::PowerSequence,
             None => {
                 return Err(CarbideError::InvalidArgument(
-                    "Maintenance activity entry has no activity set".into(),
+                    "maintenance activity entry has no activity set".into(),
                 )
                 .into());
             }

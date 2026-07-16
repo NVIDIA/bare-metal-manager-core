@@ -128,7 +128,7 @@ async fn update_agent_reported_inventory(
         Ok(client) => client,
         Err(err) => {
             return Err(eyre::eyre!(
-                "Could not connect to Forge API server at {}: {err}",
+                "could not connect to forge API server at {}: {err}",
                 forge_api
             ));
         }
@@ -154,7 +154,7 @@ async fn update_agent_reported_inventory(
             Ok(())
         }
         Err(err) => Err(eyre::eyre!(
-            "Error while executing the update_agent_reported_inventory gRPC call: {}",
+            "error while executing the update_agent_reported_inventory gRPC call: {}",
             err.to_string()
         )),
     }

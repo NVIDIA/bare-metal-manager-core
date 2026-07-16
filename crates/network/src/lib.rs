@@ -73,7 +73,7 @@ pub fn sanitized_mac(input_mac: &str) -> eyre::Result<MacAddress> {
 
     if stripped_mac.len() != STRIPPED_MAC_LENGTH {
         return Err(eyre::eyre!(
-            "Invalid stripped MAC length: {} (input: {}, output: {})",
+            "invalid stripped MAC length: {} (input: {}, output: {})",
             stripped_mac.len(),
             input_mac,
             stripped_mac,
@@ -93,7 +93,7 @@ pub fn sanitized_mac(input_mac: &str) -> eyre::Result<MacAddress> {
                 sanitized
             });
 
-    MacAddress::from_str(&sanitized_mac).map_err(|e| eyre::eyre!("Failed to initialize MacAddress from sanitized MAC: {} (input: {}, stripped: {}, sanitized: {}", e, input_mac, stripped_mac, sanitized_mac))
+    MacAddress::from_str(&sanitized_mac).map_err(|e| eyre::eyre!("failed to initialize MacAddress from sanitized MAC: {} (input: {}, stripped: {}, sanitized: {}", e, input_mac, stripped_mac, sanitized_mac))
 }
 
 /// deserialize_mlx_mac exists due to an interesting behavior

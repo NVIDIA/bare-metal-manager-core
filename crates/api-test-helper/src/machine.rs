@@ -69,7 +69,7 @@ pub async fn wait_for_state(
     }
     if i == MAX_RETRY {
         eyre::bail!(
-            "Even after {MAX_RETRY} retries, {machine_id} did not reach state {target_state}"
+            "even after {MAX_RETRY} retries, {machine_id} did not reach state {target_state}"
         );
     }
 

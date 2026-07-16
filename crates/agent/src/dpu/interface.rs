@@ -145,7 +145,7 @@ impl Interface {
 
             std::fs::read_to_string(test_data_dir.join("ipaddr.json")).map_err(|e| {
                 error!(error = %e, "Could not read ipaddr.json");
-                eyre::eyre!("Could not read ipaddr.json: {}", e)
+                eyre::eyre!("could not read ipaddr.json: {}", e)
             })
         } else {
             let mut cmd = tokio::process::Command::new("bash");

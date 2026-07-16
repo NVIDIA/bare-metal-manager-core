@@ -146,7 +146,7 @@ pub async fn start_configure_switch_certificate(
         .await
         .map_err(|error| {
             StateHandlerError::GenericError(eyre::eyre!(
-                "Switch {:?}: failed to start switch certificate configuration: {}",
+                "switch {:?}: failed to start switch certificate configuration: {}",
                 switch_id,
                 error
             ))
@@ -179,7 +179,7 @@ pub async fn poll_configure_switch_certificate_job(
         .await
         .map_err(|error| {
             StateHandlerError::GenericError(eyre::eyre!(
-                "Switch {:?}: failed to get switch certificate job status for {}: {}",
+                "switch {:?}: failed to get switch certificate job status for {}: {}",
                 switch_id,
                 job_id,
                 error

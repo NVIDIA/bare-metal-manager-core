@@ -193,12 +193,12 @@ pub(crate) async fn find_machine_health_histories(
         .start_time
         .map(chrono::DateTime::<chrono::Utc>::try_from)
         .transpose()
-        .map_err(|_| CarbideError::InvalidArgument("Invalid start_time timestamp".to_string()))?;
+        .map_err(|_| CarbideError::InvalidArgument("invalid start_time timestamp".to_string()))?;
     let end_time = request
         .end_time
         .map(chrono::DateTime::<chrono::Utc>::try_from)
         .transpose()
-        .map_err(|_| CarbideError::InvalidArgument("Invalid end_time timestamp".to_string()))?;
+        .map_err(|_| CarbideError::InvalidArgument("invalid end_time timestamp".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -868,7 +868,7 @@ pub async fn get_machine_position_info(
 
     if request.machine_ids.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "At least one machine ID must be specified".to_string(),
+            "at least one machine ID must be specified".to_string(),
         )
         .into());
     }

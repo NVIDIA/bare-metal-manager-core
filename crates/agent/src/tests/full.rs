@@ -354,7 +354,7 @@ async fn run_common_parts(
 
         if start.elapsed() > std::time::Duration::from_secs(60) {
             return Err(eyre::eyre!(
-                "Health report was not sent 2 times in 30s. State: {:?}",
+                "health report was not sent 2 times in 30s. state: {:?}",
                 statel
             ));
         }

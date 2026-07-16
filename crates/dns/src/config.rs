@@ -148,9 +148,9 @@ impl Defaults {
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConfigError {
-    #[error("Could not read config file: {path}: {error}")]
+    #[error("could not read config file: {path}: {error}")]
     CouldNotRead { path: String, error: std::io::Error },
-    #[error("Invalid TOML in config file: {path}: {error}")]
+    #[error("invalid TOML in config file: {path}: {error}")]
     InvalidToml {
         path: String,
         error: toml::de::Error,

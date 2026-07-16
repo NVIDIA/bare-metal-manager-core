@@ -307,15 +307,15 @@ pub fn instance_metadata_from_instance(
         config_version: instance
             .config_version
             .parse()
-            .wrap_err("Failed to parse instance config_version")?,
+            .wrap_err("failed to parse instance config_version")?,
         network_config_version: instance
             .network_config_version
             .parse()
-            .wrap_err("Failed to parse instance network_config_version")?,
+            .wrap_err("failed to parse instance network_config_version")?,
         extension_service_version: instance
             .dpu_extension_service_version
             .parse()
-            .wrap_err("Failed to parse instance extension_service_version")?,
+            .wrap_err("failed to parse instance extension_service_version")?,
     }))
 }
 
@@ -324,7 +324,7 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
         .config
         .as_ref()
         .and_then(|config| config.infiniband.as_ref())
-        .ok_or_else(|| eyre::eyre!("No infiniband interfaces found"))?;
+        .ok_or_else(|| eyre::eyre!("no infiniband interfaces found"))?;
 
     let ib_interface_configs = &ib_config.ib_interfaces;
 
@@ -332,7 +332,7 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
         .status
         .as_ref()
         .and_then(|status| status.infiniband.as_ref())
-        .ok_or_else(|| eyre::eyre!("No infiniband interfaces found"))?;
+        .ok_or_else(|| eyre::eyre!("no infiniband interfaces found"))?;
 
     let ib_interface_statuses = &ib_status.ib_interfaces;
 
@@ -361,7 +361,7 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
     }
 
     if devices.is_empty() {
-        return Err(eyre::eyre!("No infiniband devices found"));
+        return Err(eyre::eyre!("no infiniband devices found"));
     }
 
     Ok(devices)

@@ -90,9 +90,9 @@ impl IPMIToolHttpImpl {
             .get_credentials(credential_key)
             .await
             .map_err(|e| {
-                eyre!("Secret engine getting credentials for key {credential_key:#?}: {e:#?}")
+                eyre!("secret engine getting credentials for key {credential_key:#?}: {e:#?}")
             })?
-            .ok_or_else(|| eyre!("No credentials for key {credential_key:#?} found"))?;
+            .ok_or_else(|| eyre!("no credentials for key {credential_key:#?} found"))?;
         let Credentials::UsernamePassword { username, password } = credentials;
 
         let client = reqwest::Client::builder()

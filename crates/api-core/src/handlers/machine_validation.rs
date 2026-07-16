@@ -90,7 +90,7 @@ pub(crate) async fn mark_machine_validation_complete(
     if machine.id != machine_id {
         tracing::error!(machine_validation_id = %validation_id, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
         return Err(CarbideError::InvalidArgument(
-            "Validation ID does not belong to provided Machine ID".to_string(),
+            "validation ID does not belong to provided machine ID".to_string(),
         )
         .into());
     }
@@ -247,7 +247,7 @@ pub(crate) async fn persist_validation_result(
     request: tonic::Request<rpc::MachineValidationResultPostRequest>,
 ) -> Result<tonic::Response<()>, Status> {
     let Some(result) = request.into_inner().result else {
-        return Err(CarbideError::InvalidArgument("Validation Result".to_string()).into());
+        return Err(CarbideError::InvalidArgument("validation result".to_string()).into());
     };
 
     let validation_result: MachineValidationResult = result.try_into()?;
@@ -372,7 +372,7 @@ pub(crate) async fn get_machine_validation_results(
         None => {
             if machine_id.is_none() {
                 return Err(CarbideError::MissingArgument(
-                    "Validation id or Machine id is required",
+                    "validation id or machine id is required",
                 )
                 .into());
             }
@@ -751,7 +751,7 @@ pub(crate) async fn on_demand_machine_validation(
         }
         rpc::machine_validation_on_demand_request::Action::Stop => {
             Err(CarbideError::InvalidArgument(
-                "Cannot stop an on-demand validation request".to_string(),
+                "cannot stop an on-demand validation request".to_string(),
             )
             .into())
         }
@@ -856,7 +856,7 @@ pub(crate) async fn add_machine_validation_test(
     )
     .await?;
     if !tests.is_empty() {
-        return Err(CarbideError::InvalidArgument("Name already exists".to_string()).into());
+        return Err(CarbideError::InvalidArgument("name already exists".to_string()).into());
     }
     let version = ConfigVersion::initial();
     let test_id = machine_validation_suites::save(&mut txn, model_req, version).await?;
@@ -987,7 +987,7 @@ pub(crate) async fn update_machine_validation_run(
 
     let validation_id = req
         .validation_id
-        .ok_or(CarbideError::MissingArgument("Validation id"))?;
+        .ok_or(CarbideError::MissingArgument("validation id"))?;
     let selected_tests = req
         .selected_tests
         .into_iter()

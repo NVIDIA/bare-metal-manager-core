@@ -63,34 +63,34 @@ use crate::sink::{
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("unable to connect to carbide API: {0}")]
     ApiConnectFailed(String),
 
-    #[error("The API call to the Carbide API server returned {0}")]
+    #[error("the API call to the carbide API server returned {0}")]
     ApiInvocationError(tonic::Status),
 
-    #[error("Generic Error: {0}")]
+    #[error("generic error: {0}")]
     GenericError(String),
 
-    #[error("Logger Error: {0}")]
+    #[error("logger error: {0}")]
     LoggerError(String),
 
-    #[error("Error while handling json: {0}")]
+    #[error("error while handling json: {0}")]
     JsonError(#[from] serde_json::Error),
 
-    #[error("Tokio Task Join Error {0}")]
+    #[error("tokio task join error {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
 
-    #[error("Prometheus Error {0}")]
+    #[error("prometheus error {0}")]
     PrometheusError(#[from] prometheus::Error),
 
-    #[error("BMC Error: {0}")]
+    #[error("BMC error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("HTTP(S) error: {0}")]
     HttpError(String),
 
-    #[error("Redfish SSE not available: {0}")]
+    #[error("redfish SSE not available: {0}")]
     SseNotAvailable(String),
 
     #[error("gNMI error: {0}")]

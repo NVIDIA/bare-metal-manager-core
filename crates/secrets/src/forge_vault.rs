@@ -94,14 +94,14 @@ fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Rep
                 %env_path,
                 "VAULT_CACERT does not exist. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
         Err(_) => {
             tracing::error!(
                 configured_path,
                 "Vault root CA not found. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
     }
 }
@@ -330,7 +330,7 @@ async fn vault_token_refresh(
                 .inspect_err(|err| {
                     record_vault_client_error(err, VaultRequestType::ServiceAccountLogin);
                 })
-                .wrap_err("Failed to execute kubernetes service account login request")?;
+                .wrap_err("failed to execute kubernetes service account login request")?;
 
             emit(VaultRequestSucceeded {
                 request_type: VaultRequestType::ServiceAccountLogin,

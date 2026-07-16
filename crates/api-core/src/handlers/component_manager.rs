@@ -383,7 +383,7 @@ fn map_compute_tray_component_names(raw: &[i32]) -> Result<Vec<String>, Status> 
             Ok(rpc::ComputeTrayComponent::Gpu) => Ok("GPU".to_string()),
             Ok(rpc::ComputeTrayComponent::Cx7) => Ok("CX7".to_string()),
             Ok(rpc::ComputeTrayComponent::Unknown) => Err(Status::invalid_argument(
-                "compute tray component must not be Unknown",
+                "compute tray component must not be unknown",
             )),
             Err(e) => Err(Status::invalid_argument(format!(
                 "unrecognized compute tray component value {v}: {e}"
@@ -432,7 +432,7 @@ fn map_compute_tray_components(raw: &[i32]) -> Result<Vec<ModelComputeTrayCompon
             Ok(rpc::ComputeTrayComponent::CpldMb) => Ok(ModelComputeTrayComponent::Cpld),
             Ok(rpc::ComputeTrayComponent::Cx7) => Ok(ModelComputeTrayComponent::Cx7),
             Ok(rpc::ComputeTrayComponent::Unknown) => Err(Status::invalid_argument(
-                "compute tray component must not be Unknown",
+                "compute tray component must not be unknown",
             )),
             Ok(other) => Err(Status::invalid_argument(format!(
                 "compute tray component {other:?} is not supported for direct dispatch"
