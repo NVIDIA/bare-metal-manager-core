@@ -279,7 +279,13 @@ pub(crate) async fn persist_validation_result(
         &mut txn,
         &validation_result.validation_id,
     )
-    .await?;
+    .await?
+    .ok_or_else(|| {
+        CarbideError::internal(format!(
+            "validation id {} was found via machine lookup but not by primary key",
+            validation_result.validation_id
+        ))
+    })?;
     if !db::machine_validation::is_active(&machine_validation) {
         tracing::info!(
             machine_validation_id = %validation_result.validation_id,
@@ -316,11 +322,8 @@ pub(crate) async fn persist_validation_result(
 
     // Keep the durable run-item/attempt write ahead of the legacy projections.
     // A false return means this report is a replay of an already-terminal attempt.
-    let first_terminal_report = db::machine_validation_execution::record_result_with_parent_lock(
-        &mut txn,
-        &validation_result,
-    )
-    .await?;
+    let first_terminal_report =
+        db::machine_validation_execution::record_result(&mut txn, &validation_result).await?;
     if !first_terminal_report {
         tracing::info!(
             machine_validation_id = %validation_result.validation_id,

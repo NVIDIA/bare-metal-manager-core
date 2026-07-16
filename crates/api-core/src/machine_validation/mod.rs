@@ -424,7 +424,7 @@ async fn reconcile_stale_attempt(
 
     // Keep the same parent-run -> run-item lock order used by result
     // persistence and heartbeats.
-    if db::machine_validation::try_lock_by_id_no_key_update(txn, &stale_attempt.validation_id)
+    if db::machine_validation::lock_by_id_no_key_update(txn, &stale_attempt.validation_id)
         .await?
         .is_none()
     {
