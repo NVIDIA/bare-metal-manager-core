@@ -376,8 +376,10 @@ impl DpuMachineHandle {
     pub(crate) fn for_control_test(mat_id: Uuid, observed_machine_id: Option<MachineId>) -> Self {
         let (message_tx, _message_rx) = mpsc::unbounded_channel();
         let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 1]);
-        let mut live_state = LiveState::default();
-        live_state.observed_machine_id = observed_machine_id;
+        let live_state = LiveState {
+            observed_machine_id,
+            ..LiveState::default()
+        };
         Self(Arc::new(DpuMachineActor {
             message_tx,
             live_state: Arc::new(RwLock::new(live_state)),
