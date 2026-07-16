@@ -143,22 +143,35 @@ func aggregateSyncMessage(hadErrors bool) string {
 func updateOperatingSystemAggregateStatus(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, osID uuid.UUID, hadErrors bool, message string) error {
 	osDAO := cdbm.NewOperatingSystemDAO(dbSession)
 
-	existing, err := osDAO.GetByID(ctx, nil, osID, nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to read Operating System before aggregate status update")
-		return err
-	}
-	if existing.Status == cdbm.OperatingSystemStatusDeactivated {
-		logger.Info().Msg("Operating System is deactivated, preserving Deactivated status after site sync")
-		return nil
-	}
-
 	status := cdbm.OperatingSystemStatusReady
 	if hadErrors {
 		status = cdbm.OperatingSystemStatusError
 	}
 
 	if err := cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
+		// Serialize with other Operating System state changes (deactivation,
+		// deletion) via the per-OS advisory lock, held for the life of this
+		// transaction. This closes the read-then-write race: the deactivation guard
+		// re-reads the status under the lock, so a concurrent Deactivate cannot land
+		// between the read and the write and be clobbered by Ready/Error.
+		if lerr := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(osID.String()), nil); lerr != nil {
+			logger.Error().Err(lerr).Msg("failed to acquire advisory lock on Operating System for aggregate status update")
+			return lerr
+		}
+
+		existing, gerr := osDAO.GetByID(ctx, tx, osID, nil)
+		if gerr != nil {
+			logger.Error().Err(gerr).Msg("failed to read Operating System before aggregate status update")
+			return gerr
+		}
+		// A Deactivated Operating System keeps its Deactivated status: the sync still
+		// pushed the definition to sites, but the aggregate readiness/error status
+		// must not override the user-initiated deactivation.
+		if existing.Status == cdbm.OperatingSystemStatusDeactivated {
+			logger.Info().Msg("Operating System is deactivated, preserving Deactivated status after site sync")
+			return nil
+		}
+
 		if _, uerr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{OperatingSystemId: osID, Status: &status}); uerr != nil {
 			return uerr
 		}
@@ -414,6 +427,15 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		if gerr != nil {
 			logger.Error().Err(gerr).Msg("error retrieving tenant sites for global-scope Operating System")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve tenant sites, DB error", nil)
+		}
+		// A Global-scope Templated iPXE OS is defined by being synced to every
+		// Registered site the tenant can access, and no later mechanism re-expands it
+		// as sites register. With no such sites there is nothing to sync to, so the
+		// post-commit sync (gated on len(dbossa) > 0) is skipped and the OS would be
+		// stranded in Syncing forever. Reject up front rather than persist a no-op.
+		if len(globalSites) == 0 {
+			logger.Warn().Msg("cannot create Global-scope Templated iPXE Operating System: tenant has no Registered Sites")
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to create Operating System, Tenant has no Registered Sites to sync a Global-scope Operating System to", nil)
 		}
 		rdbst = append(rdbst, globalSites...)
 	}
