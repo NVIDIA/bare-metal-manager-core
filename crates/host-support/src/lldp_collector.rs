@@ -10,7 +10,7 @@ use crate::hardware_enumeration::PCI_SUBCLASS;
 
 #[derive(thiserror::Error, Debug)]
 pub enum LldpCollectorError {
-    #[error("Udev failed with error: {0}")]
+    #[error("udev failed with error: {0}")]
     Udev(#[from] libudev::Error),
     #[error("LLDP collection failed reading '{0}': {1}")]
     Read(&'static str, String),
@@ -175,7 +175,7 @@ fn get_local_chassis_id() -> Option<LldpId> {
     let out = Cmd::new("lldpcli")
         .args(vec!["-f", "json0", "show", "chassis"])
         .output()
-        .map_err(|e| warn!("Could not read local LLDP chassis: {e}"))
+        .map_err(|e| warn!(error = %e, "Could not read local LLDP chassis"))
         .ok()?;
     parse_local_chassis_id(&out)
 }
@@ -194,7 +194,7 @@ fn parse_local_chassis_id(json: &str) -> Option<LldpId> {
     }
 
     let root: LocalChassisRoot = serde_json::from_str(json)
-        .map_err(|e| warn!("Could not deserialize local LLDP chassis {json}, {e}"))
+        .map_err(|e| warn!(json, error = %e, "Could not deserialize local LLDP chassis"))
         .ok()?;
     root.local_chassis
         .into_iter()
@@ -241,7 +241,7 @@ fn lldp_for_device(device: &Device) -> Vec<rpc_discovery::LldpSwitchData> {
     match get_port_lldp_info(ifname) {
         Ok(lldp) => lldp,
         Err(e) => {
-            tracing::debug!(ifname, "no LLDP neighbor: {e}");
+            debug!(ifname, error = %e, "no LLDP neighbor");
             Vec::new()
         }
     }
@@ -261,7 +261,7 @@ pub fn get_lldp_port_info(port: &str) -> LldpCollectorResult<String> {
         ])
         .output()
         .map_err(|e| {
-            warn!("Could not discover LLDP peer for {port}, {e}");
+            warn!(port, error = %e, "Could not discover LLDP peer");
             LldpCollectorError::Lldp(e.to_string())
         })
 }
@@ -279,14 +279,14 @@ pub fn get_port_lldp_info(port: &str) -> LldpCollectorResult<Vec<rpc_discovery::
 /// chassis are skipped; missing id/description/mgmt-ip degrade to empty values.
 fn parse_port_lldp(lldp_json: &str) -> LldpCollectorResult<Vec<rpc_discovery::LldpSwitchData>> {
     let lldp_resp: LldpResponse = serde_json::from_str(lldp_json).map_err(|e| {
-        warn!("Could not deserialize LLDP response {lldp_json}, {e}");
+        warn!(lldp_json, error = %e, "Could not deserialize LLDP response");
         LldpCollectorError::Lldp(e.to_string())
     })?;
 
     let mut neighbors = Vec::new();
     for entry in lldp_resp.lldp.iter().flat_map(|root| root.interface.iter()) {
         let Some(chassis) = entry.chassis.first() else {
-            debug!("No LLDP chassis data for port {}", entry.name);
+            debug!(port = entry.name, "No LLDP chassis data");
             continue;
         };
 
