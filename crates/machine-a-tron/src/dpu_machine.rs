@@ -18,11 +18,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{
     BmcCommand, DpuMachineInfo, DpuSettings, HostHardwareType, MachineInfo, SetSystemPowerResult,
     SystemPowerControl,
 };
+use carbide_uuid::machine::MachineId;
 use eyre::Context;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -177,6 +179,7 @@ impl DpuMachine {
         let dpu_info = self.dpu_info.clone();
         let dpu_index = self.dpu_index;
         let live_state = self.state_machine.live_state.clone();
+        let bmc_injection = self.state_machine.bmc_injection_store();
         let join_handle = tokio::task::Builder::new()
             .name(&format!("DPU {}", self.mat_id))
             .spawn({
@@ -199,6 +202,7 @@ impl DpuMachine {
             mat_id,
             dpu_info,
             dpu_index,
+            bmc_injection,
             join_handle: Mutex::new(Some(join_handle)),
         }))
     }
@@ -342,6 +346,7 @@ struct DpuMachineActor {
     mat_id: Uuid,
     dpu_info: DpuMachineInfo,
     dpu_index: u8,
+    bmc_injection: Arc<InjectionStore>,
     join_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -349,6 +354,50 @@ struct DpuMachineActor {
 pub struct DpuMachineHandle(Arc<DpuMachineActor>);
 
 impl DpuMachineHandle {
+    pub fn mat_id(&self) -> Uuid {
+        self.0.mat_id
+    }
+
+    pub fn observed_machine_id(&self) -> Option<MachineId> {
+        self.0
+            .live_state
+            .read()
+            .unwrap()
+            .observed_machine_id
+            .as_ref()
+            .map(ToOwned::to_owned)
+    }
+
+    pub(crate) fn bmc_injection_store(&self) -> Arc<InjectionStore> {
+        self.0.bmc_injection.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_control_test(mat_id: Uuid, observed_machine_id: Option<MachineId>) -> Self {
+        let (message_tx, _message_rx) = mpsc::unbounded_channel();
+        let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 1]);
+        let live_state = LiveState {
+            observed_machine_id,
+            ..LiveState::default()
+        };
+        Self(Arc::new(DpuMachineActor {
+            message_tx,
+            live_state: Arc::new(RwLock::new(live_state)),
+            mat_id,
+            dpu_info: DpuMachineInfo {
+                hw_type: HostHardwareType::default(),
+                bmc_mac_address: mac,
+                host_mac_address: mac,
+                oob_mac_address: mac,
+                serial: "test-dpu".to_string(),
+                settings: DpuSettings::default(),
+            },
+            dpu_index: 0,
+            bmc_injection: Arc::new(InjectionStore::new()),
+            join_handle: Mutex::new(None),
+        }))
+    }
+
     pub fn set_system_power(&self, request: SystemPowerControl) -> eyre::Result<()> {
         Ok(self.0.message_tx.send(DpuMachineMessage::SetSystemPower {
             request,

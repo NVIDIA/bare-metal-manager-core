@@ -81,7 +81,7 @@ pub async fn show_html(
     let (pages, all_status) = match fetch_network_status(state, current_page, limit).await {
         Ok(all) => all,
         Err(err) => {
-            tracing::error!(%err, "fetch_network_status");
+            tracing::error!(error = %err, "fetch_network_status");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network status",
@@ -160,7 +160,7 @@ pub async fn show_all_json(
     let (_, all_status) = match fetch_network_status(state, current_page, limit).await {
         Ok(all) => all,
         Err(err) => {
-            tracing::error!(%err, "fetch_network_status");
+            tracing::error!(error = %err, "fetch_network_status");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network status",

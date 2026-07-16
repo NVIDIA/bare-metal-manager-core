@@ -432,7 +432,10 @@ pub async fn get_next_free_machine(
     flat_vpc_id: Option<VpcId>,
 ) -> Option<Machine> {
     while let Some(id) = machine_ids.pop_front() {
-        tracing::debug!("Checking {}", id);
+        tracing::debug!(
+            machine_id = %id,
+            "Checking machine",
+        );
         if let Ok(machine) = api_client.get_machine(id).await {
             if machine.state != "Ready" {
                 tracing::debug!("Machine is not ready");

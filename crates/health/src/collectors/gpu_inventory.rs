@@ -175,7 +175,11 @@ impl<B: Bmc + 'static> GpuInventoryCollector<B> {
     }
 
     fn emit_alert(&self, message: String) {
-        tracing::warn!(bmc = %self.endpoint.addr.mac, %message, "GPU inventory alert");
+        tracing::warn!(
+            bmc_mac_address = %self.endpoint.addr.mac,
+            reason = %message,
+            "GPU inventory alert"
+        );
         let report = HealthReport {
             source: ReportSource::GpuInventory,
             target: Some(HealthReportTarget::Machine),
@@ -306,7 +310,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for GpuInventoryCollector<B> {
         // skip this iteration rather than false-alerting on a not-yet-known count.
         let Some(actual) = self.count_gpus() else {
             tracing::debug!(
-                bmc = %self.endpoint.addr.mac,
+                bmc_mac_address = %self.endpoint.addr.mac,
                 "Entity inventory not ready yet; skipping GPU inventory iteration"
             );
             return Ok(IterationResult {
@@ -319,9 +323,9 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for GpuInventoryCollector<B> {
         let report = gpu_count_report(expected_count, actual);
         if !report.alerts.is_empty() {
             tracing::warn!(
-                bmc = %self.endpoint.addr.mac,
-                expected = expected_count,
-                actual,
+                bmc_mac_address = %self.endpoint.addr.mac,
+                expected_gpu_count = expected_count,
+                actual_gpu_count = actual,
                 "GPU count below SKU expectation"
             );
         }

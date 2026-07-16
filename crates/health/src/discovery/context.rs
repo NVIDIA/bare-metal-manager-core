@@ -68,28 +68,6 @@ impl CollectorKind {
         CollectorKind::NvueGnmi,
         CollectorKind::GpuInventory,
     ];
-
-    pub(super) fn stop_message(self) -> &'static str {
-        match self {
-            CollectorKind::Discovery => {
-                "Stopping entity discovery collector for removed BMC endpoint"
-            }
-            CollectorKind::GpuInventory => "Stopping GPU inventory collector",
-            CollectorKind::Sensor => "Stopping sensor collector for removed BMC endpoint",
-            CollectorKind::Metrics => "Stopping entity metrics collector for removed BMC endpoint",
-            CollectorKind::Logs => "Stopping logs collector for removed BMC endpoint",
-            CollectorKind::Firmware => "Stopping firmware collector for removed BMC endpoint",
-            CollectorKind::LeakDetector => {
-                "Stopping leak detector collector for removed BMC endpoint"
-            }
-            CollectorKind::Nmxt => "Stopping NMX-T collector for removed BMC endpoint",
-            CollectorKind::Nmxc => "Stopping NMX-C streaming collector for removed switch endpoint",
-            CollectorKind::NvueRest => "Stopping NVUE REST collector for removed BMC endpoint",
-            CollectorKind::NvueGnmi => {
-                "Stopping NVUE gNMI streaming collector for removed switch endpoint"
-            }
-        }
-    }
 }
 
 pub(super) struct CollectorState {

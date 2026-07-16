@@ -68,9 +68,9 @@ async fn handle_wait_for_os_machine_interface(
         Some(es) => es,
         None => {
             tracing::info!(
-                "Switch {:?}: no expected switch found for BMC MAC {}, waiting",
-                switch_id,
-                bmc_mac_address
+                switch_id = %switch_id,
+                bmc_mac_address = %bmc_mac_address,
+                "No expected switch found; transitioning to error",
             );
             return Ok(StateHandlerOutcome::transition(
                 SwitchControllerState::Error {
@@ -83,10 +83,10 @@ async fn handle_wait_for_os_machine_interface(
     let nvos_mac_addresses = &expected_switch.nvos_mac_addresses;
     if nvos_mac_addresses.is_empty() {
         tracing::warn!(
-            "Switch {:?}: no NVOS MAC addresses on expected switch for serial {}, BMC MAC {}",
-            switch_id,
-            bmc_mac_address,
-            expected_switch.bmc_mac_address
+            switch_id = %switch_id,
+            bmc_mac_address = %bmc_mac_address,
+            expected_bmc_mac_address = %expected_switch.bmc_mac_address,
+            "Switch has no NVOS MAC addresses on expected switch",
         );
         return Ok(StateHandlerOutcome::transition(
             SwitchControllerState::Error {
@@ -111,10 +111,10 @@ async fn handle_wait_for_os_machine_interface(
         if let Some(existing_switch_id) = interface.switch_id {
             if existing_switch_id != *switch_id {
                 tracing::warn!(
-                    "Switch {:?}: NVOS MAC {} already associated with switch {}",
-                    switch_id,
-                    mac_address,
-                    existing_switch_id
+                    switch_id = %switch_id,
+                    nvos_mac_address = %mac_address,
+                    existing_switch_id = %existing_switch_id,
+                    "Switch: NVOS MAC already associated with switch",
                 );
                 return Ok(StateHandlerOutcome::transition(
                     SwitchControllerState::Error {
@@ -136,10 +136,10 @@ async fn handle_wait_for_os_machine_interface(
         )
         .await?;
         tracing::info!(
-            "Switch {:?}: associated NVOS interface {} (MAC {})",
-            switch_id,
-            interface.id,
-            mac_address
+            switch_id = %switch_id,
+            machine_interface_id = %interface.id,
+            nvos_mac_address = %mac_address,
+            "Switch associated NVOS interface",
         );
         associated_count += 1;
     }
@@ -147,17 +147,17 @@ async fn handle_wait_for_os_machine_interface(
     txn.commit().await?;
 
     tracing::info!(
-        "Switch {:?}: associated {} NVOS interfaces for BMC MAC {}",
-        switch_id,
-        associated_count,
-        bmc_mac_address
+        switch_id = %switch_id,
+        associated_nvos_interface_count = associated_count,
+        bmc_mac_address = %bmc_mac_address,
+        "Switch associated NVOS interfaces",
     );
     if associated_count >= 1 {
         tracing::info!(
-            "Switch {:?}: at least one NVOS interface associated ({}/{}), transitioning to Configuring",
-            switch_id,
-            associated_count,
-            total
+            switch_id = %switch_id,
+            associated_nvos_interface_count = associated_count,
+            total_nvos_interface_count = total,
+            "Switch has at least one NVOS interface associated, transitioning to Configuring",
         );
         Ok(StateHandlerOutcome::transition(
             SwitchControllerState::Configuring {
@@ -168,10 +168,10 @@ async fn handle_wait_for_os_machine_interface(
         ))
     } else {
         tracing::info!(
-            "Switch {:?}: {}/{} NVOS interfaces associated, waiting",
-            switch_id,
-            associated_count,
-            total
+            switch_id = %switch_id,
+            associated_nvos_interface_count = associated_count,
+            total_nvos_interface_count = total,
+            "Switch has no NVOS interfaces associated, waiting",
         );
         Ok(StateHandlerOutcome::wait(format!(
             "{}/{} NVOS interfaces associated, waiting",

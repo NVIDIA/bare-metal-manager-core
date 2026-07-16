@@ -21,6 +21,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use bmc_mock::injection::InjectionStore;
 use bmc_mock::{
     BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostnameQuerying,
     MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
@@ -74,6 +75,7 @@ pub struct MachineStateMachine {
     fsm: MachineFsm,
     bmc_mock: Option<Arc<BmcMockWrapperHandle>>,
     bmc_state: Option<BmcState>,
+    bmc_injection: Arc<InjectionStore>,
     power_cycle_deadline: Option<Instant>,
     machine_on_deadline: Option<Instant>,
     agent_polling_deadline: Option<(Instant, Timer)>,
@@ -242,6 +244,7 @@ impl MachineStateMachine {
             actions: actions.into_iter().collect(),
             bmc_mock: None,
             bmc_state: None,
+            bmc_injection: Arc::new(InjectionStore::new()),
             power_cycle_deadline: None,
             machine_on_deadline: None,
             agent_polling_deadline: None,
@@ -285,6 +288,7 @@ impl MachineStateMachine {
             bmc_dhcp_info: None,
             bmc_mock: None,
             bmc_state: None,
+            bmc_injection: Arc::new(InjectionStore::new()),
             machine_dhcp_info: None,
             machine_discovery_result: None,
             machine_on_deadline: None,
@@ -496,7 +500,7 @@ impl MachineStateMachine {
     fn fsm_event(&mut self, event: Event) {
         let old_state = self.fsm;
         let (new_state, actions) = self.fsm.event(event);
-        tracing::info!(?old_state, ?event, ?new_state, ?actions, "machine FSM step");
+        tracing::info!(previous_state = ?old_state, ?event, next_state = ?new_state, ?actions, "machine FSM step");
         actions
             .into_iter()
             .for_each(|action| self.actions.push_back(action));
@@ -525,15 +529,16 @@ impl MachineStateMachine {
         .await
         .inspect(|_| {
             tracing::debug!(
-                "BMC DHCP Request for {} took {}ms",
-                self.machine_info.bmc_mac_address(),
-                start.elapsed().as_millis()
+                bmc_mac_address = %self.machine_info.bmc_mac_address(),
+                elapsed_milliseconds = start.elapsed().as_millis(),
+                "BMC DHCP request completed",
             );
         })
         .inspect_err(|err| {
             tracing::warn!(
-                "BMC DHCP Request failed after {}ms: {err}",
-                start.elapsed().as_millis()
+                elapsed_milliseconds = start.elapsed().as_millis(),
+                error = %err,
+                "BMC DHCP request failed",
             );
         })
     }
@@ -551,11 +556,11 @@ impl MachineStateMachine {
         let machine_dhcp_info_result = if let Some(DpuDhcpRelay::HostEnd(relay_tx)) =
             &self.dpu_dhcp_relay
         {
-            tracing::debug!(%primary_mac, "requesting machine DHCP through DPU relay");
+            tracing::debug!(primary_mac_address = %primary_mac, "requesting machine DHCP through DPU relay");
             let (reply_tx, reply_rx) = oneshot::channel();
             if relay_tx.send(reply_tx).is_err() {
                 tracing::warn!(
-                    %primary_mac,
+                    primary_mac_address = %primary_mac,
                     "DPU DHCP relay request channel is closed; retrying after relay state reconciliation"
                 );
                 return Err(MachineStateError::DpuDhcpRelayUnavailable);
@@ -566,15 +571,15 @@ impl MachineStateMachine {
                 Ok(Ok(result)) => result,
                 Ok(Err(_)) => {
                     tracing::warn!(
-                        %primary_mac,
+                        primary_mac_address = %primary_mac,
                         "DPU DHCP relay response was canceled; retrying after relay state reconciliation"
                     );
                     return Err(MachineStateError::DpuDhcpRelayUnavailable);
                 }
                 Err(_) => {
                     tracing::warn!(
-                        %primary_mac,
-                        timeout_ms = DPU_DHCP_RELAY_TIMEOUT.as_millis(),
+                        primary_mac_address = %primary_mac,
+                        timeout_milliseconds = DPU_DHCP_RELAY_TIMEOUT.as_millis(),
                         "DPU DHCP relay response timed out; retrying after relay state reconciliation"
                     );
                     return Err(MachineStateError::DpuDhcpRelayUnavailable);
@@ -587,7 +592,7 @@ impl MachineStateMachine {
                 self.config.host_inband_dhcp_relay_address,
             );
             tracing::debug!(
-                %primary_mac,
+                primary_mac_address = %primary_mac,
                 %direct_relay_address,
                 "requesting machine DHCP directly"
             );
@@ -604,16 +609,17 @@ impl MachineStateMachine {
         machine_dhcp_info_result
             .inspect(|_| {
                 tracing::debug!(
-                    %primary_mac,
-                    elapsed_ms = start.elapsed().as_millis(),
+                    primary_mac_address = %primary_mac,
+                    elapsed_milliseconds = start.elapsed().as_millis(),
                     "machine DHCP request completed"
                 );
             })
             .map_err(|err| {
                 tracing::debug!(
-                    %primary_mac,
-                    elapsed_ms = start.elapsed().as_millis(),
-                    "machine DHCP request failed: {err}"
+                    primary_mac_address = %primary_mac,
+                    elapsed_milliseconds = start.elapsed().as_millis(),
+                    error = %err,
+                    "machine DHCP request failed"
                 );
                 err.into()
             })
@@ -730,9 +736,9 @@ impl MachineStateMachine {
             return Err(MachineStateError::MachineNotFound(machine_id));
         };
         tracing::trace!(
-            "get action took {}ms; action={:?}",
-            start.elapsed().as_millis(),
-            control_response.action,
+            elapsed_milliseconds = start.elapsed().as_millis(),
+            action = ?control_response.action,
+            "forge_agent_control action received",
         );
 
         match &control_response.action {
@@ -758,9 +764,9 @@ impl MachineStateMachine {
             Some(Action::Noop(_)) => {}
             _ => {
                 tracing::warn!(
-                    "Unknown action from forge_agent_control: {:?} for OS image {}",
-                    control_response.action,
-                    os_image,
+                    action = ?control_response.action,
+                    os_image = %os_image,
+                    "Unknown forge_agent_control action for OS image",
                 );
             }
         }
@@ -901,7 +907,10 @@ impl MachineStateMachine {
             )
             .await?;
 
-        tracing::trace!("discover_machine took {}ms", start.elapsed().as_millis());
+        tracing::trace!(
+            elapsed_milliseconds = start.elapsed().as_millis(),
+            "discover_machine completed",
+        );
         Ok(machine_discovery_result)
     }
 
@@ -998,7 +1007,7 @@ impl MachineStateMachine {
             GracefulShutdown | ForceOff => self.fsm_event(Event::PowerOff),
             PushPowerButton | Nmi | Suspend | Pause | Resume => {
                 let msg = format!("Machine-a-tron mock: unsupported power request {request:?}",);
-                tracing::warn!("{msg}");
+                tracing::warn!(?request, "unsupported machine-a-tron mock power request",);
                 return Err(SetSystemPowerError::BadRequest(msg));
             }
         };
@@ -1020,6 +1029,10 @@ impl MachineStateMachine {
         self.bmc_dhcp_info.as_ref().map(|v| v.ip_address)
     }
 
+    pub(crate) fn bmc_injection_store(&self) -> Arc<InjectionStore> {
+        self.bmc_injection.clone()
+    }
+
     pub fn booted_os(&self) -> MaybeOsImage {
         MaybeOsImage(self.fsm.booted_os())
     }
@@ -1037,6 +1050,7 @@ impl MachineStateMachine {
             )),
             Arc::new(LiveStateHostnameQuery(self.live_state.clone())),
             self.mat_host_id,
+            self.bmc_injection.clone(),
         );
 
         let pw_override = match &self.machine_info {
@@ -1067,7 +1081,10 @@ impl MachineStateMachine {
                     .write()
                     .await
                     .insert(ip_address.to_string(), bmc_mock.router().clone());
-                None
+                bmc_mock
+                    .start_ipmi_only(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
+                    .await?
+                    .map(Arc::new)
             }
         };
         Ok((maybe_bmc_mock_handle, bmc_mock.state().clone()))
@@ -1080,7 +1097,10 @@ impl MachineStateMachine {
             .discovery_completed(*machine_id)
             .await
             .map_err(ClientApiError::InvocationError)?;
-        tracing::trace!("discovery_complete took {}ms", start.elapsed().as_millis());
+        tracing::trace!(
+            elapsed_milliseconds = start.elapsed().as_millis(),
+            "discovery_complete completed",
+        );
         Ok(())
     }
 
@@ -1140,38 +1160,40 @@ impl Display for MaybeOsImage {
 #[derive(thiserror::Error, Debug)]
 pub enum MachineStateError {
     #[error(
-        "Invalid Machine state: Missing interface_id for this machine in machine discovery results"
+        "invalid machine state: missing interface_id for this machine in machine discovery results"
     )]
     MissingInterfaceId,
     #[error(
-        "Invalid Machine state: Missing machine_id for this machine in machine discovery results"
+        "invalid machine state: missing machine_id for this machine in machine discovery results"
     )]
     MissingMachineId,
-    #[error("No mac addresses specified for machine")]
+    #[error("no mac addresses specified for machine")]
     NoMachineMacAddress,
-    #[error("No DHCP info for BMC. This is bug.")]
+    #[error("no DHCP info for BMC. this is bug")]
     NoBmcDhcpInfo,
-    #[error("No DHCP info for machine. This is bug.")]
+    #[error("no DHCP info for machine. this is bug")]
     NoMachineDhcpInfo,
-    #[error("Error configuring listening address: {0}")]
+    #[error("error configuring listening address: {0}")]
     ListenAddressConfigError(#[from] AddressConfigError),
-    #[error("Could not find certificates at {0}")]
+    #[error("could not find certificates at {0}")]
     MissingCertificates(String),
-    #[error("Error calling forge API: {0}")]
+    #[error("error calling forge API: {0}")]
     ClientApi(#[from] ClientApiError),
-    #[error("Failed to get DHCP address: {0:?}")]
+    #[error("failed to get DHCP address: {0:?}")]
     DhcpError(#[from] DhcpRelayError),
     #[error("DPU DHCP relay is unavailable")]
     DpuDhcpRelayUnavailable,
-    #[error("Failed to get PXE response: {0}")]
+    #[error("failed to get PXE response: {0}")]
     PxeError(#[from] PxeError),
     #[error("BMC mock TLS error: {0}")]
     BmcMockTls(#[from] bmc_mock::tls::Error),
-    #[error("Mock SSH server error: {0}")]
+    #[error("failed to start IPMI simulator: {0}")]
+    IpmiSim(#[from] bmc_mock::ipmi_sim::Error),
+    #[error("mock SSH server error: {0}")]
     MockSshServer(String),
     #[error("{0}")]
     WrongOsForMachine(String),
-    #[error("Machine not found: {0}")]
+    #[error("machine not found: {0}")]
     MachineNotFound(MachineId),
 }
 impl From<tonic::Status> for MachineStateError {
@@ -1181,9 +1203,9 @@ impl From<tonic::Status> for MachineStateError {
 }
 #[derive(thiserror::Error, Debug)]
 pub enum AddressConfigError {
-    #[error("Error running ip command: {0}")]
+    #[error("error running ip command: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Error running ip command: {0:?}, output: {1:?}")]
+    #[error("error running ip command: {0:?}, output: {1:?}")]
     CommandFailure(Box<tokio::process::Command>, std::process::Output),
 }
 

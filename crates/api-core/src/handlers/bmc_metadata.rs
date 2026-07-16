@@ -83,7 +83,7 @@ pub(crate) async fn get_inner(
                     .unwrap_or_default(),
                 bmc_endpoint_request.ip_address
             );
-            tracing::error!(e);
+            tracing::error!(error = %e, "Invalid BMC MAC address");
             CarbideError::internal(e)
         })?;
 
@@ -96,7 +96,7 @@ pub(crate) async fn get_inner(
         .ok_or_else(|| CarbideError::internal("missing credentials".to_string()))?;
 
     let ip_address = bmc_endpoint_request.ip_address.parse().map_err(|_| {
-        CarbideError::internal("Internal error: Stored IP address is invalid".to_string())
+        CarbideError::internal("internal error: stored IP address is invalid".to_string())
     })?;
     let vendor = db::explored_endpoints::lookup_vendor_by_ip(ip_address, pool).await?;
 

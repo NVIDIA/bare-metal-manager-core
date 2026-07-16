@@ -1343,6 +1343,9 @@ jobs:
       - name: Run carbide lints
         run: cargo make carbide-lints
 
+      - name: Check error message style
+        run: cargo make lint-error-messages
+
       - name: Check TOML formatting
         run: taplo fmt --check || echo "Please format toml files"
 
@@ -1351,6 +1354,9 @@ jobs:
 
       - name: Check workspace deps
         run: cargo xtask check-workspace-deps
+
+      - name: Check instrumented event names
+        run: cargo xtask check-event-names
 
       - name: Check licenses
         run: cargo make --no-workspace check-licenses

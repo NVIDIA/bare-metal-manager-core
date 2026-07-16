@@ -30,6 +30,40 @@ pub mod config;
 use carbide_uuid::machine::MachineId;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
 
+/// One iteration of a DPU-agent report loop, recorded by `{report_loop,
+/// outcome}`. A pure counter: the failure detail stays on the existing
+/// call-site log, so this event never logs and carries no context of its own.
+///
+/// The loop's outbound Forge RPC is already RED-metered by the generated
+/// client, so this counter sits one level up -- it captures the whole
+/// iteration, including the pre-RPC build/connect failures and the raw FMDS
+/// push that the per-RPC metric never sees.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_report_loop_completed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub struct ReportLoopCompleted {
+    #[label]
+    pub report_loop: ReportLoop,
+    #[label]
+    pub outcome: carbide_instrument::Outcome,
+}
+
+/// The DPU-agent report loops that emit [`ReportLoopCompleted`]. The label
+/// field is named `report_loop` because `loop` is a keyword.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+pub enum ReportLoop {
+    Inventory,
+    ConfigFetch,
+    FmdsPush,
+    NetworkStatus,
+}
+
 pub struct AgentMetricsState {
     meter: Meter,
     http_counter: Counter<u64>,
@@ -264,7 +298,11 @@ impl WithTracingLayer for Router {
         let layer = tower_http::trace::TraceLayer::new_for_http()
             .on_request(move |request: &Request<AxumBody>, _span: &Span| {
                 metrics.http_counter.add(1, &[]);
-                tracing::info!("started {} {}", request.method(), request.uri().path())
+                tracing::info!(
+                    method = %request.method(),
+                    request_path = %request.uri().path(),
+                    "HTTP request started"
+                )
             })
             .on_response(
                 move |_response: &Response<AxumBody>, latency: Duration, _span: &Span| {
@@ -273,7 +311,10 @@ impl WithTracingLayer for Router {
                         .http_req_latency_histogram
                         .record(latency.as_secs_f64() * 1000.0, &[]);
 
-                    tracing::info!("response generated in {:?}", latency)
+                    tracing::info!(
+                        latency_milliseconds = latency.as_secs_f64() * 1000.0,
+                        "HTTP response generated"
+                    )
                 },
             );
 

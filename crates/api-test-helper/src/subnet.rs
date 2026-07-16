@@ -37,11 +37,17 @@ pub async fn create(
     });
     let segment_id =
         grpcurl_id(carbide_api_addrs, "CreateNetworkSegment", &data.to_string()).await?;
-    tracing::info!("Network Segment created with ID {segment_id}");
+    tracing::info!(
+        network_segment_id = %segment_id,
+        "Network segment created",
+    );
 
     wait_for_network_segment_state(carbide_api_addrs, &segment_id, "READY").await?;
 
-    tracing::info!("Network Segment with ID {segment_id} is ready");
+    tracing::info!(
+        network_segment_id = %segment_id,
+        "Network segment is ready",
+    );
     Ok(segment_id)
 }
 
@@ -59,7 +65,11 @@ pub async fn wait_for_network_segment_state(
     });
     let mut latest_state: String;
 
-    tracing::info!("Waiting for Network Segment {segment_id} state {target_state}");
+    tracing::info!(
+        network_segment_id = segment_id,
+        target_state,
+        "Waiting for Network Segment state",
+    );
     while start.elapsed() < MAX_WAIT {
         let response = grpcurl(addrs, "FindNetworkSegmentsByIds", Some(&data)).await?;
         let resp: serde_json::Value = serde_json::from_str(&response)?;
@@ -70,11 +80,14 @@ pub async fn wait_for_network_segment_state(
         if latest_state.contains(target_state) {
             return Ok(());
         }
-        tracing::info!("\tCurrent network segment state: {latest_state}");
+        tracing::info!(
+            network_segment_state = %latest_state,
+            "\tCurrent network segment state",
+        );
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    eyre::bail!("Even after {MAX_RETRY} retries, {segment_id} did not reach state {target_state}");
+    eyre::bail!("even after {MAX_RETRY} retries, {segment_id} did not reach state {target_state}");
 }
 
 pub async fn create_dual_stack(
@@ -104,11 +117,17 @@ pub async fn create_dual_stack(
     });
     let segment_id =
         grpcurl_id(carbide_api_addrs, "CreateNetworkSegment", &data.to_string()).await?;
-    tracing::info!("Dual-stack network segment created with ID {segment_id}");
+    tracing::info!(
+        network_segment_id = %segment_id,
+        "Dual-stack network segment created",
+    );
 
     wait_for_network_segment_state(carbide_api_addrs, &segment_id, "READY").await?;
 
-    tracing::info!("Dual-stack network segment with ID {segment_id} is ready");
+    tracing::info!(
+        network_segment_id = %segment_id,
+        "Dual-stack network segment is ready",
+    );
     Ok(segment_id)
 }
 

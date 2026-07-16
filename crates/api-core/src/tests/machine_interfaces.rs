@@ -812,7 +812,7 @@ async fn test_delete_interface_with_machine(
             match c {
                 Code::InvalidArgument => {
                     let msg = String::from(x.message());
-                    if !msg.contains("Already a machine") {
+                    if !msg.contains("already a machine") {
                         panic!("machine interface deletion failed with wrong message {msg}");
                     }
                     return Ok(());
@@ -862,7 +862,7 @@ async fn test_delete_bmc_interface_with_machine(
             match c {
                 Code::InvalidArgument => {
                     let msg = String::from(x.message());
-                    if !msg.contains("This looks like a BMC interface and attached") {
+                    if !msg.contains("this looks like a BMC interface and attached") {
                         panic!("machine interface deletion failed with wrong message {msg}");
                     }
                     return Ok(());

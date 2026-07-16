@@ -117,15 +117,15 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Discovery, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_collectors = ctx.collectors.len(CollectorKind::Discovery),
+                    discovery_collector_count = ctx.collectors.len(CollectorKind::Discovery),
                     "Started entity discovery for BMC endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start entity discovery collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start entity discovery collector"
                 );
             }
         }
@@ -160,15 +160,15 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Sensor, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_collectors = ctx.collectors.len(CollectorKind::Sensor),
+                    sensor_collector_count = ctx.collectors.len(CollectorKind::Sensor),
                     "Started sensor collection for BMC endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start sensor collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start sensor collector"
                 );
             }
         }
@@ -202,15 +202,15 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Metrics, key.clone().into(), monitor);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_collectors = ctx.collectors.len(CollectorKind::Metrics),
+                    entity_metrics_collector_count = ctx.collectors.len(CollectorKind::Metrics),
                     "Started entity metrics collection for BMC endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start entity metrics collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start entity metrics collector"
                 );
             }
         }
@@ -338,7 +338,7 @@ fn spawn_generic_redfish_collectors(
                 tracing::info!(
                     endpoint_key = %key,
                     mode = ?logs_cfg.mode,
-                    total_collectors = ctx.collectors.len(CollectorKind::Logs),
+                    log_collector_count = ctx.collectors.len(CollectorKind::Logs),
                     "Started logs collection for BMC endpoint"
                 );
             }
@@ -346,8 +346,8 @@ fn spawn_generic_redfish_collectors(
                 tracing::error!(
                     ?error,
                     mode = ?logs_cfg.mode,
-                    "Could not start logs collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start logs collector"
                 );
             }
             None => {}
@@ -379,15 +379,15 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::Firmware, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
+                    firmware_collector_count = ctx.collectors.len(CollectorKind::Firmware),
                     "Started firmware collection for BMC endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start firmware collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start firmware collector"
                 )
             }
         }
@@ -430,8 +430,8 @@ fn spawn_generic_redfish_collectors(
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start GPU inventory collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start GPU inventory collector"
                 );
             }
         }
@@ -464,7 +464,7 @@ fn spawn_generic_redfish_collectors(
                     .insert(CollectorKind::LeakDetector, key.clone().into(), collector);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_leak_detector_collectors =
+                    leak_detector_collector_count =
                         ctx.collectors.len(CollectorKind::LeakDetector),
                     "Started leak detector collection for BMC endpoint"
                 );
@@ -472,8 +472,8 @@ fn spawn_generic_redfish_collectors(
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start leak detector collector for: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start leak detector collector"
                 )
             }
         }
@@ -522,15 +522,15 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::Nmxt, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
+                    nmxt_collector_count = ctx.collectors.len(CollectorKind::Nmxt),
                     "Started NMX-T collection for switch host endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start NMX-T collector for switch host: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start NMX-T collector for switch host"
                 )
             }
         }
@@ -574,7 +574,7 @@ fn spawn_switch_host_collectors(
 
                     tracing::info!(
                         endpoint_key = %key,
-                        total_nmxc_collectors = ctx.collectors.len(CollectorKind::Nmxc),
+                        nmxc_collector_count = ctx.collectors.len(CollectorKind::Nmxc),
                         "Started NMX-C streaming collection for switch endpoint"
                     );
                 }
@@ -625,15 +625,15 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::NvueRest, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
+                    nvue_rest_collector_count = ctx.collectors.len(CollectorKind::NvueRest),
                     "Started NVUE REST collection for switch host endpoint"
                 );
             }
             Err(error) => {
                 tracing::error!(
                     ?error,
-                    "Could not start NVUE REST collector for switch host: {:?}",
-                    endpoint.addr
+                    endpoint = ?endpoint.addr,
+                    "Could not start NVUE REST collector for switch host"
                 )
             }
         }
@@ -662,7 +662,7 @@ fn spawn_switch_host_collectors(
                     .insert(CollectorKind::NvueGnmi, key.clone().into(), handle);
                 tracing::info!(
                     endpoint_key = %key,
-                    total_nvue_gnmi_collectors = ctx.collectors.len(CollectorKind::NvueGnmi),
+                    nvue_gnmi_collector_count = ctx.collectors.len(CollectorKind::NvueGnmi),
                     "Started NVUE gNMI streaming collection for switch endpoint"
                 );
             }

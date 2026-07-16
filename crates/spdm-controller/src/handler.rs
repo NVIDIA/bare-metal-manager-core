@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_instrument::{DynamicLog, Event, LabelValue, LogAt, Outcome, emit};
 use carbide_redfish::libredfish::conv::IntoModel;
 use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_error;
 use itertools::Itertools;
@@ -118,7 +119,10 @@ impl StateHandler for SpdmAttestationStateHandler {
                     Ok(x) => x.version,
                     Err(libredfish::RedfishError::NotSupported(msg)) => {
                         tracing::info!(
-                            "Device attestation is not supported for device (firmware version not available): {device_id}, machine: {machine_id}, msg: {msg}"
+                            device_id = %device_id,
+                            machine_id = %machine_id,
+                            reason = %msg,
+                            "device attestation is not supported because firmware version is unavailable"
                         );
                         return Ok(StateHandlerOutcome::transition(
                             SpdmAttestationState::Passed,
@@ -238,9 +242,9 @@ impl StateHandler for SpdmAttestationStateHandler {
                     task_state => {
                         let err = task.messages.iter().map(|t| t.message.clone()).join("\n");
                         tracing::error!(
-                            "Error while triggering measurement: {}: State: {:?}",
-                            err,
-                            task_state
+                            error = %err,
+                            task_state = ?task_state,
+                            "measurement collection task entered an unexpected state"
                         );
                         if *retry_count > 4 {
                             Ok(StateHandlerOutcome::transition(
@@ -312,6 +316,56 @@ impl StateHandler for SpdmAttestationStateHandler {
         }
     }
 }
+
+/// The device kind an attestation covered, as a bounded metric label. Only the
+/// kinds an attestation is actually dispatched for appear here; an unknown
+/// device type returns before any attestation runs, so it never reaches a label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum AttestedDeviceType {
+    Gpu,
+    Cx7,
+}
+
+/// A device attestation ran to completion -- the security audit record.
+///
+/// `nras`'s RED wrapper (`carbide_external_call_duration_milliseconds`) times
+/// the verifier call and logs only its transport failures, counting successes
+/// silently. Attestation needs a real audit trail, so this event logs every
+/// attestation -- INFO on success, WARN on a failed call -- and counts it by
+/// `device_type` and `outcome`. Those two bounded enums are the only labels; the
+/// machine and device ids are log-only context. Attestation evidence, JWTs,
+/// certificates, and the nonce are never put on a label or in the log line.
+#[derive(Event)]
+#[event(
+    name = "carbide_attestation_total",
+    component = "carbide-spdm-controller",
+    log = dynamic,
+    metric = counter,
+    message = "Device attestation performed",
+    describe = "Number of device attestations performed, by device type and outcome."
+)]
+struct AttestationPerformed {
+    #[label]
+    device_type: AttestedDeviceType,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    machine_id: String,
+    #[context]
+    device_id: String,
+}
+
+impl DynamicLog for AttestationPerformed {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            // Every attestation is audited: a successful call at INFO, a failed
+            // call elevated to WARN (RED already logged the transport cause).
+            Outcome::Ok => LogAt::Level(tracing::Level::INFO),
+            Outcome::Error => LogAt::Level(tracing::Level::WARN),
+        }
+    }
+}
+
 async fn perform_attestation(
     client: &dyn VerifierClient,
     device: &SpdmDeviceAttestation,
@@ -353,9 +407,21 @@ async fn perform_attestation(
     };
 
     let device_type: DeviceType = device.device_id.parse()?;
-    let response = match device_type {
-        DeviceType::Gpu => client.attest_gpu(&device_attestation_info).await,
-        DeviceType::Cx7 => client.attest_cx7(&device_attestation_info).await,
+    let (attested_device_type, response) = match device_type {
+        DeviceType::Gpu => (
+            AttestedDeviceType::Gpu,
+            client.attest_gpu(&device_attestation_info).await,
+        ),
+        // `attest_cx7` is not implemented yet, so every Cx7 call records
+        // `outcome = error` -- deliberately, so the audit trail surfaces that we
+        // were asked to attest a Cx7 device and couldn't. TODO: once Cx7
+        // attestation lands, this becomes a real outcome; if the not-implemented
+        // errors prove noisy before then, skip the emit for Cx7 as we do for
+        // `Unknown`.
+        DeviceType::Cx7 => (
+            AttestedDeviceType::Cx7,
+            client.attest_cx7(&device_attestation_info).await,
+        ),
         DeviceType::Unknown => {
             return Err(SpdmHandlerError::VerifierNotImplemented {
                 module: "state_handler".to_string(),
@@ -364,6 +430,20 @@ async fn perform_attestation(
             });
         }
     };
+
+    // Security audit trail. `nras`'s RED wrapper times the verifier call and warns
+    // on transport failures but counts successes silently; attestation needs a
+    // real audit record, so emit one for every call -- the one place a successful
+    // attestation is logged (INFO), and a failed call is re-surfaced (WARN) with
+    // its device type and outcome. device_type and outcome are the only labels;
+    // the machine and device ids are log-only context. Attestation evidence, JWTs,
+    // certificates, and the nonce never reach a label or the log line.
+    emit(AttestationPerformed {
+        device_type: attested_device_type,
+        outcome: Outcome::from(&response),
+        machine_id: device.machine_id.to_string(),
+        device_id: device.device_id.clone(),
+    });
 
     match response {
         Ok(res) => Ok(res),

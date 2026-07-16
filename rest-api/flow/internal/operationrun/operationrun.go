@@ -149,6 +149,7 @@ type OperationRun struct {
 	Status            OperationRunStatus
 	StatusReason      OperationRunStatusReason
 	StatusMessage     string
+	CurrentPhaseIndex int32
 	Selector          json.RawMessage
 	Options           json.RawMessage
 	OperationTemplate json.RawMessage

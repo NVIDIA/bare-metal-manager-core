@@ -72,7 +72,7 @@ pub async fn observe_slaac_address(
     // future segment flag can be added without auditing DHCP call sites.
     let Some(prefix) = segment.slaac_eligible() else {
         tracing::debug!(
-            segment_id = %segment.id,
+            network_segment_id = %segment.id,
             allocation_strategy = ?segment.config.allocation_strategy,
             prefixes = ?segment.prefixes,
             "DHCPv6 SLAAC observation skipped because segment is not SLAAC-eligible"

@@ -108,7 +108,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         .interfaces
         .iter()
         .find(|x| x.primary_interface)
-        .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
+        .ok_or_else(|| CarbideError::internal("primary interface is missing".to_string()))?;
 
     let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
@@ -120,7 +120,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         Some(ip) => ip,
         None => {
             return Err(CarbideError::FailedPrecondition(format!(
-                "DPU {dpu_machine_id} needs discovery. Does not have a loopback IP yet."
+                "DPU {dpu_machine_id} needs discovery. does not have a loopback IP yet"
             ))
             .into());
         }
@@ -138,7 +138,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .is_none()
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "DPU {dpu_machine_id} needs discovery. Does not have a secondary VTEP IP yet."
+            "DPU {dpu_machine_id} needs discovery. does not have a secondary VTEP IP yet"
         ))
         .into());
     };
@@ -479,7 +479,10 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 dpu_snapshot.id
             );
 
-            tracing::error!(message);
+            tracing::error!(
+                dpu_machine_id = %dpu_snapshot.id,
+                "FNN-configured DPU has no ASN"
+            );
             CarbideError::internal(message)
         })?
     } else {
@@ -890,7 +893,7 @@ pub(crate) async fn record_dpu_network_status(
         && machine_obs.network_config_version.as_ref() == Some(&dpu_machine.network_config.version)
     {
         tracing::info!(
-            dpu_id = %dpu_machine_id,
+            dpu_machine_id = %dpu_machine_id,
             network_config_version = %dpu_machine.network_config.version,
             agent_version = ?machine_obs.agent_version,
             "Clearing use_admin_network_changed after matching-version ACK; OVS restart may have been skipped by agents that do not support the flag"
@@ -944,7 +947,7 @@ pub(crate) async fn record_dpu_network_status(
             &mut txn,
             *host_interface_id,
             Some(timestamp.parse().map_err(|e| {
-                CarbideError::InvalidArgument(format!("Failed parsing dhcp timestamp: {e}"))
+                CarbideError::InvalidArgument(format!("failed parsing dhcp timestamp: {e}"))
             })?),
         )
         .await?;
@@ -1100,7 +1103,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
     log_machine_id(&machine_id);
     if !machine_id.machine_type().is_dpu() {
         return Err(CarbideError::InvalidArgument(
-            "Upgrade check can only be performed on DPUs".into(),
+            "upgrade check can only be performed on DPUs".into(),
         )
         .into());
     }
@@ -1221,7 +1224,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .contains(&health_report::HealthAlertClassification::prevent_allocations())
     }) {
         return Err(CarbideError::InvalidArgument(format!(
-            "Machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. Set this precondition with: `machine health-override add --template host-update <id>`.",
+            "machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. set this precondition with: `machine health-override add --template host-update <id>`",
         )).into());
     }
 
@@ -1234,7 +1237,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             Mode::Restart => {}
             _ => {
                 return Err(CarbideError::internal(
-                    "Reprovisioning is already started.".to_string(),
+                    "reprovisioning is already started".to_string(),
                 )
                 .into());
             }
@@ -1278,12 +1281,12 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             // Restart case.
             // Restart is valid only for host_id.
             if !machine_id.machine_type().is_host() {
-                return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
+                return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. only host_id is accepted for restart operation".to_string()).into());
             }
 
             if !snapshot.has_managed_dpus() {
                 return Err(CarbideError::InvalidArgument(
-                    "Machine has no DPUs, cannot trigger DPU reprovisioning.".to_string(),
+                    "machine has no DPUs, cannot trigger DPU reprovisioning".to_string(),
                 )
                 .into());
             }
@@ -1302,7 +1305,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
             if ids.is_empty() {
                 return Err(CarbideError::InvalidArgument(
-                    format!("No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs."),
+                    format!("no DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. use `set` to begin reprovisioning DPUs"),
                 )
                     .into());
             }

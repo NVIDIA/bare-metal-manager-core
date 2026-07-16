@@ -239,8 +239,8 @@ async fn resolve_http(
     file.flush().await.map_err(FirmwareError::Io)?;
 
     tracing::info!(
-        dest = %dest_path.display(),
-        bytes = bytes.len(),
+        destination_path = %dest_path.display(),
+        file_size_bytes = bytes.len(),
         "HTTP download complete"
     );
 
@@ -337,8 +337,8 @@ async fn resolve_ssh(
         .map_err(FirmwareError::Io)?;
 
     tracing::info!(
-        dest = %dest_path.display(),
-        bytes = decoded.len(),
+        destination_path = %dest_path.display(),
+        file_size_bytes = decoded.len(),
         "SSH download complete"
     );
 

@@ -210,7 +210,7 @@ impl Kea {
 
         let (port, status) = last_exit.expect("at least one Kea start attempt should have run");
         Err(eyre::eyre!(
-            "Kea exited before binding DHCP port {port} after {KEA_START_ATTEMPTS} attempts: {status}"
+            "kea exited before binding DHCP port {port} after {KEA_START_ATTEMPTS} attempts: {status}"
         ))
     }
 
@@ -265,12 +265,12 @@ impl Kea {
                     break;
                 }
                 Ok(_) => {}
-                Err(e) => return Err(eyre::eyre!("Unexpected error probing Kea readiness: {e}")),
+                Err(e) => return Err(eyre::eyre!("unexpected error probing kea readiness: {e}")),
             }
             if Instant::now() >= deadline {
                 self.stop_process();
                 return Err(eyre::eyre!(
-                    "Kea did not bind DHCP port {} within {KEA_READY_TIMEOUT:?}",
+                    "kea did not bind DHCP port {} within {KEA_READY_TIMEOUT:?}",
                     self.dhcp_in_port
                 ));
             }

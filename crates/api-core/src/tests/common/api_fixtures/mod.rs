@@ -1400,6 +1400,7 @@ pub async fn create_test_env_with_overrides(
             power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
             compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
             nv_switch_use_state_controller: true,
+            power_shelf_use_state_controller: true,
             ..Default::default()
         },
         component_manager_rack_profiles,
@@ -2315,10 +2316,10 @@ pub async fn network_configured_with_health_and_ext_services(
         astra_config_status: None,
     };
     tracing::trace!(
-        "network_configured machine={} instance_network={} instance={}",
-        status.network_config_version.as_ref().unwrap(),
-        instance_network_config_version.clone().unwrap_or_default(),
-        instance_config_version.clone().unwrap_or_default(),
+        network_config_version = %status.network_config_version.as_ref().unwrap(),
+        instance_network_config_version = ?instance_network_config_version,
+        instance_config_version = ?instance_config_version,
+        "machine network configured",
     );
     let _ = env
         .api
@@ -2645,7 +2646,10 @@ pub async fn reboot_completed(
     env: &TestEnv,
     machine_id: carbide_uuid::machine::MachineId,
 ) -> rpc::forge::MachineRebootCompletedResponse {
-    tracing::info!("Machine ={} rebooted", machine_id);
+    tracing::info!(
+        machine_id = %machine_id,
+        "Machine rebooted",
+    );
     env.api
         .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
             machine_id: Some(machine_id),

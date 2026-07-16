@@ -21,8 +21,8 @@ use std::fmt::Display;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::panic::Location;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
@@ -138,8 +138,8 @@ pub fn enrich_endpoint_exploration_report(
             let components_without_version = report.parse_versions(&fw_info);
             if !components_without_version.is_empty() {
                 tracing::debug!(
-                    "Can not find firmware version for component(s): {:?}",
-                    components_without_version
+                    components = ?components_without_version,
+                    "Can not find firmware version for component(s)"
                 );
             }
         } else {
@@ -147,9 +147,9 @@ pub fn enrich_endpoint_exploration_report(
             // do not keep stale data.
             report.versions = HashMap::default();
             tracing::debug!(
-                "Can not find firmware info for: vendor: {:?}; model: {:?}",
-                report.vendor,
-                report.model()
+                vendor = ?report.vendor,
+                model = ?report.model(),
+                "Can not find firmware info"
             );
         }
 
@@ -226,7 +226,7 @@ pub async fn fetch_slot_and_tray(
         }
         Err(e) => {
             tracing::warn!(
-                %e,
+                error = %e,
                 "Failed to get device info from RMS, slot_number and tray_index will be unset"
             );
             (None, None)
@@ -273,6 +273,57 @@ impl<'a> Endpoint<'a> {
 
 pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationReport)>;
 
+/// When Site Explorer last physically reset a BMC, tracked per reset method.
+/// Backs [`RecentBmcResets`].
+#[derive(Clone, Copy, Default)]
+struct BmcResetTimes {
+    redfish: Option<chrono::DateTime<Utc>>,
+    ipmitool: Option<chrono::DateTime<Utc>>,
+}
+
+/// In-memory record of recent physical BMC resets, keyed by endpoint address.
+///
+/// The reset rate limit is normally driven by the persisted
+/// `last_redfish_bmc_reset` / `last_ipmitool_bmc_reset` timestamps. A physical
+/// BMC reset can succeed even when writing its timestamp to the database fails;
+/// relying on the persisted value alone, the next Site Explorer iteration would
+/// read a stale timestamp and re-issue the reset well inside the rate-limit
+/// window. Recording the reset here lets the throttle use the more recent of the
+/// persisted and in-memory times, keeping it honest for the life of the process
+/// -- across a restart the persisted timestamp (or a fresh start) takes over.
+///
+/// Bounded by the endpoint set: each address holds a single entry that is
+/// overwritten in place on each reset.
+#[derive(Clone, Default)]
+struct RecentBmcResets {
+    inner: Arc<Mutex<HashMap<IpAddr, BmcResetTimes>>>,
+}
+
+impl RecentBmcResets {
+    fn guard(&self) -> std::sync::MutexGuard<'_, HashMap<IpAddr, BmcResetTimes>> {
+        // A poisoned lock only means another thread panicked while holding it;
+        // the map is still consistent, so recover the data instead of panicking.
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Records that the BMC at `address` was physically reset via Redfish at `at`.
+    fn record_redfish(&self, address: IpAddr, at: chrono::DateTime<Utc>) {
+        self.guard().entry(address).or_default().redfish = Some(at);
+    }
+
+    /// Records that the BMC at `address` was physically reset via IPMI at `at`.
+    fn record_ipmitool(&self, address: IpAddr, at: chrono::DateTime<Utc>) {
+        self.guard().entry(address).or_default().ipmitool = Some(at);
+    }
+
+    /// The in-memory reset times recorded for `address`, if any.
+    fn get(&self, address: IpAddr) -> BmcResetTimes {
+        self.guard().get(&address).copied().unwrap_or_default()
+    }
+}
+
 /// The SiteExplorer periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the SiteExplorer will:
 /// 1. collect the number of outstanding updates from all modules.
@@ -294,7 +345,27 @@ pub struct SiteExplorer {
     machine_creator: MachineCreator,
     switch_creator: SwitchCreator,
     boot_order_tracker: BootOrderTracker,
+    /// Backstops the persisted BMC-reset timestamps for the reset rate limit,
+    /// so a reset whose timestamp write failed still throttles the next reset.
+    recent_bmc_resets: RecentBmcResets,
     // rms_client: Option<Arc<dyn RmsApi>>,
+}
+
+/// Which transport a BMC reset was issued through, rendered as the `method` log
+/// field on [`SiteExplorer::record_bmc_reset_outcome`].
+#[derive(Debug, Clone, Copy)]
+enum BmcResetMethod {
+    Ipmitool,
+    Redfish,
+}
+
+impl std::fmt::Display for BmcResetMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            BmcResetMethod::Ipmitool => "ipmitool",
+            BmcResetMethod::Redfish => "redfish",
+        })
+    }
 }
 
 impl SiteExplorer {
@@ -350,6 +421,7 @@ impl SiteExplorer {
             work_lock_manager_handle,
             endpoint_exploration_locks,
             boot_order_tracker: BootOrderTracker::default(),
+            recent_bmc_resets: RecentBmcResets::default(),
         }
     }
 
@@ -388,7 +460,7 @@ impl SiteExplorer {
                         .boot_order_tracker
                         .track_hosts(Instant::now(), &identified_hosts),
                     Err(e) => {
-                        tracing::warn!("SiteExplorer error: {}", e);
+                        tracing::warn!(error = %e, "SiteExplorer error");
                     }
                 }
             } else {
@@ -573,7 +645,7 @@ impl SiteExplorer {
                 explore_site_span.record("otel.status_code", "ok");
             }
             Err(e) => {
-                tracing::error!("SiteExplorer run failed due to: {:?}", e);
+                tracing::error!(error = ?e, "SiteExplorer run failed");
                 explore_site_span.record("otel.status_code", "error");
                 // Writing this field will set the span status to error
                 // Therefore we only write it on errors
@@ -890,7 +962,7 @@ impl SiteExplorer {
             create_power_shelves_res?;
         } else if !explored_power_shelves.is_empty() {
             tracing::info!(
-                num_power_shelves = explored_power_shelves.len(),
+                power_shelf_count = explored_power_shelves.len(),
                 "Identified power shelves during exploration but create_power_shelves=false; skipping PowerShelf creation. \
                  Set [site_explorer] create_power_shelves=true and declare matching expected_power_shelves records to ingest them."
             );
@@ -916,7 +988,7 @@ impl SiteExplorer {
             create_switches_res?;
         } else if !explored_switches.is_empty() {
             tracing::info!(
-                num_switches = explored_switches.len(),
+                switch_count = explored_switches.len(),
                 "Identified switches during exploration but create_switches=false; skipping Switch creation. \
                  Set [site_explorer] create_switches=true and declare matching expected_switches records to ingest them."
             );
@@ -950,7 +1022,10 @@ impl SiteExplorer {
                 .await
                 .map_err(|e| DatabaseError::new("end retained boot interface sweep", e))?;
             if swept > 0 {
-                tracing::info!(swept, "Removed expired retained boot interface records");
+                tracing::info!(
+                    removed_retained_boot_interface_count = swept,
+                    "Removed expired retained boot interface records"
+                );
             }
         }
 
@@ -969,8 +1044,8 @@ impl SiteExplorer {
                 expected_endpoint_index.matched_expected_power_shelf(&endpoint.address)
             else {
                 tracing::info!(
-                    "No expected power shelf found for endpoint {:#?}",
-                    endpoint.address
+                    bmc_ip_address = ?endpoint.address,
+                    "No expected power shelf found"
                 );
                 continue;
             };
@@ -989,7 +1064,11 @@ impl SiteExplorer {
                 }
                 Ok(false) => {}
                 Err(error) => {
-                    tracing::error!(%error, "Failed to create power shelf {:#?}", address)
+                    tracing::error!(
+                        %error,
+                        bmc_ip_address = ?address,
+                        "Failed to create power shelf"
+                    )
                 }
             }
         }
@@ -1009,8 +1088,8 @@ impl SiteExplorer {
             .map_err(|e| DatabaseError::new("begin load create_power_shelf", e))?;
 
         tracing::info!(
-            "creating power shelf for endpoint: {} ",
-            explored_endpoint.address
+            bmc_ip_address = %explored_endpoint.address,
+            "Creating power shelf"
         );
 
         // Defense against the duplicate-power-shelves bug: if a power shelf
@@ -1023,10 +1102,10 @@ impl SiteExplorer {
                 .await?
         {
             tracing::warn!(
-                bmc_mac = %expected_shelf.bmc_mac_address,
+                bmc_mac_address = %expected_shelf.bmc_mac_address,
                 existing_power_shelf_id = %existing.id,
-                endpoint = %explored_endpoint.address,
-                "Power shelf already exists for this BMC MAC; skipping discovery",
+                bmc_ip_address = %explored_endpoint.address,
+                "Power shelf already exists; skipping discovery",
             );
             txn.rollback()
                 .await
@@ -1046,9 +1125,9 @@ impl SiteExplorer {
             for existing_ps in &existing_power_shelves {
                 if existing_ps.config.name == expected_shelf.metadata.name {
                     tracing::info!(
-                        "Power shelf with name '{}' already exists, skipping creation for endpoint {}",
-                        &expected_shelf.metadata.name,
-                        explored_endpoint.address
+                        power_shelf_name = %expected_shelf.metadata.name,
+                        bmc_ip_address = %explored_endpoint.address,
+                        "Power shelf already exists; skipping creation"
                     );
                     txn.rollback()
                         .await
@@ -1073,7 +1152,7 @@ impl SiteExplorer {
 
         if power_shelf_chassis.is_none() {
             tracing::warn!(
-                endpoint = %explored_endpoint.address,
+                bmc_ip_address = %explored_endpoint.address,
                 "No chassis reported for power shelf endpoint; falling back to defaults for id generation",
             );
         }
@@ -1096,7 +1175,7 @@ impl SiteExplorer {
         ) {
             Ok(id) => id,
             Err(e) => {
-                tracing::error!(%e, "Failed to create power shelf ID");
+                tracing::error!(error = %e, "Failed to create power shelf ID");
                 return Err(SiteExplorerError::InvalidArgument(format!(
                     "Failed to create power shelf ID: {e}"
                 )));
@@ -1147,9 +1226,9 @@ impl SiteExplorer {
             .map_err(|e| DatabaseError::new("end create_power_shelf", e))?;
 
         tracing::info!(
-            "Created power shelf {} for endpoint {}",
-            power_shelf_id,
-            explored_endpoint.address
+            %power_shelf_id,
+            bmc_ip_address = %explored_endpoint.address,
+            "Created power shelf"
         );
 
         Ok(true)
@@ -1264,8 +1343,8 @@ impl SiteExplorer {
                 let has_id = iface.id.as_deref().is_some_and(|s| !s.is_empty());
                 if has_mac != has_id {
                     tracing::info!(
-                        address = %ep.address,
-                        mac = ?iface.mac_address,
+                        bmc_ip_address = %ep.address,
+                        interface_mac_address = ?iface.mac_address,
                         interface_id = ?iface.id,
                         "site-explorer: host NIC reported with only one of (MAC, interface id) -- not recording its boot interface",
                     );
@@ -1315,7 +1394,7 @@ impl SiteExplorer {
                         &mut seen_bluefield_serials,
                     ) {
                         tracing::warn!(
-                            host_bmc_ip = %ep.address,
+                            host_bmc_ip_address = %ep.address,
                             %serial_number,
                             pcie_device_id = ?pcie_device.id,
                             "duplicate BlueField serial in host PCIe inventory; skipping duplicate record",
@@ -1444,8 +1523,8 @@ impl SiteExplorer {
                                 }
                                 DiscoveredDpu::ModeCheckFailed(err) => {
                                     tracing::warn!(
-                                        dpu = %dpu_ep.address,
-                                        dpu_sn = %dpu_sn,
+                                        bmc_ip_address = %dpu_ep.address,
+                                        dpu_serial_number = %dpu_sn,
                                         error = %err,
                                         "failed to check fallback-matched DPU mode; skipping this device this pass",
                                     );
@@ -1472,10 +1551,13 @@ impl SiteExplorer {
                     if expected_managed_dpus_total > 0 || !all_dpus_configured_properly_in_host {
                         if expected_managed_dpus_total > 0 {
                             tracing::warn!(
-                                address = %ep.address,
+                                bmc_ip_address = %ep.address,
                                 exploration_report = ?ep,
-                                "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
-                                dpus_explored_for_host.len(), expected_managed_dpus_total, dpus_explored_for_host
+                                discovered_dpu_count = dpus_explored_for_host.len(),
+                                expected_managed_dpu_count = expected_managed_dpus_total,
+                                all_dpus_configured_properly_in_host,
+                                discovered_dpu_details = ?dpus_explored_for_host,
+                                "cannot identify managed host because the site explorer has not discovered all attached DPUs"
                             );
                         }
 
@@ -1492,8 +1574,9 @@ impl SiteExplorer {
                             );
                             if time_since_redfish_powercycle > self.config.reset_rate_limit {
                                 tracing::warn!(
-                                    "power cycling host {} to apply nic mode change for its incorrectly configured DPUs; time since last powercycle: {time_since_redfish_powercycle}",
-                                    ep.address,
+                                    bmc_ip_address = %ep.address,
+                                    %time_since_redfish_powercycle,
+                                    "power cycling host to apply nic mode change for its incorrectly configured DPUs"
                                 );
                                 metrics.increment_dpu_migration_signal(
                                     DpuMigrationSignal::ResetRequested,
@@ -1501,8 +1584,9 @@ impl SiteExplorer {
 
                                 if let Err(err) = self.redfish_powercycle(ep.address).await {
                                     tracing::warn!(
-                                        "site explorer failed to power cycle host {} to apply DPU mode changes: {err}; a manual power cycle may be required",
-                                        ep.address
+                                        bmc_ip_address = %ep.address,
+                                        error = %err,
+                                        "site explorer failed to power cycle host to apply DPU mode changes; a manual power cycle may be required"
                                     );
                                     metrics.increment_host_dpu_pairing_blocker(
                                         PairingBlockerReason::ManualPowerCycleRequired,
@@ -1550,7 +1634,7 @@ impl SiteExplorer {
                         // vector -- the operator already declared
                         // "treat as zero-DPU.")
                         tracing::warn!(
-                            address = %ep.address,
+                            bmc_ip_address = %ep.address,
                             exploration_report = ?ep,
                             ?host_dpu_mode,
                             "cannot identify managed host: site explorer sees no DPUs on this host and it isn't declared as `NoDpu`; declare `dpu_mode = \"no_dpu\"` to ingest as zero-DPU",
@@ -1591,7 +1675,7 @@ impl SiteExplorer {
                     ));
                 } else {
                     tracing::debug!(
-                        address = %ep.address,
+                        bmc_ip_address = %ep.address,
                         %mac_address,
                         "boot interface MAC has no matching Redfish interface id in the report; keeping last-known-good stored boot interface",
                     );
@@ -1619,8 +1703,10 @@ impl SiteExplorer {
                         .join(",");
 
                     tracing::error!(
-                        "Could not find mac_address {mac_address} in discovered DPU's list {all_mac}, host bmc: {}.",
-                        ep.address
+                        %mac_address,
+                        discovered_dpu_mac_addresses = %all_mac,
+                        host_bmc_ip_address = %ep.address,
+                        "MAC address not found in discovered DPU list"
                     );
                     metrics.increment_host_dpu_pairing_blocker(
                         PairingBlockerReason::BootInterfaceMacMismatch,
@@ -1766,7 +1852,7 @@ impl SiteExplorer {
             DiscoveredDpu::NeedsReconfig => exploration.all_configured = false,
             DiscoveredDpu::ModeCheckFailed(err) => {
                 tracing::warn!(
-                    dpu = %dpu_ep.address,
+                    bmc_ip_address = %dpu_ep.address,
                     error = %err,
                     "failed to check DPU mode; skipping this device",
                 );
@@ -1985,9 +2071,9 @@ impl SiteExplorer {
                     }
                     macs => {
                         tracing::warn!(
-                            bmc_mac = %expected_switch.bmc_mac_address,
-                            %nvos_ip,
-                            nvos_mac_count = macs.len(),
+                            bmc_mac_address = %expected_switch.bmc_mac_address,
+                            nvos_ip_address = %nvos_ip,
+                            nvos_mac_address_count = macs.len(),
                             "Skipping NVOS preallocation: nvos_ip_address requires exactly one nvos_mac_addresses entry"
                         );
                     }
@@ -2085,7 +2171,7 @@ impl SiteExplorer {
                 }
                 None => {
                     if endpoint.report.is_power_shelf() {
-                        tracing::info!(%address, "Retaining power shelf endpoint with no underlay interface; power shelves are sourced from their expected static IP")
+                        tracing::info!(bmc_ip_address = %address, "Retaining power shelf endpoint with no underlay interface; power shelves are sourced from their expected static IP")
                     } else {
                         delete_endpoints.push(*address)
                     }
@@ -2248,7 +2334,7 @@ impl SiteExplorer {
                             Some(guard) => guard,
                             None => {
                                 tracing::info!(
-                                    address = %endpoint.address,
+                                    bmc_ip_address = %endpoint.address,
                                     "Skipping periodic endpoint exploration; endpoint already in progress"
                                 );
                                 return Ok(None);
@@ -2424,7 +2510,7 @@ impl SiteExplorer {
                             report.last_exploration_latency = Some(exploration_duration);
                             if old_report.endpoint_type == EndpointType::Unknown {
                                 tracing::info!(
-                                    address = %address,
+                                    bmc_ip_address = %address,
                                     exploration_report = ?report,
                                     "Initial exploration of endpoint"
                                 );
@@ -2461,7 +2547,7 @@ impl SiteExplorer {
                         Ok(mut report) => {
                             report.last_exploration_latency = Some(exploration_duration);
                             tracing::info!(
-                                address = %address,
+                                bmc_ip_address = %address,
                                 exploration_report = ?report,
                                 "Initial exploration of endpoint"
                             );
@@ -2546,6 +2632,27 @@ impl SiteExplorer {
         Ok(index)
     }
 
+    /// Record the outcome of a BMC-reset attempt: count only a reset that
+    /// actually happened (so `bmc_reset_count` tracks successes, not attempts)
+    /// and log the failure otherwise. Returns whether the reset succeeded.
+    fn record_bmc_reset_outcome(
+        outcome: SiteExplorerResult<()>,
+        via: BmcResetMethod,
+        address: IpAddr,
+        metrics: &mut SiteExplorationMetrics,
+    ) -> bool {
+        match outcome {
+            Ok(()) => {
+                metrics.bmc_reset_count += 1;
+                true
+            }
+            Err(err) => {
+                tracing::error!(%address, method = %via, error = %err, "Site Explorer failed to reset BMC");
+                false
+            }
+        }
+    }
+
     pub async fn handle_redfish_error(
         &self,
         endpoint: &Endpoint<'_>,
@@ -2556,7 +2663,9 @@ impl SiteExplorer {
         // New endpoints haven't been explored yet, so pause_remediation defaults to false
         if endpoint.last_explored.is_some_and(|e| e.pause_remediation) {
             tracing::info!(
-                "Site explorer will not remediate error for {endpoint} because remediation is paused for this endpoint: {error}"
+                %endpoint,
+                %error,
+                "Site explorer will not remediate error because remediation is paused for this endpoint"
             );
             return;
         }
@@ -2575,8 +2684,10 @@ impl SiteExplorer {
             PreingestionState::Initial | PreingestionState::Complete
         ) {
             tracing::info!(
-                "Site explorer will not remediate error for {endpoint} because endpoint is in preingestion state {:?}: {error}",
-                endpoint.preingestion_state(),
+                %endpoint,
+                preingestion_state = ?endpoint.preingestion_state(),
+                %error,
+                "Site explorer will not remediate error because endpoint is in preingestion state",
             );
             return;
         }
@@ -2588,13 +2699,19 @@ impl SiteExplorer {
             Ok(managed_host_exists) => {
                 if managed_host_exists {
                     tracing::info!(
-                        "Site explorer will not remediate error for {endpoint} because a managed host has already been created for this endpoint: {error}"
+                        %endpoint,
+                        %error,
+                        "Site explorer will not remediate error because a managed host has already been created for this endpoint"
                     );
                     return;
                 }
             }
             Err(e) => {
-                tracing::error!(%e, "failed to retrieve whether managed host was created for endpoint: {endpoint}");
+                tracing::error!(
+                    %endpoint,
+                    error = %e,
+                    "Failed to determine whether managed host was created"
+                );
                 return;
             }
         };
@@ -2607,8 +2724,8 @@ impl SiteExplorer {
             && !matches!(power_state, PowerState::On)
         {
             tracing::warn!(
-                "Site Explorer found a host (bmc_ip_address: {}) that isnt on. Turning it on now.",
-                endpoint.address,
+                bmc_ip_address = %endpoint.address,
+                "Site Explorer found a host that isn't on. Turning it on now.",
             );
 
             match self
@@ -2617,7 +2734,10 @@ impl SiteExplorer {
             {
                 Ok(()) => return,
                 Err(err) => {
-                    tracing::error!(%err, "Site Explorer failed to power on host through Redfish");
+                    tracing::error!(
+                        error = %err,
+                        "Site Explorer failed to power on host through Redfish"
+                    );
                 }
             }
         }
@@ -2632,16 +2752,23 @@ impl SiteExplorer {
                 .and_then(|e| e.last_redfish_reboot)
                 .unwrap_or_default(),
         );
+        // Throttle on the more recent of the persisted reset timestamp and any
+        // in-memory marker. A physical reset whose timestamp write failed still
+        // left an in-memory time, and it must keep the reset throttled rather
+        // than letting a stale persisted timestamp trigger a too-soon re-reset.
+        let recent_bmc_resets = self.recent_bmc_resets.get(endpoint.address);
         let time_since_redfish_bmc_reset = start.signed_duration_since(
             endpoint
                 .last_explored
                 .and_then(|e| e.last_redfish_bmc_reset)
+                .max(recent_bmc_resets.redfish)
                 .unwrap_or_default(),
         );
         let time_since_ipmitool_bmc_reset = start.signed_duration_since(
             endpoint
                 .last_explored
                 .and_then(|e| e.last_ipmitool_bmc_reset)
+                .max(recent_bmc_resets.ipmitool)
                 .unwrap_or_default(),
         );
 
@@ -2650,13 +2777,23 @@ impl SiteExplorer {
             || time_since_ipmitool_bmc_reset.num_minutes() < min_time_since_last_action_mins
         {
             tracing::info!(
-                "waiting to remediate error {error} for {endpoint}; time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}"
+                %endpoint,
+                %error,
+                %time_since_redfish_reboot,
+                %time_since_redfish_bmc_reset,
+                %time_since_ipmitool_bmc_reset,
+                "waiting to remediate error"
             );
             return;
         }
 
         tracing::info!(
-            "Site explorer captured an error for {endpoint}: {error};\n time_since_redfish_reboot: {time_since_redfish_reboot}; time_since_redfish_bmc_reset: {time_since_redfish_bmc_reset}; time_since_ipmitool_bmc_reset: {time_since_ipmitool_bmc_reset}'"
+            %endpoint,
+            %error,
+            %time_since_redfish_reboot,
+            %time_since_redfish_bmc_reset,
+            %time_since_ipmitool_bmc_reset,
+            "Site explorer captured an error"
         );
 
         // If the endpoint is a DPU, and the error is that the BIOS attributes are coming up as empty for this DPU,
@@ -2673,9 +2810,9 @@ impl SiteExplorer {
                 .await
                 .map_err(|err| {
                     tracing::error!(
-                        "Site Explorer failed to reboot {}: {}",
-                        endpoint.address,
-                        err
+                        bmc_ip_address = %endpoint.address,
+                        error = %err,
+                        "Site Explorer failed to reboot"
                     )
                 })
                 .is_ok()
@@ -2692,50 +2829,51 @@ impl SiteExplorer {
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Site Explorer failed to clear nvram {}: {}",
-                        endpoint.address,
-                        e
+                        bmc_ip_address = %endpoint.address,
+                        error = %e,
+                        "Site Explorer failed to clear nvram"
                     )
                 }
             }
         }
 
         if time_since_redfish_bmc_reset > reset_rate_limit
-            && self
-                .redfish_reset_bmc(endpoint)
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        "Site Explorer failed to reset BMC {} through redfish: {}",
-                        endpoint.address,
-                        err
-                    )
-                })
-                .is_ok()
+            && Self::record_bmc_reset_outcome(
+                self.redfish_reset_bmc(endpoint).await,
+                BmcResetMethod::Redfish,
+                endpoint.address,
+                metrics,
+            )
         {
-            metrics.bmc_reset_count += 1;
             return;
         }
 
         if time_since_ipmitool_bmc_reset > reset_rate_limit {
-            self.ipmitool_reset_bmc(endpoint)
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        "Site Explorer failed to reset BMC {} through ipmitool: {}",
-                        endpoint.address,
-                        err
-                    )
-                })
-                .ok();
-            metrics.bmc_reset_count += 1;
+            Self::record_bmc_reset_outcome(
+                self.ipmitool_reset_bmc(endpoint).await,
+                BmcResetMethod::Ipmitool,
+                endpoint.address,
+                metrics,
+            );
         }
+    }
+
+    /// Records the rate-limit timestamp for the most recent IPMI BMC reset.
+    ///
+    /// Kept separate from `ipmitool_reset_bmc` so that a failure to persist this
+    /// bookkeeping timestamp can be handled without being mistaken for a failure
+    /// of the physical reset itself.
+    async fn persist_last_ipmitool_bmc_reset(&self, address: IpAddr) -> SiteExplorerResult<()> {
+        let mut txn = self.txn_begin().await?;
+        db::explored_endpoints::set_last_ipmitool_bmc_reset(address, &mut txn).await?;
+        txn.commit().await?;
+        Ok(())
     }
 
     pub async fn ipmitool_reset_bmc(&self, endpoint: &Endpoint<'_>) -> SiteExplorerResult<()> {
         tracing::info!(
-            "SiteExplorer is initiating a cold BMC reset through IPMI to IP {}",
-            endpoint.address
+            bmc_ip_address = %endpoint.address,
+            "SiteExplorer is initiating a cold BMC reset through IPMI"
         );
 
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
@@ -2746,13 +2884,21 @@ impl SiteExplorer {
             .await
         {
             Ok(_) => {
-                let mut txn = self.txn_begin().await?;
-
-                db::explored_endpoints::set_last_ipmitool_bmc_reset(endpoint.address, &mut txn)
-                    .await?;
-
-                txn.commit().await?;
-
+                // The BMC was physically reset. Record it in memory first so the
+                // reset rate limit honors it even if persisting the timestamp
+                // below fails -- otherwise the next iteration would read a stale
+                // persisted timestamp and re-issue the reset. Persisting is
+                // bookkeeping: a failure there must not be reported as a reset
+                // failure, or the successful reset would be miscounted.
+                self.recent_bmc_resets
+                    .record_ipmitool(endpoint.address, Utc::now());
+                if let Err(e) = self.persist_last_ipmitool_bmc_reset(endpoint.address).await {
+                    tracing::warn!(
+                        bmc_ip_address = %endpoint.address,
+                        error = %e,
+                        "BMC reset succeeded but recording its rate-limit timestamp failed"
+                    );
+                }
                 Ok(())
             }
             Err(e) => Err(SiteExplorerError::internal(format!(
@@ -2762,10 +2908,22 @@ impl SiteExplorer {
         }
     }
 
+    /// Records the rate-limit timestamp for the most recent Redfish BMC reset.
+    ///
+    /// Kept separate from `redfish_reset_bmc` so that a failure to persist this
+    /// bookkeeping timestamp can be handled without being mistaken for a failure
+    /// of the physical reset itself.
+    async fn persist_last_redfish_bmc_reset(&self, address: IpAddr) -> SiteExplorerResult<()> {
+        let mut txn = self.txn_begin().await?;
+        db::explored_endpoints::set_last_redfish_bmc_reset(address, &mut txn).await?;
+        txn.commit().await?;
+        Ok(())
+    }
+
     pub async fn redfish_reset_bmc(&self, endpoint: &Endpoint<'_>) -> SiteExplorerResult<()> {
         tracing::info!(
-            "SiteExplorer is initiating a BMC reset through Redfish to IP {}",
-            endpoint.address
+            bmc_ip_address = %endpoint.address,
+            "SiteExplorer is initiating a BMC reset through Redfish"
         );
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
@@ -2775,13 +2933,22 @@ impl SiteExplorer {
             .await
         {
             Ok(_) => {
-                let mut txn = self.txn_begin().await?;
-
-                db::explored_endpoints::set_last_redfish_bmc_reset(endpoint.address, &mut txn)
-                    .await?;
-
-                txn.commit().await?;
-
+                // The BMC was physically reset. Record it in memory first so the
+                // reset rate limit honors it even if persisting the timestamp
+                // below fails -- otherwise the next iteration would read a stale
+                // persisted timestamp and re-issue the reset. Persisting is
+                // bookkeeping: a failure there must not be reported as a reset
+                // failure, or the successful reset would be miscounted and the
+                // dispatch would fall through to a redundant second reset via IPMI.
+                self.recent_bmc_resets
+                    .record_redfish(endpoint.address, Utc::now());
+                if let Err(e) = self.persist_last_redfish_bmc_reset(endpoint.address).await {
+                    tracing::warn!(
+                        bmc_ip_address = %endpoint.address,
+                        error = %e,
+                        "BMC reset succeeded but recording its rate-limit timestamp failed"
+                    );
+                }
                 Ok(())
             }
             Err(e) => Err(SiteExplorerError::internal(format!(
@@ -2844,15 +3011,19 @@ impl SiteExplorer {
         {
             Ok(is_viking) => is_viking,
             Err(e) => {
-                tracing::warn!("could not retrieve vendor for {}: {e}", endpoint.address);
+                tracing::warn!(
+                    bmc_ip_address = %endpoint.address,
+                    error = %e,
+                    "could not retrieve vendor"
+                );
                 false
             }
         }
     }
     pub async fn clear_nvram(&self, endpoint: &Endpoint<'_>) -> SiteExplorerResult<()> {
         tracing::info!(
-            "SiteExplorer is issuing a clean_nvram through Redfish to IP {}",
-            endpoint.address
+            bmc_ip_address = %endpoint.address,
+            "Site explorer is clearing NVRAM through Redfish"
         );
         let bmc_target_port = self.config.override_target_port.unwrap_or(443);
         let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
@@ -2898,7 +3069,11 @@ impl SiteExplorer {
         {
             Ok(managed_host_exists) => managed_host_exists,
             Err(e) => {
-                tracing::error!(%e, "failed to retrieve whether managed host was created for DPU endpoint: {dpu_endpoint}");
+                tracing::error!(
+                    %dpu_endpoint,
+                    error = %e,
+                    "Failed to determine whether managed host was created"
+                );
                 // return true by default
                 true
             }
@@ -2916,22 +3091,22 @@ impl SiteExplorer {
                 // from the redfish response. Skip the next check because the DPUs
                 // in NIC mode will not expose a pf0 interface to the host.
                 tracing::info!(
-                    "Site explorer found an uningested DPU (bmc ip: {}) in NIC mode",
-                    dpu_endpoint.address
+                    bmc_ip_address = %dpu_endpoint.address,
+                    "Site explorer found an uningested DPU in NIC mode"
                 );
                 return Ok(true);
             }
             Some(NicMode::Dpu) => {}
             None if dpu_endpoint.report.dpu_pairing_serial_number().is_some() => {
                 tracing::warn!(
-                    "Site explorer found an uningested DPU (bmc ip: {}) without a Redfish DPU/NIC mode; continuing because it has a host-pairing serial",
-                    dpu_endpoint.address
+                    bmc_ip_address = %dpu_endpoint.address,
+                    "Site explorer found an uningested DPU without a Redfish DPU/NIC mode; continuing because it has a host-pairing serial"
                 );
             }
             None => {
                 tracing::error!(
-                    "Site explorer found an uningested DPU (bmc ip: {}) without being able to determine if it is in NIC mode",
-                    dpu_endpoint.address
+                    bmc_ip_address = %dpu_endpoint.address,
+                    "Site explorer found an uningested DPU without being able to determine if it is in NIC mode"
                 );
                 metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuNicModeUnknown);
                 return Ok(false);
@@ -2944,7 +3119,11 @@ impl SiteExplorer {
         match find_host_pf_mac_address(dpu_endpoint) {
             Ok(_) => Ok(true),
             Err(error) => {
-                tracing::error!(%error, "Site explorer found an uningested DPU (bmc ip: {}): failed to find the MAC address of the pf0 interface that the DPU exposes to the host", dpu_endpoint.address);
+                tracing::error!(
+                    %error,
+                    bmc_ip_address = %dpu_endpoint.address,
+                    "Site explorer found an uningested DPU: failed to find the MAC address of the pf0 interface that the DPU exposes to the host"
+                );
                 metrics.increment_host_dpu_pairing_blocker(PairingBlockerReason::DpuPf0MacMissing);
                 Ok(false)
             }
@@ -3060,7 +3239,11 @@ impl SiteExplorer {
         {
             Ok(managed_host_exists) => managed_host_exists,
             Err(e) => {
-                tracing::error!(%e, "failed to retrieve whether managed host was created for Host endpoint: {host_endpoint}");
+                tracing::error!(
+                    %host_endpoint,
+                    error = %e,
+                    "Failed to determine whether managed host was created"
+                );
                 // return true by default
                 true
             }
@@ -3075,8 +3258,8 @@ impl SiteExplorer {
         let bmc_target_addr = SocketAddr::new(host_endpoint.address, bmc_target_port);
         let Some(system) = host_endpoint.report.systems.first() else {
             tracing::warn!(
-                "Site Explorer could not find the system report for a host (bmc_ip_address: {})",
-                host_endpoint.address,
+                bmc_ip_address = %host_endpoint.address,
+                "Site Explorer could not find the system report for a host",
             );
             metrics
                 .increment_host_dpu_pairing_blocker(PairingBlockerReason::HostSystemReportMissing);
@@ -3087,8 +3270,8 @@ impl SiteExplorer {
         // then don't do it
         if host_endpoint.pause_ingestion_and_poweron {
             tracing::warn!(
-                "Host with bmc_ip_address: {} is configured to pause on ingestion",
-                host_endpoint.address
+                bmc_ip_address = %host_endpoint.address,
+                "Host is configured to pause on ingestion"
             );
             return Ok(false);
         }
@@ -3141,14 +3324,14 @@ impl SiteExplorer {
 
             if host_endpoint.pause_remediation {
                 tracing::info!(
-                    "Site Explorer found an uningested host (bmc_ip_address: {}) that is off, but remediation is paused — skipping power-on",
-                    host_endpoint.address,
+                    bmc_ip_address = %host_endpoint.address,
+                    "Site Explorer found an uningested host that is off, but remediation is paused — skipping power-on",
                 );
             } else if fresh_power_state.is_some() {
                 tracing::warn!(
-                    "Site Explorer found an uningested host (bmc_ip_address: {}) that isn't on: {:#?}",
-                    host_endpoint.address,
-                    effective_power_state
+                    bmc_ip_address = %host_endpoint.address,
+                    power_state = ?effective_power_state,
+                    "Site Explorer found an uningested host that isn't on"
                 );
 
                 if let Some(interface) = interface.as_ref() {
@@ -3161,9 +3344,9 @@ impl SiteExplorer {
                         .await
                         .map_err(|err| {
                             tracing::error!(
-                                "Site Explorer failed to turn on host (bmc_ip_address: {}) through redfish: {}",
-                                host_endpoint.address,
-                                err
+                                bmc_ip_address = %host_endpoint.address,
+                                error = %err,
+                                "Site Explorer failed to turn on host through redfish"
                             )
                         })
                         .ok();
@@ -3174,8 +3357,8 @@ impl SiteExplorer {
         if host_endpoint.report.vendor.unwrap_or_default().is_nvidia() {
             let Some(manager) = host_endpoint.report.managers.first() else {
                 tracing::warn!(
-                    "Site Explorer could not find the system report for a Nvidia host (bmc_ip_address: {})",
-                    host_endpoint.address,
+                    bmc_ip_address = %host_endpoint.address,
+                    "Site Explorer could not find the manager report for an NVIDIA host",
                 );
 
                 return Ok(false);
@@ -3198,8 +3381,10 @@ impl SiteExplorer {
                             Ok(is_cpldmb_version_at_expected) => {
                                 if !is_cpldmb_version_at_expected {
                                     tracing::warn!(
-                                        "Site Explorer found a Viking (bmc_ip_address: {}) with a CPLDMB_0 version of {current_cpldmb_0_version}, which is less than the expected version of {expected_cpldmb_0_version}. A DC Power Cycle may be needed",
-                                        host_endpoint.address,
+                                        bmc_ip_address = %host_endpoint.address,
+                                        %current_cpldmb_0_version,
+                                        %expected_cpldmb_0_version,
+                                        "Site Explorer found a Viking whose CPLDMB_0 version does not match the expected version. A DC power cycle may be needed",
                                     );
                                     metrics.increment_host_dpu_pairing_blocker(
                                         PairingBlockerReason::VikingCpldVersionIssue,
@@ -3209,8 +3394,11 @@ impl SiteExplorer {
                             }
                             Err(e) => {
                                 tracing::warn!(
-                                    "Site Explorer found a Viking (bmc_ip_address: {}) with a CPLDMB_0 version of {current_cpldmb_0_version} and could not compare it to the current CPLDMB_0 version of {expected_cpldmb_0_version}: {e:#?}",
-                                    host_endpoint.address,
+                                    bmc_ip_address = %host_endpoint.address,
+                                    %current_cpldmb_0_version,
+                                    %expected_cpldmb_0_version,
+                                    error = ?e,
+                                    "Site Explorer found a Viking with a CPLDMB_0 version and could not compare it to the current CPLDMB_0 version",
                                 );
                                 metrics.increment_host_dpu_pairing_blocker(
                                     PairingBlockerReason::VikingCpldVersionIssue,
@@ -3220,8 +3408,8 @@ impl SiteExplorer {
                         }
                     } else {
                         tracing::warn!(
-                            "Site Explorer could not find the CPLDMB_0 inventory for a Viking (bmc_ip_address: {})",
-                            host_endpoint.address,
+                            bmc_ip_address = %host_endpoint.address,
+                            "Site Explorer could not find the CPLDMB_0 inventory for a Viking",
                         );
                         metrics.increment_host_dpu_pairing_blocker(
                             PairingBlockerReason::VikingCpldVersionIssue,
@@ -3239,9 +3427,9 @@ impl SiteExplorer {
                 .is_some_and(|status| !status)
         {
             tracing::warn!(
-                "Site Explorer found an uningested Lenovo (bmc_ip_address: {}) without infinite boot enabled; System Report: {:#?}",
-                host_endpoint.address,
-                system.attributes
+                bmc_ip_address = %host_endpoint.address,
+                system_report = ?system.attributes,
+                "Site Explorer found an uningested Lenovo without infinite boot enabled"
             );
 
             let interface = self
@@ -3253,11 +3441,12 @@ impl SiteExplorer {
                 .await
                 .inspect_err(|err| {
                     tracing::error!(
-                        "Site Explorer failed to call machine_setup against Lenovo (bmc_ip_address: {}): {}",
-                        host_endpoint.address,
-                        err
+                        bmc_ip_address = %host_endpoint.address,
+                        error = %err,
+                        "Site explorer failed to run machine setup against Lenovo"
                     )
-                }).ok();
+                })
+                .ok();
 
             self.endpoint_explorer
                 .redfish_power_control(
@@ -3268,11 +3457,12 @@ impl SiteExplorer {
                 .await
                 .inspect_err(|err| {
                     tracing::error!(
-                        "Site Explorer failed to restart Lenovo (bmc_ip_address: {}) after calling machine_setup: {}",
-                        host_endpoint.address,
-                        err
+                        bmc_ip_address = %host_endpoint.address,
+                        error = %err,
+                        "Site explorer failed to restart Lenovo after running machine setup"
                     )
-                }).ok();
+                })
+                .ok();
 
             ingest_host = false;
         }
@@ -3337,7 +3527,7 @@ impl SiteExplorer {
             Some(observed) if observed == target_nic_mode => Ok(true),
             Some(observed) => {
                 tracing::warn!(
-                    address = %dpu_ep.address,
+                    bmc_ip_address = %dpu_ep.address,
                     part_number = ?dpu_part_number,
                     %observed,
                     ?target_nic_mode,
@@ -3351,9 +3541,9 @@ impl SiteExplorer {
             }
             None => {
                 tracing::warn!(
-                    "Site explorer cannot determine this DPU's mode {}: {:#?}",
-                    dpu_ep.address,
-                    dpu_ep.report
+                    bmc_ip_address = %dpu_ep.address,
+                    dpu_report = ?dpu_ep.report,
+                    "Site explorer cannot determine this DPU's mode"
                 );
                 Ok(true)
             }
@@ -3383,7 +3573,10 @@ pub async fn try_preallocate_one(
         Ok(t) => t,
         Err(error) => {
             tracing::warn!(
-                %error, %mac, %ip, kind,
+                %error,
+                mac_address = %mac,
+                ip_address = %ip,
+                kind,
                 "Site-explorer preallocation: txn_begin failed"
             );
             return;
@@ -3413,13 +3606,22 @@ pub async fn try_preallocate_one(
         Ok(()) => {
             if let Err(error) = txn.commit().await {
                 tracing::warn!(
-                    %error, %mac, %ip, kind,
+                    %error,
+                    mac_address = %mac,
+                    ip_address = %ip,
+                    kind,
                     "Site-explorer preallocation: commit failed"
                 );
             }
         }
         Err(error) => {
-            tracing::warn!(%error, %mac, %ip, kind, "Site-explorer preallocation skipped");
+            tracing::warn!(
+                %error,
+                mac_address = %mac,
+                ip_address = %ip,
+                kind,
+                "Site-explorer preallocation skipped"
+            );
         }
     }
 }
@@ -3434,18 +3636,30 @@ pub async fn try_retain_bmc(pool: &PgPool, mac: MacAddress) {
     let mut txn = match db::Transaction::begin(pool).await {
         Ok(t) => t,
         Err(error) => {
-            tracing::warn!(%error, %mac, "Site-explorer BMC retain: txn_begin failed");
+            tracing::warn!(
+                %error,
+                bmc_mac_address = %mac,
+                "Site-explorer BMC retain: txn_begin failed"
+            );
             return;
         }
     };
     match db::machine_interface::retain_bmc_address_by_mac(txn.as_pgconn(), mac).await {
         Ok(()) => {
             if let Err(error) = txn.commit().await {
-                tracing::warn!(%error, %mac, "Site-explorer BMC retain: commit failed");
+                tracing::warn!(
+                    %error,
+                    bmc_mac_address = %mac,
+                    "Site-explorer BMC retain: commit failed"
+                );
             }
         }
         Err(error) => {
-            tracing::warn!(%error, %mac, "Site-explorer BMC retain skipped");
+            tracing::warn!(
+                %error,
+                bmc_mac_address = %mac,
+                "Site-explorer BMC retain skipped"
+            );
         }
     }
 }
@@ -3701,9 +3915,9 @@ fn is_dpu_in_nic_mode(dpu_ep: &ExploredEndpoint, host_ep: &ExploredEndpoint) -> 
     let nic_mode = dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic);
     if nic_mode {
         tracing::info!(
-            address = %dpu_ep.address,
-            "discovered bluefield in NIC mode attached to host {}",
-            host_ep.address
+            dpu_bmc_ip_address = %dpu_ep.address,
+            host_bmc_ip_address = %host_ep.address,
+            "discovered bluefield in NIC mode attached to host"
         );
     }
     nic_mode
@@ -3714,7 +3928,7 @@ fn get_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Option<MacAddress> {
     match find_host_pf_mac_address(dpu_ep) {
         Ok(m) => Some(m),
         Err(error) => {
-            tracing::error!(%error, dpu_ip = %dpu_ep.address, "Failed to find base mac address for DPU");
+            tracing::error!(%error, dpu_bmc_ip_address = %dpu_ep.address, "Failed to find base mac address for DPU");
             None
         }
     }
@@ -3903,10 +4117,177 @@ mod tests {
     use super::*;
 
     #[test]
+    fn in_memory_marker_keeps_bmc_reset_throttled_when_persist_fails() {
+        // Reproduces the reset-throttle computation in `handle_redfish_error`:
+        // a BMC was physically reset but persisting its timestamp failed, so the
+        // persisted value stays absent/stale. The in-memory marker must make the
+        // effective "time since last reset" small enough to keep the reset inside
+        // the one-hour rate limit, preventing a redundant re-reset next iteration.
+        let addr: IpAddr = "10.1.2.3".parse().unwrap();
+        let resets = RecentBmcResets::default();
+
+        // Persist failed (None) and no marker yet: the effective last-reset falls
+        // back to the epoch default, so the throttle would wrongly allow an
+        // immediate re-reset.
+        let persisted: Option<chrono::DateTime<Utc>> = None;
+        let without_marker = persisted.max(resets.get(addr).redfish).unwrap_or_default();
+        assert!(
+            Utc::now().signed_duration_since(without_marker) > chrono::Duration::hours(1),
+            "without a marker a stale persisted timestamp should look far in the past"
+        );
+
+        // Record the physical reset in memory (as the reset method now does even
+        // when the persist fails).
+        resets.record_redfish(addr, Utc::now());
+
+        // Now the effective last-reset is the recent in-memory time, so the
+        // throttle keeps the window closed.
+        let with_marker = persisted.max(resets.get(addr).redfish).unwrap_or_default();
+        assert!(
+            Utc::now().signed_duration_since(with_marker) < chrono::Duration::hours(1),
+            "the in-memory marker should keep the reset throttled"
+        );
+
+        // Isolation: the IPMI method and unrelated endpoints are untouched.
+        assert_eq!(resets.get(addr).ipmitool, None);
+        let other: IpAddr = "10.9.9.9".parse().unwrap();
+        assert_eq!(resets.get(other).redfish, None);
+    }
+
+    #[test]
+    fn effective_bmc_reset_time_takes_the_more_recent_source() {
+        // The throttle uses `max()` of the persisted and in-memory times, so
+        // whichever reset happened more recently wins.
+        let addr: IpAddr = "10.1.2.3".parse().unwrap();
+        let two_hours_ago = Utc::now() - chrono::Duration::hours(2);
+        let recent = Utc::now();
+
+        // In-memory newer than persisted -> in-memory wins.
+        let resets = RecentBmcResets::default();
+        resets.record_ipmitool(addr, recent);
+        assert_eq!(
+            Some(two_hours_ago).max(resets.get(addr).ipmitool),
+            Some(recent)
+        );
+
+        // Persisted newer than in-memory -> persisted wins.
+        let resets = RecentBmcResets::default();
+        resets.record_ipmitool(addr, two_hours_ago);
+        assert_eq!(Some(recent).max(resets.get(addr).ipmitool), Some(recent));
+    }
+
+    #[test]
     fn mac_u64_roundtrip() {
         let mac: MacAddress = "a0:88:c2:46:0c:68".parse().unwrap();
         assert_eq!(mac_to_u64(mac), 0x0000_a088_c246_0c68);
         assert_eq!(u64_to_mac(mac_to_u64(mac)), mac);
+    }
+
+    /// The BMC-reset counter tracks resets that happened: a successful reset
+    /// moves `bmc_reset_count`, a failed reset leaves it and logs the failure
+    /// instead. This pins that semantics -- the one the ipmitool path used to
+    /// get wrong, counting every attempt -- across both transports, and checks
+    /// the failure log carries the transport, address, and error.
+    #[test]
+    fn bmc_reset_counter_counts_successes_not_attempts() {
+        use carbide_instrument::testing::{CapturedLog, capture_logs};
+
+        /// One reset outcome to record. A success moves `bmc_reset_count` and
+        /// logs nothing; a failure leaves the counter and emits the ERROR line,
+        /// whose `error` field is `expect_error` (`None` on the success rows).
+        struct Case {
+            name: &'static str,
+            method: BmcResetMethod,
+            outcome: SiteExplorerResult<()>,
+            expect_succeeded: bool,
+            expect_count: usize,
+            expect_error: Option<&'static str>,
+        }
+
+        let addr: IpAddr = "127.0.0.1".parse().unwrap();
+
+        let cases = [
+            Case {
+                name: "ipmitool success counts, logs nothing",
+                method: BmcResetMethod::Ipmitool,
+                outcome: Ok(()),
+                expect_succeeded: true,
+                expect_count: 1,
+                expect_error: None,
+            },
+            Case {
+                name: "ipmitool failure logs, does not count",
+                method: BmcResetMethod::Ipmitool,
+                outcome: Err(SiteExplorerError::internal(
+                    "simulated ipmitool failure".to_string(),
+                )),
+                expect_succeeded: false,
+                expect_count: 0,
+                expect_error: Some("internal error: simulated ipmitool failure"),
+            },
+            Case {
+                name: "redfish success counts, logs nothing",
+                method: BmcResetMethod::Redfish,
+                outcome: Ok(()),
+                expect_succeeded: true,
+                expect_count: 1,
+                expect_error: None,
+            },
+            Case {
+                name: "redfish failure logs, does not count",
+                method: BmcResetMethod::Redfish,
+                outcome: Err(SiteExplorerError::internal(
+                    "simulated redfish failure".to_string(),
+                )),
+                expect_succeeded: false,
+                expect_count: 0,
+                expect_error: Some("internal error: simulated redfish failure"),
+            },
+        ];
+
+        fn field<'a>(log: &'a CapturedLog, name: &str) -> Option<&'a str> {
+            log.fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        }
+
+        for case in cases {
+            let Case {
+                name,
+                method,
+                outcome,
+                expect_succeeded,
+                expect_count,
+                expect_error,
+            } = case;
+
+            // Fresh metrics per case so the counter reads as this outcome alone.
+            let mut metrics = SiteExplorationMetrics::new();
+            let mut succeeded = false;
+            let logs = capture_logs(|| {
+                succeeded =
+                    SiteExplorer::record_bmc_reset_outcome(outcome, method, addr, &mut metrics);
+            });
+
+            assert_eq!(succeeded, expect_succeeded, "{name}");
+            assert_eq!(metrics.bmc_reset_count, expect_count, "{name}");
+
+            match expect_error {
+                None => assert!(logs.is_empty(), "{name}: a success must not log: {logs:?}"),
+                Some(expect_error) => {
+                    assert_eq!(logs.len(), 1, "{name}");
+                    let log = &logs[0];
+                    let method = method.to_string();
+                    let address = addr.to_string();
+                    assert_eq!(log.level, tracing::Level::ERROR, "{name}");
+                    assert_eq!(log.message, "Site Explorer failed to reset BMC", "{name}");
+                    assert_eq!(field(log, "method"), Some(method.as_str()), "{name}");
+                    assert_eq!(field(log, "address"), Some(address.as_str()), "{name}");
+                    assert_eq!(field(log, "error"), Some(expect_error), "{name}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -4314,7 +4695,7 @@ mod tests {
                 Case {
                     scenario: "legacy sys-image MAC fails sanitization",
                     input: with_sys_image("b83f:d203:0090:95fz"),
-                    expect: FailsWith("Failed to build sanitized MAC from legacy/service MAC: Invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string()),
+                    expect: FailsWith("Failed to build sanitized MAC from legacy/service MAC: invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string()),
                 },
                 Case {
                     scenario: "legacy sys-image is too short",

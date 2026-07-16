@@ -131,12 +131,15 @@ pub async fn run(
     // Redact credentials before printing the config
     let print_config = carbide_config.redacted();
 
-    tracing::info!("Using configuration: {:#?}", print_config);
     tracing::info!(
-        "Tokio worker thread count: {} (num_cpus::get()={}, TOKIO_WORKER_THREADS={})",
-        tokio::runtime::Handle::current().metrics().num_workers(),
-        num_cpus::get(),
-        std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string())
+        print_config = ?print_config,
+        "Using configuration",
+    );
+    tracing::info!(
+        worker_count = tokio::runtime::Handle::current().metrics().num_workers(),
+        cpu_count = num_cpus::get(),
+        tokio_worker_threads = %std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string()),
+        "Tokio worker thread configuration",
     );
 
     let metrics = create_metrics()?;
@@ -176,7 +179,11 @@ pub async fn run(
                 )
                 .await
                 {
-                    tracing::error!("Metrics endpoint failed with error: {}", e);
+                    tracing::error!(
+                        metrics_address = %metrics_address,
+                        error = %e,
+                        "Metrics endpoint failed",
+                    );
                 }
             }
         })?;
@@ -197,7 +204,7 @@ pub async fn run(
     );
 
     tracing::info!(
-        address = carbide_config.listen.to_string(),
+        listen_address = carbide_config.listen.to_string(),
         build_version = carbide_version::v!(build_version),
         build_date = carbide_version::v!(build_date),
         rust_version = carbide_version::v!(rust_version),
@@ -344,7 +351,7 @@ pub async fn run(
             "memory" => Arc::new(MemoryCredentialStore::default()),
             other => {
                 return Err(eyre::eyre!(
-                    "Invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
+                    "invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
                 ));
             }
         };
@@ -474,9 +481,9 @@ fn build_kms_backend(
                 // roots and fails TLS against a site-CA-signed vault.
                 let vault_settings =
                     carbide_secrets::create_raw_vault_client_settings(vault_config).wrap_err(
-                        "building the Transit KMS vault client (Transit requires a static \
-                         VAULT_TOKEN; the Kubernetes service-account login flow is not \
-                         supported for Transit yet)",
+                        "building the transit KMS vault client (transit requires a static \
+                         VAULT_TOKEN; the kubernetes service-account login flow is not \
+                         supported for transit yet)",
                     )?;
                 let vault_client = Arc::new(
                     vaultrs::client::VaultClient::new(vault_settings)
@@ -624,13 +631,13 @@ async fn import_vault_secrets_once(
     if vault_secrets.is_empty() {
         return Err(eyre::eyre!(
             "vault enumeration returned no secrets; refusing to record an import from an \
-             empty vault. If this site really has no vault secrets, remove import_from \
+             empty vault. if this site really has no vault secrets, remove import_from \
              from the [secrets] config; otherwise fix vault and restart"
         ));
     }
 
     tracing::info!(
-        count = vault_secrets.len(),
+        vault_secret_count = vault_secrets.len(),
         approach = ?secrets_config.import_approach,
         "Importing secrets from vault"
     );
@@ -647,8 +654,8 @@ async fn import_vault_secrets_once(
     .wrap_err("vault secret import")?;
 
     tracing::info!(
-        imported = result.imported,
-        skipped = result.skipped,
+        imported_secret_count = result.imported,
+        skipped_secret_count = result.skipped,
         "Vault secret import completed"
     );
 

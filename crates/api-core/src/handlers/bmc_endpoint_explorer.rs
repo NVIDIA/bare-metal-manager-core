@@ -202,9 +202,9 @@ pub(crate) async fn admin_bmc_reset(
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
 
     tracing::info!(
-        "Resetting BMC (ipmi tool: {}): {}",
-        req.use_ipmitool,
-        endpoint_address
+        use_ipmitool = req.use_ipmitool,
+        bmc_ip_address = %endpoint_address,
+        "Resetting BMC",
     );
 
     if req.use_ipmitool {
@@ -214,9 +214,9 @@ pub(crate) async fn admin_bmc_reset(
     }
 
     tracing::info!(
-        "BMC Reset (ipmi tool: {}) request succeeded to {}",
-        req.use_ipmitool,
-        endpoint_address
+        use_ipmitool = req.use_ipmitool,
+        bmc_ip_address = %endpoint_address,
+        "BMC reset request succeeded",
     );
 
     Ok(Response::new(rpc::AdminBmcResetResponse {}))
@@ -246,8 +246,8 @@ pub(crate) async fn disable_secure_boot(
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
-        "disable_secure_boot request succeeded to {}",
-        endpoint_address
+        bmc_ip_address = %endpoint_address,
+        "Disable secure boot request succeeded",
     );
 
     Ok(Response::new(rpc::DisableSecureBootResponse {}))
@@ -286,9 +286,9 @@ pub(crate) async fn lockdown(
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
-        "lockdown {} request succeeded to {}",
-        action.to_string().to_lowercase(),
-        endpoint_address
+        action = %action.to_string().to_lowercase(),
+        bmc_ip_address = %endpoint_address,
+        "lockdown request succeeded",
     );
 
     Ok(Response::new(rpc::LockdownResponse {}))
@@ -356,8 +356,8 @@ pub(crate) async fn enable_infinite_boot(
 
     let endpoint_address = bmc_endpoint_request.ip_address.clone();
     tracing::info!(
-        "enable_infinite_boot request succeeded to {}",
-        endpoint_address
+        bmc_ip_address = %endpoint_address,
+        "Enable infinite boot request succeeded",
     );
 
     Ok(Response::new(rpc::EnableInfiniteBootResponse {}))
@@ -395,9 +395,9 @@ pub(crate) async fn is_infinite_boot_enabled(
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     tracing::info!(
-        "is_infinite_boot_enabled request succeeded to {}, result: {:?}",
-        bmc_endpoint_request.ip_address,
-        is_enabled
+        bmc_ip_address = %bmc_endpoint_request.ip_address,
+        is_enabled,
+        "Infinite boot status request succeeded",
     );
 
     Ok(Response::new(rpc::IsInfiniteBootEnabledResponse {
@@ -430,7 +430,10 @@ pub(crate) async fn machine_setup(
 
     let endpoint_address = &bmc_endpoint_request.ip_address;
 
-    tracing::info!("Starting Machine Setup for BMC: {}", endpoint_address);
+    tracing::info!(
+        bmc_ip_address = %endpoint_address,
+        "Starting machine setup",
+    );
 
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -456,7 +459,10 @@ pub(crate) async fn machine_setup(
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    tracing::info!("Machine Setup request succeeded to {}", endpoint_address);
+    tracing::info!(
+        bmc_ip_address = %endpoint_address,
+        "Machine setup request succeeded",
+    );
 
     Ok(Response::new(rpc::MachineSetupResponse {}))
 }
@@ -487,8 +493,8 @@ pub(crate) async fn set_dpu_first_boot_order(
     let endpoint_address = &bmc_endpoint_request.ip_address;
 
     tracing::info!(
-        "Setting DPU first in boot order for BMC: {}",
-        endpoint_address
+        bmc_ip_address = %endpoint_address,
+        "Setting DPU first in boot order",
     );
 
     let entered_mac = req
@@ -524,8 +530,8 @@ pub(crate) async fn set_dpu_first_boot_order(
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
     tracing::info!(
-        "Set DPU first in boot order request succeeded to {}",
-        endpoint_address
+        bmc_ip_address = %endpoint_address,
+        "Set DPU first in boot order request succeeded",
     );
 
     Ok(Response::new(rpc::SetDpuFirstBootOrderResponse {}))
@@ -746,13 +752,13 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
 
     let dpu_ip: std::net::IpAddr = ip_str
         .parse()
-        .map_err(|_| CarbideError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
+        .map_err(|_| CarbideError::InvalidArgument(format!("invalid DPU IP: {ip_str}")))?;
 
     if req.host_bmc_ip.is_empty() {
         return Err(CarbideError::MissingArgument("host_bmc_ip").into());
     }
     let host_bmc_ip: std::net::IpAddr = req.host_bmc_ip.parse().map_err(|_| {
-        CarbideError::InvalidArgument(format!("Invalid host BMC IP: {}", req.host_bmc_ip))
+        CarbideError::InvalidArgument(format!("invalid host BMC IP: {}", req.host_bmc_ip))
     })?;
 
     let pre_copy_powercycle = req.pre_copy_powercycle;
@@ -763,8 +769,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
             .map_err(|e| CarbideError::internal(e.to_string()))?;
     if dpu_in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot trigger BFB recovery: DPU {dpu_ip} is already ingested. \
-             Force-delete the managed host first.",
+            "cannot trigger BFB recovery: DPU {dpu_ip} is already ingested. \
+             force-delete the managed host first",
         ))
         .into());
     }
@@ -785,10 +791,10 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     // eventually, time out (SLA), and then the host will mark as failed.
     if dpu_endpoint.report.nic_mode() == Some(NicMode::Nic) {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot trigger BFB recovery: DPU {dpu_ip} is in NIC mode. \
-             Update the host's `ExpectedMachine.dpu_mode` to `DpuMode` \
+            "cannot trigger BFB recovery: DPU {dpu_ip} is in NIC mode. \
+             update the host's `ExpectedMachine.dpu_mode` to `DpuMode` \
              and wait for site-explorer to reconcile the DPU back to \
-             DPU mode before retrying.",
+             DPU mode before retrying",
         ))
         .into());
     }
@@ -799,8 +805,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         | PreingestionState::Failed { .. } => {}
         other => {
             return Err(CarbideError::InvalidArgument(format!(
-                "Cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
-                 Wait for it to complete or fail first.",
+                "cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
+                 wait for it to complete or fail first",
             ))
             .into());
         }
@@ -819,8 +825,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
             PreingestionState::Complete | PreingestionState::Failed { .. } => {}
             other => {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "Cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
-                     Retry after host preingestion completes.",
+                    "cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
+                     retry after host preingestion completes",
                 ))
                 .into());
             }
@@ -866,7 +872,7 @@ async fn resolve_bmc_interface(
     let mut addrs = lookup_host(address).await?;
     let Some(bmc_addr) = addrs.next() else {
         return Err(CarbideError::InvalidArgument(format!(
-            "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
+            "could not resolve {}. must be hostname[:port] or IPv4[:port]",
             request.ip_address
         ))
         .into());
@@ -927,8 +933,10 @@ pub(crate) async fn create_bmc_user(
     };
 
     tracing::info!(
-        "Creating BMC User {} ({role}) on {endpoint_address}",
-        req.create_username,
+        username = %req.create_username,
+        role = %role,
+        bmc_ip_address = %endpoint_address,
+        "Creating BMC user",
     );
 
     do_create_bmc_user(
@@ -941,8 +949,10 @@ pub(crate) async fn create_bmc_user(
     .await?;
 
     tracing::info!(
-        "Successfully created BMC User {} ({role}) on {endpoint_address}",
-        req.create_username
+        username = %req.create_username,
+        role = %role,
+        bmc_ip_address = %endpoint_address,
+        "Successfully created BMC user",
     );
 
     Ok(Response::new(rpc::CreateBmcUserResponse {}))
@@ -972,15 +982,17 @@ pub(crate) async fn delete_bmc_user(
     let endpoint_address = &bmc_endpoint_request.ip_address;
 
     tracing::info!(
-        "Deleting BMC User {} on {endpoint_address}",
-        req.delete_username,
+        username = %req.delete_username,
+        bmc_ip_address = %endpoint_address,
+        "Deleting BMC user",
     );
 
     do_delete_bmc_user(api, &bmc_endpoint_request, &req.delete_username).await?;
 
     tracing::info!(
-        "Successfully deleted BMC User {} on {endpoint_address}",
-        req.delete_username
+        username = %req.delete_username,
+        bmc_ip_address = %endpoint_address,
+        "Successfully deleted BMC user",
     );
 
     Ok(Response::new(rpc::DeleteBmcUserResponse {}))
@@ -1016,14 +1028,14 @@ pub(crate) async fn set_bmc_root_password(
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &bmc_endpoint_request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
 
-    tracing::info!(%bmc_addr, "Setting BMC root password");
+    tracing::info!(bmc_address = %bmc_addr, "Setting BMC root password");
 
     api.endpoint_explorer
         .set_bmc_root_password(bmc_addr, &machine_interface, &req.new_password)
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    tracing::info!(%bmc_addr, "Successfully set BMC root password");
+    tracing::info!(bmc_address = %bmc_addr, "Successfully set BMC root password");
 
     Ok(Response::new(rpc::SetBmcRootPasswordResponse {}))
 }
@@ -1056,7 +1068,7 @@ pub(crate) async fn probe_bmc_vendor(
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
 
-    tracing::info!(%bmc_addr, %vendor, "Probed BMC vendor");
+    tracing::info!(bmc_address = %bmc_addr, %vendor, "Probed BMC vendor");
 
     Ok(Response::new(rpc::ProbeBmcVendorResponse {
         vendor: vendor.to_string(),
@@ -1171,7 +1183,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 
             let bmc_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
                 CarbideError::internal(format!(
-                    "Machine found for {machine_id} but BMC IP is missing"
+                    "machine found for {machine_id} but BMC IP is missing"
                 ))
             })?;
 
@@ -1189,7 +1201,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
         }
 
         _ => Err(CarbideError::InvalidArgument(
-            "Provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
+            "provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
         )),
     }
 }

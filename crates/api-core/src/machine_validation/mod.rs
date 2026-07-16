@@ -85,7 +85,8 @@ impl MachineValidationFailureCause {
 /// `outcome = Skipped` variant slots in beside `Passed`/`Failed`.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_machine_validation_outcomes_total",
+    event_name = "machine_validation_completed",
+    metric_name = "carbide_machine_validation_outcomes_total",
     component = "nico-api",
     log = dynamic,
     metric = counter,
@@ -281,10 +282,10 @@ impl MachineValidationManager {
         )
         .await?;
         tracing::debug!(
-            "MachineValidation metrics: completed {} failed {} in_progress {}",
-            metrics.completed_validation,
-            metrics.failed_validation,
-            metrics.in_progress_validation,
+            completed_validation_count = metrics.completed_validation,
+            failed_validation_count = metrics.failed_validation,
+            in_progress_validation_count = metrics.in_progress_validation,
+            "Machine validation metrics computed",
         );
         self.metric_holder.update_metrics(metrics);
 
@@ -504,7 +505,7 @@ async fn reconcile_stale_validation(
     .await?
     else {
         tracing::debug!(
-            validation_id = %validation.id,
+            machine_validation_id = %validation.id,
             "skipping stale machine validation because it is no longer active or stale"
         );
         return Ok(None);
@@ -548,7 +549,7 @@ async fn record_failed_validation_side_effects(
 
     let Some(machine) = db::machine::find_by_validation_id(txn, &validation.id).await? else {
         tracing::warn!(
-            validation_id = %validation.id,
+            machine_validation_id = %validation.id,
             machine_id = %validation.machine_id,
             "failed machine validation has no owning machine"
         );

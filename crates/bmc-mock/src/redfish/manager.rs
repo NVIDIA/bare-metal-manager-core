@@ -269,11 +269,18 @@ impl ManagerState {
     pub fn find(&self, manager_id: &str) -> Option<&SingleManagerState> {
         self.managers.iter().find(|c| c.id == manager_id)
     }
+
+    pub fn set_ipmi_endpoint(&self, port: Option<u16>) {
+        for manager in &self.managers {
+            manager.set_ipmi_endpoint(port);
+        }
+    }
 }
 
 pub struct SingleManagerState {
     id: &'static str,
     ipmi_enabled: Arc<atomic::AtomicBool>,
+    ipmi_port: Mutex<Option<u16>>,
     ntp: Mutex<NtpState>,
     config: SingleConfig,
     // PATCHes applied to the manager resource (e.g. HPE lockdown flips
@@ -325,6 +332,7 @@ impl SingleManagerState {
             id: config.id,
             config: config.clone(),
             ipmi_enabled: Arc::new(false.into()),
+            ipmi_port: Mutex::new(None),
             ntp: Mutex::new(NtpState::default()),
             overrides: Arc::new(Mutex::new(json!({}))),
             host_interface_overrides: Mutex::new(HashMap::new()),
@@ -335,9 +343,18 @@ impl SingleManagerState {
         let resource = redfish::manager_network_protocol::manager_resource(self.id);
         let ntp = self.ntp.lock().expect("mutex poisoned");
         redfish::manager_network_protocol::builder(&resource)
-            .ipmi_enabled(self.ipmi_enabled.load(atomic::Ordering::Relaxed))
+            .ipmi(
+                self.ipmi_enabled.load(atomic::Ordering::Relaxed),
+                *self.ipmi_port.lock().expect("mutex poisoned"),
+            )
             .ntp(ntp.protocol_enabled, &ntp.servers)
             .build()
+    }
+
+    fn set_ipmi_endpoint(&self, port: Option<u16>) {
+        *self.ipmi_port.lock().expect("mutex poisoned") = port;
+        self.ipmi_enabled
+            .store(port.is_some(), atomic::Ordering::Relaxed);
     }
 
     fn patch_network_protocol(&self, patch_request: serde_json::Value) {

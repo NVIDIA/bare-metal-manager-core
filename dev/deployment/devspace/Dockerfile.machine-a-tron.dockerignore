@@ -12,6 +12,12 @@
 !include
 !include/
 !include/**
+!dev
+!dev/
+!dev/ipmi
+!dev/ipmi/
+!dev/ipmi/cmd.conf
+!dev/ipmi/ipmi_sim_chassiscontrol.sh
 !pxe/
 !pxe/ipxe/
 !pxe/ipxe/local/

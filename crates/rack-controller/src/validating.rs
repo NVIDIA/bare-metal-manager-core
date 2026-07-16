@@ -197,7 +197,11 @@ pub(super) async fn load_partition_summary(
     let machines = super::get_machines_from_rack(rack, &mut txn).await?;
     txn.commit().await?;
 
-    tracing::debug!("Rack {} has {} machines", rack_id, machines.len());
+    tracing::debug!(
+        rack_id = %rack_id,
+        machine_count = machines.len(),
+        "Rack has machines",
+    );
 
     let partitions = RvPartitions::from_machines(machines, run_id)?;
     Ok(partitions.summarize())
@@ -219,7 +223,11 @@ pub(super) async fn find_rv_run_id(
         .into_iter()
         .find_map(|m| m.metadata.labels.get(run_label).cloned());
 
-    tracing::debug!("Rack {} rv.run-id scan: {:?}", rack_id, found);
+    tracing::debug!(
+        rack_id = %rack_id,
+        found_run_id = ?found,
+        "Rack rv.run-id scan",
+    );
 
     Ok(found)
 }
@@ -320,7 +328,10 @@ pub async fn handle_validating(
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
     if !ctx.services.site_config.rack_validation_config.enabled {
-        tracing::info!("Rack {} validation disabled, skipping to Ready", id);
+        tracing::info!(
+            rack_id = %id,
+            "Rack validation disabled, skipping to Ready",
+        );
         return Ok(StateHandlerOutcome::transition(RackState::Ready));
     }
 
@@ -329,9 +340,9 @@ pub async fn handle_validating(
             // Stay in Pending until RVS sets rv.run-id on at least one rack machine.
             if let Some(found_run_id) = find_rv_run_id(id, state, ctx).await? {
                 tracing::info!(
-                    "Rack {} validation run started (run_id={}), entering InProgress",
-                    id,
-                    found_run_id
+                    rack_id = %id,
+                    found_run_id = %found_run_id,
+                    "Rack validation run started, entering InProgress",
                 );
                 Ok(StateHandlerOutcome::transition(RackState::Validating {
                     validating_state: RackValidationState::InProgress {
@@ -340,8 +351,8 @@ pub async fn handle_validating(
                 }))
             } else {
                 tracing::debug!(
-                    "Rack {} in Validating(Pending), waiting for RVS to set rv.run-id",
-                    id
+                    rack_id = %id,
+                    "Rack in Validating(Pending), waiting for RVS to set rv.run-id",
                 );
                 Ok(StateHandlerOutcome::do_nothing())
             }
@@ -349,39 +360,42 @@ pub async fn handle_validating(
         other => {
             let run_id = other.run_id().ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Validating substates must carry the active run_id"
+                    "validating substates must carry the active run_id"
                 ))
             })?;
 
             let summary = load_partition_summary(id, state, run_id, ctx).await?;
 
             tracing::debug!(
-                "Rack {} partition summary: total={}, pending={}, in_progress={}, validated={}, failed={}",
-                id,
-                summary.total_partitions,
-                summary.pending,
-                summary.in_progress,
-                summary.validated,
-                summary.failed
+                rack_id = %id,
+                total_partition_count = summary.total_partitions,
+                pending_partition_count = summary.pending,
+                in_progress_partition_count = summary.in_progress,
+                validated_partition_count = summary.validated,
+                failed_partition_count = summary.failed,
+                "Rack partition validation summary",
             );
 
             if let Some(next_vs) = compute_validation_transition(other, &summary) {
                 tracing::info!(
-                    "Rack {} validation transitioning from {} to {}",
-                    id,
-                    other,
-                    next_vs
+                    rack_id = %id,
+                    previous_state = %other,
+                    next_state = %next_vs,
+                    "Rack validation state transition",
                 );
                 Ok(StateHandlerOutcome::transition(RackState::Validating {
                     validating_state: next_vs,
                 }))
             } else if matches!(other, RackValidationState::Validated { .. }) {
-                tracing::info!("Rack {} fully validated, transitioning to Ready", id);
+                tracing::info!(
+                    rack_id = %id,
+                    "Rack fully validated, transitioning to Ready",
+                );
                 Ok(StateHandlerOutcome::transition(RackState::Ready))
             } else if matches!(other, RackValidationState::Failed { .. }) {
                 tracing::warn!(
-                    "Rack {} is in Validating(Failed) state, requires intervention",
-                    id
+                    rack_id = %id,
+                    "Rack is in Validating(Failed) state, requires intervention",
                 );
                 Ok(StateHandlerOutcome::do_nothing())
             } else {

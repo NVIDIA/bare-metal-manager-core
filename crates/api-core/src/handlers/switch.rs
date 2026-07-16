@@ -176,7 +176,8 @@ pub async fn find_by_ids(
             .map(|row| (row.switch_id, row))
             .collect();
 
-    let _ = txn.rollback().await;
+    txn.rollback_or_log("read-only load of switches by id")
+        .await;
 
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
@@ -255,7 +256,7 @@ pub async fn delete_switch(
     let switch_id = match req.id {
         Some(id) => id,
         None => {
-            return Err(CarbideError::InvalidArgument("Switch ID is required".to_string()).into());
+            return Err(CarbideError::InvalidArgument("switch ID is required".to_string()).into());
         }
     };
 

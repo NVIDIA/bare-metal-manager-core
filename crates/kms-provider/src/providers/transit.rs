@@ -26,6 +26,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use carbide_instrument::red;
 use vaultrs::api::transit::requests::DataKeyType;
 use vaultrs::client::VaultClient;
 use vaultrs::transit;
@@ -85,7 +86,10 @@ impl TransitKmsProvider {
                 match vaultrs::token::lookup_self(client.as_ref()).await {
                     Ok(info) => break info,
                     Err(e) => {
-                        tracing::warn!("failed to look up Transit KMS token, retrying: {e}");
+                        tracing::warn!(
+                            error = %e,
+                            "failed to look up Transit KMS token; retrying"
+                        );
                         tokio::select! {
                             _ = cancel.cancelled() => return,
                             _ = tokio::time::sleep(Duration::from_secs(30)) => {}
@@ -102,7 +106,7 @@ impl TransitKmsProvider {
             let mut next_renewal = Duration::from_secs((info.ttl as f64 * 0.9).max(30.0) as u64);
             loop {
                 tracing::debug!(
-                    sleep_secs = next_renewal.as_secs(),
+                    sleep_seconds = next_renewal.as_secs(),
                     "scheduling Transit KMS token renewal"
                 );
                 tokio::select! {
@@ -116,12 +120,12 @@ impl TransitKmsProvider {
                             (renewed.lease_duration as f64 * 0.9).max(30.0) as u64,
                         );
                         tracing::info!(
-                            new_lease_duration = renewed.lease_duration,
+                            new_lease_duration_seconds = renewed.lease_duration,
                             "renewed Transit KMS vault token"
                         );
                     }
                     Err(e) => {
-                        tracing::warn!("failed to renew Transit KMS vault token: {e}");
+                        tracing::warn!(error = %e, "failed to renew Transit KMS vault token");
                         next_renewal = Duration::from_secs(30);
                     }
                 }
@@ -136,12 +140,16 @@ impl KmsBackend for TransitKmsProvider {
         // The base64 string is another copy of the DEK; zeroize it like the
         // decoded buffers.
         let plaintext_b64 = Zeroizing::new(BASE64.encode(dek));
-        let response = transit::data::encrypt(
-            self.client.as_ref(),
-            &self.transit_mount,
-            kek_id,
-            &plaintext_b64,
-            None,
+        let response = red::instrumented(
+            "vault_transit",
+            "encrypt_dek",
+            transit::data::encrypt(
+                self.client.as_ref(),
+                &self.transit_mount,
+                kek_id,
+                &plaintext_b64,
+                None,
+            ),
         )
         .await
         .map_err(|e| KmsError::EncryptionFailed(format!("vault transit encrypt: {e}")))?;
@@ -163,12 +171,16 @@ impl KmsBackend for TransitKmsProvider {
         let ciphertext_str = std::str::from_utf8(&encrypted.ciphertext)
             .map_err(|_| KmsError::DecryptionFailed("invalid ciphertext encoding".to_string()))?;
 
-        let response = transit::data::decrypt(
-            self.client.as_ref(),
-            &self.transit_mount,
-            kek_id,
-            ciphertext_str,
-            None,
+        let response = red::instrumented(
+            "vault_transit",
+            "decrypt_dek",
+            transit::data::decrypt(
+                self.client.as_ref(),
+                &self.transit_mount,
+                kek_id,
+                ciphertext_str,
+                None,
+            ),
         )
         .await
         .map_err(|e| KmsError::DecryptionFailed(format!("vault transit decrypt: {e}")))?;
@@ -200,12 +212,16 @@ impl KmsBackend for TransitKmsProvider {
         &self,
         kek_id: &str,
     ) -> Result<(Zeroizing<[u8; 32]>, EncryptedDek), KmsError> {
-        let response = transit::generate::data_key(
-            self.client.as_ref(),
-            &self.transit_mount,
-            kek_id,
-            DataKeyType::Plaintext,
-            None,
+        let response = red::instrumented(
+            "vault_transit",
+            "generate_data_key",
+            transit::generate::data_key(
+                self.client.as_ref(),
+                &self.transit_mount,
+                kek_id,
+                DataKeyType::Plaintext,
+                None,
+            ),
         )
         .await
         .map_err(|e| KmsError::EncryptionFailed(format!("vault transit generate data key: {e}")))?;

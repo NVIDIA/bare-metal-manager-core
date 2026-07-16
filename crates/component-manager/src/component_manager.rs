@@ -13,7 +13,7 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     Backend as NvSwitchBackend, ConfigureSwitchCertificateJobStatus, NvSwitchManager,
-    SwitchEndpoint,
+    SwitchEndpoint, SwitchPasswordRotationState,
 };
 use crate::power_shelf_manager::{Backend as PowerShelfBackend, PowerShelfManager};
 use crate::rms::{RmsSwitchSystemImageStatusApi, validate_rms_backend_rack_profiles};
@@ -59,6 +59,27 @@ impl ComponentManager {
     ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
         self.nv_switch
             .get_configure_switch_certificate_job_status(job_id)
+            .await
+    }
+
+    /// Starts an NVOS password rotation through the configured switch backend.
+    pub async fn start_switch_password_rotation(
+        &self,
+        endpoint: &SwitchEndpoint,
+        next_password: &str,
+    ) -> Result<String, ComponentManagerError> {
+        self.nv_switch
+            .start_password_rotation(endpoint, next_password)
+            .await
+    }
+
+    /// Returns the latest backend state for an NVOS password-rotation job.
+    pub async fn get_switch_password_rotation_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<SwitchPasswordRotationState, ComponentManagerError> {
+        self.nv_switch
+            .get_password_rotation_job_status(job_id)
             .await
     }
 

@@ -50,7 +50,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let power_shelves = match fetch_power_shelves(&state).await {
         Ok(shelves) => shelves,
         Err(err) => {
-            tracing::error!(%err, "fetch_power_shelves");
+            tracing::error!(error = %err, "fetch_power_shelves");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading power shelves",
@@ -93,7 +93,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let power_shelves = match fetch_power_shelves(&state).await {
         Ok(shelves) => shelves,
         Err(err) => {
-            tracing::error!(%err, "fetch_power_shelves");
+            tracing::error!(error = %err, "fetch_power_shelves");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading power shelves",
@@ -203,7 +203,7 @@ pub async fn detail(
             records: records.into_iter().map(Into::into).collect(),
         },
         Err((code, err)) => {
-            tracing::error!(%code, %err, %power_shelf_id, "fetch_power_shelf_state_history_records");
+            tracing::error!(http_status = %code, error = %err, %power_shelf_id, "fetch_power_shelf_state_history_records");
             StateHistoryTable { records: vec![] }
         }
     };
@@ -231,7 +231,7 @@ async fn fetch_power_shelf(
         Ok(response) => response.into_inner(),
         Err(err) if err.code() == tonic::Code::NotFound => return Ok(None),
         Err(err) => {
-            tracing::error!(%err, %power_shelf_id, "fetch_power_shelf");
+            tracing::error!(error = %err, %power_shelf_id, "fetch_power_shelf");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response());
         }
     };

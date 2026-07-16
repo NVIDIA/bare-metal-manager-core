@@ -36,13 +36,13 @@ use crate::MachineConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     ConfigError(String),
 
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("unable to connect to carbide API: {0}")]
     ConnectFailed(String),
 
-    #[error("The API call to the Forge API server returned {0}")]
+    #[error("the API call to the forge API server returned {0}")]
     InvocationError(#[from] tonic::Status),
 }
 
@@ -354,14 +354,14 @@ impl ApiClient {
             Ok(vpc_id_list) => {
                 match vpc_id_list.vpc_ids.len() {
                     0 => tracing::error!(
-                        "There are no VPC ids associated with {}. Should not have happened.",
-                        *vpc_name
+                        vpc_name = %*vpc_name,
+                        "No VPC IDs are associated with VPC name; this should not happen",
                     ),
                     1 => {}
                     _ => tracing::warn!(
-                        "There are {} VPC ids associated with {}. Should not have happened. Clean up DB and start over.",
-                        vpc_id_list.vpc_ids.len(),
-                        vpc_name
+                        vpc_id_count = vpc_id_list.vpc_ids.len(),
+                        vpc_name = %vpc_name,
+                        "Multiple VPC IDs are associated with VPC name; clean up the database and restart",
                     ),
                 }
 

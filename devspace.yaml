@@ -329,10 +329,6 @@ hooks:
             "${runtime.images.nico-rest-cert-manager.image}:${runtime.images.nico-rest-cert-manager.tag}" \
             "${runtime.images.nico-mcp.image}:${runtime.images.nico-mcp.tag}"
           ;;
-        *)
-          echo "Full-stack deployment requires a kind context; current context is ${CONTEXT:-unset}" >&2
-          exit 1
-          ;;
       esac
   - name: setup-rest-integration
     events: ["after:deploy"]

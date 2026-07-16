@@ -1390,8 +1390,8 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     assert_eq!(response.instances.len(), 1);
     let instance = &response.instances[0];
     tracing::info!(
-        "instance_network_config_version: {}",
-        instance.network_config_version
+        network_config_version = %instance.network_config_version,
+        "Instance network config version",
     );
     assert_eq!(
         instance.status.as_ref().unwrap().configs_synced,

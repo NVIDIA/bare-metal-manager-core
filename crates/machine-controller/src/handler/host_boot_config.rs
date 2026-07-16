@@ -445,7 +445,7 @@ async fn should_wait_for_dpus_before_host_boot_config(
                     {
                         Ok(_) => {}
                         Err(e) => tracing::warn!(
-                            dpu_id = %dpu_snapshot.id,
+                            dpu_machine_id = %dpu_snapshot.id,
                             error = %e,
                             "Could not reboot DPU while waiting to check host boot config"
                         ),

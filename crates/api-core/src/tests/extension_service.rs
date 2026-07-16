@@ -263,7 +263,7 @@ async fn get_credentials_for_extension_service(
         .credential_manager
         .get_credentials(&credential_key)
         .await?;
-    stored_credential.ok_or_else(|| eyre::eyre!("Could not find the credential"))
+    stored_credential.ok_or_else(|| eyre::eyre!("could not find the credential"))
 }
 
 #[crate::sqlx_test]
@@ -1203,7 +1203,7 @@ async fn test_extension_service_update_invalid_arg(
         update_resp
             .unwrap_err()
             .message()
-            .contains("No changes to data or credential from latest version")
+            .contains("no changes to data or credential from latest version")
     );
 
     // Update with empty data format
@@ -1225,7 +1225,7 @@ async fn test_extension_service_update_invalid_arg(
         update_resp
             .unwrap_err()
             .message()
-            .contains("Invalid empty data for KubernetesPod service, need a valid pod manifest")
+            .contains("invalid empty data for KubernetesPod service, need a valid pod manifest")
     );
 
     // Update with invalid data format
@@ -1247,7 +1247,7 @@ async fn test_extension_service_update_invalid_arg(
         update_resp
             .unwrap_err()
             .message()
-            .contains("Pod manifest must be a valid mapping object")
+            .contains("pod manifest must be a valid mapping object")
     );
 
     // Update with wrong service id
@@ -1885,7 +1885,7 @@ async fn test_extension_service_create_update_delete_credential(
             assert_eq!(password, "test-password");
         }
         _ => {
-            return Err(eyre::eyre!("Could not find the credential"));
+            return Err(eyre::eyre!("could not find the credential"));
         }
     }
 

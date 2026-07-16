@@ -175,13 +175,13 @@ pub(crate) async fn batch_allocate(
 
     if batch_request.instance_requests.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "Batch request must contain at least one instance".to_string(),
+            "batch request must contain at least one instance".to_string(),
         )
         .into());
     }
 
     tracing::info!(
-        count = batch_request.instance_requests.len(),
+        instance_request_count = batch_request.instance_requests.len(),
         "Received batch instance allocation request"
     );
 
@@ -224,7 +224,7 @@ pub(crate) async fn batch_allocate(
         })?;
 
     tracing::info!(
-        count = instances.len(),
+        instance_count = instances.len(),
         "Successfully allocated batch of instances"
     );
 
@@ -278,7 +278,8 @@ pub(crate) async fn find_by_ids(
     for snapshot in snapshots.into_iter() {
         instances.push(snapshot_to_instance(snapshot)?);
     }
-    let _ = txn.rollback().await;
+    txn.rollback_or_log("read-only load of instances by id")
+        .await;
 
     Ok(Response::new(rpc::InstanceList { instances }))
 }
@@ -448,8 +449,8 @@ fn log_delete_attribution(delete_attribution: Option<&rpc::DeleteAttribution>) {
     };
 
     tracing::info!(
-        org = %initiated_by.org,
-        org_display_name = %initiated_by.org_display_name,
+        organization = %initiated_by.org,
+        organization_display_name = %initiated_by.org_display_name,
         user_id = %initiated_by.user_id,
         tenant_id = %initiated_by.tenant_id,
         "Instance delete attribution"
@@ -1015,7 +1016,7 @@ pub(crate) async fn invoke_power(
 
             if rr.started_at.is_some() {
                 return Err(CarbideError::DpuReprovisioningInProgress(format!(
-                    "Can't reboot host: {machine_id}"
+                    "can't reboot host: {machine_id}"
                 ))
                 .into());
             }
@@ -1027,11 +1028,15 @@ pub(crate) async fn invoke_power(
                 .await
                 .map_err(|err| {
                     // print actual error for debugging, but don't leak internal info to user.
-                    tracing::error!(machine=%machine_id, "{:?}", err);
+                    tracing::error!(
+                        machine_id = %machine_id,
+                        error = ?err,
+                        "failed to approve DPU reprovision request",
+                    );
 
                     // TODO: What does this error actually mean
                     CarbideError::internal(
-                        "Internal Failure. Try again after some time.".to_string(),
+                        "internal failure. try again after some time".to_string(),
                     )
                 })?;
         }
@@ -1042,10 +1047,14 @@ pub(crate) async fn invoke_power(
                 .await
                 .map_err(|err| {
                     // print actual error for debugging, but don't leak internal info to user.
-                    tracing::error!(machine=%machine_id, "{:?}", err);
+                    tracing::error!(
+                        machine_id = %machine_id,
+                        error = ?err,
+                        "failed to approve host reprovision request",
+                    );
 
                     CarbideError::internal(
-                        "Internal Failure. Try again after some time.".to_string(),
+                        "internal failure. try again after some time".to_string(),
                     )
                 })?;
         }
@@ -1100,7 +1109,7 @@ pub(crate) async fn invoke_power(
     client
         .power(libredfish::SystemPowerControl::ForceRestart)
         .await
-        .map_err(|e| CarbideError::internal(format!("Failed redfish ForceRestart subtask: {e}")))?;
+        .map_err(|e| CarbideError::internal(format!("failed redfish ForceRestart subtask: {e}")))?;
 
     Ok(Response::new(rpc::InstancePowerResult {}))
 }
@@ -1138,7 +1147,7 @@ pub(crate) async fn update_operating_system(
 
     if instance.deleted.is_some() {
         return Err(CarbideError::InvalidArgument(
-            "Configuration for a terminating instance can not be changed".to_string(),
+            "configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
     }
@@ -1179,12 +1188,26 @@ pub(crate) async fn update_instance_config(
         .instance_id
         .ok_or(CarbideError::MissingArgument("id"))?;
 
+    // RPC conversion intentionally ignores the deprecated boolean. Remember the exact legacy
+    // wire form so the stored auto config can be restored after the instance lookup.
+    #[allow(deprecated)]
+    let uses_deprecated_auto_without_config = request
+        .config
+        .as_ref()
+        .and_then(|config| config.network.as_ref())
+        .is_some_and(|network| {
+            network.auto && network.auto_config.is_none() && network.interfaces.is_empty()
+        });
+
     let mut config: InstanceConfig = match request.config {
         None => return Err(CarbideError::MissingArgument("config").into()),
         Some(config) => config.try_into().map_err(CarbideError::from)?,
     };
 
-    tracing::info!("SPX update_instance_config config: {:?}", config.spxconfig);
+    tracing::info!(
+        spx_config = ?config.spxconfig,
+        "Updating instance SPX config",
+    );
 
     // Network validation is done only if network update is requested.
     config
@@ -1207,7 +1230,7 @@ pub(crate) async fn update_instance_config(
         Some(metadata) => metadata.try_into().map_err(CarbideError::from)?,
     };
     metadata.validate(true).map_err(|e| {
-        CarbideError::InvalidArgument(format!("Instance metadata is not valid: {e}"))
+        CarbideError::InvalidArgument(format!("instance metadata is not valid: {e}"))
     })?;
 
     let mut txn = api.txn_begin().await?;
@@ -1240,9 +1263,20 @@ pub(crate) async fn update_instance_config(
         .unwrap_or(true)
     {
         return Err(CarbideError::InvalidArgument(
-            "Configuration for a terminating instance can not be changed".to_string(),
+            "configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
+    }
+
+    if uses_deprecated_auto_without_config {
+        let Some(auto_config) = instance.config.network.auto_config else {
+            return Err(CarbideError::InvalidArgument(
+                "cannot enable automatic networking on an existing instance through deprecated `InstanceNetworkConfig.auto`"
+                    .to_string(),
+            )
+            .into());
+        };
+        config.network.auto_config = Some(auto_config);
     }
 
     // Check whether the update is allowed
@@ -1282,7 +1316,7 @@ pub(crate) async fn update_instance_config(
         .is_none()
         {
             return Err(CarbideError::FailedPrecondition(format!(
-                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                "NetworkSecurityGroup `{}` does not exist or is not owned by tenant `{}`",
                 nsg_id,
                 tenant_org.clone(),
             ))
@@ -1302,7 +1336,7 @@ pub(crate) async fn update_instance_config(
 
         if service_ids.len() != unique_service_ids.len() {
             return Err(CarbideError::InvalidArgument(
-                "Duplicate extension services in configuration. Only one version of each service is allowed.".to_string()
+                "duplicate extension services in configuration. only one version of each service is allowed".to_string()
             )
                 .into());
         }
@@ -1322,7 +1356,7 @@ pub(crate) async fn update_instance_config(
         for service in service_configs.iter() {
             if !services.contains_key(&service.service_id) {
                 return Err(CarbideError::FailedPrecondition(format!(
-                    "Extension service {} does not exist",
+                    "extension service {} does not exist",
                     service.service_id,
                 ))
                 .into());
@@ -1333,7 +1367,7 @@ pub(crate) async fn update_instance_config(
                 .contains(&service.version)
             {
                 return Err(CarbideError::FailedPrecondition(format!(
-                    "Extension service {} version {} does not exist or is deleted",
+                    "extension service {} version {} does not exist or is deleted",
                     service.service_id, service.version,
                 ))
                 .into());
@@ -1370,16 +1404,16 @@ pub(crate) async fn update_instance_config(
     .await?;
 
     tracing::debug!(
-        "Updating instance {} with NVLink config {:?}",
-        instance.id,
-        config.nvlink
+        instance_id = %instance.id,
+        nvlink = ?config.nvlink,
+        "Updating instance NVLink configuration",
     );
     update_instance_nvlink_config(&mh_snapshot, &instance, &config.nvlink, &mut txn).await?;
 
     tracing::debug!(
-        "Updating instance {} with Spx config {:?}",
-        instance.id,
-        config.spxconfig
+        instance_id = %instance.id,
+        spx_config = ?config.spxconfig,
+        "Updating instance SPX configuration",
     );
     update_instance_spx_config(&mh_snapshot, &instance, &mut config.spxconfig, &mut txn).await?;
 
@@ -1547,7 +1581,7 @@ async fn validate_auto_inband_segment_vpc_bindings(
 
         if vpc.id != requested_vpc_id {
             return Err(CarbideError::FailedPrecondition(format!(
-                "zero-DPU host {} has HostInband segment {} bound to VPC {}, but auto networking requested VPC {}; shared Flat segments must be left unbound",
+                "zero-DPU host {} has HostInband segment {} bound to VPC {}, but auto networking requested VPC {}; shared flat segments must be left unbound",
                 mh_snapshot.host_snapshot.id, segment_id, vpc.id, requested_vpc_id,
             )));
         }
@@ -1682,7 +1716,7 @@ fn snapshot_to_instance(
         .map_err(CarbideError::from)?
         .ok_or_else(|| {
             CarbideError::internal(format!(
-                "Instance on Machine {machine_id} can be converted from snapshot"
+                "instance on machine {machine_id} can be converted from snapshot"
             ))
         })
 }
@@ -1695,7 +1729,7 @@ pub async fn force_delete_instance(
     let instance = db::instance::find_by_id(&api.database_connection, instance_id)
         .await?
         .ok_or_else(|| {
-            CarbideError::internal(format!("Could not find an instance for {instance_id}"))
+            CarbideError::internal(format!("could not find an instance for {instance_id}"))
         })?
         .to_owned();
 

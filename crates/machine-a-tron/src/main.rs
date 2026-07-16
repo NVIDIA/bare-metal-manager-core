@@ -104,8 +104,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.client_key_path,
         file_config.as_ref(),
     );
-    let proxy =
-        get_proxy_info().inspect_err(|e| tracing::error!("Failed to get proxy info: {}", e))?;
+    let proxy = get_proxy_info().inspect_err(|e| {
+        tracing::error!(
+            error = %e,
+            "Failed to get proxy info",
+        )
+    })?;
 
     let mut forge_client_config =
         ForgeClientConfig::new(forge_root_ca_path.clone(), Some(forge_client_cert));
@@ -136,8 +140,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .entries;
 
     tracing::info!(
-        "Got desired firmware versions from the server: {:?}",
-        desired_firmware_versions
+        desired_firmware_versions = ?desired_firmware_versions,
+        "Got desired firmware versions from the server",
     );
 
     let bmc_mock_port = app_config.bmc_mock_port;
@@ -184,7 +188,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let info = app_context.forge_api_client.version(false).await?;
-    tracing::info!("version: {}", info.build_version);
+    tracing::info!(
+        build_version = %info.build_version,
+        "machine-a-tron version",
+    );
 
     let mut mat = MachineATron::new(app_context.clone());
 
@@ -282,7 +289,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let mut tui = Tui::new(ui_rx, quit_rx, app_tx, tui_host_logs);
             _ = tui.run().await.inspect_err(|e| {
                 let estr = format!("Error running TUI: {e}");
-                tracing::error!(estr);
+                tracing::error!(error = %e, "TUI failed");
                 eprintln!("{estr}"); // dump it to stderr in case logs are getting redirected
             })
         }));
@@ -310,13 +317,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if let Some(tui_handle) = tui_handle {
         if let Some(tui_quit_tx) = tui_quit_tx.as_ref() {
-            _ = tui_quit_tx
-                .try_send(())
-                .inspect_err(|e| tracing::warn!("Could not send quit signal to TUI: {e}"));
+            _ = tui_quit_tx.try_send(()).inspect_err(|e| {
+                tracing::warn!(
+                    error = %e,
+                    "Could not send quit signal to TUI",
+                )
+            });
         }
         tui_handle
             .await
-            .inspect_err(|e| tracing::warn!("Error running TUI: {e}"))
+            .inspect_err(|e| {
+                tracing::warn!(
+                    error = %e,
+                    "Error running TUI",
+                )
+            })
             .ok();
     }
 

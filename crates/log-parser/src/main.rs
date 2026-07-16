@@ -459,7 +459,7 @@ async fn read_event_definition(path: &Path) -> Result<Configuration, anyhow::Err
     let filename_format = config.filename_format.replace("\\\\", "\\");
     if filename_format.is_empty() {
         return Err(anyhow!(
-            "Invalid filename_format regex pattern {}",
+            "invalid filename_format regex pattern {}",
             config.filename_format
         ));
     }
@@ -469,7 +469,7 @@ async fn read_event_definition(path: &Path) -> Result<Configuration, anyhow::Err
         let regex_string = event_type.regex_string.replace("\\\\", "\\");
         if regex_string.is_empty() {
             return Err(anyhow!(
-                "Invalid event regex pattern {}",
+                "invalid event regex pattern {}",
                 &event_type.regex_string
             ));
         }

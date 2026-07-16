@@ -48,8 +48,11 @@ impl Subnet {
             .create_network_segment(&vpc.metadata.name, vpc.network_virtualization_type)
             .await
             .map_err(|e| {
-                tracing::error!("Error creating network segment: {}", e);
-                Status::internal("Failed to create network segment.")
+                tracing::error!(
+                    error = %e,
+                    "Error creating network segment",
+                );
+                Status::internal("failed to create network segment")
             })?;
 
         let config = network_segment
@@ -68,7 +71,12 @@ impl Subnet {
             _ = ui_event_tx
                 .send(UiUpdate::Subnet(details))
                 .await
-                .inspect_err(|e| tracing::warn!("Error sending TUI event: {}", e));
+                .inspect_err(|e| {
+                    tracing::warn!(
+                        error = %e,
+                        "Error sending TUI event",
+                    )
+                });
         }
 
         Ok(new_subnet)

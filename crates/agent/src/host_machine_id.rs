@@ -93,7 +93,7 @@ pub async fn get_host_machine_id_retry(
         )
         .await
         .map_err(|e| {
-            tracing::warn!("get_host_machine_id() failed: {:?}", e);
+            tracing::warn!(error = ?e, "Failed to get host machine ID");
             e
         })?
         .ok_or(eyre::eyre!("get_host_machine_id() got no value"))

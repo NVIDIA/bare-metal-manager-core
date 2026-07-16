@@ -20,15 +20,18 @@
 //! registering and the OTel Prometheus exporter appends exactly one, so
 //! `/metrics` shows one suffix, not the historical doubled `_total_total`.
 //!
-//! One test in its own binary (its own process-global registry) keeps the
-//! `counter_delta` measurements deterministic: the crate's other unit tests
-//! emit these same events, but from a different test process.
+//! These tests live in their own binary (its own process-global registry) to
+//! keep the `counter_delta` measurements deterministic: the crate's other unit
+//! tests emit these same events -- the message counters here, and the
+//! health-report persist failure below -- but from a different test process, so
+//! they cannot advance a shared counter between a test's baseline and delta.
 
 use carbide_dsx_exchange_consumer::metrics::{
-    MessageDeduplicated, MessageDropped, MessageProcessed, MessageReceived,
+    HealthReportPersistFailed, MessageDeduplicated, MessageDropped, MessageProcessed,
+    MessageReceived,
 };
 use carbide_instrument::emit;
-use carbide_instrument::testing::{MetricsCapture, capture_logs};
+use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
 
 /// Emitting each event once moves exactly its counter, under the single
 /// `_total` name the OTel Prometheus exporter produces (the framework strips
@@ -80,4 +83,44 @@ fn message_events_expose_single_total_names_and_are_metric_only() {
     // TRACE are never doubled -- only the untouched call-site `tracing` lines
     // remain.
     assert!(logs.is_empty(), "events must be metric-only: {logs:?}");
+}
+
+/// A persist failure writes the WARN line carrying the rack id and error, and
+/// moves `carbide_dsx_exchange_consumer_health_report_persist_failures_total` once --
+/// the "log it AND count it" the safety-relevant drop needs. Isolated here
+/// because `health_updater`'s failure-path unit tests emit this same event
+/// without a `MetricsCapture`; from a shared process they could advance the
+/// zero-label counter between this test's baseline and delta.
+#[test]
+fn health_report_persist_failed_logs_warn_and_counts() {
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(HealthReportPersistFailed {
+            rack_id: "rack-42".to_string(),
+            error: "API call failed: deadline exceeded".to_string(),
+        });
+    });
+
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].level, tracing::Level::WARN);
+    assert_eq!(logs[0].message, "Failed to persist rack health report");
+    fn field<'a>(log: &'a CapturedLog, name: &str) -> Option<&'a str> {
+        log.fields
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    }
+    assert_eq!(field(&logs[0], "rack_id"), Some("rack-42"));
+    assert_eq!(
+        field(&logs[0], "error"),
+        Some("API call failed: deadline exceeded")
+    );
+
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_dsx_exchange_consumer_health_report_persist_failures_total",
+            &[],
+        ),
+        1.0
+    );
 }

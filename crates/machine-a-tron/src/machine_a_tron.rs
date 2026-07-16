@@ -135,7 +135,10 @@ impl MachineATron {
                         .as_mut()
                         .and_then(|m| m.remove(config_name.as_str()))
                     {
-                        tracing::info!("Recovering persisted machines for config {}", config_name);
+                        tracing::info!(
+                            config_name = %config_name,
+                            "Recovering persisted machines",
+                        );
                         persisted_machines
                             .into_iter()
                             .map(|persisted| -> eyre::Result<HostMachineHandle> {
@@ -158,7 +161,10 @@ impl MachineATron {
                             })
                             .collect::<Vec<_>>()
                     } else {
-                        tracing::info!("Constructing machines for config {}", config_name);
+                        tracing::info!(
+                            config_name = %config_name,
+                            "Constructing machines",
+                        );
                         (0..config.host_count)
                             .map(|_| {
                                 let mac_range = mac_address_pool.allocate_range_config()?;
@@ -256,7 +262,7 @@ impl MachineATron {
                     .inspect_err(|e| {
                         tracing::warn!(
                             error=?e,
-                            hw_type=%host_info.hw_type,
+                            hardware_type = %host_info.hw_type,
                             "error adding expected inventory record, likely already ingested"
                         );
                     })
@@ -264,8 +270,8 @@ impl MachineATron {
             }
         } else {
             tracing::info!(
-                "register_expected_machines=false; skipping auto-registration of {} mock host(s)",
-                machines.len()
+                machine_count = machines.len(),
+                "register_expected_machines=false; skipping auto-registration of mock host(s)",
             );
         }
 
@@ -291,7 +297,10 @@ impl MachineATron {
         {
             let host_port_str =
                 format!("{}:{}", host_str, self.app_context.app_config.bmc_mock_port);
-            tracing::info!("Configuring carbide API to use {host_port_str} as bmc_proxy",);
+            tracing::info!(
+                bmc_proxy_address = %host_port_str,
+                "Configuring carbide API to use as bmc_proxy",
+            );
             _ = self
                 .app_context
                 .api_client()
@@ -322,7 +331,10 @@ impl MachineATron {
                             subnet_handles.push(subnet);
                         }
                         Err(e) => {
-                            tracing::error!("Error creating network segment: {}", e);
+                            tracing::error!(
+                                error = %e,
+                                "Error creating network segment",
+                            );
                         }
                     }
                 }
@@ -397,7 +409,10 @@ impl MachineATron {
                             tracing::info!("allocate_instance was successful. ");
                         }
                         Err(e) => {
-                            tracing::info!("allocate_instance failed with {} ", e);
+                            tracing::info!(
+                                error = %e,
+                                "allocate_instance failed",
+                            );
                         }
                     };
                 }
@@ -408,21 +423,27 @@ impl MachineATron {
         // It rather soft deletes the VPCs by updating the deleted column of a vpc.
         if self.app_context.app_config.cleanup_on_quit {
             for vpc in vpc_handles {
-                tracing::info!("Attempting to delete VPC with id: {} from db.", vpc.vpc_id);
+                tracing::info!(
+                    vpc_id = %vpc.vpc_id,
+                    "Attempting to delete VPC from database",
+                );
                 if let Err(e) = self
                     .app_context
                     .forge_api_client
                     .delete_vpc(vpc.vpc_id)
                     .await
                 {
-                    tracing::error!("Delete VPC Api call failed with {}", e)
+                    tracing::error!(
+                        error = %e,
+                        "Delete VPC API call failed",
+                    )
                 }
             }
 
             for subnet in subnet_handles {
                 tracing::info!(
-                    "Attempting to delete network segment with id: {} from db.",
-                    subnet.segment_id
+                    network_segment_id = %subnet.segment_id,
+                    "Attempting to delete network segment from database",
                 );
                 if let Err(e) = self
                     .app_context
@@ -430,7 +451,10 @@ impl MachineATron {
                     .delete_network_segment(subnet.segment_id)
                     .await
                 {
-                    tracing::error!("Delete network segment Api call failed with {}", e)
+                    tracing::error!(
+                        error = %e,
+                        "Delete network segment API call failed",
+                    )
                 }
             }
         }

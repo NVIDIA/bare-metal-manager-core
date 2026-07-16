@@ -322,7 +322,7 @@ async fn resolve_power_shelf_identities(
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows {
         let Some(rack_id) = row.rack_id else {
-            tracing::warn!(bmc_mac = %row.bmc_mac_address, "power shelf has no rack_id, skipping");
+            tracing::warn!(bmc_mac_address = %row.bmc_mac_address, "power shelf has no rack_id, skipping");
             continue;
         };
         map.insert(
@@ -359,7 +359,7 @@ async fn resolve_compute_tray_identities(
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows {
         let Some(rack_id) = row.rack_id else {
-            tracing::warn!(bmc_ip = %row.bmc_ip, "compute tray has no rack_id, skipping");
+            tracing::warn!(bmc_ip_address = %row.bmc_ip, "compute tray has no rack_id, skipping");
             continue;
         };
         map.insert(
@@ -391,7 +391,7 @@ async fn resolve_switch_identities(
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows {
         let Some(rack_id) = row.rack_id else {
-            tracing::warn!(bmc_mac = %row.bmc_mac_address, "switch has no rack_id, skipping");
+            tracing::warn!(bmc_mac_address = %row.bmc_mac_address, "switch has no rack_id, skipping");
             continue;
         };
         map.insert(
@@ -565,7 +565,7 @@ impl PowerShelfManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        pmc_mac = %ep.pmc_mac,
+                        pmc_mac_address = %ep.pmc_mac,
                         error = %e,
                         "RMS power control failed for power shelf"
                     );
@@ -666,7 +666,7 @@ impl PowerShelfManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        pmc_mac = %ep.pmc_mac,
+                        pmc_mac_address = %ep.pmc_mac,
                         error = %e,
                         "RMS firmware update failed for power shelf"
                     );
@@ -752,7 +752,7 @@ impl PowerShelfManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        pmc_mac = %pmc_mac,
+                        pmc_mac_address = %pmc_mac,
                         job_id = %job_id,
                         error = %e,
                         "RMS firmware job status query failed"
@@ -825,7 +825,7 @@ impl PowerShelfManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        pmc_mac = %ep.pmc_mac,
+                        pmc_mac_address = %ep.pmc_mac,
                         error = %e,
                         "RMS firmware inventory query failed for power shelf"
                     );
@@ -1104,7 +1104,7 @@ async fn query_rms_power_state(
         }
         Err(error) => {
             tracing::warn!(
-                %device_mac,
+                device_mac_address = %device_mac,
                 error = %error,
                 device_kind,
                 "RMS get power state failed"
@@ -1500,7 +1500,7 @@ impl NvSwitchManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_mac = %ep.bmc_mac,
+                        bmc_mac_address = %ep.bmc_mac,
                         error = %e,
                         "RMS power control failed for switch"
                     );
@@ -1597,14 +1597,14 @@ impl NvSwitchManager for RmsBackend {
                                 }
                             } else if job_id.is_some() {
                                 tracing::debug!(
-                                    bmc_mac = %ep.bmc_mac,
+                                    bmc_mac_address = %ep.bmc_mac,
                                     "RMS returned a firmware-object job id for a failed switch update; not tracking it"
                                 );
                             }
                         }
                         Err(e) => {
                             tracing::warn!(
-                                bmc_mac = %ep.bmc_mac,
+                                bmc_mac_address = %ep.bmc_mac,
                                 error = %e,
                                 "RMS firmware-object update failed for switch"
                             );
@@ -1659,14 +1659,14 @@ impl NvSwitchManager for RmsBackend {
                                 }
                             } else if job_id.is_some() {
                                 tracing::debug!(
-                                    bmc_mac = %ep.bmc_mac,
+                                    bmc_mac_address = %ep.bmc_mac,
                                     "RMS returned a switch system-image job id for a failed switch update; not tracking it"
                                 );
                             }
                         }
                         Err(e) => {
                             tracing::warn!(
-                                bmc_mac = %ep.bmc_mac,
+                                bmc_mac_address = %ep.bmc_mac,
                                 error = %e,
                                 "RMS switch system-image update failed for switch"
                             );
@@ -1899,7 +1899,7 @@ impl NvSwitchManager for RmsBackend {
                 }
                 Err(error) => {
                     tracing::warn!(
-                        bmc_mac = %ep.bmc_mac,
+                        bmc_mac_address = %ep.bmc_mac,
                         error = %error,
                         "RMS get slot and tray failed for switch"
                     );
@@ -2438,7 +2438,7 @@ impl ComputeTrayManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_ip = %ep.bmc_ip,
+                        bmc_ip_address = %ep.bmc_ip,
                         error = %e,
                         "RMS power control failed for compute tray"
                     );
@@ -2548,7 +2548,7 @@ impl ComputeTrayManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_ip = %ep.bmc_ip,
+                        bmc_ip_address = %ep.bmc_ip,
                         error = %e,
                         "RMS firmware update failed for compute tray"
                     );
@@ -2639,7 +2639,7 @@ impl ComputeTrayManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_ip = %bmc_ip,
+                        bmc_ip_address = %bmc_ip,
                         job_id = %job_id,
                         error = %e,
                         "RMS firmware job status query failed"

@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_instrument::{DynamicLog, Event, LogAt, Outcome, emit};
 use rpc::fmds::fmds_config_service_server::FmdsConfigService;
 use rpc::fmds::{UpdateConfigRequest, UpdateConfigResponse};
 use tonic::{Request, Response, Status};
@@ -33,9 +34,57 @@ impl FmdsGrpcServer {
     }
 }
 
+/// One inbound gRPC config-update ingest ran to completion. The event owns the
+/// failure log line -- every ingest is counted, only the failures write the
+/// WARN line (the success path keeps its own "Received config update" INFO log).
+#[derive(Event)]
+#[event(
+    name = "carbide_fmds_config_updates_total",
+    component = "fmds",
+    log = dynamic,
+    metric = counter,
+    message = "Failed to ingest config update",
+    describe = "Number of FMDS gRPC config-update ingests, by outcome"
+)]
+struct ConfigUpdateIngested {
+    #[label]
+    outcome: Outcome,
+    /// The rejection's error text; empty on success (the line only renders on
+    /// failure).
+    #[context]
+    error: String,
+}
+
+impl DynamicLog for ConfigUpdateIngested {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            Outcome::Error => LogAt::Level(tracing::Level::WARN),
+            Outcome::Ok => LogAt::Off,
+        }
+    }
+}
+
 #[tonic::async_trait]
 impl FmdsConfigService for FmdsGrpcServer {
     async fn update_config(
+        &self,
+        request: Request<UpdateConfigRequest>,
+    ) -> Result<Response<UpdateConfigResponse>, Status> {
+        let result = self.apply_config_update(request);
+        emit(ConfigUpdateIngested {
+            outcome: Outcome::from(&result),
+            error: result
+                .as_ref()
+                .err()
+                .map(|status| status.to_string())
+                .unwrap_or_default(),
+        });
+        result
+    }
+}
+
+impl FmdsGrpcServer {
+    fn apply_config_update(
         &self,
         request: Request<UpdateConfigRequest>,
     ) -> Result<Response<UpdateConfigResponse>, Status> {

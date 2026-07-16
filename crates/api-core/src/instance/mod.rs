@@ -103,14 +103,14 @@ async fn validate_zero_dpu_auto_vpc(
 
     if vpc.config.tenant_organization_id != tenant_organization_id.to_string() {
         return Err(CarbideError::FailedPrecondition(format!(
-            "VPC `{}` is not owned by Tenant `{}`",
+            "VPC `{}` is not owned by tenant `{}`",
             vpc.id, tenant_organization_id
         )));
     }
 
     if vpc.config.network_virtualization_type != VpcVirtualizationType::Flat {
         return Err(CarbideError::FailedPrecondition(format!(
-            "zero-DPU auto allocation requires a Flat VPC; VPC {} uses {}",
+            "zero-DPU auto allocation requires a flat VPC; VPC {} uses {}",
             vpc.id, vpc.config.network_virtualization_type
         )));
     }
@@ -142,19 +142,19 @@ pub async fn validate_os_definition_usable(
     };
     let row = db::operating_system::get(txn, os_id).await.map_err(|e| {
         if e.is_not_found() {
-            CarbideError::FailedPrecondition(format!("Operating system `{os_id}` does not exist"))
+            CarbideError::FailedPrecondition(format!("operating system `{os_id}` does not exist"))
         } else {
-            CarbideError::internal(format!("Failed to get operating system: {e}"))
+            CarbideError::internal(format!("failed to get operating system: {e}"))
         }
     })?;
     if !row.is_active {
         return Err(CarbideError::FailedPrecondition(format!(
-            "Operating system `{os_id}` is not active"
+            "operating system `{os_id}` is not active"
         )));
     }
     if row.status != db::operating_system::OS_STATUS_READY {
         return Err(CarbideError::FailedPrecondition(format!(
-            "Operating system `{os_id}` is not ready (status: {})",
+            "operating system `{os_id}` is not ready (status: {})",
             row.status
         )));
     }
@@ -326,7 +326,7 @@ pub async fn allocate_network(
                         .map(|vpc| (vpc.vpc_id, vpc.config.prefix, vpc.status.last_used_prefix))
                         .ok_or_else(|| {
                             CarbideError::internal(format!(
-                                "Unknown VPC prefix id: {vpc_prefix_id}"
+                                "unknown VPC prefix id: {vpc_prefix_id}"
                             ))
                         })?
                 };
@@ -372,7 +372,7 @@ pub async fn allocate_network(
                             .map(|vpc| (vpc.vpc_id, vpc.config.prefix, vpc.status.last_used_prefix))
                             .ok_or_else(|| {
                                 CarbideError::internal(format!(
-                                    "Unknown VPC prefix id: {v6_prefix_id}"
+                                    "unknown VPC prefix id: {v6_prefix_id}"
                                 ))
                             })?
                     };
@@ -443,15 +443,15 @@ pub fn allocate_ib_port_guid(
     let mut guids: Vec<String> = Vec::new();
     for request in &mut updated_ib_config.ib_interfaces {
         tracing::debug!(
-            "request IB device:{}, device_instance:{}",
-            request.device.clone(),
-            request.device_instance
+            device = %request.device,
+            device_instance = request.device_instance,
+            "Requested InfiniBand device",
         );
 
         // TOTO: will support VF in the future. Currently, it will return err when the function_id is not PF.
         if let InterfaceFunctionId::Virtual { .. } = request.function_id {
             return Err(CarbideError::InvalidArgument(format!(
-                "Not support VF {} (machine {})",
+                "not support VF {} (machine {})",
                 request.device, machine.id
             )));
         }
@@ -461,7 +461,10 @@ pub fn allocate_ib_port_guid(
                 request.pf_guid = Some(ib.guid.clone());
                 request.guid = Some(ib.guid.clone());
                 guids.push(ib.guid.clone());
-                tracing::debug!("select IB device GUID {}", ib.guid.clone());
+                tracing::debug!(
+                    ib_guid = %ib.guid,
+                    "select IB device GUID",
+                );
             } else {
                 return Err(CarbideError::InvalidArgument(format!(
                     "not enough ib device {} (machine {})",
@@ -491,7 +494,7 @@ pub fn allocate_ib_port_guid(
             }
         } else {
             return Err(CarbideError::InvalidArgument(format!(
-                "Infiniband status information is not found (machine {})",
+                "infiniband status information is not found (machine {})",
                 machine.id
             )));
         }
@@ -536,7 +539,7 @@ pub async fn allocate_instance(
 
     results
         .pop()
-        .ok_or_else(|| CarbideError::internal("Instance allocation returned no result".to_string()))
+        .ok_or_else(|| CarbideError::internal("instance allocation returned no result".to_string()))
 }
 
 /// Allocates multiple instances in a single transaction.
@@ -556,7 +559,7 @@ pub async fn batch_allocate_instances(
 ) -> Result<Vec<ManagedHostStateSnapshot>, CarbideError> {
     if requests.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "Batch request must contain at least one instance".to_string(),
+            "batch request must contain at least one instance".to_string(),
         ));
     }
 
@@ -571,7 +574,7 @@ pub async fn batch_allocate_instances(
         // Validate machine type
         if !request.machine_id.machine_type().is_host() {
             return Err(CarbideError::InvalidArgument(format!(
-                "Machine with UUID {} is of type {} and can not be converted into an instance",
+                "machine with UUID {} is of type {} and can not be converted into an instance",
                 request.machine_id,
                 request.machine_id.machine_type()
             )));
@@ -732,18 +735,22 @@ pub async fn batch_allocate_instances(
             })?;
 
         if let Err(e) = mh_snapshot.is_usable_as_instance(request.allow_unhealthy_machine) {
-            tracing::error!(%machine_id, "Host can not be used as instance due to reason: {}", e);
+            tracing::error!(
+                %machine_id,
+                error = %e,
+                "Host can not be used as instance due to reason",
+            );
             return Err(match e {
                 NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
-                    "Could not create instance on machine {machine_id} given machine state {s:?}"
+                    "could not create instance on machine {machine_id} given machine state {s:?}"
                 )),
                 NotAllocatableReason::PendingInstanceCreation => {
                     CarbideError::InvalidArgument(format!(
-                        "Could not create instance on machine {machine_id}. Machine is already used by another Instance creation request.",
+                        "could not create instance on machine {machine_id}. machine is already used by another instance creation request",
                     ))
                 }
                 NotAllocatableReason::NoDpuSnapshots => CarbideError::internal(format!(
-                    "Machine {machine_id} has no DPU. Cannot allocate."
+                    "machine {machine_id} has no DPU. cannot allocate"
                 )),
                 NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
                 NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
@@ -777,7 +784,7 @@ pub async fn batch_allocate_instances(
         .is_none()
         {
             return Err(CarbideError::FailedPrecondition(format!(
-                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                "NetworkSecurityGroup `{}` does not exist or is not owned by tenant `{}`",
                 nsg_id, tenant_org_id
             )));
         }
@@ -802,7 +809,7 @@ pub async fn batch_allocate_instances(
             let unique_service_ids: HashSet<_> = service_ids.iter().collect();
             if service_ids.len() != unique_service_ids.len() {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "Duplicate extension services in configuration. Only one version of each service is allowed. (machine {})",
+                    "duplicate extension services in configuration. only one version of each service is allowed. (machine {})",
                     request.machine_id
                 )));
             }
@@ -825,7 +832,7 @@ pub async fn batch_allocate_instances(
         for service in all_service_configs {
             if !services.contains_key(&service.service_id) {
                 return Err(CarbideError::FailedPrecondition(format!(
-                    "Extension service {} does not exist",
+                    "extension service {} does not exist",
                     service.service_id,
                 )));
             }
@@ -835,7 +842,7 @@ pub async fn batch_allocate_instances(
                 .contains(&service.version)
             {
                 return Err(CarbideError::FailedPrecondition(format!(
-                    "Extension service {} version {} does not exist or is deleted",
+                    "extension service {} version {} does not exist or is deleted",
                     service.service_id, service.version,
                 )));
             }
@@ -858,18 +865,18 @@ pub async fn batch_allocate_instances(
     for os_image_id in &os_image_ids {
         if os_image_id.is_nil() {
             return Err(CarbideError::InvalidArgument(
-                "Image ID is required for image based storage".to_string(),
+                "image ID is required for image based storage".to_string(),
             ));
         }
         if let Err(e) = db::os_image::get(&mut txn, *os_image_id).await {
             return if e.is_not_found() {
                 Err(CarbideError::FailedPrecondition(format!(
-                    "Image OS `{}` does not exist",
+                    "image OS `{}` does not exist",
                     os_image_id
                 )))
             } else {
                 Err(CarbideError::internal(format!(
-                    "Failed to get OS image error: {e}"
+                    "failed to get OS image error: {e}"
                 )))
             };
         }
@@ -991,7 +998,7 @@ pub async fn batch_allocate_instances(
                     && !allowed_segment_ids.contains(&ns_id)
                 {
                     return Err(CarbideError::InvalidArgument(format!(
-                        "zero-DPU host {} cannot serve an instance interface on network segment {ns_id}. must be a HostInband segment only (allowed: {allowed_segment_ids:?}).",
+                        "zero-DPU host {} cannot serve an instance interface on network segment {ns_id}. must be a HostInband segment only (allowed: {allowed_segment_ids:?})",
                         mh_snapshot.host_snapshot.id,
                     )));
                 }
@@ -1004,7 +1011,7 @@ pub async fn batch_allocate_instances(
                 if let Some(vpc) = db::vpc::find_by_segment(&mut txn, *segment_id).await? {
                     if vpc.id != requested_auto_config.vpc_id {
                         return Err(CarbideError::FailedPrecondition(format!(
-                            "zero-DPU host {} has HostInband segment {} bound to VPC {}, but allocation requested VPC {}; shared Flat segments must be left unbound",
+                            "zero-DPU host {} has HostInband segment {} bound to VPC {}, but allocation requested VPC {}; shared flat segments must be left unbound",
                             mh_snapshot.host_snapshot.id,
                             segment_id,
                             vpc.id,
@@ -1032,7 +1039,7 @@ pub async fn batch_allocate_instances(
             // would just report "Unknown" forever.
             if !request.config.extension_services.service_configs.is_empty() {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "zero-DPU host {} cannot serve extension services; remove `dpu_extension_services` from the instance config.",
+                    "zero-DPU host {} cannot serve extension services; remove `dpu_extension_services` from the instance config",
                     mh_snapshot.host_snapshot.id,
                 )));
             }
@@ -1231,7 +1238,7 @@ pub async fn batch_allocate_instances(
         let machine_id = request.machine_id;
         mh_snapshot.instance = Some(final_instance_map.remove(&machine_id).ok_or_else(|| {
             CarbideError::internal(format!(
-                "Newly created instance for {machine_id} was not found"
+                "newly created instance for {machine_id} was not found"
             ))
         })?);
         snapshots.push(mh_snapshot);
@@ -1278,7 +1285,8 @@ pub async fn batch_validate_spx_partition_ownership(
     for (partition_id, expected_tenant) in validations {
         let partition = partition_map.get(partition_id).ok_or_else(|| {
             tracing::error!(
-                "batch_validate_spx_partition_ownership partition not found: {partition_id}"
+                spx_partition_id = %partition_id,
+                "SPX partition not found while validating ownership",
             );
             ConfigValidationError::invalid_value(format!(
                 "SPX partition {partition_id} is not created"
@@ -1287,10 +1295,11 @@ pub async fn batch_validate_spx_partition_ownership(
 
         if &partition.tenant_organization_id != *expected_tenant {
             tracing::error!(
-                "batch_validate_spx_partition_ownership partition not owned by the tenant: {partition_id}"
+                spx_partition_id = %partition_id,
+                "SPX partition is not owned by the tenant",
             );
             return Err(CarbideError::InvalidArgument(format!(
-                "SPX Partition {partition_id} is not owned by the tenant {expected_tenant}",
+                "SPX partition {partition_id} is not owned by the tenant {expected_tenant}",
             )));
         }
     }
@@ -1332,7 +1341,7 @@ pub async fn batch_validate_ib_partition_ownership(
 
         if &partition.config.tenant_organization_id != *expected_tenant {
             return Err(CarbideError::InvalidArgument(format!(
-                "IB Partition {partition_id} is not owned by the tenant {expected_tenant}",
+                "IB partition {partition_id} is not owned by the tenant {expected_tenant}",
             )));
         }
     }
@@ -1394,8 +1403,8 @@ pub fn sort_spx_by_slot(spx_hw_info_vec: &[DpaInterface]) -> HashMap<String, Vec
             entry.push(spx);
         } else {
             tracing::info!(
-                "sort_spx_by_slot device_description is not found: {:#?}",
-                spx
+                spx = ?spx,
+                "SPX device description is missing",
             );
         }
     }
@@ -1411,17 +1420,17 @@ pub fn allocate_spx_port_mac(
     let mut updated_spx_config = spx_config.clone();
 
     tracing::debug!(
-        "allocate_spx_port_mac dev len: {:#?}",
-        mh_snapshot.dpa_interface_snapshots.len()
+        dpa_interface_snapshot_count = mh_snapshot.dpa_interface_snapshots.len(),
+        "Allocating SPX port MAC addresses",
     );
 
     let mut seen_device_instances = HashSet::new();
     for att in &updated_spx_config.spx_attachments {
         if !seen_device_instances.insert((att.device.clone(), att.device_instance)) {
             tracing::error!(
-                "allocate_spx_port_mac duplicate SPX attachment for device {} instance {}",
-                att.device,
-                att.device_instance
+                device = %att.device,
+                device_instance = att.device_instance,
+                "Duplicate SPX attachment",
             );
             return Err(CarbideError::InvalidArgument(format!(
                 "duplicate SPX attachment for device {} instance {}",
@@ -1445,7 +1454,7 @@ pub fn allocate_spx_port_mac(
         if spx_attachment.attachment_type == SpxAttachmentType::Virtual {
             tracing::error!("allocate_spx_port_mac SPX attachment type Virtual is not supported");
             return Err(CarbideError::InvalidArgument(
-                "SPX attachment type Virtual is not supported".to_string(),
+                "SPX attachment type virtual is not supported".to_string(),
             ));
         }
         if let Some(sorted_spxs) = spx_hw_map.get_mut(&spx_attachment.device) {
@@ -1454,9 +1463,9 @@ pub fn allocate_spx_port_mac(
                 sorted_spxs.remove(spx_attachment.device_instance as usize);
             } else {
                 tracing::error!(
-                    "allocate_spx_port_mac SPX device {} has no instance {}",
-                    spx_attachment.device,
-                    spx_attachment.device_instance
+                    device = %spx_attachment.device,
+                    device_instance = spx_attachment.device_instance,
+                    "SPX device has no matching instance",
                 );
                 return Err(CarbideError::InvalidArgument(format!(
                     "SPX device {} has no instance {}",
@@ -1465,12 +1474,12 @@ pub fn allocate_spx_port_mac(
             }
         } else {
             tracing::error!(
-                "allocate_spx_port_mac No SPX device with name {} in machine {}",
-                spx_attachment.device,
-                mh_snapshot.host_snapshot.id
+                device = %spx_attachment.device,
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "SPX device not found",
             );
             return Err(CarbideError::InvalidArgument(format!(
-                "No SPX device with name {} in machine {}",
+                "no SPX device with name {} in machine {}",
                 spx_attachment.device, mh_snapshot.host_snapshot.id,
             )));
         }

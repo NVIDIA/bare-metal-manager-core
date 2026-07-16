@@ -75,7 +75,7 @@ pub async fn spawn(
             addr: listen_address,
             error,
         })?;
-    tracing::info!("listening on {}", listen_address);
+    tracing::info!(%listen_address, "SSH server listening");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let join_handle = tokio::spawn(server.run(listener, shutdown_rx));
@@ -88,12 +88,12 @@ pub async fn spawn(
 
 #[derive(thiserror::Error, Debug)]
 pub enum SpawnError {
-    #[error("Error reading host key file at {path}: {error}")]
+    #[error("error reading host key file at {path}: {error}")]
     ReadingHostKeyFile {
         path: String,
         error: russh::keys::ssh_key::Error,
     },
-    #[error("Error listening on {addr}: {error}")]
+    #[error("error listening on {addr}: {error}")]
     Listening {
         addr: SocketAddr,
         error: std::io::Error,

@@ -149,61 +149,69 @@ impl<B: Bmc> ExploredManager<B> {
     }
 
     pub fn to_model(&self) -> Result<ModelManager, Error<B>> {
-        let ethernet_interfaces = self.eth_interfaces.iter().map(|iface| {
-            let mac_address = iface
-                .mac_address()
-                .map(|addr| {
-                    deserialize_input_mac_to_address(addr.as_str())
-                        .map_err(|e| Error::InvalidValue(format!("MAC address not valid: {addr} (err: {e})")))
+        let ethernet_interfaces = self
+            .eth_interfaces
+            .iter()
+            .map(|iface| {
+                let mac_address = iface
+                    .mac_address()
+                    .map(|addr| {
+                        deserialize_input_mac_to_address(addr.as_str()).map_err(|e| {
+                            Error::InvalidValue(format!("MAC address not valid: {addr} (err: {e})"))
+                        })
+                    })
+                    .transpose()
+                    .or_else(|err| {
+                        if iface
+                            .interface_enabled()
+                            .is_some_and(|is_enabled| !is_enabled)
+                        {
+                            // disabled interfaces sometimes populate the MAC address with junk,
+                            // ignore this error and create the interface with an empty mac address
+                            // in the exploration report
+                            tracing::debug!(
+                                interface_id = %iface.id(),
+                                link_status = ?iface.link_status(),
+                                error = %err,
+                                "could not parse MAC address for a disabled interface"
+                            );
+                            Ok(None)
+                        } else {
+                            Err(err)
+                        }
+                    })?;
+
+                // Warn if the manager eth0 MAC is locally-administered: a real BMC MAC is
+                // globally unique, so this signals transient pre-sync data (seen briefly
+                // after a BMC reboot) that would poison anything keyed on the BMC MAC.
+                if iface.id().inner().eq_ignore_ascii_case("eth0")
+                    && let Some(mac) = mac_address
+                    && is_locally_administered_mac(mac)
+                {
+                    tracing::warn!(
+                        manager_id = %self.manager.id().inner(),
+                        eth0_mac_address = %mac,
+                        "manager eth0 MAC is locally-administered (transient pre-sync data?)",
+                    );
+                }
+
+                let uefi_device_path = iface
+                    .uefi_device_path()
+                    .map(|v| v.into_inner())
+                    .map(UefiDevicePath::from_str)
+                    .transpose()
+                    .map_err(|err| Error::InvalidValue(format!("UefiDevicePath: {err}")))?;
+
+                Ok(ModelEthernetInterface {
+                    description: iface.description().map(|v| v.to_string()),
+                    id: Some(iface.id().to_string()),
+                    interface_enabled: iface.interface_enabled(),
+                    mac_address,
+                    link_status: iface.link_status().map(|s| format!("{s:?}")),
+                    uefi_device_path,
                 })
-                .transpose()
-                .or_else(|err| {
-                    if iface
-                        .interface_enabled().is_some_and(|is_enabled| !is_enabled)
-                    {
-                        // disabled interfaces sometimes populate the MAC address with junk,
-                        // ignore this error and create the interface with an empty mac address
-                        // in the exploration report
-                        tracing::debug!(
-                            "could not parse MAC address for a disabled interface {} (link_status: {:#?}): {err}",
-                            iface.id(), iface.link_status()
-                        );
-                        Ok(None)
-                    } else {
-                        Err(err)
-                    }
-                })?;
-
-            // Warn if the manager eth0 MAC is locally-administered: a real BMC MAC is
-            // globally unique, so this signals transient pre-sync data (seen briefly
-            // after a BMC reboot) that would poison anything keyed on the BMC MAC.
-            if iface.id().inner().eq_ignore_ascii_case("eth0")
-                && let Some(mac) = mac_address
-                && is_locally_administered_mac(mac)
-            {
-                tracing::warn!(
-                    manager_id = %self.manager.id().inner(),
-                    eth0_mac = %mac,
-                    "manager eth0 MAC is locally-administered (transient pre-sync data?)",
-                );
-            }
-
-            let uefi_device_path = iface
-                .uefi_device_path()
-                .map(|v| v.into_inner())
-                .map(UefiDevicePath::from_str)
-                .transpose()
-                .map_err(|err| Error::InvalidValue(format!("UefiDevicePath: {err}")))?;
-
-            Ok(ModelEthernetInterface {
-                description: iface.description().map(|v| v.to_string()),
-                id: Some(iface.id().to_string()),
-                interface_enabled: iface.interface_enabled(),
-                mac_address,
-                link_status: iface.link_status().map(|s| format!("{s:?}")),
-                uefi_device_path,
             })
-        }).collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(ModelManager {
             id: self.manager.id().inner().to_string(),

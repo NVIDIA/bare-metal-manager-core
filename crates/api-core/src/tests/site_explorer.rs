@@ -594,7 +594,7 @@ async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::
     assert_eq!(
         error.message(),
         format!(
-            "Cannot delete endpoint {host_ip} because a machine exists for it. Did you mean to force-delete the machine?"
+            "cannot delete endpoint {host_ip} because a machine exists for it. did you mean to force-delete the machine?"
         )
     );
 
@@ -611,7 +611,7 @@ async fn test_delete_explored_endpoint(pool: PgPool) -> Result<(), Box<dyn std::
     assert_eq!(
         error.message(),
         format!(
-            "Cannot delete endpoint {dpu_ip} because a machine exists for it. Did you mean to force-delete the machine?"
+            "cannot delete endpoint {dpu_ip} because a machine exists for it. did you mean to force-delete the machine?"
         )
     );
 

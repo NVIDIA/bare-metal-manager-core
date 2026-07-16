@@ -118,7 +118,7 @@ async fn main() -> eyre::Result<()> {
             additional_prefix: None,
         };
         if let Err(err) = metrics_endpoint::run_metrics_endpoint(&config).await {
-            tracing::error!("Prometheus metrics server error: {err}");
+            tracing::error!(error = %err, "Prometheus metrics server error");
         }
     });
 
@@ -139,7 +139,7 @@ async fn main() -> eyre::Result<()> {
 
         tracing::info!(%rest_address, "REST server listening");
         if let Err(err) = server.serve(router.into_make_service()).await {
-            tracing::error!("REST server error: {err}");
+            tracing::error!(error = %err, "REST server error");
         }
     });
 

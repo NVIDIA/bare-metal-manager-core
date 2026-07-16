@@ -908,6 +908,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tar",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tower",
@@ -2191,6 +2192,7 @@ dependencies = [
  "ctor",
  "dashmap",
  "futures-util",
+ "logfmt",
  "opentelemetry 0.32.0",
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
@@ -2203,6 +2205,7 @@ dependencies = [
 name = "carbide-instrument-macros"
 version = "0.0.0"
 dependencies = [
+ "carbide-observability-schema",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -2244,6 +2247,7 @@ dependencies = [
  "aes-gcm 0.10.3",
  "async-trait",
  "base64",
+ "carbide-instrument",
  "carbide-test-support",
  "hex",
  "rand 0.10.1",
@@ -2584,6 +2588,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-observability-schema"
+version = "0.0.0"
+
+[[package]]
 name = "carbide-power-shelf-controller"
 version = "0.0.0"
 dependencies = [
@@ -2753,6 +2761,9 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "axum",
+ "axum-server",
+ "bmc-mock",
  "bmc-vendor",
  "carbide-api-model",
  "carbide-instrument",
@@ -2764,6 +2775,7 @@ dependencies = [
  "mac_address",
  "nv-redfish",
  "reqwest 0.13.4",
+ "rustls",
  "serde",
  "serde_json",
  "state-controller",
@@ -2896,9 +2908,11 @@ version = "0.0.1"
 dependencies = [
  "axum",
  "carbide-host-support",
+ "carbide-instrument",
  "carbide-libmlx",
  "carbide-machine-validation",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -2911,6 +2925,7 @@ dependencies = [
  "hex",
  "http",
  "lazy_static",
+ "metrics-endpoint",
  "once_cell",
  "pwhash",
  "regex",
@@ -3025,6 +3040,7 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
+ "carbide-instrument",
  "carbide-redfish",
  "carbide-utils",
  "config-version",
@@ -6705,7 +6721,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.19#b52345f45212c674245dffb6053b34dec53ac57b"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.21#63431424e2f5eea93e3df7eb41f0b2b3e98f72fb"
 dependencies = [
  "chrono",
  "clap",
@@ -7528,6 +7544,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
+ "carbide-instrument",
  "clap",
  "fmt",
  "jsonwebtoken",
@@ -7738,6 +7755,7 @@ dependencies = [
 name = "nvue-client"
 version = "0.0.0"
 dependencies = [
+ "carbide-instrument",
  "glob",
  "reqwest 0.13.4",
  "serde",
@@ -13157,12 +13175,15 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "carbide-observability-schema",
  "cargo_metadata",
  "chrono",
  "clap",
  "eyre",
+ "proc-macro2",
  "similar 3.1.1",
  "sqlx",
+ "syn 2.0.117",
  "tokio",
  "toml_edit 0.25.12+spec-1.1.0",
  "tracing",

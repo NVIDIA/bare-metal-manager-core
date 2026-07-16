@@ -328,11 +328,11 @@ pub const SWITCH_ID_LENGTH: usize = SWITCH_ID_PREFIX_LENGTH + SWITCH_ID_HARDWARE
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum SwitchIdParseError {
-    #[error("The Switch ID has an invalid length of {0}")]
+    #[error("the switch ID has an invalid length of {0}")]
     Length(usize),
-    #[error("The Switch ID {0} has an invalid prefix")]
+    #[error("the switch ID {0} has an invalid prefix")]
     Prefix(String),
-    #[error("The Switch ID {0} has an invalid encoding")]
+    #[error("the switch ID {0} has an invalid encoding")]
     Encoding(String),
 }
 
