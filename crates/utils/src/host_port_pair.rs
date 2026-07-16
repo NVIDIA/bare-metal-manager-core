@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::net::Ipv6Addr;
 use std::str::FromStr;
@@ -57,6 +58,25 @@ impl HostPortPair {
             HostPortPair::HostOnly(_) => None,
             HostPortPair::PortOnly(p) | HostPortPair::HostAndPort(_, p) => Some(*p),
         }
+    }
+
+    /// Returns the host formatted for use in a URL authority: a bare IPv6
+    /// literal is bracketed (`[2001:db8::1]`); hostnames and IPv4 literals are
+    /// returned unchanged. `None` when there is no host.
+    ///
+    /// Use this instead of [`Self::host`] when interpolating into a URL or
+    /// `host:port` authority, where an unbracketed IPv6 literal is invalid.
+    pub fn url_host(&self) -> Option<Cow<'_, str>> {
+        self.host().map(bracket_ipv6)
+    }
+}
+
+/// Brackets `host` when it is a bare IPv6 literal; other hosts pass through.
+fn bracket_ipv6(host: &str) -> Cow<'_, str> {
+    if host.parse::<Ipv6Addr>().is_ok() {
+        Cow::Owned(format!("[{host}]"))
+    } else {
+        Cow::Borrowed(host)
     }
 }
 
@@ -124,10 +144,7 @@ impl Display for HostPortPair {
             HostPortPair::PortOnly(p) => write!(f, "{p}"),
             // Bracket an IPv6 literal host so the `host:port` form is
             // unambiguous and round-trips back through `from_str`.
-            HostPortPair::HostAndPort(h, p) if h.parse::<Ipv6Addr>().is_ok() => {
-                write!(f, "[{h}]:{p}")
-            }
-            HostPortPair::HostAndPort(h, p) => write!(f, "{h}:{p}"),
+            HostPortPair::HostAndPort(h, p) => write!(f, "{}:{p}", bracket_ipv6(h)),
         }
     }
 }
@@ -315,6 +332,35 @@ mod tests {
                 Ok(pair.clone()),
                 "round trip of {rendered:?}"
             );
+        }
+    }
+
+    /// `url_host` brackets bare IPv6 literal hosts (which are stored
+    /// unbracketed) so they can be interpolated into a URL authority;
+    /// hostnames and IPv4 literals pass through unchanged.
+    #[test]
+    fn test_url_host_brackets_ipv6() {
+        let cases = [
+            (
+                HostPortPair::HostAndPort("2001:db8::1".to_string(), 443),
+                Some("[2001:db8::1]"),
+            ),
+            (
+                HostPortPair::HostOnly("2001:db8::1".to_string()),
+                Some("[2001:db8::1]"),
+            ),
+            (
+                HostPortPair::HostOnly("proxyhost".to_string()),
+                Some("proxyhost"),
+            ),
+            (
+                HostPortPair::HostAndPort("10.0.0.1".to_string(), 443),
+                Some("10.0.0.1"),
+            ),
+            (HostPortPair::PortOnly(8443), None),
+        ];
+        for (pair, expected) in cases {
+            assert_eq!(pair.url_host().as_deref(), expected, "url_host of {pair:?}");
         }
     }
 }
