@@ -231,6 +231,7 @@ func (s *Subnet) FromProto(proto *corev1.NetworkSegment) {
 	}
 	s.IPv4Prefix = nil
 	s.IPv4Gateway = nil
+	s.PrefixLength = 0
 	if len(cfg.Prefixes) > 0 && cfg.Prefixes[0] != nil {
 		// The proto carries `<prefix>/<length>` as a single string; split
 		// it back into the entity's two fields. A malformed value clears

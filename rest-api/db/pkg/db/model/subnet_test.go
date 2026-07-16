@@ -190,6 +190,7 @@ func TestSubnet_FromProto(t *testing.T) {
 		assert.Nil(t, s.MTU)
 		assert.Nil(t, s.IPv4Prefix)
 		assert.Nil(t, s.IPv4Gateway)
+		assert.Zero(t, s.PrefixLength)
 	})
 
 	t.Run("clears optional fields when proto omits them", func(t *testing.T) {
@@ -222,6 +223,7 @@ func TestSubnet_FromProto(t *testing.T) {
 		assert.Nil(t, s.MTU)
 		assert.Nil(t, s.IPv4Prefix)
 		assert.Nil(t, s.IPv4Gateway)
+		assert.Zero(t, s.PrefixLength)
 	})
 
 	t.Run("clears stale fields and ignores deprecated flat mirrors", func(t *testing.T) {
@@ -316,6 +318,7 @@ func TestSubnet_FromProto(t *testing.T) {
 		s.FromProto(proto)
 		assert.Nil(t, s.IPv4Prefix)
 		assert.Nil(t, s.IPv4Gateway)
+		assert.Zero(t, s.PrefixLength)
 	})
 }
 
