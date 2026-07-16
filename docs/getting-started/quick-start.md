@@ -33,17 +33,17 @@ The cluster must have:
 
 ### Site controller node DPU requirements
 
-Site controller nodes must be equipped with fully provisioned DPUs (Bluefield-3s) which are configured **before** the Kubernetes cluster is set up. We do not support configuring site controller nodes without DPUs today. NICo does not provision the site controller nodes' own DPUs — it only manages DPUs on downstream bare-metal hosts after ingestion.
+DPUs are generally preferred in nodes hosting the NICo control plane components, but not strictly required. DPUs in these nodes are, however, the configuration that NICo QA regularly tests. NICo does not provision the site controller nodes' own DPUs — it only manages DPUs on downstream bare-metal hosts after ingestion.
 
-Specifically, you must complete the following before proceeding:
+If your site controller nodes are equipped with Bluefield-3 DPUs, they must be fully provisioned **before** the Kubernetes cluster is set up. Specifically, complete the following before proceeding:
 
-- Flash the DPU firmware to the latest supported version using the BlueField Firmware Bundle. Latest supported firmware versions:
+- Flash the DPU firmware to the latest tested version using the BlueField Firmware Bundle. Latest tested firmware versions:
 
   | DOCA  | HBN   |
   | ----- | ----- |
-  | 2.9.3 | 2.4.3 |
+  | 3.2.2 | 3.2.2 |
 
-- Configure the Bluefield-3 device in DPU mode (operating mode). We do not currently support NIC mode.
+- Configure the Bluefield-3 device in DPU mode (operating mode).
 - Ensure the DPU ARM OS is booted and reachable via its management interface.
 - Verify that the DPU can connect to the outside world (curl -I https://www.google.com)
 
