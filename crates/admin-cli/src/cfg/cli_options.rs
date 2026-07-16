@@ -67,7 +67,7 @@ pub struct CliOptions {
 
     #[clap(short, long, env = "API_URL", visible_alias = "carbide-url")]
     #[clap(
-        help = "Default to API_URL environment variable or $HOME/.config/carbide_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
+        help = "Default to API_URL environment variable or $HOME/.config/nico_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
     )]
     pub api_url: Option<String>,
 
@@ -79,19 +79,19 @@ pub struct CliOptions {
 
     #[clap(long, env = "ROOT_CA_PATH", visible_alias = "forge-root-ca-path")]
     #[clap(
-        help = "Default to ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to ROOT_CA_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub root_ca_path: Option<String>,
 
     #[clap(long, env = "CLIENT_CERT_PATH")]
     #[clap(
-        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_cert_path: Option<String>,
 
     #[clap(long, env = "CLIENT_KEY_PATH")]
     #[clap(
-        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_key_path: Option<String>,
 
