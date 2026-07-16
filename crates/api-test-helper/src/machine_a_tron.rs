@@ -105,6 +105,13 @@ pub async fn run_local(
 
         try_join_all(
             machine_handles_clone
+                .iter()
+                .map(HostMachineHandle::abort_and_wait),
+        )
+        .await?;
+
+        try_join_all(
+            machine_handles_clone
                 .into_iter()
                 .map(|m| m.delete_from_api(app_context.api_client())),
         )
@@ -125,4 +132,12 @@ pub async fn run_local(
 pub struct MachineATronHandle {
     _stop_tx: oneshot::Sender<()>,
     _join_handle: JoinHandle<eyre::Result<()>>,
+}
+
+impl MachineATronHandle {
+    pub async fn shutdown(self) -> eyre::Result<()> {
+        drop(self._stop_tx);
+        self._join_handle.await??;
+        Ok(())
+    }
 }

@@ -1506,7 +1506,7 @@ where
         mac_address_pool: None,
     };
 
-    let (machine_handles, _mat_handle) = api_test_helper::machine_a_tron::run_local(
+    let (machine_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(
         mat_config,
         additional_api_urls,
         &test_env.root_dir,
@@ -1517,9 +1517,13 @@ where
     .unwrap();
 
     let results = join_all(machine_handles.into_iter().map(run_assertions)).await;
-    assert_eq!(results.len(), host_count as usize);
+    let result_count = results.len();
+    let assertion_result: eyre::Result<()> = results.into_iter().try_collect();
+    let shutdown_result = mat_handle.shutdown().await;
 
-    results.into_iter().try_collect()
+    assert_eq!(result_count, host_count as usize);
+    assertion_result?;
+    shutdown_result
 }
 
 // Get the current number of rows in the dns_records view,
