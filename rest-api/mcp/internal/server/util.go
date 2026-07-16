@@ -5,6 +5,7 @@ package server
 
 import (
 	"encoding/json"
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode"
@@ -25,6 +26,26 @@ func stringArg(in map[string]any, key string) string {
 // absolute "/v2/..." path never yields a double slash.
 func normalizeBaseURL(v string) string {
 	return strings.TrimRight(v, "/")
+}
+
+func sameBaseURL(a, b string) bool {
+	left, err := url.Parse(a)
+	if err != nil {
+		return false
+	}
+	right, err := url.Parse(b)
+	if err != nil {
+		return false
+	}
+	if !sameOrigin(left, right) || (left.User == nil) != (right.User == nil) {
+		return false
+	}
+	if left.User != nil && left.User.String() != right.User.String() {
+		return false
+	}
+	left.Scheme, left.Host, left.User = "", "", nil
+	right.Scheme, right.Host, right.User = "", "", nil
+	return *left == *right
 }
 
 // normalizeToken strips a leading "Bearer " scheme (case-insensitive) so
