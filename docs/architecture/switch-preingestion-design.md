@@ -55,6 +55,14 @@ flowchart TB
     SW --> SSH --> READY
 ```
 
+Text equivalent: an operator seeds an expected switch; Site Explorer discovers the BMC and
+records an explored endpoint; the Preingestion Manager runs NVOS factory reset and firmware
+checks on that endpoint; after preingestion completes, Site Explorer creates the managed
+switch; the Switch State Handler then configures and validates the switch until it reaches
+Ready.
+
+The following table summarizes each layer, component, and responsibility:
+
 | Layer | Component | Responsibility |
 |-------|-----------|----------------|
 | Input | Expected switch | Declares the switch to discover and ingest |
@@ -89,6 +97,13 @@ flowchart TD
     N --> O[Ready]
 ```
 
+Text equivalent: Site Explorer discovers the switch BMC and creates an explored-endpoint
+row; the Preingestion Manager runs `SwitchFactoryReset` phases and firmware threshold
+checks, looping through firmware upload states when an upgrade is needed; when
+preingestion reaches `Complete`, Site Explorer creates a managed switch in `Created`;
+the Switch State Handler then advances the switch through Initializing, Configuring,
+FetchInfo, Validating, BomValidating, and Ready.
+
 ## Connection to Switch State Handler
 
 Switch preingestion and the switch state handler are separate lifecycle stages with a
@@ -101,25 +116,25 @@ clear handoff:
 | Ingestion | Site Explorer | After `preingestion_state == Complete` |
 | Managed lifecycle | Switch State Handler | After the managed `Switch` row is created |
 
-### Handoff sequence
+### Handoff Sequence
 
 1. **Expected switch is configured** with BMC MAC, NVOS MAC addresses, and optional
    bootstrap NVOS credentials.
-2. **Site Explorer discovers the switch BMC**, records the exploration report, and
+1. **Site Explorer discovers the switch BMC**, records the exploration report, and
    creates or updates the explored endpoint.
-3. **Preingestion Manager** picks up the explored switch endpoint and runs the switch
+1. **Preingestion Manager** picks up the explored switch endpoint and runs the switch
    cleanup and firmware flow described in this document.
-4. **Ingestion gate** — Site Explorer only considers switch BMC endpoints whose
+1. **Ingestion gate**—Site Explorer only considers switch BMC endpoints whose
    preingestion state is `Complete`.
-5. **Managed switch creation** — Site Explorer matches the explored switch to the
+1. **Managed switch creation**—Site Explorer matches the explored switch to the
    expected switch, generates a switch ID, inserts the managed `Switch` row, and
    links the BMC machine interface to that switch.
-6. **Switch State Handler** processes the new switch independently of preingestion.
+1. **Switch State Handler** processes the new switch independently of preingestion.
 
-### What happens after preingestion
+### What Happens After Preingestion
 
-Once the managed `Switch` exists, the switch state handler owns post-ingestion work.
-See [Switch State Diagram](state_machines/switch.md) for the full FSM. At a high
+After the managed `Switch` exists, the switch state handler owns post-ingestion work.
+Refer to [Switch State Diagram](state_machines/switch.md) for the full FSM. At a high
 level:
 
 ```text
@@ -141,25 +156,25 @@ Created
 Preingestion prepares the switch for safe ingestion. The switch state handler
 configures and validates the switch after ingestion.
 
-### Responsibility boundary
+### Responsibility Boundary
 
 - **Preingestion** cleans NVOS state, removes old certificate history, reboots NVOS,
-  deletes stored pre-ingestion credentials, and applies switch firmware policy.
+  deletes stored preingestion credentials, and applies switch firmware policy.
 - **Switch State Handler** does not re-run preingestion. It assumes the explored
   endpoint gate has already passed and focuses on managed-switch configuration.
 - **Site Explorer** does not create a managed switch until preingestion is complete,
   and does not perform NVOS factory-reset cleanup itself.
 
-### Operator-visible states
+### Operator-Visible States
 
 Operators can observe progress in two places:
 
-1. **Before managed switch exists** — explored-endpoint preingestion state and
+1. **Before managed switch exists**—explored-endpoint preingestion state and
    factory-reset phase (`UnsetApps`, `SaveConfig`, `RebootDefaultOs`, `DeleteCerts`).
-2. **After managed switch exists** — switch controller state (`Created`,
-   `Initializing`, `Configuring`, `Ready`, etc.).
+1. **After managed switch exists**—switch controller state (`Created`,
+   `Initializing`, `Configuring`, `Ready`, and so on).
 
-A switch BMC may sit in preingestion for some time before a managed `Switch` row
+A switch BMC can sit in preingestion for some time before a managed `Switch` row
 appears. That is expected: preingestion must finish before ingestion begins.
 
 ## NVOS Factory Reset
@@ -167,7 +182,7 @@ appears. That is expected: preingestion must finish before ingestion begins.
 Before firmware checks, switch preingestion SSHs to NVOS and runs the cleanup
 steps below.
 
-### Phase 1 — `UnsetApps` (unset certificates and cluster state)
+### Phase 1: UnsetApps (unset certificates and cluster state)
 
 Run over SSH in order. Each command appends `|| true` so a missing object does
 not fail the cleanup stage:
@@ -224,7 +239,7 @@ If no NVOS SSH target is available, the phase is logged and skipped.
 
 SSH/connect failures retry on the next preingestion iteration.
 
-### Phase 2 — `SaveConfig` (apply and persist)
+### Phase 2: SaveConfig (apply and persist)
 
 After unset completes, run:
 
@@ -236,13 +251,13 @@ nv config save
 Non-zero exit codes are retried on the next iteration (unlike unset, these do
 not use `|| true`).
 
-### Phase 3 — `RebootDefaultOs`
+### Phase 3: RebootDefaultOs
 
 Reboot NVOS into the default OS image after the certificate and cluster-state
 cleanup has been applied and saved. This phase is about the switch OS, not a BMC
 factory reset. Errors are logged and the stage continues.
 
-### Phase 4 — `DeleteCerts`
+### Phase 4: DeleteCerts
 
 Delete stored NVOS admin credentials from the vault:
 
@@ -283,7 +298,7 @@ Initial / InitialBmcReset / SetNtpServers
 After NTP, switches route to factory-reset cleanup. Machines continue through
 their own time-sync and remediation checks instead.
 
-### Unsupported host-only states on switches
+### Unsupported Host-Only States on Switches
 
 Preingestion fails immediately if a switch enters:
 
@@ -295,9 +310,9 @@ Preingestion fails immediately if a switch enters:
 ### Site Explorer
 
 - Discovers switch BMCs and maintains explored-endpoint records.
-- May seed bootstrap NVOS credentials from expected-switch configuration during
+- Can seed bootstrap NVOS credentials from expected-switch configuration during
   exploration.
-- Identifies switch BMCs ready for ingestion once preingestion is `Complete`.
+- Identifies switch BMCs ready for ingestion after preingestion is `Complete`.
 - Creates the managed `Switch` row and links the BMC machine interface.
 - Does not run NVOS factory-reset cleanup.
 
