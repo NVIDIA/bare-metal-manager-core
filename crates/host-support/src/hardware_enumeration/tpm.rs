@@ -426,6 +426,8 @@ mod tests {
         let rsa_cert = test_ek_cert_der("rsa");
         let mut rsa_ecc_certs = first_cert.clone();
         rsa_ecc_certs.extend_from_slice(&ecc_cert);
+        let mut rsa_ecc_certs_with_extra = first_cert.clone();
+        rsa_ecc_certs_with_extra.extend_from_slice(&ecc_cert);
 
         // Input is a (runner, expected-bytes-if-any) pair; the closure runs the
         // runner and returns the cert vec, dropping the non-PartialEq error.
@@ -495,6 +497,39 @@ mod tests {
                     calls.extend(failing_nv_tail(3));
                     FakeRunner::new(calls)
                 } => Yields(rsa_ecc_certs),
+            }
+
+            "extra readable RSA and ECC certs do not change the tool-compatible output" {
+                {
+                    let first_nv = cert_with_trailing_nv_bytes(&first_cert);
+                    let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
+                    let second_nv = cert_with_trailing_nv_bytes(&second_cert);
+                    let second_ecc_nv = cert_with_trailing_nv_bytes(&second_ecc_cert);
+                    let mut calls = vec![
+                        primary_tool_failed_call(),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[0].index,
+                            Ok(successful_output(&first_nv)),
+                        ),
+                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[1].index),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[2].index,
+                            Ok(successful_output(&ecc_nv)),
+                        ),
+                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[3].index),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[4].index,
+                            Ok(successful_output(&second_nv)),
+                        ),
+                        failed_nv_read_call(TPM_EK_CERT_NV_INDICES[5].index),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[6].index,
+                            Ok(successful_output(&second_ecc_nv)),
+                        ),
+                    ];
+                    calls.extend(failing_nv_tail(7));
+                    FakeRunner::new(calls)
+                } => Yields(rsa_ecc_certs_with_extra),
             }
 
             "first RSA cert is selected when multiple RSA certs are readable" {
