@@ -1632,11 +1632,8 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 	if err != nil {
 		return false, err
 	}
-
-	for _, ta := range tas {
-		if ta.Config.TargetedInstanceCreation {
-			return true, nil
-		}
+	if len(tas) == 0 {
+		return false, nil
 	}
 
 	privilegedSiteIDs, err := getPrivilegedAccessSiteIDsForTenant(ctx, tx, dbSession, tenant, providerFilter)

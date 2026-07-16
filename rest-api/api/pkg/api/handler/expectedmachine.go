@@ -295,9 +295,8 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 
 	// ensure our user is a provider or tenant for the org. We do not request the
 	// privileged-tenant pre-gate (requirePrivilegedScope=nil): tenant-only
-	// callers are scoped below to their associated TenantSites unioned with the
-	// Sites where they have effective TargetedInstanceCreation, and receive 403
-	// when neither resolves any Site.
+	// callers are scoped below to Sites with effective TargetedInstanceCreation,
+	// and receive 403 when none are resolved.
 	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaemh.dbSession, org, dbUser, true, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
@@ -328,23 +327,8 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 	}
 
 	if tenant != nil {
-		// Sites the Tenant is associated with (TenantSite) are visible for
-		// listing, unioned with the Sites where the Tenant has effective
-		// TargetedInstanceCreation (per-site TenantSite.config overrides honored).
-		tsDAO := cdbm.NewTenantSiteDAO(gaemh.dbSession)
-		tenantSites, _, err := tsDAO.GetAll(ctx, nil,
-			cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}},
-			paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)},
-			nil,
-		)
-		if err != nil {
-			logger.Error().Err(err).Msg("error retrieving Tenant Site associations from DB")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Site associations due to DB error", nil)
-		}
-		for _, ts := range tenantSites {
-			filterInput.SiteIDs = append(filterInput.SiteIDs, ts.SiteID)
-		}
-
+		// Scope tenant listing to Sites where the Tenant has effective
+		// TargetedInstanceCreation, honoring per-site TenantSite.config overrides.
 		privilegedSiteIDs, err := common.GetPrivilegedAccessSiteIDsForTenant(ctx, nil, gaemh.dbSession, tenant)
 		if err != nil {
 			logger.Error().Err(err).Msg("error resolving privileged Site access for Tenant")
@@ -354,7 +338,7 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 	}
 
 	if infrastructureProvider == nil && tenant != nil && len(filterInput.SiteIDs) == 0 {
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant is not associated with any Site", nil)
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled for any Site", nil)
 	}
 
 	siteIDStr := c.QueryParam("siteId")

@@ -2902,6 +2902,12 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 	ip := testCommonBuildInfrastructureProvider(t, dbSession, "Test Provider", org, user)
 	ip2 := testCommonBuildInfrastructureProvider(t, dbSession, "Test Provider 2", org+"-2", user)
 
+	// A Site under ip is required so effective capability resolution can report
+	// a Ready TenantAccount's global default as an enabled Site. The coarse and
+	// provider-scoped ceilings report privileged only when at least one Site
+	// resolves to an enabled effective capability.
+	testCommonBuildSite(t, dbSession, ip, "Priv Site", user)
+
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
 	// Tenant with a Ready TenantAccount that enables TargetedInstanceCreation.

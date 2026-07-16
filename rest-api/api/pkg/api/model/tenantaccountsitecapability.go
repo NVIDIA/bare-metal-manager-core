@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
@@ -38,16 +37,25 @@ var tenantAccountSiteCapabilityScopes = []interface{}{
 }
 
 // APITenantAccountSiteCapability describes the TargetedInstanceCreation capability for
-// either all sites (global) or an explicit site list (limited).
+// either all sites (global) or an explicit site list (limited). Used in responses.
 type APITenantAccountSiteCapability struct {
 	SiteIDs                  []string                         `json:"siteIds,omitempty"`
 	Scope                    TenantAccountSiteCapabilityScope `json:"scope"`
 	TargetedInstanceCreation bool                             `json:"targetedInstanceCreation"`
 }
 
+// APITenantAccountSiteCapabilityUpdate is the replace payload entry for Provider Admin
+// capability updates. targetedInstanceCreation must be present on every entry so an
+// omitted field cannot silently bind as false.
+type APITenantAccountSiteCapabilityUpdate struct {
+	SiteIDs                  []string                         `json:"siteIds,omitempty"`
+	Scope                    TenantAccountSiteCapabilityScope `json:"scope"`
+	TargetedInstanceCreation *bool                            `json:"targetedInstanceCreation"`
+}
+
 // APITenantAccountSiteCapabilitiesUpdateRequest is the replace payload for Provider Admin
 // capability updates on a TenantAccount.
-type APITenantAccountSiteCapabilitiesUpdateRequest []APITenantAccountSiteCapability
+type APITenantAccountSiteCapabilitiesUpdateRequest []APITenantAccountSiteCapabilityUpdate
 
 // Validate ensures the replace payload is structurally valid.
 func (caps APITenantAccountSiteCapabilitiesUpdateRequest) Validate() error {
@@ -64,6 +72,8 @@ func (caps APITenantAccountSiteCapabilitiesUpdateRequest) Validate() error {
 			validation.Field(&cap.Scope,
 				validation.Required.Error(validationErrorValueRequired),
 				validation.In(tenantAccountSiteCapabilityScopes...).Error(validationErrorInvalidSiteCapabilityScope)),
+			validation.Field(&cap.TargetedInstanceCreation,
+				validation.Required.Error(validationErrorValueRequired)),
 			validation.Field(&cap.SiteIDs,
 				validation.When(cap.Scope == TenantAccountSiteCapabilityScopeGlobal,
 					validation.Empty.Error(validationErrorGlobalSiteIDsNotAllowed)),
@@ -194,7 +204,7 @@ func parseSiteCapabilitySiteIDs(caps APITenantAccountSiteCapabilitiesUpdateReque
 func GlobalTargetedInstanceCreationFromRequest(caps APITenantAccountSiteCapabilitiesUpdateRequest) *bool {
 	for _, cap := range caps {
 		if cap.Scope == TenantAccountSiteCapabilityScopeGlobal {
-			return cutil.GetPtr(cap.TargetedInstanceCreation)
+			return cap.TargetedInstanceCreation
 		}
 	}
 	return nil

@@ -768,7 +768,28 @@ func (utah UpdateTenantAccountHandler) handleTenantInviteAcceptance(c echo.Conte
 	var ssds []cdbm.StatusDetail
 	// Handle database updates -- both tenant account and status detail
 	err = cdb.WithTx(ctx, utah.dbSession, func(tx *cdb.Tx) error {
-		var derr error
+		lockKey := fmt.Sprintf("tenant-account-invite-%s", taID.String())
+		derr := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(lockKey), nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("unable to acquire advisory lock for TenantAccount invite acceptance")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update TenantAccount", nil)
+		}
+
+		lockedTA, derr := taDAO.GetByID(ctx, tx, taID, nil)
+		if derr != nil {
+			logger.Warn().Err(derr).Msg("error retrieving TenantAccount DB entity within transaction")
+			return cutil.NewAPIError(http.StatusNotFound, "Could not retrieve TenantAccount to update", nil)
+		}
+		if lockedTA.TenantID == nil || *lockedTA.TenantID != tn.ID {
+			logger.Warn().Msg("tenant in tenant account does not match tenant in org")
+			return cutil.NewAPIError(http.StatusBadRequest,
+				"Tenant in org does not match tenant in TenantAccount", nil)
+		}
+		if lockedTA.Status != cdbm.TenantAccountStatusInvited {
+			logger.Warn().Msg("tenant account status is not Invited")
+			return cutil.NewAPIError(http.StatusBadRequest, "Tenant Account status is not Invited", nil)
+		}
+
 		uta, derr = taDAO.Update(ctx, tx, cdbm.TenantAccountUpdateInput{
 			TenantAccountID: taID,
 			TenantContactID: cutil.GetPtr(dbUser.ID),
@@ -799,7 +820,21 @@ func (utah UpdateTenantAccountHandler) handleTenantInviteAcceptance(c echo.Conte
 		return common.HandleTxError(c, logger, err, "Failed to update Tenant Account, DB transaction error")
 	}
 
-	apiInstance := model.NewAPITenantAccount(uta, ssds, 0, nil)
+	allocationCount := 0
+	if uta.TenantID != nil {
+		aDAO := cdbm.NewAllocationDAO(utah.dbSession)
+		cnt, cerr := aDAO.GetCount(ctx, nil, cdbm.AllocationFilterInput{
+			InfrastructureProviderIDs: []uuid.UUID{uta.InfrastructureProviderID},
+			TenantIDs:                 []uuid.UUID{*uta.TenantID},
+		})
+		if cerr != nil {
+			logger.Error().Err(cerr).Msg("error retrieving allocation count for updated Tenant Account")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve allocation count for Tenant Account", nil)
+		}
+		allocationCount = cnt
+	}
+
+	apiInstance := model.NewAPITenantAccount(uta, ssds, allocationCount, nil)
 
 	logger.Info().Msg("finishing API handler")
 
@@ -880,7 +915,7 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 				if perr != nil {
 					return cutil.NewAPIError(http.StatusBadRequest, "Invalid Site ID in siteCapabilities", nil)
 				}
-				limitedUpdates[siteID] = cap.TargetedInstanceCreation
+				limitedUpdates[siteID] = *cap.TargetedInstanceCreation
 				limitedSiteIDs[siteID] = struct{}{}
 			}
 		}
@@ -969,7 +1004,21 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Status Details for TenantAccount", nil)
 	}
 
-	apiInstance := model.NewAPITenantAccount(ta, ssds, 0, tenantSites)
+	allocationCount := 0
+	if ta.TenantID != nil {
+		aDAO := cdbm.NewAllocationDAO(utah.dbSession)
+		cnt, cerr := aDAO.GetCount(ctx, nil, cdbm.AllocationFilterInput{
+			InfrastructureProviderIDs: []uuid.UUID{ta.InfrastructureProviderID},
+			TenantIDs:                 []uuid.UUID{*ta.TenantID},
+		})
+		if cerr != nil {
+			logger.Error().Err(cerr).Msg("error retrieving allocation count for updated Tenant Account")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve allocation count for Tenant Account", nil)
+		}
+		allocationCount = cnt
+	}
+
+	apiInstance := model.NewAPITenantAccount(ta, ssds, allocationCount, tenantSites)
 
 	logger.Info().Msg("finishing API handler")
 

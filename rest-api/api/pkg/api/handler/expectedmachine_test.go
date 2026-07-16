@@ -608,12 +608,16 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(dualRoleTenantSite).Exec(ctx)
 	assert.Nil(t, err)
 
-	// External site owned by a different provider but accessible to dual-role tenant via TenantSite
+	// External site owned by a different provider; tenant access requires an
+	// explicit per-site TargetedInstanceCreation override because the Ready
+	// TenantAccount on the unmanaged provider has the capability disabled globally.
+	siteOverrideTrue := true
 	dualRoleExternalTenantSite := &cdbm.TenantSite{
 		ID:        uuid.New(),
 		TenantID:  dualRoleTenant.ID,
 		TenantOrg: dualRoleOrg,
 		SiteID:    unmanagedSite.ID,
+		Config:    cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideTrue},
 		CreatedBy: dualRoleUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(dualRoleExternalTenantSite).Exec(ctx)
@@ -631,9 +635,8 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		CreatedBy:                 dualRoleUserID,
 	}).Exec(ctx)
 	assert.Nil(t, err)
-	// Ready account with the unmanaged provider, but capability disabled at the
-	// account (global) level: access to the external/unmanaged site must come
-	// solely from the dualRoleExternalTenantSite grant, not a global default.
+	// Ready account with the unmanaged provider has global capability disabled;
+	// the external/unmanaged site is reachable via the explicit TenantSite override above.
 	_, err = dbSession.DB.NewInsert().Model(&cdbm.TenantAccount{
 		ID:                        uuid.New(),
 		AccountNumber:             common.GenerateAccountNumber(),

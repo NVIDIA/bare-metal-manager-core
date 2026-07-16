@@ -107,6 +107,29 @@ func TestAPITenantAccountUpdateRequest_Validate(t *testing.T) {
 	}
 }
 
+func TestAPITenantAccountSiteCapabilitiesUpdateRequest_Validate(t *testing.T) {
+	t.Run("rejects omitted targetedInstanceCreation", func(t *testing.T) {
+		caps := APITenantAccountSiteCapabilitiesUpdateRequest{
+			{
+				Scope: TenantAccountSiteCapabilityScopeGlobal,
+			},
+		}
+		err := caps.Validate()
+		assert.Error(t, err)
+	})
+
+	t.Run("accepts explicit global value", func(t *testing.T) {
+		caps := APITenantAccountSiteCapabilitiesUpdateRequest{
+			{
+				Scope:                    TenantAccountSiteCapabilityScopeGlobal,
+				TargetedInstanceCreation: cutil.GetPtr(true),
+			},
+		}
+		err := caps.Validate()
+		assert.NoError(t, err)
+	})
+}
+
 func TestAPITenantAccountNew(t *testing.T) {
 	dbObj := &cdbm.TenantAccount{
 		ID:                        uuid.New(),
