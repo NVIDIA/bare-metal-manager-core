@@ -398,3 +398,43 @@ func TestOperatingSystemHandler_TemplatedIPXE_ProxyCreateTimeout(t *testing.T) {
 	assert.Equal(t, cdbm.OperatingSystemStatusError, f.osStatus(t, parsedID))
 	assert.Equal(t, cdbm.OperatingSystemSiteAssociationStatusError, f.osAssociationStatus(t, parsedID))
 }
+
+// TestOperatingSystemHandler_TemplatedIPXE_TemplateNotAvailableAtSite verifies that
+// creating a Templated iPXE Operating System whose referenced iPXE template has no
+// IpxeTemplateSiteAssociation at the target Site is rejected up front (before any
+// record is persisted or pushed), since the definition could never render there.
+func TestOperatingSystemHandler_TemplatedIPXE_TemplateNotAvailableAtSite(t *testing.T) {
+	f := buildTemplatedProxyFixture(t)
+
+	// A template that exists but has no association at the tenant's (only) Site.
+	templateDAO := cdbm.NewIpxeTemplateDAO(f.dbSession)
+	orphanTmpl, err := templateDAO.Create(f.ctx, nil, cdbm.IpxeTemplateCreateInput{
+		ID:         uuid.New(),
+		Name:       "tmpl-proxy-template-no-itsa",
+		Template:   "#!ipxe\n",
+		Visibility: "Public",
+	})
+	require.NoError(t, err)
+
+	createReq := model.APIOperatingSystemCreateRequest{
+		Name:           "tmpl-proxy-os-no-itsa",
+		IpxeTemplateId: cutil.GetPtr(orphanTmpl.ID.String()),
+		Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+	}
+	body, merr := json.Marshal(createReq)
+	require.NoError(t, merr)
+
+	ec, rec := f.newEchoContext(http.MethodPost, string(body), map[string]string{"orgName": f.tnOrg})
+	h := CreateOperatingSystemHandler{dbSession: f.dbSession, tc: f.tc, scp: f.scp, cfg: f.cfg}
+	require.NoError(t, h.Handle(ec))
+	require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "not available at Site")
+
+	// The rejected request must not have persisted an Operating System.
+	osDAO := cdbm.NewOperatingSystemDAO(f.dbSession)
+	_, tot, gerr := osDAO.GetAll(f.ctx, nil,
+		cdbm.OperatingSystemFilterInput{Names: []string{"tmpl-proxy-os-no-itsa"}},
+		cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
+	require.NoError(t, gerr)
+	assert.Equal(t, 0, tot)
+}

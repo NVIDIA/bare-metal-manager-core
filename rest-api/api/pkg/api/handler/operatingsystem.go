@@ -214,6 +214,55 @@ func getRegisteredTenantSites(ctx context.Context, dbSession *cdb.Session, tenan
 	return sites, nil
 }
 
+// validateIpxeTemplateAvailableAtSites verifies the referenced iPXE template is
+// available (has an IpxeTemplateSiteAssociation) at every one of the given Sites.
+// A Templated iPXE Operating System is rendered on the Site from its template, so
+// per the OS sync contract it can only be synced to a Site whose Site currently has
+// that template; creating or updating one for a Site that lacks it would persist a
+// definition that can never render there. templateID must be a valid template UUID;
+// a non-existent template (no associations anywhere) is reported as unavailable at
+// every Site. An empty site set is a no-op.
+func validateIpxeTemplateAvailableAtSites(ctx context.Context, dbSession *cdb.Session, logger zerolog.Logger, templateID string, siteIDs []uuid.UUID) *cutil.APIError {
+	if len(siteIDs) == 0 {
+		return nil
+	}
+
+	tid, perr := uuid.Parse(templateID)
+	if perr != nil {
+		return cutil.NewAPIError(http.StatusBadRequest, "iPXE template ID specified in request is not a valid UUID", nil)
+	}
+
+	itsaDAO := cdbm.NewIpxeTemplateSiteAssociationDAO(dbSession)
+	itsas, _, err := itsaDAO.GetAll(ctx, nil,
+		cdbm.IpxeTemplateSiteAssociationFilterInput{
+			IpxeTemplateIDs: []uuid.UUID{tid},
+			SiteIDs:         siteIDs,
+		},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+		nil,
+	)
+	if err != nil {
+		logger.Error().Err(err).Str("ipxeTemplateId", templateID).Msg("error retrieving iPXE template Site associations for Operating System validation")
+		return cutil.NewAPIError(http.StatusInternalServerError, "Failed to validate iPXE template availability, DB error", nil)
+	}
+
+	available := make(map[uuid.UUID]struct{}, len(itsas))
+	for _, a := range itsas {
+		available[a.SiteID] = struct{}{}
+	}
+	missing := make([]string, 0)
+	for _, sid := range siteIDs {
+		if _, ok := available[sid]; !ok {
+			missing = append(missing, sid.String())
+		}
+	}
+	if len(missing) > 0 {
+		logger.Warn().Str("ipxeTemplateId", templateID).Msg("iPXE template is not available at one or more target Sites")
+		return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("iPXE template %s specified in request is not available at Site(s): %v", templateID, missing), nil)
+	}
+	return nil
+}
+
 // ~~~~~ Create Handler ~~~~~ //
 
 // CreateOperatingSystemHandler is the API Handler for creating new OperatingSystem
@@ -438,6 +487,20 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to create Operating System, Tenant has no Registered Sites to sync a Global-scope Operating System to", nil)
 		}
 		rdbst = append(rdbst, globalSites...)
+	}
+
+	// A Templated iPXE Operating System is rendered on-Site from its iPXE template,
+	// so it can only be synced to Sites that currently have the template. Reject up
+	// front if the referenced template is unavailable at any target Site rather than
+	// persist a definition that can never render there.
+	if osType == cdbm.OperatingSystemTypeTemplatedIPXE {
+		targetSiteIDs := make([]uuid.UUID, 0, len(rdbst))
+		for i := range rdbst {
+			targetSiteIDs = append(targetSiteIDs, rdbst[i].ID)
+		}
+		if apiErr := validateIpxeTemplateAvailableAtSites(ctx, csh.dbSession, logger, *apiRequest.IpxeTemplateId, targetSiteIDs); apiErr != nil {
+			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
+		}
 	}
 
 	// Create status based on OS type. iPXE / Templated iPXE definitions are pushed
@@ -1347,6 +1410,34 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			_, ok := sttsmap[dbosa.SiteID]
 			if !ok {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Unable to update associate Operating System with Site: %s, Tenant does not have access to Site", dbosa.Site.Name), nil)
+			}
+		}
+	}
+
+	// For a Templated iPXE Operating System, verify the effective iPXE template (the
+	// request's template when changing it, otherwise the current one) is available at
+	// every Site the OS is synced to before updating and re-pushing it. This mirrors
+	// the create-time check and also catches a request switching to a template that
+	// is not present at the OS's Sites.
+	if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+		templatedOssas, _, oerr := ossaDAO.GetAll(ctx, nil,
+			cdbm.OperatingSystemSiteAssociationFilterInput{OperatingSystemIDs: []uuid.UUID{os.ID}},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if oerr != nil {
+			logger.Error().Err(oerr).Msg("error retrieving Operating System Site associations for iPXE template validation")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Operating System Site associations from DB", nil)
+		}
+		effectiveTemplateID := os.IpxeTemplateId
+		if apiRequest.IpxeTemplateId != nil {
+			effectiveTemplateID = apiRequest.IpxeTemplateId
+		}
+		if effectiveTemplateID != nil && len(templatedOssas) > 0 {
+			targetSiteIDs := make([]uuid.UUID, 0, len(templatedOssas))
+			for _, o := range templatedOssas {
+				targetSiteIDs = append(targetSiteIDs, o.SiteID)
+			}
+			if apiErr := validateIpxeTemplateAvailableAtSites(ctx, ush.dbSession, logger, *effectiveTemplateID, targetSiteIDs); apiErr != nil {
+				return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 			}
 		}
 	}
