@@ -482,12 +482,12 @@ async fn check_restricted_mode(hr: &mut health_report::HealthReport) {
 
 fn parse_mlxprivhost(s: &str) -> eyre::Result<String> {
     let Some(level_line) = s.lines().find(|line| line.contains("level")) else {
-        eyre::bail!("Invalid mlxprivhost output, missing 'level' line:\n{s}");
+        eyre::bail!("invalid mlxprivhost output, missing 'level' line:\n{s}");
     };
     // Example ouput:
     // level                         : RESTRICTED
     let Some(level) = level_line.split(':').nth(1).map(|level| level.trim()) else {
-        eyre::bail!("Invalid level line, needs a single colon: '{level_line}'");
+        eyre::bail!("invalid level line, needs a single colon: '{level_line}'");
     };
     Ok(level.to_string())
 }

@@ -65,9 +65,7 @@ pub(crate) async fn trigger_host_reprovisioning(
     if let Some(request) = snapshot.host_snapshot.reprovision_requested
         && request.started_at.is_some()
     {
-        return Err(
-            CarbideError::internal("Reprovisioning is already started.".to_string()).into(),
-        );
+        return Err(CarbideError::internal("reprovisioning is already started".to_string()).into());
     }
 
     let started_initiator = match req.mode() {

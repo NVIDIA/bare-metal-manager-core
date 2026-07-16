@@ -30,6 +30,39 @@ pub mod config;
 use carbide_uuid::machine::MachineId;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
 
+/// One iteration of a DPU-agent report loop, recorded by `{report_loop,
+/// outcome}`. A pure counter: the failure detail stays on the existing
+/// call-site log, so this event never logs and carries no context of its own.
+///
+/// The loop's outbound Forge RPC is already RED-metered by the generated
+/// client, so this counter sits one level up -- it captures the whole
+/// iteration, including the pre-RPC build/connect failures and the raw FMDS
+/// push that the per-RPC metric never sees.
+#[derive(carbide_instrument::Event)]
+#[event(
+    name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub struct ReportLoopCompleted {
+    #[label]
+    pub report_loop: ReportLoop,
+    #[label]
+    pub outcome: carbide_instrument::Outcome,
+}
+
+/// The DPU-agent report loops that emit [`ReportLoopCompleted`]. The label
+/// field is named `report_loop` because `loop` is a keyword.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+pub enum ReportLoop {
+    Inventory,
+    ConfigFetch,
+    FmdsPush,
+    NetworkStatus,
+}
+
 pub struct AgentMetricsState {
     meter: Meter,
     http_counter: Counter<u64>,

@@ -170,14 +170,14 @@ impl BmcConnectionStore {
 pub enum GetConnectionError {
     #[error("{machine_or_instance_id} is not a valid machine_id or instance ID")]
     InvalidMachineId { machine_or_instance_id: String },
-    #[error("Error looking up instance ID {instance_id}: {tonic_status}")]
+    #[error("error looking up instance ID {instance_id}: {tonic_status}")]
     InstanceIdLookupFailure {
         instance_id: InstanceId,
         tonic_status: tonic::Status,
     },
-    #[error("Could not find instance with id {instance_id}")]
+    #[error("could not find instance with id {instance_id}")]
     CouldNotFindInstanceId { instance_id: InstanceId },
-    #[error("Instance {instance_id} has no machine ID")]
+    #[error("instance {instance_id} has no machine ID")]
     InstanceMissingMachineId { instance_id: InstanceId },
     #[error("no machine with instance_id {instance_id}")]
     NoMachineWithInstanceId { instance_id: InstanceId },
@@ -434,6 +434,6 @@ impl BmcPool {
 
 #[derive(thiserror::Error, Debug)]
 enum RefreshBmcsError {
-    #[error("Error fetching machine ids: {tonic_status}")]
+    #[error("error fetching machine ids: {tonic_status}")]
     FetchingMachineIdsFailure { tonic_status: tonic::Status },
 }

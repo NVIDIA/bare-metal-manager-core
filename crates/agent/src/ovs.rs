@@ -41,8 +41,8 @@ pub async fn set_vswitchd_yield() -> eyre::Result<()> {
     // It takes less than 1s, so allow up to 5
     let out = tokio::time::timeout(std::time::Duration::from_secs(5), cmd.output())
         .await
-        .wrap_err("Timeout")?
-        .wrap_err("Error running command")?;
+        .wrap_err("timeout")?
+        .wrap_err("error running command")?;
     if !out.status.success() {
         tracing::error!(
             command = cmd_str.as_str(),
@@ -50,7 +50,7 @@ pub async fn set_vswitchd_yield() -> eyre::Result<()> {
             stderr = %String::from_utf8_lossy(&out.stderr),
             "OVS command failed"
         );
-        eyre::bail!("Failed running ovs-vsctl command. Check logs for stdout/stderr.");
+        eyre::bail!("failed running ovs-vsctl command. check logs for stdout/stderr");
     }
 
     Ok(())
@@ -68,8 +68,8 @@ pub async fn restart_ovs() -> eyre::Result<()> {
     .await;
     let restart = match restart {
         Ok(Ok(output)) => output,
-        Ok(Err(e)) => eyre::bail!("Failed to execute systemctl restart: {}", e),
-        Err(_) => eyre::bail!("Timeout (180s) waiting for ovs-vswitchd.service restart"),
+        Ok(Err(e)) => eyre::bail!("failed to execute systemctl restart: {}", e),
+        Err(_) => eyre::bail!("timeout (180s) waiting for ovs-vswitchd.service restart"),
     };
 
     if !restart.status.success() {

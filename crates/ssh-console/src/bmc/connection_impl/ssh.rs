@@ -190,13 +190,13 @@ pub struct Handle {
 pub enum SpawnError {
     #[error("error sending message from BMC to frontend: no active receivers")]
     SendingMsgToFrontend,
-    #[error("Error connecting to SSH BMC: {0}")]
+    #[error("error connecting to SSH BMC: {0}")]
     ClientCreation(#[from] ClientCreationError),
-    #[error("Error opening session to SSH BMC: {error}")]
+    #[error("error opening session to SSH BMC: {error}")]
     OpeningSession { error: russh::Error },
-    #[error("Error activating serial console: {0}")]
+    #[error("error activating serial console: {0}")]
     ConsoleActivation(#[from] ConsoleActivateError),
-    #[error("Error proxying message to BMC: {error}")]
+    #[error("error proxying message to BMC: {error}")]
     MessageProxying { error: MessageProxyError },
 }
 
@@ -212,12 +212,12 @@ pub enum ClientCreationError {
         addr: SocketAddr,
         error: russh::Error,
     },
-    #[error("Error loading SSH key from BMC override at {path}: {error}")]
+    #[error("error loading SSH key from BMC override at {path}: {error}")]
     LoadingSshKey {
         path: String,
         error: russh::keys::Error,
     },
-    #[error("Error attempting {kind} authentication as {user} to {addr}: {error}")]
+    #[error("error attempting {kind} authentication as {user} to {addr}: {error}")]
     AuthenticationAttempt {
         kind: &'static str,
         user: String,
@@ -225,10 +225,10 @@ pub enum ClientCreationError {
         error: russh::Error,
     },
 
-    #[error("Could not authenticate to {addr} as {user}, all authentication attempts failed")]
+    #[error("could not authenticate to {addr} as {user}, all authentication attempts failed")]
     AuthenticationFailed { user: String, addr: SocketAddr },
 
-    #[error("Error sending message to BMC: {0}")]
+    #[error("error sending message to BMC: {0}")]
     SendingMessageToBmc(#[from] MessageProxyError),
 }
 
@@ -239,7 +239,7 @@ pub enum ConsoleActivateError {
         phase: &'static str,
         error: russh::Error,
     },
-    #[error("Unable to activate serial console after timeout")]
+    #[error("unable to activate serial console after timeout")]
     Timeout,
 }
 

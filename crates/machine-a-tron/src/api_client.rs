@@ -36,13 +36,13 @@ use crate::MachineConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     ConfigError(String),
 
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("unable to connect to carbide API: {0}")]
     ConnectFailed(String),
 
-    #[error("The API call to the Forge API server returned {0}")]
+    #[error("the API call to the forge API server returned {0}")]
     InvocationError(#[from] tonic::Status),
 }
 

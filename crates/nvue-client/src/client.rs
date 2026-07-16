@@ -330,16 +330,16 @@ impl std::fmt::Debug for NvueAuth {
 
 #[derive(thiserror::Error, Debug)]
 pub enum NvueClientError {
-    #[error("Reqwest client error: {0}")]
+    #[error("reqwest client error: {0}")]
     ReqwestError(#[from] reqwest::Error),
 
     #[error(transparent)]
     RequestFailed(Box<RequestFailed>),
 
-    #[error("Environment variable error ({0}): {1}")]
+    #[error("environment variable error ({0}): {1}")]
     EnvVarError(&'static str, std::env::VarError),
 
-    #[error("Schema mismatch between NVUE client and server: {0}")]
+    #[error("schema mismatch between NVUE client and server: {0}")]
     SchemaMismatch(&'static str),
 }
 

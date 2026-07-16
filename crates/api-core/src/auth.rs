@@ -42,14 +42,14 @@ impl carbide_authn::middleware::Authorization for Authorization {}
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum AuthorizationError {
-    #[error("Unauthorized: CasbinEngine: all auth principals denied by enforcer")]
+    #[error("unauthorized: CasbinEngine: all auth principals denied by enforcer")]
     Unauthorized,
 }
 
 impl From<AuthorizationError> for tonic::Status {
     fn from(e: AuthorizationError) -> Self {
         tracing::info!(error = %e, "Request denied");
-        tonic::Status::permission_denied("Not authorized")
+        tonic::Status::permission_denied("not authorized")
     }
 }
 
@@ -163,7 +163,7 @@ impl CasbinAuthorizer {
 
 #[derive(thiserror::Error, Clone, Debug)]
 pub enum CasbinAuthorizerError {
-    #[error("Initialization error: {0}")]
+    #[error("initialization error: {0}")]
     InitializationError(String),
 }
 

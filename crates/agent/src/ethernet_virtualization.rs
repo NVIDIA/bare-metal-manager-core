@@ -100,7 +100,7 @@ impl InterfaceState {
             let result = cmd.output().await?;
             if !result.status.success() {
                 return Err(eyre::eyre!(
-                    "Failed to update interface state: {}",
+                    "failed to update interface state: {}",
                     result.status
                 ));
             }
@@ -109,8 +109,8 @@ impl InterfaceState {
             let new_state = get_interface_state(InterfaceState::HOST_INTERFACE_NAME).await?;
             if &new_state != needed_state {
                 return Err(eyre::eyre!(
-                    r#"State is not updated after command execution. Will try in next iteration. 
-                Needed {needed_state:?}, After updating {new_state:?}, Interface: {}"#,
+                    r#"state is not updated after command execution. will try in next iteration. 
+                needed {needed_state:?}, after updating {new_state:?}, interface: {}"#,
                     InterfaceState::HOST_INTERFACE_NAME
                 ));
             }
@@ -322,17 +322,17 @@ pub async fn update_nvue(
             .nvue_client
             .system_build_info()
             .await
-            .map_err(|e| eyre::eyre!("Couldn't get HBN version from NVUE: {e}"))
+            .map_err(|e| eyre::eyre!("couldn't get HBN version from NVUE: {e}"))
             .and_then(|build_value| hbn::parse_nvue_build_as_hbn_version(&build_value))?,
     };
 
     let l_ip_str = match &nc.managed_host_config {
         None => {
-            return Err(eyre::eyre!("Missing managed_host_config in response"));
+            return Err(eyre::eyre!("missing managed_host_config in response"));
         }
         Some(cfg) => {
             if cfg.loopback_ip.is_empty() {
-                return Err(eyre::eyre!("Missing loopback IP"));
+                return Err(eyre::eyre!("missing loopback IP"));
             }
             &cfg.loopback_ip
         }
@@ -343,7 +343,7 @@ pub async fn update_nvue(
         let admin_interface = nc
             .admin_interface
             .as_ref()
-            .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
+            .ok_or_else(|| eyre::eyre!("missing admin_interface"))?;
         vec![nvue::VlanConfig {
             vlan_id: admin_interface.vlan_id,
             network: admin_interface.interface_prefix.clone(),
@@ -386,7 +386,7 @@ pub async fn update_nvue(
             let admin_interface = nc
                 .admin_interface
                 .as_ref()
-                .ok_or_else(|| eyre::eyre!("Missing admin_interface"))?;
+                .ok_or_else(|| eyre::eyre!("missing admin_interface"))?;
             vec![nvue::PortConfig {
                 interface_name: physical_name,
                 is_phy: true,
@@ -456,7 +456,7 @@ pub async fn update_nvue(
                 match net.virtual_function_id {
                     Some(id) => hbn_device_names.build_virt(id),
                     None => {
-                        eyre::bail!("Missing virtual function id");
+                        eyre::bail!("missing virtual function id");
                     }
                 }
             };
@@ -743,11 +743,11 @@ pub async fn update_nvue(
         NvueUpdateFlavor::RestApi { nvue_context } => {
             let config = NvueConfigWithHeader::from_yaml(&next_contents)
                 .map(|config_with_header| config_with_header.into_nvue_config())
-                .map_err(|e| eyre::eyre!("Couldn't parse NVUE config as YAML: {e}"))?;
+                .map_err(|e| eyre::eyre!("couldn't parse NVUE config as YAML: {e}"))?;
             let revision_id = nvue_context
                 .update_config(&config)
                 .await
-                .map_err(|e| eyre::eyre!("Couldn't push new config to NVUE server: {e}"))?;
+                .map_err(|e| eyre::eyre!("couldn't push new config to NVUE server: {e}"))?;
             if let Some(revision_id) = revision_id {
                 tracing::debug!(revision_id, "Applied NVUE config via REST API");
                 Ok(true)
@@ -1026,7 +1026,7 @@ async fn get_interface_state(interface_name: &str) -> eyre::Result<InterfaceStat
 
     if !output.status.success() {
         return Err(eyre::eyre!(
-            "Failed to get interface state: {}",
+            "failed to get interface state: {}",
             output.status
         ));
     }
@@ -1088,7 +1088,7 @@ async fn update_dhcp_via_grpc(
     interface_translation_mode: Option<&InterfaceTranslationMode>,
 ) -> eyre::Result<bool> {
     let Some(mh_nc) = &network_config.managed_host_config else {
-        eyre::bail!("Loopback IP is missing. Can't write dhcp-server config.");
+        eyre::bail!("loopback IP is missing. can't write dhcp-server config");
     };
     let loopback_ip: Ipv4Addr = mh_nc.loopback_ip.parse()?;
 
@@ -1455,7 +1455,7 @@ fn write_dhcp_v4_server_config(
             .admin_interface
             .as_ref()
             .map(|x| format!("vlan{}", x.vlan_id))
-            .ok_or_else(|| eyre::eyre!("Admin interface missing on admin network."))?;
+            .ok_or_else(|| eyre::eyre!("admin interface missing on admin network"))?;
         vec![vlan_intf]
     } else {
         let mut interfaces = Vec::with_capacity(nc.tenant_interfaces.len());
@@ -1493,7 +1493,7 @@ fn write_dhcp_v4_server_config(
 
     let Some(mh_nc) = &nc.managed_host_config else {
         return Err(eyre::eyre!(
-            "Loopback IP is missing. Can't write dhcp-server config."
+            "loopback IP is missing. can't write dhcp-server config"
         ));
     };
 
@@ -1731,11 +1731,11 @@ fn parse_fdb(fdb_json: &str) -> eyre::Result<HashMap<u32, Vec<Fdb>>> {
 async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
     // We're expecting only the host side and our side
     if vlan_fdb.len() != 2 {
-        eyre::bail!("Expected two fdb entries, got {vlan_fdb:?}");
+        eyre::bail!("expected two fdb entries, got {vlan_fdb:?}");
     }
     if vlan_fdb[0].ifname != vlan_fdb[1].ifname {
         eyre::bail!(
-            "Both entries must have the same ifname, got '{}' and '{}'",
+            "both entries must have the same ifname, got '{}' and '{}'",
             vlan_fdb[0].ifname,
             vlan_fdb[1].ifname
         );
@@ -1769,7 +1769,7 @@ async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
     let ip_json = String::from_utf8_lossy(&ip_out.stdout).to_string();
     let ip_show: Vec<IpShow> = serde_json::from_str(&ip_json)?;
     if ip_show.len() != 1 {
-        eyre::bail!("Getting local side MAC should return 1 entry, got {ip_show:?}");
+        eyre::bail!("getting local side MAC should return 1 entry, got {ip_show:?}");
     }
 
     // Ignore our side
@@ -1779,7 +1779,7 @@ async fn tenant_vf_mac(vlan_fdb: &[Fdb]) -> eyre::Result<&str> {
         .collect();
 
     if remote_side.len() != 1 {
-        eyre::bail!("After all removals there should be 1 entry, got {remote_side:?}");
+        eyre::bail!("after all removals there should be 1 entry, got {remote_side:?}");
     }
     Ok(&remote_side[0].mac)
 }
@@ -1817,7 +1817,7 @@ fn hostname() -> eyre::Result<Hostname> {
         .split('.')
         .next()
         .map(|s| s.to_owned())
-        .ok_or(eyre::eyre!("Empty hostname?"))?;
+        .ok_or(eyre::eyre!("empty hostname?"))?;
     let search_domain = fqdn.split('.').skip(1).collect::<Vec<&str>>().join(".");
     Ok(Hostname {
         hostname,
@@ -3586,7 +3586,7 @@ mod tests {
             network_security_policy_overrides: vec![],
             instance_id: Some(
                 uuid::Uuid::try_from("60cef902-9779-4666-8362-c9bb4b37184f")
-                    .wrap_err("Uuid::try_from")?
+                    .wrap_err("uuid::try_from")?
                     .into(),
             ),
             remote_id: "test".to_string(),

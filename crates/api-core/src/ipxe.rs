@@ -393,7 +393,7 @@ exit ||
             .await
             .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
             .ok_or(CarbideError::InvalidArgument(
-                "Invalid machine id. Not found in db.".to_string(),
+                "invalid machine id. not found in db".to_string(),
             ))?;
 
         tracing::info!(machine_id = %machine.id, machine_interface_id = %target.interface_id, machine_state = %machine.current_state(), "Found existing machine for pxe instructions");

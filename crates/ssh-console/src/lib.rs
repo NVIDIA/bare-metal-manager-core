@@ -85,11 +85,11 @@ pub async fn spawn(config: Config) -> Result<SpawnHandle, SpawnError> {
 
 #[derive(thiserror::Error, Debug)]
 pub enum SpawnError {
-    #[error("Unknown failure spawning BMC client pool")]
+    #[error("unknown failure spawning BMC client pool")]
     ClientPoolUnknownFailure,
-    #[error("Error spawning SSH server: {0}")]
+    #[error("error spawning SSH server: {0}")]
     SshServerSpawn(#[from] ssh_server::SpawnError),
-    #[error("Error spawning metrics server: {0}")]
+    #[error("error spawning metrics server: {0}")]
     MetricsSpawn(#[from] metrics::SpawnError),
 }
 

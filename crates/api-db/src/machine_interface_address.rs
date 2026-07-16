@@ -33,7 +33,7 @@ mod test_find_by_address;
 /// Returned by allocation paths with `AddressSelectionStrategy::StaticAddress`
 /// when the target IP is already held by some other interface.
 #[derive(thiserror::Error, Debug)]
-#[error("Address already in use: {0} by {1} in network segment {2} (Interface: {3})")]
+#[error("address already in use: {0} by {1} in network segment {2} (interface: {3})")]
 pub struct AddressAlreadyInUseError(
     pub IpAddr,
     pub MacAddress,
@@ -150,6 +150,27 @@ pub async fn delete_by_interface_family(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Delete a specific address from a specific interface. Returns true if a
+/// matching row was deleted. Scoping by `interface_id` ensures an operator
+/// remove-address call only removes the caller's own address, never another
+/// interface's row that happens to hold the same IP.
+pub async fn delete_by_interface_and_address(
+    txn: &mut PgConnection,
+    interface_id: MachineInterfaceId,
+    address: IpAddr,
+    allocation_type: AllocationType,
+) -> Result<bool, DatabaseError> {
+    let query = "DELETE FROM machine_interface_addresses WHERE interface_id = $1 AND address = $2::inet AND allocation_type = $3";
+    sqlx::query(query)
+        .bind(interface_id)
+        .bind(address)
+        .bind(allocation_type)
+        .execute(txn)
+        .await
+        .map(|r| r.rows_affected() > 0)
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 /// Insert a new address for an interface with the given allocation type.
 pub async fn insert(
     txn: &mut PgConnection,
@@ -203,47 +224,50 @@ pub async fn assign_static(
     Ok(result)
 }
 
-/// Delete an address allocation of the given type. Returns true if a
-/// matching allocation was found and deleted, false otherwise.
+/// Delete an address allocation of the given type. Returns the interfaces that
+/// owned the deleted addresses (normally one, empty if nothing matched) so
+/// callers can resync each one's hostname rather than guessing the owner. The
+/// delete removes every matching row, so all owners are returned — not just the
+/// first — since `(address, allocation_type)` is not unique on its own.
 pub async fn delete_by_address(
     txn: &mut PgConnection,
     address: IpAddr,
     allocation_type: AllocationType,
-) -> Result<bool, DatabaseError> {
-    let query =
-        "DELETE FROM machine_interface_addresses WHERE address = $1::inet AND allocation_type = $2";
-    sqlx::query(query)
+) -> Result<Vec<MachineInterfaceId>, DatabaseError> {
+    let query = "DELETE FROM machine_interface_addresses WHERE address = $1::inet AND allocation_type = $2 RETURNING interface_id";
+    sqlx::query_scalar(query)
         .bind(address)
         .bind(allocation_type)
-        .execute(txn)
+        .fetch_all(txn)
         .await
-        .map(|r| r.rows_affected() > 0)
         .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// Delete an address allocation for a given (ip, mac) pair, which
 /// of course only actually deletes when the pair matches.
 ///
-/// Returns true if a matching allocation was found and deleted.
+/// Returns the interfaces that owned the deleted allocations (normally one,
+/// empty if the pair matched nothing) so callers can resync each one's hostname
+/// against the authoritative deleted rows rather than a separate lookup.
 pub async fn delete_by_address_and_mac(
     txn: &mut PgConnection,
     address: IpAddr,
     mac_address: mac_address::MacAddress,
     allocation_type: AllocationType,
-) -> Result<bool, DatabaseError> {
+) -> Result<Vec<MachineInterfaceId>, DatabaseError> {
     let query = "DELETE FROM machine_interface_addresses mia
         USING machine_interfaces mi
         WHERE mia.interface_id = mi.id
           AND mia.address = $1::inet
           AND mia.allocation_type = $2
-          AND mi.mac_address = $3::macaddr";
-    sqlx::query(query)
+          AND mi.mac_address = $3::macaddr
+        RETURNING mia.interface_id";
+    sqlx::query_scalar(query)
         .bind(address)
         .bind(allocation_type)
         .bind(mac_address)
-        .execute(txn)
+        .fetch_all(txn)
         .await
-        .map(|r| r.rows_affected() > 0)
         .map_err(|e| DatabaseError::query(query, e))
 }
 

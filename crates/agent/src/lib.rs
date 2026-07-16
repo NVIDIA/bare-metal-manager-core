@@ -313,7 +313,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             // Legacy ETV write targets are no longer supported
             WriteTarget::Frr(_) | WriteTarget::Interfaces(_) | WriteTarget::Dhcp(_) => {
                 eyre::bail!(
-                    "Legacy ETV write targets (frr, interfaces, dhcp) are no longer supported. Use 'write nvue' instead."
+                    "legacy ETV write targets (frr, interfaces, dhcp) are no longer supported. use 'write nvue' instead"
                 );
             }
 
@@ -509,12 +509,12 @@ async fn register(
     let factory_mac_address: MacAddress = match hardware_info.dpu_info.as_ref() {
         Some(dpu_info) => dpu_info.factory_mac_address.parse().map_err(|e| {
             eyre::eyre!(
-                "Failed to parse factory MAC address from DPU info: {} (err: {})",
+                "failed to parse factory MAC address from DPU info: {} (err: {})",
                 dpu_info.factory_mac_address,
                 e
             )
         })?,
-        None => eyre::bail!("Missing DPU info, should be impossible"),
+        None => eyre::bail!("missing DPU info, should be impossible"),
     };
 
     let (registration_data, ..) = register_machine(

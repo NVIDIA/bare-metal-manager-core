@@ -121,7 +121,7 @@ pub async fn on_demand_rack_maintenance(
                     rpc::PowerSequenceActivity {},
                 )),
                 other => Err(eyre::eyre!(
-                    "Unknown activity '{}'. Valid values: firmware-upgrade, nvos-update, configure-nmx-cluster, power-sequence",
+                    "unknown activity '{}'. valid values: firmware-upgrade, nvos-update, configure-nmx-cluster, power-sequence",
                     other
                 )),
             }?;

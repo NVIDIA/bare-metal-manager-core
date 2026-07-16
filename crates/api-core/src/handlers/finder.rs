@@ -108,7 +108,7 @@ pub(crate) async fn identify_mac(
     };
     let Ok(mac) = mac_address::MacAddress::from_str(&req.mac_address) else {
         return Err(
-            CarbideError::InvalidArgument("Could not parse MAC address".to_string()).into(),
+            CarbideError::InvalidArgument("could not parse MAC address".to_string()).into(),
         );
     };
     match by_mac(api, mac).await {

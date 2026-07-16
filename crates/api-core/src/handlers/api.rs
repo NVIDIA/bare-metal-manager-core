@@ -78,7 +78,7 @@ pub(crate) fn set_dynamic_config(
     const MAX_SET_INTERNAL_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
     if MAX_SET_INTERNAL_EXPIRY < expiry {
         return Err(CarbideError::InvalidArgument(
-            "Expiry exceeds max allowed of 60 hours".to_string(),
+            "expiry exceeds max allowed of 60 hours".to_string(),
         )
         .into());
     }
@@ -171,7 +171,7 @@ pub(crate) fn set_dynamic_config(
         rpc::ConfigSetting::TracingEnabled => {
             if !api.runtime_config.tracing.allow_runtime_changes {
                 return Err(CarbideError::PermissionDeniedError(
-                    "This server does not allow runtime changes to tracing configuration"
+                    "this server does not allow runtime changes to tracing configuration"
                         .to_string(),
                 )
                 .into());

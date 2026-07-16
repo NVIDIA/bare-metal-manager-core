@@ -48,7 +48,7 @@ async fn get_mtu(iface: &str) -> eyre::Result<usize> {
         let o: Vec<LinkList> = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))?;
         if o.len() != 1 {
             eyre::bail!(
-                "Expected a single entry, got {}. Invalid output from: {}",
+                "expected a single entry, got {}. invalid output from: {}",
                 o.len(),
                 super::pretty_cmd(cmd.as_std())
             );

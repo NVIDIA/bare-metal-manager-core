@@ -115,7 +115,7 @@ impl Images {
         self.images
             .into_iter()
             .find(|x| x.names.iter().any(|y| y.name.contains(name.as_ref())))
-            .ok_or_else(|| eyre::eyre!("Could not find container image for name {}", name.as_ref()))
+            .ok_or_else(|| eyre::eyre!("could not find container image for name {}", name.as_ref()))
     }
 
     pub fn find_by_id<T>(self, container_id: T) -> eyre::Result<Image>
@@ -128,7 +128,7 @@ impl Images {
             .find(|x| x.id == container_id.as_ref())
             .ok_or_else(|| {
                 eyre::eyre!(
-                    "Could not find container image for id {}",
+                    "could not find container image for id {}",
                     container_id.as_ref()
                 )
             })
@@ -216,7 +216,7 @@ impl Containers {
         self.containers
             .into_iter()
             .find(|x| x.metadata.name == name.as_ref())
-            .ok_or_else(|| eyre::eyre!("Could not find container for name {}", name.as_ref()))
+            .ok_or_else(|| eyre::eyre!("could not find container for name {}", name.as_ref()))
     }
 }
 
@@ -227,7 +227,7 @@ async fn get_container_images() -> eyre::Result<String> {
 
         std::fs::read_to_string(test_data_dir.join("container_images.json")).map_err(|e| {
             error!(error = %e, "Could not read container_images.json");
-            eyre::eyre!("Could not read container_images.json: {}", e)
+            eyre::eyre!("could not read container_images.json: {}", e)
         })
     } else {
         let result = BashCommand::new("bash")
@@ -236,7 +236,7 @@ async fn get_container_images() -> eyre::Result<String> {
             .await
             .map_err(|e| {
                 error!(error = %e, "Could not read container_images.json");
-                eyre::eyre!("Could not read container_images.json: {}", e)
+                eyre::eyre!("could not read container_images.json: {}", e)
             })?;
         Ok(result)
     }
@@ -251,7 +251,7 @@ async fn get_containers() -> eyre::Result<String> {
 
         std::fs::read_to_string(test_data_dir.join("containers.json")).map_err(|e| {
             error!(error = %e, "Could not read containers.json");
-            eyre::eyre!("Could not read containers.json: {}", e)
+            eyre::eyre!("could not read containers.json: {}", e)
         })
     } else {
         let result = BashCommand::new("bash")
@@ -260,7 +260,7 @@ async fn get_containers() -> eyre::Result<String> {
             .await
             .map_err(|e| {
                 error!(error = %e, "Could not read containers.json");
-                eyre::eyre!("Could not read containers.json: {}", e)
+                eyre::eyre!("could not read containers.json: {}", e)
             })?;
         Ok(result)
     }
@@ -275,7 +275,7 @@ async fn get_pod_containers(pod_id: &str) -> eyre::Result<String> {
 
         std::fs::read_to_string(test_data_dir.join("containers.json")).map_err(|e| {
             error!(error = %e, "Could not read containers.json");
-            eyre::eyre!("Could not read containers.json: {}", e)
+            eyre::eyre!("could not read containers.json: {}", e)
         })
     } else {
         let cmd = format!("crictl ps -a --pod {} -o json", pod_id);
@@ -285,7 +285,7 @@ async fn get_pod_containers(pod_id: &str) -> eyre::Result<String> {
             .await
             .map_err(|e| {
                 error!(error = %e, "Could not read containers.json");
-                eyre::eyre!("Could not read containers.json: {}", e)
+                eyre::eyre!("could not read containers.json: {}", e)
             })?;
         Ok(result)
     }

@@ -97,7 +97,7 @@ impl BmsDsxExchangeHandle {
             .register_raw_message::<BmsMetadataMessage>(METADATA_PATTERN)
             .await
             .map_err(|error| {
-                eyre::eyre!("Failed to register BMS metadata message type: {error}")
+                eyre::eyre!("failed to register BMS metadata message type: {error}")
             })?;
 
         client
@@ -115,7 +115,7 @@ impl BmsDsxExchangeHandle {
         client
             .subscribe(METADATA_SUBSCRIPTION, QoS::AtMostOnce)
             .await
-            .map_err(|error| eyre::eyre!("Failed to subscribe to BMS metadata topics: {error}"))?;
+            .map_err(|error| eyre::eyre!("failed to subscribe to BMS metadata topics: {error}"))?;
 
         seed_current_rack_state(db_pool, handle.as_ref()).await?;
 

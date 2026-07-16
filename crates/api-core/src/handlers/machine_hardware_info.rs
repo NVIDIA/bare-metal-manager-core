@@ -34,7 +34,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
         update_hardware_info_request
             .info
             .ok_or(CarbideError::MissingArgument(
-                "Missing hardware info in update request",
+                "missing hardware info in update request",
             ))?;
 
     let update_type = MachineHardwareInfoUpdateType::try_from(

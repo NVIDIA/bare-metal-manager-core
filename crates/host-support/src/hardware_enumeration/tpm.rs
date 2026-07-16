@@ -38,13 +38,13 @@ const TPM_EK_CERT_NV_INDICES: &[&str] = &[
 /// Enumerates errors for TPM related operations
 #[derive(Debug, thiserror::Error)]
 pub enum TpmError {
-    #[error("Unable to invoke subprocess {0}: {1}")]
+    #[error("unable to invoke subprocess {0}: {1}")]
     Subprocess(&'static str, std::io::Error),
-    #[error("Subprocess exited with exit code {0:?}. Stderr: {1}")]
+    #[error("subprocess exited with exit code {0:?}. stderr: {1}")]
     SubprocessStatusNotOk(Option<i32>, String),
     #[error("TPM EK certificate bytes from {0} were not parseable as DER X.509")]
     InvalidEkCertificate(&'static str),
-    #[error("Unable to read TPM EK certificate: {primary_error}; NV fallback errors: {nv_errors}")]
+    #[error("unable to read TPM EK certificate: {primary_error}; NV fallback errors: {nv_errors}")]
     EkCertificateNotFound {
         primary_error: Box<TpmError>,
         nv_errors: String,
@@ -516,7 +516,7 @@ mod tests {
                         TPM2_NV_READ,
                         io::Error::new(io::ErrorKind::NotFound, "x"),
                     ),
-                    &[TPM2_NV_READ, "Unable to invoke"][..],
+                    &[TPM2_NV_READ, "unable to invoke"][..],
                 ) => true,
             }
 

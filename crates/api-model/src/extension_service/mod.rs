@@ -38,7 +38,7 @@ impl std::fmt::Display for ExtensionServiceType {
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
-#[error("Extension service type \"{0}\" is not valid")]
+#[error("extension service type \"{0}\" is not valid")]
 pub struct InvalidExtensionServiceTypeError(String);
 
 impl std::str::FromStr for ExtensionServiceType {

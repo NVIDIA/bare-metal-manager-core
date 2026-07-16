@@ -174,7 +174,7 @@ fn mtime(p: &Path) -> eyre::Result<SystemTime> {
     let stat = fs::metadata(p).wrap_err_with(|| format!("Failed stat of '{}'", p.display()))?;
     let Ok(binary_mtime) = stat.modified() else {
         eyre::bail!(
-            "Failed reading mtime of forge-dpu-agent binary at '{}'",
+            "failed reading mtime of forge-dpu-agent binary at '{}'",
             p.display()
         );
     };
@@ -248,8 +248,8 @@ async fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
     // This can easily take 60 seconds. systemd watchdog gives us 5 mins, so take 3.
     let out = timeout(Duration::from_secs(180), cmd.output())
         .await
-        .wrap_err("Timeout")?
-        .wrap_err("Error running command")?;
+        .wrap_err("timeout")?
+        .wrap_err("error running command")?;
     if !out.status.success() {
         tracing::error!(
             stdout = %String::from_utf8_lossy(&out.stdout),
@@ -259,7 +259,7 @@ async fn run_upgrade_cmd(upgrade_cmd: &str) -> eyre::Result<()> {
             stderr = %String::from_utf8_lossy(&out.stderr),
             "Upgrade command stderr"
         );
-        eyre::bail!("Failed running upgrade command. Check logs for stdout/stderr.");
+        eyre::bail!("failed running upgrade command. check logs for stdout/stderr");
     }
     Ok(())
 }

@@ -132,13 +132,13 @@ impl ClientCertRenewer {
             &self.client_config,
         ))
         .await
-        .wrap_err("renew_certificates: Failed to build Forge API server client")?;
+        .wrap_err("renew_certificates: failed to build forge API server client")?;
 
         let request = tonic::Request::new(rpc::MachineCertificateRenewRequest {});
         let machine_certificate_result = client
             .renew_machine_certificate(request)
             .await
-            .wrap_err("renew_certificates: Error while executing the renew_certificates gRPC call")?
+            .wrap_err("renew_certificates: error while executing the renew_certificates gRPC call")?
             .into_inner();
 
         tracing::info!("Received new machine certificate. Attempting to write to disk.");
@@ -147,7 +147,7 @@ impl ClientCertRenewer {
             override_client_cert,
         )
         .await
-        .wrap_err("renew_certificates: Failed to write certs to disk")?;
+        .wrap_err("renew_certificates: failed to write certs to disk")?;
 
         Ok(())
     }

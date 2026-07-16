@@ -50,7 +50,7 @@ impl Forge for MockApiServer {
     ) -> Result<Response<ValidateTenantPublicKeyResponse>, Status> {
         let request = request.into_inner();
         let Ok(instance_id) = request.instance_id.parse::<Uuid>() else {
-            return Err(Status::invalid_argument("Invalid instance ID"));
+            return Err(Status::invalid_argument("invalid instance ID"));
         };
 
         let Some(mock_host) = self
@@ -76,7 +76,7 @@ impl Forge for MockApiServer {
         if pub_key_base64 == request.tenant_public_key {
             Ok(Response::new(ValidateTenantPublicKeyResponse {}))
         } else {
-            Err(Status::internal("Public key does not match"))
+            Err(Status::internal("public key does not match"))
         }
     }
 
@@ -116,7 +116,7 @@ impl Forge for MockApiServer {
     ) -> std::result::Result<tonic::Response<forge::BmcMetaDataGetResponse>, tonic::Status> {
         let request = request.into_inner();
         let Some(machine_id) = request.machine_id else {
-            return Err(Status::invalid_argument("Missing machine ID"));
+            return Err(Status::invalid_argument("missing machine ID"));
         };
 
         let Some(mock_host) = self
@@ -124,7 +124,7 @@ impl Forge for MockApiServer {
             .iter()
             .find(|mock_host| mock_host.machine_id == machine_id)
         else {
-            return Err(Status::not_found("No machine with that ID"));
+            return Err(Status::not_found("no machine with that ID"));
         };
 
         Ok(Response::new(BmcMetaDataGetResponse {

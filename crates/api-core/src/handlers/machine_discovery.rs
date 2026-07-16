@@ -71,7 +71,7 @@ pub(crate) async fn discover_machine(
             rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
         })
         .ok_or_else(|| {
-            CarbideError::InvalidArgument("Discovery data is not populated".to_string())
+            CarbideError::InvalidArgument("discovery data is not populated".to_string())
         })?;
     let attest_key_info_opt = discovery_data.attest_key_info.clone();
     let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
@@ -399,7 +399,7 @@ pub(crate) async fn discover_machine(
     {
         let Some(attest_key_info) = attest_key_info_opt else {
             return Err(CarbideError::InvalidArgument(
-                "Internal Error: This should have been handled above! AttestKeyInfo is not populated.".into(),
+                "internal error: this should have been handled above! AttestKeyInfo is not populated".into(),
             )
             .into());
         };

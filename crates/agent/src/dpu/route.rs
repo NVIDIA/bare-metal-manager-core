@@ -130,7 +130,7 @@ impl Route {
 
             std::fs::read_to_string(test_data_dir.join("iproute.json")).map_err(|e| {
                 error!(error = %e, "Could not read iproute.json");
-                eyre::eyre!("Could not read iproute.json: {}", e)
+                eyre::eyre!("could not read iproute.json: {}", e)
             })
         } else {
             let mut cmd = tokio::process::Command::new("bash");

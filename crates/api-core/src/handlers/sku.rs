@@ -139,7 +139,7 @@ pub(crate) async fn assign_to_machine(
             | ManagedHostState::Ready => {}
             _ => {
                 return Err(CarbideError::FailedPrecondition(
-                    "Specified machine is not in a valid state for assigning a SKU".to_string(),
+                    "specified machine is not in a valid state for assigning a SKU".to_string(),
                 )
                 .into());
             }
@@ -194,7 +194,7 @@ pub(crate) async fn verify_for_machine(
         } => {}
         _ => {
             return Err(CarbideError::FailedPrecondition(
-                "Specified machine is not in a valid state for machine SKU verification"
+                "specified machine is not in a valid state for machine SKU verification"
                     .to_string(),
             )
             .into());
@@ -234,7 +234,7 @@ pub(crate) async fn remove_sku_association(
             } => {}
             _ => {
                 return Err(CarbideError::FailedPrecondition(
-                    "Specified machine is not in a valid state for removing SKU association"
+                    "specified machine is not in a valid state for removing SKU association"
                         .to_string(),
                 )
                 .into());

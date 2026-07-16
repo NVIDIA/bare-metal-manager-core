@@ -108,7 +108,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         .interfaces
         .iter()
         .find(|x| x.primary_interface)
-        .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
+        .ok_or_else(|| CarbideError::internal("primary interface is missing".to_string()))?;
 
     let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
@@ -1103,7 +1103,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
     log_machine_id(&machine_id);
     if !machine_id.machine_type().is_dpu() {
         return Err(CarbideError::InvalidArgument(
-            "Upgrade check can only be performed on DPUs".into(),
+            "upgrade check can only be performed on DPUs".into(),
         )
         .into());
     }
@@ -1237,7 +1237,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             Mode::Restart => {}
             _ => {
                 return Err(CarbideError::internal(
-                    "Reprovisioning is already started.".to_string(),
+                    "reprovisioning is already started".to_string(),
                 )
                 .into());
             }
@@ -1281,12 +1281,12 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             // Restart case.
             // Restart is valid only for host_id.
             if !machine_id.machine_type().is_host() {
-                return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
+                return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. only host_id is accepted for restart operation".to_string()).into());
             }
 
             if !snapshot.has_managed_dpus() {
                 return Err(CarbideError::InvalidArgument(
-                    "Machine has no DPUs, cannot trigger DPU reprovisioning.".to_string(),
+                    "machine has no DPUs, cannot trigger DPU reprovisioning".to_string(),
                 )
                 .into());
             }

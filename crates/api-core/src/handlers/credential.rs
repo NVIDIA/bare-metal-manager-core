@@ -68,7 +68,7 @@ pub(crate) async fn create_credential(
     match credential_type {
         rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
             return Err(CarbideError::InvalidArgument(
-                "Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.".into(),
+                "forge no longer maintains separate paths for host and DPU site-wide BMC root credentials. this has been unified".into(),
             ).into());
         }
         rpc::CredentialType::SiteWideBmcRoot => {
@@ -112,7 +112,7 @@ pub(crate) async fn create_credential(
             } else if req.username.is_none() && password.is_empty() && req.vendor.is_some() {
                 write_ufm_certs(api, req.vendor.unwrap_or_default()).await?;
             } else {
-                return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
+                return Err(CarbideError::InvalidArgument("missing UFM url".to_string()).into());
             }
         }
         rpc::CredentialType::DpuUefi => {
@@ -126,7 +126,7 @@ pub(crate) async fn create_credential(
             {
                 // TODO: support reset credential
                 return Err(tonic::Status::already_exists(
-                    "Not support to reset DPU UEFI credential",
+                    "not support to reset DPU UEFI credential",
                 ));
             }
             api.credential_manager
@@ -155,7 +155,7 @@ pub(crate) async fn create_credential(
             {
                 // TODO: support reset credential
                 return Err(tonic::Status::already_exists(
-                    "Resetting the Host UEFI credentials in Vault is not supported",
+                    "resetting the host UEFI credentials in vault is not supported",
                 ));
             }
             api.credential_manager
@@ -233,7 +233,7 @@ pub(crate) async fn create_credential(
         rpc::CredentialType::BmcForgeAdminByMacAddress => {
             // TODO: support credential creation for forge-admin
             return Err(CarbideError::InvalidArgument(
-                "Forge does not support creating forge-admin credentials yet.".into(),
+                "forge does not support creating forge-admin credentials yet".into(),
             )
             .into());
         }
@@ -322,7 +322,7 @@ pub(crate) async fn delete_credential(
                         ))
                     })?;
             } else {
-                return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
+                return Err(CarbideError::InvalidArgument("missing UFM url".to_string()).into());
             }
         }
         rpc::CredentialType::SiteWideBmcRoot => {

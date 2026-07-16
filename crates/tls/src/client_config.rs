@@ -27,7 +27,7 @@ pub const CONFIG_FILE_LOCATION: &str = ".config/carbide_api_cli.json";
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientConfigError {
-    #[error("Unable to parse url: {0}")]
+    #[error("unable to parse url: {0}")]
     UrlParseError(String),
 }
 

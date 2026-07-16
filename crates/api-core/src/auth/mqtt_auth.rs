@@ -34,7 +34,7 @@ pub async fn build_credentials_provider(
                 .await?
                 .ok_or_else(|| {
                     eyre::eyre!(
-                        "Missing MQTT credentials for {}",
+                        "missing MQTT credentials for {}",
                         credential_key.to_key_str()
                     )
                 })?;

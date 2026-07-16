@@ -582,6 +582,7 @@ dependencies = [
   "generate-rest-core-proto",
   "clippy-flow",
   "carbide-lints",
+  "lint-error-messages",
   "check-format-nightly",
   "check-workspace-deps",
   "check-licenses",
@@ -821,6 +822,13 @@ workspace = false
 description = "Check Cargo.toml files for dependency versions declared in crates instead of the workspace root"
 script = [
   "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)",
+]
+
+[tasks.lint-error-messages]
+workspace = false
+description = "Check that error messages follow C-GOOD-ERR (lowercase, no trailing period)"
+script = [
+  "cargo --quiet xtask lint-error-messages || (RC=$?; echo 'To fix automatically, run `cargo xtask lint-error-messages --fix`'; exit $RC)",
 ]
 
 [tasks.check-isolated-package-builds]

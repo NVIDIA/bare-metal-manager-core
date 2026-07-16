@@ -43,7 +43,7 @@ pub async fn start(
         .build_task()
         .name("bmc-proxy metrics service")
         .spawn(async move {
-            metrics_endpoint::run_metrics_endpoint_with_listener(
+            if let Err(e) = metrics_endpoint::run_metrics_endpoint_with_listener(
                 &MetricsEndpointConfig {
                     address,
                     registry: metrics_setup.registry,
@@ -54,6 +54,9 @@ pub async fn start(
                 listener,
             )
             .await
+            {
+                tracing::error!(error = %e, "metrics endpoint exited with error");
+            }
         })
         // Safety: Should only fail if not in a tokio runtime
         .expect("Error spawning metrics endpoint");

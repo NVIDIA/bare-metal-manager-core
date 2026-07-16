@@ -32,31 +32,31 @@ fn error_variants_display_their_contract_strings() {
     value_scenarios!(
         run = |error| error.to_string();
         "CommandFailed" {
-            MlxError::CommandFailed("test".to_string()) => "Command execution failed: test".to_string(),
+            MlxError::CommandFailed("test".to_string()) => "command execution failed: test".to_string(),
         }
 
         "DeviceNotFound" {
-            MlxError::DeviceNotFound("test_device".to_string()) => "Device not found: test_device".to_string(),
+            MlxError::DeviceNotFound("test_device".to_string()) => "device not found: test_device".to_string(),
         }
 
         "InvalidDeviceId" {
-            MlxError::InvalidDeviceId("invalid".to_string()) => "Invalid device ID format: invalid".to_string(),
+            MlxError::InvalidDeviceId("invalid".to_string()) => "invalid device ID format: invalid".to_string(),
         }
 
         "AlreadyLocked" {
-            MlxError::AlreadyLocked => "Hardware access is already disabled".to_string(),
+            MlxError::AlreadyLocked => "hardware access is already disabled".to_string(),
         }
 
         "AlreadyUnlocked" {
-            MlxError::AlreadyUnlocked => "Hardware access is already enabled".to_string(),
+            MlxError::AlreadyUnlocked => "hardware access is already enabled".to_string(),
         }
 
         "InvalidKey" {
-            MlxError::InvalidKey => "Invalid key format or length".to_string(),
+            MlxError::InvalidKey => "invalid key format or length".to_string(),
         }
 
         "PermissionDenied" {
-            MlxError::PermissionDenied => "Permission denied - requires root privileges".to_string(),
+            MlxError::PermissionDenied => "permission denied - requires root privileges".to_string(),
         }
 
         "FlintNotFound" {
@@ -64,11 +64,11 @@ fn error_variants_display_their_contract_strings() {
         }
 
         "ParseError" {
-            MlxError::ParseError("parse error".to_string()) => "Failed to parse command output: parse error".to_string(),
+            MlxError::ParseError("parse error".to_string()) => "failed to parse command output: parse error".to_string(),
         }
 
         "DryRun" {
-            MlxError::DryRun("flint -d 04:00.0 q".to_string()) => "Dry run - would have executed: flint -d 04:00.0 q".to_string(),
+            MlxError::DryRun("flint -d 04:00.0 q".to_string()) => "dry run - would have executed: flint -d 04:00.0 q".to_string(),
         }
 
         "IoError wraps the inner message" {

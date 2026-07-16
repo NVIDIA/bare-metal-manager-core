@@ -539,7 +539,7 @@ pub async fn allocate_instance(
 
     results
         .pop()
-        .ok_or_else(|| CarbideError::internal("Instance allocation returned no result".to_string()))
+        .ok_or_else(|| CarbideError::internal("instance allocation returned no result".to_string()))
 }
 
 /// Allocates multiple instances in a single transaction.
@@ -559,7 +559,7 @@ pub async fn batch_allocate_instances(
 ) -> Result<Vec<ManagedHostStateSnapshot>, CarbideError> {
     if requests.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "Batch request must contain at least one instance".to_string(),
+            "batch request must contain at least one instance".to_string(),
         ));
     }
 
@@ -865,7 +865,7 @@ pub async fn batch_allocate_instances(
     for os_image_id in &os_image_ids {
         if os_image_id.is_nil() {
             return Err(CarbideError::InvalidArgument(
-                "Image ID is required for image based storage".to_string(),
+                "image ID is required for image based storage".to_string(),
             ));
         }
         if let Err(e) = db::os_image::get(&mut txn, *os_image_id).await {
@@ -1454,7 +1454,7 @@ pub fn allocate_spx_port_mac(
         if spx_attachment.attachment_type == SpxAttachmentType::Virtual {
             tracing::error!("allocate_spx_port_mac SPX attachment type Virtual is not supported");
             return Err(CarbideError::InvalidArgument(
-                "SPX attachment type Virtual is not supported".to_string(),
+                "SPX attachment type virtual is not supported".to_string(),
             ));
         }
         if let Some(sorted_spxs) = spx_hw_map.get_mut(&spx_attachment.device) {

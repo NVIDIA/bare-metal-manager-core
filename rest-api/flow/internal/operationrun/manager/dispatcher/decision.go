@@ -139,7 +139,7 @@ func (d *Dispatcher) decide(
 		return newStopDecision(dispatchRunTransition{}), nil
 	}
 
-	if prep.summary.TargetCount == 0 {
+	if prep.summary.SelectedTargetCount() == 0 {
 		return newStopDecision(failRunTransition("operation run has no targets")), nil
 	}
 
@@ -176,7 +176,7 @@ func (d *Dispatcher) decide(
 	}
 
 	safetyDecision := prep.safetyPolicy.evaluate(
-		prep.summary.TargetPhaseSummary,
+		prep.summary,
 	)
 	if safetyDecision.pause {
 		return newStopDecision(
@@ -185,20 +185,30 @@ func (d *Dispatcher) decide(
 	}
 
 	phaseDecision := prep.phasePolicy.evaluate(
-		prep.summary.TargetPhaseSummary,
-		prep.summary.previousPhaseTerminalChanged(),
+		prep.summary,
 	)
-	if phaseDecision.pause {
+	switch phaseDecision.action {
+	case phaseDecisionActionAdvance:
+		// The next phase's targets were not locked during this transaction.
+		// Persist the phase pointer first; the next pass will lock and submit them.
+		prep.run.CurrentPhaseIndex++
+		return newStopDecision(startRunTransition(phaseDecision.message)), nil
+	case phaseDecisionActionPause:
 		return newStopDecision(
 			pauseRunTransition(phaseDecision.reason, phaseDecision.message),
 		), nil
+	case phaseDecisionActionClaim:
+		return newClaimDecision(
+			startRunTransition(phaseDecision.message),
+			prep.options,
+			prep.op,
+			prep.conflictPolicy,
+			targets,
+		), nil
+	default:
+		return dispatchDecision{}, fmt.Errorf(
+			"unknown phase decision action %d",
+			phaseDecision.action,
+		)
 	}
-
-	return newClaimDecision(
-		startRunTransition(phaseDecision.message),
-		prep.options,
-		prep.op,
-		prep.conflictPolicy,
-		targets,
-	), nil
 }

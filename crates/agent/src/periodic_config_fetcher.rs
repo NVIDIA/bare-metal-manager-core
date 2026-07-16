@@ -22,6 +22,7 @@ use std::time::Duration;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{Instance, forge as rpc};
 use arc_swap::ArcSwapOption;
+use carbide_instrument::{Outcome, emit};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -30,6 +31,7 @@ use eyre::Context;
 use forge_dpu_agent_utils::utils::create_forge_client;
 use tracing::{error, trace, warn};
 
+use crate::instrumentation::{ReportLoop, ReportLoopCompleted};
 use crate::util::{get_periodic_dpu_config, get_sitename};
 
 pub struct PeriodicFetcherState {
@@ -194,22 +196,26 @@ async fn single_fetch(
         "Fetching periodic configuration"
     );
 
-    match fetch(
+    let result = fetch(
         &state.config.machine_id,
         &state.config.forge_api,
         forge_client_config,
     )
-    .await
-    {
+    .await;
+    // The outcome covers the whole fetch: a successful RPC whose instance
+    // metadata fails to convert is still a failed configuration fetch.
+    let outcome = match result {
         Ok(resp) => {
             state.netconf.store(Some(Arc::new(resp.clone())));
 
             match instance_metadata_from_instance(resp.instance, state.sitename.clone()) {
                 Ok(Some(config)) => {
                     state.instmeta.store(Some(Arc::new(config)));
+                    Outcome::Ok
                 }
                 Ok(None) => {
                     state.instmeta.store(None);
+                    Outcome::Ok
                 }
                 Err(err) => {
                     error!(
@@ -217,14 +223,16 @@ async fn single_fetch(
                         retry_interval_seconds = state.config.config_fetch_interval.as_secs_f64(),
                         "Failed to fetch the latest configuration. Will retry"
                     );
+                    Outcome::Error
                 }
-            };
+            }
         }
         Err(err) => match err.downcast_ref::<tonic::Status>() {
             Some(grpc_status) if grpc_status.code() == tonic::Code::NotFound => {
                 warn!(machine_id = %state.config.machine_id, "DPU not found");
                 state.netconf.store(None);
                 state.instmeta.store(None);
+                Outcome::Error
             }
             _ => {
                 error!(
@@ -232,9 +240,14 @@ async fn single_fetch(
                     error = ?err,
                     "Failed to fetch the latest configuration. Will retry"
                 );
+                Outcome::Error
             }
         },
     };
+    emit(ReportLoopCompleted {
+        report_loop: ReportLoop::ConfigFetch,
+        outcome,
+    });
 
     true
 }
@@ -307,15 +320,15 @@ pub fn instance_metadata_from_instance(
         config_version: instance
             .config_version
             .parse()
-            .wrap_err("Failed to parse instance config_version")?,
+            .wrap_err("failed to parse instance config_version")?,
         network_config_version: instance
             .network_config_version
             .parse()
-            .wrap_err("Failed to parse instance network_config_version")?,
+            .wrap_err("failed to parse instance network_config_version")?,
         extension_service_version: instance
             .dpu_extension_service_version
             .parse()
-            .wrap_err("Failed to parse instance extension_service_version")?,
+            .wrap_err("failed to parse instance extension_service_version")?,
     }))
 }
 
@@ -324,7 +337,7 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
         .config
         .as_ref()
         .and_then(|config| config.infiniband.as_ref())
-        .ok_or_else(|| eyre::eyre!("No infiniband interfaces found"))?;
+        .ok_or_else(|| eyre::eyre!("no infiniband interfaces found"))?;
 
     let ib_interface_configs = &ib_config.ib_interfaces;
 
@@ -332,7 +345,7 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
         .status
         .as_ref()
         .and_then(|status| status.infiniband.as_ref())
-        .ok_or_else(|| eyre::eyre!("No infiniband interfaces found"))?;
+        .ok_or_else(|| eyre::eyre!("no infiniband interfaces found"))?;
 
     let ib_interface_statuses = &ib_status.ib_interfaces;
 
@@ -361,7 +374,7 @@ fn extract_instance_ib_config(instance: &Instance) -> Result<Vec<IBDeviceConfig>
     }
 
     if devices.is_empty() {
-        return Err(eyre::eyre!("No infiniband devices found"));
+        return Err(eyre::eyre!("no infiniband devices found"));
     }
 
     Ok(devices)

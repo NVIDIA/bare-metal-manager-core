@@ -475,7 +475,7 @@ pub async fn admin_network(
             None => {
                 // if FNN is enabled, VPC must be created and updated in admin_segment.
                 return Err(CarbideError::internal(
-                    "Admin VPC is not attached to admin segment.".to_string(),
+                    "admin VPC is not attached to admin segment".to_string(),
                 )
                 .into());
             }
