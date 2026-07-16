@@ -71,6 +71,30 @@ impl From<u8> for ReplyMessageType {
     }
 }
 
+/// The DHCPv6 message type of an outgoing response, as a bounded metric label.
+///
+/// Built from the raw DHCPv6 message-type code Kea reports for the response
+/// (`Pkt6::getType()`). Kea represents relay envelopes separately, so this
+/// label intentionally describes the inner response type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub enum V6ReplyMessageType {
+    Advertise,
+    Reply,
+    Reconfigure,
+    Other,
+}
+
+impl From<u8> for V6ReplyMessageType {
+    fn from(message_type_code: u8) -> Self {
+        match message_type_code {
+            2 => Self::Advertise,    // DHCPV6_ADVERTISE
+            7 => Self::Reply,        // DHCPV6_REPLY
+            10 => Self::Reconfigure, // DHCPV6_RECONFIGURE
+            _ => Self::Other,
+        }
+    }
+}
+
 /// Why the hook dropped or refused a DHCP request, as the bounded `reason`
 /// label on the grandfathered `carbide-dhcp.dropped_requests` counter.
 ///
@@ -188,6 +212,83 @@ impl From<&str> for DropReason {
     }
 }
 
+/// Why the DHCPv6 hook dropped a request, as the bounded `reason` label on
+/// `carbide_dropped_v6_requests_total`.
+///
+/// These labels intentionally follow the existing DHCPv6 snake_case contract,
+/// except `NonRelayedPacket`, which is shared with the v4 drop path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum V6DropReason {
+    NonRelayedPacket,
+    Success,
+    Ignore,
+    ConfirmNotOnLink,
+    InvalidPacket,
+    NestedRelay,
+    NoMacNoOption79,
+    UnsupportedDuid,
+    UnsupportedMessage,
+    InvalidMachinePointer,
+    FetchMachineError,
+    TooManyFailuresError,
+    Unknown,
+}
+
+impl V6DropReason {
+    /// Every variant, as the single source for FFI string mapping and tests.
+    const ALL: [Self; 13] = [
+        Self::NonRelayedPacket,
+        Self::Success,
+        Self::Ignore,
+        Self::ConfirmNotOnLink,
+        Self::InvalidPacket,
+        Self::NestedRelay,
+        Self::NoMacNoOption79,
+        Self::UnsupportedDuid,
+        Self::UnsupportedMessage,
+        Self::InvalidMachinePointer,
+        Self::FetchMachineError,
+        Self::TooManyFailuresError,
+        Self::Unknown,
+    ];
+
+    /// The exact metric `reason` label value accepted from the Kea FFI.
+    const fn as_label(self) -> &'static str {
+        match self {
+            Self::NonRelayedPacket => "NonRelayedPacket",
+            Self::Success => "success",
+            Self::Ignore => "ignore",
+            Self::ConfirmNotOnLink => "confirm_not_on_link",
+            Self::InvalidPacket => "invalid_packet",
+            Self::NestedRelay => "nested_relay",
+            Self::NoMacNoOption79 => "no_mac_no_option79",
+            Self::UnsupportedDuid => "unsupported_duid",
+            Self::UnsupportedMessage => "unsupported_message",
+            Self::InvalidMachinePointer => "invalid_machine_pointer",
+            Self::FetchMachineError => "fetch_machine_error",
+            Self::TooManyFailuresError => "too_many_failures_error",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl LabelValue for V6DropReason {
+    fn label_value(&self) -> StringValue {
+        StringValue::from(self.as_label())
+    }
+}
+
+impl From<&str> for V6DropReason {
+    /// Maps an FFI reason string onto the v6 taxonomy; anything unrecognized
+    /// buckets to [`V6DropReason::Unknown`].
+    fn from(reason: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.as_label() == reason)
+            .unwrap_or(Self::Unknown)
+    }
+}
+
 /// A DHCP request reached the hook's `pkt4_receive` callout, whatever becomes
 /// of it next.
 #[derive(Event)]
@@ -218,6 +319,20 @@ pub struct DhcpRequestDropped {
     pub reason: DropReason,
 }
 
+/// The DHCPv6 hook dropped a packet before Kea could safely answer it.
+#[derive(Event)]
+#[event(
+    name = "carbide_dropped_v6_requests_total",
+    component = "carbide-dhcp",
+    log = off,
+    metric = counter,
+    describe = "Number of dropped DHCPv6 requests, by reason."
+)]
+pub struct DhcpV6RequestDropped {
+    #[label]
+    pub reason: V6DropReason,
+}
+
 /// A fully assembled DHCP reply left `pkt4_send` for transmission: an `offer`
 /// proposes a lease, an `ack` commits one, a `nak` refuses one.
 ///
@@ -234,6 +349,20 @@ pub struct DhcpRequestDropped {
 pub struct DhcpReplySent {
     #[label]
     pub message_type: ReplyMessageType,
+}
+
+/// A fully assembled DHCPv6 response left `pkt6_send` for transmission.
+#[derive(Event)]
+#[event(
+    name = "carbide_dhcp_v6_replies_sent_total",
+    component = "carbide-dhcp",
+    log = off,
+    metric = counter,
+    describe = "Number of DHCPv6 replies sent, by response message type."
+)]
+pub struct DhcpV6ReplySent {
+    #[label]
+    pub message_type: V6ReplyMessageType,
 }
 
 pub async fn certificate_loop() {
@@ -314,6 +443,7 @@ pub fn metrics_server() {
                         address: metrics_endpoint,
                         registry: mconf.registry,
                         health_controller: Some(health_controller),
+                        additional_prefix: None,
                     })
                     .await
                     {
@@ -409,6 +539,20 @@ pub fn increment_reply_sent(message_type: ReplyMessageType) {
     }
 }
 
+/// Increment the DHCPv6 reply-sent counter for an outgoing response type.
+pub fn increment_v6_reply_sent(message_type: V6ReplyMessageType) {
+    if metrics_initialized() {
+        emit(DhcpV6ReplySent { message_type });
+    }
+}
+
+/// Increment the DHCPv6-specific dropped-request counter for a reason label.
+pub fn increment_dropped_v6_requests(reason: V6DropReason) {
+    if metrics_initialized() {
+        emit(DhcpV6RequestDropped { reason });
+    }
+}
+
 pub fn set_service_ready(ready: bool) {
     if let Some(health_controller) = &CONFIG
         .read()
@@ -497,6 +641,45 @@ mod tests {
                 },
             ],
             ReplyMessageType::from,
+        );
+    }
+
+    #[test]
+    fn v6_reply_message_type_maps_dhcpv6_response_codes_and_buckets_the_rest() {
+        check_values(
+            [
+                Check {
+                    scenario: "ADVERTISE (2)",
+                    input: 2u8,
+                    expect: V6ReplyMessageType::Advertise,
+                },
+                Check {
+                    scenario: "REPLY (7)",
+                    input: 7,
+                    expect: V6ReplyMessageType::Reply,
+                },
+                Check {
+                    scenario: "RECONFIGURE (10)",
+                    input: 10,
+                    expect: V6ReplyMessageType::Reconfigure,
+                },
+                Check {
+                    scenario: "RELAY-REPLY (13) is an outer wire envelope",
+                    input: 13,
+                    expect: V6ReplyMessageType::Other,
+                },
+                Check {
+                    scenario: "SOLICIT (1) is not a response type",
+                    input: 1,
+                    expect: V6ReplyMessageType::Other,
+                },
+                Check {
+                    scenario: "unknown code buckets as other",
+                    input: 250,
+                    expect: V6ReplyMessageType::Other,
+                },
+            ],
+            V6ReplyMessageType::from,
         );
     }
 
@@ -643,7 +826,96 @@ mod tests {
         assert_eq!(DropReason::from("SomeFutureReason"), DropReason::Unknown);
     }
 
-    /// All three packet counters are metric-only: one emit moves exactly its
+    /// Pins every DHCPv6 `reason` label rendering. These strings come from
+    /// `V6HookResult` and must remain the exact bytes tests and dashboards use.
+    #[test]
+    fn v6_drop_reason_renders_the_contract_strings_byte_identically() {
+        check_values(
+            [
+                Check {
+                    scenario: "shared non-relayed packet reason",
+                    input: V6DropReason::NonRelayedPacket,
+                    expect: "NonRelayedPacket",
+                },
+                Check {
+                    scenario: "success",
+                    input: V6DropReason::Success,
+                    expect: "success",
+                },
+                Check {
+                    scenario: "ignore",
+                    input: V6DropReason::Ignore,
+                    expect: "ignore",
+                },
+                Check {
+                    scenario: "confirm not on link",
+                    input: V6DropReason::ConfirmNotOnLink,
+                    expect: "confirm_not_on_link",
+                },
+                Check {
+                    scenario: "invalid packet",
+                    input: V6DropReason::InvalidPacket,
+                    expect: "invalid_packet",
+                },
+                Check {
+                    scenario: "nested relay",
+                    input: V6DropReason::NestedRelay,
+                    expect: "nested_relay",
+                },
+                Check {
+                    scenario: "no MAC and no option 79",
+                    input: V6DropReason::NoMacNoOption79,
+                    expect: "no_mac_no_option79",
+                },
+                Check {
+                    scenario: "unsupported DUID",
+                    input: V6DropReason::UnsupportedDuid,
+                    expect: "unsupported_duid",
+                },
+                Check {
+                    scenario: "unsupported message",
+                    input: V6DropReason::UnsupportedMessage,
+                    expect: "unsupported_message",
+                },
+                Check {
+                    scenario: "invalid machine pointer",
+                    input: V6DropReason::InvalidMachinePointer,
+                    expect: "invalid_machine_pointer",
+                },
+                Check {
+                    scenario: "fetch machine error",
+                    input: V6DropReason::FetchMachineError,
+                    expect: "fetch_machine_error",
+                },
+                Check {
+                    scenario: "too many failures",
+                    input: V6DropReason::TooManyFailuresError,
+                    expect: "too_many_failures_error",
+                },
+                Check {
+                    scenario: "unknown bucket",
+                    input: V6DropReason::Unknown,
+                    expect: "unknown",
+                },
+            ],
+            V6DropReason::as_label,
+        );
+    }
+
+    /// Every known v6 FFI reason maps onto a bounded label and renders back
+    /// unchanged, so adding a future v6 result cannot silently mint labels.
+    #[test]
+    fn v6_drop_reason_label_value_renders_as_label_for_every_variant() {
+        for reason in V6DropReason::ALL {
+            assert_eq!(
+                reason.label_value().as_str(),
+                reason.as_label(),
+                "{reason:?}"
+            );
+        }
+    }
+
+    /// Packet counters are metric-only: one emit moves exactly its
     /// counter -- under the exposed name dashboards use -- and builds no log
     /// line at all (the Kea process has no tracing subscriber; the C++ log
     /// lines remain the log side).
@@ -655,8 +927,14 @@ mod tests {
             emit(DhcpRequestDropped {
                 reason: DropReason::TooManyFailuresError,
             });
+            emit(DhcpV6RequestDropped {
+                reason: V6DropReason::NestedRelay,
+            });
             emit(DhcpReplySent {
                 message_type: ReplyMessageType::Offer,
+            });
+            emit(DhcpV6ReplySent {
+                message_type: V6ReplyMessageType::Reply,
             });
         });
 
@@ -674,8 +952,22 @@ mod tests {
         );
         assert_eq!(
             metrics.counter_delta(
+                "carbide_dropped_v6_requests_total",
+                &[("reason", "nested_relay")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
                 "carbide_dhcp_replies_sent_total",
                 &[("message_type", "offer")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_v6_replies_sent_total",
+                &[("message_type", "reply")]
             ),
             1.0
         );
@@ -683,10 +975,10 @@ mod tests {
 
     /// The C++ callouts reach the counters through the FFI layer: reason
     /// strings map onto the bounded taxonomy (unknown ones bucket), the raw
-    /// Kea message-type code maps onto the reply label, and nothing records
-    /// until `metrics_server` has initialized metrics -- the gate that also
-    /// guarantees the global meter provider is installed before the first
-    /// emit.
+    /// Kea message-type codes map onto their family-specific reply labels,
+    /// and nothing records until `metrics_server` has initialized metrics --
+    /// the gate that also guarantees the global meter provider is installed
+    /// before the first emit.
     #[test]
     fn ffi_increments_gate_on_initialization_and_map_their_arguments() {
         let metrics = MetricsCapture::start();
@@ -697,8 +989,10 @@ mod tests {
         unsafe {
             crate::carbide_increment_total_requests();
             crate::carbide_increment_dropped_requests(c"NonRelayedPacket".as_ptr());
+            crate::carbide_increment_dropped_v6_requests(c"nested_relay".as_ptr());
         }
         crate::carbide_increment_reply_sent(5);
+        crate::carbide_increment_v6_reply_sent(7);
         assert_eq!(
             metrics.counter_delta("carbide_dhcp_requests_total", &[]),
             0.0
@@ -707,6 +1001,20 @@ mod tests {
             metrics.counter_delta(
                 "carbide_dhcp_replies_sent_total",
                 &[("message_type", "ack")]
+            ),
+            0.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dropped_v6_requests_total",
+                &[("reason", "nested_relay")]
+            ),
+            0.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_v6_replies_sent_total",
+                &[("message_type", "reply")]
             ),
             0.0
         );
@@ -721,8 +1029,11 @@ mod tests {
             crate::carbide_increment_total_requests();
             crate::carbide_increment_dropped_requests(c"NonRelayedPacket".as_ptr());
             crate::carbide_increment_dropped_requests(c"NotAReasonWeKnow".as_ptr());
+            crate::carbide_increment_dropped_v6_requests(c"nested_relay".as_ptr());
+            crate::carbide_increment_dropped_v6_requests(c"not_a_v6_reason".as_ptr());
         }
         crate::carbide_increment_reply_sent(5); // DHCPACK
+        crate::carbide_increment_v6_reply_sent(7); // DHCPV6_REPLY
 
         assert_eq!(
             metrics.counter_delta("carbide_dhcp_requests_total", &[]),
@@ -744,8 +1055,29 @@ mod tests {
         );
         assert_eq!(
             metrics.counter_delta(
+                "carbide_dropped_v6_requests_total",
+                &[("reason", "nested_relay")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dropped_v6_requests_total",
+                &[("reason", "unknown")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
                 "carbide_dhcp_replies_sent_total",
                 &[("message_type", "ack")]
+            ),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_dhcp_v6_replies_sent_total",
+                &[("message_type", "reply")]
             ),
             1.0
         );

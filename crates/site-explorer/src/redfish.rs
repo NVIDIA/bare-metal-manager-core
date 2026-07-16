@@ -337,7 +337,18 @@ impl RedfishClient {
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let service_root = self
             .nv_redfish_client_pool
-            .service_root(bmc_ip_address, credentials)
+            .service_root_with_cache_predicate(bmc_ip_address, credentials, |root| {
+                let complete = root.root.chassis.is_some() && root.root.managers.is_some();
+                if !complete {
+                    tracing::warn!(
+                        %bmc_ip_address,
+                        chassis = root.root.chassis.is_some(),
+                        managers = root.root.managers.is_some(),
+                        "BMC served a service root without required navigation not caching it"
+                    );
+                }
+                complete
+            })
             .await
             .map_err(|err| EndpointExplorationError::Other {
                 details: format!("Cannot Redfish service root: {err}"),
@@ -703,7 +714,7 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     {
         tracing::warn!(
             manager_id = %manager.id,
-            eth0_mac = %mac,
+            eth0_mac_address = %mac,
             "manager eth0 MAC is locally-administered (transient pre-sync data?)",
         );
     }
@@ -721,7 +732,8 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
         Ok(interfaces) => Ok(interfaces),
         Err(e) if is_dpu => {
             tracing::warn!(
-                "Error getting system ethernet interfaces.  The error will be ignored. ({e})"
+                error = %e,
+                "Failed to get system Ethernet interfaces; ignoring the error"
             );
             Ok(Vec::default())
         }
@@ -748,14 +760,19 @@ async fn fetch_system(client: &dyn Redfish) -> Result<ComputerSystem, EndpointEx
             Ok(base_mac) => base_mac.and_then(|v| {
                 v.parse()
                     .inspect_err(|err| {
-                        tracing::warn!("Failed to parse BaseMAC: {err} (mac: {v})");
+                        tracing::warn!(
+                            error = %err,
+                            mac_address = %v,
+                            "Failed to parse BaseMAC"
+                        );
                     })
                     .ok()
             }),
             Err(error) => {
                 tracing::info!(
-                    "Could not use new method to retreive base mac address for DPU (serial number {:#?}): {error}",
-                    system.serial_number
+                    serial_number = ?system.serial_number,
+                    %error,
+                    "Could not use new method to retrieve base MAC address for DPU"
                 );
                 None
             }
@@ -878,8 +895,10 @@ async fn fetch_ethernet_interfaces(
                         // ignore this error and create the interface with an empty mac address
                         // in the exploration report
                         tracing::debug!(
-                            "could not parse MAC address for a disabled interface {iface_id} (link_status: {:#?}): {e}",
-                            iface.link_status
+                            interface_id = %iface_id,
+                            link_status = ?iface.link_status,
+                            error = %e,
+                            "could not parse MAC address for a disabled interface"
                         );
                         Ok(None)
                     } else {

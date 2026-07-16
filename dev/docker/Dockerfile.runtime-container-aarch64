@@ -52,6 +52,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt-get update && \
 		iproute2 \
 		iputils-ping \
 		kea-dhcp4-server \
+		kea-dhcp6-server \
 		kea-ctrl-agent \
 		libaio1 \
 		libc-ares2 \
@@ -68,4 +69,3 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt-get update && \
 		tpm2-tools \
 		zlib1g && \
 	rm -rf /var/lib/apt/lists/*
-

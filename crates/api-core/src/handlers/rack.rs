@@ -639,7 +639,7 @@ pub(crate) async fn on_demand_rack_maintenance(
             Some(ProtoActivity::PowerSequence(_)) => MaintenanceActivity::PowerSequence,
             None => {
                 return Err(CarbideError::InvalidArgument(
-                    "Maintenance activity entry has no activity set".into(),
+                    "maintenance activity entry has no activity set".into(),
                 )
                 .into());
             }
@@ -821,7 +821,10 @@ pub(crate) async fn on_demand_rack_maintenance(
         return Err(status);
     }
 
-    tracing::info!("On-demand maintenance scheduled for rack {}", rack_id,);
+    tracing::info!(
+        rack_id = %rack_id,
+        "On-demand maintenance scheduled",
+    );
 
     Ok(Response::new(rpc::RackMaintenanceOnDemandResponse {}))
 }

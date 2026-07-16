@@ -65,9 +65,9 @@ pub(crate) async fn re_wrap_secrets(
     })?;
 
     tracing::info!(
-        re_wrapped = result.re_wrapped,
-        already_current = result.already_current,
-        stale_remaining = result.stale_remaining,
+        rewrapped_secret_count = result.re_wrapped,
+        already_current_secret_count = result.already_current,
+        remaining_stale_secret_count = result.stale_remaining,
         "secrets re-wrap completed"
     );
 

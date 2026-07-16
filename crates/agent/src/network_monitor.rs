@@ -131,7 +131,10 @@ impl NetworkMonitor {
                 loopback_ip = Some(dpu_info.ip);
             }
             Err(e) => {
-                tracing::debug!("Network monitor failed to get dpu info list from API {}", e);
+                tracing::debug!(
+                    error = %e,
+                    "Network monitor failed to get dpu info list from API"
+                );
             }
         }
 
@@ -152,7 +155,10 @@ impl NetworkMonitor {
                             loopback_ip = Some(dpu_info.ip);
                         }
                         Err(e) => {
-                            tracing::debug!("Network monitor failed to get dpu info list from API {}", e);
+                            tracing::debug!(
+                                error = %e,
+                                "Network monitor failed to get dpu info list from API"
+                            );
                             peer_dpus = Vec::new();
                             loopback_ip = None;
                         }
@@ -201,7 +207,7 @@ impl NetworkMonitor {
                         metrics.update_network_reachable_map(reachable_map);
                     }
                 }
-                Err(e) => tracing::error!("Failed to run network check: {}", e),
+                Err(e) => tracing::error!(error = %e, "Failed to run network check"),
             }
             elapsed_time = start_time.elapsed();
         }
@@ -223,14 +229,17 @@ impl NetworkMonitor {
         {
             Ok((dpu_info, new_peer_dpus)) => (dpu_info.ip, new_peer_dpus),
             Err(e) => {
-                tracing::error!("Network monitor failed to get dpu info list from API {}", e);
+                tracing::error!(
+                    error = %e,
+                    "Network monitor failed to get dpu info list from API"
+                );
                 return;
             }
         };
 
         match self.monitor_concurrent(&peer_dpus, loopback_ip).await {
             Ok(results) => self.format_results(&results, loopback_ip.to_string()),
-            Err(e) => tracing::error!("Failed to run network check: {}", e),
+            Err(e) => tracing::error!(error = %e, "Failed to run network check"),
         }
     }
 
@@ -284,8 +293,8 @@ impl NetworkMonitor {
         let results = recv_task.await.map_err(|err| {
             self.record_error_metrics(NetworkMonitorError::TaskJoinError, None);
             tracing::error!(
-                "Failed to join task spawned for collecting ping result: {}",
-                err
+                error = %err,
+                "Failed to join task spawned for collecting ping result"
             );
             err
         })?;
@@ -327,7 +336,7 @@ impl NetworkMonitor {
 
         match serde_json::to_string_pretty(&final_result) {
             Ok(json) => println!("{json}"),
-            Err(e) => tracing::error!("Failed to serialize results to JSON: {}", e),
+            Err(e) => tracing::error!(error = %e, "Failed to serialize results to JSON"),
         }
     }
 
@@ -405,7 +414,7 @@ pub(crate) async fn fetch_dpu_info_list(
         client.get_dpu_info_list(request).await.map_err(|err| {
             eyre::Report::new(err)
                 .wrap_err(format!("forge_api: {forge_api}"))
-                .wrap_err("Error while executing the GetDpuInfoList gRPC call")
+                .wrap_err("error while executing the GetDpuInfoList gRPC call")
         })?;
 
     Ok(response.into_inner())
@@ -558,7 +567,7 @@ impl Ping for HbnExecPinger {
     ) -> Result<DpuPingResult, (NetworkMonitorError, eyre::Report)> {
         let container_id: String = hbn::get_hbn_container_id()
             .await
-            .wrap_err("Failed to get hbn container id")
+            .wrap_err("failed to get hbn container id")
             .map_err(|e| (NetworkMonitorError::HbnContainerIdNotFound, e))?;
 
         match hbn::run_in_container(
@@ -589,7 +598,7 @@ impl Ping for HbnExecPinger {
                     (
                         NetworkMonitorError::PingOutputParseError,
                         eyre::eyre!(
-                            "Unexpected parse error for container ping result: {}",
+                            "unexpected parse error for container ping result: {}",
                             regex_err.to_string()
                         ),
                     )
@@ -601,7 +610,7 @@ impl Ping for HbnExecPinger {
                     .ok_or_else(|| {
                         (
                             NetworkMonitorError::HbnContainerCommandExecError,
-                            eyre::eyre!("Error running ping in container: {}", err),
+                            eyre::eyre!("error running ping in container: {}", err),
                         )
                     })?;
 
@@ -621,15 +630,15 @@ pub fn parse_ping_stdout(dpu_info: DpuInfo, stdout: &str) -> Result<DpuPingResul
     let mut lines_iter = stdout.lines().rev();
     let rtt_line = lines_iter
         .next()
-        .ok_or_else(|| eyre::eyre!("Failed to find RTT line"))?;
+        .ok_or_else(|| eyre::eyre!("failed to find RTT line"))?;
     let summary_line = lines_iter
         .next()
-        .ok_or_else(|| eyre::eyre!("Failed to find summary line"))?;
+        .ok_or_else(|| eyre::eyre!("failed to find summary line"))?;
 
     let success_count = summary_re
         .captures(summary_line)
         .and_then(|caps| caps.get(2).and_then(|m| m.as_str().parse::<u32>().ok()))
-        .ok_or_else(|| eyre::eyre!("Failed to parse number of success packets"))?;
+        .ok_or_else(|| eyre::eyre!("failed to parse number of success packets"))?;
 
     if success_count == 0 {
         return Ok(DpuPingResult {
@@ -642,7 +651,7 @@ pub fn parse_ping_stdout(dpu_info: DpuInfo, stdout: &str) -> Result<DpuPingResul
     let latency = rtt_re
         .captures(rtt_line)
         .and_then(|caps| caps.get(1).and_then(|m| m.as_str().parse::<f64>().ok()))
-        .ok_or_else(|| eyre::eyre!("Failed to average latency"))?;
+        .ok_or_else(|| eyre::eyre!("failed to average latency"))?;
 
     Ok(DpuPingResult {
         dpu_info,

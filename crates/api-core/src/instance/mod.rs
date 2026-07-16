@@ -443,9 +443,9 @@ pub fn allocate_ib_port_guid(
     let mut guids: Vec<String> = Vec::new();
     for request in &mut updated_ib_config.ib_interfaces {
         tracing::debug!(
-            "request IB device:{}, device_instance:{}",
-            request.device.clone(),
-            request.device_instance
+            device = %request.device,
+            device_instance = request.device_instance,
+            "Requested InfiniBand device",
         );
 
         // TOTO: will support VF in the future. Currently, it will return err when the function_id is not PF.
@@ -461,7 +461,10 @@ pub fn allocate_ib_port_guid(
                 request.pf_guid = Some(ib.guid.clone());
                 request.guid = Some(ib.guid.clone());
                 guids.push(ib.guid.clone());
-                tracing::debug!("select IB device GUID {}", ib.guid.clone());
+                tracing::debug!(
+                    ib_guid = %ib.guid,
+                    "select IB device GUID",
+                );
             } else {
                 return Err(CarbideError::InvalidArgument(format!(
                     "not enough ib device {} (machine {})",
@@ -536,7 +539,7 @@ pub async fn allocate_instance(
 
     results
         .pop()
-        .ok_or_else(|| CarbideError::internal("Instance allocation returned no result".to_string()))
+        .ok_or_else(|| CarbideError::internal("instance allocation returned no result".to_string()))
 }
 
 /// Allocates multiple instances in a single transaction.
@@ -556,7 +559,7 @@ pub async fn batch_allocate_instances(
 ) -> Result<Vec<ManagedHostStateSnapshot>, CarbideError> {
     if requests.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "Batch request must contain at least one instance".to_string(),
+            "batch request must contain at least one instance".to_string(),
         ));
     }
 
@@ -732,7 +735,11 @@ pub async fn batch_allocate_instances(
             })?;
 
         if let Err(e) = mh_snapshot.is_usable_as_instance(request.allow_unhealthy_machine) {
-            tracing::error!(%machine_id, "Host can not be used as instance due to reason: {}", e);
+            tracing::error!(
+                %machine_id,
+                error = %e,
+                "Host can not be used as instance due to reason",
+            );
             return Err(match e {
                 NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
                     "Could not create instance on machine {machine_id} given machine state {s:?}"
@@ -858,7 +865,7 @@ pub async fn batch_allocate_instances(
     for os_image_id in &os_image_ids {
         if os_image_id.is_nil() {
             return Err(CarbideError::InvalidArgument(
-                "Image ID is required for image based storage".to_string(),
+                "image ID is required for image based storage".to_string(),
             ));
         }
         if let Err(e) = db::os_image::get(&mut txn, *os_image_id).await {
@@ -1278,7 +1285,8 @@ pub async fn batch_validate_spx_partition_ownership(
     for (partition_id, expected_tenant) in validations {
         let partition = partition_map.get(partition_id).ok_or_else(|| {
             tracing::error!(
-                "batch_validate_spx_partition_ownership partition not found: {partition_id}"
+                spx_partition_id = %partition_id,
+                "SPX partition not found while validating ownership",
             );
             ConfigValidationError::invalid_value(format!(
                 "SPX partition {partition_id} is not created"
@@ -1287,7 +1295,8 @@ pub async fn batch_validate_spx_partition_ownership(
 
         if &partition.tenant_organization_id != *expected_tenant {
             tracing::error!(
-                "batch_validate_spx_partition_ownership partition not owned by the tenant: {partition_id}"
+                spx_partition_id = %partition_id,
+                "SPX partition is not owned by the tenant",
             );
             return Err(CarbideError::InvalidArgument(format!(
                 "SPX Partition {partition_id} is not owned by the tenant {expected_tenant}",
@@ -1394,8 +1403,8 @@ pub fn sort_spx_by_slot(spx_hw_info_vec: &[DpaInterface]) -> HashMap<String, Vec
             entry.push(spx);
         } else {
             tracing::info!(
-                "sort_spx_by_slot device_description is not found: {:#?}",
-                spx
+                spx = ?spx,
+                "SPX device description is missing",
             );
         }
     }
@@ -1411,17 +1420,17 @@ pub fn allocate_spx_port_mac(
     let mut updated_spx_config = spx_config.clone();
 
     tracing::debug!(
-        "allocate_spx_port_mac dev len: {:#?}",
-        mh_snapshot.dpa_interface_snapshots.len()
+        dpa_interface_snapshot_count = mh_snapshot.dpa_interface_snapshots.len(),
+        "Allocating SPX port MAC addresses",
     );
 
     let mut seen_device_instances = HashSet::new();
     for att in &updated_spx_config.spx_attachments {
         if !seen_device_instances.insert((att.device.clone(), att.device_instance)) {
             tracing::error!(
-                "allocate_spx_port_mac duplicate SPX attachment for device {} instance {}",
-                att.device,
-                att.device_instance
+                device = %att.device,
+                device_instance = att.device_instance,
+                "Duplicate SPX attachment",
             );
             return Err(CarbideError::InvalidArgument(format!(
                 "duplicate SPX attachment for device {} instance {}",
@@ -1445,7 +1454,7 @@ pub fn allocate_spx_port_mac(
         if spx_attachment.attachment_type == SpxAttachmentType::Virtual {
             tracing::error!("allocate_spx_port_mac SPX attachment type Virtual is not supported");
             return Err(CarbideError::InvalidArgument(
-                "SPX attachment type Virtual is not supported".to_string(),
+                "SPX attachment type virtual is not supported".to_string(),
             ));
         }
         if let Some(sorted_spxs) = spx_hw_map.get_mut(&spx_attachment.device) {
@@ -1454,9 +1463,9 @@ pub fn allocate_spx_port_mac(
                 sorted_spxs.remove(spx_attachment.device_instance as usize);
             } else {
                 tracing::error!(
-                    "allocate_spx_port_mac SPX device {} has no instance {}",
-                    spx_attachment.device,
-                    spx_attachment.device_instance
+                    device = %spx_attachment.device,
+                    device_instance = spx_attachment.device_instance,
+                    "SPX device has no matching instance",
                 );
                 return Err(CarbideError::InvalidArgument(format!(
                     "SPX device {} has no instance {}",
@@ -1465,9 +1474,9 @@ pub fn allocate_spx_port_mac(
             }
         } else {
             tracing::error!(
-                "allocate_spx_port_mac No SPX device with name {} in machine {}",
-                spx_attachment.device,
-                mh_snapshot.host_snapshot.id
+                device = %spx_attachment.device,
+                machine_id = %mh_snapshot.host_snapshot.id,
+                "SPX device not found",
             );
             return Err(CarbideError::InvalidArgument(format!(
                 "No SPX device with name {} in machine {}",

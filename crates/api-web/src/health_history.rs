@@ -76,7 +76,7 @@ pub async fn fetch_health_records(
     let health_records = match fetch_health_history(api, &machine_id).await {
         Ok(records) => records,
         Err(err) => {
-            tracing::error!(%err, %machine_id, "find_machine_health_histories");
+            tracing::error!(error = %err, %machine_id, "find_machine_health_histories");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, String::new()));
         }
     };

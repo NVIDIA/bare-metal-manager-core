@@ -205,7 +205,7 @@ impl SyncLogFileWriter {
             return Ok(());
         }
 
-        tracing::info!(size = self.current_size, "rotating log file");
+        tracing::info!(file_size_bytes = self.current_size, "rotating log file");
 
         // flush and drop the current file handle before renaming
         if let Some(mut file) = self.current_file.take() {

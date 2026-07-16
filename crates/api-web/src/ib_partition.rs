@@ -76,7 +76,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let partitions = match fetch_ib_partitions(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_ib_partitions");
+            tracing::error!(error = %err, "fetch_ib_partitions");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading IB partitions",
@@ -95,7 +95,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let partitions = match fetch_ib_partitions(state).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_ib_partitions");
+            tracing::error!(error = %err, "fetch_ib_partitions");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading IB partitions",
@@ -301,7 +301,7 @@ pub async fn detail(
             return super::not_found_response(partition_id_string);
         }
         Err(err) => {
-            tracing::error!(%err, "find_ib_partitions");
+            tracing::error!(error = %err, "find_ib_partitions");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading IB partitions",

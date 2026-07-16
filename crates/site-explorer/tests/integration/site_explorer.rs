@@ -79,9 +79,9 @@ impl DiscoverDhcp for FakeMachine {
             .await?
             .into_inner();
         tracing::info!(
-            "DHCP with mac {} assigned ip {}",
-            self.mac,
-            response.address
+            mac_address = %self.mac,
+            ip_address = %response.address,
+            "DHCP assigned ip"
         );
         self.ip = response.address;
         Ok(())
@@ -2038,7 +2038,7 @@ async fn test_site_explorer_reexplore(pool: PgPool) -> Result<(), Box<dyn std::e
     assert_eq!(
         e.message(),
         format!(
-            "An object of type explored_endpoint was intended to be modified did not have the expected version {}",
+            "an object of type explored_endpoint was intended to be modified did not have the expected version {}",
             unexpected_version.version_string()
         )
     );

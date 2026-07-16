@@ -24,11 +24,12 @@ use arc_swap::ArcSwapOption;
 use prometheus::{Histogram, HistogramOpts};
 
 use crate::HealthError;
+use crate::api_client::ApiClientWrapper;
 use crate::bmc::BmcClient;
 use crate::collectors::{Collector, LogDowngradeRegistry, SharedInventory};
 use crate::config::{
     Config, Configurable, DiscoveryConfig, FirmwareCollectorConfig as FirmwareCollectorOptions,
-    LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
+    GpuInventoryConfig, LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
     LogsCollectorConfig as LogsCollectorOptions, MetricsCollectorConfig as MetricsCollectorOptions,
     MtlsProfileConfig, NmxcCollectorConfig as NmxcCollectorOptions,
     NmxtCollectorConfig as NmxtCollectorOptions, NvueCollectorConfig as NvueCollectorOptions,
@@ -50,10 +51,11 @@ pub(super) enum CollectorKind {
     Nmxc,
     NvueRest,
     NvueGnmi,
+    GpuInventory,
 }
 
 impl CollectorKind {
-    pub(super) const ALL: [CollectorKind; 10] = [
+    pub(super) const ALL: [CollectorKind; 11] = [
         CollectorKind::Discovery,
         CollectorKind::Sensor,
         CollectorKind::Metrics,
@@ -64,28 +66,8 @@ impl CollectorKind {
         CollectorKind::Nmxc,
         CollectorKind::NvueRest,
         CollectorKind::NvueGnmi,
+        CollectorKind::GpuInventory,
     ];
-
-    pub(super) fn stop_message(self) -> &'static str {
-        match self {
-            CollectorKind::Discovery => {
-                "Stopping entity discovery collector for removed BMC endpoint"
-            }
-            CollectorKind::Sensor => "Stopping sensor collector for removed BMC endpoint",
-            CollectorKind::Metrics => "Stopping entity metrics collector for removed BMC endpoint",
-            CollectorKind::Logs => "Stopping logs collector for removed BMC endpoint",
-            CollectorKind::Firmware => "Stopping firmware collector for removed BMC endpoint",
-            CollectorKind::LeakDetector => {
-                "Stopping leak detector collector for removed BMC endpoint"
-            }
-            CollectorKind::Nmxt => "Stopping NMX-T collector for removed BMC endpoint",
-            CollectorKind::Nmxc => "Stopping NMX-C streaming collector for removed switch endpoint",
-            CollectorKind::NvueRest => "Stopping NVUE REST collector for removed BMC endpoint",
-            CollectorKind::NvueGnmi => {
-                "Stopping NVUE gNMI streaming collector for removed switch endpoint"
-            }
-        }
-    }
 }
 
 pub(super) struct CollectorState {
@@ -99,6 +81,7 @@ pub(super) struct CollectorState {
     nmxc: HashMap<Cow<'static, str>, Collector>,
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
     nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
+    gpu_inventory: HashMap<Cow<'static, str>, Collector>,
     inventories: HashMap<Cow<'static, str>, SharedInventory<BmcClient>>,
 }
 
@@ -115,6 +98,7 @@ impl CollectorState {
             nmxc: HashMap::new(),
             nvue_rest: HashMap::new(),
             nvue_gnmi: HashMap::new(),
+            gpu_inventory: HashMap::new(),
             inventories: HashMap::new(),
         }
     }
@@ -131,6 +115,7 @@ impl CollectorState {
             CollectorKind::Nmxc => &self.nmxc,
             CollectorKind::NvueRest => &self.nvue_rest,
             CollectorKind::NvueGnmi => &self.nvue_gnmi,
+            CollectorKind::GpuInventory => &self.gpu_inventory,
         }
     }
 
@@ -149,6 +134,7 @@ impl CollectorState {
             CollectorKind::Nmxc => &mut self.nmxc,
             CollectorKind::NvueRest => &mut self.nvue_rest,
             CollectorKind::NvueGnmi => &mut self.nvue_gnmi,
+            CollectorKind::GpuInventory => &mut self.gpu_inventory,
         }
     }
 
@@ -199,6 +185,7 @@ impl CollectorState {
             .chain(self.nmxc.keys())
             .chain(self.nvue_rest.keys())
             .chain(self.nvue_gnmi.keys())
+            .chain(self.gpu_inventory.keys())
             .filter(|key| !active_keys.contains(*key))
             .cloned()
             .collect()
@@ -239,6 +226,8 @@ pub struct DiscoveryLoopContext {
 
     /// Whether any enabled sink consumes `CollectorEvent::Log` payloads.
     pub(crate) log_event_sink_enabled: bool,
+    pub(crate) gpu_inventory_config: Configurable<GpuInventoryConfig>,
+    pub(crate) api_client: Option<Arc<ApiClientWrapper>>,
     pub(crate) log_downgrade_registry: Arc<LogDowngradeRegistry>,
 
     /// Whether log collectors should attach diagnostic payload carriers.
@@ -311,6 +300,16 @@ impl DiscoveryLoopContext {
             tls_config,
             tls_http_client_provider,
             log_event_sink_enabled: config.sinks.includes_log_events(),
+            gpu_inventory_config: config.collectors.gpu_inventory.clone(),
+            api_client: match &config.endpoint_sources.carbide_api {
+                Configurable::Enabled(source_cfg) => Some(Arc::new(ApiClientWrapper::new(
+                    source_cfg.root_ca.clone(),
+                    source_cfg.client_cert.clone(),
+                    source_cfg.client_key.clone(),
+                    &source_cfg.api_url,
+                ))),
+                _ => None,
+            },
             log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
             logs_include_diagnostics: config.sinks.includes_log_diagnostics(),
         })

@@ -67,7 +67,7 @@ pub async fn handle_fetch_info(
                         .await
                         {
                             tracing::warn!(
-                                %e,
+                                error = %e,
                                 %switch_id,
                                 "Failed to update slot_number and tray_index for switch"
                             );

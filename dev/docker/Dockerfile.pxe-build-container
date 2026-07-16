@@ -36,6 +36,7 @@ RUN apt-get update && \
 	build-essential \
 	kea-dev \
 	kea-dhcp4-server \
+	kea-dhcp6-server \
 	libboost-dev \
 	libgrpc-dev \
 	libgrpc++-dev \

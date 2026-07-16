@@ -72,7 +72,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_keysets(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_keysets");
+            tracing::error!(error = %err, "fetch_keysets");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading keysets").into_response();
         }
     };
@@ -87,7 +87,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out: forgerpc::TenantKeySetList = match fetch_keysets(state).await {
         Ok(ks) => ks,
         Err(err) => {
-            tracing::error!(%err, "fetch_keysets");
+            tracing::error!(error = %err, "fetch_keysets");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading keysets").into_response();
         }
     };
@@ -198,7 +198,7 @@ pub async fn detail(
             return super::not_found_response(format!("{organization_id}/{keyset_id}"));
         }
         Err(err) => {
-            tracing::error!(%err, %organization_id, "find_tenant_keysets_by_ids");
+            tracing::error!(error = %err, %organization_id, "find_tenant_keysets_by_ids");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading keyset").into_response();
         }
     };

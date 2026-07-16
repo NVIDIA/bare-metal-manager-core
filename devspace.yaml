@@ -14,6 +14,33 @@ vars:
   LOCAL_DEV_CERT_ISSUER_GROUP:
     source: env
     default: cert-manager.io
+  LOCAL_DEV_REST_POSTGRES_DB:
+    source: env
+    default: nico_rest
+  LOCAL_DEV_REST_POSTGRES_USER:
+    source: env
+    default: nico_rest
+  LOCAL_DEV_REST_POSTGRES_PASSWORD:
+    source: env
+    default: nico_rest
+  LOCAL_DEV_REST_API_FORWARD_PORT:
+    source: env
+    default: "18388"
+  LOCAL_DEV_KEYCLOAK_FORWARD_PORT:
+    source: env
+    default: "18082"
+
+pipelines:
+  purge: |-
+    CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+    case "$CONTEXT" in
+      kind-*)
+        LOCAL_DEV_NAMESPACE=${DEVSPACE_NAMESPACE} dev/deployment/devspace/reset-kind-cluster.sh
+        ;;
+      *)
+        run_default_pipeline purge
+        ;;
+    esac
 
 images:
   nico-api:
@@ -65,6 +92,62 @@ images:
         - include
         - dev/docker/Dockerfile.build-container-x86_64
         - dev/deployment/devspace/Dockerfile.machine-a-tron
+  nico-rest-api:
+    image: localhost:5000/nico-rest-api
+    tags:
+      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+    dockerfile: rest-api/docker/local/Dockerfile.nico-rest-api
+    context: rest-api
+    buildKit: {}
+    skipPush: true
+  nico-rest-workflow:
+    image: localhost:5000/nico-rest-workflow
+    tags:
+      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+    dockerfile: rest-api/docker/local/Dockerfile.nico-rest-workflow
+    context: rest-api
+    buildKit: {}
+    skipPush: true
+  nico-rest-site-manager:
+    image: localhost:5000/nico-rest-site-manager
+    tags:
+      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+    dockerfile: rest-api/docker/local/Dockerfile.nico-rest-site-manager
+    context: rest-api
+    buildKit: {}
+    skipPush: true
+  nico-rest-site-agent:
+    image: localhost:5000/nico-rest-site-agent
+    tags:
+      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+    dockerfile: rest-api/docker/local/Dockerfile.nico-rest-site-agent
+    context: rest-api
+    buildKit: {}
+    skipPush: true
+  nico-rest-db:
+    image: localhost:5000/nico-rest-db
+    tags:
+      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+    dockerfile: rest-api/docker/local/Dockerfile.nico-rest-db
+    context: rest-api
+    buildKit: {}
+    skipPush: true
+  nico-rest-cert-manager:
+    image: localhost:5000/nico-rest-cert-manager
+    tags:
+      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+    dockerfile: rest-api/docker/local/Dockerfile.nico-rest-cert-manager
+    context: rest-api
+    buildKit: {}
+    skipPush: true
+  nico-mcp:
+    image: localhost:5000/nico-mcp
+    tags:
+      - ${DEVSPACE_GIT_COMMIT}-${DEVSPACE_TIMESTAMP}
+    dockerfile: rest-api/docker/local/Dockerfile.nico-mcp
+    context: rest-api
+    buildKit: {}
+    skipPush: true
 
 deployments:
   carbide-local:
@@ -115,6 +198,105 @@ deployments:
           op: replace
           path: spec.issuerRef.group
           value: ${LOCAL_DEV_CERT_ISSUER_GROUP}
+  nico-rest:
+    namespace: nico-rest
+    updateImageTags: false
+    helm:
+      chart:
+        path: ./helm/rest/nico-rest
+      values:
+        global:
+          image:
+            repository: localhost:5000
+            tag: ${runtime.images.nico-rest-api.tag}
+            pullPolicy: Never
+          imagePullSecrets: []
+          certificate:
+            issuerRef:
+              kind: ClusterIssuer
+              name: nico-rest-ca-issuer
+              group: cert-manager.io
+        nico-rest-common:
+          secrets:
+            dbCreds:
+              username: ${LOCAL_DEV_REST_POSTGRES_USER}
+              password: ${LOCAL_DEV_REST_POSTGRES_PASSWORD}
+        nico-rest-api:
+          nodePort:
+            enabled: true
+            port: 30388
+          config:
+            db:
+              host: postgres.postgres.svc.cluster.local
+              name: ${LOCAL_DEV_REST_POSTGRES_DB}
+              user: ${LOCAL_DEV_REST_POSTGRES_USER}
+            keycloak:
+              enabled: true
+              baseURL: http://keycloak:8082
+              externalBaseURL: http://localhost:${LOCAL_DEV_KEYCLOAK_FORWARD_PORT}
+              realm: nico-dev
+              clientID: nico-api
+              serviceAccount: true
+        nico-rest-workflow:
+          secrets:
+            dbCreds: db-creds
+          config:
+            db:
+              host: postgres.postgres.svc.cluster.local
+              name: ${LOCAL_DEV_REST_POSTGRES_DB}
+              user: ${LOCAL_DEV_REST_POSTGRES_USER}
+        nico-rest-db:
+          db:
+            host: postgres.postgres.svc.cluster.local
+            name: ${LOCAL_DEV_REST_POSTGRES_DB}
+            user: ${LOCAL_DEV_REST_POSTGRES_USER}
+  nico-rest-site-agent:
+    namespace: nico-rest
+    updateImageTags: false
+    helm:
+      chart:
+        path: ./helm/rest/nico-rest-site-agent
+      values:
+        global:
+          image:
+            repository: localhost:5000
+            tag: ${runtime.images.nico-rest-api.tag}
+            pullPolicy: Never
+          imagePullSecrets: []
+          certificate:
+            issuerRef:
+              kind: ClusterIssuer
+              name: nico-rest-ca-issuer
+              group: cert-manager.io
+        certificate:
+          uris:
+            - spiffe://nico.local/nico-system/sa/elektra-site-agent
+        envConfig:
+          NICO_ADDRESS: nico-api.${LOCAL_DEV_NAMESPACE}.svc.cluster.local:1079
+          NICO_SEC_OPT: "2"
+          CORE_GRPC_ADDRESS: nico-api.${LOCAL_DEV_NAMESPACE}.svc.cluster.local:1079
+          CORE_GRPC_SEC_OPT: "2"
+          FLOW_GRPC_ENABLED: "false"
+          CLUSTER_ID: 00000000-0000-4000-8000-000000000001
+          TEMPORAL_SERVER: site.server.temporal.local
+          TEMPORAL_SUBSCRIBE_NAMESPACE: 00000000-0000-4000-8000-000000000001
+          TEMPORAL_SUBSCRIBE_QUEUE: site
+  nico-mcp:
+    namespace: nico-rest
+    updateImageTags: false
+    helm:
+      chart:
+        path: ./helm/rest/nico-mcp
+      values:
+        global:
+          image:
+            repository: localhost:5000
+            tag: ${runtime.images.nico-rest-api.tag}
+            pullPolicy: Never
+          imagePullSecrets: []
+        config:
+          baseURL: http://nico-rest-api:8388
+          apiName: nico
 
 hooks:
   - name: load-images-into-local-cluster
@@ -124,10 +306,65 @@ hooks:
       case "$CONTEXT" in
         kind-*)
           echo "Loading images into kind cluster..."
-          kind load docker-image \
+          kind load docker-image --name "${CONTEXT#kind-}" \
             "${runtime.images.nico-api.image}:${runtime.images.nico-api.tag}" \
             "${runtime.images.nico-bmc-proxy.image}:${runtime.images.nico-bmc-proxy.tag}" \
             "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}"
           ;;
         # Add new local K8s tools here
       esac
+  - name: load-rest-images-into-local-cluster
+    events: ["before:deploy"]
+    command: |-
+      CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+      case "$CONTEXT" in
+        kind-*)
+          echo "Loading REST images into kind cluster..."
+          kind load docker-image --name "${CONTEXT#kind-}" \
+            "${runtime.images.nico-rest-api.image}:${runtime.images.nico-rest-api.tag}" \
+            "${runtime.images.nico-rest-workflow.image}:${runtime.images.nico-rest-workflow.tag}" \
+            "${runtime.images.nico-rest-site-manager.image}:${runtime.images.nico-rest-site-manager.tag}" \
+            "${runtime.images.nico-rest-site-agent.image}:${runtime.images.nico-rest-site-agent.tag}" \
+            "${runtime.images.nico-rest-db.image}:${runtime.images.nico-rest-db.tag}" \
+            "${runtime.images.nico-rest-cert-manager.image}:${runtime.images.nico-rest-cert-manager.tag}" \
+            "${runtime.images.nico-mcp.image}:${runtime.images.nico-mcp.tag}"
+          ;;
+        *)
+          echo "Full-stack deployment requires a kind context; current context is ${CONTEXT:-unset}" >&2
+          exit 1
+          ;;
+      esac
+  - name: setup-rest-integration
+    events: ["after:deploy"]
+    command: |-
+      LOCAL_DEV_REST_API_FORWARD_PORT=${LOCAL_DEV_REST_API_FORWARD_PORT} \
+      LOCAL_DEV_KEYCLOAK_FORWARD_PORT=${LOCAL_DEV_KEYCLOAK_FORWARD_PORT} \
+        dev/deployment/devspace/setup-rest-integration.sh
+
+profiles:
+  - name: core-only
+    patches:
+      - op: remove
+        path: images.nico-rest-api
+      - op: remove
+        path: images.nico-rest-workflow
+      - op: remove
+        path: images.nico-rest-site-manager
+      - op: remove
+        path: images.nico-rest-site-agent
+      - op: remove
+        path: images.nico-rest-db
+      - op: remove
+        path: images.nico-rest-cert-manager
+      - op: remove
+        path: images.nico-mcp
+      - op: remove
+        path: deployments.nico-rest
+      - op: remove
+        path: deployments.nico-rest-site-agent
+      - op: remove
+        path: deployments.nico-mcp
+      - op: remove
+        path: hooks.name=load-rest-images-into-local-cluster
+      - op: remove
+        path: hooks.name=setup-rest-integration

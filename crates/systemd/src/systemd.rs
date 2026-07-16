@@ -68,7 +68,7 @@ async fn sd_notify(msg: &str) -> eyre::Result<()> {
         #[cfg(not(target_os = "linux"))]
         {
             eyre::bail!(
-                "Abstract Unix sockets (NOTIFY_SOCKET starting with @) are only supported on Linux"
+                "abstract unix sockets (NOTIFY_SOCKET starting with @) are only supported on linux"
             );
         }
     } else {
@@ -84,7 +84,7 @@ async fn sd_notify(msg: &str) -> eyre::Result<()> {
         .await
         .wrap_err("socket send error")?;
     if sent != msg.len() {
-        eyre::bail!("Short send {sent} / {}", msg.len());
+        eyre::bail!("short send {sent} / {}", msg.len());
     }
     Ok(())
 }

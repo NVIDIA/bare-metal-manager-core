@@ -171,7 +171,7 @@ pub fn cli_make_cred(
         session_key_path
             .to_str()
             .ok_or(CarbideError::AttestBindKeyError(
-                "Could not join seession_key_path".to_string(),
+                "could not join seession_key_path".to_string(),
             ))?;
 
     let mut session_key_file = File::create(session_key_path.clone()).map_err(|e| {
@@ -185,21 +185,24 @@ pub fn cli_make_cred(
     let ek_file_path_str = ek_file_path
         .to_str()
         .ok_or(CarbideError::AttestBindKeyError(
-            "Could not convert ek_file_path to str".to_string(),
+            "could not convert ek_file_path to str".to_string(),
         ))?;
 
     let cred_out_path = tmp_dir_path.join("mkcred.out");
     let cred_out_path_str = cred_out_path
         .to_str()
         .ok_or(CarbideError::AttestBindKeyError(
-            "Could not join cred_out_path".to_string(),
+            "could not join cred_out_path".to_string(),
         ))?;
 
     let cmd_str = format!(
         "tpm2 makecredential -u {ek_file_path_str} -s {session_key_path_str} -n {ak_name_hex} -o {cred_out_path_str} -G rsa -V --tcti=none"
     );
 
-    tracing::debug!("make credential command is {}", cmd_str);
+    tracing::debug!(
+        command = %cmd_str,
+        "make credential command",
+    );
     // execute the makecredential command
     let output = Command::new("sh")
         .arg("-c")
@@ -213,8 +216,8 @@ pub fn cli_make_cred(
 
     if !output.stderr.is_empty() {
         tracing::error!(
-            "tpm2 makecredential returned error: {}",
-            String::from_utf8_lossy(output.stderr.as_slice())
+            error = %String::from_utf8_lossy(output.stderr.as_slice()),
+            "tpm2 makecredential returned error",
         );
     }
 
@@ -362,7 +365,7 @@ where
 
 #[cfg(not(feature = "linux-build"))]
 fn attestation_unsupported_error() -> CarbideError {
-    CarbideError::AttestQuoteError("This server does not support attestation".to_string())
+    CarbideError::AttestQuoteError("this server does not support attestation".to_string())
 }
 
 #[cfg(feature = "linux-build")]
@@ -387,7 +390,7 @@ pub mod linux_build {
             AttestInfo::Quote { info } => info.pcr_digest(),
             _other => {
                 return Err(CarbideError::AttestQuoteError(
-                    "Incorrect Attestation Type".into(),
+                    "incorrect attestation type".into(),
                 ));
             }
         };
@@ -452,7 +455,7 @@ pub mod linux_build {
             Public::Rsa { unique, .. } => unique,
             _ => {
                 return Err(CarbideError::AttestBindKeyError(
-                    "EK Pub is not in RSA format".to_string(),
+                    "EK pub is not in RSA format".to_string(),
                 ));
             }
         };
@@ -484,7 +487,7 @@ pub mod linux_build {
             tss_esapi::structures::Public::Rsa { unique, .. } => unique,
             _ => {
                 return Err(CarbideError::AttestQuoteError(
-                    "AK Pub is not an RSA key".to_string(),
+                    "AK pub is not an RSA key".to_string(),
                 ));
             }
         };
@@ -531,7 +534,7 @@ mod tests {
             Ok(..) => panic!("Failed: Should have received an error"),
             Err(e) => assert_eq!(
                 e.to_string(),
-                "Attest Bind Key Error: Creds file is too short: 3 bytes"
+                "attest bind key error: Creds file is too short: 3 bytes"
             ),
         }
     }

@@ -52,7 +52,7 @@ pub(crate) async fn find_interfaces(
             },
             Err(_) => {
                 return Err(CarbideError::internal(
-                    "Could not marshall an IP from the request".to_string(),
+                    "could not marshall an IP from the request".to_string(),
                 )
                 .into());
             }
@@ -209,7 +209,7 @@ pub(crate) async fn find_bmc_ips(
                 Ok(ip) => vec![ip],
                 Err(e) => {
                     tracing::warn!(
-                        %bmc_ip,
+                        bmc_ip_address = %bmc_ip,
                         error = %e,
                         "BMC IP from machine_interfaces did not parse; skipping"
                     );

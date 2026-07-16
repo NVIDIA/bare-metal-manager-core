@@ -151,7 +151,7 @@ impl KubernetesPodServicesHandler {
         let _ = spec
             .get_mut("metadata")
             .and_then(Value::as_mapping_mut)
-            .ok_or_else(|| eyre::eyre!("Pod spec missing metadata"))?;
+            .ok_or_else(|| eyre::eyre!("pod spec missing metadata"))?;
 
         let id = format!("    {}: \"{}\"\n", KUBERNETES_POD_LABEL_ID, service_id);
         let ver = format!("    {}: \"{}\"\n", KUBERNETES_POD_LABEL_VER, version);
@@ -181,15 +181,15 @@ impl KubernetesPodServicesHandler {
         }
 
         Err(eyre::eyre!(
-            "Failed to inject labels: metadata field not found"
+            "failed to inject labels: metadata field not found"
         ))
     }
 
     /// Restart a systemd service and apply changes to the service configuration.
     async fn systemctl_restart(&self, service: &str) -> Result<()> {
         tracing::debug!(
-            "systemctl daemon-reload and restart {} to apply changes",
-            service
+            service,
+            "systemctl daemon-reload and restart to apply changes"
         );
 
         // Run systemctl daemon-reload
@@ -197,11 +197,11 @@ impl KubernetesPodServicesHandler {
             .args(["daemon-reload"])
             .output()
             .await
-            .wrap_err("Failed to run systemctl daemon-reload")?;
+            .wrap_err("failed to run systemctl daemon-reload")?;
 
         if !daemon_reload.status.success() {
             let stderr = String::from_utf8_lossy(&daemon_reload.stderr);
-            tracing::warn!("systemctl daemon-reload failed: {}", stderr);
+            tracing::warn!(%stderr, "systemctl daemon-reload failed");
         }
 
         // Run systemctl restart <service>
@@ -213,10 +213,10 @@ impl KubernetesPodServicesHandler {
 
         if !restart.status.success() {
             let stderr = String::from_utf8_lossy(&restart.stderr);
-            return Err(eyre::eyre!("Failed to restart {}: {}", service, stderr));
+            return Err(eyre::eyre!("failed to restart {}: {}", service, stderr));
         }
 
-        tracing::debug!("Successfully restarted {}", service);
+        tracing::debug!(%service, "Successfully restarted");
 
         Ok(())
     }
@@ -227,15 +227,15 @@ impl KubernetesPodServicesHandler {
             .args(args)
             .output()
             .await
-            .wrap_err("Failed to get crictl output")?;
+            .wrap_err("failed to get crictl output")?;
 
         if !output.status.success() {
             let stderr =
-                String::from_utf8(output.stderr).wrap_err("Failed to parse crictl output")?;
-            return Err(eyre::eyre!("Failed to get crictl output: {}", stderr));
+                String::from_utf8(output.stderr).wrap_err("failed to parse crictl output")?;
+            return Err(eyre::eyre!("failed to get crictl output: {}", stderr));
         }
-        let stdout = String::from_utf8(output.stdout).wrap_err("Failed to parse crictl output")?;
-        let json = serde_json::from_str(&stdout).wrap_err("Failed to parse crictl output")?;
+        let stdout = String::from_utf8(output.stdout).wrap_err("failed to parse crictl output")?;
+        let json = serde_json::from_str(&stdout).wrap_err("failed to parse crictl output")?;
 
         Ok(json)
     }
@@ -248,10 +248,10 @@ impl KubernetesPodServicesHandler {
             self.get_temp_pod_spec_path(&service.id.to_string(), service.version.version_nr());
 
         std::fs::create_dir_all(Path::new(KUBERNETES_POD_DIR))
-            .wrap_err("Failed to create pod spec directory")?;
+            .wrap_err("failed to create pod spec directory")?;
 
         std::fs::create_dir_all(Path::new(KUBERNETES_POD_DIR_TMP))
-            .wrap_err("Failed to create tmp pod spec directory")?;
+            .wrap_err("failed to create tmp pod spec directory")?;
 
         // We need to inject labels to help identify pod in crictl
         let labeled_yaml = Self::inject_labels(
@@ -272,13 +272,13 @@ impl KubernetesPodServicesHandler {
         tmp_file
             .write_all(labeled_yaml.as_bytes())
             .await
-            .wrap_err("Failed to write pod spec data")?;
+            .wrap_err("failed to write pod spec data")?;
 
         // Ensure data is written to disk
         tmp_file
             .sync_all()
             .await
-            .wrap_err("Failed to sync pod spec data to disk")?;
+            .wrap_err("failed to sync pod spec data to disk")?;
 
         drop(tmp_file);
 
@@ -294,10 +294,10 @@ impl KubernetesPodServicesHandler {
             })?;
 
         tracing::debug!(
-            "Pod spec for service {} V{} written successfully at {}",
-            service.id,
-            service.version,
-            pod_spec_path.display()
+            extension_service_id = %service.id,
+            service_version = %service.version,
+            pod_spec_path = %pod_spec_path.display(),
+            "Pod spec written successfully"
         );
 
         Ok(())
@@ -310,18 +310,18 @@ impl KubernetesPodServicesHandler {
         match fs::remove_file(&pod_spec_path).await {
             Ok(()) => {
                 tracing::debug!(
-                    "Pod spec for service {} V{} removed successfully at {}",
-                    service_id,
+                    extension_service_id = service_id,
                     service_version,
-                    pod_spec_path.display()
+                    pod_spec_path = %pod_spec_path.display(),
+                    "Pod spec removed successfully"
                 );
             }
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 tracing::debug!(
-                    "Pod spec for service {} V{} already gone (nothing to remove) at {}",
-                    service_id,
+                    extension_service_id = service_id,
                     service_version,
-                    pod_spec_path.display()
+                    pod_spec_path = %pod_spec_path.display(),
+                    "Pod spec already gone (nothing to remove)"
                 );
             }
             Err(e) => {
@@ -355,7 +355,7 @@ impl KubernetesPodServicesHandler {
 
         let json = Self::crictl_output(args)
             .await
-            .wrap_err("Failed to find run crictl pods")?;
+            .wrap_err("failed to find run crictl pods")?;
 
         let items = json
             .get("items")
@@ -467,27 +467,27 @@ impl KubernetesPodServicesHandler {
             ])
             .output()
             .await
-            .wrap_err("Failed to inspect container with go-template")?;
+            .wrap_err("failed to inspect container with go-template")?;
 
         if output.status.success() {
             let stdout = String::from_utf8(output.stdout)
-                .wrap_err("Failed to parse go-template inspect output")?;
+                .wrap_err("failed to parse go-template inspect output")?;
             if let Ok(exit_code) = stdout.trim().parse::<i64>() {
                 return Ok(exit_code);
             }
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             tracing::debug!(
-                "go-template inspect failed for container {}: {}",
                 container_id,
-                stderr
+                %stderr,
+                "go-template inspect failed"
             );
         }
 
         // Fallback for environments where go-template is unavailable or output format differs.
         let container = Self::crictl_output(&["inspect", container_id])
             .await
-            .wrap_err("Failed to inspect container")?;
+            .wrap_err("failed to inspect container")?;
 
         container
             .get("status")
@@ -495,7 +495,7 @@ impl KubernetesPodServicesHandler {
             .and_then(|v| v.as_i64())
             .ok_or_else(|| {
                 eyre::eyre!(
-                    "Container inspect output missing numeric status.exitCode for container {}",
+                    "container inspect output missing numeric status.exitCode for container {}",
                     container_id
                 )
             })
@@ -503,12 +503,12 @@ impl KubernetesPodServicesHandler {
 
     /// Return the names of containers declared by a pod spec.
     fn get_expected_container_names(pod_spec: &str) -> Result<HashSet<String>> {
-        let spec = serde_yaml::from_str::<Value>(pod_spec).wrap_err("Failed to parse pod spec")?;
+        let spec = serde_yaml::from_str::<Value>(pod_spec).wrap_err("failed to parse pod spec")?;
         let containers = spec
             .get("spec")
             .and_then(|v| v.get("containers"))
             .and_then(Value::as_sequence)
-            .ok_or_else(|| eyre::eyre!("Pod spec missing spec.containers"))?;
+            .ok_or_else(|| eyre::eyre!("pod spec missing spec.containers"))?;
 
         containers
             .iter()
@@ -517,7 +517,7 @@ impl KubernetesPodServicesHandler {
                     .get("name")
                     .and_then(Value::as_str)
                     .map(str::to_owned)
-                    .ok_or_else(|| eyre::eyre!("Pod spec container missing name"))
+                    .ok_or_else(|| eyre::eyre!("pod spec container missing name"))
             })
             .collect()
     }
@@ -577,7 +577,7 @@ impl KubernetesPodServicesHandler {
     async fn get_pod_sandbox_status(&self, pod_id: &str) -> Result<String> {
         let pod = Self::crictl_output(&["inspectp", pod_id])
             .await
-            .wrap_err("Failed to inspect pod sandbox")?;
+            .wrap_err("failed to inspect pod sandbox")?;
 
         // Assume the pod state is in nested field status.state
         let pod_state = pod
@@ -843,7 +843,7 @@ impl KubernetesPodServicesHandler {
 
         if keys.is_empty() {
             return Err(eyre::eyre!(
-                "No credentials provided. Should never configure a credential provider with no credentials."
+                "no credentials provided. should never configure a credential provider with no credentials"
             ));
         }
 
@@ -930,7 +930,7 @@ JSON
     fn write_kubelet_override_conf(&self) -> Result<()> {
         // Create systemd override directory if it doesn't exist
         std::fs::create_dir_all(Path::new(KUBELET_SYSTEMD_OVERRIDE_DIR))
-            .wrap_err("Failed to create kubelet systemd override directory")?;
+            .wrap_err("failed to create kubelet systemd override directory")?;
 
         // Check if override file already exists and has correct content
         let override_content = format!(
@@ -950,7 +950,7 @@ JSON
             Err(e) if e.kind() == ErrorKind::NotFound => true,
             Err(e) => {
                 return Err(eyre::eyre!(
-                    "Failed to read existing kubelet override file: {}",
+                    "failed to read existing kubelet override file: {}",
                     e
                 ));
             }
@@ -958,15 +958,15 @@ JSON
 
         if needs_update {
             std::fs::write(KUBELET_SYSTEMD_OVERRIDE_FILE, override_content)
-                .wrap_err("Failed to write kubelet systemd override file")?;
+                .wrap_err("failed to write kubelet systemd override file")?;
             tracing::debug!(
-                "Written kubelet systemd override to {}",
-                KUBELET_SYSTEMD_OVERRIDE_FILE
+                kubelet_systemd_override_path = KUBELET_SYSTEMD_OVERRIDE_FILE,
+                "Written kubelet systemd override"
             );
         } else {
             tracing::debug!(
-                "Kubelet systemd override already up to date at {}",
-                KUBELET_SYSTEMD_OVERRIDE_FILE
+                kubelet_systemd_override_path = KUBELET_SYSTEMD_OVERRIDE_FILE,
+                "Kubelet systemd override already up to date"
             );
         }
 
@@ -988,11 +988,11 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
         // Create containerd override directory if it doesn't exist
         let containerd_override_dir = Path::new(CONTAINERD_OVERRIDE_DIR);
         std::fs::create_dir_all(containerd_override_dir)
-            .wrap_err("Failed to create containerd override directory")?;
+            .wrap_err("failed to create containerd override directory")?;
 
         // Write containerd proxy config
         std::fs::write(CONTAINERD_PROXY_FILE, socks_proxy_config)
-            .wrap_err("Failed to write containerd proxy file")?;
+            .wrap_err("failed to write containerd proxy file")?;
 
         // Restart containerd@mgmt.service to apply changes
         self.systemctl_restart("containerd@mgmt.service").await?;
@@ -1131,39 +1131,39 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
                 KUBELET_SYSTEMD_OVERRIDE_FILE,
             ] {
                 match std::fs::remove_file(path) {
-                    Ok(_) => tracing::debug!("Removed {}", path),
+                    Ok(_) => tracing::debug!(path, "Removed"),
                     Err(e) if e.kind() == ErrorKind::NotFound => {
-                        tracing::debug!("{} already absent", path);
+                        tracing::debug!(path, "already absent");
                     }
-                    Err(e) => return Err(eyre::eyre!("Failed to remove {}: {}", path, e)),
+                    Err(e) => return Err(eyre::eyre!("failed to remove {}: {}", path, e)),
                 }
             }
         } else {
             tracing::debug!(
-                "Configuring credential provider for {} registries or organizations",
-                credential_list.len()
+                registry_count = credential_list.len(),
+                "Configuring credential provider for registries or organizations"
             );
 
             // Create credential directory structure
             let image_cred_dir = Path::new(KUBELET_POD_IMAGE_CRED_DIR);
             std::fs::create_dir_all(image_cred_dir)
-                .wrap_err("Failed to create image credential directory")?;
+                .wrap_err("failed to create image credential directory")?;
 
             let image_cred_bin_dir = image_cred_dir.join("bin");
             std::fs::create_dir_all(&image_cred_bin_dir)
-                .wrap_err("Failed to create image credential bin directory")?;
+                .wrap_err("failed to create image credential bin directory")?;
 
             // Generate credential provider config
             let config_content = self
                 .generate_credential_provider_config(&credential_list)
-                .wrap_err("Failed to generate credential provider config")?;
+                .wrap_err("failed to generate credential provider config")?;
 
             std::fs::write(KUBELET_POD_IMAGE_CRED_CONFIG_FILE, config_content)
-                .wrap_err("Failed to write credential provider config")?;
+                .wrap_err("failed to write credential provider config")?;
 
             tracing::debug!(
-                "Written credential provider config to {}",
-                KUBELET_POD_IMAGE_CRED_CONFIG_FILE
+                credential_provider_config_path = KUBELET_POD_IMAGE_CRED_CONFIG_FILE,
+                "Written credential provider config"
             );
 
             // Write kubelet systemd override to configure image credential provider
@@ -1172,7 +1172,7 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
             // Generate credential provider script
             let script_content = self.generate_credential_provider_script(&credential_list)?;
             std::fs::write(KUBELET_POD_IMAGE_CRED_PROVIDER_FILE, script_content)
-                .wrap_err("Failed to write credential provider script")?;
+                .wrap_err("failed to write credential provider script")?;
 
             // Make script executable on Unix systems
             #[cfg(unix)]
@@ -1185,8 +1185,8 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
             }
 
             tracing::debug!(
-                "Written credential provider script to {}",
-                KUBELET_POD_IMAGE_CRED_PROVIDER_FILE
+                credential_provider_script_path = KUBELET_POD_IMAGE_CRED_PROVIDER_FILE,
+                "Written credential provider script"
             );
         }
 
@@ -1222,8 +1222,9 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
                     }
                 } else if observability.configs.len() > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
                     tracing::error!(
-                        "number of observability configs for service `{}` exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
-                        service.id
+                        extension_service_id = %service.id,
+                        limit = MAX_OBSERVABILITY_CONFIG_PER_SERVICE,
+                        "Number of observability configs exceeds the limit"
                     );
 
                     // We protect against this case in the API layer, so this case,
@@ -1321,22 +1322,22 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
         // Setup the socks proxy for pulling container images if it is not already configured
         self.setup_socks_proxy()
             .await
-            .map_err(|e| eyre::eyre!("Failed to setup socks proxy: {}", e))?;
+            .map_err(|e| eyre::eyre!("failed to setup socks proxy: {}", e))?;
 
         // Reconcile the kubelet directory with the desired service spec files
         self.reconcile_pod_specs(&active_services)
             .await
-            .map_err(|e| eyre::eyre!("Failed to reconcile pod specs: {}", e))?;
+            .map_err(|e| eyre::eyre!("failed to reconcile pod specs: {}", e))?;
 
         // Reconcile the credential provider to contain the credentials for the new services' images
         self.reconcile_credential_provider(&active_services)
             .await
-            .map_err(|e| eyre::eyre!("Failed to reconcile credential provider: {}", e))?;
+            .map_err(|e| eyre::eyre!("failed to reconcile credential provider: {}", e))?;
 
         // Reconcile metrics collection config
         self.reconcile_observability(services)
             .await
-            .map_err(|e| eyre::eyre!("Failed to reconcile metrics collection: {}", e))?;
+            .map_err(|e| eyre::eyre!("failed to reconcile metrics collection: {}", e))?;
 
         Ok(())
     }
@@ -1348,7 +1349,7 @@ impl ExtensionServiceHandler for KubernetesPodServicesHandler {
     /// This reconciles the /etc/kubelet.d directory with the desired services
     async fn update_active_services(&mut self, services: &[ServiceConfig]) -> Result<()> {
         if let Err(e) = self.update_services(services).await {
-            tracing::error!("Failed to update active services: {}", e);
+            tracing::error!(error = %e, "Failed to update active services");
         }
         Ok(())
     }

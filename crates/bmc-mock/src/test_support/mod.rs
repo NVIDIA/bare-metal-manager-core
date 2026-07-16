@@ -381,14 +381,16 @@ mod test {
         };
 
         let interfaces = machine.discovery_info().network_interfaces;
-        assert_eq!(interfaces.len(), 1);
-        assert_eq!(interfaces[0].mac_address, expected_mac);
-
-        let pci = interfaces[0]
+        assert_eq!(interfaces.len(), 12);
+        let dpu_interface = interfaces
+            .iter()
+            .find(|interface| interface.mac_address == expected_mac)
+            .expect("discovery must include the DPU host interface");
+        let pci = dpu_interface
             .pci_properties
             .as_ref()
             .expect("DPU host interface must include PCI properties");
         assert!(pci.vendor.to_ascii_lowercase().contains("mellanox"));
-        assert_eq!(pci.slot.as_deref(), Some("0000:03:00.0"));
+        assert_eq!(pci.slot.as_deref(), Some("0016:01:00.0"));
     }
 }

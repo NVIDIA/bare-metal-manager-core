@@ -111,7 +111,12 @@ fn no_router_response(
     let err = format!(
         "no router configured for forwarded_host/host/authority: {forwarded_host:?}/{host:?}/{authority:?}"
     );
-    tracing::info!("{err}");
+    tracing::info!(
+        forwarded_host = ?forwarded_host,
+        host = ?host,
+        authority = ?authority,
+        "No BMC mock router is configured for request",
+    );
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(err.into())

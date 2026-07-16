@@ -22,10 +22,10 @@ use super::args::Args;
 use crate::errors::CarbideCliError;
 use crate::rpc::ApiClient;
 
-fn scope_display(scope: i32) -> &'static str {
-    match rpc::forge::IpxeTemplateScope::try_from(scope) {
-        Ok(rpc::forge::IpxeTemplateScope::Internal) => "internal",
-        Ok(rpc::forge::IpxeTemplateScope::Public) => "public",
+fn visibility_display(visibility: i32) -> &'static str {
+    match rpc::forge::IpxeTemplateVisibility::try_from(visibility) {
+        Ok(rpc::forge::IpxeTemplateVisibility::Internal) => "internal",
+        Ok(rpc::forge::IpxeTemplateVisibility::Public) => "public",
         _ => "unknown",
     }
 }
@@ -55,7 +55,7 @@ async fn list_all(format: OutputFormat, api_client: &ApiClient) -> Result<(), Ca
             Cell::new("ID"),
             Cell::new("Name"),
             Cell::new("Description"),
-            Cell::new("Scope"),
+            Cell::new("Visibility"),
             Cell::new("Required Params"),
             Cell::new("Required Artifacts"),
         ]));
@@ -70,7 +70,7 @@ async fn list_all(format: OutputFormat, api_client: &ApiClient) -> Result<(), Ca
                 Cell::new(&id_str),
                 Cell::new(&tmpl.name),
                 Cell::new(&tmpl.description),
-                Cell::new(scope_display(tmpl.scope)),
+                Cell::new(visibility_display(tmpl.visibility)),
                 Cell::new(&tmpl.required_params.join(", ")),
                 Cell::new(&tmpl.required_artifacts.join(", ")),
             ]));
@@ -117,7 +117,7 @@ async fn show_one(
         println!("ID:          {}", id_str);
         println!("Name:        {}", result.name);
         println!("Description: {}", result.description);
-        println!("Scope:       {}", scope_display(result.scope));
+        println!("Visibility:  {}", visibility_display(result.visibility));
 
         if !result.required_params.is_empty() {
             println!("Required params:    {}", result.required_params.join(", "));

@@ -286,10 +286,10 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
     };
     match env.api.create_network_segment(Request::new(request)).await {
         Ok(_) => Err(eyre::eyre!(
-            "Overlapping network prefix was allowed. DB should prevent this."
+            "overlapping network prefix was allowed. DB should prevent this"
         )),
         Err(status) if status.code() == tonic::Code::Internal => Err(eyre::eyre!(
-            "Overlapping network prefix was caught by DB constraint. Should be checked earlier."
+            "overlapping network prefix was caught by DB constraint. should be checked earlier"
         )),
         Err(status) if status.code() == tonic::Code::InvalidArgument => Ok(()),
         Err(err) => Err(err.into()), // unexpected error
@@ -856,7 +856,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
         match env.api.create_network_segment(Request::new(request)).await {
             Ok(_) => {
                 return Err(eyre::format_err!(
-                    "{prefix} prefix is not allowed, but still code created segment."
+                    "{prefix} prefix is not allowed, but still code created segment"
                 ));
             }
             Err(status) if status.code() == tonic::Code::InvalidArgument => {}
@@ -890,7 +890,7 @@ async fn test_segment_prefix_in_unconfigured_address_space(
             match status_code {
                 tonic::Code::InvalidArgument => Ok(()),
                 _ => Err(eyre::format_err!(
-                    "Unexpected gRPC error code from API: {status_code}"
+                    "unexpected gRPC error code from API: {status_code}"
                 )),
             }
         }
@@ -898,7 +898,7 @@ async fn test_segment_prefix_in_unconfigured_address_space(
             let prefixes = segment.prefixes.iter().map(|p| p.prefix.as_str());
             let prefixes = itertools::join(prefixes, ", ");
             Err(eyre::format_err!(
-                "The API did not reject our request to create a segment using \
+                "the API did not reject our request to create a segment using \
                 prefixes that fall outside of the site's address space: {prefixes}"
             ))
         }

@@ -44,7 +44,9 @@ pub use discovery::{DiscoveryIterationStats, DiscoveryLoopContext};
 use crate::api_client::{ApiClientWrapper, ApiEndpointSource};
 use crate::collectors::BackoffConfig;
 use crate::config::Configurable;
-use crate::endpoint::{CompositeEndpointSource, EndpointSource, StaticEndpointSource};
+use crate::endpoint::{
+    ClusterEndpointSource, CompositeEndpointSource, EndpointSource, StaticEndpointSource,
+};
 use crate::limiter::{BucketLimiter, NoopLimiter, RateLimiter};
 use crate::metrics::{MetricsManager, run_metrics_server};
 use crate::processor::{
@@ -61,34 +63,34 @@ use crate::sink::{
 
 #[derive(thiserror::Error, Debug)]
 pub enum HealthError {
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("unable to connect to carbide API: {0}")]
     ApiConnectFailed(String),
 
-    #[error("The API call to the Carbide API server returned {0}")]
+    #[error("the API call to the carbide API server returned {0}")]
     ApiInvocationError(tonic::Status),
 
-    #[error("Generic Error: {0}")]
+    #[error("generic error: {0}")]
     GenericError(String),
 
-    #[error("Logger Error: {0}")]
+    #[error("logger error: {0}")]
     LoggerError(String),
 
-    #[error("Error while handling json: {0}")]
+    #[error("error while handling json: {0}")]
     JsonError(#[from] serde_json::Error),
 
-    #[error("Tokio Task Join Error {0}")]
+    #[error("tokio task join error {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
 
-    #[error("Prometheus Error {0}")]
+    #[error("prometheus error {0}")]
     PrometheusError(#[from] prometheus::Error),
 
-    #[error("BMC Error: {0}")]
+    #[error("BMC error: {0}")]
     BmcError(#[from] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("HTTP(S) error: {0}")]
     HttpError(String),
 
-    #[error("Redfish SSE not available: {0}")]
+    #[error("redfish SSE not available: {0}")]
     SseNotAvailable(String),
 
     #[error("gNMI error: {0}")]
@@ -101,7 +103,7 @@ pub enum HealthError {
     NmxcStatus(tonic::Status),
 
     /// Client TLS material could not be read, validated, or applied.
-    #[error("mTLS profile error: {0}")]
+    #[error("TLS profile error: {0}")]
     Tls(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
@@ -157,11 +159,21 @@ fn build_endpoint_wiring(config: &Config) -> Result<EndpointWiring, HealthError>
         ));
         let endpoint_source = Arc::new(ApiEndpointSource::new(
             api_client,
-            reqwest,
+            reqwest.clone(),
             config.bmc_proxy_url.clone(),
             config.cache_size,
         ));
         sources.push(endpoint_source as Arc<dyn EndpointSource>);
+    }
+
+    if let Configurable::Enabled(ref source_cfg) = config.endpoint_sources.cluster {
+        let cluster_source = ClusterEndpointSource::from_config(
+            source_cfg.clone(),
+            &reqwest,
+            config.bmc_proxy_url.as_ref(),
+            config.cache_size,
+        );
+        sources.push(Arc::new(cluster_source));
     }
 
     let composite_source = CompositeEndpointSource::new(sources);
@@ -312,9 +324,26 @@ impl discovery::DiscoveryIteration for ServiceDiscoveryIteration {
     }
 }
 
+/// Runs the hardware-health service after validating configured TLS profiles.
+///
+/// Switch and OTLP TLS material is preflighted before listeners and background
+/// tasks start, so invalid certificate configuration fails startup.
+///
+/// # Errors
+///
+/// Returns an error when startup validation or initialization fails, or when a
+/// long-running service task exits with an error.
 pub async fn run_service(config: Config) -> Result<(), HealthError> {
     if let Some(tls_config) = &config.tls.switch {
         tls::preflight(tls_config).await?;
+    }
+
+    if let Configurable::Enabled(otlp) = &config.sinks.otlp {
+        for target in &otlp.targets {
+            if let Some(tls_config) = &target.tls {
+                tls::otlp_preflight(tls_config).await?;
+            }
+        }
     }
 
     let tls_config = config.tls.switch.clone();

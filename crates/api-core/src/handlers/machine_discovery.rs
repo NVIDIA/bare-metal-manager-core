@@ -71,7 +71,7 @@ pub(crate) async fn discover_machine(
             rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
         })
         .ok_or_else(|| {
-            CarbideError::InvalidArgument("Discovery data is not populated".to_string())
+            CarbideError::InvalidArgument("discovery data is not populated".to_string())
         })?;
     let attest_key_info_opt = discovery_data.attest_key_info.clone();
     let hardware_info = HardwareInfo::try_from(discovery_data).map_err(CarbideError::from)?;
@@ -127,8 +127,8 @@ pub(crate) async fn discover_machine(
     db::machine_interface::lock_all_admin_segments(&mut txn).await?;
 
     tracing::debug!(
-        ?remote_ip,
-        ?interface_id,
+        remote_ip_address = ?remote_ip,
+        machine_interface_id = ?interface_id,
         "discover_machine loading interface"
     );
 
@@ -362,7 +362,7 @@ pub(crate) async fn discover_machine(
             .await?;
 
             tracing::info!(
-                ?mi_id,
+                machine_interface_id = ?mi_id,
                 machine_id = %proactive_machine.id,
                 "Created host machine proactively",
             );
@@ -399,7 +399,7 @@ pub(crate) async fn discover_machine(
     {
         let Some(attest_key_info) = attest_key_info_opt else {
             return Err(CarbideError::InvalidArgument(
-                "Internal Error: This should have been handled above! AttestKeyInfo is not populated.".into(),
+                "internal error: this should have been handled above! AttestKeyInfo is not populated".into(),
             )
             .into());
         };
@@ -417,10 +417,10 @@ pub(crate) async fn discover_machine(
         )
     } else {
         tracing::info!(
-            "Attestation enabled is {}. Is_DPU is {}. Vending certs to machine with id {}",
-            api.runtime_config.attestation_enabled,
-            hardware_info.is_dpu(),
-            stable_machine_id,
+            attestation_enabled = api.runtime_config.attestation_enabled,
+            is_dpu = hardware_info.is_dpu(),
+            %stable_machine_id,
+            "Vending attestation certificates",
         );
 
         None

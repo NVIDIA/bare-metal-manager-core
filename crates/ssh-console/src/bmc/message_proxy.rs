@@ -44,7 +44,7 @@ pub fn spawn(
                             Ok(()) => {}
                             Err(error) => {
                                 tracing::debug!(
-                                    peer_addr,
+                                    peer_address = peer_addr,
                                     %error,
                                     "error sending message to frontend, likely disconnected"
                                 );
@@ -53,7 +53,10 @@ pub fn spawn(
                         }
                     }
                     Err(_) => {
-                        tracing::debug!(peer_addr, "client channel closed when writing message from BMC");
+                        tracing::debug!(
+                            peer_address = peer_addr,
+                            "client channel closed when writing message from BMC"
+                        );
                         break;
                     }
                 },
@@ -248,7 +251,7 @@ where
                 })?;
         }
         _ => {
-            tracing::debug!("Ignoring unknown channel message {channel_msg:?}");
+            tracing::debug!(?channel_msg, "Ignoring unknown channel message");
         }
     }
 

@@ -200,7 +200,10 @@ impl PxeInstructions {
         machine_type: MachineType,
     ) -> String {
         tracing::info!(
-            "machine_type: {machine_type}; machine interface ID: {machine_interface_id}; mac address: {mac_address}"
+            machine_type = %machine_type,
+            machine_interface_id = %machine_interface_id,
+            mac_address = %mac_address,
+            "machine network boot parameters",
         );
         match arch {
             rpc::MachineArchitecture::Arm => {
@@ -342,9 +345,9 @@ exit ||
                     ));
                 } else {
                     tracing::warn!(
-                        "Unsupported DPU type. Product is '{}', but architecture is {:?}",
-                        product,
-                        target.arch,
+                        product = %product,
+                        arch = ?target.arch,
+                        "Unsupported DPU type",
                     )
                 }
             };
@@ -362,7 +365,7 @@ exit ||
             else {
                 // This only happens if someone powered on a host manually before we ingested it,
                 // which is unlikely but possible.
-                tracing::info!(interface = ?interface, "Request for PXE instructions for unknown interface, skipping PXE boot");
+                tracing::info!(machine_interface = ?interface, "Request for PXE instructions for unknown interface, skipping PXE boot");
                 return Ok(UNKNOWN_HOST_INSTRUCTIONS.to_string());
             };
 
@@ -390,10 +393,10 @@ exit ||
             .await
             .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
             .ok_or(CarbideError::InvalidArgument(
-                "Invalid machine id. Not found in db.".to_string(),
+                "invalid machine id. not found in db".to_string(),
             ))?;
 
-        tracing::info!(machine_id = %machine.id, interface_id = %target.interface_id, state=%machine.current_state(), "Found existing machine for pxe instructions");
+        tracing::info!(machine_id = %machine.id, machine_interface_id = %target.interface_id, machine_state = %machine.current_state(), "Found existing machine for pxe instructions");
         // DPUs need to boot twice during initial discovery. Both reboots require
         // that the DPU gets pxe instructions.
         //

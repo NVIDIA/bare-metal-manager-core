@@ -476,6 +476,10 @@ impl TestEnv {
                         MachineValidatingState::RebootHost { .. } => state.clone(),
                         MachineValidatingState::PrepareBootRepair { .. }
                         | MachineValidatingState::UnlockForBootRepair { .. }
+                        | MachineValidatingState::CheckBootConfigForRepair { .. }
+                        | MachineValidatingState::ConfigureBootBios { .. }
+                        | MachineValidatingState::WaitingForBootBiosJob { .. }
+                        | MachineValidatingState::PollingBootBiosSetup { .. }
                         | MachineValidatingState::RepairBootConfig { .. }
                         | MachineValidatingState::LockAfterBootRepair { .. } => state.clone(),
                     }
@@ -2311,10 +2315,10 @@ pub async fn network_configured_with_health_and_ext_services(
         astra_config_status: None,
     };
     tracing::trace!(
-        "network_configured machine={} instance_network={} instance={}",
-        status.network_config_version.as_ref().unwrap(),
-        instance_network_config_version.clone().unwrap_or_default(),
-        instance_config_version.clone().unwrap_or_default(),
+        network_config_version = %status.network_config_version.as_ref().unwrap(),
+        instance_network_config_version = ?instance_network_config_version,
+        instance_config_version = ?instance_config_version,
+        "machine network configured",
     );
     let _ = env
         .api
@@ -2641,7 +2645,10 @@ pub async fn reboot_completed(
     env: &TestEnv,
     machine_id: carbide_uuid::machine::MachineId,
 ) -> rpc::forge::MachineRebootCompletedResponse {
-    tracing::info!("Machine ={} rebooted", machine_id);
+    tracing::info!(
+        machine_id = %machine_id,
+        "Machine rebooted",
+    );
     env.api
         .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
             machine_id: Some(machine_id),

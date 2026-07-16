@@ -23,7 +23,6 @@ use ::rpc::model::machine::ManagedHostStateSnapshotRpc;
 use carbide_redfish::libredfish::RedfishAuth;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey};
 use carbide_uuid::machine::MachineId;
-use itertools::Itertools;
 use libredfish::SystemPowerControl;
 use model::hardware_info::MachineNvLinkInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -194,12 +193,12 @@ pub(crate) async fn find_machine_health_histories(
         .start_time
         .map(chrono::DateTime::<chrono::Utc>::try_from)
         .transpose()
-        .map_err(|_| CarbideError::InvalidArgument("Invalid start_time timestamp".to_string()))?;
+        .map_err(|_| CarbideError::InvalidArgument("invalid start_time timestamp".to_string()))?;
     let end_time = request
         .end_time
         .map(chrono::DateTime::<chrono::Utc>::try_from)
         .transpose()
-        .map_err(|_| CarbideError::InvalidArgument("Invalid end_time timestamp".to_string()))?;
+        .map_err(|_| CarbideError::InvalidArgument("invalid end_time timestamp".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -345,8 +344,11 @@ pub(crate) async fn admin_force_delete_machine(
         .unwrap_or("unknown");
 
     tracing::info!(
-        "admin_force_delete_machine query='{query}' machine_id={} serial='{serial}' issued_by={issued_by:?}",
-        machine.id
+        query = %query,
+        machine_id = %machine.id,
+        serial,
+        issued_by = ?issued_by,
+        "Admin force-delete machine request",
     );
 
     if machine.instance_type_id.is_some() {
@@ -363,7 +365,11 @@ pub(crate) async fn admin_force_delete_machine(
     let dpu_machines;
     if machine.is_dpu() {
         if let Some(host) = db::machine::find_host_by_dpu_machine_id(&mut txn, &machine.id).await? {
-            tracing::info!("Found host Machine {:?}", machine.id.to_string());
+            tracing::info!(
+                host_machine_id = %host.id,
+                dpu_machine_id = %machine.id,
+                "Found host machine",
+            );
             // Get all DPUs attached to this host, in case there are more than one.
             dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &host.id).await?;
             host_machine = Some(host);
@@ -374,8 +380,8 @@ pub(crate) async fn admin_force_delete_machine(
     } else {
         dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine.id).await?;
         tracing::info!(
-            "Found dpu Machines {:?}",
-            dpu_machines.iter().map(|m| m.id.to_string()).join(", ")
+            dpu_machine_ids = ?dpu_machines.iter().map(|m| &m.id).collect::<Vec<_>>(),
+            "Found DPU machines",
         );
         host_machine = Some(machine);
     }
@@ -467,7 +473,7 @@ pub(crate) async fn admin_force_delete_machine(
             if let Some(bmc_mac_address) = machine.bmc_info.mac {
                 let ip_address = ip.to_string();
                 tracing::info!(
-                    %ip,
+                    bmc_ip_address = %ip,
                     machine_id = %machine.id,
                     "BMC IP and MAC address for machine was found. Trying to perform Bios unlock",
                 );
@@ -494,7 +500,7 @@ pub(crate) async fn admin_force_delete_machine(
                                 response.machine_unlocked = false;
                             }
                             Ok(status) => {
-                                tracing::info!(%machine_id, ?status, "Unlocking BIOS");
+                                tracing::info!(%machine_id, bios_lockdown_status = ?status, "Unlocking BIOS");
                                 if let Err(e) =
                                     client.lockdown(libredfish::EnabledDisabled::Disabled).await
                                 {
@@ -584,14 +590,14 @@ pub(crate) async fn admin_force_delete_machine(
                 }
             } else {
                 tracing::warn!(
-                    "Failed to unlock this host because Forge could not retrieve the BMC MAC address for machine {}",
-                    machine.id
+                    machine_id = %machine.id,
+                    "Failed to unlock host because the BMC MAC address is missing",
                 );
             }
         } else {
             tracing::warn!(
-                "Failed to unlock this host because Forge could not retrieve the BMC IP address for machine {}",
-                machine.id
+                machine_id = %machine.id,
+                "Failed to unlock host because the BMC IP address is missing",
             );
         }
 
@@ -637,7 +643,11 @@ pub(crate) async fn admin_force_delete_machine(
     if let Some(machine) = &host_machine
         && let Some(addr) = machine.bmc_info.ip
     {
-        tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id);
+        tracing::info!(
+            bmc_ip_address = %addr,
+            machine_id = %machine.id,
+            "Cleaning up explored endpoint",
+        );
 
         // If this delete waited out a concurrent exploration rewrite, its
         // statement snapshot can miss the row that rewrite re-inserted; the
@@ -649,7 +659,11 @@ pub(crate) async fn admin_force_delete_machine(
     }
     for dpu_machine in dpu_machines.iter() {
         if let Some(addr) = dpu_machine.bmc_info.ip {
-            tracing::info!("Cleaning up explored endpoint at {addr} {}", dpu_machine.id);
+            tracing::info!(
+                bmc_ip_address = %addr,
+                machine_id = %dpu_machine.id,
+                "Cleaning up explored endpoint",
+            );
 
             db::explored_endpoints::delete(&mut txn, addr).await?;
         }
@@ -692,9 +706,9 @@ pub(crate) async fn admin_force_delete_machine(
         {
             // just log the error and carry on
             tracing::error!(
-                "Could not remove EK cert status for machine with id {}: {}",
-                machine.id,
-                e
+                machine_id = %machine.id,
+                error = %e,
+                "Could not remove EK certificate status",
             );
         }
     }
@@ -818,9 +832,9 @@ fn snapshot_map_to_rpc_machines(
 async fn clear_bmc_credentials(api: &Api, machine: &Machine) -> Result<(), CarbideError> {
     if let Some(mac_address) = machine.bmc_info.mac {
         tracing::info!(
-            "Cleaning up BMC credentials in vault at {} for machine {}",
-            mac_address,
-            machine.id
+            bmc_mac_address = %mac_address,
+            machine_id = %machine.id,
+            "Cleaning up BMC credentials in vault",
         );
         crate::handlers::credential::delete_bmc_root_credentials_by_mac(api, mac_address).await?;
     }
@@ -854,7 +868,7 @@ pub async fn get_machine_position_info(
 
     if request.machine_ids.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "At least one machine ID must be specified".to_string(),
+            "at least one machine ID must be specified".to_string(),
         )
         .into());
     }
@@ -875,16 +889,16 @@ pub async fn get_machine_position_info(
             .filter_map(|(machine_id, ip_opt)| match ip_opt {
                 Some(ip_str) => ip_str.parse().ok().or_else(|| {
                     tracing::warn!(
-                        "Failed to parse BMC IP '{}' for machine {}",
-                        ip_str,
-                        machine_id
+                        bmc_ip_address = %ip_str,
+                        machine_id = %machine_id,
+                        "Failed to parse BMC IP",
                     );
                     None
                 }),
                 None => {
                     tracing::warn!(
-                        "Machine {} has topology but no BMC IP configured",
-                        machine_id
+                        machine_id = %machine_id,
+                        "Machine has topology but no BMC IP configured",
                     );
                     None
                 }

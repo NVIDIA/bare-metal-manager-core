@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use eyre::Context;
 use serde::{Deserialize, Serialize};
-use tracing::log::error;
+use tracing::error;
 
 use crate::pretty_cmd;
 
@@ -42,7 +42,7 @@ pub struct IpLink {
 impl IpLink {
     pub async fn get_link_by_name(interface: &str) -> eyre::Result<Option<IpLink>> {
         let data = Self::ip_links().await?;
-        tracing::trace!("interfaces data from ip show: {:?}", data);
+        tracing::trace!(ip_link_data = ?data, "interfaces data from ip show");
         let data = serde_json::from_str::<Vec<IpLink>>(&data).map_err(|err| eyre::eyre!(err));
         data.map(|i| {
             i.into_iter()
@@ -54,8 +54,8 @@ impl IpLink {
             let test_data_dir = PathBuf::from(crate::dpu::ARMOS_TEST_DATA_DIR);
 
             std::fs::read_to_string(test_data_dir.join("iplink.json")).map_err(|e| {
-                error!("Could not read iplink.json: {e}");
-                eyre::eyre!("Could not read iplink.json: {}", e)
+                error!(error = %e, "Could not read iplink.json");
+                eyre::eyre!("could not read iplink.json: {}", e)
             })
         } else {
             let mut cmd = tokio::process::Command::new("bash");

@@ -151,7 +151,10 @@ async fn run_loop(
                 match try_acquire_lock(db, &work_key, keepalive_timeout).await {
                     Ok(Some(worker_id)) => {
                         reply_tx.send(Ok(worker_id)).ok();
-                        tracing::debug!("Acquired work lock {work_key}");
+                        tracing::debug!(
+                            work_key = %work_key,
+                            "Acquired work lock",
+                        );
                     }
                     Ok(None) => {
                         reply_tx
@@ -171,7 +174,11 @@ async fn run_loop(
                 release_lock(db, &work_key, worker_id)
                     .await
                     .inspect_err(|e| {
-                        tracing::error!(%work_key, "Could not release work lock: {e}");
+                        tracing::error!(
+                            %work_key,
+                            error = %e,
+                            "Could not release work lock",
+                        );
                     })
                     .ok();
                 tracing::debug!(%work_key, "Released work lock");
@@ -277,9 +284,9 @@ pub struct WorkLock {
 impl Drop for WorkLock {
     fn drop(&mut self) {
         tracing::debug!(
-            "Releasing lock for {} worker {}",
-            self.work_key,
-            self.worker_id
+            work_key = %self.work_key,
+            worker_id = %self.worker_id,
+            "Releasing work lock",
         );
 
         // Let the keepalive loop stop
@@ -293,7 +300,12 @@ impl Drop for WorkLock {
                 worker_id: self.worker_id,
             })
             .inspect_err(|e| {
-                tracing::error!("ERROR! Could not release lock for {} worker {}: WorkLockManager queue is full! Database is likely overloaded: {}", self.work_key, self.worker_id, e);
+                tracing::error!(
+                    work_key = %self.work_key,
+                    worker_id = %self.worker_id,
+                    error = %e,
+                    "Could not release work lock: WorkLockManager queue is full; database is likely overloaded",
+                );
             })
             .ok();
     }
@@ -307,36 +319,49 @@ impl WorkLock {
         keepalive_interval: Duration,
     ) -> Self {
         let (keepalive_stop_tx, mut keepalive_stop_rx) = oneshot::channel();
-        let join_handle = tokio::task::Builder::new().name(&format!("keepalive loop for {work_key} worker {worker_id}")).spawn({
-            let manager = manager.clone();
-            let work_key = work_key.clone();
-            let mut keepalive_timer = tokio::time::interval(keepalive_interval);
-            keepalive_timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
-            let fut = async move {
-                loop {
-                    tokio::select! {
-                        _ = keepalive_timer.tick() => {
-                            match manager.keep_lock_alive(work_key.clone(), worker_id).await {
-                                Ok(_) => {}
-                                Err(KeepAliveError::LockLost(msg)) => {
-                                    tracing::error!("{work_key} worker {worker_id} lost lock: {msg}");
-                                    return;
-                                }
-                                Err(e) => {
-                                    tracing::error!("Error sending keepalive for {work_key} worker {worker_id} (will retry): {e}");
+        let join_handle = tokio::task::Builder::new()
+            .name(&format!("keepalive loop for {work_key} worker {worker_id}"))
+            .spawn({
+                let manager = manager.clone();
+                let work_key = work_key.clone();
+                let mut keepalive_timer = tokio::time::interval(keepalive_interval);
+                keepalive_timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                let fut = async move {
+                    loop {
+                        tokio::select! {
+                            _ = keepalive_timer.tick() => {
+                                match manager.keep_lock_alive(work_key.clone(), worker_id).await {
+                                    Ok(_) => {}
+                                    Err(KeepAliveError::LockLost(msg)) => {
+                                        tracing::error!(
+                                            work_key = %work_key,
+                                            worker_id = %worker_id,
+                                            error = %msg,
+                                            "worker lost lock",
+                                        );
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            work_key = %work_key,
+                                            worker_id = %worker_id,
+                                            error = %e,
+                                            "Failed to send work-lock keepalive; retrying",
+                                        );
+                                    }
                                 }
                             }
-                        }
-                        _ = &mut keepalive_stop_rx => {
-                            break;
+                            _ = &mut keepalive_stop_rx => {
+                                break;
+                            }
                         }
                     }
-                }
-            };
-            // Note: don't inherit the callers span, since child spans can't outlive their parent.
-            // This prevents a crash in tracing-subscriber.
-            fut.instrument(tracing::debug_span!(parent: None, "WorkLock keepalive loop"))
-        }).expect("could not spawn tokio task");
+                };
+                // Note: don't inherit the callers span, since child spans can't outlive their parent.
+                // This prevents a crash in tracing-subscriber.
+                fut.instrument(tracing::debug_span!(parent: None, "WorkLock keepalive loop"))
+            })
+            .expect("could not spawn tokio task");
 
         if !cfg!(test) {
             _ = join_handle;
@@ -504,7 +529,7 @@ enum WorkLockManagerCommand {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AcquireLockError {
-    #[error("Work is already locked for {0}")]
+    #[error("work is already locked for {0}")]
     WorkAlreadyLocked(WorkKey),
     #[error(transparent)]
     Database(#[from] DatabaseError),
@@ -514,11 +539,11 @@ pub enum AcquireLockError {
     /// no connections available), this should only  happen if the database is completely down, or
     /// is going so slow that simple updates to the table are blocked.
     #[error(
-        "Error sending AcquireLock command to WorkLockManager, database is likely overloaded: {0}"
+        "error sending AcquireLock command to WorkLockManager, database is likely overloaded: {0}"
     )]
     WorkLockManagerSend(String),
     #[error(
-        "BUG: Error receiving AcquireLock reply from WorkLockManager, database connections are likely failing: {0}"
+        "BUG: error receiving AcquireLock reply from WorkLockManager, database connections are likely failing: {0}"
     )]
     WorkLockManagerReply(#[from] tokio::sync::oneshot::error::RecvError),
     #[error(transparent)]
@@ -533,11 +558,11 @@ pub enum KeepAliveError {
     Database(#[from] DatabaseError),
     /// See notes in AcquireLockError::WorkLockManagerSend
     #[error(
-        "Error sending KeepAlive command to WorkLockManager, database is likely overloaded: {0}"
+        "error sending KeepAlive command to WorkLockManager, database is likely overloaded: {0}"
     )]
     WorkLockManagerSend(String),
     #[error(
-        "BUG: Error receiving KeepAlive reply from WorkLockManager, database connections are likely failing: {0}"
+        "BUG: error receiving KeepAlive reply from WorkLockManager, database connections are likely failing: {0}"
     )]
     WorkLockManagerReply(#[from] tokio::sync::oneshot::error::RecvError),
 }

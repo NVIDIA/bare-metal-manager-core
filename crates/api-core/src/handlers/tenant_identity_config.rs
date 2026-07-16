@@ -66,8 +66,8 @@ async fn tenant_identity_with_decrypted_token_delegation(
     .await
     .inspect_err(|e| {
         tracing::error!(
-            org_id = %cfg.organization_id.as_str(),
-            message = %e.message(),
+            organization_id = %cfg.organization_id.as_str(),
+            error = %e.message(),
             "token delegation auth config decrypt failed"
         );
     })?;
@@ -270,7 +270,7 @@ pub(crate) async fn set_configuration(
 
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::InvalidArgument(
-            "Machine identity must be enabled in site config before setting identity configuration"
+            "machine identity must be enabled in site config before setting identity configuration"
                 .to_string(),
         )
         .into());
@@ -389,7 +389,7 @@ pub(crate) async fn get_token_delegation(
 
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::InvalidArgument(
-            "Machine identity must be enabled in site config".to_string(),
+            "machine identity must be enabled in site config".to_string(),
         )
         .into());
     }
@@ -443,7 +443,7 @@ pub(crate) async fn set_token_delegation(
 
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::InvalidArgument(
-            "Machine identity must be enabled in site config".to_string(),
+            "machine identity must be enabled in site config".to_string(),
         )
         .into());
     }
@@ -534,7 +534,7 @@ pub(crate) async fn delete_token_delegation(
 
     if !api.runtime_config.machine_identity.enabled {
         return Err(CarbideError::InvalidArgument(
-            "Machine identity must be enabled in site config".to_string(),
+            "machine identity must be enabled in site config".to_string(),
         )
         .into());
     }

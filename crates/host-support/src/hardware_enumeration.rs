@@ -56,15 +56,15 @@ const NVIDIA_VENDOR_DRIVER: &str = "nvidia";
 
 #[derive(thiserror::Error, Debug)]
 pub enum HardwareEnumerationError {
-    #[error("Hardware enumeration error: {0}")]
+    #[error("hardware enumeration error: {0}")]
     GenericError(String),
-    #[error("Udev failed with error: {0}")]
+    #[error("udev failed with error: {0}")]
     UdevError(#[from] libudev::Error),
-    #[error("Udev string {0} is not a valid MAC address")]
+    #[error("udev string {0} is not a valid MAC address")]
     InvalidMacAddress(String),
     #[error("{0}")]
     UnsupportedCpuArchitecture(String),
-    #[error("Command error {0}")]
+    #[error("command error {0}")]
     CmdError(#[from] CmdError),
 }
 
@@ -228,12 +228,20 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnu
 // discovery all the non-DPU IB devices
 pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::InfinibandInterface>> {
     let device_debug_log = |device: &Device| {
-        tracing::debug!("SysPath - {:?}", device.syspath());
+        tracing::debug!(syspath = ?device.syspath(), "SysPath");
         for p in device.properties() {
-            tracing::trace!("Property - {:?} - {:?}", p.name(), p.value());
+            tracing::trace!(
+                property_name = ?p.name(),
+                property_value = ?p.value(),
+                "Property"
+            );
         }
         for a in device.attributes() {
-            tracing::trace! {"attribute - {:?} - {:?}", a.name(), a.value()}
+            tracing::trace! {
+                attribute_name = ?a.name(),
+                attribute_value = ?a.value(),
+                "attribute"
+            }
         }
     };
 
@@ -249,9 +257,9 @@ pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::Infiniban
             Ok(properties_ext) => properties_ext,
             Err(e) => {
                 tracing::error!(
-                    "Failed to enumerate properties of device {:?}: {}",
-                    device.devpath(),
-                    e
+                    device_path = ?device.devpath(),
+                    error = %e,
+                    "Failed to enumerate properties of device"
                 );
                 continue;
             }
@@ -408,9 +416,13 @@ fn enumerate_hardware_inner(
 
     for device in devices {
         let sys_path = device.syspath();
-        tracing::debug!("SysPath - {:?}", sys_path);
+        tracing::debug!(syspath = ?sys_path, "SysPath");
         for p in device.properties() {
-            tracing::trace!("net device property - {:?} - {:?}", p.name(), p.value());
+            tracing::trace!(
+                property_name = ?p.name(),
+                property_value = ?p.value(),
+                "net device property"
+            );
         }
         //for a in device.attributes() {
         //    tracing::trace!("attribute - {:?} - {:?}", a.name(), a.value());
@@ -423,15 +435,15 @@ fn enumerate_hardware_inner(
                 Ok(properties_ext) => properties_ext,
                 Err(e) => {
                     tracing::error!(
-                        "Failed to enumerate properties of device {:?}: {}",
-                        device.devpath(),
-                        e
+                        device_path = ?device.devpath(),
+                        error = %e,
+                        "Failed to enumerate properties of device"
                     );
                     continue;
                 }
             };
 
-            tracing::trace!("properties: {:?}", properties_ext);
+            tracing::trace!(?properties_ext, "properties");
 
             // discovery DPU and non ib capable device
             // Note:
@@ -562,7 +574,7 @@ fn enumerate_hardware_inner(
             }
             CpuArchitecture::Unknown => {
                 tracing::error!(
-                    cpu_num,
+                    cpu_number = cpu_num,
                     arch = info.machine,
                     "CPU has unsupported architecture. Ignoring."
                 );
@@ -598,11 +610,11 @@ fn enumerate_hardware_inner(
         // skip the device if its hidden
         if convert_sysattr_to_string("hidden", &device).is_ok_and(|v| v == "1") {
             tracing::info!(
-                "Ignoring hidden device {}",
-                device
+                syspath = device
                     .syspath()
                     .and_then(|v| v.to_str())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                "Ignoring hidden device"
             );
             continue;
         }
@@ -610,11 +622,11 @@ fn enumerate_hardware_inner(
         // skip the device if its removable
         if convert_sysattr_to_string("removable", &device).is_ok_and(|v| v != "0") {
             tracing::info!(
-                "Ignoring removable device {}",
-                device
+                syspath = device
                     .syspath()
                     .and_then(|v| v.to_str())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                "Ignoring removable device"
             );
             continue;
         }
@@ -623,11 +635,11 @@ fn enumerate_hardware_inner(
             .is_ok_and(|v| v.contains("virtual"))
         {
             tracing::info!(
-                "Ignoring virtual device {}",
-                device
+                syspath = device
                     .syspath()
                     .and_then(|v| v.to_str())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                "Ignoring virtual device"
             );
             continue;
         }
@@ -687,7 +699,7 @@ fn enumerate_hardware_inner(
     // There is only expected to be a single set, and we don't want to
     // accidentally overwrite it with other data
     if let Some(device) = devices.next() {
-        tracing::debug!("DMI device syspath: {:?}", device.syspath());
+        tracing::debug!(syspath = ?device.syspath(), "DMI device syspath");
 
         // e.g. 'DRAM'. We will use this later if smbios fails.
         backup_ram_type = device
@@ -714,9 +726,9 @@ fn enumerate_hardware_inner(
             dmi.product_name = convert_sysattr_to_string("product_name", &device)?.to_string();
             if cpu_part == BF3_CPU_PART && dmi.product_name == BF2_PRODUCT_NAME {
                 tracing::info!(
-                    "Overriding product name {} with {}",
-                    dmi.product_name,
-                    BF3_PRODUCT_NAME
+                    product_name = dmi.product_name.as_str(),
+                    new_product_name = BF3_PRODUCT_NAME,
+                    "Overriding product name"
                 );
                 dmi.product_name = BF3_PRODUCT_NAME.to_owned();
             }
@@ -747,7 +759,7 @@ fn enumerate_hardware_inner(
             )));
         }
         Err(e) => {
-            tracing::error!("Could not read TPM EK certificate: {:?}", e);
+            tracing::error!(error = ?e, "Could not read TPM EK certificate");
             None
         }
     };
@@ -756,7 +768,7 @@ fn enumerate_hardware_inner(
         "https://www.mellanox.com" | "Nvidia" => match dpu::get_dpu_info() {
             Ok(dpu_data) => Some(dpu_data),
             Err(e) => {
-                tracing::error!("Could not get DPU data: {:?}", e);
+                tracing::error!(error = ?e, "Could not get DPU data");
                 None
             }
         },
@@ -818,7 +830,9 @@ fn enumerate_hardware_inner(
         }
         Err(err) => {
             warn!(
-                "Could not discover host memory using smbios device, using {mem_info_path}: {err}"
+                memory_info_path = mem_info_path,
+                error = %err,
+                "Could not discover host memory using smbios device"
             );
             let meminfo = std::fs::read_to_string(mem_info_path).map_err(|e| {
                 HardwareEnumerationError::GenericError(format!("Err reading {mem_info_path}: {e}"))
@@ -832,19 +846,22 @@ fn enumerate_hardware_inner(
         }
     }
 
-    tracing::debug!("Discovered Disks: {:?}", disks);
+    tracing::debug!(?disks, "Discovered Disks");
     if !cpus.is_empty() {
-        tracing::debug!("Discovered CPUs[0]: {:?}", cpus[0]);
+        tracing::debug!(cpu = ?cpus[0], "Discovered CPUs[0]");
     }
-    tracing::debug!("Discovered NICS: {:?}", nics);
-    tracing::debug!("Discovered IBS: {:?}", ibs);
-    tracing::debug!("Discovered NVMES: {:?}", nvmes);
-    tracing::debug!("Discovered DMI: {:?}", dmi);
-    tracing::debug!("Discovered GPUs: {:?}", gpus);
-    tracing::debug!("Discovered Machine Architecture: {}", info.machine.as_str());
-    tracing::debug!("Discovered DPU: {:?}", dpu_vpd);
+    tracing::debug!(?nics, "Discovered NICS");
+    tracing::debug!(?ibs, "Discovered IBS");
+    tracing::debug!(?nvmes, "Discovered NVMES");
+    tracing::debug!(?dmi, "Discovered DMI");
+    tracing::debug!(?gpus, "Discovered GPUs");
+    tracing::debug!(
+        architecture = info.machine.as_str(),
+        "Discovered Machine Architecture"
+    );
+    tracing::debug!(dpu_vpd = ?dpu_vpd, "Discovered DPU");
     if let Some(cert) = tpm_ek_certificate.as_ref() {
-        tracing::debug!("TPM EK certificate (base64): {}", cert);
+        tracing::debug!(certificate = cert.as_str(), "TPM EK certificate (base64)");
     }
 
     Ok(rpc_discovery::DiscoveryInfo {
@@ -933,7 +950,7 @@ pub async fn enumerate_and_save_hardware()
     }
 
     tracing::error!(
-        last_error = %last_err,
+        error = %last_err,
         "Init container failed to generate hardware info. Try to delete the pod to recover."
     );
 

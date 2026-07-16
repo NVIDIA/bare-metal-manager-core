@@ -112,7 +112,7 @@ async fn rejects_update_without_maintenance(
 
     assert_eq!(
         error.message(),
-        "Machine must have a 'Maintenance' Health Alert with 'SupressExternalAlerting' classification."
+        "machine must have a 'maintenance' health alert with 'SupressExternalAlerting' classification"
     );
     Ok(())
 }

@@ -228,11 +228,15 @@ SCCACHE_HOST="${SCCACHE_DIR:-$HOME/.sccache}"
 mkdir -p "$SCCACHE_HOST"
 HOST_UID=$(id -u)
 HOST_GID=$(id -g)
-PKG_VERSION=$(git -C "${REPO_ROOT}" describe --tags --first-parent --always --long 2>/dev/null | sed 's/^v//')
-case "${PKG_VERSION}" in
-  [0-9]*) ;;
-  *) PKG_VERSION="0.0.0-${PKG_VERSION}" ;;
-esac
+if [ -n "$VERSION" ]; then
+  PKG_VERSION=$(echo "$VERSION" | sed 's/^v//')
+else
+  PKG_VERSION=$(git -C "${REPO_ROOT}" describe --tags --first-parent --always --long 2>/dev/null | sed 's/^v//')
+  case "${PKG_VERSION}" in
+    [0-9]*) ;;
+    *) PKG_VERSION="0.0.0-${PKG_VERSION}" ;;
+  esac
+fi
 docker run --rm \
   --privileged \
   -v "${REPO_ROOT}":/code \
@@ -243,6 +247,7 @@ docker run --rm \
   -e SCCACHE_DIR=/sccache \
   -e SA_ENABLEMENT=1 \
   -e PKG_VERSION="${PKG_VERSION}" \
+  -e VERSION="${VERSION}" \
   -e HOST_UID="${HOST_UID}" \
   -e HOST_GID="${HOST_GID}" \
   carbide-pxe-builder \
@@ -577,6 +582,7 @@ dependencies = [
   "generate-rest-core-proto",
   "clippy-flow",
   "carbide-lints",
+  "lint-error-messages",
   "check-format-nightly",
   "check-workspace-deps",
   "check-licenses",
@@ -818,6 +824,13 @@ script = [
   "cargo --quiet xtask check-workspace-deps || (RC=$?; echo 'To fix automatically, run `cargo xtask check-workspace-deps --fix`'; exit $RC)",
 ]
 
+[tasks.lint-error-messages]
+workspace = false
+description = "Check that error messages follow C-GOOD-ERR (lowercase, no trailing period)"
+script = [
+  "cargo --quiet xtask lint-error-messages || (RC=$?; echo 'To fix automatically, run `cargo xtask lint-error-messages --fix`'; exit $RC)",
+]
+
 [tasks.check-isolated-package-builds]
 workspace = false
 description = "Check that workspace packages build independently with default features"
@@ -827,7 +840,7 @@ script = ["cargo xtask check-isolated-package-builds"]
 workspace = false
 description = "Check cargo-deny against licenses we're using to validate that we're not introducing new licenses inadvertently"
 category = "Licensing"
-script = ["cargo deny check license"]
+script = ["cargo deny check licenses"]
 
 [tasks.check-bans]
 workspace = false

@@ -97,7 +97,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Bind Key Error: TPM EK is not in RSA format"
+                    "attest bind key error: TPM EK is not in RSA format"
                 );
             }
         }
@@ -162,7 +162,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Bind Key Error: TPM EK is not in RSA format"
+                    "attest bind key error: TPM EK is not in RSA format"
                 );
             }
         }
@@ -197,7 +197,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Quote Error: Could not form SQL query to fetch AK Pub"
+                    "attest quote error: could not form SQL query to fetch AK pub"
                 );
             }
         }
@@ -227,7 +227,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Quote Error: Could not unmarshal AK Pub: response code not recognized"
+                    "attest quote error: Could not unmarshal AK Pub: response code not recognized"
                 );
             }
         }
@@ -260,7 +260,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Quote Error: Could not unmarshall Attest struct: not currently used"
+                    "attest quote error: Could not unmarshall Attest struct: not currently used"
                 );
             }
         }
@@ -293,7 +293,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Quote Error: Could not unmarshall Signature struct: response code not recognized"
+                    "attest quote error: Could not unmarshall Signature struct: response code not recognized"
                 );
             }
         }
@@ -334,7 +334,7 @@ pub mod tests {
             Ok(..) => panic!("Failed: should have returned an error"),
             Err(e) => {
                 assert_eq!(e.code(), Code::Internal);
-                assert_eq!(e.message(), "Attest Quote Error: unknown signature type");
+                assert_eq!(e.message(), "attest quote error: unknown signature type");
             }
         }
     }
@@ -365,7 +365,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Quote Error: PCR signature invalid (see logs for full event log)"
+                    "attest quote error: PCR signature invalid (see logs for full event log)"
                 );
             }
         }
@@ -399,7 +399,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Quote Error: PCR hash does not match (see logs for full event log)"
+                    "attest quote error: PCR hash does not match (see logs for full event log)"
                 );
             }
         }
@@ -433,7 +433,7 @@ pub mod tests {
                 assert_eq!(e.code(), Code::Internal);
                 assert_eq!(
                     e.message(),
-                    "Attest Quote Error: PCR signature invalid and PCR hash mismatch (see logs for full event log)"
+                    "attest quote error: PCR signature invalid and PCR hash mismatch (see logs for full event log)"
                 );
             }
         }
@@ -506,7 +506,7 @@ pub mod tests {
             }
             Err(e) => match e {
                 AttestBindKeyError(d) => {
-                    assert_eq!(d, "EK Pub is not in RSA format")
+                    assert_eq!(d, "EK pub is not in RSA format")
                 }
                 _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },
@@ -706,7 +706,7 @@ pub mod tests {
             }
             Err(e) => match e {
                 AttestQuoteError(d) => {
-                    assert_eq!(d, "AK Pub is not an RSA key")
+                    assert_eq!(d, "AK pub is not an RSA key")
                 }
                 _another_error => panic!("Failed: incorrect error type: {_another_error:?}"),
             },

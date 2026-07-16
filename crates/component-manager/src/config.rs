@@ -48,6 +48,13 @@ pub struct ComponentManagerConfig {
     /// Defaults to `false`.
     #[serde(default)]
     pub compute_tray_use_state_controller: bool,
+
+    /// Enables the NVOS password-rotation backend capability.
+    ///
+    /// End-to-end rotation remains unavailable until orchestration is implemented.
+    /// TODO: Remove this gate once end-to-end rotation is enabled by default.
+    #[serde(default)]
+    pub nvos_password_rotation_enabled: bool,
 }
 
 /// Identifies a switch service that should use installed mTLS certificates.
@@ -189,6 +196,17 @@ mod tests {
         assert_eq!(cfg.nv_switch_backend, NvSwitchBackend::Rms);
         assert_eq!(cfg.power_shelf_backend, PowerShelfBackend::Rms);
         assert_eq!(cfg.compute_tray_backend, ComputeBackend::Rms);
+        assert!(!cfg.nvos_password_rotation_enabled);
+    }
+
+    #[test]
+    fn nvos_password_rotation_deserializes() {
+        for (toml, expected) in [("", false), ("nvos_password_rotation_enabled = true", true)] {
+            let cfg: ComponentManagerConfig =
+                toml::from_str(toml).expect("component-manager configuration should deserialize");
+
+            assert_eq!(cfg.nvos_password_rotation_enabled, expected);
+        }
     }
 
     /// One `BackendTlsConfig` worth of path inputs for a resolver table.

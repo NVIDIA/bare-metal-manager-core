@@ -175,13 +175,13 @@ pub(crate) async fn batch_allocate(
 
     if batch_request.instance_requests.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "Batch request must contain at least one instance".to_string(),
+            "batch request must contain at least one instance".to_string(),
         )
         .into());
     }
 
     tracing::info!(
-        count = batch_request.instance_requests.len(),
+        instance_request_count = batch_request.instance_requests.len(),
         "Received batch instance allocation request"
     );
 
@@ -224,7 +224,7 @@ pub(crate) async fn batch_allocate(
         })?;
 
     tracing::info!(
-        count = instances.len(),
+        instance_count = instances.len(),
         "Successfully allocated batch of instances"
     );
 
@@ -448,8 +448,8 @@ fn log_delete_attribution(delete_attribution: Option<&rpc::DeleteAttribution>) {
     };
 
     tracing::info!(
-        org = %initiated_by.org,
-        org_display_name = %initiated_by.org_display_name,
+        organization = %initiated_by.org,
+        organization_display_name = %initiated_by.org_display_name,
         user_id = %initiated_by.user_id,
         tenant_id = %initiated_by.tenant_id,
         "Instance delete attribution"
@@ -1027,11 +1027,15 @@ pub(crate) async fn invoke_power(
                 .await
                 .map_err(|err| {
                     // print actual error for debugging, but don't leak internal info to user.
-                    tracing::error!(machine=%machine_id, "{:?}", err);
+                    tracing::error!(
+                        machine_id = %machine_id,
+                        error = ?err,
+                        "failed to approve DPU reprovision request",
+                    );
 
                     // TODO: What does this error actually mean
                     CarbideError::internal(
-                        "Internal Failure. Try again after some time.".to_string(),
+                        "internal failure. try again after some time".to_string(),
                     )
                 })?;
         }
@@ -1042,10 +1046,14 @@ pub(crate) async fn invoke_power(
                 .await
                 .map_err(|err| {
                     // print actual error for debugging, but don't leak internal info to user.
-                    tracing::error!(machine=%machine_id, "{:?}", err);
+                    tracing::error!(
+                        machine_id = %machine_id,
+                        error = ?err,
+                        "failed to approve host reprovision request",
+                    );
 
                     CarbideError::internal(
-                        "Internal Failure. Try again after some time.".to_string(),
+                        "internal failure. try again after some time".to_string(),
                     )
                 })?;
         }
@@ -1138,7 +1146,7 @@ pub(crate) async fn update_operating_system(
 
     if instance.deleted.is_some() {
         return Err(CarbideError::InvalidArgument(
-            "Configuration for a terminating instance can not be changed".to_string(),
+            "configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
     }
@@ -1184,7 +1192,10 @@ pub(crate) async fn update_instance_config(
         Some(config) => config.try_into().map_err(CarbideError::from)?,
     };
 
-    tracing::info!("SPX update_instance_config config: {:?}", config.spxconfig);
+    tracing::info!(
+        spx_config = ?config.spxconfig,
+        "Updating instance SPX config",
+    );
 
     // Network validation is done only if network update is requested.
     config
@@ -1240,7 +1251,7 @@ pub(crate) async fn update_instance_config(
         .unwrap_or(true)
     {
         return Err(CarbideError::InvalidArgument(
-            "Configuration for a terminating instance can not be changed".to_string(),
+            "configuration for a terminating instance can not be changed".to_string(),
         )
         .into());
     }
@@ -1302,7 +1313,7 @@ pub(crate) async fn update_instance_config(
 
         if service_ids.len() != unique_service_ids.len() {
             return Err(CarbideError::InvalidArgument(
-                "Duplicate extension services in configuration. Only one version of each service is allowed.".to_string()
+                "duplicate extension services in configuration. only one version of each service is allowed".to_string()
             )
                 .into());
         }
@@ -1370,16 +1381,16 @@ pub(crate) async fn update_instance_config(
     .await?;
 
     tracing::debug!(
-        "Updating instance {} with NVLink config {:?}",
-        instance.id,
-        config.nvlink
+        instance_id = %instance.id,
+        nvlink = ?config.nvlink,
+        "Updating instance NVLink configuration",
     );
     update_instance_nvlink_config(&mh_snapshot, &instance, &config.nvlink, &mut txn).await?;
 
     tracing::debug!(
-        "Updating instance {} with Spx config {:?}",
-        instance.id,
-        config.spxconfig
+        instance_id = %instance.id,
+        spx_config = ?config.spxconfig,
+        "Updating instance SPX configuration",
     );
     update_instance_spx_config(&mh_snapshot, &instance, &mut config.spxconfig, &mut txn).await?;
 

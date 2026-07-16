@@ -49,7 +49,7 @@ impl<'a> RunCommandPredicate<'a> {
     /// ENV::VAR `IGNORE_MGMT_VRF` dictates which command predicate to use
     pub fn new(container_id: &'a str) -> Self {
         let ignore_mgmt_vrf = std::env::var("IGNORE_MGMT_VRF").is_ok();
-        tracing::trace!("RunCommandPredicate: IGNORE_MGMT_VRF is {ignore_mgmt_vrf}");
+        tracing::trace!(ignore_mgmt_vrf, "RunCommandPredicate: IGNORE_MGMT_VRF");
 
         match ignore_mgmt_vrf {
             true => Self {
@@ -84,7 +84,7 @@ fn parse_container_id(json: &str) -> eyre::Result<String> {
     let o: CrictlOut = serde_json::from_str(json)?;
     if o.containers.is_empty() {
         return Err(eyre::eyre!(
-            "crictl JSON output has empty 'containers' array. Is doca-hbn running?"
+            "crictl JSON output has empty 'containers' array. is doca-hbn running?"
         ));
     }
     Ok(o.containers[0].id.clone())
@@ -117,7 +117,7 @@ pub async fn run_in_container(
     let cmd = crictl.args(args);
     cmd.kill_on_drop(true);
     let cmd_str = super::pretty_cmd(cmd.as_std());
-    tracing::trace!("run_in_container: {cmd_str}");
+    tracing::trace!(command = cmd_str.as_str(), "run_in_container");
 
     let cmd_res = timeout(TIMEOUT_CONTAINER_CMD, cmd.output())
         .await
@@ -128,7 +128,11 @@ pub async fn run_in_container(
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
 
     if need_success && !out.status.success() {
-        tracing::debug!("STDERR {cmd_str}: {}", stderr);
+        tracing::debug!(
+            command = cmd_str.as_str(),
+            stderr = stderr.as_str(),
+            "Container command failed"
+        );
         return Err(eyre::eyre!(
             "cmd '{cmd_str}' failed with status: {}, stderr: {}, stdout: {}",
             out.status, // includes the string "exit status"
@@ -200,10 +204,9 @@ impl HBNContainerFileConfigs {
             // replaced.
             l => {
                 tracing::info!(
-                    "HBN container ID {c} is new to us, updating its neighbor \
-                    learning config (previous container ID was {l})",
-                    c = current_container_id.as_str(),
-                    l = l.map_or("None", |s| s.as_str())
+                    container_id = current_container_id.as_str(),
+                    previous_container_id = l.map_or("None", |s| s.as_str()),
+                    "HBN container ID is new to us, updating its neighbor learning config"
                 );
                 set_strict_neighbor_learning(current_container_id.as_str())
                     .await
@@ -262,7 +265,7 @@ pub fn parse_nvue_build_as_hbn_version(build_value: &str) -> eyre::Result<String
     // We expect build_value to look like this: "HBN 3.2.0"
     build_value
         .strip_prefix("HBN ")
-        .ok_or_else(|| eyre::eyre!("Couldn't find \"HBN \" prefix in build_value"))
+        .ok_or_else(|| eyre::eyre!("couldn't find \"HBN \" prefix in build_value"))
         .map(String::from)
 }
 

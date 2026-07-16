@@ -87,6 +87,9 @@ import (
 	osImageActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/operatingsystem"
 	osImageWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/operatingsystem"
 
+	ipxeTemplateActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/ipxetemplate"
+	ipxeTemplateWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/ipxetemplate"
+
 	skuActivity "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/activity/sku"
 	skuWorkflow "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/workflow/sku"
 
@@ -293,6 +296,12 @@ func main() {
 		// OS Image workflow
 		w.RegisterWorkflow(osImageWorkflow.UpdateOsImageInventory)
 
+		// Operating System inventory workflow (inbound reconcile from nico-core)
+		w.RegisterWorkflow(osImageWorkflow.UpdateOperatingSystemInventory)
+
+		// iPXE Template inventory workflow
+		w.RegisterWorkflow(ipxeTemplateWorkflow.UpdateIpxeTemplateInventory)
+
 		// VPC Prefix workflow
 		w.RegisterWorkflow(vpcPrefixWorkflow.UpdateVpcPrefixInventory)
 
@@ -355,6 +364,9 @@ func main() {
 
 	osImageManager := osImageActivity.NewManageOsImage(dbSession, siteClientPool)
 	w.RegisterActivity(&osImageManager)
+
+	ipxeTemplateManager := ipxeTemplateActivity.NewManageIpxeTemplate(dbSession, siteClientPool)
+	w.RegisterActivity(&ipxeTemplateManager)
 
 	vpcPrefixManager := vpcPrefixActivity.NewManageVpcPrefix(dbSession, siteClientPool)
 	w.RegisterActivity(&vpcPrefixManager)

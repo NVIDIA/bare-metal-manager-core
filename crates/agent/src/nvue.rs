@@ -52,7 +52,7 @@ pub fn template_for(vtype: VpcVirtualizationType) -> eyre::Result<&'static str> 
         // primary plus secondary DPUs used for VFs; if that ever
         // becomes a target, the dispatch here would need rethinking.)
         VpcVirtualizationType::Flat => {
-            Err(eyre::eyre!("Flat VPC virtualization type not supported",))
+            Err(eyre::eyre!("flat VPC virtualization type not supported",))
         }
     }
 }
@@ -938,7 +938,11 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
             Ok(applied)
         }
         Err(err) => {
-            tracing::error!("update_nvue post command failed: {err:#}");
+            tracing::error!(
+                error = %err,
+                error_chain = format!("{err:#}").replace('\n', "; "),
+                "NVUE post command failed"
+            );
 
             // If the config apply failed, we won't be using it, so move it out
             // of the way to an .error file for others to enjoy (while attempting
@@ -948,8 +952,9 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
                 && let Err(e) = fs::remove_file(path_error.clone())
             {
                 tracing::warn!(
-                    "Failed to remove previous error file ({}): {e}",
-                    path_error.display()
+                    error_file_path = %path_error.display(),
+                    error = %e,
+                    "Failed to remove previous error file"
                 );
             }
 
@@ -980,7 +985,7 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
 async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<bool> {
     let mut in_container_path = path
         .strip_prefix(hbn_root)
-        .wrap_err("Stripping hbn_root prefix from path to make in-container path")?
+        .wrap_err("stripping hbn_root prefix from path to make in-container path")?
         .to_path_buf();
     // If hbn_root ends with "/", the stripped path will have it removed from start. Add back.
     if !in_container_path.has_root() {

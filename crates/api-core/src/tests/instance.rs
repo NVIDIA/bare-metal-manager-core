@@ -1072,7 +1072,10 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
         .unwrap()
         .into_inner();
 
-    tracing::info!("dns_record is {:?}: ", dns_record);
+    tracing::info!(
+        dns_record = ?dns_record,
+        "Fetched DNS record",
+    );
     assert_eq!(dns_record.records.first().unwrap().content, "192.0.2.3");
 
     //DHCP response uses hostname set during allocation
@@ -2003,7 +2006,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
     }
     assert_eq!(
         err.message(),
-        "Host is not available for allocation due to health probe alert"
+        "host is not available for allocation due to health probe alert"
     );
     Ok(())
 }
@@ -2275,7 +2278,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         .expect_err("Duplicate TenantKeyset IDs should not be accepted");
 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
-    assert_eq!(err.message(), "Duplicate Tenant KeySet ID found: bad_id");
+    assert_eq!(err.message(), "duplicate tenant KeySet ID found: bad_id");
 }
 
 #[crate::sqlx_test]
@@ -2334,7 +2337,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "More than 10 Tenant KeySet IDs are not allowed"
+        "more than 10 tenant KeySet IDs are not allowed"
     );
 }
 
@@ -5249,7 +5252,7 @@ async fn test_allocate_instance_rejects_multiple_non_fnn_network_segments(
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert!(
         err.message()
-            .contains("Found segments attached to multiple VPCs")
+            .contains("found segments attached to multiple VPCs")
     );
 }
 
@@ -6152,7 +6155,7 @@ async fn test_can_not_update_instance_config_after_deletion(
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Configuration for a terminating instance can not be changed"
+        "configuration for a terminating instance can not be changed"
     );
 
     // Perform an update using update_instance_config
@@ -6173,7 +6176,7 @@ async fn test_can_not_update_instance_config_after_deletion(
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Configuration for a terminating instance can not be changed"
+        "configuration for a terminating instance can not be changed"
     );
 }
 
@@ -6524,10 +6527,9 @@ async fn test_allocate_instance_with_duplicate_extension_services(
     println!("instance: {:?}", instance);
     assert!(instance.is_err());
     let err = instance.unwrap_err();
-    assert!(
-        err.message()
-            .starts_with("Duplicate extension services in configuration. Only one version of each service is allowed.")
-    );
+    assert!(err.message().starts_with(
+        "Duplicate extension services in configuration. Only one version of each service is allowed"
+    ));
 
     Ok(())
 }
@@ -6858,10 +6860,9 @@ async fn test_update_instance_with_extension_services(
         .await;
     assert!(instance.is_err());
     let err = instance.unwrap_err();
-    assert!(
-        err.message()
-            .starts_with("Duplicate extension services in configuration. Only one version of each service is allowed.")
-    );
+    assert!(err.message().starts_with(
+        "duplicate extension services in configuration. only one version of each service is allowed"
+    ));
 
     Ok(())
 }
@@ -7319,6 +7320,6 @@ async fn test_can_not_create_instances_with_machine_in_quarantine(
     let err = result.expect_err("Expect instance creation to fail");
     assert!(
         err.message()
-            .contains("Host is not available for allocation due to health probe alert")
+            .contains("host is not available for allocation due to health probe alert")
     );
 }

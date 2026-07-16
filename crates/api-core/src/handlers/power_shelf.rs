@@ -155,7 +155,7 @@ pub async fn delete_power_shelf(
         Some(id) => id,
         None => {
             return Err(
-                CarbideError::InvalidArgument("Power shelf ID is required".to_string()).into(),
+                CarbideError::InvalidArgument("power shelf ID is required".to_string()).into(),
             );
         }
     };

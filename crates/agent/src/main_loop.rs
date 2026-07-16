@@ -29,6 +29,7 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
+use carbide_instrument::{Outcome, emit};
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -41,7 +42,7 @@ use mac_address::MacAddress;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tracing::log::error;
+use tracing::error;
 use version_compare::Version;
 
 use crate::command_line::HbnConfigMode;
@@ -55,7 +56,9 @@ use crate::ethernet_virtualization::{
 use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
-use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
+use crate::instrumentation::{
+    ReportLoop, ReportLoopCompleted, create_metrics, get_dpu_agent_meter, get_prometheus_registry,
+};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::get_host_boot_timestamp;
@@ -129,13 +132,37 @@ pub async fn setup_and_run(
     let agent_meter = get_dpu_agent_meter();
     let metrics = create_metrics(agent_meter);
 
-    if let Err(e) = crate::metadata_service::spawn_prometheus_metrics_server(
-        agent_config.telemetry.metrics_address.clone(),
-    ) {
-        tracing::warn!(
-            error = format!("{e:#}"),
-            "Failed to start Prometheus /metrics endpoint"
-        );
+    match agent_config
+        .telemetry
+        .metrics_address
+        .parse::<std::net::SocketAddr>()
+    {
+        Ok(metrics_address) => {
+            tracing::info!(
+                metrics_address = %metrics_address,
+                "Starting Prometheus /metrics endpoint"
+            );
+            let metrics_config = metrics_endpoint::MetricsEndpointConfig {
+                address: metrics_address,
+                registry: get_prometheus_registry(),
+                health_controller: None,
+                additional_prefix: None,
+            };
+            tokio::task::spawn(async move {
+                if let Err(e) = metrics_endpoint::run_metrics_endpoint(&metrics_config).await {
+                    tracing::error!(
+                        error = format!("{e:#}"),
+                        "Prometheus /metrics endpoint exited"
+                    );
+                }
+            });
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = format!("{e:#}"),
+                "Failed to start Prometheus /metrics endpoint"
+            );
+        }
     }
 
     // And now set up our FMDS updater, which will either be our original
@@ -147,7 +174,7 @@ pub async fn setup_and_run(
             fmds_address = fmds_addr,
             "Using FmdsUpdater::External FMDS service"
         );
-        match crate::fmds_client::FmdsGrpcClient::connect(
+        let updater = match crate::fmds_client::FmdsGrpcClient::connect(
             fmds_addr,
             agent_config.machine_identity.clone(),
         )
@@ -156,11 +183,25 @@ pub async fn setup_and_run(
             Ok(fmds_client) => FmdsUpdater::External(Box::new(fmds_client)),
             Err(e) => {
                 tracing::warn!(
-                    "Failed to connect to external FMDS service: {e:#}, falling back to embedded"
+                    error = format!("{e:#}"),
+                    "Failed to connect to external FMDS service, falling back to embedded"
                 );
                 FmdsUpdater::Embedded(instance_metadata_state.clone())
             }
-        }
+        };
+        // External FMDS was configured: expose whether we reached it (1) or fell
+        // back to embedded (0). A gauge, not a counter -- the fallback is decided
+        // once at startup, so a single pre-scrape counter bump would be invisible
+        // to rate()/increase(); a gauge reports the state at every scrape.
+        let reached_external = matches!(updater, FmdsUpdater::External(_));
+        get_dpu_agent_meter()
+            .u64_observable_gauge("carbide_dpu_agent_fmds_external_connected")
+            .with_description(
+                "Whether the DPU agent reached its configured external FMDS (1) or fell back to embedded (0)",
+            )
+            .with_callback(move |observer| observer.observe(reached_external as u64, &[]))
+            .build();
+        updater
     } else {
         if options.enable_metadata_service {
             crate::metadata_service::spawn_metadata_service(
@@ -169,7 +210,7 @@ pub async fn setup_and_run(
                 instance_metadata_state.clone(),
             )
             .unwrap_or_else(|e| {
-                tracing::warn!("Failed to run metadata service: {:#}", e);
+                tracing::warn!(error = format!("{e:#}"), "Failed to run metadata service");
             });
         }
         tracing::info!("Using FmdsUpdater::Embedded FMDS service");
@@ -184,7 +225,10 @@ pub async fn setup_and_run(
             metrics.record_agent_start_time(timestamp);
         }
         Err(e) => {
-            tracing::warn!("Error calculating process start timestamp: {e:#}");
+            tracing::warn!(
+                error = format!("{e:#}"),
+                "Error calculating process start timestamp"
+            );
         }
     }
 
@@ -193,7 +237,10 @@ pub async fn setup_and_run(
             metrics.record_machine_boot_time(timestamp);
         }
         Err(e) => {
-            tracing::warn!("Error getting host boot timestamp: {e:#}");
+            tracing::warn!(
+                error = format!("{e:#}"),
+                "Error getting host boot timestamp"
+            );
         }
     }
 
@@ -213,20 +260,20 @@ pub async fn setup_and_run(
         // turn it into an unhealthy status that gets reported to the
         // API, so we're not going to do much more than log this for
         // now.
-        tracing::error!("Couldn't ensure DOCA pods: {e}");
+        tracing::error!(error = %e, "Couldn't ensure DOCA pods");
     }
 
     let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
-        "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to Version"
+        "unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to version"
     ))?;
     let nvue_minimum_hbn_version = Version::from(NVUE_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
-        "Unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to Version"
+        "unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to version"
     ))?;
 
     if options.agent_platform_type.is_dpu_os()
         && let Err(err) = crate::ovs::set_vswitchd_yield().await
     {
-        tracing::warn!(%err, "Failed asking ovs_vswitchd to not use 100% of a CPU core. Non-fatal.");
+        tracing::warn!(error = %err, "Failed asking ovs_vswitchd to not use 100% of a CPU core. Non-fatal.");
         // We have eight cores. Letting ovs_vswitchd have one is OK.
     };
 
@@ -263,7 +310,7 @@ pub async fn setup_and_run(
     {
         Ok(id) => id,
         Err(e) => {
-            tracing::error!("get_host_machine_id_retry() failed: {:?}", e);
+            tracing::error!(error = ?e, "Failed to get host machine ID after retries");
             return Err(e);
         }
     };
@@ -282,7 +329,7 @@ pub async fn setup_and_run(
     if options.agent_platform_type.is_dpu_os()
         && let Err(e) = lldp::set_lldp_system_description(&machine_id)
     {
-        tracing::warn!("Couldn't update LLDP system description: {e}")
+        tracing::warn!(error = %e, "Couldn't update LLDP system description")
     }
 
     let periodic_config_reader = periodic_config_fetcher.reader();
@@ -319,7 +366,7 @@ pub async fn setup_and_run(
 
     let network_monitor_handle: Option<JoinHandle<()>> = match network_pinger_type {
         Some(pinger_type) => {
-            tracing::debug!("Starting network monitor with {} pinger", pinger_type);
+            tracing::debug!(%pinger_type, "Starting network monitor");
             let mut network_monitor = network_monitor::NetworkMonitor::new(
                 machine_id,
                 Some(network_monitor_metrics_state),
@@ -573,7 +620,10 @@ async fn fetch_last_dhcp_requests(dhcp_grpc_server: Option<&str>) -> Vec<rpc::La
         return match crate::dhcp_server_grpc_client::get_dhcp_timestamps(addr).await {
             Ok(requests) => requests,
             Err(e) => {
-                tracing::warn!("Failed to fetch DHCP timestamps via gRPC: {e:#}");
+                tracing::warn!(
+                    error = format!("{e:#}"),
+                    "Failed to fetch DHCP timestamps via gRPC"
+                );
                 vec![]
             }
         };
@@ -582,8 +632,9 @@ async fn fetch_last_dhcp_requests(dhcp_grpc_server: Option<&str>) -> Vec<rpc::La
     let mut dhcp_timestamps = DhcpTimestamps::new(DhcpTimestampsFilePath::Dpu);
     if let Err(e) = dhcp_timestamps.read() {
         tracing::warn!(
-            "Failed to read from {}: {e}",
-            DhcpTimestampsFilePath::Dpu.path_str()
+            dhcp_timestamps_path = %DhcpTimestampsFilePath::Dpu.path_str(),
+            error = %e,
+            "Failed to read DHCP timestamps file"
         );
     }
     dhcp_timestamps
@@ -695,7 +746,7 @@ impl MainLoop {
                 self.ovs_restart_retry_backoff = None;
             }
         }
-        tracing::info!("Done with Restart OVS can_ack_network_config is {can_ack_network_config}");
+        tracing::info!(can_ack_network_config, "Finished restarting OVS");
 
         can_ack_network_config
     }
@@ -722,7 +773,10 @@ impl MainLoop {
             self.forge_client_config.client_cert_expiry();
 
         let fabric_interfaces = get_fabric_interfaces_data().await.unwrap_or_else(|err| {
-            tracing::warn!("Error getting link data for fabric interfaces: {err:#}");
+            tracing::warn!(
+                error = format!("{err:#}"),
+                "Error getting link data for fabric interfaces"
+            );
             vec![]
         });
 
@@ -774,14 +828,14 @@ impl MainLoop {
                             match nvue_system_build.strip_prefix("HBN ") {
                                 Some(hbn_version) => Ok(hbn_version.into()),
                                 None => Err(eyre::format_err!(
-                                    "Couldn't parse HBN version from NVUE system build (\"{nvue_system_build}\")"
+                                    "couldn't parse HBN version from NVUE system build (\"{nvue_system_build}\")"
                                 )),
                             }?
                         }
                     };
 
                     let hbn_version = Version::from(hbn_version.as_str())
-                        .ok_or(eyre::eyre!("Unable to convert string to version"))?;
+                        .ok_or(eyre::eyre!("unable to convert string to version"))?;
                     // HBN changed their naming scheme in HBN 2.3 from _sf to _if so we will pass that little bit around
                     // after doing an initial version check instead of assuming _sf
                     self.hbn_device_names = HBNDeviceNames::new(hbn_version.clone());
@@ -790,7 +844,7 @@ impl MainLoop {
                     // HBN/DOCA is too old to support NVUE, we cannot configure it.
                     if hbn_version < self.nvue_minimum_hbn_version {
                         return Err(eyre::eyre!(
-                            "HBN version {hbn_version} is older than the minimum required for NVUE ({NVUE_MINIMUM_HBN_VERSION})."
+                            "HBN version {hbn_version} is older than the minimum required for NVUE ({NVUE_MINIMUM_HBN_VERSION})"
                         ));
                     }
 
@@ -808,11 +862,13 @@ impl MainLoop {
                         && let Err(e) = self.hbn_file_configs.ensure_configs().await
                     {
                         tracing::error!(
-                            "Error from HBNContainerFileConfigs::ensure_configs(): {e}"
+                            machine_id = %self.machine_id,
+                            error = %e,
+                            "Failed to ensure HBN container file configuration"
                         );
                     }
 
-                    tracing::trace!("Desired network config is {conf:?}");
+                    tracing::trace!(network_config = ?conf, "Desired network config");
                     // Get the actual virtualization type to use for configuring
                     // an interface, where we'll default to reading the one provided
                     // by the Carbide API, with the ability to override via RunOptions.
@@ -832,8 +888,8 @@ impl MainLoop {
                     let update_result = if self.current_network_version.matches_versions_from(&conf)
                     {
                         tracing::debug!(
-                            "No configuration change, skipping HBN updates: {:?}",
-                            &self.current_network_version
+                            current_network_version = ?self.current_network_version,
+                            "No configuration change, skipping HBN updates"
                         );
                         Ok(false)
                     } else {
@@ -847,7 +903,7 @@ impl MainLoop {
 
                             let fmds_interface_plan =
                                 Interface::plan(self.hbn_device_names.sfs[0], network_plan).await?;
-                            tracing::trace!("Interface plan: {:?}", fmds_interface_plan);
+                            tracing::trace!(interface_plan = ?fmds_interface_plan, "Interface plan");
 
                             // Generate the fmds route plan from conf.tenant_interfaces[n].address
                             // the plan is applied when the nvue template is written
@@ -856,7 +912,7 @@ impl MainLoop {
                                 &proposed_routes,
                             )
                             .await?;
-                            tracing::trace!("Route plan: {:?}", route_plan);
+                            tracing::trace!(route_plan = ?route_plan, "Route plan");
 
                             // Apply the interface plan. This is where we actually configure
                             // the FMDS phone home interface on the DPU.
@@ -1114,7 +1170,7 @@ impl MainLoop {
             if let Err(err) =
                 machine_inventory_updater::single_run(&self.inventory_updater_config).await
             {
-                tracing::error!(%err, "machine_inventory_updater error");
+                tracing::error!(error = %err, "machine_inventory_updater error");
             }
         }
 
@@ -1144,7 +1200,7 @@ impl MainLoop {
             is_healthy,
             has_changed_configs,
             self.seen_blank,
-            num_health_probe_alerts = health_alerts.len(),
+            health_probe_alert_count = health_alerts.len(),
             health_probe_alerts = {
                 let mut result = String::new();
                 for alert in health_alerts.iter() {
@@ -1213,7 +1269,7 @@ impl MainLoop {
                 }
                 Err(e) => {
                     tracing::error!(
-                        self.forge_api_server,
+                        forge_api_server = %self.forge_api_server,
                         error = format!("{e:#}"), // we need alt display for wrap_err_with to work well
                         "upgrade_check failed"
                     );
@@ -1257,8 +1313,8 @@ fn effective_virtualization_type(
         .or(virtualization_type_from_remote)
         .unwrap_or_else(|| {
             tracing::warn!(
-                "Missing network_virtualization_type, defaulting to {}",
-                VpcVirtualizationType::EthernetVirtualizer
+                default_virtualization_type = %VpcVirtualizationType::EthernetVirtualizer,
+                "Missing network_virtualization_type, defaulting"
             );
             VpcVirtualizationType::EthernetVirtualizer
         });
@@ -1295,10 +1351,10 @@ fn ack_network_config_update(
                                 != managed_host_instance_network_config_version
                             {
                                 tracing::warn!(
-                                    "Different instance network config version received. GetManagedHostNetworkConfig: {}, FindInstanceByMachineId: {}, Reporting: {}",
-                                    managed_host_instance_network_config_version,
-                                    instance_metadata_network_config_version,
-                                    reported_instance_network_config_version,
+                                    managed_host_version = %managed_host_instance_network_config_version,
+                                    instance_metadata_version = %instance_metadata_network_config_version,
+                                    reported_version = %reported_instance_network_config_version,
+                                    "Different instance network config version received"
                                 );
                             }
                             reported_instance_network_config_version.version_string()
@@ -1346,7 +1402,7 @@ async fn plan_fmds_armos_routing(
         .iter()
         .find_map(|e| e.addr_info.iter().find(|i| i.family == "inet"));
 
-    tracing::trace!("fmds_interface: {:?}", fmds_interface);
+    tracing::trace!(?fmds_interface, "fmds_interface");
 
     if let Some(ipinterface) = fmds_interface {
         for route in proposed_routes {
@@ -1383,16 +1439,25 @@ pub async fn record_network_status(
                 error = format!("{err:#}"),
                 "record_network_status: Could not connect to Forge API server. Will retry."
             );
+            emit(ReportLoopCompleted {
+                report_loop: ReportLoop::NetworkStatus,
+                outcome: Outcome::Error,
+            });
             return;
         }
     };
     let request = tonic::Request::new(status);
-    if let Err(err) = client.record_dpu_network_status(request).await {
+    let result = client.record_dpu_network_status(request).await;
+    if let Err(err) = &result {
         tracing::error!(
             error = format!("{err:#}"),
             "Error while executing the record_network_status gRPC call"
         );
     }
+    emit(ReportLoopCompleted {
+        report_loop: ReportLoop::NetworkStatus,
+        outcome: Outcome::from(&result),
+    });
 }
 
 // Get the link type, carrier status, MTU, and whatever else for our uplinks
@@ -1439,9 +1504,7 @@ async fn get_fabric_interfaces_data()
                 .and_then(|address| address.first())
                 .map(|first_byte| is_universal_unicast(*first_byte))
                 .unwrap_or_else(|| {
-                    tracing::warn!(
-                        "The MAC address for interface {interface_name} was missing or empty"
-                    );
+                    tracing::warn!(interface_name, "The MAC address was missing or empty");
                     false
                 });
 
@@ -1483,8 +1546,8 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
         let test_data_dir = PathBuf::from(crate::dpu::ARMOS_TEST_DATA_DIR);
 
         std::fs::read_to_string(test_data_dir.join("bfvcheck.out")).map_err(|e| {
-            error!("Could not read bfvcheck.out: {e}");
-            eyre::eyre!("Could not read bfvcheck.out: {}", e)
+            error!(error = %e, "Could not read bfvcheck.out");
+            eyre::eyre!("could not read bfvcheck.out: {}", e)
         })?
     } else {
         let mut cmd = tokio::process::Command::new("bash");

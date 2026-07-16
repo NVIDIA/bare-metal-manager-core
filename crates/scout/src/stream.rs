@@ -17,6 +17,7 @@
 
 use std::time::Duration;
 
+use carbide_instrument::{Outcome, emit};
 use carbide_uuid::machine::MachineId;
 use libmlx::profile::error::MlxProfileError;
 use rpc::forge::ScoutStreamApiBoundMessage;
@@ -24,6 +25,7 @@ use rpc::protos::forge::{scout_stream_api_bound_message, scout_stream_scout_boun
 use tokio::sync::mpsc;
 
 use crate::cfg::Options;
+use crate::metrics::{ScoutStreamConnection, ScoutStreamReconnect};
 use crate::{client, mlx_device};
 
 // ScoutStreamError represents errors that can
@@ -32,17 +34,17 @@ use crate::{client, mlx_device};
 pub enum ScoutStreamError {
     #[error("gRPC error: {0}")]
     Grpc(#[from] tonic::Status),
-    #[error("Transport error: {0}")]
+    #[error("transport error: {0}")]
     Transport(#[from] tonic::transport::Error),
-    #[error("Profile error: {0}")]
+    #[error("profile error: {0}")]
     Profile(#[from] MlxProfileError),
-    #[error("Connection lost")]
+    #[error("connection lost")]
     ConnectionLost,
-    #[error("Invalid request: {0}")]
+    #[error("invalid request: {0}")]
     InvalidRequest(String),
-    #[error("Invalid URI: {0}")]
+    #[error("invalid URI: {0}")]
     InvalidUri(#[from] http::uri::InvalidUri),
-    #[error("Client initialization error: {0}")]
+    #[error("client initialization error: {0}")]
     ClientError(String),
 }
 
@@ -53,27 +55,33 @@ pub fn start_scout_stream(machine_id: MachineId, options: &Options) -> tokio::ta
     tokio::spawn(async move {
         loop {
             tracing::info!(
-                "scout stream starting (api:{}, machine_id:{machine_id})",
-                options.api
+                api_endpoint = %options.api,
+                %machine_id,
+                "scout stream starting",
             );
 
             match run_scout_stream_loop(machine_id, &options).await {
                 Ok(_) => {
                     tracing::info!(
-                        "scout stream closed (api:{}, machine_id:{machine_id})",
-                        options.api
+                        api_endpoint = %options.api,
+                        %machine_id,
+                        "scout stream closed",
                     );
                 }
                 Err(e) => {
                     tracing::error!(
-                        "scout stream error (api:{}, machine_id:{machine_id}): {e}",
-                        options.api
+                        api_endpoint = %options.api,
+                        %machine_id,
+                        error = %e,
+                        "scout stream error",
                     );
                 }
             }
+            emit(ScoutStreamReconnect {});
             tracing::warn!(
-                "scout stream reconnecting (api:{}, machine_id:{machine_id}): 10s delay",
-                options.api
+                api_endpoint = %options.api,
+                %machine_id,
+                "scout stream reconnecting after 10s delay",
             );
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
@@ -86,9 +94,12 @@ async fn run_scout_stream_loop(
     machine_id: MachineId,
     options: &Options,
 ) -> Result<(), ScoutStreamError> {
-    let mut client = client::create_forge_client(options)
-        .await
-        .map_err(|e| ScoutStreamError::ClientError(e.to_string()))?;
+    let mut client = client::create_forge_client(options).await.map_err(|e| {
+        emit(ScoutStreamConnection {
+            outcome: Outcome::Error,
+        });
+        ScoutStreamError::ClientError(e.to_string())
+    })?;
 
     // Create channels for bidirectional streaming.
     let (tx, rx) = mpsc::channel::<ScoutStreamApiBoundMessage>(100);
@@ -110,11 +121,25 @@ async fn run_scout_stream_loop(
     })?;
 
     // Now create the response handler.
-    let mut response_stream = client.scout_stream(request_stream).await?.into_inner();
+    let mut response_stream = client
+        .scout_stream(request_stream)
+        .await
+        .map_err(|e| {
+            emit(ScoutStreamConnection {
+                outcome: Outcome::Error,
+            });
+            ScoutStreamError::from(e)
+        })?
+        .into_inner();
+
+    emit(ScoutStreamConnection {
+        outcome: Outcome::Ok,
+    });
 
     tracing::info!(
-        "scout stream connection established (api:{}, machine_id:{machine_id})",
-        options.api
+        api_endpoint = %options.api,
+        %machine_id,
+        "scout stream connection established",
     );
 
     // ...and start processing streaming updates.
@@ -137,8 +162,10 @@ async fn run_scout_stream_loop(
             // And then send the response back to carbide-api.
             if let Err(e) = tx.send(payload).await {
                 tracing::error!(
-                    "scout stream failed to send response (api:{}, machine_id:{machine_id}): {e}",
-                    options.api
+                    api_endpoint = %options.api,
+                    %machine_id,
+                    error = %e,
+                    "scout stream failed to send response",
                 );
                 break;
             }
@@ -156,8 +183,8 @@ fn handle_scout_stream_api_bound_message(
     request: scout_stream_scout_bound_message::Payload,
 ) -> ScoutStreamApiBoundMessage {
     tracing::info!(
-        "[scout_stream] processing incoming request for flow_uuid: {}",
-        flow_uuid
+        %flow_uuid,
+        "[scout_stream] processing incoming request",
     );
     match request {
         scout_stream_scout_bound_message::Payload::ScoutStreamAgentPingRequest(req) => {

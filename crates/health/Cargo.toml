@@ -67,7 +67,7 @@ tracing-subscriber = { features = [
 ], workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tonic = { workspace = true }
+tonic = { workspace = true, features = ["tls-native-roots"] }
 tonic-prost = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
@@ -108,6 +108,7 @@ tonic-prost-build = { workspace = true }
 bench-hooks = []
 
 [dev-dependencies]
+bmc-mock = { path = "../bmc-mock" }
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 criterion = { workspace = true }

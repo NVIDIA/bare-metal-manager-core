@@ -78,7 +78,7 @@ pub(crate) fn set_dynamic_config(
     const MAX_SET_INTERNAL_EXPIRY: Duration = Duration::from_secs(60 * 60 * 60); // 60 hours
     if MAX_SET_INTERNAL_EXPIRY < expiry {
         return Err(CarbideError::InvalidArgument(
-            "Expiry exceeds max allowed of 60 hours".to_string(),
+            "expiry exceeds max allowed of 60 hours".to_string(),
         )
         .into());
     }
@@ -106,9 +106,9 @@ pub(crate) fn set_dynamic_config(
                 ))
             })?;
             tracing::info!(
-                "Log filter updated to '{}'; global log level: {}",
-                req.value,
-                tracing_subscriber::filter::LevelFilter::current()
+                log_filter = %req.value,
+                configured_log_level = %tracing_subscriber::filter::LevelFilter::current(),
+                "Log filter updated",
             );
         }
         rpc::ConfigSetting::CreateMachines => {
@@ -121,7 +121,10 @@ pub(crate) fn set_dynamic_config(
             api.dynamic_settings
                 .create_machines
                 .store(is_enabled, Ordering::Relaxed);
-            tracing::info!("site-explorer create_machines updated to '{}'", req.value);
+            tracing::info!(
+                create_machines = is_enabled,
+                "site-explorer create_machines setting updated",
+            );
         }
         rpc::ConfigSetting::SiteExplorerEnabled => {
             let is_enabled = req.value.parse::<bool>().map_err(|err| {
@@ -133,7 +136,10 @@ pub(crate) fn set_dynamic_config(
             api.dynamic_settings
                 .site_explorer_enabled
                 .store(is_enabled, Ordering::Relaxed);
-            tracing::info!("site-explorer enabled updated to '{}'", req.value);
+            tracing::info!(
+                site_explorer_enabled = is_enabled,
+                "site-explorer enabled setting updated",
+            );
         }
         rpc::ConfigSetting::BmcProxy => {
             let Some(true) = api.runtime_config.site_explorer.allow_changing_bmc_proxy else {
@@ -157,12 +163,15 @@ pub(crate) fn set_dynamic_config(
                     .bmc_proxy
                     .store(Arc::new(Some(host_port_pair)));
             }
-            tracing::info!("site-explorer create_machines updated to '{}'", req.value);
+            tracing::info!(
+                bmc_proxy = %req.value,
+                "BMC proxy setting updated",
+            );
         }
         rpc::ConfigSetting::TracingEnabled => {
             if !api.runtime_config.tracing.allow_runtime_changes {
                 return Err(CarbideError::PermissionDeniedError(
-                    "This server does not allow runtime changes to tracing configuration"
+                    "this server does not allow runtime changes to tracing configuration"
                         .to_string(),
                 )
                 .into());

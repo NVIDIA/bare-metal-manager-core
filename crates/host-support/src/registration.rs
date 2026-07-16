@@ -28,17 +28,17 @@ use tryhard::RetryFutureConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum RegistrationError {
-    #[error("Transport error {0}")]
+    #[error("transport error {0}")]
     TransportError(String),
-    #[error("Tonic status error {0}")]
+    #[error("tonic status error {0}")]
     TonicStatusError(#[from] tonic::Status),
-    #[error("Missing machine id in API server response. Should be impossible")]
+    #[error("missing machine id in API server response. should be impossible")]
     MissingMachineId,
-    #[error("Attestation failed")]
+    #[error("attestation failed")]
     AttestationFailed,
-    #[error("Failed to retrieve or write client certificate: {0}")]
+    #[error("failed to retrieve or write client certificate: {0}")]
     ClientCertificateError(eyre::Report),
-    #[error("Missing certificate in DiscoverMachine reply")]
+    #[error("missing certificate in DiscoverMachine reply")]
     MissingCertificate,
 }
 
@@ -101,18 +101,15 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
     // let response = connection.your_api_endpoint(request).await?;
     //
     async fn connect(&self, purpose: &str) -> Result<ForgeClientT, RegistrationError> {
-        tracing::debug!("creating tls client connection for {purpose}");
+        tracing::debug!(purpose, "creating tls client connection");
         let client = ForgeTlsClient::new(self.config);
         match client.build(self.api_url.to_string()).await {
             Ok(connection) => {
-                tracing::debug!(
-                    "created tls client connection for {purpose}: {:?}",
-                    connection
-                );
+                tracing::debug!(purpose, ?connection, "created tls client connection");
                 Ok(connection)
             }
             Err(e) => {
-                tracing::error!("could not create tls client for {purpose}: {:?}", e);
+                tracing::error!(purpose, error = ?e, "could not create tls client");
                 Err(RegistrationError::TransportError(e.to_string()))
             }
         }
@@ -127,14 +124,14 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         info: MachineDiscoveryInfo,
         attempt: u32,
     ) -> Result<rpc::MachineDiscoveryResult, RegistrationError> {
-        tracing::info!("Attempting to discover_machine (attempt: {})", attempt);
+        tracing::info!(attempt, "Attempting to discover_machine");
 
         // Create a new connection off of the ForgeTlsClient.
         let mut connection = self.connect("discover_machine_once").await?;
 
         // Create a new request with the provided MachineDiscoveryInfo.
         let request = tonic::Request::new(info);
-        tracing::debug!("register_machine request {:?}", request);
+        tracing::debug!(?request, "discover_machine request");
 
         // And now attempt to send the request.
         Ok(connection
@@ -142,9 +139,9 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
             .await
             .inspect_err(|err| {
                 tracing::error!(
-                    "Error attempting to discover_machine (attempt: {}): {}",
                     attempt,
-                    err.to_string()
+                    error = %err,
+                    "Error attempting to discover_machine"
                 );
             })?
             .into_inner())
@@ -180,15 +177,13 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
 
         // Create a new request with the provided AttestQuoteRequest.
         let request = tonic::Request::new(quote.clone());
-        tracing::debug!("attest_quote request {:?}", request);
+        tracing::debug!(?request, "attest_quote request");
 
         // And now attempt to send the request.
         Ok(connection
             .attest_quote(request)
             .await
-            .inspect_err(|err| {
-                tracing::error!("Error attempting to attest_quote: {}", err.to_string())
-            })?
+            .inspect_err(|err| tracing::error!(error = %err, "Error attempting to attest_quote"))?
             .into_inner())
     }
 }
@@ -207,7 +202,7 @@ fn create_client_config(
             .map_err(|e| RegistrationError::TransportError(e.to_string()))?,
         false => ForgeClientConfig::new(root_ca, None),
     };
-    tracing::debug!("{purpose} client_config {:?}", forge_client_config);
+    tracing::debug!(purpose, ?forge_client_config, "client_config");
     Ok(forge_client_config)
 }
 
@@ -243,7 +238,7 @@ pub async fn register_machine(
         discovery_reporter: discovery_reporter as i32,
         discovery_reporter_version: reporter_version,
     };
-    tracing::info!("register_machine discovery_info {:?}", info);
+    tracing::info!(machine_discovery_info = ?info, "register_machine discovery_info");
 
     let forge_client_config = create_client_config("register_machine", use_mgmt_vrf, root_ca)?;
     let response = RegistrationClient::new(forge_api, &forge_client_config, retry)
@@ -289,14 +284,7 @@ pub async fn attest_quote(
 
     let _ = write_certs(response.machine_certificate, None).await;
 
-    tracing::info!(
-        "Attestation result is {}",
-        if response.success {
-            "SUCCESS"
-        } else {
-            "FAILURE"
-        }
-    );
+    tracing::info!(success = response.success, "Attestation result");
 
     Ok(response.success)
 }
@@ -322,7 +310,7 @@ pub async fn write_certs(
             .wrap_err(format!(
                 "Failed to write new machine certificate PEM to {client_cert}"
             ))?;
-        tracing::info!("Wrote new machine certificate PEM to: {:?}", client_cert);
+        tracing::info!(%client_cert, "Wrote new machine certificate PEM");
 
         tokio::fs::write(client_key, machine_certificate.private_key.as_slice())
             .await

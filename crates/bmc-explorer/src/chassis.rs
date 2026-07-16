@@ -148,7 +148,10 @@ impl<B: Bmc> ExploredChassisCollection<B> {
                 .iter()
                 .map(|ps| format!("{}:{:?}", ps.id, ps.power_state))
                 .join(", ");
-            tracing::warn!("Delta power shelf power state is unknown: {detail}");
+            tracing::warn!(
+                power_supply_states = %detail,
+                "Delta power shelf power state is unknown"
+            );
         }
         state
     }
@@ -470,7 +473,7 @@ fn delta_psu_power_on<B: Bmc>(ps: &NvPowerSupply<B>) -> Option<bool> {
     match ps.oem_delta() {
         Ok(oem) => oem.and_then(|d| d.power()),
         Err(e) => {
-            tracing::warn!("failed to parse Delta OEM power supply data: {e:?}");
+            tracing::warn!(error = ?e, "Failed to parse Delta OEM power supply data");
             None
         }
     }
@@ -529,7 +532,10 @@ impl LiteOnSuppliesState<'_> {
         } else if off {
             ModelPowerState::Off
         } else {
-            tracing::warn!("powershelf power state is unknown: {self}");
+            tracing::warn!(
+                power_supply_states = %self,
+                "powershelf power state is unknown"
+            );
             ModelPowerState::Unknown
         }
     }

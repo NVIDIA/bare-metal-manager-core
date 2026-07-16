@@ -52,8 +52,8 @@ impl SwitchCreator {
                 Some(expected_switch) => expected_switch,
                 None => {
                     tracing::info!(
-                        bmc_ip = %explored_managed_switch.bmc_ip,
-                        "No expected switch found for explored switch endpoint"
+                        bmc_ip_address = %explored_managed_switch.bmc_ip,
+                        "No expected switch found"
                     );
                     continue;
                 }
@@ -78,8 +78,8 @@ impl SwitchCreator {
                 Err(error) => {
                     tracing::error!(
                         %error,
-                        "Failed to create managed switch {:#?}",
-                        explored_managed_switch.bmc_ip
+                        bmc_ip_address = %explored_managed_switch.bmc_ip,
+                        "Failed to create managed switch"
                     );
                 }
             }
@@ -138,7 +138,7 @@ impl SwitchCreator {
             db::switch::find_by_bmc_mac_address(txn, expected_switch.bmc_mac_address).await?
         {
             tracing::warn!(
-                bmc_mac = %expected_switch.bmc_mac_address,
+                bmc_mac_address = %expected_switch.bmc_mac_address,
                 existing_switch_id = %existing.id,
                 "Switch already exists for this BMC MAC; skipping discovery",
             );
@@ -163,8 +163,7 @@ impl SwitchCreator {
         if let Some(_existing_switch) = existing_switch {
             tracing::warn!(
                 %switch_id,
-                "Switch already exists, skipping. {} for switch id",
-                switch_id.to_string()
+                "Switch already exists, skipping."
             );
             return Ok(None);
         }

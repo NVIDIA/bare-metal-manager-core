@@ -210,7 +210,7 @@ pub async fn redfish_apply_action(
 
     let is_applied = set_applied(applier, request, &mut txn).await?;
     if !is_applied {
-        return Err(CarbideError::InvalidArgument("Request was already applied".to_owned()).into());
+        return Err(CarbideError::InvalidArgument("request was already applied".to_owned()).into());
     }
 
     let mut uris: Vec<(Uri, usize)> = Vec::with_capacity(action_request.machine_ips.len());
@@ -271,7 +271,12 @@ pub async fn redfish_apply_action(
                 // Enclosing function may have returned. Nowhere to return error to.
                 update_response_in_tx(&pool, request, index, response)
                     .await
-                    .inspect_err(|e| tracing::error!("Error applying redfish action: {e}"))
+                    .inspect_err(|e| {
+                        tracing::error!(
+                            error = %e,
+                            "Error applying redfish action",
+                        )
+                    })
                     .ok();
             }
         });
@@ -313,7 +318,11 @@ async fn handle_request(
         (Err(error), _) | (_, Some(error)) => {
             // Make a UUID for easy log correlation
             let failure_uuid = Uuid::new_v4();
-            tracing::error!("Redfish client creation failure {failure_uuid}: {error}");
+            tracing::error!(
+                failure_uuid = %failure_uuid,
+                error = %error,
+                "Redfish client creation failure",
+            );
 
             // Set the "response" to indicate we couldn't get a redfish client. Don't
             // leak error string in case of credentials/etc.
@@ -453,7 +462,7 @@ pub(crate) async fn create_client(
         let client = match builder.build() {
             Ok(client) => client,
             Err(err) => {
-                tracing::error!(%err, "build_http_client");
+                tracing::error!(error = %err, "build_http_client");
                 return Err(CarbideError::internal(format!(
                     "Http building failed: {err}"
                 )));

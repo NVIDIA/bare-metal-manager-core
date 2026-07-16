@@ -125,7 +125,7 @@ pub async fn show(
     let (pages, allocations) = match fetch_compute_allocations(api, current_page, limit).await {
         Ok(all) => all,
         Err(err) => {
-            tracing::error!(%err, "fetch_compute_allocations");
+            tracing::error!(error = %err, "fetch_compute_allocations");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Error loading compute allocations: {err}"),

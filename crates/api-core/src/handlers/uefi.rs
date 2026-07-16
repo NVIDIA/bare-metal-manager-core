@@ -170,7 +170,7 @@ pub(crate) async fn clear_host_uefi_password(
 
     if !machine_id.machine_type().is_host() {
         return Err(CarbideError::InvalidArgument(
-            "Carbide only supports clearing the UEFI password on discovered hosts".into(),
+            "carbide only supports clearing the UEFI password on discovered hosts".into(),
         )
         .into());
     }
@@ -208,7 +208,7 @@ pub(crate) async fn clear_host_uefi_password(
     }
 
     let addr = snapshot.host_snapshot.bmc_addr().ok_or_else(|| {
-        CarbideError::InvalidArgument("Specified machine does not have BMC address".into())
+        CarbideError::InvalidArgument("specified machine does not have BMC address".into())
     })?;
 
     // Clearing must authenticate with the password the device currently carries,
@@ -217,7 +217,7 @@ pub(crate) async fn clear_host_uefi_password(
     // wrong password to the BMC.
     let bmc_mac = snapshot.host_snapshot.bmc_info.mac.ok_or_else(|| {
         CarbideError::InvalidArgument(
-            "Specified machine does not have a known BMC MAC address".into(),
+            "specified machine does not have a known BMC MAC address".into(),
         )
     })?;
 
@@ -241,7 +241,10 @@ pub(crate) async fn clear_host_uefi_password(
         .client_by_info(&bmc_access_info)
         .await
         .map_err(|e| {
-            tracing::error!("unable to create redfish client: {}", e);
+            tracing::error!(
+                error = %e,
+                "unable to create redfish client",
+            );
             CarbideError::Internal {
                 message: format!(
                     "Could not create connection to Redfish API to {machine_id}, check logs"
@@ -254,7 +257,7 @@ pub(crate) async fn clear_host_uefi_password(
         .clear_host_uefi_password(redfish_client.as_ref(), clear_credentials)
         .await
         .map_err(|e| {
-            tracing::error!(%e, "Failed to run clear_host_uefi_password call");
+            tracing::error!(error = %e, "Failed to run clear_host_uefi_password call");
             CarbideError::internal(format!(
                 "Failed redfish clear_host_uefi_password subtask: {e}"
             ))
@@ -299,7 +302,7 @@ pub(crate) async fn set_host_uefi_password(
 
     if !machine_id.machine_type().is_host() {
         return Err(CarbideError::InvalidArgument(
-            "Carbide only supports setting the UEFI password on discovered hosts".into(),
+            "carbide only supports setting the UEFI password on discovered hosts".into(),
         )
         .into());
     }
@@ -320,7 +323,7 @@ pub(crate) async fn set_host_uefi_password(
     })?;
 
     let addr = snapshot.host_snapshot.bmc_addr().ok_or_else(|| {
-        CarbideError::InvalidArgument("Specified machine does not have BMC address".into())
+        CarbideError::InvalidArgument("specified machine does not have BMC address".into())
     })?;
 
     // A known BMC MAC is a hard precondition for setting the UEFI password: it
@@ -329,7 +332,7 @@ pub(crate) async fn set_host_uefi_password(
     // we cannot track its convergence.
     let host_bmc_mac = snapshot.host_snapshot.bmc_info.mac.ok_or_else(|| {
         CarbideError::InvalidArgument(
-            "Specified machine does not have a known BMC MAC address".into(),
+            "specified machine does not have a known BMC MAC address".into(),
         )
     })?;
 
@@ -350,7 +353,10 @@ pub(crate) async fn set_host_uefi_password(
         .client_by_info(&bmc_access_info)
         .await
         .map_err(|e| {
-            tracing::error!("unable to create redfish client: {}", e);
+            tracing::error!(
+                error = %e,
+                "unable to create redfish client",
+            );
             CarbideError::RedfishClientCreation {
                 inner: e.into(),
                 machine_id,
@@ -362,7 +368,7 @@ pub(crate) async fn set_host_uefi_password(
         .uefi_setup(redfish_client.as_ref(), false, host_uefi_credentials)
         .await
         .map_err(|e| {
-            tracing::error!(%e, "Failed to run uefi_setup call");
+            tracing::error!(error = %e, "Failed to run uefi_setup call");
             CarbideError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
         })?;
     // uefi_setup returns a BMC job_id; the password change completes
@@ -392,7 +398,10 @@ pub(crate) async fn set_host_uefi_password(
     })
     .await?
     .map_err(|e| {
-        tracing::error!("Failed to update bios_password_set_time: {}", e);
+        tracing::error!(
+            error = %e,
+            "Failed to update bios_password_set_time",
+        );
         CarbideError::Internal {
             message: format!("Failed to update BIOS password timestamp: {e}"),
         }

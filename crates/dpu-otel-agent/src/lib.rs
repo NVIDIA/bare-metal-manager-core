@@ -40,7 +40,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             config_path.display().to_string(),
         ),
     };
-    tracing::info!("Using configuration from {path}: {agent:?}");
+    tracing::info!(
+        config_path = path.as_str(),
+        ?agent,
+        "Using agent configuration"
+    );
 
     let forge_client_config = Arc::new(
         ForgeClientConfig::new(

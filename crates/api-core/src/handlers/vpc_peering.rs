@@ -53,7 +53,7 @@ pub async fn create(
     // Check this VPC peering is permitted under current site vpc_peering_policy
     match api.runtime_config.vpc_peering_policy {
         None | Some(VpcPeeringPolicy::None) => {
-            return Err(CarbideError::internal("VPC Peering feature disabled.".to_string()).into());
+            return Err(CarbideError::internal("VPC peering feature disabled".to_string()).into());
         }
         Some(VpcPeeringPolicy::Exclusive) => {
             let vpcs1 =

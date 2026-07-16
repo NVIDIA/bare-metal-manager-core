@@ -70,9 +70,9 @@ async fn handle_rotate_os_password(
         ctx.services.credential_manager.get_credentials(&key).await
     {
         tracing::info!(
-            "Switch {:?}: NVOS admin credentials already exist in vault for BMC MAC {}",
-            switch_id,
-            bmc_mac_address
+            switch_id = ?switch_id,
+            bmc_mac_address = %bmc_mac_address,
+            "Switch: NVOS admin credentials already exist in vault",
         );
         return Ok(StateHandlerOutcome::transition(
             SwitchControllerState::FetchInfo,
@@ -112,7 +112,7 @@ async fn handle_rotate_os_password(
         .await
         .map_err(|e| {
             StateHandlerError::GenericError(eyre::eyre!(
-                "Switch {:?}: failed to record nvos rotation convergence: {}",
+                "switch {:?}: failed to record nvos rotation convergence: {}",
                 switch_id,
                 e
             ))
@@ -139,20 +139,18 @@ async fn handle_rotate_os_password(
             }
         };
 
-        let (username, password) = match (
-            expected_switch.nvos_username,
-            expected_switch.nvos_password,
-        ) {
-            (Some(username), Some(password)) => (username, password),
-            _ => {
-                tracing::info!(
-                    "Switch {:?}: no NVOS credentials in vault or expected switch for BMC MAC {}, skipping",
-                    switch_id,
-                    bmc_mac_address
-                );
-                return Ok(outcome);
-            }
-        };
+        let (username, password) =
+            match (expected_switch.nvos_username, expected_switch.nvos_password) {
+                (Some(username), Some(password)) => (username, password),
+                _ => {
+                    tracing::info!(
+                        switch_id = ?switch_id,
+                        bmc_mac_address = %bmc_mac_address,
+                        "Switch: no NVOS credentials in vault or expected switch; skipping",
+                    );
+                    return Ok(outcome);
+                }
+            };
 
         let credentials = Credentials::UsernamePassword { username, password };
 
@@ -162,16 +160,16 @@ async fn handle_rotate_os_password(
             .await
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Switch {:?}: failed to store NVOS credentials in vault: {}",
+                    "switch {:?}: failed to store NVOS credentials in vault: {}",
                     switch_id,
                     e
                 ))
             })?;
 
         tracing::info!(
-            "Switch {:?}: stored NVOS admin credentials from expected switch into vault for BMC MAC {}",
-            switch_id,
-            bmc_mac_address
+            switch_id = ?switch_id,
+            bmc_mac_address = %bmc_mac_address,
+            "Switch: stored NVOS admin credentials from expected switch into vault",
         );
 
         Ok(outcome)
@@ -228,8 +226,8 @@ async fn handle_configure_certificate_wait_for_complete(
         crate::certificate::ConfigureSwitchCertificatePollOutcome::Completed => {
             tracing::info!(
                 %job_id,
-                "Switch {:?}: switch certificate configuration completed",
-                switch_id
+                switch_id = ?switch_id,
+                "Switch: switch certificate configuration completed",
             );
             Ok(StateHandlerOutcome::transition(
                 SwitchControllerState::Configuring {

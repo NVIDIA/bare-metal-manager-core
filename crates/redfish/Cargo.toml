@@ -45,4 +45,9 @@ tracing = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true }
+axum-server = { workspace = true, features = ["tls-rustls"] }
+bmc-mock = { path = "../bmc-mock" }
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
+nv-redfish = { workspace = true, features = ["chassis"] }
+rustls = { workspace = true }
