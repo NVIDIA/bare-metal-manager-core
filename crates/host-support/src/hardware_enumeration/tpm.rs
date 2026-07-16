@@ -135,6 +135,8 @@ fn get_ek_certificate_with_runner(runner: &impl CommandRunner) -> Result<Vec<u8>
             }
 
             if let Some(cert) = select_tool_compatible_nv_ek_certificates(certs) {
+                X509Certificate::from_der(&cert)
+                    .map_err(|_| TpmError::InvalidEkCertificate(TPM2_NV_READ))?;
                 return Ok(cert);
             }
 
@@ -191,7 +193,7 @@ fn get_ek_certificate_from_nv_index(
         .output(TPM2_NV_READ, &["-C", "o", index])
         .map_err(|e| TpmError::Subprocess(TPM2_NV_READ, e))?;
 
-    cert_from_nv_output(TPM2_NV_READ, output)
+    nv_output(output)
 }
 
 fn cert_from_output(source: &'static str, output: CommandOutput) -> Result<Vec<u8>, TpmError> {
@@ -202,11 +204,8 @@ fn cert_from_output(source: &'static str, output: CommandOutput) -> Result<Vec<u
     Ok(stdout)
 }
 
-fn cert_from_nv_output(source: &'static str, output: CommandOutput) -> Result<Vec<u8>, TpmError> {
-    let stdout = checked_stdout(output)?;
-    X509Certificate::from_der(&stdout).map_err(|_| TpmError::InvalidEkCertificate(source))?;
-
-    Ok(stdout)
+fn nv_output(output: CommandOutput) -> Result<Vec<u8>, TpmError> {
+    checked_stdout(output)
 }
 
 fn checked_stdout(output: CommandOutput) -> Result<Vec<u8>, TpmError> {
@@ -379,16 +378,16 @@ mod tests {
         // and the runner's fake certs must be derived from the same DER bytes.
         let primary_cert = test_ek_cert_der("primary");
         let fallback_cert = test_ek_cert_der("fallback");
-        let valid_cert = test_ek_cert_der("valid");
         let first_cert = test_ek_cert_der("first");
         let ecc_cert = test_ek_cert_der("ecc");
         let fallback_nv = cert_with_trailing_nv_bytes(&fallback_cert);
-        let valid_nv = cert_with_trailing_nv_bytes(&valid_cert);
         let first_nv = cert_with_trailing_nv_bytes(&first_cert);
         let ecc_nv = cert_with_trailing_nv_bytes(&ecc_cert);
         let ecc_nv_for_nonstandard = ecc_nv.clone();
         let mut first_ecc_nv = first_nv.clone();
         first_ecc_nv.extend_from_slice(&ecc_nv);
+        let mut first_malformed_ecc_nv = first_nv.clone();
+        first_malformed_ecc_nv.extend_from_slice(b"not a certificate");
 
         // Input is a (runner, expected-bytes-if-any) pair; the closure runs the
         // runner and returns the cert vec, dropping the non-PartialEq error.
@@ -420,7 +419,7 @@ mod tests {
                 } => Yields(fallback_nv),
             }
 
-            "skips NV index whose stdout is not a certificate" {
+            "invalid leading RSA bytes fail even when ECC bytes are valid" {
                 {
                     let mut calls = vec![
                         primary_tool_failed_call(),
@@ -430,12 +429,12 @@ mod tests {
                         ),
                         nv_read_call(
                             TPM_EK_CERT_NV_INDICES[1].index,
-                            Ok(successful_output(&valid_nv)),
+                            Ok(successful_output(&ecc_nv)),
                         ),
                     ];
                     calls.extend(failing_nv_tail(2));
                     FakeRunner::new(calls)
-                } => Yields(valid_nv),
+                } => Fails,
             }
 
             "fallback matches normal path with concatenated RSA and ECC cert output" {
@@ -452,6 +451,22 @@ mod tests {
                         ),
                     ])
                 } => Yields(first_ecc_nv),
+            }
+
+            "malformed ECC bytes are retained after valid RSA bytes" {
+                {
+                    FakeRunner::new(vec![
+                        primary_tool_failed_call(),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[0].index,
+                            Ok(successful_output(&first_nv)),
+                        ),
+                        nv_read_call(
+                            TPM_EK_CERT_NV_INDICES[1].index,
+                            Ok(successful_output(b"not a certificate")),
+                        ),
+                    ])
+                } => Yields(first_malformed_ecc_nv),
             }
 
             "falls back to first ECC cert when no RSA cert is readable" {
@@ -586,15 +601,16 @@ mod tests {
         );
     }
 
-    /// `cert_from_nv_output`: validates that stdout starts with a DER X.509 and
-    /// returns the full NV buffer, including any trailing padding.
+    /// `nv_output`: returns successful stdout unchanged, including any trailing
+    /// padding or malformed bytes. Fallback validates only after selected NV
+    /// buffers are concatenated to match the normal tool path.
     #[test]
-    fn cert_from_nv_output_cases() {
+    fn nv_output_cases() {
         let cert = test_ek_cert_der("nv");
         let cert_with_trailing = cert_with_trailing_nv_bytes(&cert);
 
         scenarios!(
-            run = |output| cert_from_nv_output(TPM2_NV_READ, output).map_err(drop);
+            run = |output| nv_output(output).map_err(drop);
             "exact-length DER returns it unchanged" {
                 successful_output(&cert) => Yields(cert),
             }
@@ -603,12 +619,12 @@ mod tests {
                 successful_output(&cert_with_trailing) => Yields(cert_with_trailing),
             }
 
-            "non-certificate stdout fails to parse" {
-                successful_output(b"not a certificate") => Fails,
+            "non-certificate stdout is retained" {
+                successful_output(b"not a certificate") => Yields(b"not a certificate".to_vec()),
             }
 
-            "empty stdout fails to parse" {
-                successful_output(b"") => Fails,
+            "empty stdout is retained" {
+                successful_output(b"") => Yields(vec![]),
             }
 
             "subprocess non-success fails before parsing" {
