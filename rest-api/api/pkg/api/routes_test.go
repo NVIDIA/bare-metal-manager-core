@@ -128,6 +128,10 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPost, expectedMachineBatchPath)
 			assertRouteExists(t, got, http.MethodPatch, expectedMachineBatchPath)
 			assertRouteBefore(t, got, http.MethodPatch, expectedMachineBatchPath, http.MethodPatch, "/org/:orgName/"+cfg.GetAPIName()+"/expected-machine/:id")
+
+			ipxeTemplatePath := "/org/:orgName/" + cfg.GetAPIName() + "/ipxe-template"
+			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath)
+			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath+"/:id")
 		})
 	}
 }

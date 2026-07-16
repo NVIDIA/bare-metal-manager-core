@@ -34,6 +34,11 @@ type APIIpxeTemplate struct {
 	Updated time.Time `json:"updated"`
 }
 
+// APIIpxeTemplateGetAllRequest captures optional list filters for GET /ipxe-template.
+type APIIpxeTemplateGetAllRequest struct {
+	SiteIDs []string `query:"siteId"`
+}
+
 // NewAPIIpxeTemplate accepts a DB layer IpxeTemplate object and returns an API layer object
 func NewAPIIpxeTemplate(dbTemplate *cdbm.IpxeTemplate) *APIIpxeTemplate {
 	if dbTemplate == nil {

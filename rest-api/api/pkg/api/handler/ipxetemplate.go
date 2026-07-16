@@ -80,11 +80,15 @@ func (h GetAllIpxeTemplateHandler) Handle(c echo.Context) error {
 
 	// Parse optional siteId query parameters. Multiple values (repeated
 	// `?siteId=...&siteId=...`) are supported.
+	if err := common.ValidateKnownQueryParams(c.QueryParams(), model.APIIpxeTemplateGetAllRequest{}, pagination.PageRequest{}); err != nil {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+	}
+
 	requestedSiteIDStrs := c.QueryParams()["siteId"]
 	requestedSiteIDs := make([]uuid.UUID, 0, len(requestedSiteIDStrs))
 	for _, s := range requestedSiteIDStrs {
 		if s == "" {
-			continue
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid siteId in query parameter: empty value", nil)
 		}
 		parsed, perr := uuid.Parse(s)
 		if perr != nil {

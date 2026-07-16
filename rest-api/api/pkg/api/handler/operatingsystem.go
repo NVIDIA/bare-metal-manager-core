@@ -120,26 +120,58 @@ func updateOSSAStatusViaProxy(ctx context.Context, logger zerolog.Logger, dbSess
 	return err
 }
 
+// aggregateSyncMessage returns the status-detail message for a proxy sync aggregate
+// status update (create/update), where the outcome is either a full sync or a
+// partial/complete sync failure.
+func aggregateSyncMessage(hadErrors bool) string {
+	if hadErrors {
+		return "failed to sync Operating System to one or more sites"
+	}
+	return "Operating System successfully synced to all sites"
+}
+
 // updateOperatingSystemAggregateStatus sets the Operating System's aggregate status
 // after a proxy sync attempt: Ready when all sites synced, Error when one or more failed.
-func updateOperatingSystemAggregateStatus(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, osID uuid.UUID, hadErrors bool) {
+// Callers supply the operation-specific status-detail message (e.g. a sync message for
+// create/update, a deletion message for delete). The status update and its status-detail
+// audit entry are written together in a single transaction so they cannot diverge, and
+// any transaction/DB failure is returned to the caller rather than only logged.
+//
+// A Deactivated Operating System keeps its Deactivated status: the sync still pushes the
+// definition to sites, but the aggregate readiness/error status must not override the
+// user-initiated deactivation.
+func updateOperatingSystemAggregateStatus(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, osID uuid.UUID, hadErrors bool, message string) error {
 	osDAO := cdbm.NewOperatingSystemDAO(dbSession)
-	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+
+	existing, err := osDAO.GetByID(ctx, nil, osID, nil)
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to read Operating System before aggregate status update")
+		return err
+	}
+	if existing.Status == cdbm.OperatingSystemStatusDeactivated {
+		logger.Info().Msg("Operating System is deactivated, preserving Deactivated status after site sync")
+		return nil
+	}
 
 	status := cdbm.OperatingSystemStatusReady
-	message := "Operating System successfully synced to all sites"
 	if hadErrors {
 		status = cdbm.OperatingSystemStatusError
-		message = "failed to sync Operating System to one or more sites"
 	}
 
-	if _, err := osDAO.Update(ctx, nil, cdbm.OperatingSystemUpdateInput{OperatingSystemId: osID, Status: &status}); err != nil {
-		logger.Error().Err(err).Msg("failed to update aggregate Operating System status")
-		return
+	if err := cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
+		if _, uerr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{OperatingSystemId: osID, Status: &status}); uerr != nil {
+			return uerr
+		}
+		sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+		if _, cerr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: osID.String(), Status: status, Message: &message}); cerr != nil {
+			return cerr
+		}
+		return nil
+	}); err != nil {
+		logger.Error().Err(err).Msg("failed to persist aggregate Operating System status")
+		return err
 	}
-	if _, err := sdDAO.Create(ctx, nil, cdbm.StatusDetailCreateInput{EntityID: osID.String(), Status: status, Message: &message}); err != nil {
-		logger.Error().Err(err).Msg("failed to create status detail for aggregate Operating System status")
-	}
+	return nil
 }
 
 // getRegisteredTenantSites returns all Registered sites the tenant has access to.
@@ -592,7 +624,9 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 	if cdbm.IsIPXEType(os.Type) && len(dbossa) > 0 {
 		req := model.BuildCreateOperatingSystemRequest(os)
 		siteErrors := syncOperatingSystemToSitesViaProxy(ctx, logger, csh.dbSession, csh.scp, dbossa, createOperatingSystemMethod, req)
-		updateOperatingSystemAggregateStatus(ctx, logger, csh.dbSession, os.ID, siteErrors > 0)
+		if aerr := updateOperatingSystemAggregateStatus(ctx, logger, csh.dbSession, os.ID, siteErrors > 0, aggregateSyncMessage(siteErrors > 0)); aerr != nil {
+			logger.Error().Err(aerr).Msg("failed to update aggregate Operating System status after create sync")
+		}
 		os, dbossd, dbossa = reloadOperatingSystemForResponse(ctx, logger, csh.dbSession, os, dbossd, dbossa)
 	}
 
@@ -1519,7 +1553,9 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		if len(ipxeOssas) > 0 {
 			req := model.BuildUpdateOperatingSystemRequest(uos)
 			siteErrors := syncOperatingSystemToSitesViaProxy(ctx, logger, ush.dbSession, ush.scp, ipxeOssas, updateOperatingSystemMethod, req)
-			updateOperatingSystemAggregateStatus(ctx, logger, ush.dbSession, uos.ID, siteErrors > 0)
+			if aerr := updateOperatingSystemAggregateStatus(ctx, logger, ush.dbSession, uos.ID, siteErrors > 0, aggregateSyncMessage(siteErrors > 0)); aerr != nil {
+				logger.Error().Err(aerr).Msg("failed to update aggregate Operating System status after update sync")
+			}
 			uos, ssds, dbossas = reloadOperatingSystemForResponse(ctx, logger, ush.dbSession, uos, ssds, dbossas)
 		}
 	}
@@ -1923,7 +1959,9 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 			// visible via GET and the delete is idempotently retryable (already-gone
 			// sites return not-found and cleaned-up associations are no longer
 			// candidates), converging once the sites recover.
-			updateOperatingSystemAggregateStatus(ctx, logger, dsh.dbSession, os.ID, true)
+			if aerr := updateOperatingSystemAggregateStatus(ctx, logger, dsh.dbSession, os.ID, true, "failed to delete Operating System from one or more sites"); aerr != nil {
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Operating System status", nil)
+			}
 		}
 	}
 

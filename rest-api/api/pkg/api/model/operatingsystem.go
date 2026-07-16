@@ -134,7 +134,7 @@ func (oscr *APIOperatingSystemCreateRequest) Validate() error {
 
 	if (oscr.IpxeScript != nil || oscr.IpxeTemplateId != nil) && oscr.ImageURL != nil {
 		return validation.Errors{
-			"imageURL": errors.New("cannot be specified for iPXE based Operating Systems"),
+			"imageUrl": errors.New("cannot be specified for iPXE based Operating Systems"),
 		}
 	} else if oscr.IpxeScript == nil && oscr.IpxeTemplateId == nil && oscr.ImageURL == nil {
 		return validation.Errors{
@@ -420,7 +420,7 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 	}
 	if osur.IpxeTemplateId != nil && osur.ImageURL != nil {
 		return validation.Errors{
-			"imageURL": errors.New("cannot be specified for iPXE based Operating Systems"),
+			"imageUrl": errors.New("cannot be specified for iPXE based Operating Systems"),
 		}
 	}
 
@@ -440,7 +440,7 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 			return validation.Errors{"ipxeScript": errors.New("unable to set iPXE script for templated iPXE Operating System")}
 		}
 		if osur.ImageURL != nil {
-			return validation.Errors{"imageURL": errors.New("unable to set image URL for iPXE based Operating System")}
+			return validation.Errors{"imageUrl": errors.New("unable to set image URL for iPXE based Operating System")}
 		}
 	}
 	if existingOS.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
@@ -465,7 +465,7 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 
 	if osur.IpxeScript != nil && osur.ImageURL != nil {
 		return validation.Errors{
-			"imageURL": errors.New("cannot be specified for iPXE based Operating Systems"),
+			"imageUrl": errors.New("cannot be specified for iPXE based Operating Systems"),
 		}
 	}
 
@@ -474,7 +474,7 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 	// verify if os was not created as image-based, reject the update if imageURL provided
 	if !isImageBased && osur.ImageURL != nil {
 		return validation.Errors{
-			"imageURL": errors.New("unable to set image URL for non-image based Operating System"),
+			"imageUrl": errors.New("unable to set image URL for non-image based Operating System"),
 		}
 	} else if isImageBased && osur.IpxeScript != nil {
 		return validation.Errors{

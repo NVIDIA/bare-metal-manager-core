@@ -14,10 +14,12 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
@@ -104,13 +106,17 @@ func TestIpxeTemplateHandler_GetAll(t *testing.T) {
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
 
 	tests := []struct {
-		name           string
-		reqOrgName     string
-		user           *cdbm.User
-		siteID         *uuid.UUID
-		expectedErr    bool
-		expectedStatus int
-		expectedNames  []string
+		name               string
+		reqOrgName         string
+		user               *cdbm.User
+		siteID             *uuid.UUID
+		queryParams        url.Values
+		expectedErr        bool
+		expectedStatus     int
+		expectedNames      []string
+		expectedPageNumber int
+		expectedPageSize   int
+		expectedTotal      int
 	}{
 		{
 			name:           "error when user not in request context",
@@ -127,29 +133,38 @@ func TestIpxeTemplateHandler_GetAll(t *testing.T) {
 			expectedStatus: http.StatusForbidden,
 		},
 		{
-			name:           "provider admin sees templates available at owned sites",
-			reqOrgName:     f.ipOrg,
-			user:           f.provUser,
-			expectedErr:    false,
-			expectedStatus: http.StatusOK,
-			expectedNames:  []string{f.availTmpl.Name},
+			name:               "provider admin sees templates available at owned sites",
+			reqOrgName:         f.ipOrg,
+			user:               f.provUser,
+			expectedErr:        false,
+			expectedStatus:     http.StatusOK,
+			expectedNames:      []string{f.availTmpl.Name},
+			expectedPageNumber: 1,
+			expectedPageSize:   cdbp.DefaultLimit,
+			expectedTotal:      1,
 		},
 		{
-			name:           "tenant admin sees templates available at accessible sites",
-			reqOrgName:     f.tnOrg,
-			user:           f.tnUser,
-			expectedErr:    false,
-			expectedStatus: http.StatusOK,
-			expectedNames:  []string{f.availTmpl.Name},
+			name:               "tenant admin sees templates available at accessible sites",
+			reqOrgName:         f.tnOrg,
+			user:               f.tnUser,
+			expectedErr:        false,
+			expectedStatus:     http.StatusOK,
+			expectedNames:      []string{f.availTmpl.Name},
+			expectedPageNumber: 1,
+			expectedPageSize:   cdbp.DefaultLimit,
+			expectedTotal:      1,
 		},
 		{
-			name:           "provider admin with explicit authorized siteId",
-			reqOrgName:     f.ipOrg,
-			user:           f.provUser,
-			siteID:         &f.site.ID,
-			expectedErr:    false,
-			expectedStatus: http.StatusOK,
-			expectedNames:  []string{f.availTmpl.Name},
+			name:               "provider admin with explicit authorized siteId",
+			reqOrgName:         f.ipOrg,
+			user:               f.provUser,
+			siteID:             &f.site.ID,
+			expectedErr:        false,
+			expectedStatus:     http.StatusOK,
+			expectedNames:      []string{f.availTmpl.Name},
+			expectedPageNumber: 1,
+			expectedPageSize:   cdbp.DefaultLimit,
+			expectedTotal:      1,
 		},
 		{
 			name:           "provider admin with unauthorized siteId is forbidden",
@@ -158,6 +173,22 @@ func TestIpxeTemplateHandler_GetAll(t *testing.T) {
 			siteID:         cutilPtrUUID(uuid.New()),
 			expectedErr:    true,
 			expectedStatus: http.StatusForbidden,
+		},
+		{
+			name:           "error when siteId is empty",
+			reqOrgName:     f.ipOrg,
+			user:           f.provUser,
+			queryParams:    url.Values{"siteId": {""}},
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "error when unknown query parameter is specified",
+			reqOrgName:     f.ipOrg,
+			user:           f.provUser,
+			queryParams:    url.Values{"foo": {"bar"}},
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "provider org without any site returns forbidden",
@@ -172,7 +203,9 @@ func TestIpxeTemplateHandler_GetAll(t *testing.T) {
 		t.Run(tc2.name, func(t *testing.T) {
 			e := echo.New()
 			q := url.Values{}
-			if tc2.siteID != nil {
+			if tc2.queryParams != nil {
+				q = tc2.queryParams
+			} else if tc2.siteID != nil {
 				q.Add("siteId", tc2.siteID.String())
 			}
 			path := fmt.Sprintf("/v2/org/%s/nico/ipxe-template?%s", tc2.reqOrgName, q.Encode())
@@ -208,6 +241,15 @@ func TestIpxeTemplateHandler_GetAll(t *testing.T) {
 				}
 				// The orphan template must never be returned.
 				assert.False(t, gotNames[f.orphanTmpl.Name], "orphan template must not be visible")
+
+				paginationHeader := rec.Header().Get(pagination.ResponseHeaderName)
+				assert.NotEmpty(t, paginationHeader)
+				var pageResp pagination.PageResponse
+				err = json.Unmarshal([]byte(paginationHeader), &pageResp)
+				require.NoError(t, err)
+				assert.Equal(t, tc2.expectedPageNumber, pageResp.PageNumber)
+				assert.Equal(t, tc2.expectedPageSize, pageResp.PageSize)
+				assert.Equal(t, tc2.expectedTotal, pageResp.Total)
 			}
 		})
 	}
