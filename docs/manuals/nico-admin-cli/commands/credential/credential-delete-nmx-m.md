@@ -13,12 +13,14 @@ nico-admin-cli-credential-delete-nmx-m - Delete NmxM credentials
 
 ## DESCRIPTION
 
-Delete NmxM credentials
+Deprecated compatibility command. NMX-M is no longer supported. This
+command always returns an error and does not modify credentials. Use
+NMX-C for NVLink partition management.
 
 ## OPTIONS
 
 **--username** *\<USERNAME\>*  
-NmxM url
+Legacy NMX-M credential username
 
 **--extended**  
 Extended result output.

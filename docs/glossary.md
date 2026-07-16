@@ -185,9 +185,9 @@ NICo coordinates tenant isolation across four network fabrics, each with its own
 | Ethernet north-south | VXLAN with EVPN for VPC creation | DPU through HBN |
 | East-west Ethernet | ConnectX-based firmware paths where configured | Outside the current DPU HBN path |
 | InfiniBand | Partition key assignment | UFM |
-| NVLink | Partition management | NMX-M |
+| NVLink | Partition management | NMX-C |
 
-DPUs enforce Ethernet isolation in hardware, UFM enforces InfiniBand isolation, and NMX-M enforces NVLink isolation, all coordinated by NICo.
+DPUs enforce Ethernet isolation in hardware, UFM enforces InfiniBand isolation, and NMX-C enforces NVLink isolation, all coordinated by NICo.
 
 ### VRF
 
@@ -213,7 +213,7 @@ InfiniBand partition key. P_Keys are the isolation mechanism used by UFM for Inf
 
 ### NVLink
 
-The high-speed GPU-to-GPU fabric managed outside NICo Core by NMX-M. NICo coordinates with NVLink management so GPU partitioning aligns with tenant isolation.
+The high-speed GPU-to-GPU fabric managed outside NICo Core by NMX-C. NICo coordinates with NMX-C so GPU partitioning aligns with tenant isolation.
 
 ### FMDS
 
@@ -370,7 +370,7 @@ NICo Core is site-local and continues to manage hardware independently of the RE
 | LLDP | Link Layer Discovery Protocol | Neighbor discovery protocol used for network topology visibility |
 | NCP | NVIDIA Cloud Partner | Infrastructure partner operating NICo-managed environments |
 | NICo | NVIDIA Infra Controller | This platform, also known historically as NICo, NICo, and BMM |
-| NMX-M | NVLink Management | NVLink partition management for GPU-to-GPU isolation |
+| NMX-C | NMX Controller | NVLink partition management for GPU-to-GPU isolation |
 | OOB | Out of Band | Management network path independent from the Host OS |
 | P_Key | Partition Key | InfiniBand isolation identifier assigned by UFM |
 | protobuf | Protocol Buffers | Interface definition and serialization format for Core APIs |
