@@ -17,8 +17,10 @@ var (
 	// errMsgTenantUpdateEndpointDeprecated is the error message to indicate that update endpoint is deprecated
 	ErrMsgTenantUpdateEndpointDeprecated = "PATCH '/org/:orgName/nico/tenant/current' endpoint has been deprecated"
 
-	// Time when Tenant.capabilities.targetedInstanceCreation will be deprecated
-	tenantTargetedInstanceCreationDeprecationTime, _ = time.Parse(time.RFC1123, "Thu, 09 Jul 2026 00:00:00 UTC")
+	// Time when Tenant.capabilities.targetedInstanceCreation will be removed. The
+	// field is still returned in responses, so the deprecation notice is retained
+	// with a future TakeActionBy deadline rather than being dropped.
+	tenantTargetedInstanceCreationDeprecationTime, _ = time.Parse(time.RFC1123, "Wed, 30 Sep 2026 00:00:00 UTC")
 
 	tenantCapabilityDeprecations = []DeprecatedEntity{
 		{

@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -102,6 +103,54 @@ func TestAPITenantAccountUpdateRequest_Validate(t *testing.T) {
 			assert.Equal(t, tc.expectErr, err != nil)
 			if err != nil {
 				assert.Equal(t, tc.errStr, err.Error())
+			}
+		})
+	}
+}
+
+// TestAPITenantAccountUpdateRequest_SiteCapabilitiesPresence verifies binding
+// distinguishes an omitted or JSON-null siteCapabilities payload (absent) from a
+// supplied-but-empty array (present), and that a supplied empty array fails
+// validation so the handler can reject it with HTTP 400.
+func TestAPITenantAccountUpdateRequest_SiteCapabilitiesPresence(t *testing.T) {
+	tests := []struct {
+		desc          string
+		body          string
+		wantPresent   bool
+		wantCapsError bool
+	}{
+		{
+			desc:        "omitted payload is absent",
+			body:        `{}`,
+			wantPresent: false,
+		},
+		{
+			desc:        "explicit null payload is absent",
+			body:        `{"siteCapabilities": null}`,
+			wantPresent: false,
+		},
+		{
+			desc:          "empty array payload is present but invalid",
+			body:          `{"siteCapabilities": []}`,
+			wantPresent:   true,
+			wantCapsError: true,
+		},
+		{
+			desc:          "populated payload is present and valid",
+			body:          `{"siteCapabilities": [{"scope": "global", "targetedInstanceCreation": true}]}`,
+			wantPresent:   true,
+			wantCapsError: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			var req APITenantAccountUpdateRequest
+			err := json.Unmarshal([]byte(tc.body), &req)
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantPresent, req.HasSiteCapabilities())
+			if req.HasSiteCapabilities() {
+				capsErr := req.SiteCapabilities.Validate()
+				assert.Equal(t, tc.wantCapsError, capsErr != nil)
 			}
 		})
 	}

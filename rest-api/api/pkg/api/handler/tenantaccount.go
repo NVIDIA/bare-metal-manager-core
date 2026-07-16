@@ -834,7 +834,21 @@ func (utah UpdateTenantAccountHandler) handleTenantInviteAcceptance(c echo.Conte
 		allocationCount = cnt
 	}
 
-	apiInstance := model.NewAPITenantAccount(uta, ssds, allocationCount, nil)
+	// Load TenantSite overrides so the response reflects any pre-acceptance
+	// per-site capability configuration, matching the provider-side update flow.
+	var tenantSites []cdbm.TenantSite
+	if uta.TenantID != nil {
+		tsDAO := cdbm.NewTenantSiteDAO(utah.dbSession)
+		tenantSites, _, err = tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
+			TenantIDs: []uuid.UUID{*uta.TenantID},
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{"Site"})
+		if err != nil {
+			logger.Error().Err(err).Msg("error retrieving Tenant Sites for updated Tenant Account")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites for Tenant Account", nil)
+		}
+	}
+
+	apiInstance := model.NewAPITenantAccount(uta, ssds, allocationCount, tenantSites)
 
 	logger.Info().Msg("finishing API handler")
 
@@ -886,7 +900,7 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 			return cutil.NewAPIError(http.StatusBadRequest, "Tenant Account does not have an associated Tenant", nil)
 		}
 
-		globalVal := model.GlobalTargetedInstanceCreationFromRequest(apiRequest.SiteCapabilities)
+		globalVal := model.GlobalTargetedInstanceCreationFromRequest(*apiRequest.SiteCapabilities)
 		if globalVal == nil {
 			return cutil.NewAPIError(http.StatusBadRequest, "siteCapabilities must include exactly one global entry", nil)
 		}
@@ -906,7 +920,7 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 		limitedUpdates := map[uuid.UUID]bool{}
 		limitedSiteIDs := map[uuid.UUID]struct{}{}
 
-		for _, cap := range apiRequest.SiteCapabilities {
+		for _, cap := range *apiRequest.SiteCapabilities {
 			if cap.Scope != model.TenantAccountSiteCapabilityScopeLimited {
 				continue
 			}

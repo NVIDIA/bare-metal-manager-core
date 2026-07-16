@@ -1613,27 +1613,12 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 	}
 
 	// Coarse ceiling, optionally narrowed to a single Provider. A nil scope or
-	// a scope with neither field set is the provider-agnostic ceiling.
+	// a scope with neither field set is the provider-agnostic ceiling. The
+	// privileged-Site resolution below performs its own Ready TenantAccount
+	// lookup, so no separate account query is needed here.
 	var providerFilter *uuid.UUID
 	if scope != nil {
 		providerFilter = scope.InfrastructureProviderID
-	}
-
-	taFilter := cdbm.TenantAccountFilterInput{
-		TenantIDs: []uuid.UUID{tenant.ID},
-		Statuses:  []string{cdbm.TenantAccountStatusReady},
-	}
-	if providerFilter != nil {
-		taFilter.InfrastructureProviderID = providerFilter
-	}
-
-	taDAO := cdbm.NewTenantAccountDAO(dbSession)
-	tas, _, err := taDAO.GetAll(ctx, tx, taFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-	if err != nil {
-		return false, err
-	}
-	if len(tas) == 0 {
-		return false, nil
 	}
 
 	privilegedSiteIDs, err := getPrivilegedAccessSiteIDsForTenant(ctx, tx, dbSession, tenant, providerFilter)

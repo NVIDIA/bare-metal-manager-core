@@ -69,8 +69,10 @@ func (tacr APITenantAccountCreateRequest) Validate() error {
 type APITenantAccountUpdateRequest struct {
 	// TenantContactID is the ID of the requesting user
 	TenantContactID *string `json:"tenantContactId"`
-	// SiteCapabilities replaces the provider-scoped capability configuration for the TenantAccount
-	SiteCapabilities APITenantAccountSiteCapabilitiesUpdateRequest `json:"siteCapabilities"`
+	// SiteCapabilities replaces the provider-scoped capability configuration for the
+	// TenantAccount. It is a pointer so an omitted payload (nil) is distinguishable
+	// from a supplied-but-empty payload (non-nil, zero length), which is rejected.
+	SiteCapabilities *APITenantAccountSiteCapabilitiesUpdateRequest `json:"siteCapabilities"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -81,9 +83,11 @@ func (taur APITenantAccountUpdateRequest) Validate() error {
 	)
 }
 
-// HasSiteCapabilities reports whether the request includes a siteCapabilities replace payload.
+// HasSiteCapabilities reports whether the request supplied a siteCapabilities replace
+// payload at all. A supplied payload (including an explicit empty array) is considered
+// present; only an omitted or JSON-null field is treated as absent.
 func (taur APITenantAccountUpdateRequest) HasSiteCapabilities() bool {
-	return len(taur.SiteCapabilities) > 0
+	return taur.SiteCapabilities != nil
 }
 
 // APITenantAccount is the data structure to capture API representation of a TenantAccount

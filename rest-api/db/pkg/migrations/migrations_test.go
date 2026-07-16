@@ -939,4 +939,28 @@ func Test_tenantConfigUpMigration(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{}, configByID[tenant1.ID])
 	assert.Equal(t, map[string]interface{}{}, configByID[tenant2.ID])
 	assert.Equal(t, existingConfig, configByID[tenant3.ID])
+
+	// The migration also establishes the column's schema contract: it sets the
+	// '{}'::jsonb default and a NOT NULL constraint. Exercise both behaviors so a
+	// regression that drops either is caught.
+
+	// A new row that omits config must receive the '{}'::jsonb default.
+	defaultTenant := model.TestBuildTenant(t, dbSession, "test-tenant-default", "test-tenant-org-default", ipu)
+
+	var defaultRow tenantConfigRow
+	err = dbSession.DB.NewSelect().
+		Table("tenant").
+		Column("id", "config").
+		Where("id = ?", defaultTenant.ID).
+		Scan(ctx, &defaultRow)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]interface{}{}, defaultRow.Config)
+
+	// Explicitly writing NULL must violate the NOT NULL constraint.
+	_, err = dbSession.DB.NewUpdate().
+		Table("tenant").
+		Set("config = NULL").
+		Where("id = ?", defaultTenant.ID).
+		Exec(ctx)
+	assert.Error(t, err)
 }

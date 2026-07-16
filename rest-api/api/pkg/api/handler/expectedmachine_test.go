@@ -1757,6 +1757,7 @@ func TestDeleteExpectedMachineHandler_Handle(t *testing.T) {
 // does not grant access when global capability is enabled but the Site override is false.
 func TestExpectedMachineTenantSiteOverrideDenied(t *testing.T) {
 	dbSession := testExpectedMachineInitDB(t)
+	defer dbSession.Close()
 	ctx := context.Background()
 
 	ipOrg := "test-ip-org-override"
@@ -1861,6 +1862,7 @@ func TestExpectedMachineTenantSiteOverrideDenied(t *testing.T) {
 // capability can create, get, update, and delete Expected Machines
 func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	dbSession := testExpectedMachineInitDB(t)
+	defer dbSession.Close()
 
 	ctx := context.Background()
 	var err error
