@@ -447,9 +447,10 @@ impl DiscoveredDrive<'_> {
     }
 
     fn size_in_range(&self, min: Option<u32>, max: Option<u32>) -> bool {
-        // Unknown size cannot be shown to violate a bound.
+        // Fail safe: an unknown size can only satisfy a group that configures no
+        // size bounds. Against an explicit min/max it is treated as a mismatch.
         let Some(size) = self.size_mb else {
-            return true;
+            return min.is_none() && max.is_none();
         };
         min.is_none_or(|m| size >= m) && max.is_none_or(|m| size <= m)
     }
@@ -475,7 +476,17 @@ fn diff_storage_by_location(actual_sku: &Sku, expected_sku: &Sku, diffs: &mut Ve
     // that leftovers can be reported as unexpected.
     let mut claimed = vec![false; drives.len()];
 
-    for es in &expected_sku.components.storage {
+    // Process location-constrained groups before generic (size-only) ones. A
+    // generic group is greedy and would otherwise claim a drive that only a
+    // constrained group can match, producing a false mismatch even when a valid
+    // overall assignment exists.
+    let (constrained, generic): (Vec<_>, Vec<_>) = expected_sku
+        .components
+        .storage
+        .iter()
+        .partition(|es| !es.pci_patterns.is_empty());
+
+    for es in constrained.into_iter().chain(generic) {
         if es.pci_patterns.is_empty() {
             // No location constraint: claim up to `count` unclaimed drives that
             // fall within the size range.
@@ -741,6 +752,55 @@ mod tests {
             bad.iter().any(|d| d.contains("matching the size range")),
             "got {bad:?}"
         );
+    }
+
+    #[test]
+    fn v5_generic_group_does_not_starve_constrained_group() {
+        // A generic (size-only) group is listed before a location-constrained
+        // group and both match PATH_A by size. If groups were processed in list
+        // order the generic group would greedily claim PATH_A, leaving the
+        // constrained group unable to match its required location. Constrained
+        // groups must be resolved first so a valid overall assignment is found.
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)],
+            vec![
+                expected(1, Some(3_800_000), Some(4_000_000), &[]),
+                expected(1, Some(3_800_000), Some(4_000_000), &[r"0000:04:00\.0"]),
+            ],
+        );
+        assert!(diffs.is_empty(), "expected no diffs, got {diffs:?}");
+    }
+
+    #[test]
+    fn v5_unknown_size_fails_explicit_bounds() {
+        // A discovered drive whose capacity could not be read (min_size_mb None)
+        // must not silently satisfy a group that configures a size range.
+        let mut unknown = drive(PATH_A, 0);
+        unknown.min_size_mb = None;
+        unknown.max_size_mb = None;
+
+        let diffs = v5_storage_diffs(
+            vec![unknown.clone()],
+            vec![expected(
+                1,
+                Some(3_800_000),
+                Some(4_000_000),
+                &[r"0000:04:00\.0"],
+            )],
+        );
+        assert!(
+            diffs
+                .iter()
+                .any(|d| d.contains("outside expected size range")),
+            "got {diffs:?}"
+        );
+
+        // With no bounds configured, unknown size is accepted.
+        let ok = v5_storage_diffs(
+            vec![unknown],
+            vec![expected(1, None, None, &[r"0000:04:00\.0"])],
+        );
+        assert!(ok.is_empty(), "expected no diffs, got {ok:?}");
     }
 
     #[test]
