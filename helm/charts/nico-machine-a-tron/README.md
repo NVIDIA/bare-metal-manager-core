@@ -5,6 +5,7 @@ Helm chart for deploying Machine-A-Tron - a mock machine simulator for NICo test
 ## Overview
 
 Machine-A-Tron creates simulated bare-metal machines that behave like real hosts, allowing you to:
+
 - Test NICo without physical hardware
 - Simulate multiple hosts, DPUs, switches and power shelves
 - Perform load testing at scale (multiple pods, thousands of BMCs)
@@ -13,7 +14,7 @@ Machine-A-Tron creates simulated bare-metal machines that behave like real hosts
 ## Deployment Modes
 
 | Mode | Use Case | Real HW Compatible | Network Setup |
-|------|----------|-------------------|---------------|
+|------|----------|--------------------|---------------|
 | **Override Mode** | Development | No | Simple - single endpoint |
 | **ClusterIP Mode** | Scale testing | Yes | Per-BMC ClusterIP services |
 
@@ -37,7 +38,7 @@ helm upgrade --install nico ./helm \
 ```
 
 **NICo Site Config:**
-```toml
+
 [site_explorer]
 override_target_host = "nico-machine-a-tron-bmc-mock"
 override_target_port = 1266
@@ -213,7 +214,7 @@ create_machines = true
 ```
 
 **Network config per pod:**
-```toml
+
 [networks.pod-0-oob]
 type = "underlay"
 prefix = "10.100.0.0/22"
@@ -283,6 +284,7 @@ kubectl get servicecidr -o wide
 ```
 
 Causes:
+
 - CIDR outside cluster's default service CIDR
 - Kubernetes version < 1.29
 
@@ -293,13 +295,14 @@ kubectl -n nico-mat describe svc nico-machine-a-tron-bmc-10-100-0-2
 ```
 
 Causes:
+
 - IP already in use
 - ServiceCIDR not ready
 
 ### Pod Not Receiving Traffic
 
 Verify selector labels match:
-```bash
+
 # Check service selector
 kubectl -n nico-mat get svc nico-machine-a-tron-bmc-10-100-0-2 -o jsonpath='{.spec.selector}'
 

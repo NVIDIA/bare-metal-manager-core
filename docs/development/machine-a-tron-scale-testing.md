@@ -31,14 +31,14 @@
    nico-core site-config changes, DHCP pool sizing with auto-fit, DB safety
    checks, helm deploy, and a verification loop that actively shepherds the
    ingestion pipeline (details below on why that is necessary).
-2. **`helm-prereqs/cleanup-machine-a-tron.sh`** — the full inverse, so
+1. **`helm-prereqs/cleanup-machine-a-tron.sh`** — the full inverse, so
    from-scratch runs are reproducible (this caught several
    "works-second-time-only" bugs).
-3. **`MAT_MODE=scale`** — a scale profile
+1. **`MAT_MODE=scale`** — a scale profile
    (`helm-prereqs/values/machine-a-tron-scale.yaml`) using a **proxy-direct**
    transport architecture (see next section), simulated network segments
    sized for 13.5k endpoints, and raised site-explorer throughput knobs.
-4. A one-line RBAC fix in nico-api (`Machineatron` was missing the
+1. A one-line RBAC fix in nico-api (`Machineatron` was missing the
    `AddExpectedMachine` grant) plus chart fixes to the nginx/MetalLB mode.
 
 ## The architecture decision: proxy-direct
@@ -72,7 +72,7 @@ in the scripts/charts with explanatory comments.
 ### Baseline (override-mode) end-to-end
 
 | # | Issue | Root cause | Fix |
-|---|---|---|---|
+|---|-------|------------|-----|
 | 1 | Every nico-api call fails `client error (Connect)` after a site reprovision | machine-a-tron trusts the old CA (stale `nico-roots` copy) and presents a cert signed by it | Script refreshes `nico-roots` + Vault secrets from nico-system and deletes the client-cert secret so cert-manager reissues from the current CA |
 | 2 | Redfish redirect silently ignored | Docs said `override_target_host` — never a valid field; the real field is `bmc_proxy = "host:port"`, and it must be the **cross-namespace FQDN** (site-explorer runs in nico-system; a bare service name doesn't resolve) | Script sets `bmc_proxy` correctly; docs fixed |
 | 3 | site-explorer aborts every run: `MissingCredentials` | `machines/bmc/site/root` isn't in default kvSeeds; the seeded UEFI creds ship with **empty** passwords which fail validation | Script seeds the full chain |
@@ -85,7 +85,7 @@ in the scripts/charts with explanatory comments.
 ### Scale mode (100 hosts × 2 DPUs and up)
 
 | # | Issue | Root cause | Fix |
-|---|---|---|---|
+|---|-------|------------|-----|
 | 9 | helm deploy aborts: hundreds of `connection reset by peer` | helm's default burst (100 concurrent API calls) overwhelms SOCKS/ssh tunnels when creating hundreds of Services | `--qps 15 --burst-limit 30` (env-overridable) |
 | 10 | nginx bmc-proxy CrashLoopBackOff: `host not found in upstream` | Chart template pointed the upstream at the bare chart name, which is not a Service | Point at the `-bmc-mock` Service (chart fix) |
 | 11 | Nothing listens on the mock port; probes kill the pod | `use_single_bmc_mock=false` makes each mock bind its **real BMC IP** on the pod netns (bare-metal mode). `true` is the shared-registry mode K8s needs | `useSingleBmcMock: true` |
@@ -109,7 +109,7 @@ the "operator". Mocks have no lockout threshold, so this is safe here.
 ## Where we are today
 
 | Stage | Scale | Result |
-|---|---|---|
+|-------|-------|--------|
 | Baseline | 1 host × 1 DPU (override mode) | ✅ end-to-end: machines created, full credential rotation exercised |
 | Stage 1 | 100 hosts × 2 DPUs = 300 BMCs (proxy-direct) | ✅ 300/300 endpoints stable, machines created and advancing through `hostinit`/`dpuinit` |
 | Stage 2 | 1000 hosts × 2 DPUs = 3000 BMCs | ✅ **END TO END OK — 3000/3000 machines** in a single unattended script run (~25 min total; creation ≈ 240 machines/min) |
@@ -137,7 +137,7 @@ Stage-3 observations worth reviewers' attention:
 Additional issue found at stage 3:
 
 | # | Issue | Root cause | Fix |
-|---|---|---|---|
+|---|-------|------------|-----|
 | 19 | Stage-2→3 cleanup ran for over an hour "deleting credentials" | One `kubectl exec` per per-MAC Vault deletion × thousands of entries | Batch the deletion loop server-side on the vault pod — one exec total (both cleanup and setup self-heal) |
 
 ## Open questions — feedback wanted
