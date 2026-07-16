@@ -149,7 +149,7 @@ jobs:
     uses: ./.github/workflows/rest-helm-workflows.yml
     with:
       ngc_path: ${{ needs.prepare.outputs.target_ngc_path }}
-      app_version: ${{ needs.prepare.outputs.semantic_version }}
+      app_version: ${{ needs.prepare.outputs.is_main_branch == 'true' && needs.prepare.outputs.semantic_version || needs.prepare.outputs.release_tag || needs.prepare.outputs.branch_sha_tag }}
       chart_version: ${{ needs.prepare.outputs.helm_version }}
     secrets:
       NVCR_STG_TOKEN: ${{ secrets.NVCR_TOKEN }}

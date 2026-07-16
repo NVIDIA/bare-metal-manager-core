@@ -25,5 +25,5 @@ app.kubernetes.io/component: site-agent
 {{- end }}
 
 {{- define "nico-rest-site-agent.image" -}}
-{{ .Values.global.image.repository }}/{{ .Values.image.name }}:{{ .Values.global.image.tag }}
+{{ .Values.global.image.repository }}/{{ .Values.image.name }}:{{ .Values.global.image.tag | default .Chart.AppVersion }}
 {{- end }}

@@ -25,7 +25,7 @@ deployments, the main nico image contains all binaries, so we can use that.
 {{- if not (eq (toString (.Values.image.repository | default "")) "") }}
 {{- .Values.image.repository }}:{{ .Values.image.tag | default "latest" }}
 {{- else }}
-{{- .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+{{- .Values.global.image.repository }}:{{ .Values.global.image.tag | default .Chart.AppVersion }}
 {{- end }}
 {{- end }}
 

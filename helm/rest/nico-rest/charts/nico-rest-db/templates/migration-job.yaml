@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-{{- $tag := .Values.global.image.tag | default "latest" | replace "." "-" | replace "+" "-" }}
+{{- $tag := .Values.global.image.tag | default .Chart.AppVersion | replace "." "-" | replace "+" "-" }}
 apiVersion: batch/v1
 kind: Job
 metadata:

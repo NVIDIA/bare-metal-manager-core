@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 global:
+  # The repository is intentionally user-supplied. An empty tag falls back to
+  # the release-stamped appVersion of each NICo-owned runtime subchart.
   image:
     repository: ""
     tag: ""

@@ -42,7 +42,7 @@ app.kubernetes.io/component: pxe
 Global image reference
 */}}
 {{- define "nico-pxe.image" -}}
-{{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+{{ .Values.global.image.repository }}:{{ .Values.global.image.tag | default .Chart.AppVersion }}
 {{- end }}
 
 {{/*

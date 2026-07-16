@@ -25,5 +25,5 @@ app.kubernetes.io/component: site-manager
 {{- end }}
 
 {{- define "nico-rest-site-manager.image" -}}
-{{ .Values.global.image.repository }}/{{ .Values.image.name }}:{{ .Values.global.image.tag }}
+{{ .Values.global.image.repository }}/{{ .Values.image.name }}:{{ .Values.global.image.tag | default .Chart.AppVersion }}
 {{- end }}

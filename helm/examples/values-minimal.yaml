@@ -2,17 +2,19 @@
 ## Minimal Values — NICo Bare Metal Manager
 ## =============================================================================
 ## This is the minimum configuration required to deploy NICo.
-## You MUST set global.image.repository and global.image.tag.
+## You MUST set global.image.repository. Published release charts can use their
+## stamped appVersion when tag is empty; set tag explicitly for source checkouts
+## or to override the packaged release version.
 ## See PREREQUISITES.md for required Secrets, ConfigMaps, and operators.
 ##
 ## Install with: helm install nico ./helm -n nico-system --create-namespace -f values-minimal.yaml
 ## =============================================================================
 
 global:
-  ## REQUIRED: Set your container image repository and tag
+  ## REQUIRED: Set your container image repository
   image:
     repository: ""   # e.g. your-registry.example.com/nico-core
-    tag: ""          # e.g. v2025.12.30
+    tag: ""          # optional override, e.g. v2025.12.30
 
 ## ---------------------------------------------------------------------------
 ## All core services enabled by default — disable any you don't need

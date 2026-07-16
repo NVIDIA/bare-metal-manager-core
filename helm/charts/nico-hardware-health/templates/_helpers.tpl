@@ -42,7 +42,7 @@ app.kubernetes.io/component: hardware-health
 Global image reference
 */}}
 {{- define "nico-hardware-health.image" -}}
-{{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}
+{{ .Values.global.image.repository }}:{{ .Values.global.image.tag | default .Chart.AppVersion }}
 {{- end }}
 
 {{/*

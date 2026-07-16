@@ -2,6 +2,12 @@
 
 Helm charts for deploying the NICo REST API platform services.
 
+Published release charts stamp their runtime image tag into `appVersion`.
+`global.image.repository` remains required, while an empty
+`global.image.tag` falls back to that packaged version. The examples below set
+the tag explicitly so they also work when installing directly from a source
+checkout.
+
 ## Charts
 
 | Chart | Path | Description |

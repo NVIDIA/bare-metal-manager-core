@@ -18,7 +18,7 @@ app.kubernetes.io/name: nico-rest-workflow
 {{- end }}
 
 {{- define "nico-rest-workflow.image" -}}
-{{ .Values.global.image.repository }}/{{ .Values.image.name }}:{{ .Values.global.image.tag }}
+{{ .Values.global.image.repository }}/{{ .Values.image.name }}:{{ .Values.global.image.tag | default .Chart.AppVersion }}
 {{- end }}
 
 {{- define "nico-rest-workflow.dbCredsVolumeMount" -}}

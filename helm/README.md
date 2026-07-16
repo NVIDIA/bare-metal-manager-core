@@ -61,7 +61,7 @@ Top-level `global:` values are automatically passed to all subcharts.
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `global.image.repository` | Container image repository (**REQUIRED**) | `""` |
-| `global.image.tag` | Container image tag (**REQUIRED**) | `""` |
+| `global.image.tag` | Optional image tag override; an empty value uses each owned runtime subchart's packaged `appVersion` | `""` |
 | `global.image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `global.imagePullSecrets` | Image pull secrets | `[]` |
 | `global.certificate.duration` | Certificate validity period | `720h0m0s` |
@@ -146,7 +146,7 @@ unbound:
 
 ### Image Configuration
 
-The `global.image.repository` and `global.image.tag` values **must** be set -- they default to empty strings. Most subcharts use the global image reference. The following subcharts use their own separate image references and do **not** inherit `global.image`:
+`global.image.repository` **must** be set because the chart intentionally has no registry-specific default. `global.image.tag` is optional for published release packages: an empty value uses each NICo-owned runtime subchart's packaged `appVersion`. Set the tag explicitly when installing from a source checkout or when overriding the release version. The independently released `nico-flow` images must also be pinned explicitly when Flow is enabled. The following subcharts use separate image references and do **not** inherit the core image fallback:
 
 | Subchart | Image Parameter | Default |
 |----------|----------------|---------|
