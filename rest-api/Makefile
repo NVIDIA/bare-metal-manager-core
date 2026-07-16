@@ -268,20 +268,20 @@ core-proto:
 
 core-proto-clean:
 	@echo "Cleaning up Core proto and protobuf files"
-	rm -rf workflow-schema/site-agent/workflows/v1/*_nico.proto
-	rm -rf workflow-schema/schema/site-agent/workflows/v1/*.pb.go
+	rm -rf proto/core/src/v1/*_nico.proto
+	rm -rf proto/core/gen/v1/*.pb.go
 
 core-proto-fetch:
 	@for file in ../crates/rpc/proto/*.proto; do \
-		cp "$$file" "workflow-schema/site-agent/workflows/v1/$$(basename "$$file" .proto)_nico.proto"; \
+		cp "$$file" "proto/core/src/v1/$$(basename "$$file" .proto)_nico.proto"; \
 		echo "Copied: $$file"; \
 	done
-	mv workflow-schema/site-agent/workflows/v1/forge_nico.proto workflow-schema/site-agent/workflows/v1/nico_nico.proto
+	mv proto/core/src/v1/forge_nico.proto proto/core/src/v1/nico_nico.proto
 	echo "Successfully copied Core protobuf files"
 
 core-proto-fmt:
 	@echo "Formatting Core protobuf files"
-	cd workflow-schema/cmd/core-proto-fmt && go run main.go
+	cd proto/cmd/core-proto-fmt && go run main.go
 
 core-protogen:
 	if ! command -v buf >/dev/null 2>&1; then \
@@ -305,8 +305,9 @@ core-protogen:
 		exit 1; \
 	fi
 	echo "Generating protobuf for Core"
-	cd workflow-schema && buf generate
+	cd proto/core && buf generate
 	go fmt ./...
+	python3 scripts/check_source_headers.py --fix
 
 flow-proto:
 	FLOW_DIR=flow; \

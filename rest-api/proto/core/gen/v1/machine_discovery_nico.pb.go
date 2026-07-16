@@ -5,9 +5,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: machine_discovery.proto
+// source: machine_discovery_nico.proto
 
-package nicoapigrpc
+package core
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -57,11 +57,11 @@ func (x CpuArchitecture) String() string {
 }
 
 func (CpuArchitecture) Descriptor() protoreflect.EnumDescriptor {
-	return file_machine_discovery_proto_enumTypes[0].Descriptor()
+	return file_machine_discovery_nico_proto_enumTypes[0].Descriptor()
 }
 
 func (CpuArchitecture) Type() protoreflect.EnumType {
-	return &file_machine_discovery_proto_enumTypes[0]
+	return &file_machine_discovery_nico_proto_enumTypes[0]
 }
 
 func (x CpuArchitecture) Number() protoreflect.EnumNumber {
@@ -70,10 +70,10 @@ func (x CpuArchitecture) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use CpuArchitecture.Descriptor instead.
 func (CpuArchitecture) EnumDescriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{0}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{0}
 }
 
-// Carries information about a host that was discovered by the Forge system
+// Carries information about a host that was discovered by the NICo system
 type DiscoveryInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Enumerates discovered network interfaces on the host
@@ -109,7 +109,7 @@ type DiscoveryInfo struct {
 
 func (x *DiscoveryInfo) Reset() {
 	*x = DiscoveryInfo{}
-	mi := &file_machine_discovery_proto_msgTypes[0]
+	mi := &file_machine_discovery_nico_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -121,7 +121,7 @@ func (x *DiscoveryInfo) String() string {
 func (*DiscoveryInfo) ProtoMessage() {}
 
 func (x *DiscoveryInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[0]
+	mi := &file_machine_discovery_nico_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -134,7 +134,7 @@ func (x *DiscoveryInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoveryInfo.ProtoReflect.Descriptor instead.
 func (*DiscoveryInfo) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{0}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *DiscoveryInfo) GetNetworkInterfaces() []*NetworkInterface {
@@ -250,7 +250,7 @@ type AttestKeyInfo struct {
 
 func (x *AttestKeyInfo) Reset() {
 	*x = AttestKeyInfo{}
-	mi := &file_machine_discovery_proto_msgTypes[1]
+	mi := &file_machine_discovery_nico_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -262,7 +262,7 @@ func (x *AttestKeyInfo) String() string {
 func (*AttestKeyInfo) ProtoMessage() {}
 
 func (x *AttestKeyInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[1]
+	mi := &file_machine_discovery_nico_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -275,7 +275,7 @@ func (x *AttestKeyInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttestKeyInfo.ProtoReflect.Descriptor instead.
 func (*AttestKeyInfo) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{1}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *AttestKeyInfo) GetEKPub() []byte {
@@ -310,7 +310,7 @@ type TpmDescription struct {
 
 func (x *TpmDescription) Reset() {
 	*x = TpmDescription{}
-	mi := &file_machine_discovery_proto_msgTypes[2]
+	mi := &file_machine_discovery_nico_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -322,7 +322,7 @@ func (x *TpmDescription) String() string {
 func (*TpmDescription) ProtoMessage() {}
 
 func (x *TpmDescription) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[2]
+	mi := &file_machine_discovery_nico_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -335,7 +335,7 @@ func (x *TpmDescription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TpmDescription.ProtoReflect.Descriptor instead.
 func (*TpmDescription) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{2}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *TpmDescription) GetVendor() string {
@@ -369,7 +369,7 @@ type NetworkInterface struct {
 
 func (x *NetworkInterface) Reset() {
 	*x = NetworkInterface{}
-	mi := &file_machine_discovery_proto_msgTypes[3]
+	mi := &file_machine_discovery_nico_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -381,7 +381,7 @@ func (x *NetworkInterface) String() string {
 func (*NetworkInterface) ProtoMessage() {}
 
 func (x *NetworkInterface) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[3]
+	mi := &file_machine_discovery_nico_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -394,7 +394,7 @@ func (x *NetworkInterface) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkInterface.ProtoReflect.Descriptor instead.
 func (*NetworkInterface) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{3}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *NetworkInterface) GetMacAddress() string {
@@ -421,7 +421,7 @@ type InfinibandInterface struct {
 
 func (x *InfinibandInterface) Reset() {
 	*x = InfinibandInterface{}
-	mi := &file_machine_discovery_proto_msgTypes[4]
+	mi := &file_machine_discovery_nico_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -433,7 +433,7 @@ func (x *InfinibandInterface) String() string {
 func (*InfinibandInterface) ProtoMessage() {}
 
 func (x *InfinibandInterface) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[4]
+	mi := &file_machine_discovery_nico_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -446,7 +446,7 @@ func (x *InfinibandInterface) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InfinibandInterface.ProtoReflect.Descriptor instead.
 func (*InfinibandInterface) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{4}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *InfinibandInterface) GetPciProperties() *PciDeviceProperties {
@@ -478,7 +478,7 @@ type Cpu struct {
 
 func (x *Cpu) Reset() {
 	*x = Cpu{}
-	mi := &file_machine_discovery_proto_msgTypes[5]
+	mi := &file_machine_discovery_nico_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -490,7 +490,7 @@ func (x *Cpu) String() string {
 func (*Cpu) ProtoMessage() {}
 
 func (x *Cpu) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[5]
+	mi := &file_machine_discovery_nico_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -503,7 +503,7 @@ func (x *Cpu) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cpu.ProtoReflect.Descriptor instead.
 func (*Cpu) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{5}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Cpu) GetVendor() string {
@@ -568,7 +568,7 @@ type CpuInfo struct {
 
 func (x *CpuInfo) Reset() {
 	*x = CpuInfo{}
-	mi := &file_machine_discovery_proto_msgTypes[6]
+	mi := &file_machine_discovery_nico_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -580,7 +580,7 @@ func (x *CpuInfo) String() string {
 func (*CpuInfo) ProtoMessage() {}
 
 func (x *CpuInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[6]
+	mi := &file_machine_discovery_nico_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -593,7 +593,7 @@ func (x *CpuInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CpuInfo.ProtoReflect.Descriptor instead.
 func (*CpuInfo) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{6}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CpuInfo) GetModel() string {
@@ -643,7 +643,7 @@ type BlockDevice struct {
 
 func (x *BlockDevice) Reset() {
 	*x = BlockDevice{}
-	mi := &file_machine_discovery_proto_msgTypes[7]
+	mi := &file_machine_discovery_nico_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -655,7 +655,7 @@ func (x *BlockDevice) String() string {
 func (*BlockDevice) ProtoMessage() {}
 
 func (x *BlockDevice) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[7]
+	mi := &file_machine_discovery_nico_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -668,7 +668,7 @@ func (x *BlockDevice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockDevice.ProtoReflect.Descriptor instead.
 func (*BlockDevice) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{7}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *BlockDevice) GetModel() string {
@@ -710,7 +710,7 @@ type NvmeDevice struct {
 
 func (x *NvmeDevice) Reset() {
 	*x = NvmeDevice{}
-	mi := &file_machine_discovery_proto_msgTypes[8]
+	mi := &file_machine_discovery_nico_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -722,7 +722,7 @@ func (x *NvmeDevice) String() string {
 func (*NvmeDevice) ProtoMessage() {}
 
 func (x *NvmeDevice) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[8]
+	mi := &file_machine_discovery_nico_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -735,7 +735,7 @@ func (x *NvmeDevice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NvmeDevice.ProtoReflect.Descriptor instead.
 func (*NvmeDevice) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{8}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *NvmeDevice) GetModel() string {
@@ -776,7 +776,7 @@ type DmiData struct {
 
 func (x *DmiData) Reset() {
 	*x = DmiData{}
-	mi := &file_machine_discovery_proto_msgTypes[9]
+	mi := &file_machine_discovery_nico_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -788,7 +788,7 @@ func (x *DmiData) String() string {
 func (*DmiData) ProtoMessage() {}
 
 func (x *DmiData) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[9]
+	mi := &file_machine_discovery_nico_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -801,7 +801,7 @@ func (x *DmiData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DmiData.ProtoReflect.Descriptor instead.
 func (*DmiData) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{9}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DmiData) GetBoardName() string {
@@ -881,7 +881,7 @@ type PciDeviceProperties struct {
 
 func (x *PciDeviceProperties) Reset() {
 	*x = PciDeviceProperties{}
-	mi := &file_machine_discovery_proto_msgTypes[10]
+	mi := &file_machine_discovery_nico_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -893,7 +893,7 @@ func (x *PciDeviceProperties) String() string {
 func (*PciDeviceProperties) ProtoMessage() {}
 
 func (x *PciDeviceProperties) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[10]
+	mi := &file_machine_discovery_nico_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -906,7 +906,7 @@ func (x *PciDeviceProperties) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PciDeviceProperties.ProtoReflect.Descriptor instead.
 func (*PciDeviceProperties) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{10}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *PciDeviceProperties) GetVendor() string {
@@ -965,7 +965,7 @@ type LldpSwitchData struct {
 
 func (x *LldpSwitchData) Reset() {
 	*x = LldpSwitchData{}
-	mi := &file_machine_discovery_proto_msgTypes[11]
+	mi := &file_machine_discovery_nico_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -977,7 +977,7 @@ func (x *LldpSwitchData) String() string {
 func (*LldpSwitchData) ProtoMessage() {}
 
 func (x *LldpSwitchData) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[11]
+	mi := &file_machine_discovery_nico_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -990,7 +990,7 @@ func (x *LldpSwitchData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LldpSwitchData.ProtoReflect.Descriptor instead.
 func (*LldpSwitchData) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{11}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *LldpSwitchData) GetName() string {
@@ -1050,7 +1050,7 @@ type DpuData struct {
 
 func (x *DpuData) Reset() {
 	*x = DpuData{}
-	mi := &file_machine_discovery_proto_msgTypes[12]
+	mi := &file_machine_discovery_nico_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1062,7 +1062,7 @@ func (x *DpuData) String() string {
 func (*DpuData) ProtoMessage() {}
 
 func (x *DpuData) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[12]
+	mi := &file_machine_discovery_nico_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1075,7 +1075,7 @@ func (x *DpuData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DpuData.ProtoReflect.Descriptor instead.
 func (*DpuData) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{12}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DpuData) GetPartNumber() string {
@@ -1141,7 +1141,7 @@ type GpuPlatformInfo struct {
 
 func (x *GpuPlatformInfo) Reset() {
 	*x = GpuPlatformInfo{}
-	mi := &file_machine_discovery_proto_msgTypes[13]
+	mi := &file_machine_discovery_nico_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1153,7 +1153,7 @@ func (x *GpuPlatformInfo) String() string {
 func (*GpuPlatformInfo) ProtoMessage() {}
 
 func (x *GpuPlatformInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[13]
+	mi := &file_machine_discovery_nico_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1166,7 +1166,7 @@ func (x *GpuPlatformInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GpuPlatformInfo.ProtoReflect.Descriptor instead.
 func (*GpuPlatformInfo) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{13}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GpuPlatformInfo) GetChassisSerial() string {
@@ -1228,7 +1228,7 @@ type Gpu struct {
 
 func (x *Gpu) Reset() {
 	*x = Gpu{}
-	mi := &file_machine_discovery_proto_msgTypes[14]
+	mi := &file_machine_discovery_nico_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1240,7 +1240,7 @@ func (x *Gpu) String() string {
 func (*Gpu) ProtoMessage() {}
 
 func (x *Gpu) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[14]
+	mi := &file_machine_discovery_nico_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1253,7 +1253,7 @@ func (x *Gpu) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Gpu.ProtoReflect.Descriptor instead.
 func (*Gpu) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{14}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Gpu) GetName() string {
@@ -1329,7 +1329,7 @@ type MemoryDevice struct {
 
 func (x *MemoryDevice) Reset() {
 	*x = MemoryDevice{}
-	mi := &file_machine_discovery_proto_msgTypes[15]
+	mi := &file_machine_discovery_nico_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1341,7 +1341,7 @@ func (x *MemoryDevice) String() string {
 func (*MemoryDevice) ProtoMessage() {}
 
 func (x *MemoryDevice) ProtoReflect() protoreflect.Message {
-	mi := &file_machine_discovery_proto_msgTypes[15]
+	mi := &file_machine_discovery_nico_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1354,7 +1354,7 @@ func (x *MemoryDevice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryDevice.ProtoReflect.Descriptor instead.
 func (*MemoryDevice) Descriptor() ([]byte, []int) {
-	return file_machine_discovery_proto_rawDescGZIP(), []int{15}
+	return file_machine_discovery_nico_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *MemoryDevice) GetSizeMb() uint32 {
@@ -1371,11 +1371,11 @@ func (x *MemoryDevice) GetMemType() string {
 	return ""
 }
 
-var File_machine_discovery_proto protoreflect.FileDescriptor
+var File_machine_discovery_nico_proto protoreflect.FileDescriptor
 
-const file_machine_discovery_proto_rawDesc = "" +
+const file_machine_discovery_nico_proto_rawDesc = "" +
 	"\n" +
-	"\x17machine_discovery.proto\x12\x11machine_discovery\"\xf7\a\n" +
+	"\x1cmachine_discovery_nico.proto\x12\x11machine_discovery\"\xf7\a\n" +
 	"\rDiscoveryInfo\x12R\n" +
 	"\x12network_interfaces\x18\x01 \x03(\v2#.machine_discovery.NetworkInterfaceR\x11networkInterfaces\x12C\n" +
 	"\rblock_devices\x18\x03 \x03(\v2\x1e.machine_discovery.BlockDeviceR\fblockDevices\x12!\n" +
@@ -1507,24 +1507,23 @@ const file_machine_discovery_proto_rawDesc = "" +
 	"\aAARCH64\x10\x00\x12\n" +
 	"\n" +
 	"\x06X86_64\x10\x01\x12\v\n" +
-	"\aUNKNOWN\x10\x02B\xd5\x01\n" +
-	"\x15com.machine_discoveryB\x15MachineDiscoveryProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03MXX\xaa\x02\x10MachineDiscovery\xca\x02\x10MachineDiscovery\xe2\x02\x1cMachineDiscovery\\GPBMetadata\xea\x02\x10MachineDiscoveryb\x06proto3"
+	"\aUNKNOWN\x10\x02B8Z6github.com/NVIDIA/infra-controller/rest-api/proto/coreb\x06proto3"
 
 var (
-	file_machine_discovery_proto_rawDescOnce sync.Once
-	file_machine_discovery_proto_rawDescData []byte
+	file_machine_discovery_nico_proto_rawDescOnce sync.Once
+	file_machine_discovery_nico_proto_rawDescData []byte
 )
 
-func file_machine_discovery_proto_rawDescGZIP() []byte {
-	file_machine_discovery_proto_rawDescOnce.Do(func() {
-		file_machine_discovery_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_machine_discovery_proto_rawDesc), len(file_machine_discovery_proto_rawDesc)))
+func file_machine_discovery_nico_proto_rawDescGZIP() []byte {
+	file_machine_discovery_nico_proto_rawDescOnce.Do(func() {
+		file_machine_discovery_nico_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_machine_discovery_nico_proto_rawDesc), len(file_machine_discovery_nico_proto_rawDesc)))
 	})
-	return file_machine_discovery_proto_rawDescData
+	return file_machine_discovery_nico_proto_rawDescData
 }
 
-var file_machine_discovery_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_machine_discovery_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
-var file_machine_discovery_proto_goTypes = []any{
+var file_machine_discovery_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_machine_discovery_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_machine_discovery_nico_proto_goTypes = []any{
 	(CpuArchitecture)(0),        // 0: machine_discovery.CpuArchitecture
 	(*DiscoveryInfo)(nil),       // 1: machine_discovery.DiscoveryInfo
 	(*AttestKeyInfo)(nil),       // 2: machine_discovery.AttestKeyInfo
@@ -1543,7 +1542,7 @@ var file_machine_discovery_proto_goTypes = []any{
 	(*Gpu)(nil),                 // 15: machine_discovery.Gpu
 	(*MemoryDevice)(nil),        // 16: machine_discovery.MemoryDevice
 }
-var file_machine_discovery_proto_depIdxs = []int32{
+var file_machine_discovery_nico_proto_depIdxs = []int32{
 	4,  // 0: machine_discovery.DiscoveryInfo.network_interfaces:type_name -> machine_discovery.NetworkInterface
 	8,  // 1: machine_discovery.DiscoveryInfo.block_devices:type_name -> machine_discovery.BlockDevice
 	9,  // 2: machine_discovery.DiscoveryInfo.nvme_devices:type_name -> machine_discovery.NvmeDevice
@@ -1567,30 +1566,30 @@ var file_machine_discovery_proto_depIdxs = []int32{
 	0,  // [0:16] is the sub-list for field type_name
 }
 
-func init() { file_machine_discovery_proto_init() }
-func file_machine_discovery_proto_init() {
-	if File_machine_discovery_proto != nil {
+func init() { file_machine_discovery_nico_proto_init() }
+func file_machine_discovery_nico_proto_init() {
+	if File_machine_discovery_nico_proto != nil {
 		return
 	}
-	file_machine_discovery_proto_msgTypes[0].OneofWrappers = []any{}
-	file_machine_discovery_proto_msgTypes[10].OneofWrappers = []any{}
-	file_machine_discovery_proto_msgTypes[15].OneofWrappers = []any{}
+	file_machine_discovery_nico_proto_msgTypes[0].OneofWrappers = []any{}
+	file_machine_discovery_nico_proto_msgTypes[10].OneofWrappers = []any{}
+	file_machine_discovery_nico_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_machine_discovery_proto_rawDesc), len(file_machine_discovery_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_machine_discovery_nico_proto_rawDesc), len(file_machine_discovery_nico_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_machine_discovery_proto_goTypes,
-		DependencyIndexes: file_machine_discovery_proto_depIdxs,
-		EnumInfos:         file_machine_discovery_proto_enumTypes,
-		MessageInfos:      file_machine_discovery_proto_msgTypes,
+		GoTypes:           file_machine_discovery_nico_proto_goTypes,
+		DependencyIndexes: file_machine_discovery_nico_proto_depIdxs,
+		EnumInfos:         file_machine_discovery_nico_proto_enumTypes,
+		MessageInfos:      file_machine_discovery_nico_proto_msgTypes,
 	}.Build()
-	File_machine_discovery_proto = out.File
-	file_machine_discovery_proto_goTypes = nil
-	file_machine_discovery_proto_depIdxs = nil
+	File_machine_discovery_nico_proto = out.File
+	file_machine_discovery_nico_proto_goTypes = nil
+	file_machine_discovery_nico_proto_depIdxs = nil
 }

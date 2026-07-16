@@ -10,7 +10,7 @@ import (
 	"context"
 	"time"
 
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 // Client allow us to have both a real implemenation and a mock implementation for unit tests which can be switched transparently
@@ -164,19 +164,19 @@ type Client interface {
 	InvokeInstancePower(ctx context.Context, instanceID string, applyUpdates bool) error
 
 	// ComponentPowerControl performs power control on component targets (switches, power shelves).
-	ComponentPowerControl(ctx context.Context, req *pb.ComponentPowerControlRequest) (*pb.ComponentPowerControlResponse, error)
+	ComponentPowerControl(ctx context.Context, req *corev1.ComponentPowerControlRequest) (*corev1.ComponentPowerControlResponse, error)
 
 	// UpdateComponentFirmware queues firmware updates for component targets.
-	UpdateComponentFirmware(ctx context.Context, req *pb.UpdateComponentFirmwareRequest) (*pb.UpdateComponentFirmwareResponse, error)
+	UpdateComponentFirmware(ctx context.Context, req *corev1.UpdateComponentFirmwareRequest) (*corev1.UpdateComponentFirmwareResponse, error)
 
 	// GetComponentFirmwareStatus returns firmware update status for component targets.
-	GetComponentFirmwareStatus(ctx context.Context, req *pb.GetComponentFirmwareStatusRequest) (*pb.GetComponentFirmwareStatusResponse, error)
+	GetComponentFirmwareStatus(ctx context.Context, req *corev1.GetComponentFirmwareStatusRequest) (*corev1.GetComponentFirmwareStatusResponse, error)
 
 	// ListComponentFirmwareVersions lists available firmware versions for component targets.
-	ListComponentFirmwareVersions(ctx context.Context, req *pb.ListComponentFirmwareVersionsRequest) (*pb.ListComponentFirmwareVersionsResponse, error)
+	ListComponentFirmwareVersions(ctx context.Context, req *corev1.ListComponentFirmwareVersionsRequest) (*corev1.ListComponentFirmwareVersionsResponse, error)
 
 	// GetComponentInventory retrieves inventory (including site exploration reports) for component targets.
-	GetComponentInventory(ctx context.Context, req *pb.GetComponentInventoryRequest) (*pb.GetComponentInventoryResponse, error)
+	GetComponentInventory(ctx context.Context, req *corev1.GetComponentInventoryRequest) (*corev1.GetComponentInventoryResponse, error)
 
 	// GetAllExpectedSwitchesLinked returns expected switches linked to their
 	// explored endpoints and live Switch resources. Each entry includes the
@@ -216,11 +216,11 @@ type Client interface {
 	// GetDesiredFirmwareVersions returns a slice of desired firmware version
 	// entries configured in Core. Each entry carries vendor and model fields;
 	// iterate the slice to find matching entries.
-	GetDesiredFirmwareVersions(ctx context.Context) ([]*pb.DesiredFirmwareVersionEntry, error)
+	GetDesiredFirmwareVersions(ctx context.Context) ([]*corev1.DesiredFirmwareVersionEntry, error)
 
 	// FindExploredEndpointsByIds returns explored endpoint data (including
 	// firmware_versions) for the given BMC IP addresses.
-	FindExploredEndpointsByIds(ctx context.Context, bmcIPs []string) ([]*pb.ExploredEndpoint, error)
+	FindExploredEndpointsByIds(ctx context.Context, bmcIPs []string) ([]*corev1.ExploredEndpoint, error)
 
 	// SetMachineAutoUpdate enables or disables firmware auto-update for a machine.
 	SetMachineAutoUpdate(ctx context.Context, machineID string, enable bool) error

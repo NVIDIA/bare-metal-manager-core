@@ -5,9 +5,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: health.proto
+// source: health_nico.proto
 
-package nicoapigrpc
+package core
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -31,7 +31,7 @@ const (
 type HealthReport struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Identifies the source of the health report
-	// This could e.g. be `forge-dpu-agent`, `forge-host-validation`,
+	// This could e.g. be `nico-dpu-agent`, `nico-host-validation`,
 	// or an override (e.g. `overrides.sre-team`)
 	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	// The person or system (service) that triggered this health report.
@@ -55,7 +55,7 @@ type HealthReport struct {
 
 func (x *HealthReport) Reset() {
 	*x = HealthReport{}
-	mi := &file_health_proto_msgTypes[0]
+	mi := &file_health_nico_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67,7 +67,7 @@ func (x *HealthReport) String() string {
 func (*HealthReport) ProtoMessage() {}
 
 func (x *HealthReport) ProtoReflect() protoreflect.Message {
-	mi := &file_health_proto_msgTypes[0]
+	mi := &file_health_nico_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -80,7 +80,7 @@ func (x *HealthReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthReport.ProtoReflect.Descriptor instead.
 func (*HealthReport) Descriptor() ([]byte, []int) {
-	return file_health_proto_rawDescGZIP(), []int{0}
+	return file_health_nico_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *HealthReport) GetSource() string {
@@ -139,7 +139,7 @@ type HealthProbeAlert struct {
 	// combination are calculated individually when reports are merged.
 	Target *string `protobuf:"bytes,6,opt,name=target,proto3,oneof" json:"target,omitempty"`
 	// The first time the probe raised an alert
-	// If this field is empty while the HealthReport is sent to carbide-api
+	// If this field is empty while the HealthReport is sent to nico-core-api
 	// the behavior is as follows:
 	// - If an alert of the same `id` was reported before, the timestamp of the
 	// previous alert will be retained.
@@ -158,7 +158,7 @@ type HealthProbeAlert struct {
 
 func (x *HealthProbeAlert) Reset() {
 	*x = HealthProbeAlert{}
-	mi := &file_health_proto_msgTypes[1]
+	mi := &file_health_nico_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -170,7 +170,7 @@ func (x *HealthProbeAlert) String() string {
 func (*HealthProbeAlert) ProtoMessage() {}
 
 func (x *HealthProbeAlert) ProtoReflect() protoreflect.Message {
-	mi := &file_health_proto_msgTypes[1]
+	mi := &file_health_nico_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -183,7 +183,7 @@ func (x *HealthProbeAlert) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthProbeAlert.ProtoReflect.Descriptor instead.
 func (*HealthProbeAlert) Descriptor() ([]byte, []int) {
-	return file_health_proto_rawDescGZIP(), []int{1}
+	return file_health_nico_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *HealthProbeAlert) GetId() string {
@@ -254,7 +254,7 @@ type HealthProbeSuccess struct {
 
 func (x *HealthProbeSuccess) Reset() {
 	*x = HealthProbeSuccess{}
-	mi := &file_health_proto_msgTypes[2]
+	mi := &file_health_nico_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -266,7 +266,7 @@ func (x *HealthProbeSuccess) String() string {
 func (*HealthProbeSuccess) ProtoMessage() {}
 
 func (x *HealthProbeSuccess) ProtoReflect() protoreflect.Message {
-	mi := &file_health_proto_msgTypes[2]
+	mi := &file_health_nico_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -279,7 +279,7 @@ func (x *HealthProbeSuccess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthProbeSuccess.ProtoReflect.Descriptor instead.
 func (*HealthProbeSuccess) Descriptor() ([]byte, []int) {
-	return file_health_proto_rawDescGZIP(), []int{2}
+	return file_health_nico_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *HealthProbeSuccess) GetId() string {
@@ -296,11 +296,11 @@ func (x *HealthProbeSuccess) GetTarget() string {
 	return ""
 }
 
-var File_health_proto protoreflect.FileDescriptor
+var File_health_nico_proto protoreflect.FileDescriptor
 
-const file_health_proto_rawDesc = "" +
+const file_health_nico_proto_rawDesc = "" +
 	"\n" +
-	"\fhealth.proto\x12\x06health\x1a\x1egoogle/protobuf/duration.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9d\x02\n" +
+	"\x11health_nico.proto\x12\x06health\x1a\x1egoogle/protobuf/duration.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9d\x02\n" +
 	"\fHealthReport\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12&\n" +
 	"\ftriggered_by\x18\x05 \x01(\tH\x00R\vtriggeredBy\x88\x01\x01\x12@\n" +
@@ -323,30 +323,28 @@ const file_health_proto_rawDesc = "" +
 	"\x12HealthProbeSuccess\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\x06target\x18\x02 \x01(\tH\x00R\x06target\x88\x01\x01B\t\n" +
-	"\a_targetB\x98\x01\n" +
-	"\n" +
-	"com.healthB\vHealthProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03HXX\xaa\x02\x06Health\xca\x02\x06Health\xe2\x02\x12Health\\GPBMetadata\xea\x02\x06Healthb\x06proto3"
+	"\a_targetB8Z6github.com/NVIDIA/infra-controller/rest-api/proto/coreb\x06proto3"
 
 var (
-	file_health_proto_rawDescOnce sync.Once
-	file_health_proto_rawDescData []byte
+	file_health_nico_proto_rawDescOnce sync.Once
+	file_health_nico_proto_rawDescData []byte
 )
 
-func file_health_proto_rawDescGZIP() []byte {
-	file_health_proto_rawDescOnce.Do(func() {
-		file_health_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_health_proto_rawDesc), len(file_health_proto_rawDesc)))
+func file_health_nico_proto_rawDescGZIP() []byte {
+	file_health_nico_proto_rawDescOnce.Do(func() {
+		file_health_nico_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_health_nico_proto_rawDesc), len(file_health_nico_proto_rawDesc)))
 	})
-	return file_health_proto_rawDescData
+	return file_health_nico_proto_rawDescData
 }
 
-var file_health_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_health_proto_goTypes = []any{
+var file_health_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_health_nico_proto_goTypes = []any{
 	(*HealthReport)(nil),          // 0: health.HealthReport
 	(*HealthProbeAlert)(nil),      // 1: health.HealthProbeAlert
 	(*HealthProbeSuccess)(nil),    // 2: health.HealthProbeSuccess
 	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
 }
-var file_health_proto_depIdxs = []int32{
+var file_health_nico_proto_depIdxs = []int32{
 	3, // 0: health.HealthReport.observed_at:type_name -> google.protobuf.Timestamp
 	2, // 1: health.HealthReport.successes:type_name -> health.HealthProbeSuccess
 	1, // 2: health.HealthReport.alerts:type_name -> health.HealthProbeAlert
@@ -358,29 +356,29 @@ var file_health_proto_depIdxs = []int32{
 	0, // [0:4] is the sub-list for field type_name
 }
 
-func init() { file_health_proto_init() }
-func file_health_proto_init() {
-	if File_health_proto != nil {
+func init() { file_health_nico_proto_init() }
+func file_health_nico_proto_init() {
+	if File_health_nico_proto != nil {
 		return
 	}
-	file_health_proto_msgTypes[0].OneofWrappers = []any{}
-	file_health_proto_msgTypes[1].OneofWrappers = []any{}
-	file_health_proto_msgTypes[2].OneofWrappers = []any{}
+	file_health_nico_proto_msgTypes[0].OneofWrappers = []any{}
+	file_health_nico_proto_msgTypes[1].OneofWrappers = []any{}
+	file_health_nico_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_health_proto_rawDesc), len(file_health_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_health_nico_proto_rawDesc), len(file_health_nico_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_health_proto_goTypes,
-		DependencyIndexes: file_health_proto_depIdxs,
-		MessageInfos:      file_health_proto_msgTypes,
+		GoTypes:           file_health_nico_proto_goTypes,
+		DependencyIndexes: file_health_nico_proto_depIdxs,
+		MessageInfos:      file_health_nico_proto_msgTypes,
 	}.Build()
-	File_health_proto = out.File
-	file_health_proto_goTypes = nil
-	file_health_proto_depIdxs = nil
+	File_health_nico_proto = out.File
+	file_health_nico_proto_goTypes = nil
+	file_health_nico_proto_depIdxs = nil
 }

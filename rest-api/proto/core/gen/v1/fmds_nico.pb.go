@@ -5,9 +5,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: fmds.proto
+// source: fmds_nico.proto
 
-package nicoapigrpc
+package core
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -33,7 +33,7 @@ type UpdateConfigRequest struct {
 
 func (x *UpdateConfigRequest) Reset() {
 	*x = UpdateConfigRequest{}
-	mi := &file_fmds_proto_msgTypes[0]
+	mi := &file_fmds_nico_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +45,7 @@ func (x *UpdateConfigRequest) String() string {
 func (*UpdateConfigRequest) ProtoMessage() {}
 
 func (x *UpdateConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fmds_proto_msgTypes[0]
+	mi := &file_fmds_nico_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +58,7 @@ func (x *UpdateConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateConfigRequest.ProtoReflect.Descriptor instead.
 func (*UpdateConfigRequest) Descriptor() ([]byte, []int) {
-	return file_fmds_proto_rawDescGZIP(), []int{0}
+	return file_fmds_nico_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *UpdateConfigRequest) GetConfigUpdate() *FmdsConfigUpdate {
@@ -76,7 +76,7 @@ type UpdateConfigResponse struct {
 
 func (x *UpdateConfigResponse) Reset() {
 	*x = UpdateConfigResponse{}
-	mi := &file_fmds_proto_msgTypes[1]
+	mi := &file_fmds_nico_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -88,7 +88,7 @@ func (x *UpdateConfigResponse) String() string {
 func (*UpdateConfigResponse) ProtoMessage() {}
 
 func (x *UpdateConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_fmds_proto_msgTypes[1]
+	mi := &file_fmds_nico_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -101,11 +101,11 @@ func (x *UpdateConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateConfigResponse.ProtoReflect.Descriptor instead.
 func (*UpdateConfigResponse) Descriptor() ([]byte, []int) {
-	return file_fmds_proto_rawDescGZIP(), []int{1}
+	return file_fmds_nico_proto_rawDescGZIP(), []int{1}
 }
 
 // FmdsConfigUpdate is the config update pushed from
-// carbide-dpu-agent to the standalone FMDS service.
+// nico-dpu-agent to the standalone FMDS service.
 // This contains only the fields that FMDS serves to
 // tenants via its REST API, ensuring the data stored
 // within FMDS is targeted specifically for FMDS use.
@@ -129,7 +129,7 @@ type FmdsConfigUpdate struct {
 
 func (x *FmdsConfigUpdate) Reset() {
 	*x = FmdsConfigUpdate{}
-	mi := &file_fmds_proto_msgTypes[2]
+	mi := &file_fmds_nico_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -141,7 +141,7 @@ func (x *FmdsConfigUpdate) String() string {
 func (*FmdsConfigUpdate) ProtoMessage() {}
 
 func (x *FmdsConfigUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_fmds_proto_msgTypes[2]
+	mi := &file_fmds_nico_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -154,7 +154,7 @@ func (x *FmdsConfigUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FmdsConfigUpdate.ProtoReflect.Descriptor instead.
 func (*FmdsConfigUpdate) Descriptor() ([]byte, []int) {
-	return file_fmds_proto_rawDescGZIP(), []int{2}
+	return file_fmds_nico_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *FmdsConfigUpdate) GetAddress() string {
@@ -220,7 +220,7 @@ func (x *FmdsConfigUpdate) GetMachineIdentity() *FmdsMachineIdentityConfig {
 	return nil
 }
 
-// Mirrors carbide-dpu-agent `[machine-identity]` for standalone FMDS.
+// Mirrors nico-dpu-agent `[machine-identity]` for standalone FMDS.
 type FmdsMachineIdentityConfig struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	RequestsPerSecond  uint32                 `protobuf:"varint,1,opt,name=requests_per_second,json=requestsPerSecond,proto3" json:"requests_per_second,omitempty"`
@@ -235,7 +235,7 @@ type FmdsMachineIdentityConfig struct {
 
 func (x *FmdsMachineIdentityConfig) Reset() {
 	*x = FmdsMachineIdentityConfig{}
-	mi := &file_fmds_proto_msgTypes[3]
+	mi := &file_fmds_nico_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -247,7 +247,7 @@ func (x *FmdsMachineIdentityConfig) String() string {
 func (*FmdsMachineIdentityConfig) ProtoMessage() {}
 
 func (x *FmdsMachineIdentityConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_fmds_proto_msgTypes[3]
+	mi := &file_fmds_nico_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -260,7 +260,7 @@ func (x *FmdsMachineIdentityConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FmdsMachineIdentityConfig.ProtoReflect.Descriptor instead.
 func (*FmdsMachineIdentityConfig) Descriptor() ([]byte, []int) {
-	return file_fmds_proto_rawDescGZIP(), []int{3}
+	return file_fmds_nico_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *FmdsMachineIdentityConfig) GetRequestsPerSecond() uint32 {
@@ -315,7 +315,7 @@ type IBDevice struct {
 
 func (x *IBDevice) Reset() {
 	*x = IBDevice{}
-	mi := &file_fmds_proto_msgTypes[4]
+	mi := &file_fmds_nico_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -327,7 +327,7 @@ func (x *IBDevice) String() string {
 func (*IBDevice) ProtoMessage() {}
 
 func (x *IBDevice) ProtoReflect() protoreflect.Message {
-	mi := &file_fmds_proto_msgTypes[4]
+	mi := &file_fmds_nico_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -340,7 +340,7 @@ func (x *IBDevice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IBDevice.ProtoReflect.Descriptor instead.
 func (*IBDevice) Descriptor() ([]byte, []int) {
-	return file_fmds_proto_rawDescGZIP(), []int{4}
+	return file_fmds_nico_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *IBDevice) GetPfGuid() string {
@@ -368,7 +368,7 @@ type IBInstance struct {
 
 func (x *IBInstance) Reset() {
 	*x = IBInstance{}
-	mi := &file_fmds_proto_msgTypes[5]
+	mi := &file_fmds_nico_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -380,7 +380,7 @@ func (x *IBInstance) String() string {
 func (*IBInstance) ProtoMessage() {}
 
 func (x *IBInstance) ProtoReflect() protoreflect.Message {
-	mi := &file_fmds_proto_msgTypes[5]
+	mi := &file_fmds_nico_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -393,7 +393,7 @@ func (x *IBInstance) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IBInstance.ProtoReflect.Descriptor instead.
 func (*IBInstance) Descriptor() ([]byte, []int) {
-	return file_fmds_proto_rawDescGZIP(), []int{5}
+	return file_fmds_nico_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *IBInstance) GetIbPartitionId() string {
@@ -417,12 +417,11 @@ func (x *IBInstance) GetLid() uint32 {
 	return 0
 }
 
-var File_fmds_proto protoreflect.FileDescriptor
+var File_fmds_nico_proto protoreflect.FileDescriptor
 
-const file_fmds_proto_rawDesc = "" +
+const file_fmds_nico_proto_rawDesc = "" +
 	"\n" +
-	"\n" +
-	"fmds.proto\x12\x04fmds\x1a\fcommon.proto\"R\n" +
+	"\x0ffmds_nico.proto\x12\x04fmds\x1a\x11common_nico.proto\"R\n" +
 	"\x13UpdateConfigRequest\x12;\n" +
 	"\rconfig_update\x18\x01 \x01(\v2\x16.fmds.FmdsConfigUpdateR\fconfigUpdate\"\x16\n" +
 	"\x14UpdateConfigResponse\"\xca\x03\n" +
@@ -464,23 +463,22 @@ const file_fmds_proto_rawDesc = "" +
 	"\n" +
 	"\b_ib_guid2Z\n" +
 	"\x11FmdsConfigService\x12E\n" +
-	"\fUpdateConfig\x12\x19.fmds.UpdateConfigRequest\x1a\x1a.fmds.UpdateConfigResponseB\x8c\x01\n" +
-	"\bcom.fmdsB\tFmdsProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03FXX\xaa\x02\x04Fmds\xca\x02\x04Fmds\xe2\x02\x10Fmds\\GPBMetadata\xea\x02\x04Fmdsb\x06proto3"
+	"\fUpdateConfig\x12\x19.fmds.UpdateConfigRequest\x1a\x1a.fmds.UpdateConfigResponseB8Z6github.com/NVIDIA/infra-controller/rest-api/proto/coreb\x06proto3"
 
 var (
-	file_fmds_proto_rawDescOnce sync.Once
-	file_fmds_proto_rawDescData []byte
+	file_fmds_nico_proto_rawDescOnce sync.Once
+	file_fmds_nico_proto_rawDescData []byte
 )
 
-func file_fmds_proto_rawDescGZIP() []byte {
-	file_fmds_proto_rawDescOnce.Do(func() {
-		file_fmds_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_fmds_proto_rawDesc), len(file_fmds_proto_rawDesc)))
+func file_fmds_nico_proto_rawDescGZIP() []byte {
+	file_fmds_nico_proto_rawDescOnce.Do(func() {
+		file_fmds_nico_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_fmds_nico_proto_rawDesc), len(file_fmds_nico_proto_rawDesc)))
 	})
-	return file_fmds_proto_rawDescData
+	return file_fmds_nico_proto_rawDescData
 }
 
-var file_fmds_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
-var file_fmds_proto_goTypes = []any{
+var file_fmds_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_fmds_nico_proto_goTypes = []any{
 	(*UpdateConfigRequest)(nil),       // 0: fmds.UpdateConfigRequest
 	(*UpdateConfigResponse)(nil),      // 1: fmds.UpdateConfigResponse
 	(*FmdsConfigUpdate)(nil),          // 2: fmds.FmdsConfigUpdate
@@ -490,7 +488,7 @@ var file_fmds_proto_goTypes = []any{
 	(*InstanceId)(nil),                // 6: common.InstanceId
 	(*MachineId)(nil),                 // 7: common.MachineId
 }
-var file_fmds_proto_depIdxs = []int32{
+var file_fmds_nico_proto_depIdxs = []int32{
 	2, // 0: fmds.UpdateConfigRequest.config_update:type_name -> fmds.FmdsConfigUpdate
 	6, // 1: fmds.FmdsConfigUpdate.instance_id:type_name -> common.InstanceId
 	7, // 2: fmds.FmdsConfigUpdate.machine_id:type_name -> common.MachineId
@@ -506,30 +504,30 @@ var file_fmds_proto_depIdxs = []int32{
 	0, // [0:6] is the sub-list for field type_name
 }
 
-func init() { file_fmds_proto_init() }
-func file_fmds_proto_init() {
-	if File_fmds_proto != nil {
+func init() { file_fmds_nico_proto_init() }
+func file_fmds_nico_proto_init() {
+	if File_fmds_nico_proto != nil {
 		return
 	}
-	file_common_proto_init()
-	file_fmds_proto_msgTypes[2].OneofWrappers = []any{}
-	file_fmds_proto_msgTypes[3].OneofWrappers = []any{}
-	file_fmds_proto_msgTypes[5].OneofWrappers = []any{}
+	file_common_nico_proto_init()
+	file_fmds_nico_proto_msgTypes[2].OneofWrappers = []any{}
+	file_fmds_nico_proto_msgTypes[3].OneofWrappers = []any{}
+	file_fmds_nico_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fmds_proto_rawDesc), len(file_fmds_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fmds_nico_proto_rawDesc), len(file_fmds_nico_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_fmds_proto_goTypes,
-		DependencyIndexes: file_fmds_proto_depIdxs,
-		MessageInfos:      file_fmds_proto_msgTypes,
+		GoTypes:           file_fmds_nico_proto_goTypes,
+		DependencyIndexes: file_fmds_nico_proto_depIdxs,
+		MessageInfos:      file_fmds_nico_proto_msgTypes,
 	}.Build()
-	File_fmds_proto = out.File
-	file_fmds_proto_goTypes = nil
-	file_fmds_proto_depIdxs = nil
+	File_fmds_nico_proto = out.File
+	file_fmds_nico_proto_goTypes = nil
+	file_fmds_nico_proto_depIdxs = nil
 }

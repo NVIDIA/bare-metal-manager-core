@@ -5,7 +5,9 @@ syntax = "proto3";
 
 package machine_discovery;
 
-// Carries information about a host that was discovered by the Forge system
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
+
+// Carries information about a host that was discovered by the NICo system
 message DiscoveryInfo {
   // Enumerates discovered network interfaces on the host
   repeated NetworkInterface network_interfaces = 1;

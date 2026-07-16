@@ -5,10 +5,12 @@ syntax = "proto3";
 
 package fmds;
 
-import "common.proto";
+import "common_nico.proto";
+
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
 
 // gRPC service definition that the standalone FMDS service
-// exposes for receiving config updates from carbide-dpu-agent.
+// exposes for receiving config updates from nico-dpu-agent.
 service FmdsConfigService {
   rpc UpdateConfig(UpdateConfigRequest) returns (UpdateConfigResponse);
 }
@@ -21,7 +23,7 @@ message UpdateConfigResponse {
 }
 
 // FmdsConfigUpdate is the config update pushed from
-// carbide-dpu-agent to the standalone FMDS service.
+// nico-dpu-agent to the standalone FMDS service.
 // This contains only the fields that FMDS serves to
 // tenants via its REST API, ensuring the data stored
 // within FMDS is targeted specifically for FMDS use.
@@ -41,7 +43,7 @@ message FmdsConfigUpdate {
   optional FmdsMachineIdentityConfig machine_identity = 9;
 }
 
-// Mirrors carbide-dpu-agent `[machine-identity]` for standalone FMDS.
+// Mirrors nico-dpu-agent `[machine-identity]` for standalone FMDS.
 message FmdsMachineIdentityConfig {
   uint32 requests_per_second = 1;
   uint32 burst = 2;

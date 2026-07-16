@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/compute/common/dpureprov"
 	nicoprovider "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/providers/nico"
@@ -22,6 +21,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestDescriptor(t *testing.T) {
@@ -268,9 +268,9 @@ func TestGetFirmwareStatus_HappyPath(t *testing.T) {
 }
 
 func TestAggregateNICoStatuses(t *testing.T) {
-	mkStatus := func(compID string, state pb.FirmwareUpdateState, errMsg string) *pb.FirmwareUpdateStatus {
-		return &pb.FirmwareUpdateStatus{
-			Result: &pb.ComponentResult{
+	mkStatus := func(compID string, state corev1.FirmwareUpdateState, errMsg string) *corev1.FirmwareUpdateStatus {
+		return &corev1.FirmwareUpdateStatus{
+			Result: &corev1.ComponentResult{
 				ComponentId: compID,
 				Error:       errMsg,
 			},
@@ -279,7 +279,7 @@ func TestAggregateNICoStatuses(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		statuses      []*pb.FirmwareUpdateStatus
+		statuses      []*corev1.FirmwareUpdateStatus
 		expectedState operations.FirmwareUpdateState
 		expectedError string
 	}{
@@ -288,24 +288,24 @@ func TestAggregateNICoStatuses(t *testing.T) {
 			expectedState: operations.FirmwareUpdateStateUnknown,
 		},
 		"all completed": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("machine-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("machine-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
 			},
 			expectedState: operations.FirmwareUpdateStateCompleted,
 		},
 		"any failure marks overall failed": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_FAILED, "BIOS update failed"),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("machine-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("machine-1", corev1.FirmwareUpdateState_FW_STATE_FAILED, "BIOS update failed"),
 			},
 			expectedState: operations.FirmwareUpdateStateFailed,
 			expectedError: "BIOS update failed",
 		},
 		"still in progress": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_IN_PROGRESS, ""),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("machine-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("machine-1", corev1.FirmwareUpdateState_FW_STATE_IN_PROGRESS, ""),
 			},
 			expectedState: operations.FirmwareUpdateStateQueued,
 		},

@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
@@ -38,6 +37,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/firmwarecomponents"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -536,7 +536,7 @@ func parseTargetVersion(targetVersion string) (map[string]string, error) {
 
 // isTargetVersionInDesired checks whether a pre-parsed component version map
 // matches the component_versions of any desired firmware entry.
-func isTargetVersionInDesired(target map[string]string, entries []*pb.DesiredFirmwareVersionEntry) bool {
+func isTargetVersionInDesired(target map[string]string, entries []*corev1.DesiredFirmwareVersionEntry) bool {
 	for _, entry := range entries {
 		if versionsEqual(target, entry.GetComponentVersions()) {
 			return true
@@ -628,7 +628,7 @@ func allFirmwareUpToDate(
 	componentIDs []string,
 	actualFirmware map[string]map[string]string,
 	targetFirmware map[string]string,
-	desiredEntries []*pb.DesiredFirmwareVersionEntry,
+	desiredEntries []*corev1.DesiredFirmwareVersionEntry,
 ) bool {
 	if len(actualFirmware) == 0 {
 		return false
@@ -667,7 +667,7 @@ func firmwareVersionsMatch(desired, actual map[string]string) bool {
 
 // matchesAnyDesired returns true when the actual firmware versions satisfy
 // at least one desired firmware entry.
-func matchesAnyDesired(actual map[string]string, entries []*pb.DesiredFirmwareVersionEntry) bool {
+func matchesAnyDesired(actual map[string]string, entries []*corev1.DesiredFirmwareVersionEntry) bool {
 	for _, entry := range entries {
 		if firmwareVersionsMatch(entry.GetComponentVersions(), actual) {
 			return true
@@ -698,7 +698,7 @@ func (m *Manager) GetFirmwareStatus(ctx context.Context, target common.Target) (
 
 	actualFirmware := m.getActualFirmwareVersions(ctx, machines)
 
-	var desiredEntries []*pb.DesiredFirmwareVersionEntry
+	var desiredEntries []*corev1.DesiredFirmwareVersionEntry
 	if de, err := m.nicoClient.GetDesiredFirmwareVersions(ctx); err != nil {
 		log.Warn().Err(err).Msg("Failed to get desired firmware versions, falling back to state-based check")
 	} else {

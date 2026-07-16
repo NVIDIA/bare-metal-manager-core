@@ -5,9 +5,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: site_explorer.proto
+// source: site_explorer_nico.proto
 
-package nicoapigrpc
+package core
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -67,11 +67,11 @@ func (x MlxDeviceKind) String() string {
 }
 
 func (MlxDeviceKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_site_explorer_proto_enumTypes[0].Descriptor()
+	return file_site_explorer_nico_proto_enumTypes[0].Descriptor()
 }
 
 func (MlxDeviceKind) Type() protoreflect.EnumType {
-	return &file_site_explorer_proto_enumTypes[0]
+	return &file_site_explorer_nico_proto_enumTypes[0]
 }
 
 func (x MlxDeviceKind) Number() protoreflect.EnumNumber {
@@ -80,7 +80,7 @@ func (x MlxDeviceKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MlxDeviceKind.Descriptor instead.
 func (MlxDeviceKind) EnumDescriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{0}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{0}
 }
 
 type NicMode int32
@@ -113,11 +113,11 @@ func (x NicMode) String() string {
 }
 
 func (NicMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_site_explorer_proto_enumTypes[1].Descriptor()
+	return file_site_explorer_nico_proto_enumTypes[1].Descriptor()
 }
 
 func (NicMode) Type() protoreflect.EnumType {
-	return &file_site_explorer_proto_enumTypes[1]
+	return &file_site_explorer_nico_proto_enumTypes[1]
 }
 
 func (x NicMode) Number() protoreflect.EnumNumber {
@@ -126,9 +126,10 @@ func (x NicMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use NicMode.Descriptor instead.
 func (NicMode) EnumDescriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{1}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{1}
 }
 
+// WARNING: This enum conflicts with PowerState in nico_nico.proto and must be renamed to ComputerSystemPowerState
 type ComputerSystemPowerState int32
 
 const (
@@ -171,11 +172,11 @@ func (x ComputerSystemPowerState) String() string {
 }
 
 func (ComputerSystemPowerState) Descriptor() protoreflect.EnumDescriptor {
-	return file_site_explorer_proto_enumTypes[2].Descriptor()
+	return file_site_explorer_nico_proto_enumTypes[2].Descriptor()
 }
 
 func (ComputerSystemPowerState) Type() protoreflect.EnumType {
-	return &file_site_explorer_proto_enumTypes[2]
+	return &file_site_explorer_nico_proto_enumTypes[2]
 }
 
 func (x ComputerSystemPowerState) Number() protoreflect.EnumNumber {
@@ -184,7 +185,7 @@ func (x ComputerSystemPowerState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ComputerSystemPowerState.Descriptor instead.
 func (ComputerSystemPowerState) EnumDescriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{2}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{2}
 }
 
 // `InternalLockdownStatus` definition. Matches redfish definition
@@ -221,11 +222,11 @@ func (x InternalLockdownStatus) String() string {
 }
 
 func (InternalLockdownStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_site_explorer_proto_enumTypes[3].Descriptor()
+	return file_site_explorer_nico_proto_enumTypes[3].Descriptor()
 }
 
 func (InternalLockdownStatus) Type() protoreflect.EnumType {
-	return &file_site_explorer_proto_enumTypes[3]
+	return &file_site_explorer_nico_proto_enumTypes[3]
 }
 
 func (x InternalLockdownStatus) Number() protoreflect.EnumNumber {
@@ -234,7 +235,7 @@ func (x InternalLockdownStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InternalLockdownStatus.Descriptor instead.
 func (InternalLockdownStatus) EnumDescriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{3}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{3}
 }
 
 type OperatorErrorSchema struct {
@@ -251,7 +252,7 @@ type OperatorErrorSchema struct {
 
 func (x *OperatorErrorSchema) Reset() {
 	*x = OperatorErrorSchema{}
-	mi := &file_site_explorer_proto_msgTypes[0]
+	mi := &file_site_explorer_nico_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -263,7 +264,7 @@ func (x *OperatorErrorSchema) String() string {
 func (*OperatorErrorSchema) ProtoMessage() {}
 
 func (x *OperatorErrorSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[0]
+	mi := &file_site_explorer_nico_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -276,7 +277,7 @@ func (x *OperatorErrorSchema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperatorErrorSchema.ProtoReflect.Descriptor instead.
 func (*OperatorErrorSchema) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{0}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *OperatorErrorSchema) GetErrorCode() string {
@@ -339,7 +340,7 @@ type EndpointExplorationReport struct {
 
 func (x *EndpointExplorationReport) Reset() {
 	*x = EndpointExplorationReport{}
-	mi := &file_site_explorer_proto_msgTypes[1]
+	mi := &file_site_explorer_nico_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -351,7 +352,7 @@ func (x *EndpointExplorationReport) String() string {
 func (*EndpointExplorationReport) ProtoMessage() {}
 
 func (x *EndpointExplorationReport) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[1]
+	mi := &file_site_explorer_nico_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -364,7 +365,7 @@ func (x *EndpointExplorationReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointExplorationReport.ProtoReflect.Descriptor instead.
 func (*EndpointExplorationReport) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{1}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *EndpointExplorationReport) GetEndpointType() string {
@@ -494,7 +495,7 @@ type ExploredEndpoint struct {
 
 func (x *ExploredEndpoint) Reset() {
 	*x = ExploredEndpoint{}
-	mi := &file_site_explorer_proto_msgTypes[2]
+	mi := &file_site_explorer_nico_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -506,7 +507,7 @@ func (x *ExploredEndpoint) String() string {
 func (*ExploredEndpoint) ProtoMessage() {}
 
 func (x *ExploredEndpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[2]
+	mi := &file_site_explorer_nico_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -519,7 +520,7 @@ func (x *ExploredEndpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredEndpoint.ProtoReflect.Descriptor instead.
 func (*ExploredEndpoint) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{2}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ExploredEndpoint) GetAddress() string {
@@ -605,7 +606,7 @@ type ExploredDpu struct {
 
 func (x *ExploredDpu) Reset() {
 	*x = ExploredDpu{}
-	mi := &file_site_explorer_proto_msgTypes[3]
+	mi := &file_site_explorer_nico_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -617,7 +618,7 @@ func (x *ExploredDpu) String() string {
 func (*ExploredDpu) ProtoMessage() {}
 
 func (x *ExploredDpu) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[3]
+	mi := &file_site_explorer_nico_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -630,7 +631,7 @@ func (x *ExploredDpu) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredDpu.ProtoReflect.Descriptor instead.
 func (*ExploredDpu) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{3}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ExploredDpu) GetBmcIp() string {
@@ -664,7 +665,7 @@ type ExploredManagedHost struct {
 
 func (x *ExploredManagedHost) Reset() {
 	*x = ExploredManagedHost{}
-	mi := &file_site_explorer_proto_msgTypes[4]
+	mi := &file_site_explorer_nico_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -676,7 +677,7 @@ func (x *ExploredManagedHost) String() string {
 func (*ExploredManagedHost) ProtoMessage() {}
 
 func (x *ExploredManagedHost) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[4]
+	mi := &file_site_explorer_nico_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -689,7 +690,7 @@ func (x *ExploredManagedHost) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredManagedHost.ProtoReflect.Descriptor instead.
 func (*ExploredManagedHost) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{4}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ExploredManagedHost) GetHostBmcIp() string {
@@ -734,7 +735,7 @@ type SiteExplorationReport struct {
 
 func (x *SiteExplorationReport) Reset() {
 	*x = SiteExplorationReport{}
-	mi := &file_site_explorer_proto_msgTypes[5]
+	mi := &file_site_explorer_nico_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -746,7 +747,7 @@ func (x *SiteExplorationReport) String() string {
 func (*SiteExplorationReport) ProtoMessage() {}
 
 func (x *SiteExplorationReport) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[5]
+	mi := &file_site_explorer_nico_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -759,7 +760,7 @@ func (x *SiteExplorationReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SiteExplorationReport.ProtoReflect.Descriptor instead.
 func (*SiteExplorationReport) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{5}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SiteExplorationReport) GetEndpoints() []*ExploredEndpoint {
@@ -793,7 +794,7 @@ type SiteExplorerLastRunResponse struct {
 
 func (x *SiteExplorerLastRunResponse) Reset() {
 	*x = SiteExplorerLastRunResponse{}
-	mi := &file_site_explorer_proto_msgTypes[6]
+	mi := &file_site_explorer_nico_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -805,7 +806,7 @@ func (x *SiteExplorerLastRunResponse) String() string {
 func (*SiteExplorerLastRunResponse) ProtoMessage() {}
 
 func (x *SiteExplorerLastRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[6]
+	mi := &file_site_explorer_nico_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -818,7 +819,7 @@ func (x *SiteExplorerLastRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SiteExplorerLastRunResponse.ProtoReflect.Descriptor instead.
 func (*SiteExplorerLastRunResponse) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{6}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SiteExplorerLastRunResponse) GetLastRun() *SiteExplorerLastRun {
@@ -856,7 +857,7 @@ type SiteExplorerLastRun struct {
 
 func (x *SiteExplorerLastRun) Reset() {
 	*x = SiteExplorerLastRun{}
-	mi := &file_site_explorer_proto_msgTypes[7]
+	mi := &file_site_explorer_nico_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -868,7 +869,7 @@ func (x *SiteExplorerLastRun) String() string {
 func (*SiteExplorerLastRun) ProtoMessage() {}
 
 func (x *SiteExplorerLastRun) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[7]
+	mi := &file_site_explorer_nico_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -881,7 +882,7 @@ func (x *SiteExplorerLastRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SiteExplorerLastRun.ProtoReflect.Descriptor instead.
 func (*SiteExplorerLastRun) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{7}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SiteExplorerLastRun) GetStartedAt() string {
@@ -962,7 +963,7 @@ type ExploredEndpointSearchFilter struct {
 
 func (x *ExploredEndpointSearchFilter) Reset() {
 	*x = ExploredEndpointSearchFilter{}
-	mi := &file_site_explorer_proto_msgTypes[8]
+	mi := &file_site_explorer_nico_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -974,7 +975,7 @@ func (x *ExploredEndpointSearchFilter) String() string {
 func (*ExploredEndpointSearchFilter) ProtoMessage() {}
 
 func (x *ExploredEndpointSearchFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[8]
+	mi := &file_site_explorer_nico_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -987,7 +988,7 @@ func (x *ExploredEndpointSearchFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredEndpointSearchFilter.ProtoReflect.Descriptor instead.
 func (*ExploredEndpointSearchFilter) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{8}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{8}
 }
 
 type ExploredEndpointIdList struct {
@@ -1000,7 +1001,7 @@ type ExploredEndpointIdList struct {
 
 func (x *ExploredEndpointIdList) Reset() {
 	*x = ExploredEndpointIdList{}
-	mi := &file_site_explorer_proto_msgTypes[9]
+	mi := &file_site_explorer_nico_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1012,7 +1013,7 @@ func (x *ExploredEndpointIdList) String() string {
 func (*ExploredEndpointIdList) ProtoMessage() {}
 
 func (x *ExploredEndpointIdList) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[9]
+	mi := &file_site_explorer_nico_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1025,7 +1026,7 @@ func (x *ExploredEndpointIdList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredEndpointIdList.ProtoReflect.Descriptor instead.
 func (*ExploredEndpointIdList) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{9}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExploredEndpointIdList) GetEndpointIds() []string {
@@ -1045,7 +1046,7 @@ type ExploredEndpointsByIdsRequest struct {
 
 func (x *ExploredEndpointsByIdsRequest) Reset() {
 	*x = ExploredEndpointsByIdsRequest{}
-	mi := &file_site_explorer_proto_msgTypes[10]
+	mi := &file_site_explorer_nico_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1057,7 +1058,7 @@ func (x *ExploredEndpointsByIdsRequest) String() string {
 func (*ExploredEndpointsByIdsRequest) ProtoMessage() {}
 
 func (x *ExploredEndpointsByIdsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[10]
+	mi := &file_site_explorer_nico_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1070,7 +1071,7 @@ func (x *ExploredEndpointsByIdsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredEndpointsByIdsRequest.ProtoReflect.Descriptor instead.
 func (*ExploredEndpointsByIdsRequest) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{10}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ExploredEndpointsByIdsRequest) GetEndpointIds() []string {
@@ -1089,7 +1090,7 @@ type ExploredEndpointList struct {
 
 func (x *ExploredEndpointList) Reset() {
 	*x = ExploredEndpointList{}
-	mi := &file_site_explorer_proto_msgTypes[11]
+	mi := &file_site_explorer_nico_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1101,7 +1102,7 @@ func (x *ExploredEndpointList) String() string {
 func (*ExploredEndpointList) ProtoMessage() {}
 
 func (x *ExploredEndpointList) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[11]
+	mi := &file_site_explorer_nico_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1114,7 +1115,7 @@ func (x *ExploredEndpointList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredEndpointList.ProtoReflect.Descriptor instead.
 func (*ExploredEndpointList) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{11}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ExploredEndpointList) GetEndpoints() []*ExploredEndpoint {
@@ -1132,7 +1133,7 @@ type ExploredManagedHostSearchFilter struct {
 
 func (x *ExploredManagedHostSearchFilter) Reset() {
 	*x = ExploredManagedHostSearchFilter{}
-	mi := &file_site_explorer_proto_msgTypes[12]
+	mi := &file_site_explorer_nico_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1144,7 +1145,7 @@ func (x *ExploredManagedHostSearchFilter) String() string {
 func (*ExploredManagedHostSearchFilter) ProtoMessage() {}
 
 func (x *ExploredManagedHostSearchFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[12]
+	mi := &file_site_explorer_nico_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1157,7 +1158,7 @@ func (x *ExploredManagedHostSearchFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredManagedHostSearchFilter.ProtoReflect.Descriptor instead.
 func (*ExploredManagedHostSearchFilter) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{12}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{12}
 }
 
 type ExploredManagedHostIdList struct {
@@ -1170,7 +1171,7 @@ type ExploredManagedHostIdList struct {
 
 func (x *ExploredManagedHostIdList) Reset() {
 	*x = ExploredManagedHostIdList{}
-	mi := &file_site_explorer_proto_msgTypes[13]
+	mi := &file_site_explorer_nico_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1182,7 +1183,7 @@ func (x *ExploredManagedHostIdList) String() string {
 func (*ExploredManagedHostIdList) ProtoMessage() {}
 
 func (x *ExploredManagedHostIdList) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[13]
+	mi := &file_site_explorer_nico_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1195,7 +1196,7 @@ func (x *ExploredManagedHostIdList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredManagedHostIdList.ProtoReflect.Descriptor instead.
 func (*ExploredManagedHostIdList) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{13}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ExploredManagedHostIdList) GetHostIds() []string {
@@ -1215,7 +1216,7 @@ type ExploredManagedHostsByIdsRequest struct {
 
 func (x *ExploredManagedHostsByIdsRequest) Reset() {
 	*x = ExploredManagedHostsByIdsRequest{}
-	mi := &file_site_explorer_proto_msgTypes[14]
+	mi := &file_site_explorer_nico_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1227,7 +1228,7 @@ func (x *ExploredManagedHostsByIdsRequest) String() string {
 func (*ExploredManagedHostsByIdsRequest) ProtoMessage() {}
 
 func (x *ExploredManagedHostsByIdsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[14]
+	mi := &file_site_explorer_nico_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1240,7 +1241,7 @@ func (x *ExploredManagedHostsByIdsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredManagedHostsByIdsRequest.ProtoReflect.Descriptor instead.
 func (*ExploredManagedHostsByIdsRequest) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{14}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ExploredManagedHostsByIdsRequest) GetHostIds() []string {
@@ -1259,7 +1260,7 @@ type ExploredManagedHostList struct {
 
 func (x *ExploredManagedHostList) Reset() {
 	*x = ExploredManagedHostList{}
-	mi := &file_site_explorer_proto_msgTypes[15]
+	mi := &file_site_explorer_nico_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1271,7 +1272,7 @@ func (x *ExploredManagedHostList) String() string {
 func (*ExploredManagedHostList) ProtoMessage() {}
 
 func (x *ExploredManagedHostList) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[15]
+	mi := &file_site_explorer_nico_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1284,7 +1285,7 @@ func (x *ExploredManagedHostList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredManagedHostList.ProtoReflect.Descriptor instead.
 func (*ExploredManagedHostList) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{15}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ExploredManagedHostList) GetManagedHosts() []*ExploredManagedHost {
@@ -1329,7 +1330,7 @@ type ExploredMlxDevice struct {
 
 func (x *ExploredMlxDevice) Reset() {
 	*x = ExploredMlxDevice{}
-	mi := &file_site_explorer_proto_msgTypes[16]
+	mi := &file_site_explorer_nico_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1341,7 +1342,7 @@ func (x *ExploredMlxDevice) String() string {
 func (*ExploredMlxDevice) ProtoMessage() {}
 
 func (x *ExploredMlxDevice) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[16]
+	mi := &file_site_explorer_nico_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1354,7 +1355,7 @@ func (x *ExploredMlxDevice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredMlxDevice.ProtoReflect.Descriptor instead.
 func (*ExploredMlxDevice) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{16}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ExploredMlxDevice) GetHostBmcIp() string {
@@ -1436,7 +1437,7 @@ type ExploredMlxDeviceList struct {
 
 func (x *ExploredMlxDeviceList) Reset() {
 	*x = ExploredMlxDeviceList{}
-	mi := &file_site_explorer_proto_msgTypes[17]
+	mi := &file_site_explorer_nico_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1448,7 +1449,7 @@ func (x *ExploredMlxDeviceList) String() string {
 func (*ExploredMlxDeviceList) ProtoMessage() {}
 
 func (x *ExploredMlxDeviceList) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[17]
+	mi := &file_site_explorer_nico_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1461,7 +1462,7 @@ func (x *ExploredMlxDeviceList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredMlxDeviceList.ProtoReflect.Descriptor instead.
 func (*ExploredMlxDeviceList) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{17}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ExploredMlxDeviceList) GetDevices() []*ExploredMlxDevice {
@@ -1481,7 +1482,7 @@ type ExploredMlxDeviceHostSearchFilter struct {
 
 func (x *ExploredMlxDeviceHostSearchFilter) Reset() {
 	*x = ExploredMlxDeviceHostSearchFilter{}
-	mi := &file_site_explorer_proto_msgTypes[18]
+	mi := &file_site_explorer_nico_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1493,7 +1494,7 @@ func (x *ExploredMlxDeviceHostSearchFilter) String() string {
 func (*ExploredMlxDeviceHostSearchFilter) ProtoMessage() {}
 
 func (x *ExploredMlxDeviceHostSearchFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[18]
+	mi := &file_site_explorer_nico_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1506,7 +1507,7 @@ func (x *ExploredMlxDeviceHostSearchFilter) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ExploredMlxDeviceHostSearchFilter.ProtoReflect.Descriptor instead.
 func (*ExploredMlxDeviceHostSearchFilter) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{18}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{18}
 }
 
 type ExploredMlxDeviceHostIdList struct {
@@ -1519,7 +1520,7 @@ type ExploredMlxDeviceHostIdList struct {
 
 func (x *ExploredMlxDeviceHostIdList) Reset() {
 	*x = ExploredMlxDeviceHostIdList{}
-	mi := &file_site_explorer_proto_msgTypes[19]
+	mi := &file_site_explorer_nico_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1531,7 +1532,7 @@ func (x *ExploredMlxDeviceHostIdList) String() string {
 func (*ExploredMlxDeviceHostIdList) ProtoMessage() {}
 
 func (x *ExploredMlxDeviceHostIdList) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[19]
+	mi := &file_site_explorer_nico_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1544,7 +1545,7 @@ func (x *ExploredMlxDeviceHostIdList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredMlxDeviceHostIdList.ProtoReflect.Descriptor instead.
 func (*ExploredMlxDeviceHostIdList) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{19}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ExploredMlxDeviceHostIdList) GetHostIds() []string {
@@ -1564,7 +1565,7 @@ type ExploredMlxDevicesByIdsRequest struct {
 
 func (x *ExploredMlxDevicesByIdsRequest) Reset() {
 	*x = ExploredMlxDevicesByIdsRequest{}
-	mi := &file_site_explorer_proto_msgTypes[20]
+	mi := &file_site_explorer_nico_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1576,7 +1577,7 @@ func (x *ExploredMlxDevicesByIdsRequest) String() string {
 func (*ExploredMlxDevicesByIdsRequest) ProtoMessage() {}
 
 func (x *ExploredMlxDevicesByIdsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[20]
+	mi := &file_site_explorer_nico_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1589,7 +1590,7 @@ func (x *ExploredMlxDevicesByIdsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExploredMlxDevicesByIdsRequest.ProtoReflect.Descriptor instead.
 func (*ExploredMlxDevicesByIdsRequest) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{20}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ExploredMlxDevicesByIdsRequest) GetHostIds() []string {
@@ -1608,7 +1609,7 @@ type ComputerSystemAttributes struct {
 
 func (x *ComputerSystemAttributes) Reset() {
 	*x = ComputerSystemAttributes{}
-	mi := &file_site_explorer_proto_msgTypes[21]
+	mi := &file_site_explorer_nico_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1620,7 +1621,7 @@ func (x *ComputerSystemAttributes) String() string {
 func (*ComputerSystemAttributes) ProtoMessage() {}
 
 func (x *ComputerSystemAttributes) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[21]
+	mi := &file_site_explorer_nico_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1633,7 +1634,7 @@ func (x *ComputerSystemAttributes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputerSystemAttributes.ProtoReflect.Descriptor instead.
 func (*ComputerSystemAttributes) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{21}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ComputerSystemAttributes) GetNicMode() NicMode {
@@ -1661,7 +1662,7 @@ type ComputerSystem struct {
 
 func (x *ComputerSystem) Reset() {
 	*x = ComputerSystem{}
-	mi := &file_site_explorer_proto_msgTypes[22]
+	mi := &file_site_explorer_nico_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1673,7 +1674,7 @@ func (x *ComputerSystem) String() string {
 func (*ComputerSystem) ProtoMessage() {}
 
 func (x *ComputerSystem) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[22]
+	mi := &file_site_explorer_nico_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1686,7 +1687,7 @@ func (x *ComputerSystem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputerSystem.ProtoReflect.Descriptor instead.
 func (*ComputerSystem) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{22}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ComputerSystem) GetId() string {
@@ -1763,7 +1764,7 @@ type Manager struct {
 
 func (x *Manager) Reset() {
 	*x = Manager{}
-	mi := &file_site_explorer_proto_msgTypes[23]
+	mi := &file_site_explorer_nico_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1775,7 +1776,7 @@ func (x *Manager) String() string {
 func (*Manager) ProtoMessage() {}
 
 func (x *Manager) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[23]
+	mi := &file_site_explorer_nico_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1788,7 +1789,7 @@ func (x *Manager) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Manager.ProtoReflect.Descriptor instead.
 func (*Manager) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{23}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *Manager) GetId() string {
@@ -1820,7 +1821,7 @@ type EthernetInterface struct {
 
 func (x *EthernetInterface) Reset() {
 	*x = EthernetInterface{}
-	mi := &file_site_explorer_proto_msgTypes[24]
+	mi := &file_site_explorer_nico_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1832,7 +1833,7 @@ func (x *EthernetInterface) String() string {
 func (*EthernetInterface) ProtoMessage() {}
 
 func (x *EthernetInterface) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[24]
+	mi := &file_site_explorer_nico_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1845,7 +1846,7 @@ func (x *EthernetInterface) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EthernetInterface.ProtoReflect.Descriptor instead.
 func (*EthernetInterface) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{24}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *EthernetInterface) GetId() string {
@@ -1898,7 +1899,7 @@ type Chassis struct {
 
 func (x *Chassis) Reset() {
 	*x = Chassis{}
-	mi := &file_site_explorer_proto_msgTypes[25]
+	mi := &file_site_explorer_nico_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1910,7 +1911,7 @@ func (x *Chassis) String() string {
 func (*Chassis) ProtoMessage() {}
 
 func (x *Chassis) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[25]
+	mi := &file_site_explorer_nico_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1923,7 +1924,7 @@ func (x *Chassis) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Chassis.ProtoReflect.Descriptor instead.
 func (*Chassis) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{25}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Chassis) GetId() string {
@@ -1982,7 +1983,7 @@ type NetworkAdapter struct {
 
 func (x *NetworkAdapter) Reset() {
 	*x = NetworkAdapter{}
-	mi := &file_site_explorer_proto_msgTypes[26]
+	mi := &file_site_explorer_nico_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1994,7 +1995,7 @@ func (x *NetworkAdapter) String() string {
 func (*NetworkAdapter) ProtoMessage() {}
 
 func (x *NetworkAdapter) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[26]
+	mi := &file_site_explorer_nico_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2007,7 +2008,7 @@ func (x *NetworkAdapter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkAdapter.ProtoReflect.Descriptor instead.
 func (*NetworkAdapter) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{26}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *NetworkAdapter) GetId() string {
@@ -2056,7 +2057,7 @@ type Service struct {
 
 func (x *Service) Reset() {
 	*x = Service{}
-	mi := &file_site_explorer_proto_msgTypes[27]
+	mi := &file_site_explorer_nico_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2068,7 +2069,7 @@ func (x *Service) String() string {
 func (*Service) ProtoMessage() {}
 
 func (x *Service) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[27]
+	mi := &file_site_explorer_nico_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2081,7 +2082,7 @@ func (x *Service) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Service.ProtoReflect.Descriptor instead.
 func (*Service) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{27}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Service) GetId() string {
@@ -2111,7 +2112,7 @@ type Inventory struct {
 
 func (x *Inventory) Reset() {
 	*x = Inventory{}
-	mi := &file_site_explorer_proto_msgTypes[28]
+	mi := &file_site_explorer_nico_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2123,7 +2124,7 @@ func (x *Inventory) String() string {
 func (*Inventory) ProtoMessage() {}
 
 func (x *Inventory) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[28]
+	mi := &file_site_explorer_nico_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2136,7 +2137,7 @@ func (x *Inventory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Inventory.ProtoReflect.Descriptor instead.
 func (*Inventory) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{28}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *Inventory) GetId() string {
@@ -2178,7 +2179,7 @@ type MachineSetupStatus struct {
 
 func (x *MachineSetupStatus) Reset() {
 	*x = MachineSetupStatus{}
-	mi := &file_site_explorer_proto_msgTypes[29]
+	mi := &file_site_explorer_nico_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2190,7 +2191,7 @@ func (x *MachineSetupStatus) String() string {
 func (*MachineSetupStatus) ProtoMessage() {}
 
 func (x *MachineSetupStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[29]
+	mi := &file_site_explorer_nico_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2203,7 +2204,7 @@ func (x *MachineSetupStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineSetupStatus.ProtoReflect.Descriptor instead.
 func (*MachineSetupStatus) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{29}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *MachineSetupStatus) GetIsDone() bool {
@@ -2232,7 +2233,7 @@ type MachineSetupDiff struct {
 
 func (x *MachineSetupDiff) Reset() {
 	*x = MachineSetupDiff{}
-	mi := &file_site_explorer_proto_msgTypes[30]
+	mi := &file_site_explorer_nico_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2244,7 +2245,7 @@ func (x *MachineSetupDiff) String() string {
 func (*MachineSetupDiff) ProtoMessage() {}
 
 func (x *MachineSetupDiff) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[30]
+	mi := &file_site_explorer_nico_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2257,7 +2258,7 @@ func (x *MachineSetupDiff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineSetupDiff.ProtoReflect.Descriptor instead.
 func (*MachineSetupDiff) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{30}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *MachineSetupDiff) GetKey() string {
@@ -2298,7 +2299,7 @@ type PCIeDevice struct {
 
 func (x *PCIeDevice) Reset() {
 	*x = PCIeDevice{}
-	mi := &file_site_explorer_proto_msgTypes[31]
+	mi := &file_site_explorer_nico_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2310,7 +2311,7 @@ func (x *PCIeDevice) String() string {
 func (*PCIeDevice) ProtoMessage() {}
 
 func (x *PCIeDevice) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[31]
+	mi := &file_site_explorer_nico_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2323,7 +2324,7 @@ func (x *PCIeDevice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PCIeDevice.ProtoReflect.Descriptor instead.
 func (*PCIeDevice) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{31}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *PCIeDevice) GetDescription() string {
@@ -2400,7 +2401,7 @@ type SystemStatus struct {
 
 func (x *SystemStatus) Reset() {
 	*x = SystemStatus{}
-	mi := &file_site_explorer_proto_msgTypes[32]
+	mi := &file_site_explorer_nico_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2412,7 +2413,7 @@ func (x *SystemStatus) String() string {
 func (*SystemStatus) ProtoMessage() {}
 
 func (x *SystemStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[32]
+	mi := &file_site_explorer_nico_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2425,7 +2426,7 @@ func (x *SystemStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SystemStatus.ProtoReflect.Descriptor instead.
 func (*SystemStatus) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{32}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SystemStatus) GetHealth() string {
@@ -2458,7 +2459,7 @@ type BootOrder struct {
 
 func (x *BootOrder) Reset() {
 	*x = BootOrder{}
-	mi := &file_site_explorer_proto_msgTypes[33]
+	mi := &file_site_explorer_nico_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2470,7 +2471,7 @@ func (x *BootOrder) String() string {
 func (*BootOrder) ProtoMessage() {}
 
 func (x *BootOrder) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[33]
+	mi := &file_site_explorer_nico_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2483,7 +2484,7 @@ func (x *BootOrder) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootOrder.ProtoReflect.Descriptor instead.
 func (*BootOrder) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{33}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *BootOrder) GetBootOrder() []*BootOption {
@@ -2505,7 +2506,7 @@ type BootOption struct {
 
 func (x *BootOption) Reset() {
 	*x = BootOption{}
-	mi := &file_site_explorer_proto_msgTypes[34]
+	mi := &file_site_explorer_nico_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2517,7 +2518,7 @@ func (x *BootOption) String() string {
 func (*BootOption) ProtoMessage() {}
 
 func (x *BootOption) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[34]
+	mi := &file_site_explorer_nico_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2530,7 +2531,7 @@ func (x *BootOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootOption.ProtoReflect.Descriptor instead.
 func (*BootOption) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{34}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *BootOption) GetDisplayName() string {
@@ -2570,7 +2571,7 @@ type SecureBootStatus struct {
 
 func (x *SecureBootStatus) Reset() {
 	*x = SecureBootStatus{}
-	mi := &file_site_explorer_proto_msgTypes[35]
+	mi := &file_site_explorer_nico_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2582,7 +2583,7 @@ func (x *SecureBootStatus) String() string {
 func (*SecureBootStatus) ProtoMessage() {}
 
 func (x *SecureBootStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[35]
+	mi := &file_site_explorer_nico_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2595,7 +2596,7 @@ func (x *SecureBootStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecureBootStatus.ProtoReflect.Descriptor instead.
 func (*SecureBootStatus) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{35}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *SecureBootStatus) GetIsEnabled() bool {
@@ -2616,7 +2617,7 @@ type LockdownStatus struct {
 
 func (x *LockdownStatus) Reset() {
 	*x = LockdownStatus{}
-	mi := &file_site_explorer_proto_msgTypes[36]
+	mi := &file_site_explorer_nico_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2628,7 +2629,7 @@ func (x *LockdownStatus) String() string {
 func (*LockdownStatus) ProtoMessage() {}
 
 func (x *LockdownStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_proto_msgTypes[36]
+	mi := &file_site_explorer_nico_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2641,7 +2642,7 @@ func (x *LockdownStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LockdownStatus.ProtoReflect.Descriptor instead.
 func (*LockdownStatus) Descriptor() ([]byte, []int) {
-	return file_site_explorer_proto_rawDescGZIP(), []int{36}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *LockdownStatus) GetStatus() InternalLockdownStatus {
@@ -2658,11 +2659,11 @@ func (x *LockdownStatus) GetMessage() string {
 	return ""
 }
 
-var File_site_explorer_proto protoreflect.FileDescriptor
+var File_site_explorer_nico_proto protoreflect.FileDescriptor
 
-const file_site_explorer_proto_rawDesc = "" +
+const file_site_explorer_nico_proto_rawDesc = "" +
 	"\n" +
-	"\x13site_explorer.proto\x12\rsite_explorer\x1a\x1egoogle/protobuf/duration.proto\"|\n" +
+	"\x18site_explorer_nico.proto\x12\rsite_explorer\x1a\x1egoogle/protobuf/duration.proto\"|\n" +
 	"\x13OperatorErrorSchema\x12\x1d\n" +
 	"\n" +
 	"error_code\x18\x01 \x01(\tR\terrorCode\x12#\n" +
@@ -2935,24 +2936,23 @@ const file_site_explorer_proto_rawDesc = "" +
 	"\x16InternalLockdownStatus\x12\v\n" +
 	"\aENABLED\x10\x00\x12\v\n" +
 	"\aPARTIAL\x10\x01\x12\f\n" +
-	"\bDISABLED\x10\x02B\xbd\x01\n" +
-	"\x11com.site_explorerB\x11SiteExplorerProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03SXX\xaa\x02\fSiteExplorer\xca\x02\fSiteExplorer\xe2\x02\x18SiteExplorer\\GPBMetadata\xea\x02\fSiteExplorerb\x06proto3"
+	"\bDISABLED\x10\x02B8Z6github.com/NVIDIA/infra-controller/rest-api/proto/coreb\x06proto3"
 
 var (
-	file_site_explorer_proto_rawDescOnce sync.Once
-	file_site_explorer_proto_rawDescData []byte
+	file_site_explorer_nico_proto_rawDescOnce sync.Once
+	file_site_explorer_nico_proto_rawDescData []byte
 )
 
-func file_site_explorer_proto_rawDescGZIP() []byte {
-	file_site_explorer_proto_rawDescOnce.Do(func() {
-		file_site_explorer_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_site_explorer_proto_rawDesc), len(file_site_explorer_proto_rawDesc)))
+func file_site_explorer_nico_proto_rawDescGZIP() []byte {
+	file_site_explorer_nico_proto_rawDescOnce.Do(func() {
+		file_site_explorer_nico_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_site_explorer_nico_proto_rawDesc), len(file_site_explorer_nico_proto_rawDesc)))
 	})
-	return file_site_explorer_proto_rawDescData
+	return file_site_explorer_nico_proto_rawDescData
 }
 
-var file_site_explorer_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_site_explorer_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
-var file_site_explorer_proto_goTypes = []any{
+var file_site_explorer_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_site_explorer_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_site_explorer_nico_proto_goTypes = []any{
 	(MlxDeviceKind)(0),                        // 0: site_explorer.MlxDeviceKind
 	(NicMode)(0),                              // 1: site_explorer.NicMode
 	(ComputerSystemPowerState)(0),             // 2: site_explorer.ComputerSystemPowerState
@@ -2997,7 +2997,7 @@ var file_site_explorer_proto_goTypes = []any{
 	nil,                                       // 41: site_explorer.EndpointExplorationReport.FirmwareVersionsEntry
 	(*durationpb.Duration)(nil),               // 42: google.protobuf.Duration
 }
-var file_site_explorer_proto_depIdxs = []int32{
+var file_site_explorer_nico_proto_depIdxs = []int32{
 	42, // 0: site_explorer.EndpointExplorationReport.last_exploration_latency:type_name -> google.protobuf.Duration
 	27, // 1: site_explorer.EndpointExplorationReport.managers:type_name -> site_explorer.Manager
 	26, // 2: site_explorer.EndpointExplorationReport.systems:type_name -> site_explorer.ComputerSystem
@@ -3039,44 +3039,44 @@ var file_site_explorer_proto_depIdxs = []int32{
 	0,  // [0:34] is the sub-list for field type_name
 }
 
-func init() { file_site_explorer_proto_init() }
-func file_site_explorer_proto_init() {
-	if File_site_explorer_proto != nil {
+func init() { file_site_explorer_nico_proto_init() }
+func file_site_explorer_nico_proto_init() {
+	if File_site_explorer_nico_proto != nil {
 		return
 	}
-	file_site_explorer_proto_msgTypes[0].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[1].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[3].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[4].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[5].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[6].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[7].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[16].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[21].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[22].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[24].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[25].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[26].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[28].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[31].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[32].OneofWrappers = []any{}
-	file_site_explorer_proto_msgTypes[34].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[0].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[1].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[3].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[4].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[5].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[6].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[7].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[16].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[21].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[22].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[24].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[25].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[26].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[28].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[31].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[32].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[34].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_site_explorer_proto_rawDesc), len(file_site_explorer_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_site_explorer_nico_proto_rawDesc), len(file_site_explorer_nico_proto_rawDesc)),
 			NumEnums:      4,
 			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_site_explorer_proto_goTypes,
-		DependencyIndexes: file_site_explorer_proto_depIdxs,
-		EnumInfos:         file_site_explorer_proto_enumTypes,
-		MessageInfos:      file_site_explorer_proto_msgTypes,
+		GoTypes:           file_site_explorer_nico_proto_goTypes,
+		DependencyIndexes: file_site_explorer_nico_proto_depIdxs,
+		EnumInfos:         file_site_explorer_nico_proto_enumTypes,
+		MessageInfos:      file_site_explorer_nico_proto_msgTypes,
 	}.Build()
-	File_site_explorer_proto = out.File
-	file_site_explorer_proto_goTypes = nil
-	file_site_explorer_proto_depIdxs = nil
+	File_site_explorer_nico_proto = out.File
+	file_site_explorer_nico_proto_goTypes = nil
+	file_site_explorer_nico_proto_depIdxs = nil
 }

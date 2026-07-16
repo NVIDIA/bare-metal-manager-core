@@ -7,6 +7,8 @@ package site_explorer;
 
 import "google/protobuf/duration.proto";
 
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
+
 message OperatorErrorSchema {
   // Stable identifier for alerting and centralized log filtering.
   string error_code = 1;
@@ -254,6 +256,7 @@ message ComputerSystem {
   optional BootOrder boot_order = 14;
 }
 
+// WARNING: This enum conflicts with PowerState in nico_nico.proto and must be renamed to ComputerSystemPowerState
 enum ComputerSystemPowerState {
   On = 0;
   Off = 1;
@@ -286,7 +289,7 @@ message Chassis {
   optional string manufacturer = 6;
   optional string model = 3;
   optional string part_number = 4;
-  optional string serial_number = 5;    
+  optional string serial_number = 5;
 }
 
 // `NetworkAdapter` definition. Matches redfish definition

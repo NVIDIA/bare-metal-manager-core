@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/catalog"
@@ -24,6 +23,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/firmwarecomponents"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 const (
@@ -130,12 +130,12 @@ func (m *Manager) InjectExpectation(
 	return nil
 }
 
-func switchIDsProto(ids []string) *pb.SwitchIdList {
-	pbIDs := make([]*pb.SwitchId, len(ids))
+func switchIDsProto(ids []string) *corev1.SwitchIdList {
+	pbIDs := make([]*corev1.SwitchId, len(ids))
 	for i, id := range ids {
-		pbIDs[i] = &pb.SwitchId{Id: id}
+		pbIDs[i] = &corev1.SwitchId{Id: id}
 	}
-	return &pb.SwitchIdList{Ids: pbIDs}
+	return &corev1.SwitchIdList{Ids: pbIDs}
 }
 
 // ensureRackOperable is the per-Manager policy gate for disruptive
@@ -223,24 +223,24 @@ func (m *Manager) PowerControl(
 		return fmt.Errorf("refused: %w", err)
 	}
 
-	var action pb.SystemPowerControl
+	var action corev1.SystemPowerControl
 	switch info.Operation {
 	case operations.PowerOperationPowerOn, operations.PowerOperationForcePowerOn:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_ON
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_ON
 	case operations.PowerOperationPowerOff:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_SHUTDOWN
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_SHUTDOWN
 	case operations.PowerOperationForcePowerOff:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_OFF
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_OFF
 	case operations.PowerOperationRestart, operations.PowerOperationWarmReset:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_RESTART
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_RESTART
 	case operations.PowerOperationForceRestart:
-		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_RESTART
+		action = corev1.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_RESTART
 	default:
 		return fmt.Errorf("unsupported power operation for NVSwitch: %v", info.Operation)
 	}
 
-	req := &pb.ComponentPowerControlRequest{
-		Target: &pb.ComponentPowerControlRequest_SwitchIds{
+	req := &corev1.ComponentPowerControlRequest{
+		Target: &corev1.ComponentPowerControlRequest_SwitchIds{
 			SwitchIds: switchIDsProto(target.ComponentIDs),
 		},
 		Action:                action,
@@ -253,7 +253,7 @@ func (m *Manager) PowerControl(
 	}
 
 	for _, r := range resp.GetResults() {
-		if r.GetStatus() != pb.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
+		if r.GetStatus() != corev1.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
 			return fmt.Errorf("power control failed for %s: %s", r.GetComponentId(), r.GetError())
 		}
 	}
@@ -271,8 +271,8 @@ func (m *Manager) GetPowerStatus(
 		return nil, fmt.Errorf("target is invalid: %w", err)
 	}
 
-	req := &pb.GetComponentInventoryRequest{
-		Target: &pb.GetComponentInventoryRequest_SwitchIds{
+	req := &corev1.GetComponentInventoryRequest{
+		Target: &corev1.GetComponentInventoryRequest_SwitchIds{
 			SwitchIds: switchIDsProto(target.ComponentIDs),
 		},
 	}
@@ -352,9 +352,9 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 		}
 	}
 
-	req := &pb.UpdateComponentFirmwareRequest{
-		Target: &pb.UpdateComponentFirmwareRequest_Switches{
-			Switches: &pb.UpdateSwitchFirmwareTarget{
+	req := &corev1.UpdateComponentFirmwareRequest{
+		Target: &corev1.UpdateComponentFirmwareRequest_Switches{
+			Switches: &corev1.UpdateSwitchFirmwareTarget{
 				SwitchIds:  switchIDsProto(target.ComponentIDs),
 				Components: subComponents,
 			},
@@ -369,7 +369,7 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 	}
 
 	for _, r := range resp.GetResults() {
-		if r.GetStatus() != pb.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
+		if r.GetStatus() != corev1.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
 			return fmt.Errorf("firmware update failed for %s: %s", r.GetComponentId(), r.GetError())
 		}
 	}
@@ -417,8 +417,8 @@ func (m *Manager) checkFirmwareUpToDate(ctx context.Context, target common.Targe
 // only covers host/DPU), so fall back to the raw Redfish FirmwareInventory
 // entries in report.Service[].Inventories[], keyed by Inventory.Id.
 func (m *Manager) getActualFirmwareVersions(ctx context.Context, target common.Target) (map[string]map[string]string, error) {
-	req := &pb.GetComponentInventoryRequest{
-		Target: &pb.GetComponentInventoryRequest_SwitchIds{
+	req := &corev1.GetComponentInventoryRequest{
+		Target: &corev1.GetComponentInventoryRequest_SwitchIds{
 			SwitchIds: switchIDsProto(target.ComponentIDs),
 		},
 	}
@@ -446,7 +446,7 @@ func (m *Manager) getActualFirmwareVersions(ctx context.Context, target common.T
 // extractInventoryVersions builds a firmware version map from the raw Redfish
 // FirmwareInventory entries in the exploration report, keyed by Inventory.Id.
 // Entries without a version are skipped.
-func extractInventoryVersions(report *pb.EndpointExplorationReport) map[string]string {
+func extractInventoryVersions(report *corev1.EndpointExplorationReport) map[string]string {
 	out := make(map[string]string)
 	for _, svc := range report.GetService() {
 		for _, inv := range svc.GetInventories() {
@@ -491,7 +491,7 @@ func (m *Manager) VerifyFirmwareConsistency(ctx context.Context, target common.T
 	return nil
 }
 
-func matchesAnyDesired(actual map[string]string, entries []*pb.DesiredFirmwareVersionEntry) bool {
+func matchesAnyDesired(actual map[string]string, entries []*corev1.DesiredFirmwareVersionEntry) bool {
 	for _, entry := range entries {
 		if firmwareVersionsMatch(entry.GetComponentVersions(), actual) {
 			return true
@@ -521,8 +521,8 @@ func (m *Manager) GetFirmwareStatus(ctx context.Context, target common.Target) (
 		return nil, fmt.Errorf("target is invalid: %w", err)
 	}
 
-	req := &pb.GetComponentFirmwareStatusRequest{
-		Target: &pb.GetComponentFirmwareStatusRequest_SwitchIds{
+	req := &corev1.GetComponentFirmwareStatusRequest{
+		Target: &corev1.GetComponentFirmwareStatusRequest_SwitchIds{
 			SwitchIds: switchIDsProto(target.ComponentIDs),
 		},
 	}
@@ -534,7 +534,7 @@ func (m *Manager) GetFirmwareStatus(ctx context.Context, target common.Target) (
 
 	// Group statuses by component ID since Core may return multiple
 	// sub-component updates (BMC, CPLD, BIOS, NVOS) for the same switch.
-	grouped := make(map[string][]*pb.FirmwareUpdateStatus)
+	grouped := make(map[string][]*corev1.FirmwareUpdateStatus)
 	for _, s := range resp.GetStatuses() {
 		compID := s.GetResult().GetComponentId()
 		grouped[compID] = append(grouped[compID], s)
@@ -559,7 +559,7 @@ func (m *Manager) GetFirmwareStatus(ctx context.Context, target common.Target) (
 // FirmwareUpdateStatus message does not carry a sub-component type field. Once Core
 // exposes that information, we should check that all 4 sub-components are present and
 // treat a missing sub-component as incomplete (not Completed).
-func aggregateNICoStatuses(compID string, statuses []*pb.FirmwareUpdateStatus) operations.FirmwareUpdateStatus {
+func aggregateNICoStatuses(compID string, statuses []*corev1.FirmwareUpdateStatus) operations.FirmwareUpdateStatus {
 	if len(statuses) == 0 {
 		return operations.FirmwareUpdateStatus{
 			ComponentID: compID,

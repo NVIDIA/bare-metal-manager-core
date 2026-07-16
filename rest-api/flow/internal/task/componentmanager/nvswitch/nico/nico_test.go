@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
-	pb "github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/componentmanager/readiness"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/common/devicetypes"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
 func TestInjectExpectation(t *testing.T) {
@@ -124,9 +124,9 @@ func TestGetFirmwareStatus(t *testing.T) {
 }
 
 func TestAggregateNICoStatuses(t *testing.T) {
-	mkStatus := func(compID string, state pb.FirmwareUpdateState, errMsg string) *pb.FirmwareUpdateStatus {
-		return &pb.FirmwareUpdateStatus{
-			Result: &pb.ComponentResult{
+	mkStatus := func(compID string, state corev1.FirmwareUpdateState, errMsg string) *corev1.FirmwareUpdateStatus {
+		return &corev1.FirmwareUpdateStatus{
+			Result: &corev1.ComponentResult{
 				ComponentId: compID,
 				Error:       errMsg,
 			},
@@ -135,7 +135,7 @@ func TestAggregateNICoStatuses(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		statuses      []*pb.FirmwareUpdateStatus
+		statuses      []*corev1.FirmwareUpdateStatus
 		expectedState operations.FirmwareUpdateState
 		expectedError string
 	}{
@@ -144,50 +144,50 @@ func TestAggregateNICoStatuses(t *testing.T) {
 			expectedState: operations.FirmwareUpdateStateUnknown,
 		},
 		"all completed": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
 			},
 			expectedState: operations.FirmwareUpdateStateCompleted,
 		},
 		"any failure marks overall failed": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_FAILED, "BMC update failed"),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_FAILED, "BMC update failed"),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
 			},
 			expectedState: operations.FirmwareUpdateStateFailed,
 			expectedError: "BMC update failed",
 		},
 		"last completed but earlier failed still reports failed": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_FAILED, "CPLD flash error"),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_FAILED, "CPLD flash error"),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
 			},
 			expectedState: operations.FirmwareUpdateStateFailed,
 			expectedError: "CPLD flash error",
 		},
 		"cancelled treated as failed": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_CANCELLED, ""),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_CANCELLED, ""),
 			},
 			expectedState: operations.FirmwareUpdateStateFailed,
 		},
 		"still in progress": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_IN_PROGRESS, ""),
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_QUEUED, ""),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_IN_PROGRESS, ""),
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_QUEUED, ""),
 			},
 			expectedState: operations.FirmwareUpdateStateQueued,
 		},
 		"single completed": {
-			statuses: []*pb.FirmwareUpdateStatus{
-				mkStatus("sw-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+			statuses: []*corev1.FirmwareUpdateStatus{
+				mkStatus("sw-1", corev1.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
 			},
 			expectedState: operations.FirmwareUpdateStateCompleted,
 		},

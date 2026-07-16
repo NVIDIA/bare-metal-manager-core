@@ -5,9 +5,9 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: measured_boot.proto
+// source: measured_boot_nico.proto
 
-package nicoapigrpc
+package core
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -57,11 +57,11 @@ func (x ImportSiteResult) String() string {
 }
 
 func (ImportSiteResult) Descriptor() protoreflect.EnumDescriptor {
-	return file_measured_boot_proto_enumTypes[0].Descriptor()
+	return file_measured_boot_nico_proto_enumTypes[0].Descriptor()
 }
 
 func (ImportSiteResult) Type() protoreflect.EnumType {
-	return &file_measured_boot_proto_enumTypes[0]
+	return &file_measured_boot_nico_proto_enumTypes[0]
 }
 
 func (x ImportSiteResult) Number() protoreflect.EnumNumber {
@@ -70,7 +70,7 @@ func (x ImportSiteResult) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ImportSiteResult.Descriptor instead.
 func (ImportSiteResult) EnumDescriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{0}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{0}
 }
 
 type MeasurementBundleStatePb int32
@@ -112,11 +112,11 @@ func (x MeasurementBundleStatePb) String() string {
 }
 
 func (MeasurementBundleStatePb) Descriptor() protoreflect.EnumDescriptor {
-	return file_measured_boot_proto_enumTypes[1].Descriptor()
+	return file_measured_boot_nico_proto_enumTypes[1].Descriptor()
 }
 
 func (MeasurementBundleStatePb) Type() protoreflect.EnumType {
-	return &file_measured_boot_proto_enumTypes[1]
+	return &file_measured_boot_nico_proto_enumTypes[1]
 }
 
 func (x MeasurementBundleStatePb) Number() protoreflect.EnumNumber {
@@ -125,7 +125,7 @@ func (x MeasurementBundleStatePb) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MeasurementBundleStatePb.Descriptor instead.
 func (MeasurementBundleStatePb) EnumDescriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{1}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{1}
 }
 
 type MeasurementApprovedTypePb int32
@@ -158,11 +158,11 @@ func (x MeasurementApprovedTypePb) String() string {
 }
 
 func (MeasurementApprovedTypePb) Descriptor() protoreflect.EnumDescriptor {
-	return file_measured_boot_proto_enumTypes[2].Descriptor()
+	return file_measured_boot_nico_proto_enumTypes[2].Descriptor()
 }
 
 func (MeasurementApprovedTypePb) Type() protoreflect.EnumType {
-	return &file_measured_boot_proto_enumTypes[2]
+	return &file_measured_boot_nico_proto_enumTypes[2]
 }
 
 func (x MeasurementApprovedTypePb) Number() protoreflect.EnumNumber {
@@ -171,7 +171,7 @@ func (x MeasurementApprovedTypePb) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MeasurementApprovedTypePb.Descriptor instead.
 func (MeasurementApprovedTypePb) EnumDescriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{2}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{2}
 }
 
 type MeasurementMachineStatePb int32
@@ -210,11 +210,11 @@ func (x MeasurementMachineStatePb) String() string {
 }
 
 func (MeasurementMachineStatePb) Descriptor() protoreflect.EnumDescriptor {
-	return file_measured_boot_proto_enumTypes[3].Descriptor()
+	return file_measured_boot_nico_proto_enumTypes[3].Descriptor()
 }
 
 func (MeasurementMachineStatePb) Type() protoreflect.EnumType {
-	return &file_measured_boot_proto_enumTypes[3]
+	return &file_measured_boot_nico_proto_enumTypes[3]
 }
 
 func (x MeasurementMachineStatePb) Number() protoreflect.EnumNumber {
@@ -223,7 +223,7 @@ func (x MeasurementMachineStatePb) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use MeasurementMachineStatePb.Descriptor instead.
 func (MeasurementMachineStatePb) EnumDescriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{3}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{3}
 }
 
 type CreateMeasurementBundleRequest struct {
@@ -238,7 +238,7 @@ type CreateMeasurementBundleRequest struct {
 
 func (x *CreateMeasurementBundleRequest) Reset() {
 	*x = CreateMeasurementBundleRequest{}
-	mi := &file_measured_boot_proto_msgTypes[0]
+	mi := &file_measured_boot_nico_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -250,7 +250,7 @@ func (x *CreateMeasurementBundleRequest) String() string {
 func (*CreateMeasurementBundleRequest) ProtoMessage() {}
 
 func (x *CreateMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[0]
+	mi := &file_measured_boot_nico_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -263,7 +263,7 @@ func (x *CreateMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMeasurementBundleRequest.ProtoReflect.Descriptor instead.
 func (*CreateMeasurementBundleRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{0}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *CreateMeasurementBundleRequest) GetProfileId() *MeasurementSystemProfileId {
@@ -303,7 +303,7 @@ type CreateMeasurementBundleResponse struct {
 
 func (x *CreateMeasurementBundleResponse) Reset() {
 	*x = CreateMeasurementBundleResponse{}
-	mi := &file_measured_boot_proto_msgTypes[1]
+	mi := &file_measured_boot_nico_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -315,7 +315,7 @@ func (x *CreateMeasurementBundleResponse) String() string {
 func (*CreateMeasurementBundleResponse) ProtoMessage() {}
 
 func (x *CreateMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[1]
+	mi := &file_measured_boot_nico_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -328,7 +328,7 @@ func (x *CreateMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMeasurementBundleResponse.ProtoReflect.Descriptor instead.
 func (*CreateMeasurementBundleResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{1}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CreateMeasurementBundleResponse) GetBundle() *MeasurementBundlePb {
@@ -351,7 +351,7 @@ type DeleteMeasurementBundleRequest struct {
 
 func (x *DeleteMeasurementBundleRequest) Reset() {
 	*x = DeleteMeasurementBundleRequest{}
-	mi := &file_measured_boot_proto_msgTypes[2]
+	mi := &file_measured_boot_nico_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -363,7 +363,7 @@ func (x *DeleteMeasurementBundleRequest) String() string {
 func (*DeleteMeasurementBundleRequest) ProtoMessage() {}
 
 func (x *DeleteMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[2]
+	mi := &file_measured_boot_nico_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -376,7 +376,7 @@ func (x *DeleteMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMeasurementBundleRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMeasurementBundleRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{2}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *DeleteMeasurementBundleRequest) GetSelector() isDeleteMeasurementBundleRequest_Selector {
@@ -429,7 +429,7 @@ type DeleteMeasurementBundleResponse struct {
 
 func (x *DeleteMeasurementBundleResponse) Reset() {
 	*x = DeleteMeasurementBundleResponse{}
-	mi := &file_measured_boot_proto_msgTypes[3]
+	mi := &file_measured_boot_nico_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -441,7 +441,7 @@ func (x *DeleteMeasurementBundleResponse) String() string {
 func (*DeleteMeasurementBundleResponse) ProtoMessage() {}
 
 func (x *DeleteMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[3]
+	mi := &file_measured_boot_nico_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -454,7 +454,7 @@ func (x *DeleteMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMeasurementBundleResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMeasurementBundleResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{3}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DeleteMeasurementBundleResponse) GetBundle() *MeasurementBundlePb {
@@ -478,7 +478,7 @@ type RenameMeasurementBundleRequest struct {
 
 func (x *RenameMeasurementBundleRequest) Reset() {
 	*x = RenameMeasurementBundleRequest{}
-	mi := &file_measured_boot_proto_msgTypes[4]
+	mi := &file_measured_boot_nico_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -490,7 +490,7 @@ func (x *RenameMeasurementBundleRequest) String() string {
 func (*RenameMeasurementBundleRequest) ProtoMessage() {}
 
 func (x *RenameMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[4]
+	mi := &file_measured_boot_nico_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -503,7 +503,7 @@ func (x *RenameMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenameMeasurementBundleRequest.ProtoReflect.Descriptor instead.
 func (*RenameMeasurementBundleRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{4}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RenameMeasurementBundleRequest) GetSelector() isRenameMeasurementBundleRequest_Selector {
@@ -563,7 +563,7 @@ type RenameMeasurementBundleResponse struct {
 
 func (x *RenameMeasurementBundleResponse) Reset() {
 	*x = RenameMeasurementBundleResponse{}
-	mi := &file_measured_boot_proto_msgTypes[5]
+	mi := &file_measured_boot_nico_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -575,7 +575,7 @@ func (x *RenameMeasurementBundleResponse) String() string {
 func (*RenameMeasurementBundleResponse) ProtoMessage() {}
 
 func (x *RenameMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[5]
+	mi := &file_measured_boot_nico_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -588,7 +588,7 @@ func (x *RenameMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RenameMeasurementBundleResponse.ProtoReflect.Descriptor instead.
 func (*RenameMeasurementBundleResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{5}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RenameMeasurementBundleResponse) GetBundle() *MeasurementBundlePb {
@@ -612,7 +612,7 @@ type UpdateMeasurementBundleRequest struct {
 
 func (x *UpdateMeasurementBundleRequest) Reset() {
 	*x = UpdateMeasurementBundleRequest{}
-	mi := &file_measured_boot_proto_msgTypes[6]
+	mi := &file_measured_boot_nico_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -624,7 +624,7 @@ func (x *UpdateMeasurementBundleRequest) String() string {
 func (*UpdateMeasurementBundleRequest) ProtoMessage() {}
 
 func (x *UpdateMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[6]
+	mi := &file_measured_boot_nico_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -637,7 +637,7 @@ func (x *UpdateMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMeasurementBundleRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMeasurementBundleRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{6}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *UpdateMeasurementBundleRequest) GetSelector() isUpdateMeasurementBundleRequest_Selector {
@@ -697,7 +697,7 @@ type UpdateMeasurementBundleResponse struct {
 
 func (x *UpdateMeasurementBundleResponse) Reset() {
 	*x = UpdateMeasurementBundleResponse{}
-	mi := &file_measured_boot_proto_msgTypes[7]
+	mi := &file_measured_boot_nico_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +709,7 @@ func (x *UpdateMeasurementBundleResponse) String() string {
 func (*UpdateMeasurementBundleResponse) ProtoMessage() {}
 
 func (x *UpdateMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[7]
+	mi := &file_measured_boot_nico_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,7 +722,7 @@ func (x *UpdateMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMeasurementBundleResponse.ProtoReflect.Descriptor instead.
 func (*UpdateMeasurementBundleResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{7}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *UpdateMeasurementBundleResponse) GetBundle() *MeasurementBundlePb {
@@ -745,7 +745,7 @@ type ShowMeasurementBundleRequest struct {
 
 func (x *ShowMeasurementBundleRequest) Reset() {
 	*x = ShowMeasurementBundleRequest{}
-	mi := &file_measured_boot_proto_msgTypes[8]
+	mi := &file_measured_boot_nico_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -757,7 +757,7 @@ func (x *ShowMeasurementBundleRequest) String() string {
 func (*ShowMeasurementBundleRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[8]
+	mi := &file_measured_boot_nico_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -770,7 +770,7 @@ func (x *ShowMeasurementBundleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementBundleRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementBundleRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{8}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ShowMeasurementBundleRequest) GetSelector() isShowMeasurementBundleRequest_Selector {
@@ -823,7 +823,7 @@ type ShowMeasurementBundleResponse struct {
 
 func (x *ShowMeasurementBundleResponse) Reset() {
 	*x = ShowMeasurementBundleResponse{}
-	mi := &file_measured_boot_proto_msgTypes[9]
+	mi := &file_measured_boot_nico_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -835,7 +835,7 @@ func (x *ShowMeasurementBundleResponse) String() string {
 func (*ShowMeasurementBundleResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[9]
+	mi := &file_measured_boot_nico_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -848,7 +848,7 @@ func (x *ShowMeasurementBundleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementBundleResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementBundleResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{9}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ShowMeasurementBundleResponse) GetBundle() *MeasurementBundlePb {
@@ -866,7 +866,7 @@ type ShowMeasurementBundlesRequest struct {
 
 func (x *ShowMeasurementBundlesRequest) Reset() {
 	*x = ShowMeasurementBundlesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[10]
+	mi := &file_measured_boot_nico_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -878,7 +878,7 @@ func (x *ShowMeasurementBundlesRequest) String() string {
 func (*ShowMeasurementBundlesRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementBundlesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[10]
+	mi := &file_measured_boot_nico_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -891,7 +891,7 @@ func (x *ShowMeasurementBundlesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementBundlesRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementBundlesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{10}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{10}
 }
 
 type ShowMeasurementBundlesResponse struct {
@@ -903,7 +903,7 @@ type ShowMeasurementBundlesResponse struct {
 
 func (x *ShowMeasurementBundlesResponse) Reset() {
 	*x = ShowMeasurementBundlesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[11]
+	mi := &file_measured_boot_nico_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -915,7 +915,7 @@ func (x *ShowMeasurementBundlesResponse) String() string {
 func (*ShowMeasurementBundlesResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementBundlesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[11]
+	mi := &file_measured_boot_nico_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -928,7 +928,7 @@ func (x *ShowMeasurementBundlesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementBundlesResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementBundlesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{11}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ShowMeasurementBundlesResponse) GetBundles() []*MeasurementBundlePb {
@@ -946,7 +946,7 @@ type ListMeasurementBundlesRequest struct {
 
 func (x *ListMeasurementBundlesRequest) Reset() {
 	*x = ListMeasurementBundlesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[12]
+	mi := &file_measured_boot_nico_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -958,7 +958,7 @@ func (x *ListMeasurementBundlesRequest) String() string {
 func (*ListMeasurementBundlesRequest) ProtoMessage() {}
 
 func (x *ListMeasurementBundlesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[12]
+	mi := &file_measured_boot_nico_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -971,7 +971,7 @@ func (x *ListMeasurementBundlesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeasurementBundlesRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementBundlesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{12}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{12}
 }
 
 type ListMeasurementBundlesResponse struct {
@@ -983,7 +983,7 @@ type ListMeasurementBundlesResponse struct {
 
 func (x *ListMeasurementBundlesResponse) Reset() {
 	*x = ListMeasurementBundlesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[13]
+	mi := &file_measured_boot_nico_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -995,7 +995,7 @@ func (x *ListMeasurementBundlesResponse) String() string {
 func (*ListMeasurementBundlesResponse) ProtoMessage() {}
 
 func (x *ListMeasurementBundlesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[13]
+	mi := &file_measured_boot_nico_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1008,7 +1008,7 @@ func (x *ListMeasurementBundlesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeasurementBundlesResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementBundlesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{13}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListMeasurementBundlesResponse) GetBundles() []*MeasurementBundleRecordPb {
@@ -1031,7 +1031,7 @@ type ListMeasurementBundleMachinesRequest struct {
 
 func (x *ListMeasurementBundleMachinesRequest) Reset() {
 	*x = ListMeasurementBundleMachinesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[14]
+	mi := &file_measured_boot_nico_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1043,7 +1043,7 @@ func (x *ListMeasurementBundleMachinesRequest) String() string {
 func (*ListMeasurementBundleMachinesRequest) ProtoMessage() {}
 
 func (x *ListMeasurementBundleMachinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[14]
+	mi := &file_measured_boot_nico_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1056,7 +1056,7 @@ func (x *ListMeasurementBundleMachinesRequest) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use ListMeasurementBundleMachinesRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementBundleMachinesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{14}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListMeasurementBundleMachinesRequest) GetSelector() isListMeasurementBundleMachinesRequest_Selector {
@@ -1111,7 +1111,7 @@ type ListMeasurementBundleMachinesResponse struct {
 
 func (x *ListMeasurementBundleMachinesResponse) Reset() {
 	*x = ListMeasurementBundleMachinesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[15]
+	mi := &file_measured_boot_nico_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1123,7 +1123,7 @@ func (x *ListMeasurementBundleMachinesResponse) String() string {
 func (*ListMeasurementBundleMachinesResponse) ProtoMessage() {}
 
 func (x *ListMeasurementBundleMachinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[15]
+	mi := &file_measured_boot_nico_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1136,7 +1136,7 @@ func (x *ListMeasurementBundleMachinesResponse) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use ListMeasurementBundleMachinesResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementBundleMachinesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{15}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListMeasurementBundleMachinesResponse) GetMachineIds() []string {
@@ -1155,7 +1155,7 @@ type FindClosestBundleMatchRequest struct {
 
 func (x *FindClosestBundleMatchRequest) Reset() {
 	*x = FindClosestBundleMatchRequest{}
-	mi := &file_measured_boot_proto_msgTypes[16]
+	mi := &file_measured_boot_nico_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1167,7 +1167,7 @@ func (x *FindClosestBundleMatchRequest) String() string {
 func (*FindClosestBundleMatchRequest) ProtoMessage() {}
 
 func (x *FindClosestBundleMatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[16]
+	mi := &file_measured_boot_nico_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1180,7 +1180,7 @@ func (x *FindClosestBundleMatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindClosestBundleMatchRequest.ProtoReflect.Descriptor instead.
 func (*FindClosestBundleMatchRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{16}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *FindClosestBundleMatchRequest) GetReportId() *MeasurementReportId {
@@ -1199,7 +1199,7 @@ type DeleteMeasurementJournalRequest struct {
 
 func (x *DeleteMeasurementJournalRequest) Reset() {
 	*x = DeleteMeasurementJournalRequest{}
-	mi := &file_measured_boot_proto_msgTypes[17]
+	mi := &file_measured_boot_nico_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1211,7 +1211,7 @@ func (x *DeleteMeasurementJournalRequest) String() string {
 func (*DeleteMeasurementJournalRequest) ProtoMessage() {}
 
 func (x *DeleteMeasurementJournalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[17]
+	mi := &file_measured_boot_nico_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1224,7 +1224,7 @@ func (x *DeleteMeasurementJournalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMeasurementJournalRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMeasurementJournalRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{17}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *DeleteMeasurementJournalRequest) GetJournalId() *MeasurementJournalId {
@@ -1243,7 +1243,7 @@ type DeleteMeasurementJournalResponse struct {
 
 func (x *DeleteMeasurementJournalResponse) Reset() {
 	*x = DeleteMeasurementJournalResponse{}
-	mi := &file_measured_boot_proto_msgTypes[18]
+	mi := &file_measured_boot_nico_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1255,7 +1255,7 @@ func (x *DeleteMeasurementJournalResponse) String() string {
 func (*DeleteMeasurementJournalResponse) ProtoMessage() {}
 
 func (x *DeleteMeasurementJournalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[18]
+	mi := &file_measured_boot_nico_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1268,7 +1268,7 @@ func (x *DeleteMeasurementJournalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMeasurementJournalResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMeasurementJournalResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{18}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DeleteMeasurementJournalResponse) GetJournal() *MeasurementJournalPb {
@@ -1291,7 +1291,7 @@ type ShowMeasurementJournalRequest struct {
 
 func (x *ShowMeasurementJournalRequest) Reset() {
 	*x = ShowMeasurementJournalRequest{}
-	mi := &file_measured_boot_proto_msgTypes[19]
+	mi := &file_measured_boot_nico_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1303,7 +1303,7 @@ func (x *ShowMeasurementJournalRequest) String() string {
 func (*ShowMeasurementJournalRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementJournalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[19]
+	mi := &file_measured_boot_nico_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1316,7 +1316,7 @@ func (x *ShowMeasurementJournalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementJournalRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementJournalRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{19}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ShowMeasurementJournalRequest) GetSelector() isShowMeasurementJournalRequest_Selector {
@@ -1369,7 +1369,7 @@ type ShowMeasurementJournalResponse struct {
 
 func (x *ShowMeasurementJournalResponse) Reset() {
 	*x = ShowMeasurementJournalResponse{}
-	mi := &file_measured_boot_proto_msgTypes[20]
+	mi := &file_measured_boot_nico_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1381,7 +1381,7 @@ func (x *ShowMeasurementJournalResponse) String() string {
 func (*ShowMeasurementJournalResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementJournalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[20]
+	mi := &file_measured_boot_nico_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1394,7 +1394,7 @@ func (x *ShowMeasurementJournalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementJournalResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementJournalResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{20}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ShowMeasurementJournalResponse) GetJournal() *MeasurementJournalPb {
@@ -1412,7 +1412,7 @@ type ShowMeasurementJournalsRequest struct {
 
 func (x *ShowMeasurementJournalsRequest) Reset() {
 	*x = ShowMeasurementJournalsRequest{}
-	mi := &file_measured_boot_proto_msgTypes[21]
+	mi := &file_measured_boot_nico_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1424,7 +1424,7 @@ func (x *ShowMeasurementJournalsRequest) String() string {
 func (*ShowMeasurementJournalsRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementJournalsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[21]
+	mi := &file_measured_boot_nico_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1437,7 +1437,7 @@ func (x *ShowMeasurementJournalsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementJournalsRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementJournalsRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{21}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{21}
 }
 
 type ShowMeasurementJournalsResponse struct {
@@ -1449,7 +1449,7 @@ type ShowMeasurementJournalsResponse struct {
 
 func (x *ShowMeasurementJournalsResponse) Reset() {
 	*x = ShowMeasurementJournalsResponse{}
-	mi := &file_measured_boot_proto_msgTypes[22]
+	mi := &file_measured_boot_nico_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1461,7 +1461,7 @@ func (x *ShowMeasurementJournalsResponse) String() string {
 func (*ShowMeasurementJournalsResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementJournalsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[22]
+	mi := &file_measured_boot_nico_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1474,7 +1474,7 @@ func (x *ShowMeasurementJournalsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementJournalsResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementJournalsResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{22}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ShowMeasurementJournalsResponse) GetJournals() []*MeasurementJournalPb {
@@ -1496,7 +1496,7 @@ type ListMeasurementJournalRequest struct {
 
 func (x *ListMeasurementJournalRequest) Reset() {
 	*x = ListMeasurementJournalRequest{}
-	mi := &file_measured_boot_proto_msgTypes[23]
+	mi := &file_measured_boot_nico_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1508,7 +1508,7 @@ func (x *ListMeasurementJournalRequest) String() string {
 func (*ListMeasurementJournalRequest) ProtoMessage() {}
 
 func (x *ListMeasurementJournalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[23]
+	mi := &file_measured_boot_nico_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1521,7 +1521,7 @@ func (x *ListMeasurementJournalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeasurementJournalRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementJournalRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{23}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ListMeasurementJournalRequest) GetSelector() isListMeasurementJournalRequest_Selector {
@@ -1559,7 +1559,7 @@ type ListMeasurementJournalResponse struct {
 
 func (x *ListMeasurementJournalResponse) Reset() {
 	*x = ListMeasurementJournalResponse{}
-	mi := &file_measured_boot_proto_msgTypes[24]
+	mi := &file_measured_boot_nico_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1571,7 +1571,7 @@ func (x *ListMeasurementJournalResponse) String() string {
 func (*ListMeasurementJournalResponse) ProtoMessage() {}
 
 func (x *ListMeasurementJournalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[24]
+	mi := &file_measured_boot_nico_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1584,7 +1584,7 @@ func (x *ListMeasurementJournalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeasurementJournalResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementJournalResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{24}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ListMeasurementJournalResponse) GetJournals() []*MeasurementJournalRecordPb {
@@ -1604,7 +1604,7 @@ type AttestCandidateMachineRequest struct {
 
 func (x *AttestCandidateMachineRequest) Reset() {
 	*x = AttestCandidateMachineRequest{}
-	mi := &file_measured_boot_proto_msgTypes[25]
+	mi := &file_measured_boot_nico_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1616,7 +1616,7 @@ func (x *AttestCandidateMachineRequest) String() string {
 func (*AttestCandidateMachineRequest) ProtoMessage() {}
 
 func (x *AttestCandidateMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[25]
+	mi := &file_measured_boot_nico_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1629,7 +1629,7 @@ func (x *AttestCandidateMachineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttestCandidateMachineRequest.ProtoReflect.Descriptor instead.
 func (*AttestCandidateMachineRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{25}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AttestCandidateMachineRequest) GetMachineId() string {
@@ -1655,7 +1655,7 @@ type AttestCandidateMachineResponse struct {
 
 func (x *AttestCandidateMachineResponse) Reset() {
 	*x = AttestCandidateMachineResponse{}
-	mi := &file_measured_boot_proto_msgTypes[26]
+	mi := &file_measured_boot_nico_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1667,7 +1667,7 @@ func (x *AttestCandidateMachineResponse) String() string {
 func (*AttestCandidateMachineResponse) ProtoMessage() {}
 
 func (x *AttestCandidateMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[26]
+	mi := &file_measured_boot_nico_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1680,7 +1680,7 @@ func (x *AttestCandidateMachineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttestCandidateMachineResponse.ProtoReflect.Descriptor instead.
 func (*AttestCandidateMachineResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{26}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *AttestCandidateMachineResponse) GetReport() *MeasurementReportPb {
@@ -1702,7 +1702,7 @@ type ShowCandidateMachineRequest struct {
 
 func (x *ShowCandidateMachineRequest) Reset() {
 	*x = ShowCandidateMachineRequest{}
-	mi := &file_measured_boot_proto_msgTypes[27]
+	mi := &file_measured_boot_nico_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1714,7 +1714,7 @@ func (x *ShowCandidateMachineRequest) String() string {
 func (*ShowCandidateMachineRequest) ProtoMessage() {}
 
 func (x *ShowCandidateMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[27]
+	mi := &file_measured_boot_nico_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1727,7 +1727,7 @@ func (x *ShowCandidateMachineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowCandidateMachineRequest.ProtoReflect.Descriptor instead.
 func (*ShowCandidateMachineRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{27}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ShowCandidateMachineRequest) GetSelector() isShowCandidateMachineRequest_Selector {
@@ -1765,7 +1765,7 @@ type ShowCandidateMachineResponse struct {
 
 func (x *ShowCandidateMachineResponse) Reset() {
 	*x = ShowCandidateMachineResponse{}
-	mi := &file_measured_boot_proto_msgTypes[28]
+	mi := &file_measured_boot_nico_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1777,7 +1777,7 @@ func (x *ShowCandidateMachineResponse) String() string {
 func (*ShowCandidateMachineResponse) ProtoMessage() {}
 
 func (x *ShowCandidateMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[28]
+	mi := &file_measured_boot_nico_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1790,7 +1790,7 @@ func (x *ShowCandidateMachineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowCandidateMachineResponse.ProtoReflect.Descriptor instead.
 func (*ShowCandidateMachineResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{28}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ShowCandidateMachineResponse) GetMachine() *CandidateMachinePb {
@@ -1808,7 +1808,7 @@ type ShowCandidateMachinesRequest struct {
 
 func (x *ShowCandidateMachinesRequest) Reset() {
 	*x = ShowCandidateMachinesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[29]
+	mi := &file_measured_boot_nico_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1820,7 +1820,7 @@ func (x *ShowCandidateMachinesRequest) String() string {
 func (*ShowCandidateMachinesRequest) ProtoMessage() {}
 
 func (x *ShowCandidateMachinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[29]
+	mi := &file_measured_boot_nico_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1833,7 +1833,7 @@ func (x *ShowCandidateMachinesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowCandidateMachinesRequest.ProtoReflect.Descriptor instead.
 func (*ShowCandidateMachinesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{29}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{29}
 }
 
 type ShowCandidateMachinesResponse struct {
@@ -1845,7 +1845,7 @@ type ShowCandidateMachinesResponse struct {
 
 func (x *ShowCandidateMachinesResponse) Reset() {
 	*x = ShowCandidateMachinesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[30]
+	mi := &file_measured_boot_nico_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1857,7 +1857,7 @@ func (x *ShowCandidateMachinesResponse) String() string {
 func (*ShowCandidateMachinesResponse) ProtoMessage() {}
 
 func (x *ShowCandidateMachinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[30]
+	mi := &file_measured_boot_nico_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1870,7 +1870,7 @@ func (x *ShowCandidateMachinesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowCandidateMachinesResponse.ProtoReflect.Descriptor instead.
 func (*ShowCandidateMachinesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{30}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ShowCandidateMachinesResponse) GetMachines() []*CandidateMachinePb {
@@ -1888,7 +1888,7 @@ type ListCandidateMachinesRequest struct {
 
 func (x *ListCandidateMachinesRequest) Reset() {
 	*x = ListCandidateMachinesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[31]
+	mi := &file_measured_boot_nico_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1900,7 +1900,7 @@ func (x *ListCandidateMachinesRequest) String() string {
 func (*ListCandidateMachinesRequest) ProtoMessage() {}
 
 func (x *ListCandidateMachinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[31]
+	mi := &file_measured_boot_nico_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1913,7 +1913,7 @@ func (x *ListCandidateMachinesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCandidateMachinesRequest.ProtoReflect.Descriptor instead.
 func (*ListCandidateMachinesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{31}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{31}
 }
 
 type ListCandidateMachinesResponse struct {
@@ -1925,7 +1925,7 @@ type ListCandidateMachinesResponse struct {
 
 func (x *ListCandidateMachinesResponse) Reset() {
 	*x = ListCandidateMachinesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[32]
+	mi := &file_measured_boot_nico_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1937,7 +1937,7 @@ func (x *ListCandidateMachinesResponse) String() string {
 func (*ListCandidateMachinesResponse) ProtoMessage() {}
 
 func (x *ListCandidateMachinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[32]
+	mi := &file_measured_boot_nico_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1950,7 +1950,7 @@ func (x *ListCandidateMachinesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCandidateMachinesResponse.ProtoReflect.Descriptor instead.
 func (*ListCandidateMachinesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{32}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ListCandidateMachinesResponse) GetMachines() []*CandidateMachineSummaryPb {
@@ -1970,7 +1970,7 @@ type CreateMeasurementReportRequest struct {
 
 func (x *CreateMeasurementReportRequest) Reset() {
 	*x = CreateMeasurementReportRequest{}
-	mi := &file_measured_boot_proto_msgTypes[33]
+	mi := &file_measured_boot_nico_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1982,7 +1982,7 @@ func (x *CreateMeasurementReportRequest) String() string {
 func (*CreateMeasurementReportRequest) ProtoMessage() {}
 
 func (x *CreateMeasurementReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[33]
+	mi := &file_measured_boot_nico_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1995,7 +1995,7 @@ func (x *CreateMeasurementReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMeasurementReportRequest.ProtoReflect.Descriptor instead.
 func (*CreateMeasurementReportRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{33}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CreateMeasurementReportRequest) GetMachineId() string {
@@ -2021,7 +2021,7 @@ type CreateMeasurementReportResponse struct {
 
 func (x *CreateMeasurementReportResponse) Reset() {
 	*x = CreateMeasurementReportResponse{}
-	mi := &file_measured_boot_proto_msgTypes[34]
+	mi := &file_measured_boot_nico_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2033,7 +2033,7 @@ func (x *CreateMeasurementReportResponse) String() string {
 func (*CreateMeasurementReportResponse) ProtoMessage() {}
 
 func (x *CreateMeasurementReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[34]
+	mi := &file_measured_boot_nico_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2046,7 +2046,7 @@ func (x *CreateMeasurementReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMeasurementReportResponse.ProtoReflect.Descriptor instead.
 func (*CreateMeasurementReportResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{34}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *CreateMeasurementReportResponse) GetReport() *MeasurementReportPb {
@@ -2065,7 +2065,7 @@ type DeleteMeasurementReportRequest struct {
 
 func (x *DeleteMeasurementReportRequest) Reset() {
 	*x = DeleteMeasurementReportRequest{}
-	mi := &file_measured_boot_proto_msgTypes[35]
+	mi := &file_measured_boot_nico_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2077,7 +2077,7 @@ func (x *DeleteMeasurementReportRequest) String() string {
 func (*DeleteMeasurementReportRequest) ProtoMessage() {}
 
 func (x *DeleteMeasurementReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[35]
+	mi := &file_measured_boot_nico_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2090,7 +2090,7 @@ func (x *DeleteMeasurementReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMeasurementReportRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMeasurementReportRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{35}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *DeleteMeasurementReportRequest) GetReportId() *MeasurementReportId {
@@ -2109,7 +2109,7 @@ type DeleteMeasurementReportResponse struct {
 
 func (x *DeleteMeasurementReportResponse) Reset() {
 	*x = DeleteMeasurementReportResponse{}
-	mi := &file_measured_boot_proto_msgTypes[36]
+	mi := &file_measured_boot_nico_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2121,7 +2121,7 @@ func (x *DeleteMeasurementReportResponse) String() string {
 func (*DeleteMeasurementReportResponse) ProtoMessage() {}
 
 func (x *DeleteMeasurementReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[36]
+	mi := &file_measured_boot_nico_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2134,7 +2134,7 @@ func (x *DeleteMeasurementReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMeasurementReportResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMeasurementReportResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{36}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *DeleteMeasurementReportResponse) GetReport() *MeasurementReportPb {
@@ -2154,7 +2154,7 @@ type PromoteMeasurementReportRequest struct {
 
 func (x *PromoteMeasurementReportRequest) Reset() {
 	*x = PromoteMeasurementReportRequest{}
-	mi := &file_measured_boot_proto_msgTypes[37]
+	mi := &file_measured_boot_nico_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2166,7 +2166,7 @@ func (x *PromoteMeasurementReportRequest) String() string {
 func (*PromoteMeasurementReportRequest) ProtoMessage() {}
 
 func (x *PromoteMeasurementReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[37]
+	mi := &file_measured_boot_nico_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2179,7 +2179,7 @@ func (x *PromoteMeasurementReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromoteMeasurementReportRequest.ProtoReflect.Descriptor instead.
 func (*PromoteMeasurementReportRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{37}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *PromoteMeasurementReportRequest) GetReportId() *MeasurementReportId {
@@ -2205,7 +2205,7 @@ type PromoteMeasurementReportResponse struct {
 
 func (x *PromoteMeasurementReportResponse) Reset() {
 	*x = PromoteMeasurementReportResponse{}
-	mi := &file_measured_boot_proto_msgTypes[38]
+	mi := &file_measured_boot_nico_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2217,7 +2217,7 @@ func (x *PromoteMeasurementReportResponse) String() string {
 func (*PromoteMeasurementReportResponse) ProtoMessage() {}
 
 func (x *PromoteMeasurementReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[38]
+	mi := &file_measured_boot_nico_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2230,7 +2230,7 @@ func (x *PromoteMeasurementReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PromoteMeasurementReportResponse.ProtoReflect.Descriptor instead.
 func (*PromoteMeasurementReportResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{38}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *PromoteMeasurementReportResponse) GetBundle() *MeasurementBundlePb {
@@ -2250,7 +2250,7 @@ type RevokeMeasurementReportRequest struct {
 
 func (x *RevokeMeasurementReportRequest) Reset() {
 	*x = RevokeMeasurementReportRequest{}
-	mi := &file_measured_boot_proto_msgTypes[39]
+	mi := &file_measured_boot_nico_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2262,7 +2262,7 @@ func (x *RevokeMeasurementReportRequest) String() string {
 func (*RevokeMeasurementReportRequest) ProtoMessage() {}
 
 func (x *RevokeMeasurementReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[39]
+	mi := &file_measured_boot_nico_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2275,7 +2275,7 @@ func (x *RevokeMeasurementReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeMeasurementReportRequest.ProtoReflect.Descriptor instead.
 func (*RevokeMeasurementReportRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{39}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *RevokeMeasurementReportRequest) GetReportId() *MeasurementReportId {
@@ -2301,7 +2301,7 @@ type RevokeMeasurementReportResponse struct {
 
 func (x *RevokeMeasurementReportResponse) Reset() {
 	*x = RevokeMeasurementReportResponse{}
-	mi := &file_measured_boot_proto_msgTypes[40]
+	mi := &file_measured_boot_nico_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2313,7 +2313,7 @@ func (x *RevokeMeasurementReportResponse) String() string {
 func (*RevokeMeasurementReportResponse) ProtoMessage() {}
 
 func (x *RevokeMeasurementReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[40]
+	mi := &file_measured_boot_nico_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2326,7 +2326,7 @@ func (x *RevokeMeasurementReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeMeasurementReportResponse.ProtoReflect.Descriptor instead.
 func (*RevokeMeasurementReportResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{40}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RevokeMeasurementReportResponse) GetBundle() *MeasurementBundlePb {
@@ -2345,7 +2345,7 @@ type ShowMeasurementReportForIdRequest struct {
 
 func (x *ShowMeasurementReportForIdRequest) Reset() {
 	*x = ShowMeasurementReportForIdRequest{}
-	mi := &file_measured_boot_proto_msgTypes[41]
+	mi := &file_measured_boot_nico_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2357,7 +2357,7 @@ func (x *ShowMeasurementReportForIdRequest) String() string {
 func (*ShowMeasurementReportForIdRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementReportForIdRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[41]
+	mi := &file_measured_boot_nico_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2370,7 +2370,7 @@ func (x *ShowMeasurementReportForIdRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ShowMeasurementReportForIdRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementReportForIdRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{41}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ShowMeasurementReportForIdRequest) GetReportId() *MeasurementReportId {
@@ -2389,7 +2389,7 @@ type ShowMeasurementReportForIdResponse struct {
 
 func (x *ShowMeasurementReportForIdResponse) Reset() {
 	*x = ShowMeasurementReportForIdResponse{}
-	mi := &file_measured_boot_proto_msgTypes[42]
+	mi := &file_measured_boot_nico_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2401,7 +2401,7 @@ func (x *ShowMeasurementReportForIdResponse) String() string {
 func (*ShowMeasurementReportForIdResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementReportForIdResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[42]
+	mi := &file_measured_boot_nico_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2414,7 +2414,7 @@ func (x *ShowMeasurementReportForIdResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use ShowMeasurementReportForIdResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementReportForIdResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{42}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ShowMeasurementReportForIdResponse) GetReport() *MeasurementReportPb {
@@ -2433,7 +2433,7 @@ type ShowMeasurementReportsForMachineRequest struct {
 
 func (x *ShowMeasurementReportsForMachineRequest) Reset() {
 	*x = ShowMeasurementReportsForMachineRequest{}
-	mi := &file_measured_boot_proto_msgTypes[43]
+	mi := &file_measured_boot_nico_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2445,7 +2445,7 @@ func (x *ShowMeasurementReportsForMachineRequest) String() string {
 func (*ShowMeasurementReportsForMachineRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementReportsForMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[43]
+	mi := &file_measured_boot_nico_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2458,7 +2458,7 @@ func (x *ShowMeasurementReportsForMachineRequest) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use ShowMeasurementReportsForMachineRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementReportsForMachineRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{43}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ShowMeasurementReportsForMachineRequest) GetMachineId() string {
@@ -2477,7 +2477,7 @@ type ShowMeasurementReportsForMachineResponse struct {
 
 func (x *ShowMeasurementReportsForMachineResponse) Reset() {
 	*x = ShowMeasurementReportsForMachineResponse{}
-	mi := &file_measured_boot_proto_msgTypes[44]
+	mi := &file_measured_boot_nico_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2489,7 +2489,7 @@ func (x *ShowMeasurementReportsForMachineResponse) String() string {
 func (*ShowMeasurementReportsForMachineResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementReportsForMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[44]
+	mi := &file_measured_boot_nico_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2502,7 +2502,7 @@ func (x *ShowMeasurementReportsForMachineResponse) ProtoReflect() protoreflect.M
 
 // Deprecated: Use ShowMeasurementReportsForMachineResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementReportsForMachineResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{44}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ShowMeasurementReportsForMachineResponse) GetReports() []*MeasurementReportPb {
@@ -2520,7 +2520,7 @@ type ShowMeasurementReportsRequest struct {
 
 func (x *ShowMeasurementReportsRequest) Reset() {
 	*x = ShowMeasurementReportsRequest{}
-	mi := &file_measured_boot_proto_msgTypes[45]
+	mi := &file_measured_boot_nico_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2532,7 +2532,7 @@ func (x *ShowMeasurementReportsRequest) String() string {
 func (*ShowMeasurementReportsRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementReportsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[45]
+	mi := &file_measured_boot_nico_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2545,7 +2545,7 @@ func (x *ShowMeasurementReportsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementReportsRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementReportsRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{45}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{45}
 }
 
 type ShowMeasurementReportsResponse struct {
@@ -2557,7 +2557,7 @@ type ShowMeasurementReportsResponse struct {
 
 func (x *ShowMeasurementReportsResponse) Reset() {
 	*x = ShowMeasurementReportsResponse{}
-	mi := &file_measured_boot_proto_msgTypes[46]
+	mi := &file_measured_boot_nico_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2569,7 +2569,7 @@ func (x *ShowMeasurementReportsResponse) String() string {
 func (*ShowMeasurementReportsResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementReportsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[46]
+	mi := &file_measured_boot_nico_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2582,7 +2582,7 @@ func (x *ShowMeasurementReportsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShowMeasurementReportsResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementReportsResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{46}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ShowMeasurementReportsResponse) GetReports() []*MeasurementReportPb {
@@ -2604,7 +2604,7 @@ type ListMeasurementReportRequest struct {
 
 func (x *ListMeasurementReportRequest) Reset() {
 	*x = ListMeasurementReportRequest{}
-	mi := &file_measured_boot_proto_msgTypes[47]
+	mi := &file_measured_boot_nico_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2616,7 +2616,7 @@ func (x *ListMeasurementReportRequest) String() string {
 func (*ListMeasurementReportRequest) ProtoMessage() {}
 
 func (x *ListMeasurementReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[47]
+	mi := &file_measured_boot_nico_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2629,7 +2629,7 @@ func (x *ListMeasurementReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeasurementReportRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementReportRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{47}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *ListMeasurementReportRequest) GetSelector() isListMeasurementReportRequest_Selector {
@@ -2667,7 +2667,7 @@ type ListMeasurementReportResponse struct {
 
 func (x *ListMeasurementReportResponse) Reset() {
 	*x = ListMeasurementReportResponse{}
-	mi := &file_measured_boot_proto_msgTypes[48]
+	mi := &file_measured_boot_nico_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2679,7 +2679,7 @@ func (x *ListMeasurementReportResponse) String() string {
 func (*ListMeasurementReportResponse) ProtoMessage() {}
 
 func (x *ListMeasurementReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[48]
+	mi := &file_measured_boot_nico_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2692,7 +2692,7 @@ func (x *ListMeasurementReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMeasurementReportResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementReportResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{48}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ListMeasurementReportResponse) GetReports() []*MeasurementReportRecordPb {
@@ -2711,7 +2711,7 @@ type MatchMeasurementReportRequest struct {
 
 func (x *MatchMeasurementReportRequest) Reset() {
 	*x = MatchMeasurementReportRequest{}
-	mi := &file_measured_boot_proto_msgTypes[49]
+	mi := &file_measured_boot_nico_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2723,7 +2723,7 @@ func (x *MatchMeasurementReportRequest) String() string {
 func (*MatchMeasurementReportRequest) ProtoMessage() {}
 
 func (x *MatchMeasurementReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[49]
+	mi := &file_measured_boot_nico_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2736,7 +2736,7 @@ func (x *MatchMeasurementReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MatchMeasurementReportRequest.ProtoReflect.Descriptor instead.
 func (*MatchMeasurementReportRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{49}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *MatchMeasurementReportRequest) GetPcrValues() []*PcrRegisterValuePb {
@@ -2755,7 +2755,7 @@ type MatchMeasurementReportResponse struct {
 
 func (x *MatchMeasurementReportResponse) Reset() {
 	*x = MatchMeasurementReportResponse{}
-	mi := &file_measured_boot_proto_msgTypes[50]
+	mi := &file_measured_boot_nico_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2767,7 +2767,7 @@ func (x *MatchMeasurementReportResponse) String() string {
 func (*MatchMeasurementReportResponse) ProtoMessage() {}
 
 func (x *MatchMeasurementReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[50]
+	mi := &file_measured_boot_nico_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2780,7 +2780,7 @@ func (x *MatchMeasurementReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MatchMeasurementReportResponse.ProtoReflect.Descriptor instead.
 func (*MatchMeasurementReportResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{50}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *MatchMeasurementReportResponse) GetReports() []*MeasurementReportRecordPb {
@@ -2802,7 +2802,7 @@ type CreateMeasurementSystemProfileRequest struct {
 
 func (x *CreateMeasurementSystemProfileRequest) Reset() {
 	*x = CreateMeasurementSystemProfileRequest{}
-	mi := &file_measured_boot_proto_msgTypes[51]
+	mi := &file_measured_boot_nico_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2814,7 +2814,7 @@ func (x *CreateMeasurementSystemProfileRequest) String() string {
 func (*CreateMeasurementSystemProfileRequest) ProtoMessage() {}
 
 func (x *CreateMeasurementSystemProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[51]
+	mi := &file_measured_boot_nico_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2827,7 +2827,7 @@ func (x *CreateMeasurementSystemProfileRequest) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use CreateMeasurementSystemProfileRequest.ProtoReflect.Descriptor instead.
 func (*CreateMeasurementSystemProfileRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{51}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *CreateMeasurementSystemProfileRequest) GetName() string {
@@ -2867,7 +2867,7 @@ type CreateMeasurementSystemProfileResponse struct {
 
 func (x *CreateMeasurementSystemProfileResponse) Reset() {
 	*x = CreateMeasurementSystemProfileResponse{}
-	mi := &file_measured_boot_proto_msgTypes[52]
+	mi := &file_measured_boot_nico_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2879,7 +2879,7 @@ func (x *CreateMeasurementSystemProfileResponse) String() string {
 func (*CreateMeasurementSystemProfileResponse) ProtoMessage() {}
 
 func (x *CreateMeasurementSystemProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[52]
+	mi := &file_measured_boot_nico_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2892,7 +2892,7 @@ func (x *CreateMeasurementSystemProfileResponse) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use CreateMeasurementSystemProfileResponse.ProtoReflect.Descriptor instead.
 func (*CreateMeasurementSystemProfileResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{52}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *CreateMeasurementSystemProfileResponse) GetSystemProfile() *MeasurementSystemProfilePb {
@@ -2915,7 +2915,7 @@ type DeleteMeasurementSystemProfileRequest struct {
 
 func (x *DeleteMeasurementSystemProfileRequest) Reset() {
 	*x = DeleteMeasurementSystemProfileRequest{}
-	mi := &file_measured_boot_proto_msgTypes[53]
+	mi := &file_measured_boot_nico_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2927,7 +2927,7 @@ func (x *DeleteMeasurementSystemProfileRequest) String() string {
 func (*DeleteMeasurementSystemProfileRequest) ProtoMessage() {}
 
 func (x *DeleteMeasurementSystemProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[53]
+	mi := &file_measured_boot_nico_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2940,7 +2940,7 @@ func (x *DeleteMeasurementSystemProfileRequest) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use DeleteMeasurementSystemProfileRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMeasurementSystemProfileRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{53}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *DeleteMeasurementSystemProfileRequest) GetSelector() isDeleteMeasurementSystemProfileRequest_Selector {
@@ -2995,7 +2995,7 @@ type DeleteMeasurementSystemProfileResponse struct {
 
 func (x *DeleteMeasurementSystemProfileResponse) Reset() {
 	*x = DeleteMeasurementSystemProfileResponse{}
-	mi := &file_measured_boot_proto_msgTypes[54]
+	mi := &file_measured_boot_nico_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3007,7 +3007,7 @@ func (x *DeleteMeasurementSystemProfileResponse) String() string {
 func (*DeleteMeasurementSystemProfileResponse) ProtoMessage() {}
 
 func (x *DeleteMeasurementSystemProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[54]
+	mi := &file_measured_boot_nico_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3020,7 +3020,7 @@ func (x *DeleteMeasurementSystemProfileResponse) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use DeleteMeasurementSystemProfileResponse.ProtoReflect.Descriptor instead.
 func (*DeleteMeasurementSystemProfileResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{54}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *DeleteMeasurementSystemProfileResponse) GetSystemProfile() *MeasurementSystemProfilePb {
@@ -3044,7 +3044,7 @@ type RenameMeasurementSystemProfileRequest struct {
 
 func (x *RenameMeasurementSystemProfileRequest) Reset() {
 	*x = RenameMeasurementSystemProfileRequest{}
-	mi := &file_measured_boot_proto_msgTypes[55]
+	mi := &file_measured_boot_nico_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3056,7 +3056,7 @@ func (x *RenameMeasurementSystemProfileRequest) String() string {
 func (*RenameMeasurementSystemProfileRequest) ProtoMessage() {}
 
 func (x *RenameMeasurementSystemProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[55]
+	mi := &file_measured_boot_nico_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3069,7 +3069,7 @@ func (x *RenameMeasurementSystemProfileRequest) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use RenameMeasurementSystemProfileRequest.ProtoReflect.Descriptor instead.
 func (*RenameMeasurementSystemProfileRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{55}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *RenameMeasurementSystemProfileRequest) GetSelector() isRenameMeasurementSystemProfileRequest_Selector {
@@ -3131,7 +3131,7 @@ type RenameMeasurementSystemProfileResponse struct {
 
 func (x *RenameMeasurementSystemProfileResponse) Reset() {
 	*x = RenameMeasurementSystemProfileResponse{}
-	mi := &file_measured_boot_proto_msgTypes[56]
+	mi := &file_measured_boot_nico_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3143,7 +3143,7 @@ func (x *RenameMeasurementSystemProfileResponse) String() string {
 func (*RenameMeasurementSystemProfileResponse) ProtoMessage() {}
 
 func (x *RenameMeasurementSystemProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[56]
+	mi := &file_measured_boot_nico_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3156,7 +3156,7 @@ func (x *RenameMeasurementSystemProfileResponse) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use RenameMeasurementSystemProfileResponse.ProtoReflect.Descriptor instead.
 func (*RenameMeasurementSystemProfileResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{56}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *RenameMeasurementSystemProfileResponse) GetProfile() *MeasurementSystemProfilePb {
@@ -3179,7 +3179,7 @@ type ShowMeasurementSystemProfileRequest struct {
 
 func (x *ShowMeasurementSystemProfileRequest) Reset() {
 	*x = ShowMeasurementSystemProfileRequest{}
-	mi := &file_measured_boot_proto_msgTypes[57]
+	mi := &file_measured_boot_nico_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3191,7 +3191,7 @@ func (x *ShowMeasurementSystemProfileRequest) String() string {
 func (*ShowMeasurementSystemProfileRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementSystemProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[57]
+	mi := &file_measured_boot_nico_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3204,7 +3204,7 @@ func (x *ShowMeasurementSystemProfileRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use ShowMeasurementSystemProfileRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementSystemProfileRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{57}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ShowMeasurementSystemProfileRequest) GetSelector() isShowMeasurementSystemProfileRequest_Selector {
@@ -3259,7 +3259,7 @@ type ShowMeasurementSystemProfileResponse struct {
 
 func (x *ShowMeasurementSystemProfileResponse) Reset() {
 	*x = ShowMeasurementSystemProfileResponse{}
-	mi := &file_measured_boot_proto_msgTypes[58]
+	mi := &file_measured_boot_nico_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3271,7 +3271,7 @@ func (x *ShowMeasurementSystemProfileResponse) String() string {
 func (*ShowMeasurementSystemProfileResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementSystemProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[58]
+	mi := &file_measured_boot_nico_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3284,7 +3284,7 @@ func (x *ShowMeasurementSystemProfileResponse) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use ShowMeasurementSystemProfileResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementSystemProfileResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{58}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *ShowMeasurementSystemProfileResponse) GetSystemProfile() *MeasurementSystemProfilePb {
@@ -3302,7 +3302,7 @@ type ShowMeasurementSystemProfilesRequest struct {
 
 func (x *ShowMeasurementSystemProfilesRequest) Reset() {
 	*x = ShowMeasurementSystemProfilesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[59]
+	mi := &file_measured_boot_nico_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3314,7 +3314,7 @@ func (x *ShowMeasurementSystemProfilesRequest) String() string {
 func (*ShowMeasurementSystemProfilesRequest) ProtoMessage() {}
 
 func (x *ShowMeasurementSystemProfilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[59]
+	mi := &file_measured_boot_nico_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3327,7 +3327,7 @@ func (x *ShowMeasurementSystemProfilesRequest) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use ShowMeasurementSystemProfilesRequest.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementSystemProfilesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{59}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{59}
 }
 
 type ShowMeasurementSystemProfilesResponse struct {
@@ -3339,7 +3339,7 @@ type ShowMeasurementSystemProfilesResponse struct {
 
 func (x *ShowMeasurementSystemProfilesResponse) Reset() {
 	*x = ShowMeasurementSystemProfilesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[60]
+	mi := &file_measured_boot_nico_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3351,7 +3351,7 @@ func (x *ShowMeasurementSystemProfilesResponse) String() string {
 func (*ShowMeasurementSystemProfilesResponse) ProtoMessage() {}
 
 func (x *ShowMeasurementSystemProfilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[60]
+	mi := &file_measured_boot_nico_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3364,7 +3364,7 @@ func (x *ShowMeasurementSystemProfilesResponse) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use ShowMeasurementSystemProfilesResponse.ProtoReflect.Descriptor instead.
 func (*ShowMeasurementSystemProfilesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{60}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ShowMeasurementSystemProfilesResponse) GetSystemProfiles() []*MeasurementSystemProfilePb {
@@ -3382,7 +3382,7 @@ type ListMeasurementSystemProfilesRequest struct {
 
 func (x *ListMeasurementSystemProfilesRequest) Reset() {
 	*x = ListMeasurementSystemProfilesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[61]
+	mi := &file_measured_boot_nico_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3394,7 +3394,7 @@ func (x *ListMeasurementSystemProfilesRequest) String() string {
 func (*ListMeasurementSystemProfilesRequest) ProtoMessage() {}
 
 func (x *ListMeasurementSystemProfilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[61]
+	mi := &file_measured_boot_nico_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3407,7 +3407,7 @@ func (x *ListMeasurementSystemProfilesRequest) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use ListMeasurementSystemProfilesRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementSystemProfilesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{61}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{61}
 }
 
 type ListMeasurementSystemProfilesResponse struct {
@@ -3419,7 +3419,7 @@ type ListMeasurementSystemProfilesResponse struct {
 
 func (x *ListMeasurementSystemProfilesResponse) Reset() {
 	*x = ListMeasurementSystemProfilesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[62]
+	mi := &file_measured_boot_nico_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3431,7 +3431,7 @@ func (x *ListMeasurementSystemProfilesResponse) String() string {
 func (*ListMeasurementSystemProfilesResponse) ProtoMessage() {}
 
 func (x *ListMeasurementSystemProfilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[62]
+	mi := &file_measured_boot_nico_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3444,7 +3444,7 @@ func (x *ListMeasurementSystemProfilesResponse) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use ListMeasurementSystemProfilesResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementSystemProfilesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{62}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *ListMeasurementSystemProfilesResponse) GetSystemProfiles() []*MeasurementSystemProfileRecordPb {
@@ -3467,7 +3467,7 @@ type ListMeasurementSystemProfileBundlesRequest struct {
 
 func (x *ListMeasurementSystemProfileBundlesRequest) Reset() {
 	*x = ListMeasurementSystemProfileBundlesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[63]
+	mi := &file_measured_boot_nico_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3479,7 +3479,7 @@ func (x *ListMeasurementSystemProfileBundlesRequest) String() string {
 func (*ListMeasurementSystemProfileBundlesRequest) ProtoMessage() {}
 
 func (x *ListMeasurementSystemProfileBundlesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[63]
+	mi := &file_measured_boot_nico_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3492,7 +3492,7 @@ func (x *ListMeasurementSystemProfileBundlesRequest) ProtoReflect() protoreflect
 
 // Deprecated: Use ListMeasurementSystemProfileBundlesRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementSystemProfileBundlesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{63}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *ListMeasurementSystemProfileBundlesRequest) GetSelector() isListMeasurementSystemProfileBundlesRequest_Selector {
@@ -3547,7 +3547,7 @@ type ListMeasurementSystemProfileBundlesResponse struct {
 
 func (x *ListMeasurementSystemProfileBundlesResponse) Reset() {
 	*x = ListMeasurementSystemProfileBundlesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[64]
+	mi := &file_measured_boot_nico_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3559,7 +3559,7 @@ func (x *ListMeasurementSystemProfileBundlesResponse) String() string {
 func (*ListMeasurementSystemProfileBundlesResponse) ProtoMessage() {}
 
 func (x *ListMeasurementSystemProfileBundlesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[64]
+	mi := &file_measured_boot_nico_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3572,7 +3572,7 @@ func (x *ListMeasurementSystemProfileBundlesResponse) ProtoReflect() protoreflec
 
 // Deprecated: Use ListMeasurementSystemProfileBundlesResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementSystemProfileBundlesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{64}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *ListMeasurementSystemProfileBundlesResponse) GetBundleIds() []*MeasurementBundleId {
@@ -3595,7 +3595,7 @@ type ListMeasurementSystemProfileMachinesRequest struct {
 
 func (x *ListMeasurementSystemProfileMachinesRequest) Reset() {
 	*x = ListMeasurementSystemProfileMachinesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[65]
+	mi := &file_measured_boot_nico_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3607,7 +3607,7 @@ func (x *ListMeasurementSystemProfileMachinesRequest) String() string {
 func (*ListMeasurementSystemProfileMachinesRequest) ProtoMessage() {}
 
 func (x *ListMeasurementSystemProfileMachinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[65]
+	mi := &file_measured_boot_nico_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3620,7 +3620,7 @@ func (x *ListMeasurementSystemProfileMachinesRequest) ProtoReflect() protoreflec
 
 // Deprecated: Use ListMeasurementSystemProfileMachinesRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementSystemProfileMachinesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{65}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ListMeasurementSystemProfileMachinesRequest) GetSelector() isListMeasurementSystemProfileMachinesRequest_Selector {
@@ -3675,7 +3675,7 @@ type ListMeasurementSystemProfileMachinesResponse struct {
 
 func (x *ListMeasurementSystemProfileMachinesResponse) Reset() {
 	*x = ListMeasurementSystemProfileMachinesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[66]
+	mi := &file_measured_boot_nico_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3687,7 +3687,7 @@ func (x *ListMeasurementSystemProfileMachinesResponse) String() string {
 func (*ListMeasurementSystemProfileMachinesResponse) ProtoMessage() {}
 
 func (x *ListMeasurementSystemProfileMachinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[66]
+	mi := &file_measured_boot_nico_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3700,7 +3700,7 @@ func (x *ListMeasurementSystemProfileMachinesResponse) ProtoReflect() protorefle
 
 // Deprecated: Use ListMeasurementSystemProfileMachinesResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementSystemProfileMachinesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{66}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *ListMeasurementSystemProfileMachinesResponse) GetMachineIds() []string {
@@ -3719,7 +3719,7 @@ type ImportSiteMeasurementsRequest struct {
 
 func (x *ImportSiteMeasurementsRequest) Reset() {
 	*x = ImportSiteMeasurementsRequest{}
-	mi := &file_measured_boot_proto_msgTypes[67]
+	mi := &file_measured_boot_nico_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3731,7 +3731,7 @@ func (x *ImportSiteMeasurementsRequest) String() string {
 func (*ImportSiteMeasurementsRequest) ProtoMessage() {}
 
 func (x *ImportSiteMeasurementsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[67]
+	mi := &file_measured_boot_nico_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3744,7 +3744,7 @@ func (x *ImportSiteMeasurementsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportSiteMeasurementsRequest.ProtoReflect.Descriptor instead.
 func (*ImportSiteMeasurementsRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{67}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *ImportSiteMeasurementsRequest) GetModel() *SiteModelPb {
@@ -3763,7 +3763,7 @@ type ImportSiteMeasurementsResponse struct {
 
 func (x *ImportSiteMeasurementsResponse) Reset() {
 	*x = ImportSiteMeasurementsResponse{}
-	mi := &file_measured_boot_proto_msgTypes[68]
+	mi := &file_measured_boot_nico_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3775,7 +3775,7 @@ func (x *ImportSiteMeasurementsResponse) String() string {
 func (*ImportSiteMeasurementsResponse) ProtoMessage() {}
 
 func (x *ImportSiteMeasurementsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[68]
+	mi := &file_measured_boot_nico_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3788,7 +3788,7 @@ func (x *ImportSiteMeasurementsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportSiteMeasurementsResponse.ProtoReflect.Descriptor instead.
 func (*ImportSiteMeasurementsResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{68}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ImportSiteMeasurementsResponse) GetResult() ImportSiteResult {
@@ -3806,7 +3806,7 @@ type ExportSiteMeasurementsRequest struct {
 
 func (x *ExportSiteMeasurementsRequest) Reset() {
 	*x = ExportSiteMeasurementsRequest{}
-	mi := &file_measured_boot_proto_msgTypes[69]
+	mi := &file_measured_boot_nico_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3818,7 +3818,7 @@ func (x *ExportSiteMeasurementsRequest) String() string {
 func (*ExportSiteMeasurementsRequest) ProtoMessage() {}
 
 func (x *ExportSiteMeasurementsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[69]
+	mi := &file_measured_boot_nico_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3831,7 +3831,7 @@ func (x *ExportSiteMeasurementsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSiteMeasurementsRequest.ProtoReflect.Descriptor instead.
 func (*ExportSiteMeasurementsRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{69}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{69}
 }
 
 type ExportSiteMeasurementsResponse struct {
@@ -3843,7 +3843,7 @@ type ExportSiteMeasurementsResponse struct {
 
 func (x *ExportSiteMeasurementsResponse) Reset() {
 	*x = ExportSiteMeasurementsResponse{}
-	mi := &file_measured_boot_proto_msgTypes[70]
+	mi := &file_measured_boot_nico_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3855,7 +3855,7 @@ func (x *ExportSiteMeasurementsResponse) String() string {
 func (*ExportSiteMeasurementsResponse) ProtoMessage() {}
 
 func (x *ExportSiteMeasurementsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[70]
+	mi := &file_measured_boot_nico_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3868,7 +3868,7 @@ func (x *ExportSiteMeasurementsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSiteMeasurementsResponse.ProtoReflect.Descriptor instead.
 func (*ExportSiteMeasurementsResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{70}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *ExportSiteMeasurementsResponse) GetModel() *SiteModelPb {
@@ -3890,7 +3890,7 @@ type AddMeasurementTrustedMachineRequest struct {
 
 func (x *AddMeasurementTrustedMachineRequest) Reset() {
 	*x = AddMeasurementTrustedMachineRequest{}
-	mi := &file_measured_boot_proto_msgTypes[71]
+	mi := &file_measured_boot_nico_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3902,7 +3902,7 @@ func (x *AddMeasurementTrustedMachineRequest) String() string {
 func (*AddMeasurementTrustedMachineRequest) ProtoMessage() {}
 
 func (x *AddMeasurementTrustedMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[71]
+	mi := &file_measured_boot_nico_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3915,7 +3915,7 @@ func (x *AddMeasurementTrustedMachineRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use AddMeasurementTrustedMachineRequest.ProtoReflect.Descriptor instead.
 func (*AddMeasurementTrustedMachineRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{71}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *AddMeasurementTrustedMachineRequest) GetMachineId() string {
@@ -3955,7 +3955,7 @@ type AddMeasurementTrustedMachineResponse struct {
 
 func (x *AddMeasurementTrustedMachineResponse) Reset() {
 	*x = AddMeasurementTrustedMachineResponse{}
-	mi := &file_measured_boot_proto_msgTypes[72]
+	mi := &file_measured_boot_nico_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3967,7 +3967,7 @@ func (x *AddMeasurementTrustedMachineResponse) String() string {
 func (*AddMeasurementTrustedMachineResponse) ProtoMessage() {}
 
 func (x *AddMeasurementTrustedMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[72]
+	mi := &file_measured_boot_nico_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3980,7 +3980,7 @@ func (x *AddMeasurementTrustedMachineResponse) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use AddMeasurementTrustedMachineResponse.ProtoReflect.Descriptor instead.
 func (*AddMeasurementTrustedMachineResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{72}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *AddMeasurementTrustedMachineResponse) GetApprovalRecord() *MeasurementApprovedMachineRecordPb {
@@ -4003,7 +4003,7 @@ type RemoveMeasurementTrustedMachineRequest struct {
 
 func (x *RemoveMeasurementTrustedMachineRequest) Reset() {
 	*x = RemoveMeasurementTrustedMachineRequest{}
-	mi := &file_measured_boot_proto_msgTypes[73]
+	mi := &file_measured_boot_nico_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4015,7 +4015,7 @@ func (x *RemoveMeasurementTrustedMachineRequest) String() string {
 func (*RemoveMeasurementTrustedMachineRequest) ProtoMessage() {}
 
 func (x *RemoveMeasurementTrustedMachineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[73]
+	mi := &file_measured_boot_nico_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4028,7 +4028,7 @@ func (x *RemoveMeasurementTrustedMachineRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use RemoveMeasurementTrustedMachineRequest.ProtoReflect.Descriptor instead.
 func (*RemoveMeasurementTrustedMachineRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{73}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *RemoveMeasurementTrustedMachineRequest) GetSelector() isRemoveMeasurementTrustedMachineRequest_Selector {
@@ -4083,7 +4083,7 @@ type RemoveMeasurementTrustedMachineResponse struct {
 
 func (x *RemoveMeasurementTrustedMachineResponse) Reset() {
 	*x = RemoveMeasurementTrustedMachineResponse{}
-	mi := &file_measured_boot_proto_msgTypes[74]
+	mi := &file_measured_boot_nico_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4095,7 +4095,7 @@ func (x *RemoveMeasurementTrustedMachineResponse) String() string {
 func (*RemoveMeasurementTrustedMachineResponse) ProtoMessage() {}
 
 func (x *RemoveMeasurementTrustedMachineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[74]
+	mi := &file_measured_boot_nico_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4108,7 +4108,7 @@ func (x *RemoveMeasurementTrustedMachineResponse) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use RemoveMeasurementTrustedMachineResponse.ProtoReflect.Descriptor instead.
 func (*RemoveMeasurementTrustedMachineResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{74}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *RemoveMeasurementTrustedMachineResponse) GetApprovalRecord() *MeasurementApprovedMachineRecordPb {
@@ -4130,7 +4130,7 @@ type AddMeasurementTrustedProfileRequest struct {
 
 func (x *AddMeasurementTrustedProfileRequest) Reset() {
 	*x = AddMeasurementTrustedProfileRequest{}
-	mi := &file_measured_boot_proto_msgTypes[75]
+	mi := &file_measured_boot_nico_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4142,7 +4142,7 @@ func (x *AddMeasurementTrustedProfileRequest) String() string {
 func (*AddMeasurementTrustedProfileRequest) ProtoMessage() {}
 
 func (x *AddMeasurementTrustedProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[75]
+	mi := &file_measured_boot_nico_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4155,7 +4155,7 @@ func (x *AddMeasurementTrustedProfileRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use AddMeasurementTrustedProfileRequest.ProtoReflect.Descriptor instead.
 func (*AddMeasurementTrustedProfileRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{75}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *AddMeasurementTrustedProfileRequest) GetProfileId() *MeasurementSystemProfileId {
@@ -4195,7 +4195,7 @@ type AddMeasurementTrustedProfileResponse struct {
 
 func (x *AddMeasurementTrustedProfileResponse) Reset() {
 	*x = AddMeasurementTrustedProfileResponse{}
-	mi := &file_measured_boot_proto_msgTypes[76]
+	mi := &file_measured_boot_nico_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4207,7 +4207,7 @@ func (x *AddMeasurementTrustedProfileResponse) String() string {
 func (*AddMeasurementTrustedProfileResponse) ProtoMessage() {}
 
 func (x *AddMeasurementTrustedProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[76]
+	mi := &file_measured_boot_nico_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4220,7 +4220,7 @@ func (x *AddMeasurementTrustedProfileResponse) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use AddMeasurementTrustedProfileResponse.ProtoReflect.Descriptor instead.
 func (*AddMeasurementTrustedProfileResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{76}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *AddMeasurementTrustedProfileResponse) GetApprovalRecord() *MeasurementApprovedProfileRecordPb {
@@ -4243,7 +4243,7 @@ type RemoveMeasurementTrustedProfileRequest struct {
 
 func (x *RemoveMeasurementTrustedProfileRequest) Reset() {
 	*x = RemoveMeasurementTrustedProfileRequest{}
-	mi := &file_measured_boot_proto_msgTypes[77]
+	mi := &file_measured_boot_nico_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4255,7 +4255,7 @@ func (x *RemoveMeasurementTrustedProfileRequest) String() string {
 func (*RemoveMeasurementTrustedProfileRequest) ProtoMessage() {}
 
 func (x *RemoveMeasurementTrustedProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[77]
+	mi := &file_measured_boot_nico_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4268,7 +4268,7 @@ func (x *RemoveMeasurementTrustedProfileRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use RemoveMeasurementTrustedProfileRequest.ProtoReflect.Descriptor instead.
 func (*RemoveMeasurementTrustedProfileRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{77}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *RemoveMeasurementTrustedProfileRequest) GetSelector() isRemoveMeasurementTrustedProfileRequest_Selector {
@@ -4323,7 +4323,7 @@ type RemoveMeasurementTrustedProfileResponse struct {
 
 func (x *RemoveMeasurementTrustedProfileResponse) Reset() {
 	*x = RemoveMeasurementTrustedProfileResponse{}
-	mi := &file_measured_boot_proto_msgTypes[78]
+	mi := &file_measured_boot_nico_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4335,7 +4335,7 @@ func (x *RemoveMeasurementTrustedProfileResponse) String() string {
 func (*RemoveMeasurementTrustedProfileResponse) ProtoMessage() {}
 
 func (x *RemoveMeasurementTrustedProfileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[78]
+	mi := &file_measured_boot_nico_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4348,7 +4348,7 @@ func (x *RemoveMeasurementTrustedProfileResponse) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use RemoveMeasurementTrustedProfileResponse.ProtoReflect.Descriptor instead.
 func (*RemoveMeasurementTrustedProfileResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{78}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *RemoveMeasurementTrustedProfileResponse) GetApprovalRecord() *MeasurementApprovedProfileRecordPb {
@@ -4366,7 +4366,7 @@ type ListMeasurementTrustedMachinesRequest struct {
 
 func (x *ListMeasurementTrustedMachinesRequest) Reset() {
 	*x = ListMeasurementTrustedMachinesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[79]
+	mi := &file_measured_boot_nico_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4378,7 +4378,7 @@ func (x *ListMeasurementTrustedMachinesRequest) String() string {
 func (*ListMeasurementTrustedMachinesRequest) ProtoMessage() {}
 
 func (x *ListMeasurementTrustedMachinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[79]
+	mi := &file_measured_boot_nico_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4391,7 +4391,7 @@ func (x *ListMeasurementTrustedMachinesRequest) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use ListMeasurementTrustedMachinesRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementTrustedMachinesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{79}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{79}
 }
 
 type ListMeasurementTrustedMachinesResponse struct {
@@ -4403,7 +4403,7 @@ type ListMeasurementTrustedMachinesResponse struct {
 
 func (x *ListMeasurementTrustedMachinesResponse) Reset() {
 	*x = ListMeasurementTrustedMachinesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[80]
+	mi := &file_measured_boot_nico_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4415,7 +4415,7 @@ func (x *ListMeasurementTrustedMachinesResponse) String() string {
 func (*ListMeasurementTrustedMachinesResponse) ProtoMessage() {}
 
 func (x *ListMeasurementTrustedMachinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[80]
+	mi := &file_measured_boot_nico_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4428,7 +4428,7 @@ func (x *ListMeasurementTrustedMachinesResponse) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use ListMeasurementTrustedMachinesResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementTrustedMachinesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{80}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *ListMeasurementTrustedMachinesResponse) GetApprovalRecords() []*MeasurementApprovedMachineRecordPb {
@@ -4446,7 +4446,7 @@ type ListMeasurementTrustedProfilesRequest struct {
 
 func (x *ListMeasurementTrustedProfilesRequest) Reset() {
 	*x = ListMeasurementTrustedProfilesRequest{}
-	mi := &file_measured_boot_proto_msgTypes[81]
+	mi := &file_measured_boot_nico_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4458,7 +4458,7 @@ func (x *ListMeasurementTrustedProfilesRequest) String() string {
 func (*ListMeasurementTrustedProfilesRequest) ProtoMessage() {}
 
 func (x *ListMeasurementTrustedProfilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[81]
+	mi := &file_measured_boot_nico_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4471,7 +4471,7 @@ func (x *ListMeasurementTrustedProfilesRequest) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use ListMeasurementTrustedProfilesRequest.ProtoReflect.Descriptor instead.
 func (*ListMeasurementTrustedProfilesRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{81}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{81}
 }
 
 type ListMeasurementTrustedProfilesResponse struct {
@@ -4483,7 +4483,7 @@ type ListMeasurementTrustedProfilesResponse struct {
 
 func (x *ListMeasurementTrustedProfilesResponse) Reset() {
 	*x = ListMeasurementTrustedProfilesResponse{}
-	mi := &file_measured_boot_proto_msgTypes[82]
+	mi := &file_measured_boot_nico_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4495,7 +4495,7 @@ func (x *ListMeasurementTrustedProfilesResponse) String() string {
 func (*ListMeasurementTrustedProfilesResponse) ProtoMessage() {}
 
 func (x *ListMeasurementTrustedProfilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[82]
+	mi := &file_measured_boot_nico_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4508,7 +4508,7 @@ func (x *ListMeasurementTrustedProfilesResponse) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use ListMeasurementTrustedProfilesResponse.ProtoReflect.Descriptor instead.
 func (*ListMeasurementTrustedProfilesResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{82}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *ListMeasurementTrustedProfilesResponse) GetApprovalRecords() []*MeasurementApprovedProfileRecordPb {
@@ -4526,7 +4526,7 @@ type ListAttestationSummaryRequest struct {
 
 func (x *ListAttestationSummaryRequest) Reset() {
 	*x = ListAttestationSummaryRequest{}
-	mi := &file_measured_boot_proto_msgTypes[83]
+	mi := &file_measured_boot_nico_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4538,7 +4538,7 @@ func (x *ListAttestationSummaryRequest) String() string {
 func (*ListAttestationSummaryRequest) ProtoMessage() {}
 
 func (x *ListAttestationSummaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[83]
+	mi := &file_measured_boot_nico_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4551,7 +4551,7 @@ func (x *ListAttestationSummaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAttestationSummaryRequest.ProtoReflect.Descriptor instead.
 func (*ListAttestationSummaryRequest) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{83}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{83}
 }
 
 type ListAttestationSummaryResponse struct {
@@ -4563,7 +4563,7 @@ type ListAttestationSummaryResponse struct {
 
 func (x *ListAttestationSummaryResponse) Reset() {
 	*x = ListAttestationSummaryResponse{}
-	mi := &file_measured_boot_proto_msgTypes[84]
+	mi := &file_measured_boot_nico_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4575,7 +4575,7 @@ func (x *ListAttestationSummaryResponse) String() string {
 func (*ListAttestationSummaryResponse) ProtoMessage() {}
 
 func (x *ListAttestationSummaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[84]
+	mi := &file_measured_boot_nico_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4588,7 +4588,7 @@ func (x *ListAttestationSummaryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAttestationSummaryResponse.ProtoReflect.Descriptor instead.
 func (*ListAttestationSummaryResponse) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{84}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *ListAttestationSummaryResponse) GetAttestationOutcomes() []*MachineAttestationSummaryPb {
@@ -4610,7 +4610,7 @@ type MachineAttestationSummaryPb struct {
 
 func (x *MachineAttestationSummaryPb) Reset() {
 	*x = MachineAttestationSummaryPb{}
-	mi := &file_measured_boot_proto_msgTypes[85]
+	mi := &file_measured_boot_nico_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4622,7 +4622,7 @@ func (x *MachineAttestationSummaryPb) String() string {
 func (*MachineAttestationSummaryPb) ProtoMessage() {}
 
 func (x *MachineAttestationSummaryPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[85]
+	mi := &file_measured_boot_nico_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4635,7 +4635,7 @@ func (x *MachineAttestationSummaryPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineAttestationSummaryPb.ProtoReflect.Descriptor instead.
 func (*MachineAttestationSummaryPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{85}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *MachineAttestationSummaryPb) GetMachineId() string {
@@ -4680,7 +4680,7 @@ type MeasurementBundlePb struct {
 
 func (x *MeasurementBundlePb) Reset() {
 	*x = MeasurementBundlePb{}
-	mi := &file_measured_boot_proto_msgTypes[86]
+	mi := &file_measured_boot_nico_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4692,7 +4692,7 @@ func (x *MeasurementBundlePb) String() string {
 func (*MeasurementBundlePb) ProtoMessage() {}
 
 func (x *MeasurementBundlePb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[86]
+	mi := &file_measured_boot_nico_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4705,7 +4705,7 @@ func (x *MeasurementBundlePb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementBundlePb.ProtoReflect.Descriptor instead.
 func (*MeasurementBundlePb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{86}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *MeasurementBundlePb) GetBundleId() *MeasurementBundleId {
@@ -4763,7 +4763,7 @@ type MeasurementBundleValueRecordPb struct {
 
 func (x *MeasurementBundleValueRecordPb) Reset() {
 	*x = MeasurementBundleValueRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[87]
+	mi := &file_measured_boot_nico_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4775,7 +4775,7 @@ func (x *MeasurementBundleValueRecordPb) String() string {
 func (*MeasurementBundleValueRecordPb) ProtoMessage() {}
 
 func (x *MeasurementBundleValueRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[87]
+	mi := &file_measured_boot_nico_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4788,7 +4788,7 @@ func (x *MeasurementBundleValueRecordPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementBundleValueRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementBundleValueRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{87}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *MeasurementBundleValueRecordPb) GetValueId() *MeasurementBundleValueId {
@@ -4839,7 +4839,7 @@ type MeasurementBundleRecordPb struct {
 
 func (x *MeasurementBundleRecordPb) Reset() {
 	*x = MeasurementBundleRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[88]
+	mi := &file_measured_boot_nico_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4851,7 +4851,7 @@ func (x *MeasurementBundleRecordPb) String() string {
 func (*MeasurementBundleRecordPb) ProtoMessage() {}
 
 func (x *MeasurementBundleRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[88]
+	mi := &file_measured_boot_nico_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4864,7 +4864,7 @@ func (x *MeasurementBundleRecordPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementBundleRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementBundleRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{88}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *MeasurementBundleRecordPb) GetBundleId() *MeasurementBundleId {
@@ -4917,7 +4917,7 @@ type MeasurementJournalPb struct {
 
 func (x *MeasurementJournalPb) Reset() {
 	*x = MeasurementJournalPb{}
-	mi := &file_measured_boot_proto_msgTypes[89]
+	mi := &file_measured_boot_nico_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4929,7 +4929,7 @@ func (x *MeasurementJournalPb) String() string {
 func (*MeasurementJournalPb) ProtoMessage() {}
 
 func (x *MeasurementJournalPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[89]
+	mi := &file_measured_boot_nico_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4942,7 +4942,7 @@ func (x *MeasurementJournalPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementJournalPb.ProtoReflect.Descriptor instead.
 func (*MeasurementJournalPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{89}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *MeasurementJournalPb) GetJournalId() *MeasurementJournalId {
@@ -5009,7 +5009,7 @@ type MeasurementJournalRecordPb struct {
 
 func (x *MeasurementJournalRecordPb) Reset() {
 	*x = MeasurementJournalRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[90]
+	mi := &file_measured_boot_nico_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5021,7 +5021,7 @@ func (x *MeasurementJournalRecordPb) String() string {
 func (*MeasurementJournalRecordPb) ProtoMessage() {}
 
 func (x *MeasurementJournalRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[90]
+	mi := &file_measured_boot_nico_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5034,7 +5034,7 @@ func (x *MeasurementJournalRecordPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementJournalRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementJournalRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{90}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *MeasurementJournalRecordPb) GetJournalId() *MeasurementJournalId {
@@ -5098,7 +5098,7 @@ type MeasurementReportPb struct {
 
 func (x *MeasurementReportPb) Reset() {
 	*x = MeasurementReportPb{}
-	mi := &file_measured_boot_proto_msgTypes[91]
+	mi := &file_measured_boot_nico_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5110,7 +5110,7 @@ func (x *MeasurementReportPb) String() string {
 func (*MeasurementReportPb) ProtoMessage() {}
 
 func (x *MeasurementReportPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[91]
+	mi := &file_measured_boot_nico_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5123,7 +5123,7 @@ func (x *MeasurementReportPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementReportPb.ProtoReflect.Descriptor instead.
 func (*MeasurementReportPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{91}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *MeasurementReportPb) GetReportId() *MeasurementReportId {
@@ -5167,7 +5167,7 @@ type MeasurementReportValueRecordPb struct {
 
 func (x *MeasurementReportValueRecordPb) Reset() {
 	*x = MeasurementReportValueRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[92]
+	mi := &file_measured_boot_nico_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5179,7 +5179,7 @@ func (x *MeasurementReportValueRecordPb) String() string {
 func (*MeasurementReportValueRecordPb) ProtoMessage() {}
 
 func (x *MeasurementReportValueRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[92]
+	mi := &file_measured_boot_nico_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5192,7 +5192,7 @@ func (x *MeasurementReportValueRecordPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementReportValueRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementReportValueRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{92}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *MeasurementReportValueRecordPb) GetValueId() *MeasurementReportValueId {
@@ -5241,7 +5241,7 @@ type MeasurementReportRecordPb struct {
 
 func (x *MeasurementReportRecordPb) Reset() {
 	*x = MeasurementReportRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[93]
+	mi := &file_measured_boot_nico_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5253,7 +5253,7 @@ func (x *MeasurementReportRecordPb) String() string {
 func (*MeasurementReportRecordPb) ProtoMessage() {}
 
 func (x *MeasurementReportRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[93]
+	mi := &file_measured_boot_nico_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5266,7 +5266,7 @@ func (x *MeasurementReportRecordPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementReportRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementReportRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{93}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *MeasurementReportRecordPb) GetReportId() *MeasurementReportId {
@@ -5302,7 +5302,7 @@ type MeasurementSystemProfilePb struct {
 
 func (x *MeasurementSystemProfilePb) Reset() {
 	*x = MeasurementSystemProfilePb{}
-	mi := &file_measured_boot_proto_msgTypes[94]
+	mi := &file_measured_boot_nico_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5314,7 +5314,7 @@ func (x *MeasurementSystemProfilePb) String() string {
 func (*MeasurementSystemProfilePb) ProtoMessage() {}
 
 func (x *MeasurementSystemProfilePb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[94]
+	mi := &file_measured_boot_nico_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5327,7 +5327,7 @@ func (x *MeasurementSystemProfilePb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementSystemProfilePb.ProtoReflect.Descriptor instead.
 func (*MeasurementSystemProfilePb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{94}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *MeasurementSystemProfilePb) GetProfileId() *MeasurementSystemProfileId {
@@ -5369,7 +5369,7 @@ type MeasurementSystemProfileRecordPb struct {
 
 func (x *MeasurementSystemProfileRecordPb) Reset() {
 	*x = MeasurementSystemProfileRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[95]
+	mi := &file_measured_boot_nico_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5381,7 +5381,7 @@ func (x *MeasurementSystemProfileRecordPb) String() string {
 func (*MeasurementSystemProfileRecordPb) ProtoMessage() {}
 
 func (x *MeasurementSystemProfileRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[95]
+	mi := &file_measured_boot_nico_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5394,7 +5394,7 @@ func (x *MeasurementSystemProfileRecordPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementSystemProfileRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementSystemProfileRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{95}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *MeasurementSystemProfileRecordPb) GetProfileId() *MeasurementSystemProfileId {
@@ -5431,7 +5431,7 @@ type MeasurementSystemProfileAttrRecordPb struct {
 
 func (x *MeasurementSystemProfileAttrRecordPb) Reset() {
 	*x = MeasurementSystemProfileAttrRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[96]
+	mi := &file_measured_boot_nico_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5443,7 +5443,7 @@ func (x *MeasurementSystemProfileAttrRecordPb) String() string {
 func (*MeasurementSystemProfileAttrRecordPb) ProtoMessage() {}
 
 func (x *MeasurementSystemProfileAttrRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[96]
+	mi := &file_measured_boot_nico_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5456,7 +5456,7 @@ func (x *MeasurementSystemProfileAttrRecordPb) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use MeasurementSystemProfileAttrRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementSystemProfileAttrRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{96}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *MeasurementSystemProfileAttrRecordPb) GetAttributeId() *MeasurementSystemProfileAttrId {
@@ -5510,7 +5510,7 @@ type CandidateMachinePb struct {
 
 func (x *CandidateMachinePb) Reset() {
 	*x = CandidateMachinePb{}
-	mi := &file_measured_boot_proto_msgTypes[97]
+	mi := &file_measured_boot_nico_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5522,7 +5522,7 @@ func (x *CandidateMachinePb) String() string {
 func (*CandidateMachinePb) ProtoMessage() {}
 
 func (x *CandidateMachinePb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[97]
+	mi := &file_measured_boot_nico_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5535,7 +5535,7 @@ func (x *CandidateMachinePb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CandidateMachinePb.ProtoReflect.Descriptor instead.
 func (*CandidateMachinePb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{97}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *CandidateMachinePb) GetMachineId() string {
@@ -5590,7 +5590,7 @@ type CandidateMachineSummaryPb struct {
 
 func (x *CandidateMachineSummaryPb) Reset() {
 	*x = CandidateMachineSummaryPb{}
-	mi := &file_measured_boot_proto_msgTypes[98]
+	mi := &file_measured_boot_nico_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5602,7 +5602,7 @@ func (x *CandidateMachineSummaryPb) String() string {
 func (*CandidateMachineSummaryPb) ProtoMessage() {}
 
 func (x *CandidateMachineSummaryPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[98]
+	mi := &file_measured_boot_nico_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5615,7 +5615,7 @@ func (x *CandidateMachineSummaryPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CandidateMachineSummaryPb.ProtoReflect.Descriptor instead.
 func (*CandidateMachineSummaryPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{98}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *CandidateMachineSummaryPb) GetMachineId() string {
@@ -5644,7 +5644,7 @@ type SiteModelPb struct {
 
 func (x *SiteModelPb) Reset() {
 	*x = SiteModelPb{}
-	mi := &file_measured_boot_proto_msgTypes[99]
+	mi := &file_measured_boot_nico_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5656,7 +5656,7 @@ func (x *SiteModelPb) String() string {
 func (*SiteModelPb) ProtoMessage() {}
 
 func (x *SiteModelPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[99]
+	mi := &file_measured_boot_nico_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5669,7 +5669,7 @@ func (x *SiteModelPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SiteModelPb.ProtoReflect.Descriptor instead.
 func (*SiteModelPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{99}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *SiteModelPb) GetMeasurementSystemProfiles() []*MeasurementSystemProfileRecordPb {
@@ -5714,7 +5714,7 @@ type MeasurementApprovedMachineRecordPb struct {
 
 func (x *MeasurementApprovedMachineRecordPb) Reset() {
 	*x = MeasurementApprovedMachineRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[100]
+	mi := &file_measured_boot_nico_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5726,7 +5726,7 @@ func (x *MeasurementApprovedMachineRecordPb) String() string {
 func (*MeasurementApprovedMachineRecordPb) ProtoMessage() {}
 
 func (x *MeasurementApprovedMachineRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[100]
+	mi := &file_measured_boot_nico_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5739,7 +5739,7 @@ func (x *MeasurementApprovedMachineRecordPb) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use MeasurementApprovedMachineRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementApprovedMachineRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{100}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *MeasurementApprovedMachineRecordPb) GetApprovalId() *MeasurementApprovedMachineId {
@@ -5798,7 +5798,7 @@ type MeasurementApprovedProfileRecordPb struct {
 
 func (x *MeasurementApprovedProfileRecordPb) Reset() {
 	*x = MeasurementApprovedProfileRecordPb{}
-	mi := &file_measured_boot_proto_msgTypes[101]
+	mi := &file_measured_boot_nico_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5810,7 +5810,7 @@ func (x *MeasurementApprovedProfileRecordPb) String() string {
 func (*MeasurementApprovedProfileRecordPb) ProtoMessage() {}
 
 func (x *MeasurementApprovedProfileRecordPb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[101]
+	mi := &file_measured_boot_nico_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5823,7 +5823,7 @@ func (x *MeasurementApprovedProfileRecordPb) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use MeasurementApprovedProfileRecordPb.ProtoReflect.Descriptor instead.
 func (*MeasurementApprovedProfileRecordPb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{101}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *MeasurementApprovedProfileRecordPb) GetApprovalId() *MeasurementApprovedProfileId {
@@ -5878,7 +5878,7 @@ type PcrRegisterValuePb struct {
 
 func (x *PcrRegisterValuePb) Reset() {
 	*x = PcrRegisterValuePb{}
-	mi := &file_measured_boot_proto_msgTypes[102]
+	mi := &file_measured_boot_nico_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5890,7 +5890,7 @@ func (x *PcrRegisterValuePb) String() string {
 func (*PcrRegisterValuePb) ProtoMessage() {}
 
 func (x *PcrRegisterValuePb) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[102]
+	mi := &file_measured_boot_nico_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5903,7 +5903,7 @@ func (x *PcrRegisterValuePb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PcrRegisterValuePb.ProtoReflect.Descriptor instead.
 func (*PcrRegisterValuePb) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{102}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *PcrRegisterValuePb) GetPcrRegister() int32 {
@@ -5930,7 +5930,7 @@ type KvPair struct {
 
 func (x *KvPair) Reset() {
 	*x = KvPair{}
-	mi := &file_measured_boot_proto_msgTypes[103]
+	mi := &file_measured_boot_nico_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5942,7 +5942,7 @@ func (x *KvPair) String() string {
 func (*KvPair) ProtoMessage() {}
 
 func (x *KvPair) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[103]
+	mi := &file_measured_boot_nico_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5955,7 +5955,7 @@ func (x *KvPair) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KvPair.ProtoReflect.Descriptor instead.
 func (*KvPair) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{103}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *KvPair) GetKey() string {
@@ -5983,7 +5983,7 @@ type MeasurementSystemProfileId struct {
 
 func (x *MeasurementSystemProfileId) Reset() {
 	*x = MeasurementSystemProfileId{}
-	mi := &file_measured_boot_proto_msgTypes[104]
+	mi := &file_measured_boot_nico_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5995,7 +5995,7 @@ func (x *MeasurementSystemProfileId) String() string {
 func (*MeasurementSystemProfileId) ProtoMessage() {}
 
 func (x *MeasurementSystemProfileId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[104]
+	mi := &file_measured_boot_nico_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6008,7 +6008,7 @@ func (x *MeasurementSystemProfileId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementSystemProfileId.ProtoReflect.Descriptor instead.
 func (*MeasurementSystemProfileId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{104}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *MeasurementSystemProfileId) GetValue() string {
@@ -6027,7 +6027,7 @@ type MeasurementSystemProfileAttrId struct {
 
 func (x *MeasurementSystemProfileAttrId) Reset() {
 	*x = MeasurementSystemProfileAttrId{}
-	mi := &file_measured_boot_proto_msgTypes[105]
+	mi := &file_measured_boot_nico_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6039,7 +6039,7 @@ func (x *MeasurementSystemProfileAttrId) String() string {
 func (*MeasurementSystemProfileAttrId) ProtoMessage() {}
 
 func (x *MeasurementSystemProfileAttrId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[105]
+	mi := &file_measured_boot_nico_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6052,7 +6052,7 @@ func (x *MeasurementSystemProfileAttrId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementSystemProfileAttrId.ProtoReflect.Descriptor instead.
 func (*MeasurementSystemProfileAttrId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{105}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *MeasurementSystemProfileAttrId) GetValue() string {
@@ -6071,7 +6071,7 @@ type MeasurementBundleId struct {
 
 func (x *MeasurementBundleId) Reset() {
 	*x = MeasurementBundleId{}
-	mi := &file_measured_boot_proto_msgTypes[106]
+	mi := &file_measured_boot_nico_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6083,7 +6083,7 @@ func (x *MeasurementBundleId) String() string {
 func (*MeasurementBundleId) ProtoMessage() {}
 
 func (x *MeasurementBundleId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[106]
+	mi := &file_measured_boot_nico_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6096,7 +6096,7 @@ func (x *MeasurementBundleId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementBundleId.ProtoReflect.Descriptor instead.
 func (*MeasurementBundleId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{106}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *MeasurementBundleId) GetValue() string {
@@ -6115,7 +6115,7 @@ type MeasurementBundleValueId struct {
 
 func (x *MeasurementBundleValueId) Reset() {
 	*x = MeasurementBundleValueId{}
-	mi := &file_measured_boot_proto_msgTypes[107]
+	mi := &file_measured_boot_nico_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6127,7 +6127,7 @@ func (x *MeasurementBundleValueId) String() string {
 func (*MeasurementBundleValueId) ProtoMessage() {}
 
 func (x *MeasurementBundleValueId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[107]
+	mi := &file_measured_boot_nico_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6140,7 +6140,7 @@ func (x *MeasurementBundleValueId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementBundleValueId.ProtoReflect.Descriptor instead.
 func (*MeasurementBundleValueId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{107}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *MeasurementBundleValueId) GetValue() string {
@@ -6159,7 +6159,7 @@ type MeasurementReportId struct {
 
 func (x *MeasurementReportId) Reset() {
 	*x = MeasurementReportId{}
-	mi := &file_measured_boot_proto_msgTypes[108]
+	mi := &file_measured_boot_nico_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6171,7 +6171,7 @@ func (x *MeasurementReportId) String() string {
 func (*MeasurementReportId) ProtoMessage() {}
 
 func (x *MeasurementReportId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[108]
+	mi := &file_measured_boot_nico_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6184,7 +6184,7 @@ func (x *MeasurementReportId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementReportId.ProtoReflect.Descriptor instead.
 func (*MeasurementReportId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{108}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *MeasurementReportId) GetValue() string {
@@ -6203,7 +6203,7 @@ type MeasurementReportValueId struct {
 
 func (x *MeasurementReportValueId) Reset() {
 	*x = MeasurementReportValueId{}
-	mi := &file_measured_boot_proto_msgTypes[109]
+	mi := &file_measured_boot_nico_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6215,7 +6215,7 @@ func (x *MeasurementReportValueId) String() string {
 func (*MeasurementReportValueId) ProtoMessage() {}
 
 func (x *MeasurementReportValueId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[109]
+	mi := &file_measured_boot_nico_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6228,7 +6228,7 @@ func (x *MeasurementReportValueId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementReportValueId.ProtoReflect.Descriptor instead.
 func (*MeasurementReportValueId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{109}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *MeasurementReportValueId) GetValue() string {
@@ -6247,7 +6247,7 @@ type MeasurementJournalId struct {
 
 func (x *MeasurementJournalId) Reset() {
 	*x = MeasurementJournalId{}
-	mi := &file_measured_boot_proto_msgTypes[110]
+	mi := &file_measured_boot_nico_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6259,7 +6259,7 @@ func (x *MeasurementJournalId) String() string {
 func (*MeasurementJournalId) ProtoMessage() {}
 
 func (x *MeasurementJournalId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[110]
+	mi := &file_measured_boot_nico_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6272,7 +6272,7 @@ func (x *MeasurementJournalId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementJournalId.ProtoReflect.Descriptor instead.
 func (*MeasurementJournalId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{110}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *MeasurementJournalId) GetValue() string {
@@ -6291,7 +6291,7 @@ type MeasurementApprovedMachineId struct {
 
 func (x *MeasurementApprovedMachineId) Reset() {
 	*x = MeasurementApprovedMachineId{}
-	mi := &file_measured_boot_proto_msgTypes[111]
+	mi := &file_measured_boot_nico_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6303,7 +6303,7 @@ func (x *MeasurementApprovedMachineId) String() string {
 func (*MeasurementApprovedMachineId) ProtoMessage() {}
 
 func (x *MeasurementApprovedMachineId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[111]
+	mi := &file_measured_boot_nico_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6316,7 +6316,7 @@ func (x *MeasurementApprovedMachineId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementApprovedMachineId.ProtoReflect.Descriptor instead.
 func (*MeasurementApprovedMachineId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{111}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *MeasurementApprovedMachineId) GetValue() string {
@@ -6335,7 +6335,7 @@ type MeasurementApprovedProfileId struct {
 
 func (x *MeasurementApprovedProfileId) Reset() {
 	*x = MeasurementApprovedProfileId{}
-	mi := &file_measured_boot_proto_msgTypes[112]
+	mi := &file_measured_boot_nico_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6347,7 +6347,7 @@ func (x *MeasurementApprovedProfileId) String() string {
 func (*MeasurementApprovedProfileId) ProtoMessage() {}
 
 func (x *MeasurementApprovedProfileId) ProtoReflect() protoreflect.Message {
-	mi := &file_measured_boot_proto_msgTypes[112]
+	mi := &file_measured_boot_nico_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6360,7 +6360,7 @@ func (x *MeasurementApprovedProfileId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeasurementApprovedProfileId.ProtoReflect.Descriptor instead.
 func (*MeasurementApprovedProfileId) Descriptor() ([]byte, []int) {
-	return file_measured_boot_proto_rawDescGZIP(), []int{112}
+	return file_measured_boot_nico_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *MeasurementApprovedProfileId) GetValue() string {
@@ -6370,11 +6370,11 @@ func (x *MeasurementApprovedProfileId) GetValue() string {
 	return ""
 }
 
-var File_measured_boot_proto protoreflect.FileDescriptor
+var File_measured_boot_nico_proto protoreflect.FileDescriptor
 
-const file_measured_boot_proto_rawDesc = "" +
+const file_measured_boot_nico_proto_rawDesc = "" +
 	"\n" +
-	"\x13measured_boot.proto\x12\rmeasured_boot\x1a\x1egoogle/protobuf/duration.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8d\x02\n" +
+	"\x18measured_boot_nico.proto\x12\rmeasured_boot\x1a\x1egoogle/protobuf/duration.proto\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8d\x02\n" +
 	"\x1eCreateMeasurementBundleRequest\x12H\n" +
 	"\n" +
 	"profile_id\x18\x01 \x01(\v2).measured_boot.MeasurementSystemProfileIdR\tprofileId\x12\x17\n" +
@@ -6804,24 +6804,23 @@ const file_measured_boot_proto_rawDesc = "" +
 	"Discovered\x10\x00\x12\x11\n" +
 	"\rPendingBundle\x10\x01\x12\f\n" +
 	"\bMeasured\x10\x02\x12\x13\n" +
-	"\x0fMeasuringFailed\x10\x03B\xbd\x01\n" +
-	"\x11com.measured_bootB\x11MeasuredBootProtoP\x01ZEgithub.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapigrpc\xa2\x02\x03MXX\xaa\x02\fMeasuredBoot\xca\x02\fMeasuredBoot\xe2\x02\x18MeasuredBoot\\GPBMetadata\xea\x02\fMeasuredBootb\x06proto3"
+	"\x0fMeasuringFailed\x10\x03B8Z6github.com/NVIDIA/infra-controller/rest-api/proto/coreb\x06proto3"
 
 var (
-	file_measured_boot_proto_rawDescOnce sync.Once
-	file_measured_boot_proto_rawDescData []byte
+	file_measured_boot_nico_proto_rawDescOnce sync.Once
+	file_measured_boot_nico_proto_rawDescData []byte
 )
 
-func file_measured_boot_proto_rawDescGZIP() []byte {
-	file_measured_boot_proto_rawDescOnce.Do(func() {
-		file_measured_boot_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_measured_boot_proto_rawDesc), len(file_measured_boot_proto_rawDesc)))
+func file_measured_boot_nico_proto_rawDescGZIP() []byte {
+	file_measured_boot_nico_proto_rawDescOnce.Do(func() {
+		file_measured_boot_nico_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_measured_boot_nico_proto_rawDesc), len(file_measured_boot_nico_proto_rawDesc)))
 	})
-	return file_measured_boot_proto_rawDescData
+	return file_measured_boot_nico_proto_rawDescData
 }
 
-var file_measured_boot_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_measured_boot_proto_msgTypes = make([]protoimpl.MessageInfo, 114)
-var file_measured_boot_proto_goTypes = []any{
+var file_measured_boot_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_measured_boot_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 114)
+var file_measured_boot_nico_proto_goTypes = []any{
 	(ImportSiteResult)(0),                                // 0: measured_boot.ImportSiteResult
 	(MeasurementBundleStatePb)(0),                        // 1: measured_boot.MeasurementBundleStatePb
 	(MeasurementApprovedTypePb)(0),                       // 2: measured_boot.MeasurementApprovedTypePb
@@ -6942,7 +6941,7 @@ var file_measured_boot_proto_goTypes = []any{
 	nil,                                                  // 117: measured_boot.CandidateMachinePb.AttrsEntry
 	(*timestamppb.Timestamp)(nil),                        // 118: google.protobuf.Timestamp
 }
-var file_measured_boot_proto_depIdxs = []int32{
+var file_measured_boot_nico_proto_depIdxs = []int32{
 	108, // 0: measured_boot.CreateMeasurementBundleRequest.profile_id:type_name -> measured_boot.MeasurementSystemProfileId
 	106, // 1: measured_boot.CreateMeasurementBundleRequest.pcr_values:type_name -> measured_boot.PcrRegisterValuePb
 	1,   // 2: measured_boot.CreateMeasurementBundleRequest.state:type_name -> measured_boot.MeasurementBundleStatePb
@@ -7081,92 +7080,92 @@ var file_measured_boot_proto_depIdxs = []int32{
 	0,   // [0:131] is the sub-list for field type_name
 }
 
-func init() { file_measured_boot_proto_init() }
-func file_measured_boot_proto_init() {
-	if File_measured_boot_proto != nil {
+func init() { file_measured_boot_nico_proto_init() }
+func file_measured_boot_nico_proto_init() {
+	if File_measured_boot_nico_proto != nil {
 		return
 	}
-	file_measured_boot_proto_msgTypes[0].OneofWrappers = []any{}
-	file_measured_boot_proto_msgTypes[2].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[0].OneofWrappers = []any{}
+	file_measured_boot_nico_proto_msgTypes[2].OneofWrappers = []any{
 		(*DeleteMeasurementBundleRequest_BundleId)(nil),
 		(*DeleteMeasurementBundleRequest_BundleName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[4].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[4].OneofWrappers = []any{
 		(*RenameMeasurementBundleRequest_BundleId)(nil),
 		(*RenameMeasurementBundleRequest_BundleName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[6].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[6].OneofWrappers = []any{
 		(*UpdateMeasurementBundleRequest_BundleId)(nil),
 		(*UpdateMeasurementBundleRequest_BundleName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[8].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[8].OneofWrappers = []any{
 		(*ShowMeasurementBundleRequest_BundleId)(nil),
 		(*ShowMeasurementBundleRequest_BundleName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[14].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[14].OneofWrappers = []any{
 		(*ListMeasurementBundleMachinesRequest_BundleId)(nil),
 		(*ListMeasurementBundleMachinesRequest_BundleName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[19].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[19].OneofWrappers = []any{
 		(*ShowMeasurementJournalRequest_JournalId)(nil),
 		(*ShowMeasurementJournalRequest_LatestForMachineId)(nil),
 	}
-	file_measured_boot_proto_msgTypes[23].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[23].OneofWrappers = []any{
 		(*ListMeasurementJournalRequest_MachineId)(nil),
 	}
-	file_measured_boot_proto_msgTypes[27].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[27].OneofWrappers = []any{
 		(*ShowCandidateMachineRequest_MachineId)(nil),
 	}
-	file_measured_boot_proto_msgTypes[47].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[47].OneofWrappers = []any{
 		(*ListMeasurementReportRequest_MachineId)(nil),
 	}
-	file_measured_boot_proto_msgTypes[51].OneofWrappers = []any{}
-	file_measured_boot_proto_msgTypes[53].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[51].OneofWrappers = []any{}
+	file_measured_boot_nico_proto_msgTypes[53].OneofWrappers = []any{
 		(*DeleteMeasurementSystemProfileRequest_ProfileId)(nil),
 		(*DeleteMeasurementSystemProfileRequest_ProfileName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[55].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[55].OneofWrappers = []any{
 		(*RenameMeasurementSystemProfileRequest_ProfileId)(nil),
 		(*RenameMeasurementSystemProfileRequest_ProfileName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[57].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[57].OneofWrappers = []any{
 		(*ShowMeasurementSystemProfileRequest_ProfileId)(nil),
 		(*ShowMeasurementSystemProfileRequest_ProfileName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[63].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[63].OneofWrappers = []any{
 		(*ListMeasurementSystemProfileBundlesRequest_ProfileId)(nil),
 		(*ListMeasurementSystemProfileBundlesRequest_ProfileName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[65].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[65].OneofWrappers = []any{
 		(*ListMeasurementSystemProfileMachinesRequest_ProfileId)(nil),
 		(*ListMeasurementSystemProfileMachinesRequest_ProfileName)(nil),
 	}
-	file_measured_boot_proto_msgTypes[73].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[73].OneofWrappers = []any{
 		(*RemoveMeasurementTrustedMachineRequest_ApprovalId)(nil),
 		(*RemoveMeasurementTrustedMachineRequest_MachineId)(nil),
 	}
-	file_measured_boot_proto_msgTypes[75].OneofWrappers = []any{}
-	file_measured_boot_proto_msgTypes[77].OneofWrappers = []any{
+	file_measured_boot_nico_proto_msgTypes[75].OneofWrappers = []any{}
+	file_measured_boot_nico_proto_msgTypes[77].OneofWrappers = []any{
 		(*RemoveMeasurementTrustedProfileRequest_ApprovalId)(nil),
 		(*RemoveMeasurementTrustedProfileRequest_ProfileId)(nil),
 	}
-	file_measured_boot_proto_msgTypes[85].OneofWrappers = []any{}
+	file_measured_boot_nico_proto_msgTypes[85].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_measured_boot_proto_rawDesc), len(file_measured_boot_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_measured_boot_nico_proto_rawDesc), len(file_measured_boot_nico_proto_rawDesc)),
 			NumEnums:      4,
 			NumMessages:   114,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_measured_boot_proto_goTypes,
-		DependencyIndexes: file_measured_boot_proto_depIdxs,
-		EnumInfos:         file_measured_boot_proto_enumTypes,
-		MessageInfos:      file_measured_boot_proto_msgTypes,
+		GoTypes:           file_measured_boot_nico_proto_goTypes,
+		DependencyIndexes: file_measured_boot_nico_proto_depIdxs,
+		EnumInfos:         file_measured_boot_nico_proto_enumTypes,
+		MessageInfos:      file_measured_boot_nico_proto_msgTypes,
 	}.Build()
-	File_measured_boot_proto = out.File
-	file_measured_boot_proto_goTypes = nil
-	file_measured_boot_proto_depIdxs = nil
+	File_measured_boot_nico_proto = out.File
+	file_measured_boot_nico_proto_goTypes = nil
+	file_measured_boot_nico_proto_depIdxs = nil
 }

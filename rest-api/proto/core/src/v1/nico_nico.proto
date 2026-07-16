@@ -8,22 +8,31 @@ package forge;
 // Don't forget to update build.rs to add the Serialize annotation for any new
 // message types!
 
-import "common.proto";
+import "common_nico.proto";
+import "dns_nico.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
-import "health.proto";
-import "machine_discovery.proto";
-import "measured_boot.proto";
-import "mlx_device.proto";
-import "site_explorer.proto";
+import "health_nico.proto";
+import "machine_discovery_nico.proto";
+import "measured_boot_nico.proto";
+import "mlx_device_nico.proto";
+import "scout_firmware_upgrade_nico.proto";
+import "site_explorer_nico.proto";
+
+option go_package = "github.com/NVIDIA/infra-controller/rest-api/proto/core";
 
 service Forge {
-  // What version of Forge is this service running? Matches `--version` command line.
+  // What version of NICo is this service running? Matches `--version` command line.
   rpc Version(VersionRequest) returns (BuildInfo);
 
   // Domain
+  rpc CreateDomain(dns.CreateDomainRequest) returns (dns.Domain);
+  rpc UpdateDomain(dns.UpdateDomainRequest) returns (dns.Domain);
+  rpc DeleteDomain(dns.DomainDeletionRequest)
+      returns (dns.DomainDeletionResult);
+  rpc FindDomain(dns.DomainSearchQuery) returns (dns.DomainList);
 
   // DEPRECATED Domain RPCs - for backward compatibility
   // Use the non-Legacy versions above instead
@@ -138,7 +147,7 @@ service Forge {
   rpc FindInstancesByIds(InstancesByIdsRequest) returns (InstanceList);
   rpc FindInstanceByMachineID(common.MachineId) returns (InstanceList);
 
-  // forge-dpu-agent -> carbide-api
+  // nico-dpu-agent -> nico-core-api
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
   // Lists all health report sources for a Machine
@@ -189,10 +198,13 @@ service Forge {
 
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
-  // Looks up a DNS record for DNS names assigned by Forge
+  // Looks up a DNS record for DNS names assigned by NICo
+  rpc LookupRecord(dns.DnsResourceRecordLookupRequest)returns (dns.DnsResourceRecordLookupResponse);
 
   // Get all DNS domains
+  rpc GetAllDomains(dns.GetAllDomainsRequest) returns (dns.GetAllDomainsResponse);
   // Get metadata for a specific DNS domain
+  rpc GetAllDomainMetadata(dns.DomainMetadataRequest) returns (dns.DomainMetadataResponse);
 
   // TODO(ajf): Harder to implement bi-directional streaming, commented out for now
   // rpc StreamConsole(stream ConsoleInput) returns (stream ConsoleOutput);
@@ -207,7 +219,7 @@ service Forge {
   rpc RenewMachineCertificate(MachineCertificateRenewRequest) returns (MachineCertificateResult);
   rpc DiscoveryCompleted(MachineDiscoveryCompletedRequest) returns (MachineDiscoveryCompletedResponse);
   rpc CleanupMachineCompleted(MachineCleanupInfo) returns (MachineCleanupResult);
-  // Invoked by forge-scout whenever a certain Machine can not be properly acted on
+  // Invoked by nico-scout whenever a certain Machine can not be properly acted on
   rpc ReportForgeScoutError(ForgeScoutErrorReport) returns (ForgeScoutErrorReportResult);
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
   rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
@@ -268,7 +280,7 @@ service Forge {
 
   // Admin CLI actions
 
-  // List all machines network status (HBN), as reported by `forge-dpu-agent`
+  // List all machines network status (HBN), as reported by `nico-dpu-agent`
   rpc GetAllManagedHostNetworkStatus(ManagedHostNetworkStatusRequest) returns (ManagedHostNetworkStatusResponse);
 
   // Gets the latest Site Exploration report
@@ -312,10 +324,10 @@ service Forge {
   rpc FindExploredMlxDevicesByIds(site_explorer.ExploredMlxDevicesByIdsRequest) returns (site_explorer.ExploredMlxDeviceList);
   rpc UpdateMachineHardwareInfo(UpdateMachineHardwareInfoRequest) returns (google.protobuf.Empty);
 
-  // Force deletes a Machine and the associated DPU from Forge databases,
+  // Force deletes a Machine and the associated DPU from NICo databases,
   // with the intention of rediscovering the host later on.
   // The command will not stop a running tenant instance. Only a reboot that forces
-  // the Forge PXE boot process again would stop the image and run the discovery
+  // the NICo PXE boot process again would stop the image and run the discovery
   // process again.
   //
   // Due to the not well defined state that hosts are in after calling this command,
@@ -366,6 +378,7 @@ service Forge {
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
   // Report the result of a scout-based firmware upgrade
+  rpc ReportScoutFirmwareUpgradeStatus(ScoutFirmwareUpgradeStatusRequest) returns (google.protobuf.Empty);
 
   rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
 
@@ -837,8 +850,8 @@ service Forge {
   rpc GetOpenIDConfiguration(OpenIdConfigRequest) returns (OpenIdConfiguration);
 
   // ScoutStream establishes a bidirectional streaming connection between
-  // scout agents and carbide-api. The initial use-case for this is for
-  // Mellanox device management using forge-admin-cli, but there's an
+  // scout agents and nico-core-api. The initial use-case for this is for
+  // Mellanox device management using nico-admin-cli, but there's an
   // opportunity to pull the ForgeAgentControl flow into here as well.
   rpc ScoutStream(stream ScoutStreamApiBoundMessage) returns (stream ScoutStreamScoutBoundMessage);
 
@@ -855,36 +868,36 @@ service Forge {
   rpc ScoutStreamPing(ScoutStreamAdminPingRequest) returns (ScoutStreamAdminPingResponse);
 
   // Mellanox administrative endpoints for profile management, which are called by
-  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // the CLI (nico-admin-cli) and potentially the UI. These endpoints ultimately
   // interconnect with a scout agent listening via an open ScoutStream connection.
   //
   // MlxAdminProfileSync is used to sync an MlxConfigProfile to a given device.
   rpc MlxAdminProfileSync(mlx_device.MlxAdminProfileSyncRequest) returns (mlx_device.MlxAdminProfileSyncResponse);
   // MlxAdminProfileShow shows the configuration of a specific MlxConfigProfile
-  // loaded into carbide-api.
+  // loaded into nico-core-api.
   rpc MlxAdminProfileShow(mlx_device.MlxAdminProfileShowRequest) returns (mlx_device.MlxAdminProfileShowResponse);
   // MlxAdminProfileCompare compares the running config of a device to
   // the values of a given MlxConfigProfile.
   rpc MlxAdminProfileCompare(mlx_device.MlxAdminProfileCompareRequest) returns (mlx_device.MlxAdminProfileCompareResponse);
-  // MlxAdminProfileList lists all configured MlxConfigProfiles in carbide-api.
+  // MlxAdminProfileList lists all configured MlxConfigProfiles in nico-core-api.
   rpc MlxAdminProfileList(mlx_device.MlxAdminProfileListRequest) returns (mlx_device.MlxAdminProfileListResponse);
 
   // Mellanox administrative endpoints for lockdown management, which are called by
-  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // the CLI (nico-admin-cli) and potentially the UI. These endpoints ultimately
   // interconnect with a scout agent listening via an open ScoutStream connection.
   //
   // MlxAdminLockdownLock locks a Mellanox device, using whatever key is currently
-  // managed internally within Carbide.
+  // managed internally within NICo.
   rpc MlxAdminLockdownLock(mlx_device.MlxAdminLockdownLockRequest) returns (mlx_device.MlxAdminLockdownLockResponse);
   // MlxAdminLockdownUnlock unlocks a Mellanox device, using whatever key is currently
-  // managed internally within Carbide.
+  // managed internally within NICo.
   rpc MlxAdminLockdownUnlock(mlx_device.MlxAdminLockdownUnlockRequest) returns (mlx_device.MlxAdminLockdownUnlockResponse);
   // MlxAdminLockdownStatus returns the live lock status of a Mellanox device
   // by querying over an open ScoutStream connection.
   rpc MlxAdminLockdownStatus(mlx_device.MlxAdminLockdownStatusRequest) returns (mlx_device.MlxAdminLockdownStatusResponse);
 
   // Mellanox administrative endpoints for device info querying, which are called by
-  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // the CLI (nico-admin-cli) and potentially the UI. These endpoints ultimately
   // interconnect with a scout agent listening via an open ScoutStream connection.
   //
   // MlxAdminShowDevice will show MlxDeviceInfo data for a given device on a machine.
@@ -893,7 +906,7 @@ service Forge {
   rpc MlxAdminShowMachine(mlx_device.MlxAdminDeviceReportRequest) returns (mlx_device.MlxAdminDeviceReportResponse);
 
   // Mellanox administrative endpoints for registry querying, which are called by
-  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // the CLI (nico-admin-cli) and potentially the UI. These endpoints ultimately
   // interconnect with a scout agent listening via an open ScoutStream connection.
   //
   // MlxAdminRegistryList lists all known mlxconfig variable registries
@@ -904,7 +917,7 @@ service Forge {
   rpc MlxAdminRegistryShow(mlx_device.MlxAdminRegistryShowRequest) returns (mlx_device.MlxAdminRegistryShowResponse);
 
   // Mellanox administrative endpoints for direct mlxconfig management, called by
-  // the CLI (forge-admin-cli) and potentially the UI. These endpoints ultimately
+  // the CLI (nico-admin-cli) and potentially the UI. These endpoints ultimately
   // interconnect with a scout agent listening via an open ScoutStream connection.
   //
   // MlxAdminConfigQuery is used to fetch one or more running mlxconfig
@@ -948,8 +961,8 @@ service Forge {
   rpc GetDPFState(GetDPFStateRequest) returns (DPFStateResponse);
   // Curated snapshot of DPF CRs (DPUNode + DPUDevices + DPUs) for one host.
   rpc GetDPFHostSnapshot(GetDPFHostSnapshotRequest) returns (DPFHostSnapshotResponse);
-  // Helm/docker versions for the carbide DPF mandatory services, from both
-  // the carbide config and the live DPUServiceTemplate CRs.
+  // Helm/docker versions for the nico DPF mandatory services, from both
+  // the nico config and the live DPUServiceTemplate CRs.
   rpc GetDPFServiceVersions(GetDPFServiceVersionsRequest) returns (DPFServiceVersionsResponse);
 
   // --- Component management (unified switch + power shelf operations) ---
@@ -1524,7 +1537,7 @@ message EchoRequest {
 message EchoResponse {
   string message = 1;
 }
-// Deprecated DNSMessage format used by Forge DNS service
+// Deprecated DNSMessage format used by NICo DNS service
 message DNSMessage {
 
   message DNSQuestion {
@@ -1549,32 +1562,6 @@ message DnsRequest {
 
 message DnsReply {
   string reply = 1;
-}
-
-message DomainList {
-  repeated Domain domains = 1;
-}
-
-message Domain {
-  common.DomainId id = 1;
-  string name = 2;
-
-  google.protobuf.Timestamp created = 3;
-  google.protobuf.Timestamp updated = 4;
-  google.protobuf.Timestamp deleted = 5;
-}
-
-message DomainDeletion {
-  common.DomainId id = 1;
-}
-
-message DomainDeletionResult {
-
-}
-
-message DomainSearchQuery {
-  optional common.DomainId id = 1;
-  optional string name = 2;
 }
 
 message ConsoleInput {
@@ -1632,7 +1619,7 @@ message VpcStatus {
 
 message Vpc {
   common.VpcId id = 1;
-  reserved 2;  // was: string name, replaced with metadata.name
+  string name = 2; // Removed in v0.9.x and above, retained here for backwards compatibility
   // Deprecated: use config.tenant_organization_id
   // TODO change to reserved once rest component uses `VpcConfig`
   string tenantOrganizationId = 3 [deprecated = true]; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
@@ -1682,15 +1669,15 @@ message Vpc {
 }
 
 message VpcCreationRequest {
-  reserved 2;  // was: string name, replaced with metadata.name
+  string name = 2; // Removed in v0.9.x and above, retained here for backwards compatibility
   string tenantOrganizationId = 3; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
   // this keyset will enable any key contained within it to access any instance associated with this VPC.
   optional string tenantKeysetId = 4; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
   optional VpcVirtualizationType network_virtualization_type = 5;
 
-  // Desired ID for this VPC. If the ID is not provided, Forge will generate
+  // Desired ID for this VPC. If the ID is not provided, NICo will generate
   // a random ID.
-  // The VPC ID must be unique within the Forge site.
+  // The VPC ID must be unique within the NICo site.
   optional common.VpcId id = 6;
   Metadata metadata = 12;
 
@@ -1702,7 +1689,7 @@ message VpcCreationRequest {
   optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 14;
 
 
-  // Desired VNI for this VPC. If the VNI is not provided, Carbide will
+  // Desired VNI for this VPC. If the VNI is not provided, NICo will
   // auto-allocate one.
   // The requested VNI must be available in a resource-pool range that is not
   // marked for auto-assignment; otherwise, the request will be rejected.
@@ -1715,7 +1702,7 @@ message VpcCreationRequest {
   // type of the tenant.
   // For example, an internal tenant can request internal or external VPCs,
   // but an external tenant can only request external VPCs.
-  optional string routing_profile_type = 17;  
+  optional string routing_profile_type = 17;
 }
 
 enum VpcVirtualizationType {
@@ -1730,9 +1717,9 @@ enum VpcVirtualizationType {
   FNN = 5;
   // FLAT is for VPCs whose tenant instances live directly on the underlay
   // (zero-DPU hosts, or hosts with their DPU in NIC mode). Their interfaces
-  // are bound to `HostInband` network segments rather than a Carbide-managed
+  // are bound to `HostInband` network segments rather than a NICo-managed
   // overlay. Flat VPCs are still real tenant VPCs with a VNI and NSGs, but
-  // Carbide doesn't drive their data plane -- routing and ACL enforcement
+  // NICo doesn't drive their data plane -- routing and ACL enforcement
   // between Flat VPCs and other VPCs is the network operator's
   // responsibility.
   FLAT = 6;
@@ -1741,7 +1728,7 @@ enum VpcVirtualizationType {
 message VpcUpdateRequest {
   common.VpcId id = 1;
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current version on the Forge Site.
+  // is equivalent to the current version on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
@@ -1751,7 +1738,7 @@ message VpcUpdateRequest {
   // a `message VpcConfig/VpcSettings`. However I don't feel like this would add
   // a lot for primitive types like Vpc.
 
-  reserved 3; // was string name, replaced with metadata.name
+  string name = 3; // Removed in v0.9.x and above, retained here for backwards compatibility
   reserved 4; // was tenantOrganizationId
   reserved 5; // was tenantKeysetId
 
@@ -1775,7 +1762,7 @@ message VpcUpdateVirtualizationRequest {
   common.VpcId id = 1;
 
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current version on the Forge Site.
+  // is equivalent to the current version on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
@@ -1816,7 +1803,7 @@ enum PrefixMatchType {
 message VpcPrefix {
   common.VpcPrefixId id = 1;
   string prefix = 2; // Deprecated, use config instead
-  reserved 3; // was string name, replaced with metadata instead
+  string name = 3; // Removed in v0.9.x and above, retained here for backwards compatibility
   common.VpcId vpc_id = 4;
   reserved 5; // tenant_prefix_id
   uint32 total_31_segments = 6; // Deprecated, use status instead
@@ -1847,7 +1834,7 @@ message VpcPrefixCreationRequest {
   optional common.VpcPrefixId id = 1;
   // IPv4 or IPv6 prefix in CIDR notation
   string prefix = 2; // Deprecated, use config instead
-  reserved 3; // was string name, replaced with metadata
+  string name = 3; // Removed in v0.9.x and above, retained here for backwards compatibility
   common.VpcId vpc_id = 4;
   reserved 5; // tenant_prefix_id
   VpcPrefixConfig config = 6;
@@ -1889,7 +1876,7 @@ message VpcPrefixUpdateRequest {
   // 2. It is not larger than its containing site prefix.
   // 3. It contains all of its associated network segment prefixes.
   optional string prefix = 2; // Deprecated, use config instead
-  reserved 3;  // was string name, replaced metadata
+  optional string name = 3; // Removed in v0.9.x and above, retained here for backwards compatibility
   VpcPrefixConfig config = 4;
   Metadata metadata = 5;
 }
@@ -1924,7 +1911,7 @@ message VpcPeeringCreationRequest {
   common.VpcId peer_vpc_id = 2;
 
   // The desired ID for this VPC peering. If the ID is not provided, a random one will be generated.
-  optional common.VpcPeeringId id = 3; 
+  optional common.VpcPeeringId id = 3;
 }
 
 message VpcPeeringSearchFilter {
@@ -1974,7 +1961,7 @@ enum TenantState {
   // Host or DPU firmware updates
   UPDATING = 8;
 
-  // Something Wrong happened at carbide. Check logs for more info.
+  // Something Wrong happened at nico. Check logs for more info.
   INVALID = 9;
   // Instance is undergoing online repair (health override active).
   REPAIRING = 10;
@@ -1988,7 +1975,7 @@ message IBPartitionConfig {
   string tenantOrganizationId = 2; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 
   // Desired PKEY for this IB partition (in hexidecimal format, e.g.: 0x76b).
-  // If the PKEY is not provided, Carbide will auto-allocate one.
+  // If the PKEY is not provided, NICo will auto-allocate one.
   // The requested PKEY must be available in a resource-pool range that is not
   // marked for auto-assignment; otherwise, the request will be rejected.
   optional string pkey = 3;
@@ -2035,17 +2022,17 @@ message IBPartitionList {
 
 message IBPartitionCreationRequest {
   IBPartitionConfig config = 1;
-  // Desired ID for this Partition. If the ID is not provided, Forge will generate
+  // Desired ID for this Partition. If the ID is not provided, NICo will generate
   // a random ID.
-  // The Partition ID must be unique within the Forge site.
+  // The Partition ID must be unique within the NICo site.
   optional common.IBPartitionId id = 2;
- 
+
   Metadata metadata = 3;
 }
 
 message IBPartitionUpdateRequest {
-  common.IBPartitionId id = 1; 
- 
+  common.IBPartitionId id = 1;
+
   // New IBPartitionConfig to be applied to the IBPartition.
   IBPartitionConfig config = 2;
 
@@ -2144,9 +2131,9 @@ message PowerShelfList {
 
 message PowerShelfCreationRequest {
   PowerShelfConfig config = 1;
-  // Desired ID for this PowerShelf. If the ID is not provided, Forge will generate
+  // Desired ID for this PowerShelf. If the ID is not provided, NICo will generate
   // a random ID.
-  // The PowerShelf ID must be unique within the Forge site.
+  // The PowerShelf ID must be unique within the NICo site.
   optional common.PowerShelfId id = 2;
 }
 
@@ -2223,6 +2210,16 @@ message ExpectedPowerShelf {
   // When true, site-explorer skips BMC password rotation and stores the
   // factory-default credentials in Vault as-is.
   optional bool bmc_retain_credentials = 9;
+
+  // WARNING: Following fields are not present in Core, but added directly in REST snapshot
+  optional string name = 21;
+  optional string manufacturer = 22;
+  optional string model = 23;
+  optional string description = 24;
+  optional string firmware_version = 25;
+  optional int32 slot_id = 26;
+  optional int32 tray_idx = 27;
+  optional int32 host_id = 28;
 }
 
 message ExpectedPowerShelfRequest {
@@ -2346,9 +2343,9 @@ message SwitchList {
 
 message SwitchCreationRequest {
   SwitchConfig config = 1;
-  // Desired ID for this Switch. If the ID is not provided, Forge will generate
+  // Desired ID for this Switch. If the ID is not provided, NICo will generate
   // a random ID.
-  // The Switch ID must be unique within the Forge site.
+  // The Switch ID must be unique within the NICo site.
   optional common.UUID id = 2;
 
   optional PlacementInRack placement_in_rack = 3;
@@ -2424,6 +2421,16 @@ message ExpectedSwitch {
   // Static IP reservation for the single wired NVOS port. Only meaningful
   // when `nvos_mac_addresses` has exactly one entry.
   optional string nvos_ip_address = 13;
+
+  // WARNING: Following fields are not present in Core, but added directly in REST snapshot
+  optional string name = 21;
+  optional string manufacturer = 22;
+  optional string model = 23;
+  optional string description = 24;
+  optional string firmware_version = 25;
+  optional int32 slot_id = 26;
+  optional int32 tray_idx = 27;
+  optional int32 host_id = 28;
 }
 
 message ExpectedSwitchRequest {
@@ -2578,9 +2585,9 @@ message NetworkSegmentCreationRequest {
 
   NetworkSegmentType segment_type = 7;
 
-  // Desired ID for this Network Segment. If the ID is not provided, Forge will generate
+  // Desired ID for this Network Segment. If the ID is not provided, NICo will generate
   // a random ID.
-  // The Network Segment ID must be unique within the Forge site.
+  // The Network Segment ID must be unique within the NICo site.
   optional common.NetworkSegmentId id = 8;
 }
 
@@ -2650,13 +2657,13 @@ message InstancePowerRequest {
   // Whether the `ipxe_script` script that had been provided during instance creation
   // should be executed again during the next reboot.
   //
-  // If the flag is set to `false` or not specified, Forge will only provide the
+  // If the flag is set to `false` or not specified, NICo will only provide the
   // `ipxe_script` script on the first boot attempt. For every subsequent boot,
   // the instance will use the default boot action - which is usually to boot from
   // the hard drive.
   //
   // If the `always_boot_with_ipxe` flag is set during instance creation,
-  // Forge will also provide the `ipxe_script` script on every reboot. Thereby the
+  // NICo will also provide the `ipxe_script` script on every reboot. Thereby the
   // `always_boot_with_ipxe` takes precedence over `boot_with_custom_ipxe`.
   bool boot_with_custom_ipxe = 3;
 
@@ -2712,9 +2719,9 @@ message InstanceAllocationRequest {
   // Desired configuration for the allocated instance
   InstanceConfig config = 2;
 
-  // Desired ID for this Instance. If the ID is not provided, Forge will generate
+  // Desired ID for this Instance. If the ID is not provided, NICo will generate
   // a random ID.
-  // The Instance ID must be unique within the Forge site.
+  // The Instance ID must be unique within the NICo site.
   optional common.InstanceId instance_id = 3;
 
   // The expected InstanceTypeId of the machine associated
@@ -2767,12 +2774,12 @@ message IpxeTemplateArtifact {
   optional string auth_type = 4;            // Auth type: "None", "Basic", "Bearer"
   optional string auth_token = 5;           // Optional auth token for the artifact
   IpxeTemplateArtifactCacheStrategy cache_strategy = 6; // How to handle caching for this artifact
-  optional string cached_url = 7;           // Local cached URL, set by carbide-core on successful download. If present overrides 'url' at boot time.
+  optional string cached_url = 7;           // Local cached URL, set by nico-core on successful download. If present overrides 'url' at boot time.
 }
 
 // Scope for iPXE script templates.
 enum IpxeTemplateScope {
-  INTERNAL = 0;  // Carbide-core usage only
+  INTERNAL = 0;  // NICo-core usage only
   PUBLIC = 1;    // Usable by tenant
 }
 
@@ -2782,9 +2789,9 @@ message IpxeTemplate {
   string template = 2;
   repeated string required_params = 3;  // Error if these params are not provided or empty
   string description = 4;
-  repeated string reserved_params = 5;  // Reserved for carbide-core to provide at render time
+  repeated string reserved_params = 5;  // Reserved for nico-core to provide at render time
   repeated string required_artifacts = 6;  // Error if these artifacts are not provided or empty
-  IpxeTemplateScope scope = 7;  // INTERNAL = carbide-core only, PUBLIC = tenant-usable
+  IpxeTemplateScope scope = 7;  // INTERNAL = nico-core only, PUBLIC = tenant-usable
   common.IpxeTemplateId id = 8;  // Stable UUID, hardcoded in templates.yaml; consistent across all sites
 }
 
@@ -2828,7 +2835,7 @@ message InstanceOperatingSystemConfig {
   // instructions for installing on a local disk, the installation would be repeated
   // on the reboot.
   //
-  // If the flag is set to `false` or not specified, Forge will only provide
+  // If the flag is set to `false` or not specified, NICo will only provide
   // iPXE instructions that are defined by the OS definition on the first boot attempt.
   // For every subsequent boot, the instance will use the default boot action - which
   // is usually to boot from the hard drive.
@@ -2965,14 +2972,14 @@ message InstanceSpxAttachment {
 // to make sure the new settings are consistent and old interfaces that should not be
 // touched are listed here again.
 // A change in any entry of `InstanceNetworkConfig::interface_configs` can be interpreted by
-// Forge as deleting the old interface and replacing it with a new interface.
+// NICo as deleting the old interface and replacing it with a new interface.
 // Note: This is commented because we will not immediately implement the method
 // message InstanceNetworkConfigUpdateRequest {
 //   // The ID of the instance that should get an updated networking configuration
 //   common.InstanceId instance_id = 1;
 
 //   // If the field here is set, the update will only be applied if the version
-//   // is equivalent to the current network config version on the Forge Site.
+//   // is equivalent to the current network config version on the NICo Site.
 //   // If a concurrent update changed the site configuration, the API will return
 //   // a `ConcurrentModificationError`.
 //   optional string if_version_match = 2;
@@ -2987,7 +2994,7 @@ message InstanceOperatingSystemUpdateRequest {
   common.InstanceId instance_id = 1;
 
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current instance config version on the Forge Site.
+  // is equivalent to the current instance config version on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
@@ -3004,7 +3011,7 @@ message InstanceConfigUpdateRequest {
   common.InstanceId instance_id = 1;
 
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current instance config version on the Forge Site.
+  // is equivalent to the current instance config version on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
@@ -3022,7 +3029,7 @@ message InstanceStatus {
   optional InstanceTenantStatus tenant = 1;
 
   // Note: There will be a separate state for the states
-  // that are only important for the site admin and forge team.
+  // that are only important for the site admin and nico team.
   // That state is at the moment defined on `message Machine`, but might
   // be carried over. It's outside of the scope of this change.
 
@@ -3075,7 +3082,7 @@ message InstanceNetworkStatus {
   // For auto configs (`InstanceNetworkConfig.auto = true`): the config-side
   // `interfaces` is always empty on the wire (it's preserved verbatim from
   // the request), so this status array stands alone and describes the
-  // interfaces Carbide resolved from the host's HostInband segments. There
+  // interfaces NICo resolved from the host's HostInband segments. There
   // is no positional relationship to consult on the config side.
   repeated InstanceInterfaceStatus interfaces = 1;
 
@@ -3089,11 +3096,11 @@ message InstanceNetworkStatus {
   //   is exactly the same version as the version the user desires.
   //
   // Note for the implementation: We need to monitor all these config versions
-  // on the feedback path from DPU to carbide in order to know whether the
+  // on the feedback path from DPU to nico in order to know whether the
   // changes have indeed taken effect.
   // TODO: Do we also want to show all applied versions here, or just track them
   // internally? Probably not help for for tenants at all - but it could be helpful
-  // for the Forge operating team to debug settings that to do do not go in-sync
+  // for the NICo operating team to debug settings that to do do not go in-sync
   // without having to attach to the database.
   SyncState configs_synced = 101;
 }
@@ -3114,7 +3121,7 @@ message InstanceInfinibandStatus {
   //
   // TODO: Do we also want to show all applied versions here, or just track them
   // internally? Probably not help for for tenants at all - but it could be helpful
-  // for the Forge operating team to debug settings that to do do not go in-sync
+  // for the NICo operating team to debug settings that to do do not go in-sync
   // without having to attach to the database.
   SyncState configs_synced = 101;
 }
@@ -3186,7 +3193,7 @@ message Instance {
   // updated in between.
   //
   // This version field versions all instance data except networking configurations.
-  // In a future version of Forge we might however remove the separate network
+  // In a future version of NICo we might however remove the separate network
   // configuration versioning.
   string config_version = 203;
   // todo: not sure if we need a storage specific config version or we can use
@@ -3220,7 +3227,7 @@ message InstanceInterfaceConfig {
   // Cloud can send prefix id as well.
   oneof network_details {
     common.NetworkSegmentId segment_id = 5;
-    // In case of vpc_prefix_id, carbide should allocate a network segment
+    // In case of vpc_prefix_id, nico should allocate a network segment
     // and continue IP allocation. This field is address-family agnostic —
     // it can be an IPv4 or IPv6 VPC prefix.
     common.VpcPrefixId vpc_prefix_id = 6;
@@ -3241,7 +3248,7 @@ message InstanceInterfaceConfig {
   // Device Instance 0 represents the primary device
   // All non-primary devices are sorted by slot number
   //
-  // Forge will the above strategy to achieve deterministic device selection
+  // NICo will the above strategy to achieve deterministic device selection
   // via `device_instance`.
   uint32 device_instance = 8;
 
@@ -3295,7 +3302,7 @@ message InstanceIBInterfaceConfig {
   // fabric - are available, this selects the device among these.
   // `device_instance == 1` selects the 2nd device of a certain type.
   //
-  // Forge will internally order devices of the same type by PCI slot in order
+  // NICo will internally order devices of the same type by PCI slot in order
   // to achieve deterministic device selection via `device_instance`.
   uint32 device_instance = 4;
 
@@ -3358,7 +3365,7 @@ message InstanceIBInterfaceStatus {
   // The GUID which has been assigned to this interface
   // In case the interface is a PF interface, the GUID will be equivalent to
   // `pf_guid` - which is the GUID that is stored on the hardware device.
-  // For a VF interface, this is a GUID that has been allocated by Forge in order
+  // For a VF interface, this is a GUID that has been allocated by NICo in order
   // be used for the VF.
   // Tenants have to configure the VF device on their instances to use this GUID.
   optional string guid = 2;
@@ -3369,7 +3376,7 @@ message InstanceIBInterfaceStatus {
   // The list of IP addresses that had been assigned to this interface,
   // based on the requested partition.
   // The list will be empty if interface configuration hasn't been completed or IPoIB disabled
-  // TODO: This is for future use - once once Forge supports IP over IB
+  // TODO: This is for future use - once once NICo supports IP over IB
   // repeated string addresses = 21;
 }
 
@@ -3610,7 +3617,7 @@ message SwitchNvosInfo {
 }
 
 message Machine {
-  // Uniquely identifies a Forge machine.
+  // Uniquely identifies a NICo machine.
   // The value of this field is globally unique.
   common.MachineId id = 1;
 
@@ -3646,7 +3653,7 @@ message Machine {
   BmcInfo bmc_info = 12;
 
   google.protobuf.Timestamp last_reboot_time = 14;
-  // This is used by legacy versions of forge-admin-cli as well as by Forge Cloud
+  // This is used by legacy versions of nico-admin-cli as well as by NICo Cloud
   reserved 15; // Was NetworkHealth network_health = 15;
   google.protobuf.Timestamp last_observation_time = 16;
   optional string maintenance_reference = 17;
@@ -3656,7 +3663,7 @@ message Machine {
   optional common.MachineId associated_host_machine_id = 19;
   reserved 20; /* previously: optional common.MachineId associated_dpu_machine_id = 20; */
 
-  optional MachineInventory inventory = 21;
+  optional MachineComponentInventory inventory = 21;
   optional google.protobuf.Timestamp last_reboot_requested_time = 22;
   optional string last_reboot_requested_mode = 23;
 
@@ -3716,7 +3723,7 @@ message Machine {
 
   optional MachineSpxStatusObservation spx_status_observation = 47;
 
-  // Build version of forge-scout last observed during machine discovery registration.
+  // Build version of nico-scout last observed during machine discovery registration.
   optional string last_scout_observed_version = 48;
 
   optional DpfMachineState dpf = 49;
@@ -3741,7 +3748,7 @@ message InstanceNetworkRestrictions {
 //
 // - `TENANT_CONFIGURABLE` means tenants can specify what network segments they want to make available to instances on this host.
 // - `STATIC` means the machine's in-band network interfaces have direct access to their network segments, and cannot be
-// configured at changed by carbide (ie. their VLAN membership is configured in a switch somewhere, etc.)
+// configured at changed by nico (ie. their VLAN membership is configured in a switch somewhere, etc.)
 enum InstanceNetworkSegmentMembershipType {
   TENANT_CONFIGURABLE = 0;
   STATIC = 1;
@@ -3753,7 +3760,7 @@ message MachineMetadataUpdateRequest {
   common.MachineId machine_id = 1;
 
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current Machine `version` on the Forge Site.
+  // is equivalent to the current Machine `version` on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
@@ -3767,7 +3774,7 @@ message RackMetadataUpdateRequest {
   common.RackId rack_id = 1;
 
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current Rack `version` on the Forge Site.
+  // is equivalent to the current Rack `version` on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
@@ -3781,7 +3788,7 @@ message SwitchMetadataUpdateRequest {
   common.SwitchId switch_id = 1;
 
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current Switch `version` on the Forge Site.
+  // is equivalent to the current Switch `version` on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
@@ -3795,7 +3802,7 @@ message PowerShelfMetadataUpdateRequest {
   common.PowerShelfId power_shelf_id = 1;
 
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current PowerShelf `version` on the Forge Site.
+  // is equivalent to the current PowerShelf `version` on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
@@ -3806,10 +3813,11 @@ message PowerShelfMetadataUpdateRequest {
 
 message DpuAgentInventoryReport {
   common.MachineId machine_id = 1;
-  MachineInventory inventory = 2;
+  MachineComponentInventory inventory = 2;
 }
 
-message MachineInventory {
+// WARNING: This type conflicts with MachineInventory in inventory.proto and must be renamed to MachineComponentInventory
+message MachineComponentInventory {
   repeated MachineInventorySoftwareComponent components = 1;
 }
 
@@ -3941,7 +3949,7 @@ message InfinibandStatusObservation {
 }
 
 // Observed state of a single IB interface
-// This is the information that Carbide collects from UFM
+// This is the information that NICo collects from UFM
 message MachineIbInterface {
   // The GUID of the hardware device that this interface is attached to
   optional string pf_guid = 1;
@@ -3949,7 +3957,7 @@ message MachineIbInterface {
   // The GUID which has been assigned to this interface
   // In case the interface is a PF interface, the GUID will be equivalent to
   // `pf_guid` - which is the GUID that is stored on the hardware device.
-  // For a VF interface, this is a GUID that has been allocated by Forge in order
+  // For a VF interface, this is a GUID that has been allocated by NICo in order
   // be used for the VF.
   // Tenants have to configure the VF device on their instances to use this GUID.
   optional string guid = 2;
@@ -4074,7 +4082,7 @@ message DhcpRecord {
 
   optional string booturl = 11;
 
-  // The last time any underlay or admin DHCP record managed by Forge got invalidated
+  // The last time any underlay or admin DHCP record managed by NICo got invalidated
   optional google.protobuf.Timestamp last_invalidation_time = 12;
 
   // Per site NTP server IPs
@@ -4290,10 +4298,10 @@ message ManagedHostNetworkConfigResponse {
   bool stateful_acls_enabled = 21;
 
   // site-level configured NTP server IPs
-  // If empty, the agent may fall back to resolving carbide-ntp.forge for compatibility.
+  // If empty, the agent may fall back to resolving nico-ntp.nico for compatibility.
   repeated string ntp_servers = 22;
 
-  // Enable forge DHCP on HBN.
+  // Enable nico DHCP on HBN.
   // Deprecated: It is always enabled now.
   bool enable_dhcp = 100;
 
@@ -4323,7 +4331,7 @@ message ManagedHostNetworkConfigResponse {
 
   // GNI will import a common route-target for internal
   // tenant routes, reducing the coordination needed
-  // between forge and GNI.  We'll double-tag our
+  // between nico and GNI.  We'll double-tag our
   // internal tenant routes with this tag.
   optional common.RouteTarget common_internal_route_target = 109;
 
@@ -4481,7 +4489,7 @@ message ClearManagedHostQuarantineStateResponse {
   optional ManagedHostQuarantineState prior_quarantine_state = 1;
 }
 
-// Network configuration for a managed host (host + DPU pair) managed by Forge
+// Network configuration for a managed host (host + DPU pair) managed by NICo
 message ManagedHostNetworkConfig {
   // DPU loopback IP
   string loopback_ip = 1;
@@ -4531,7 +4539,7 @@ message FlatInterfaceConfig {
   // to a given interface.
   //
   // TODO(chet): This is going to eventually be refactored as part
-  // of changes related to Carbide IP Prefix Management, where we
+  // of changes related to NICo IP Prefix Management, where we
   // ultimately do want a DPU-specific prefix allocation to be its
   // own prefix entry in the `network_prefixes` table (or something
   // similar).
@@ -4690,7 +4698,7 @@ message AdminForceDeleteMachineResponse {
   string managed_host_bmc_ip = 21;
   string dpu_bmc_ip = 22;
 
-  reserved 31, 32, 33, 34; // Had been related to the deprecated forge-vpc service
+  reserved 31, 32, 33, 34; // Had been related to the deprecated nico-vpc service
 
   // How many interfaces have been unregistered from UFM
   uint32 ufm_unregistrations = 35;
@@ -4949,6 +4957,7 @@ message ForgeAgentControlResponse {
   }
 
   message FirmwareUpgrade {
+    scout_firmware_upgrade.ScoutFirmwareUpgradeTask task = 1;
   }
 
 
@@ -5060,14 +5069,14 @@ message ForgeScoutErrorReportResult {
 
 message PxeInstructionRequest {
   MachineArchitecture arch = 1;
-  // DEPRECATED: interface_id is no longer read by carbide-api. The
+  // DEPRECATED: interface_id is no longer read by nico-core-api. The
   // booting machine is now identified via client_ip (see below).
   // We could potentially just drop this entirely and mark it as
   // "reserved 2" in the future or similar.
   common.MachineInterfaceId interface_id = 2 [deprecated = true];
   optional string product = 3;
-  // client_ip is the IP carbide-pxe observed for the booting machine
-  // -- read from X-Forwarded-For when carbide-pxe is fronted by a
+  // client_ip is the IP nico-pxe observed for the booting machine
+  // -- read from X-Forwarded-For when nico-pxe is fronted by a
   // proxy, or the TCP socket peer when reached directly.
   optional string client_ip = 4;
 }
@@ -5075,7 +5084,7 @@ message PxeInstructionRequest {
 message PxeInstructions {
   string pxe_script = 1;
   // URL overrides for external clients (e.g. on the static-assignments
-  // segment). When set, carbide-pxe uses these instead of its global
+  // segment). When set, nico-pxe uses these instead of its global
   // env var URLs, allowing external hosts to reach services via an
   // alternate hostname or IP that they can resolve.
   optional string api_url_override = 2;
@@ -5105,7 +5114,7 @@ message CloudInitDiscoveryInstructions {
   optional string vf_intercept_bridge_sf = 9;
 
   // Number of VFs to configure per DPU PF during BlueField provisioning.
-  // If absent, carbide-pxe uses the legacy default of 16 for rolling upgrades.
+  // If absent, nico-pxe uses the legacy default of 16 for rolling upgrades.
   optional uint32 num_of_vfs = 10;
 
   // The layout for any desired additional bridging between
@@ -5131,7 +5140,7 @@ message CloudInitInstructions {
   optional CloudInitDiscoveryInstructions discovery_instructions = 2;
   optional CloudInitMetaData metadata = 3;
   // URL overrides for external clients (e.g. on the static-assignments
-  // segment). When set, carbide-pxe uses these instead of its global
+  // segment). When set, nico-pxe uses these instead of its global
   // env var URLs, allowing external hosts to reach services via an
   // alternate hostname or IP that they can resolve.
   optional string api_url_override = 4;
@@ -5140,12 +5149,13 @@ message CloudInitInstructions {
 
 // Specifies whether a network interface is physical network function (PF)
 // or a virtual network function
+// WARNING: This enum was changed in a non-backwards compatible way in nico_nico.proto to drop _FUNCTION suffix
 enum InterfaceFunctionType {
-  PHYSICAL = 0;
-  VIRTUAL = 1;
+  PHYSICAL_FUNCTION = 0;
+  VIRTUAL_FUNCTION = 1;
 }
 
-// What forge-dpu-agent reports. Will grow over time.
+// What nico-dpu-agent reports. Will grow over time.
 message DpuNetworkStatus {
   common.MachineId dpu_machine_id = 1;
   google.protobuf.Timestamp observed_at = 2;
@@ -5161,7 +5171,7 @@ message DpuNetworkStatus {
   optional string dpu_agent_version = 9;
   optional int64 client_certificate_expiry_unix_epoch_secs = 10;
   health.HealthReport dpu_health = 11;
-  // The version of the instance configuration that had been applied by forge-network-config
+  // The version of the instance configuration that had been applied by nico-network-config
   // This version number tracks versioning OS details, tags, etc
   // It is different than instance_network_config_version, which only tracks networking details
   optional string instance_config_version = 12;
@@ -5390,7 +5400,7 @@ message UpdateTenantRequest {
   optional string if_version_match = 3;
 
   reserved 4;
-  
+
   // Updating will only be allowed if the tenant has no active VPCs
   optional string routing_profile_type = 5;
 }
@@ -5434,7 +5444,7 @@ message CreateTenantKeysetRequest {
   TenantKeysetIdentifier keyset_identifier = 1;
   // it is allowed for the provided request to contain no keys, which will reserve the identifier as an empty set.
   TenantKeysetContent keyset_content = 2;
-  // The new version that should be stored for the keyset. The Forge site controller
+  // The new version that should be stored for the keyset. The NICo site controller
   // will store this version field as the new version for the data. It will not
   // assign a version on its own.
   string version = 3;
@@ -5452,7 +5462,7 @@ message UpdateTenantKeysetRequest {
   TenantKeysetIdentifier keyset_identifier = 1;
   TenantKeysetContent keyset_content = 2;
 
-  // The new version that should be stored for the keyset. The Forge site controller
+  // The new version that should be stored for the keyset. The NICo site controller
   // will store this version field as the new version for the data. It will not
   // assign a version on its own.
   string version = 3;
@@ -5728,7 +5738,7 @@ message IpAddressMatch {
   string message = 3; // Display to end user. Usually has more details than just type/owner_id.
 }
 
-// The things `forge-admin-cli ip find` searches.
+// The things `nico-admin-cli ip find` searches.
 //
 // Why the IpType prefix on everything, you ask? Because:
 // > Note that enum values use C++ scoping rules, meaning that enum values are siblings of their
@@ -5747,12 +5757,12 @@ enum IpType {
   IpTypeNetworkSegment = 7;
   IpTypeExploredEndpoint = 8;
   // IpTypeRouteServerFromConfigFile are IPs from the route_servers
-  // table that have been synced via the carbide-api config file
+  // table that have been synced via the nico-core-api config file
   // at startup (see setup.rs and db_init.rs). Their DB records
   // specifically say their source type is `config_file`.
   IpTypeRouteServerFromConfigFile = 9;
   // IpTypeRouteServerFromAdminApi are IPs from the route_servers
-  // table that have been added via forge-admin-cli calls. Their
+  // table that have been added via nico-admin-cli calls. Their
   // DB records specifically say their source type is `admin`.
   IpTypeRouteServerFromAdminApi = 10;
   IpTypeDpaInterface = 11;
@@ -6047,6 +6057,16 @@ message ExpectedMachine {
   // Per-host lifecycle profile. When unset in a patch/update request, the
   // existing DB value is preserved via COALESCE.
   optional HostLifecycleProfile host_lifecycle_profile = 17;
+
+  // WARNING: Following fields are not present in Core, but added directly in REST snapshot
+  optional string name = 21;
+  optional string manufacturer = 22;
+  optional string model = 23;
+  optional string description = 24;
+  optional string firmware_version = 25;
+  optional int32 slot_id = 26;
+  optional int32 tray_idx = 27;
+  optional int32 host_id = 28;
 }
 
 message ExpectedMachineRequest {
@@ -6169,26 +6189,32 @@ message MachineValidationGetRequest {
   optional common.MachineValidationId validation_id = 3;
 }
 
+// WARNING: Core proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
+enum MachineValidationStarted {
+  Started = 0;
+}
+
+// WARNING: Core proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
+enum MachineValidationInProgress {
+  InProgress = 0;
+}
+
+// WARNING: Core proto declares these enums inside `MachineValidationStatus`. This is not compilable to protobuf so we move the enums to the top level
+enum MachineValidationCompleted {
+  Success = 0;
+  Failed = 1;
+  Skipped = 2;
+}
+
 message MachineValidationStatus {
 
-  enum MachineValidationStarted {
-    Started = 0;
-  }
 
-  enum MachineValidationInProgress {
-    InProgress = 0;
-  }
 
-  enum MachineValidationCompleted {
-    Success = 0;
-    Failed = 1;
-    Skipped = 2;
-  }
 
   oneof MachineValidationState {
-    MachineValidationStarted oneof_started = 1;
-    MachineValidationInProgress oneof_in_progress = 2;
-    MachineValidationCompleted oneof_completed = 3;
+    MachineValidationStarted started = 1;
+    MachineValidationInProgress in_progress = 2;
+    MachineValidationCompleted completed = 3;
   }
 
   uint32 total = 4;
@@ -6335,7 +6361,7 @@ message RackMaintenanceOnDemandRequest {
 }
 
 message RackMaintenanceOnDemandResponse {
-  // RackMaintenanceOnDemandResponse 
+  // RackMaintenanceOnDemandResponse
 }
 
 message AdminPowerControlRequest {
@@ -6675,7 +6701,7 @@ message InstanceTypeAttributes {
   repeated InstanceTypeMachineCapabilityFilterAttributes desired_capabilities = 1;
 }
 
-// An InstanceType describes a desired set of 
+// An InstanceType describes a desired set of
 // machine capabilities.
 // It's probably easiest to just think of InstanceType
 // as a pool, and the desired capabilities of an InstanceType
@@ -6686,11 +6712,11 @@ message InstanceType {
   string version                                        = 3;
   Metadata metadata                                     = 4;
   optional string created_at                            = 5;
-  optional InstanceTypeAllocationStats allocation_stats = 6;  
+  optional InstanceTypeAllocationStats allocation_stats = 6;
 }
 
 // These match the current set of distinct
-// active types in Forge Cloud.
+// active types in NICo Cloud.
 enum MachineCapabilityType {
   CAP_TYPE_INVALID    = 0;
   CAP_TYPE_CPU        = 1;
@@ -6742,7 +6768,7 @@ message FindInstanceTypeIdsResponse {
 
 message FindInstanceTypesByIdsRequest {
   repeated string instance_type_ids        = 1;
-  
+
   // Used to filter by tenant allocations.
   // In the future, this value would be ignored if the
   // caller is a tenant and the org of the tenant would
@@ -6757,7 +6783,7 @@ message FindInstanceTypesByIdsRequest {
 }
 
 message FindInstanceTypesByIdsResponse {
-  repeated InstanceType instance_types = 1;  
+  repeated InstanceType instance_types = 1;
 }
 
 message DeleteInstanceTypeRequest {
@@ -7264,7 +7290,7 @@ message DpaInterface {
   // mlxconfig_profile is the optional profile of mlxconfig
   // parameters to sync to the device. This is specifically
   // the name of the profile to sync down. The actual config
-  // is defined in the Carbide API site config. If this is
+  // is defined in the NICo API site config. If this is
   // empty, no mlxconfig parameters will be synced during
   // [re]provisioning, and instead an mlxconfig parameter
   // reset will be performed, ensuring the device is reset
@@ -7356,9 +7382,9 @@ message PowerOptionResponse {
 
 
 
-message ComputeAllocationAttributes {   
+message ComputeAllocationAttributes {
   string instance_type_id = 1; // The source of the compute resources
-  
+
   // The number of instances for this requested instance type allocated
   // for the tenant.  The total for all allocations of an instance type
   // cannot exceed the number of machines associated with the instance
@@ -7412,7 +7438,7 @@ message FindComputeAllocationIdsResponse {
 // In the future, the handler would automatically filter by the
 // tenant org of the caller.
 message FindComputeAllocationsByIdsRequest {
-  repeated common.ComputeAllocationId ids = 1;   
+  repeated common.ComputeAllocationId ids = 1;
 }
 
 message FindComputeAllocationsByIdsResponse {
@@ -7442,7 +7468,7 @@ message DeleteComputeAllocationResponse {
 
 // For use with the existing InstanceType message
 // to include allocation stats when requested in
-// FindInstanceTypesByIdsRequest 
+// FindInstanceTypesByIdsRequest
 message InstanceTypeAllocationStats {
   // The sum of all allocations for the instance type
   uint32 max_allocatable = 1;
@@ -7457,7 +7483,7 @@ message InstanceTypeAllocationStats {
   // The number of additional instances that a user can
   // _actually_ create after filtering out all unused
   // machines in bad states
-  uint32 unused_usable   = 4;    
+  uint32 unused_usable   = 4;
 }
 
 message GetRackRequest {
@@ -7821,9 +7847,9 @@ message NVLinkLogicalPartitionList {
 
 message NVLinkLogicalPartitionCreationRequest {
   NVLinkLogicalPartitionConfig config = 1;
-  // Desired ID for this Partition. If the ID is not provided, Forge will generate
+  // Desired ID for this Partition. If the ID is not provided, NICo will generate
   // a random ID.
-  // The Partition ID must be unique within the Forge site.
+  // The Partition ID must be unique within the NICo site.
   optional common.NVLinkLogicalPartitionId id = 2;
 }
 
@@ -8182,7 +8208,7 @@ message UpdateDpuExtensionServiceRequest {
   string data = 4;
   optional DpuExtensionServiceCredential credential = 5;
   // If the field here is set, the update will only be applied if the version
-  // is equivalent to the current version on the Forge Site.
+  // is equivalent to the current version on the NICo Site.
   // If a concurrent update changed the site configuration, the API will return
   // a `ConcurrentModificationError`.
   optional int32 if_version_ctr_match = 6;
@@ -8284,7 +8310,7 @@ message DpuExtensionServiceObservability {
 }
 
 // ScoutStreamApiBoundMessage is sent as part of scout initiating a new
-// streaming gRPC connection with carbide-api. The agent will connect
+// streaming gRPC connection with nico-core-api. The agent will connect
 // and sent an InitRequest, and then wait for control messages from
 // the API. For example, the API will send down a MlxDeviceLockdownStatusRequest,
 // and scout will populate an MlxDeviceLockdownStatusResponse and send
@@ -8298,8 +8324,8 @@ message ScoutStreamApiBoundMessage {
 
   oneof payload {
     // ScoutStreamInitRequest is sent as the first message to establish
-    // a connection between a scout agent and carbide-api. After this,
-    // carbide-api will populate a "request" within a ScoutStreamScoutBoundMessage,
+    // a connection between a scout agent and nico-core-api. After this,
+    // nico-core-api will populate a "request" within a ScoutStreamScoutBoundMessage,
     // send it to the scout agent, and expect the scout agent to respond
     // with a "response" from the oneof ScoutStreamApiBoundMessage options below.
     //
@@ -8321,7 +8347,7 @@ message ScoutStreamApiBoundMessage {
   }
 }
 
-// ScoutStreamScoutBoundMessage contains the requests from carbide-api
+// ScoutStreamScoutBoundMessage contains the requests from nico-core-api
 // that a connected scout agent should process and respond to,
 // populating a response from one of the ScoutStreamApiBoundMessages.
 message ScoutStreamScoutBoundMessage {
@@ -8351,7 +8377,7 @@ message ScoutStreamScoutBoundMessage {
 }
 
 // ScoutStreamInitRequest is sent by the scout agent to identify itself
-// and establish a connection to carbide-api.
+// and establish a connection to nico-core-api.
 message ScoutStreamInitRequest {
   common.MachineId machine_id = 1;
 }
@@ -8468,9 +8494,11 @@ message RoutingProfile {
 // ============================================================================
 // LEGACY DNS/DOMAIN TYPES - DEPRECATED
 // These types are maintained for backward compatibility
+// New code should use the types defined in dns.proto
 // TODO : Remove these types after migration is complete
 // ============================================================================
 
+// DEPRECATED: Use dns.Domain instead
 message DomainLegacy {
   common.DomainId id = 1;
   string name = 2;
@@ -8479,18 +8507,22 @@ message DomainLegacy {
   google.protobuf.Timestamp deleted = 5;
 }
 
+// DEPRECATED: Use dns.DomainList instead
 message DomainListLegacy {
   repeated DomainLegacy domains = 1;
 }
 
+// DEPRECATED: Use dns.DomainDeletionRequest instead
 message DomainDeletionLegacy {
   common.DomainId id = 1;
 }
 
+// DEPRECATED: Use dns.DomainDeletionResult instead
 message DomainDeletionResultLegacy {
 
 }
 
+// DEPRECATED: Use dns.DomainSearchQuery instead
 message DomainSearchQueryLegacy {
   optional common.DomainId id = 1;
   optional string name = 2;
@@ -8500,7 +8532,9 @@ message DomainSearchQueryLegacy {
 // TODO: Remove after migration is complete
 message PxeDomain {
   oneof domain {
-    Domain legacy_domain = 2;
+    dns.Domain new_domain = 1;
+    // WARNING: Updated to correct legacy type
+    DomainLegacy legacy_domain = 2;
   }
 }
 
@@ -8560,11 +8594,11 @@ message GetDPFServiceVersionsRequest {
 }
 
 message DPFServiceVersion {
-  // Service name (e.g. "dts", "doca-hbn", "carbide-dpu-agent").
+  // Service name (e.g. "dts", "doca-hbn", "nico-dpu-agent").
   string service = 1;
-  // Helm chart version from the carbide config.
+  // Helm chart version from the nico config.
   string config_helm_version = 2;
-  // Docker image tag from the carbide config.
+  // Docker image tag from the nico config.
   string config_docker_image_tag = 3;
   // Helm chart version observed on a live DPUServiceTemplate CR, if a
   // matching one exists. Empty if no template was found.
