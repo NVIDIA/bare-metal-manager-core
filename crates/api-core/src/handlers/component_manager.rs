@@ -50,6 +50,7 @@ use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use model::switch::SwitchMaintenanceOperation;
 use tonic::{Code, Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::handlers::firmware::load_desired_firmware_version_entries;
 
