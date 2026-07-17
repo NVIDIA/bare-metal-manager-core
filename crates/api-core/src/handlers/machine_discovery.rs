@@ -133,7 +133,7 @@ pub(crate) async fn discover_machine(
     } else {
         let remote_ip = remote_ip.ok_or_else(|| {
             CarbideError::InvalidArgument(
-                "Could not determine client IP address for discovery".to_string(),
+                "could not determine client IP address for discovery".to_string(),
             )
         })?;
         db::machine_interface::find_for_update_by_ip(&mut txn, remote_ip).await?
