@@ -4,13 +4,13 @@ Operator guide for configuring **Rack Manager Service (RMS)** backends in the
 `[component_manager]` section of `nico-api` site config, and the **rack profile**
 data those backends require for node type resolution.
 
-`[component_manager]` manages compute trays, NvLink switches, and power shelves.
+`[component_manager]` manages compute trays, NVLink switches, and power shelves.
 When a role's backend is set to `rms`, NICo resolves the RMS node type from the
 rack profile. If a configured
 rack profile definition is missing required fields or is ambiguous, `nico-api`
 **fails configuration validation at startup**. Per-rack `rack_profile_id`
 assignments are not checked at startup — those errors surface at runtime when an
-RMS operation runs (see [Startup validation](#startup-validation)).
+RMS operation runs (refer to [Startup validation](#startup-validation)).
 
 Canonical field reference: [`crates/api-core/src/cfg/README.md`](https://github.com/NVIDIA/infra-controller/tree/main/crates/api-core/src/cfg/README.md).
 Configure the `[rms]` block (mTLS connectivity to the external RMS) separately;
@@ -49,7 +49,7 @@ an RMS operation runs.
 Use these vendor names in config:
 
 | Role | Canonical values |
-| --- | --- |
+| ---- | ---------------- |
 | Compute, when `compute_tray_backend = "rms"` | `NVIDIA`, `Lenovo` |
 | Switch, when `nv_switch_backend = "rms"` | `NVIDIA` |
 | Power shelf, when `power_shelf_backend = "rms"` | `LiteOn`, `Delta` |
@@ -139,7 +139,7 @@ vendor = "Lite-On"
 ## Accepted values
 
 | Field | Accepted values |
-| --- | --- |
+| ----- | --------------- |
 | `product_family`, when an RMS-backed operation uses the profile | Exact match: `gb200`, `gb300` |
 | `rack_hardware_topology` | `gb200_nvl36r1_c2g4_topology`, `gb200_nvl72r1_c2g4_topology`, `gb300_nvl36r1_c2g4_topology`, `gb300_nvl72r1_c2g4_topology` |
 | Compute profile vendor, when `compute_tray_backend = "rms"` | `nvidia`, `lenovo` after normalization |
