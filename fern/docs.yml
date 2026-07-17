@@ -29,7 +29,7 @@ products:
     slug: /
     path: ../docs/index.yml
     versions:
-      - display-name: v0.8
+      - display-name: v2.0
         path: ../docs/index.yml
 
 redirects:
@@ -41,9 +41,9 @@ redirects:
     destination: "/infra-controller/documentation/architecture/state-machines/on-demand-rack-maintenance"
   - source: "/infra-controller/documentation/introduction"
     destination: "/infra-controller/documentation/overview/what-is-nico"
-  - source: "/infra-controller/documentation/getting-started/site-setup"
-    destination: "/infra-controller/documentation/getting-started/quick-start-guide"
   - source: "/infra-controller/documentation/getting-started/building-ni-co-containers"
     destination: "/infra-controller/documentation/getting-started/building-nico-containers"
+  - source: "/infra-controller/documentation/getting-started/site-setup"
+    destination: "/infra-controller/documentation/getting-started/quick-start-guide"
   - source: "/infra-controller/documentation/reference/release-notes"
     destination: "/infra-controller/changelog"
