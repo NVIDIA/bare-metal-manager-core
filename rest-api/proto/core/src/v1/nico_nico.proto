@@ -134,11 +134,9 @@ service Forge {
   // rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
   // Updates the Operating System on a running instance
   rpc UpdateInstanceOperatingSystem(InstanceOperatingSystemUpdateRequest) returns (Instance);
-  // Updates the configuration of a running instance.
-  // Only the following configurations of an instance can be changed:
-  // - Keyset IDs
-  // - Metadata (Name, Description, Labels)
-  // - Operating System Details
+  // Updates the mutable desired configuration and metadata of a running instance.
+  // `config` and `metadata` are complete values, not patches. Callers must
+  // preserve fields and selector variants they do not intend to change.
   // The update will take effect asynchronously. Users should monitor `Instance.status.synced`
   // to determine whether all updates have been applied.
   rpc UpdateInstanceConfig(InstanceConfigUpdateRequest) returns (Instance);
@@ -1775,10 +1773,10 @@ message VpcUpdateVirtualizationRequest {
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
 
-  // network_virtualization_type is the new VpcVirtualizationType
-  // to set for the VPC. This is intended for dev use only, and
-  // will return an error if any instances are already configured
-  // in the VPC.
+  // Development or maintenance operation. The only supported use migrates a
+  // legacy ETHERNET_VIRTUALIZER VPC with no instances to FNN. Quiesce instance
+  // allocation into that VPC before starting and until completion. Do not
+  // transition an existing FNN or FLAT VPC, or transition any VPC to FLAT.
   optional VpcVirtualizationType network_virtualization_type = 3;
 }
 
@@ -3025,7 +3023,9 @@ message InstanceConfigUpdateRequest {
   // a `ConcurrentModificationError`.
   optional string if_version_match = 2;
 
-  // New configuration to be utilized by the instance
+  // Complete desired configuration replacing the current configuration. The
+  // server does not merge omitted fields. Read-modify-write clients must
+  // preserve fields and oneof variants they do not intend to change.
   InstanceConfig config = 3;
   // New Metadata to be utilized by the instance
   Metadata metadata = 4;
@@ -3240,6 +3240,11 @@ message InstanceInterfaceConfig {
     // and continue IP allocation. This field is address-family agnostic —
     // it can be an IPv4 or IPv6 VPC prefix.
     common.VpcPrefixId vpc_prefix_id = 6;
+    // Select prefixes and addresses automatically from this FNN VPC.
+    // This selector records caller intent. Clients replacing `InstanceConfig`
+    // must preserve it unless intentionally switching to an explicit segment
+    // or prefix.
+    InstanceInterfaceVpcSelection vpc = 13;
   }
 
   // The ID of security group that is attached to this interface
@@ -3278,6 +3283,29 @@ message InstanceInterfaceConfig {
   // narrow prefix-list options that are already allowed by the owning VPC's
   // routing profile.
   optional InstanceInterfaceRoutingProfile routing_profile = 12;
+}
+
+// Automatic VPC-backed network selection for one instance interface.
+message InstanceInterfaceVpcSelection {
+  // The single logical VPC this interface belongs to.
+  common.VpcId vpc_id = 1;
+  // The address families Core must allocate. Unspecified is invalid.
+  InstanceInterfaceIpFamilyMode family_mode = 2;
+}
+
+// Address families requested for automatic VPC prefix and address selection.
+//
+// Core models and persists every mode. External IPv6-only and dual-stack
+// requests are temporarily rejected until downstream DPU support is complete.
+enum InstanceInterfaceIpFamilyMode {
+  // Invalid for an automatic VPC selection request.
+  INSTANCE_INTERFACE_IP_FAMILY_MODE_UNSPECIFIED = 0;
+  // Allocate one IPv4 prefix and address.
+  INSTANCE_INTERFACE_IP_FAMILY_MODE_IPV4_ONLY = 1;
+  // Allocate one IPv6 prefix and address.
+  INSTANCE_INTERFACE_IP_FAMILY_MODE_IPV6_ONLY = 2;
+  // Allocate one prefix and address from each family in the same VPC.
+  INSTANCE_INTERFACE_IP_FAMILY_MODE_DUAL_STACK = 3;
 }
 
 // IPv6 configuration for a dual-stack instance interface.
@@ -3330,6 +3358,12 @@ message InstanceIBInterfaceConfig {
   common.IBPartitionId ib_partition_id = 21;
 }
 
+// VPC prefixes Core resolved for an instance interface, keyed by family.
+message InstanceInterfaceResolvedVpcPrefixes {
+  optional common.VpcPrefixId ipv4_vpc_prefix_id = 1;
+  optional common.VpcPrefixId ipv6_vpc_prefix_id = 2;
+}
+
 // The actual status of a single network interface of an instance
 message InstanceInterfaceStatus {
   // If the interface is defined as a virtual function (associated
@@ -3364,6 +3398,9 @@ message InstanceInterfaceStatus {
 
   // The logical VPC this interface belongs to.
   optional common.VpcId vpc_id = 8;
+
+  // Prefixes resolved from explicit-prefix or automatic VPC intent.
+  optional InstanceInterfaceResolvedVpcPrefixes resolved_vpc_prefixes = 9;
 }
 
 // The actual status of a single IB interface of an instance

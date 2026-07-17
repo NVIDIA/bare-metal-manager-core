@@ -240,6 +240,7 @@ async fn test_integration() -> eyre::Result<()> {
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
+            tenant_org_id,
             &v4_vpc_prefix_id,
             &v6_vpc_prefix_id,
             // Relay IP in admin net
@@ -1278,6 +1279,7 @@ async fn test_machine_a_tron_dual_stack(
     hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
+    tenant_organization_id: &str,
     v4_vpc_prefix_id: &str,
     v6_vpc_prefix_id: &str,
     admin_dhcp_relay_address: Ipv4Addr,
@@ -1294,6 +1296,7 @@ async fn test_machine_a_tron_dual_stack(
         |machine_handle| {
             let v4_prefix_id = v4_vpc_prefix_id.to_string();
             let v6_prefix_id = v6_vpc_prefix_id.to_string();
+            let tenant_organization_id = tenant_organization_id.to_string();
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
                 machine_handle
@@ -1309,6 +1312,7 @@ async fn test_machine_a_tron_dual_stack(
                 let instance_id = instance::create_with_vpc_prefixes(
                     carbide_api_addrs,
                     &machine_id,
+                    &tenant_organization_id,
                     &[&v4_prefix_id, &v6_prefix_id],
                 )
                 .await?;
