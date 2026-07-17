@@ -37,6 +37,8 @@ redirects:
     destination: "/infra-controller/"
   - source: "/infra-controller/dev/index.html"
     destination: "/infra-controller/dev/"
+  - source: "/infra-controller/documentation/architecture/state-machines/rack-state-machine"
+    destination: "/infra-controller/documentation/architecture/state-machines/on-demand-rack-maintenance"
   - source: "/infra-controller/documentation/introduction"
     destination: "/infra-controller/documentation/overview/what-is-nico"
   - source: "/infra-controller/documentation/getting-started/site-setup"
