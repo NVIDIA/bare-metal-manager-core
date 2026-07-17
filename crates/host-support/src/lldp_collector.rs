@@ -1,30 +1,20 @@
+//! Collects the LLDP neighbors this host/DPU sees by shelling out to `lldpcli`,
+//! parsing its JSON, and dropping self-loopback entries.
+
 use std::fs;
 
 use ::rpc::machine_discovery as rpc_discovery;
 use carbide_utils::cmd::Cmd;
-use libudev::Device;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use crate::hardware_enumeration::PCI_SUBCLASS;
-
 #[derive(thiserror::Error, Debug)]
 pub enum LldpCollectorError {
-    #[error("udev failed with error: {0}")]
-    Udev(#[from] libudev::Error),
-    #[error("LLDP collection failed reading '{0}': {1}")]
-    Read(&'static str, String),
     #[error("LLDP error: {0}")]
     Lldp(String),
 }
 
 pub type LldpCollectorResult<T> = Result<T, LldpCollectorError>;
-
-// `lldpcli -f json0` renders every field as a JSON array of objects: simple values
-// become `{ "value": "..." }`, typed ids become `{ "type": "...", "value": "..." }`,
-// and — crucially — each LLDP neighbor is emitted as its own `interface` array entry
-// (even multiple neighbors sharing one physical port), which (the older) map-keyed
-// `-f json` format could not represent.
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LldpValue {
@@ -101,57 +91,43 @@ pub struct LldpResponse {
     pub lldp: Vec<LldpRoot>,
 }
 
-/// Lightweight per-interface LLDP snapshot for periodic reporting (host + DPU).
-///
-/// Enumerates Ethernet net interfaces and returns `(local_mac, neighbor)` pairs
-/// for every interface that currently has an LLDP neighbor. Interfaces without a
-/// neighbor (or when lldpd is unavailable) are omitted, so a full-snapshot report
-/// lets the server reconcile (drop) interfaces whose neighbor disappeared.
-///
-/// Neighbors advertising our own chassis id are discarded: on DPUs, e-switch
-/// representor pairs loop LLDP frames back through the embedded switch, so the
-/// box would otherwise report itself as its own neighbor. Comparing chassis ids
-/// (rather than matching interface names) works regardless of NIC vendor,
-/// naming convention, or host type.
-///
-/// This is intentionally cheap so it can run on a short interval.
+/// Returns a `(our local interface's MAC, neighbor)` pair for each LLDP neighbor,
+/// filtering out self-loopback ones.
 pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<(String, rpc_discovery::LldpSwitchData)>>
 {
-    let context = libudev::Context::new()?;
-    let mut enumerator = libudev::Enumerator::new(&context)?;
-    enumerator.match_subsystem("net")?;
-
     let local_chassis_id = get_local_chassis_id();
 
-    let mut out = Vec::new();
-    for device in enumerator.scan_devices()? {
-        let Ok(pci_subclass) =
-            crate::hardware_enumeration::convert_property_to_string(PCI_SUBCLASS, "", &device)
-        else {
-            continue;
-        };
-        if !pci_subclass.eq_ignore_ascii_case("Ethernet controller") {
+    let neighbors = get_all_lldp_neighbors()?;
+    let mut out = Vec::with_capacity(neighbors.len());
+
+    for lldp in neighbors {
+        // Unknown local chassis id -> filter nothing: a spurious self-entry
+        // beats a lost fabric link.
+        if let Some(own) = &local_chassis_id
+            && is_self_loopback(&lldp, own)
+        {
             continue;
         }
-        let Some(ifname) = device.sysname().and_then(|s| s.to_str()) else {
+        let Some(mac) = read_interface_mac(&lldp.local_port) else {
             continue;
         };
-        let Some(mac) = read_interface_mac(ifname) else {
-            continue;
-        };
-        out.extend(
-            lldp_for_device(&device)
-                .into_iter()
-                // When the local chassis id is unknown nothing is filtered —
-                // better a spurious self-entry than a lost fabric link.
-                .filter(|lldp| match &local_chassis_id {
-                    Some(own) => !is_self_loopback(lldp, own),
-                    None => true,
-                })
-                .map(|lldp| (mac.clone(), lldp)),
-        );
+        out.push((mac, lldp));
     }
     Ok(out)
+}
+
+/// Every LLDP neighbor across all interfaces lldpd monitors.
+///
+/// Returns an empty vec when no neighbor is advertised.
+fn get_all_lldp_neighbors() -> LldpCollectorResult<Vec<rpc_discovery::LldpSwitchData>> {
+    let out = Cmd::new("lldpcli")
+        .args(vec!["-f", "json0", "show", "neighbors", "details"])
+        .output()
+        .map_err(|e| {
+            warn!(error = %e, "Could not discover LLDP neighbors");
+            LldpCollectorError::Lldp(e.to_string())
+        })?;
+    parse_lldp_neighbors(&out)
 }
 
 /// True when a neighbor's chassis id (type + value) matches our own local
@@ -170,7 +146,7 @@ fn is_self_loopback(neighbor: &rpc_discovery::LldpSwitchData, own: &LldpId) -> b
 
 /// Chassis id this host's lldpd advertises (`lldpcli -f json0 show chassis`).
 ///
-/// Best-effort: `None` when lldpd is unavailable or the output is malformed.
+/// `None` when lldpd is unavailable or the output is malformed.
 fn get_local_chassis_id() -> Option<LldpId> {
     let out = Cmd::new("lldpcli")
         .args(vec!["-f", "json0", "show", "chassis"])
@@ -203,8 +179,7 @@ fn parse_local_chassis_id(json: &str) -> Option<LldpId> {
 }
 
 /// Collect the LLDP neighbors visible on this host and print them. Purely local
-/// interrogation for troubleshooting: no API integration, mirrors what
-/// `report_lldp_neighbors` would send to carbide-api.
+/// interrogation for troubleshooting: no API integration.
 pub fn print_lldp_neighbors() -> Result<(), eyre::Report> {
     let pairs = collect_lldp_neighbors().map_err(|e| eyre::eyre!("lldp collect: {e}"))?;
 
@@ -228,56 +203,14 @@ fn read_interface_mac(ifname: &str) -> Option<String> {
     Some(mac.to_string())
 }
 
-/// Best-effort LLDP neighbors for a net device's kernel interface name.
-///
-/// Returns an empty vec when the device has no kernel name, `lldpd`/`lldpcli` is
-/// unavailable, or no neighbor is advertised on the port. A single physical port
-/// may report several neighbors, hence a `Vec`. Never blocks (a single `lldpcli`
-/// query per interface, unlike `wait_until_all_ports_available`).
-fn lldp_for_device(device: &Device) -> Vec<rpc_discovery::LldpSwitchData> {
-    let Some(ifname) = device.sysname().and_then(|s| s.to_str()) else {
-        return Vec::new();
-    };
-    match get_port_lldp_info(ifname) {
-        Ok(lldp) => lldp,
-        Err(e) => {
-            debug!(ifname, error = %e, "no LLDP neighbor");
-            Vec::new()
-        }
-    }
-}
-
-/// Get raw `lldpcli -f json0` output for a port.
-pub fn get_lldp_port_info(port: &str) -> LldpCollectorResult<String> {
-    Cmd::new("lldpcli")
-        .args(vec![
-            "-f",
-            "json0",
-            "show",
-            "neighbors",
-            "ports",
-            port,
-            "details",
-        ])
-        .output()
-        .map_err(|e| {
-            warn!(port, error = %e, "Could not discover LLDP peer");
-            LldpCollectorError::Lldp(e.to_string())
-        })
-}
-
-/// query lldp info for a port, translate to simpler tor structs for discovery info.
-///
-/// Returns an empty vec when the port advertises no LLDP neighbor.
-pub fn get_port_lldp_info(port: &str) -> LldpCollectorResult<Vec<rpc_discovery::LldpSwitchData>> {
-    parse_port_lldp(&get_lldp_port_info(port)?)
-}
-
 /// Parse `lldpcli -f json0` output into one `LldpSwitchData` per neighbor.
 ///
 /// Each `lldp[].interface[]` entry is a distinct neighbor. Entries advertising no
-/// chassis are skipped; missing id/description/mgmt-ip degrade to empty values.
-fn parse_port_lldp(lldp_json: &str) -> LldpCollectorResult<Vec<rpc_discovery::LldpSwitchData>> {
+/// chassis are skipped; every other field is optional — missing chassis/port
+/// fields degrade to empty values, absent LLDP-MED inventory to `None`.
+fn parse_lldp_neighbors(
+    lldp_json: &str,
+) -> LldpCollectorResult<Vec<rpc_discovery::LldpSwitchData>> {
     let lldp_resp: LldpResponse = serde_json::from_str(lldp_json).map_err(|e| {
         warn!(lldp_json, error = %e, "Could not deserialize LLDP response");
         LldpCollectorError::Lldp(e.to_string())
@@ -341,10 +274,12 @@ fn parse_port_lldp(lldp_json: &str) -> LldpCollectorResult<Vec<rpc_discovery::Ll
 
 #[cfg(test)]
 mod tests {
-    use super::{LldpId, is_self_loopback, parse_local_chassis_id, parse_port_lldp, rpc_discovery};
+    use super::{
+        LldpId, is_self_loopback, parse_lldp_neighbors, parse_local_chassis_id, rpc_discovery,
+    };
 
     // Three LLDP neighbors on a single physical port (`vlldp`). `-f json0` emits
-    // each as its own `interface` array entry, so `parse_port_lldp` must yield one
+    // each as its own `interface` array entry, so `parse_lldp_neighbors` must yield one
     // `LldpSwitchData` per entry, in order, with no mgmt-ip or description.
     const MULTI_NEIGHBOR: &str = r#"{
       "lldp": [
@@ -380,7 +315,7 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn parses_multiple_neighbors_on_one_port() {
-        let neighbors = parse_port_lldp(MULTI_NEIGHBOR).expect("parse");
+        let neighbors = parse_lldp_neighbors(MULTI_NEIGHBOR).expect("parse");
         assert_eq!(neighbors.len(), 3);
         for (i, n) in neighbors.iter().enumerate() {
             assert_eq!(n.name, format!("neighbor-0{i}"));
@@ -400,7 +335,7 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn parses_single_neighbor_with_mgmt_ips() {
-        let neighbors = parse_port_lldp(SINGLE_NEIGHBOR).expect("parse");
+        let neighbors = parse_lldp_neighbors(SINGLE_NEIGHBOR).expect("parse");
         assert_eq!(neighbors.len(), 1);
         let n = &neighbors[0];
         assert_eq!(n.name, "example-switch-01");
@@ -434,7 +369,7 @@ mod tests {
 
     #[test]
     fn parses_lldp_med_inventory() {
-        let neighbors = parse_port_lldp(INVENTORY_NEIGHBOR).expect("parse");
+        let neighbors = parse_lldp_neighbors(INVENTORY_NEIGHBOR).expect("parse");
         assert_eq!(neighbors.len(), 1);
         let n = &neighbors[0];
         assert_eq!(n.serial.as_deref(), Some("SN0123456789"));
@@ -444,7 +379,7 @@ mod tests {
 
     #[test]
     fn parses_missing_inventory_as_none() {
-        let neighbors = parse_port_lldp(SINGLE_NEIGHBOR).expect("parse");
+        let neighbors = parse_lldp_neighbors(SINGLE_NEIGHBOR).expect("parse");
         assert_eq!(neighbors.len(), 1);
         let n = &neighbors[0];
         assert!(n.serial.is_none());
@@ -454,7 +389,7 @@ mod tests {
 
     #[test]
     fn parses_no_neighbors_as_empty() {
-        let neighbors = parse_port_lldp(r#"{"lldp":[{"interface":[]}]}"#).expect("parse");
+        let neighbors = parse_lldp_neighbors(r#"{"lldp":[{"interface":[]}]}"#).expect("parse");
         assert!(neighbors.is_empty());
     }
 
