@@ -97,23 +97,17 @@ pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<(String, rpc_discover
 {
     let local_chassis_id = get_local_chassis_id();
 
-    let neighbors = get_all_lldp_neighbors()?;
-    let mut out = Vec::with_capacity(neighbors.len());
-
-    for lldp in neighbors {
+    Ok(get_all_lldp_neighbors()?
+        .into_iter()
         // Unknown local chassis id -> filter nothing: a spurious self-entry
         // beats a lost fabric link.
-        if let Some(own) = &local_chassis_id
-            && is_self_loopback(&lldp, own)
-        {
-            continue;
-        }
-        let Some(mac) = read_interface_mac(&lldp.local_port) else {
-            continue;
-        };
-        out.push((mac, lldp));
-    }
-    Ok(out)
+        .filter(|lldp| {
+            local_chassis_id
+                .as_ref()
+                .is_none_or(|own| !is_self_loopback(lldp, own))
+        })
+        .filter_map(|lldp| Some((read_interface_mac(&lldp.local_port)?, lldp)))
+        .collect())
 }
 
 /// Every LLDP neighbor across all interfaces lldpd monitors.
