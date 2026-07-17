@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::net::SocketAddrV4;
+
 use clap::{Parser, ValueEnum};
 
 #[derive(Parser, Debug, Clone)]
@@ -22,6 +24,20 @@ use clap::{Parser, ValueEnum};
 pub struct Args {
     #[arg(long, help = "Interface name where to bind this server.")]
     pub interfaces: Vec<String>,
+
+    #[arg(
+        long,
+        help = "UDP address where the DHCP server listens.",
+        default_value = "0.0.0.0:67"
+    )]
+    pub listen_addr: SocketAddrV4,
+
+    #[arg(
+        long,
+        help = "UDP destination port for responses to DHCP relays.",
+        default_value_t = 67
+    )]
+    pub relay_response_port: u16,
 
     #[arg(
         long,
@@ -64,5 +80,42 @@ pub enum ServerMode {
 impl Args {
     pub fn load() -> Self {
         Self::parse()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{Ipv4Addr, SocketAddrV4};
+
+    use clap::Parser;
+
+    use super::Args;
+
+    #[test]
+    fn dhcp_port_arguments() {
+        let defaults = Args::try_parse_from(["forge-dhcp-server"]).unwrap();
+        assert_eq!(
+            defaults.listen_addr,
+            SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 67)
+        );
+        assert_eq!(defaults.relay_response_port, 67);
+
+        let overridden = Args::try_parse_from([
+            "forge-dhcp-server",
+            "--listen-addr",
+            "127.0.0.1:6767",
+            "--relay-response-port",
+            "6768",
+        ])
+        .unwrap();
+        assert_eq!(
+            overridden.listen_addr,
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6767)
+        );
+        assert_eq!(overridden.relay_response_port, 6768);
+
+        assert!(
+            Args::try_parse_from(["forge-dhcp-server", "--listen-addr", "[::]:6767",]).is_err()
+        );
     }
 }
