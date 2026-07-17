@@ -226,21 +226,14 @@ NICo's DNS layer has two distinct pieces:
 
 | Piece | Backed by | Serves |
 |---|---|---|
-| `nico-dns` | Either a PowerDNS Authoritative Server bridged to `nico-api`, or a standalone DNS server inside the `nico-dns` binary itself (see [section 3.1](#31-nico-dns-zones-and-what-they-serve)) — both modes call `nico-api` for record data | The site's authoritative zones — generated from machine, instance, and tenant records in the `nico-api` database |
+| `nico-dns` | A standalone DNS server (the `carbide-dns` binary) that answers every query from `nico-api` record data (see [section 3.1](#31-nico-dns-zones-and-what-they-serve)) | The site's authoritative zones — generated from machine, instance, and tenant records in the `nico-api` database |
 | `unbound` (recursive resolver) | Unbound | The resolver that managed machines (host BMCs, host OS, DPU OS, DPU BMCs) use for *all* DNS lookups |
 
 These two roles are independent. Managed machines never query `nico-dns` directly — they query the recursive resolver, which forwards or recurses as needed.
 
 ### 3.1 `nico-dns` Zones and What They Serve
 
-`nico-dns` serves the site's authoritative zones from `nico-api`'s database. It can run in either of two modes — pick one at deploy time:
-
-| Mode | How DNS reaches `nico-dns` | Selected by |
-|---|---|---|
-| **PowerDNS remote backend** (default) | PowerDNS Authoritative Server listens on UDP/TCP 53 and connects to `nico-dns` over a Unix domain socket using PowerDNS's JSON remote-backend protocol. `nico-dns` translates each request into a gRPC call to `nico-api`. | Default; no `--listen` flag set on the `nico-dns` binary. |
-| **Standalone DNS server** | `nico-dns` itself listens on UDP/TCP 53 and answers queries directly, calling `nico-api` over gRPC for record data. PowerDNS is not in the path. | Pass `--listen=[::]:53` (or another address) to the `nico-dns` binary. |
-
-Both modes resolve the same records from the same source — the difference is only whether PowerDNS sits in front. Production deployments use both: choose based on whether you already operate PowerDNS at your site or prefer one fewer process to manage. The rest of this page applies to either mode.
+`nico-dns` serves the site's authoritative zones from `nico-api`'s database. It is a standalone DNS server: the binary listens on UDP and TCP 53 (`--listen`, default `[::]:53`) and answers each query by calling `nico-api` over gRPC for record data. It serves A, AAAA, and PTR records only, and it does not recurse; clients reach it through the recursive resolver ([section 3.2](#32-unbound-recursive-resolver-for-managed-machines)), not directly.
 
 The zones served are seeded by the `initial_domain_name` field in `siteConfig` (for example, `mysite.example.com`). On first start, `nico-api` creates the corresponding domain record; `nico-dns` then exposes whatever records exist in that zone in `nico-api`'s database.
 
@@ -248,23 +241,25 @@ UFM endpoints under `default.ufm.<initial_domain_name>` are one example of recor
 
 Operators do not edit `nico-dns` zone files directly. Zone content is a function of `nico-api`'s database state.
 
+For the record catalog these zones serve - machine, BMC, and instance names, plus the automatically derived reverse zones and their lifecycle - refer to [DNS](../configuration/dns.md).
+
 To configure `nico-dns`:
 
 1. Set `initial_domain_name` in `siteConfig` to your site's DNS domain.
-2. Choose the mode (PowerDNS remote backend or standalone) and configure the `nico-dns` Deployment / StatefulSet accordingly — set or omit `--listen` on the binary's command line, and include or exclude PowerDNS from the pod spec.
-3. Assign a stable LoadBalancer VIP to the front-end service that listens on UDP/TCP 53 (one per replica via `perPodAnnotations`; see [Quick Start Step 3h](../getting-started/quick-start.md#3h-assign-service-vips)). In PowerDNS mode this is the PowerDNS service; in standalone mode it is the `nico-dns` service.
+2. Deploy the `nico-dns` StatefulSet; the binary listens on UDP/TCP 53 by default (`--listen=[::]:53`).
+3. Assign a stable LoadBalancer VIP to the `nico-dns` service that listens on UDP/TCP 53 (one per replica via `perPodAnnotations`; see [Quick Start Step 3h](../getting-started/quick-start.md#3h-assign-service-vips)).
 4. Delegate the `initial_domain_name` zone from your upstream DNS to those VIPs, or configure your recursive resolver to forward queries for the zone to them.
 
 ### 3.2 `unbound` Recursive Resolver for Managed Machines
 
 Managed machines (host OS, DPU OS, host BMCs, DPU BMCs) need a recursive resolver that can resolve **both** the site-internal NICo service zone and external names. NICo deploys an `unbound` instance for this purpose.
 
-The resolver address is distributed to managed machines via **DHCP option 6**, set in the `nico-dhcp` Kea hook parameter `nico-nameserver`. Managed machines have no compiled-in resolver address — changing the resolver is a DHCP configuration change, not a rebuild.
+The resolver address is distributed to managed machines via **DHCP option 6**, set in the `nico-dhcp` Kea hook parameter `carbide-nameservers` (the `config.kea.hookParameters.nameservers` Helm value emits it). Managed machines have no compiled-in resolver address — changing the resolver is a DHCP configuration change, not a rebuild.
 
 The resolver is responsible for:
 
 - Recursive resolution of external (public-internet) names — needed for package fetches, NTP, etc.
-- Authoritative resolution of the NICo service zone (`.nico`, `.nico`, or whichever convention your deployment uses; see below).
+- Authoritative resolution of the NICo service zone (`.forge`, `.nico`, or whichever convention your deployment uses; see below).
 - Forwarding to `nico-dns` for the site domain configured in `initial_domain_name`.
 
 To configure `unbound`:
@@ -281,10 +276,10 @@ A fixed set of NICo service hostnames are resolved by DPU agents, host PXE loade
 
 Two TLD conventions exist:
 
-- **`.nico`** is the compiled default in `crates/agent/src/util.rs` and the host PXE loader scripts. The agent resolves `nico-pxe.nico`, `nico-ntp.nico`, etc. at startup. This is the TLD used by deployments built from the current binaries.
+- **`.forge`** is the compiled default in `crates/agent/src/util.rs` and the host PXE loader scripts. The agent resolves `carbide-pxe.forge`, `carbide-ntp.forge`, etc. at startup. This is the TLD used by deployments built from the current binaries.
 - **`.nico`** is the rebranded TLD documented in [`deploy/DNS.md`](https://github.com/NVIDIA/infra-controller/blob/main/deploy/DNS.md). New deployments may use this convention, but only if the agent and PXE images have been rebuilt with the new TLD.
 
-Choose the convention that matches your binaries — do not mix. Verify by checking what the agent actually resolves at startup (`kubectl exec -n nico-system <agent-pod> -- getent hosts nico-pxe.nico` or the `.nico` equivalent).
+Choose the convention that matches your binaries — do not mix. Verify by checking what the agent actually resolves at startup (`kubectl exec -n nico-system <agent-pod> -- getent hosts carbide-pxe.forge` or the `.nico` equivalent).
 
 The required A records (shown for `.nico`; substitute `.nico` if your binaries use it) are:
 
