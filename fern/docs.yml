@@ -46,4 +46,4 @@ redirects:
   - source: "/infra-controller/documentation/introduction"
     destination: "/infra-controller/documentation/overview/what-is-nico"
   - source: "/infra-controller/documentation/reference/release-notes"
-    destination: "/infra-controller/changelog"
+    destination: "/infra-controller/documentation/release-notes"

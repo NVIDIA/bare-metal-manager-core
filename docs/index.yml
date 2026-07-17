@@ -17,9 +17,9 @@ navigation:
       icon: home
 
     - changelog: ../fern/changelog
-      title: Changelog
+      title: Release Notes
       icon: clock
-      slug: changelog
+      slug: release-notes
 
     - section: Overview
       contents:
