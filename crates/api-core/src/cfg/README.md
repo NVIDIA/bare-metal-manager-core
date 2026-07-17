@@ -664,9 +664,9 @@ events, so consumers handle them identically.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `address` | `String` | **required** | Vault address, e.g. `https://vault-certs.example:8200`. |
-| `pki_mount_location` | `String` | **required** | PKI secrets-engine mount path on the target Vault. |
-| `pki_role_name` | `String` | **required** | PKI role used to sign leaf certificates. |
+| `address` | `String` | **required, non-empty** | Vault address, e.g. `https://vault-certs.example:8200`. |
+| `pki_mount_location` | `String` | **required, non-empty** | PKI secrets-engine mount path on the target Vault. |
+| `pki_role_name` | `String` | **required, non-empty** | PKI role used to sign leaf certificates. |
 | `token` | `Option<String>` | — | Token for root-token auth; required only when the pod has no Kubernetes service-account token. |
 | `vault_cacert` | `Option<String>` | — | CA bundle that signs the target Vault's TLS cert. Defaults to the site root / `VAULT_CACERT`. |
 
