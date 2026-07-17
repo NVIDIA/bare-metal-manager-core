@@ -187,6 +187,7 @@ Enable and select object types with
 `[observability.per_object_state_metrics]`. Scrape it slowly (normally
 60–120 seconds), and scrape both endpoints into the same Prometheus before
 joining these series with aggregate or health metrics.
+Refer to [Per-object state progress metrics](../operations/monitoring-health.md#per-object-state-progress-metrics) for more details.
 
 ## Histograms and observations
 
