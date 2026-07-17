@@ -289,6 +289,23 @@ func testSubnetBuildIPBlock(t *testing.T, dbSession *cdb.Session, name string, s
 	return ipb
 }
 
+func testBuildNetworkSegment(id, name string, mtu *int32, state corev1.TenantState, segmentType corev1.NetworkSegmentType) *corev1.NetworkSegment {
+	seg := &corev1.NetworkSegment{
+		Id:       &corev1.NetworkSegmentId{Value: id},
+		Metadata: &corev1.Metadata{Name: name},
+		Config: &corev1.NetworkSegmentConfig{
+			SegmentType: segmentType,
+		},
+		Status: &corev1.NetworkSegmentStatus{
+			TenantState: state,
+		},
+	}
+	if mtu != nil {
+		seg.Config.Mtu = mtu
+	}
+	return seg
+}
+
 func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	ctx := context.Background()
 
@@ -409,8 +426,8 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 	pagedCtrlSubnets := []*corev1.NetworkSegment{}
 	for i := 0; i < 34; i++ {
 		ctrlSubnet := &corev1.NetworkSegment{
-			Id:   &corev1.NetworkSegmentId{Value: pagedSubnets[i].ControllerNetworkSegmentID.String()},
-			Name: pagedSubnets[i].Name,
+			Id:       &corev1.NetworkSegmentId{Value: pagedSubnets[i].ControllerNetworkSegmentID.String()},
+			Metadata: &corev1.Metadata{Name: pagedSubnets[i].Name},
 		}
 		pagedCtrlSubnets = append(pagedCtrlSubnets, ctrlSubnet)
 	}
@@ -463,10 +480,7 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 				siteID: uuid.New(),
 				subnetInventory: &corev1.SubnetInventory{
 					Segments: []*corev1.NetworkSegment{
-						{
-							Id:    &corev1.NetworkSegmentId{Value: subnet1.ControllerNetworkSegmentID.String()},
-							State: corev1.TenantState_READY,
-						},
+						testBuildNetworkSegment(subnet1.ControllerNetworkSegmentID.String(), "", nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
 					},
 				},
 			},
@@ -485,32 +499,11 @@ func TestManageSubnet_UpdateSubnetsInDB(t *testing.T) {
 				siteID: st.ID,
 				subnetInventory: &corev1.SubnetInventory{
 					Segments: []*corev1.NetworkSegment{
-						{
-							Id:    &corev1.NetworkSegmentId{Value: subnet1.ControllerNetworkSegmentID.String()},
-							Name:  subnet1.Name,
-							State: corev1.TenantState_READY,
-							Mtu:   &mtu,
-						},
-						{
-							Id:    &corev1.NetworkSegmentId{Value: subnet5.ControllerNetworkSegmentID.String()},
-							Name:  subnet5.Name,
-							State: corev1.TenantState_READY,
-						},
-						{
-							Id:    &corev1.NetworkSegmentId{Value: subnet6.ControllerNetworkSegmentID.String()},
-							Name:  subnet6.Name,
-							State: corev1.TenantState_READY,
-						},
-						{
-							Id:    &corev1.NetworkSegmentId{Value: uuid.NewString()},
-							Name:  subnet8.ID.String(),
-							State: corev1.TenantState_READY,
-						},
-						{
-							Id:    &corev1.NetworkSegmentId{Value: uuid.NewString()},
-							Name:  subnet9.ID.String(),
-							State: corev1.TenantState_READY,
-						},
+						testBuildNetworkSegment(subnet1.ControllerNetworkSegmentID.String(), subnet1.Name, &mtu, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
+						testBuildNetworkSegment(subnet5.ControllerNetworkSegmentID.String(), subnet5.Name, nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
+						testBuildNetworkSegment(subnet6.ControllerNetworkSegmentID.String(), subnet6.Name, nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
+						testBuildNetworkSegment(uuid.NewString(), subnet8.ID.String(), nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
+						testBuildNetworkSegment(uuid.NewString(), subnet9.ID.String(), nil, corev1.TenantState_READY, corev1.NetworkSegmentType_TENANT),
 					},
 				},
 			},

@@ -16,7 +16,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	wutil "github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/util"
 	"github.com/labstack/echo/v4"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -435,9 +434,10 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	statusDetails := []cdbm.StatusDetail{*ssd}
 
 	// Make a best-effort attempt to return a response with the allocated VNI.
-	if controllerVpc.GetStatus() != nil {
-		activeVni := wutil.GetUint32PtrToIntPtr(controllerVpc.GetStatus().Vni)
-
+	controllerVpcModel := &cdbm.Vpc{}
+	controllerVpcModel.FromProto(controllerVpc)
+	activeVni := controllerVpcModel.ActiveVni
+	if activeVni != nil {
 		uvpcInput := cdbm.VpcUpdateInput{
 			VpcID:     vpc.ID,
 			ActiveVni: activeVni,

@@ -58,6 +58,9 @@ pub enum AgentCommand {
     #[clap(about = "One-off health check")]
     Health,
 
+    #[clap(about = "Print LLDP neighbors visible on this host and exit")]
+    LldpNeighbors,
+
     #[clap(about = "One-off network monitor")]
     Network(NetworkOptions),
 

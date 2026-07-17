@@ -23,7 +23,10 @@ use serde::Deserialize;
 use tonic::transport::Uri;
 
 use crate::default as tls_default;
-pub const CONFIG_FILE_LOCATION: &str = ".config/carbide_api_cli.json";
+pub const CONFIG_FILE_LOCATION: &str = ".config/nico_api_cli.json";
+/// Previous name for [`CONFIG_FILE_LOCATION`]. Still read as a fallback (with a
+/// deprecation warning) so existing setups keep working after the rename.
+pub const LEGACY_CONFIG_FILE_LOCATION: &str = ".config/carbide_api_cli.json";
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientConfigError {
@@ -181,12 +184,23 @@ fn get_config_file_location() -> Result<Option<PathBuf>, ClientConfigError> {
     let Ok(home) = env::var("HOME") else {
         return Ok(None);
     };
-    let legacy = Path::new(&home).join(CONFIG_FILE_LOCATION);
-    if legacy.exists() {
-        Ok(Some(legacy))
-    } else {
-        Ok(None)
+    let home = Path::new(&home);
+
+    let config_path = home.join(CONFIG_FILE_LOCATION);
+    if config_path.is_file() {
+        return Ok(Some(config_path));
     }
+
+    let legacy_path = home.join(LEGACY_CONFIG_FILE_LOCATION);
+    if legacy_path.is_file() {
+        eprintln!(
+            "warning: config file `$HOME/{LEGACY_CONFIG_FILE_LOCATION}` is deprecated; \
+             rename it to `$HOME/{CONFIG_FILE_LOCATION}`."
+        );
+        return Ok(Some(legacy_path));
+    }
+
+    Ok(None)
 }
 pub fn get_config_from_file() -> Option<FileConfig> {
     // Third config file
@@ -504,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_legacy_config_file_from_home() {
+    fn reads_config_file_from_home() {
         let _lock = ENV_LOCK.lock().unwrap();
         let _snapshot = EnvSnapshot::capture(&["HOME"]);
         let home = TempHome::create();
