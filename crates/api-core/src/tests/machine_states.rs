@@ -20,7 +20,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use ::rpc::measured_boot::FromGrpc;
-use base64::prelude::*;
 use carbide_machine_controller::context::MachineStateHandlerContextObjects;
 use carbide_machine_controller::handler::{MachineStateHandlerBuilder, handler_host_power_control};
 use carbide_machine_controller::metrics::MachineMetrics;
@@ -39,7 +38,9 @@ use common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
     create_host_inband_network_segment,
 };
-use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
+use common::api_fixtures::tpm_attestation::{
+    CA_CERT_SERIALIZED, EK_CERT_SERIALIZED, EK2_CERT_SERIALIZED,
+};
 use common::api_fixtures::{
     TestEnv, TestManagedHost, create_managed_host, create_managed_host_with_config,
     create_test_env, create_test_env_with_overrides, get_config,
@@ -55,6 +56,7 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
+use model::machine::machine_id::from_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
@@ -4137,19 +4139,25 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
 }
 
 #[crate::sqlx_test]
-async fn test_tpm_logging(pool: sqlx::PgPool) {
+async fn test_discover_machine_rejects_mismatched_tpm_identity_before_topology_insert(
+    pool: sqlx::PgPool,
+) {
     let env = create_test_env(pool).await;
-    let host_config = env.managed_host_config();
+    let mut host_config = env.managed_host_config();
+    host_config.tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
 
-    host_discover_machine(&env, &host_config, machine_interface_id).await;
+    let original_machine_id = host_discover_machine(&env, &host_config, machine_interface_id).await;
 
-    let mut discovery_info =
-        DiscoveryInfo::try_from(model::hardware_info::HardwareInfo::from(&host_config)).unwrap();
-    discovery_info.tpm_ek_certificate =
-        Some(BASE64_STANDARD.encode(common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED));
+    let mut candidate_hardware_info = model::hardware_info::HardwareInfo::from(&host_config);
+    candidate_hardware_info.tpm_ek_certificate =
+        Some(TpmEkCertificate::from(EK2_CERT_SERIALIZED.to_vec()));
+    let candidate_machine_id = from_hardware_info(&candidate_hardware_info).unwrap();
+    assert_ne!(original_machine_id, candidate_machine_id);
+
+    let mut discovery_info = DiscoveryInfo::try_from(candidate_hardware_info).unwrap();
     discovery_info.attest_key_info = Some(AttestKeyInfo {
         ek_pub: common::api_fixtures::tpm_attestation::EK_PUB_SERIALIZED.to_vec(),
         ak_pub: common::api_fixtures::tpm_attestation::AK_PUB_SERIALIZED.to_vec(),
@@ -4165,13 +4173,54 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
         }))
         .await;
 
-    let err = result.expect_err("Expected FK violation from mismatched TPM");
+    let err = result.expect_err("Expected identity conflict from mismatched TPM");
     assert_eq!(err.code(), Code::FailedPrecondition);
     assert!(
-        err.message().contains("machine_id foreign key violation"),
+        err.message().contains("host identity mismatch"),
         "Expected TPM mismatch error, got: {}",
         err.message()
     );
+    assert!(
+        !err.message().contains("foreign key"),
+        "Expected discovery to fail before topology insert, got: {}",
+        err.message()
+    );
+
+    let mut txn = env.db_txn().await;
+    let candidate_topology =
+        db::machine_topology::find_latest_by_machine_ids(&mut txn, &[candidate_machine_id])
+            .await
+            .unwrap();
+    assert!(
+        !candidate_topology.contains_key(&candidate_machine_id),
+        "expected no topology row for rejected candidate machine id {candidate_machine_id}"
+    );
+    let candidate_ek_status = db::attestation::ek_cert_verification_status::get_by_machine_id(
+        &mut txn,
+        candidate_machine_id,
+    )
+    .await
+    .unwrap();
+    assert!(
+        candidate_ek_status.is_none(),
+        "expected no EK cert status row for rejected candidate machine id {candidate_machine_id}"
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_discover_machine_allows_repeated_tpm_identity(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mut host_config = env.managed_host_config();
+    host_config.tpm_ek_cert = TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec());
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
+
+    let machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
+
+    let original_machine_id = host_discover_machine(&env, &host_config, machine_interface_id).await;
+    let rediscovered_machine_id =
+        host_discover_machine(&env, &host_config, machine_interface_id).await;
+
+    assert_eq!(rediscovered_machine_id, original_machine_id);
 }
 
 #[crate::sqlx_test]

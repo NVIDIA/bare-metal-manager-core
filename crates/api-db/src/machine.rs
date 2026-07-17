@@ -1440,10 +1440,20 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         });
     };
 
-    // This is repeated call. Machine is already updated with stable ID.
+    // This is a repeated call. Machine is already updated with stable ID.
     if !current_machine_id.machine_type().is_predicted_host() {
-        return match find_one(txn, current_machine_id, MachineSearchConfig::default()).await? {
-            Some(machine) => Ok(machine.id),
+        return match find_one(
+            &mut *txn,
+            current_machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
+        {
+            Some(machine) if machine.id == *stable_machine_id => Ok(machine.id),
+            Some(machine) => Err(DatabaseError::FailedPrecondition(format!(
+                "host identity mismatch: interface is already associated with machine id {}, but discovery derived {}; refusing to alias different host identities",
+                machine.id, stable_machine_id
+            ))),
             None => Err(DatabaseError::NotFoundError {
                 kind: "machine",
                 id: current_machine_id.to_string(),

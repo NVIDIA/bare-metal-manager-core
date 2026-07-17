@@ -140,24 +140,6 @@ pub(crate) async fn discover_machine(
                 "ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {interface_id:?}"
             ))
             .into());
-    } else if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_some() {
-        // this means we do have an EK cert for a host
-
-        // get the EK cert from incoming message
-        let tpm_ek_cert =
-            hardware_info
-                .tpm_ek_certificate
-                .as_ref()
-                .ok_or(CarbideError::InvalidArgument(
-                    "tpm_ek_cert is empty".to_string(),
-                ))?;
-
-        attest::match_insert_new_ek_cert_status_against_ca(
-            &mut txn,
-            tpm_ek_cert,
-            &stable_machine_id,
-        )
-        .await?;
     }
 
     let interface =
@@ -211,7 +193,7 @@ pub(crate) async fn discover_machine(
             // Site-explorer will update if machine is created by site-explorer.
             db::machine_interface::associate_interface_with_dpu_machine(
                 &interface.id,
-                &stable_machine_id,
+                &machine.id,
                 &mut txn,
             )
             .await?;
@@ -231,23 +213,16 @@ pub(crate) async fn discover_machine(
             })?
         };
 
-        if db_machine.network_config.loopback_ip.is_none() {
-            let loopback_ip = db::machine::allocate_loopback_ip(
-                &api.common_pools,
-                &mut txn,
-                &stable_machine_id.to_string(),
-            )
-            .await?;
-
-            let mut network_config = db_machine.network_config.value.clone();
-            network_config.loopback_ip = Some(loopback_ip);
-            db::machine::try_update_network_config(
-                &mut txn,
-                &stable_machine_id,
-                db_machine.network_config.version,
-                &network_config,
-            )
-            .await?;
+        let mut network_config = db_machine.network_config.value.clone();
+        if network_config.loopback_ip.is_none() {
+            network_config.loopback_ip = Some(
+                db::machine::allocate_loopback_ip(
+                    &api.common_pools,
+                    &mut txn,
+                    &db_machine.id.to_string(),
+                )
+                .await?,
+            );
         }
 
         if api
@@ -256,27 +231,33 @@ pub(crate) async fn discover_machine(
             .as_ref()
             .map(|vc| vc.secondary_overlay_support)
             .unwrap_or_default()
-            && db_machine
-                .network_config
-                .secondary_overlay_vtep_ip
-                .is_none()
+            && network_config.secondary_overlay_vtep_ip.is_none()
         {
-            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
-                &api.common_pools,
-                &mut txn,
-                &stable_machine_id.to_string(),
-            )
-            .await?;
+            network_config.secondary_overlay_vtep_ip = Some(
+                db::machine::allocate_secondary_vtep_ip(
+                    &api.common_pools,
+                    &mut txn,
+                    &db_machine.id.to_string(),
+                )
+                .await?,
+            );
+        }
 
-            let mut network_config = db_machine.network_config.value.clone();
-            network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
-            db::machine::try_update_network_config(
+        if network_config != db_machine.network_config.value {
+            let updated = db::machine::try_update_network_config(
                 &mut txn,
-                &stable_machine_id,
+                &db_machine.id,
                 db_machine.network_config.version,
                 &network_config,
             )
             .await?;
+            if !updated {
+                return Err(db::DatabaseError::ConcurrentModificationError(
+                    "machine",
+                    db_machine.network_config.version.to_string(),
+                )
+                .into());
+            }
         }
 
         db_machine.id
@@ -290,9 +271,25 @@ pub(crate) async fn discover_machine(
         .await?
     };
 
+    if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_some() {
+        // this means we do have an EK cert for a host
+
+        // get the EK cert from incoming message
+        let tpm_ek_cert =
+            hardware_info
+                .tpm_ek_certificate
+                .as_ref()
+                .ok_or(CarbideError::InvalidArgument(
+                    "tpm_ek_cert is empty".to_string(),
+                ))?;
+
+        attest::match_insert_new_ek_cert_status_against_ca(&mut txn, tpm_ek_cert, &machine_id)
+            .await?;
+    }
+
     db::machine_topology::create_or_update_with_bom_validation(
         &mut txn,
-        &stable_machine_id,
+        &machine_id,
         &hardware_info,
         api.runtime_config.bom_validation.enabled,
     )
@@ -411,7 +408,7 @@ pub(crate) async fn discover_machine(
             crate::handlers::measured_boot::create_attest_key_bind_challenge(
                 &mut txn,
                 &attest_key_info,
-                &stable_machine_id,
+                &machine_id,
             )
             .await?,
         )
@@ -419,7 +416,7 @@ pub(crate) async fn discover_machine(
         tracing::info!(
             attestation_enabled = api.runtime_config.attestation_enabled,
             is_dpu = hardware_info.is_dpu(),
-            %stable_machine_id,
+            %machine_id,
             "Vending attestation certificates",
         );
 
@@ -436,12 +433,8 @@ pub(crate) async fn discover_machine(
             .as_deref()
             .none_if_empty()
     {
-        db::machine::update_last_scout_observed_version(
-            &stable_machine_id,
-            scout_version,
-            &mut txn,
-        )
-        .await?;
+        db::machine::update_last_scout_observed_version(&machine_id, scout_version, &mut txn)
+            .await?;
     }
 
     txn.commit().await?;
@@ -452,7 +445,7 @@ pub(crate) async fn discover_machine(
         } else {
             Some(
                 api.certificate_provider
-                    .get_certificate(&stable_machine_id.to_string(), None, None)
+                    .get_certificate(&machine_id.to_string(), None, None)
                     .await
                     .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?
                     .into(),
@@ -463,7 +456,7 @@ pub(crate) async fn discover_machine(
     };
 
     let response = Ok(Response::new(rpc::MachineDiscoveryResult {
-        machine_id: Some(stable_machine_id),
+        machine_id: Some(machine_id),
         machine_certificate,
         attest_key_challenge,
         machine_interface_id: Some(interface.id),
@@ -483,7 +476,7 @@ pub(crate) async fn discover_machine(
             db::network_devices::dpu_to_network_device_map::create_dpu_network_device_association(
                 txn,
                 &dpu_info.switches,
-                &stable_machine_id,
+                &machine_id,
             )
             .boxed()
         })
