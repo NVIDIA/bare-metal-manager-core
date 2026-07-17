@@ -327,10 +327,10 @@ pub async fn setup_and_run(
     }
 
     if options.agent_platform_type.is_dpu_os() {
-        if let Err(e) = lldp::prepare_lldp() {
+        if let Err(e) = lldp::prepare_lldp().await {
             tracing::error!(error = %e, "Couldn't prepare LLDP configuration");
         }
-        if let Err(e) = lldp::set_lldp_system_description(&machine_id) {
+        if let Err(e) = lldp::set_lldp_system_description(&machine_id).await {
             tracing::warn!(error = %e, "Couldn't update LLDP system description");
         }
     }

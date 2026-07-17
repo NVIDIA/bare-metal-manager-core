@@ -17,11 +17,12 @@
 use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::Output;
 use std::time::Duration;
 
 use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
+use tokio::process::Command;
 
 // FIXME: This should probably be configurable and come from the API's config
 // file.
@@ -32,16 +33,18 @@ const LLDPD_DEFAULT_CONFIG: &str = "/etc/default/lldpd";
 const LLDPD_DAEMON_ARGS: &str = "DAEMON_ARGS=\"-M 1\"";
 const LLDPD_RESTART_ATTEMPTS: u8 = 3;
 const LLDP_MED_CONFIGURATION_CHECK_ATTEMPTS: u8 = 3;
+const LLDPCLI_TIMEOUT: Duration = Duration::from_secs(10);
+const LLDPD_RESTART_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub(crate) fn prepare_lldp() -> eyre::Result<()> {
+pub(crate) async fn prepare_lldp() -> eyre::Result<()> {
     let interfaces_config_disabled = disable_interfaces_config()?;
     let daemon_args_updated = ensure_lldpd_daemon_args()?;
 
     if interfaces_config_disabled || daemon_args_updated {
-        restart_lldpd()?;
+        restart_lldpd().await?;
     }
 
-    ensure_lldp_med_inventory_enabled()
+    ensure_lldp_med_inventory_enabled().await
 }
 
 fn disable_interfaces_config() -> eyre::Result<bool> {
@@ -75,6 +78,22 @@ fn disable_interfaces_config() -> eyre::Result<bool> {
 fn ensure_lldpd_daemon_args() -> eyre::Result<bool> {
     let current_contents =
         fs::read_to_string(LLDPD_DEFAULT_CONFIG).wrap_err("couldn't read lldpd default config")?;
+    let desired_contents = rewrite_lldpd_daemon_args(&current_contents);
+
+    let mut config_file =
+        crate::agent_platform::ManagedFile::new(PathBuf::from(LLDPD_DEFAULT_CONFIG));
+    let updated = config_file.ensure_contents(desired_contents.as_bytes())?;
+    if updated {
+        tracing::info!(
+            path = LLDPD_DEFAULT_CONFIG,
+            "Updated lldpd daemon arguments"
+        );
+    }
+
+    Ok(updated)
+}
+
+fn rewrite_lldpd_daemon_args(current_contents: &str) -> String {
     let mut daemon_args_found = false;
     let mut desired_contents = String::with_capacity(current_contents.len());
 
@@ -102,24 +121,18 @@ fn ensure_lldpd_daemon_args() -> eyre::Result<bool> {
         desired_contents.push('\n');
     }
 
-    let mut config_file =
-        crate::agent_platform::ManagedFile::new(PathBuf::from(LLDPD_DEFAULT_CONFIG));
-    let updated = config_file.ensure_contents(desired_contents.as_bytes())?;
-    if updated {
-        tracing::info!(
-            path = LLDPD_DEFAULT_CONFIG,
-            "Updated lldpd daemon arguments"
-        );
-    }
-
-    Ok(updated)
+    desired_contents
 }
 
-fn lldp_med_inventory_disabled() -> eyre::Result<bool> {
-    let output = Command::new("lldpcli")
-        .args(["show", "configuration", "-f", "json0"])
-        .output()
-        .wrap_err("couldn't run lldpcli show configuration -f json0")?;
+async fn lldp_med_inventory_disabled() -> eyre::Result<bool> {
+    let mut command = Command::new("lldpcli");
+    command.args(["show", "configuration", "-f", "json0"]);
+    let output = command_output_with_timeout(
+        command,
+        LLDPCLI_TIMEOUT,
+        "lldpcli show configuration -f json0",
+    )
+    .await?;
     if !output.status.success() {
         eyre::bail!(
             "lldpcli show configuration -f json0 failed with status {status}: {stderr}",
@@ -128,7 +141,11 @@ fn lldp_med_inventory_disabled() -> eyre::Result<bool> {
         );
     }
 
-    let configuration: serde_json::Value = serde_json::from_slice(&output.stdout)
+    parse_lldp_med_inventory_disabled(&output.stdout)
+}
+
+fn parse_lldp_med_inventory_disabled(configuration: &[u8]) -> eyre::Result<bool> {
+    let configuration: serde_json::Value = serde_json::from_slice(configuration)
         .wrap_err("lldpcli returned invalid JSON configuration")?;
     let inventory_disabled = configuration
         .pointer("/configuration/0/config/0/lldpmed-no-inventory/0/value")
@@ -142,10 +159,28 @@ fn lldp_med_inventory_disabled() -> eyre::Result<bool> {
     }
 }
 
-fn ensure_lldp_med_inventory_enabled() -> eyre::Result<()> {
+async fn command_output_with_timeout(
+    mut command: Command,
+    timeout: Duration,
+    command_name: &str,
+) -> eyre::Result<Output> {
+    // Dropping the timed-out output future drops its child and terminates it.
+    command.kill_on_drop(true);
+    tokio::time::timeout(timeout, command.output())
+        .await
+        .wrap_err_with(|| {
+            format!(
+                "{command_name} timed out after {timeout_seconds} seconds",
+                timeout_seconds = timeout.as_secs()
+            )
+        })?
+        .wrap_err_with(|| format!("couldn't run {command_name}"))
+}
+
+async fn ensure_lldp_med_inventory_enabled() -> eyre::Result<()> {
     let mut attempt = 1;
     loop {
-        match lldp_med_inventory_disabled() {
+        match lldp_med_inventory_disabled().await {
             Ok(false) => return Ok(()),
             Ok(true) if attempt == LLDP_MED_CONFIGURATION_CHECK_ATTEMPTS => {
                 eyre::bail!(
@@ -174,25 +209,32 @@ fn ensure_lldp_med_inventory_enabled() -> eyre::Result<()> {
             }
         }
 
-        restart_lldpd()?;
+        restart_lldpd().await?;
         attempt += 1;
     }
 }
 
-fn restart_lldpd() -> eyre::Result<()> {
+async fn restart_lldpd() -> eyre::Result<()> {
     let mut attempt = 1;
     loop {
-        let restart_result = Command::new("systemctl")
-            .args(["restart", "lldpd.service"])
-            .status()
-            .wrap_err("couldn't run systemctl restart lldpd.service")
-            .and_then(|status| {
-                if status.success() {
-                    Ok(())
-                } else {
-                    eyre::bail!("systemctl restart lldpd.service failed with status {status}")
-                }
-            });
+        let mut command = Command::new("systemctl");
+        command.args(["restart", "lldpd.service"]);
+        let restart_result = command_output_with_timeout(
+            command,
+            LLDPD_RESTART_TIMEOUT,
+            "systemctl restart lldpd.service",
+        )
+        .await
+        .and_then(|output| {
+            if output.status.success() {
+                Ok(())
+            } else {
+                eyre::bail!(
+                    "systemctl restart lldpd.service failed with status {status}",
+                    status = output.status
+                )
+            }
+        });
 
         match restart_result {
             Ok(()) => {
@@ -209,14 +251,14 @@ fn restart_lldpd() -> eyre::Result<()> {
             }
             Err(error) => {
                 tracing::warn!(error = %error, attempt, "Couldn't restart lldpd service, retrying");
-                std::thread::sleep(Duration::from_secs(u64::from(attempt)));
+                tokio::time::sleep(Duration::from_secs(u64::from(attempt))).await;
                 attempt += 1;
             }
         }
     }
 }
 
-pub fn set_lldp_system_description(machine_id: &MachineId) -> eyre::Result<()> {
+pub async fn set_lldp_system_description(machine_id: &MachineId) -> eyre::Result<()> {
     let system_description = format!("{SITE_OPERATOR}, {machine_id}");
     let lldp_config = LldpConfig {
         system_description: Some(system_description),
@@ -228,7 +270,7 @@ pub fn set_lldp_system_description(machine_id: &MachineId) -> eyre::Result<()> {
     // If the file contents were updated, we'll ask lldpcli to read it in, which
     // updates the running config in the lldpd service.
     match file_updated {
-        true => writer.daemon_read(),
+        true => writer.daemon_read().await,
         false => Ok(()),
     }
 }
@@ -272,14 +314,17 @@ impl LldpdConfigFileWriter {
 
     // Ask lldpcli to read in the config file commands (which will be passed
     // to the running lldpd service).
-    pub fn daemon_read(&self) -> eyre::Result<()> {
+    pub async fn daemon_read(&self) -> eyre::Result<()> {
         let mut command = Command::new("lldpcli");
         command.arg("-c");
         command.arg(self.filename.as_os_str());
-        match command.status() {
-            Ok(s) if s.success() => Ok(()),
-            Ok(s) => Err(eyre::eyre!("unsuccessful exit status from lldpcli: {s}")),
-            Err(e) => Err(eyre::eyre!("couldn't run lldpcli: {e}")),
+        let output =
+            command_output_with_timeout(command, LLDPCLI_TIMEOUT, "lldpcli config read").await?;
+        match output.status {
+            status if status.success() => Ok(()),
+            status => Err(eyre::eyre!(
+                "unsuccessful exit status from lldpcli: {status}"
+            )),
         }
     }
 }
@@ -295,7 +340,54 @@ impl Default for LldpdConfigFileWriter {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
+
     use super::*;
+
+    #[test]
+    fn test_rewrite_lldpd_daemon_args() {
+        value_scenarios!(rewrite_lldpd_daemon_args:
+            "missing DAEMON_ARGS" {
+                "" => "DAEMON_ARGS=\"-M 1\"\n".to_string(),
+                "# lldpd defaults\n#DAEMON_ARGS=\"old\"\nOLD_DAEMON_ARGS=\"old\"\n" =>
+                    "# lldpd defaults\n#DAEMON_ARGS=\"old\"\nOLD_DAEMON_ARGS=\"old\"\nDAEMON_ARGS=\"-M 1\"\n".to_string(),
+                "# lldpd defaults\r\n#DAEMON_ARGS=\"old\"\r\n" =>
+                    "# lldpd defaults\r\n#DAEMON_ARGS=\"old\"\r\nDAEMON_ARGS=\"-M 1\"\n".to_string(),
+                "# lldpd defaults" =>
+                    "# lldpd defaults\nDAEMON_ARGS=\"-M 1\"\n".to_string(),
+            }
+
+            "existing DAEMON_ARGS" {
+                "# lldpd defaults\nDAEMON_ARGS=\"\"\nOTHER=yes\n" =>
+                    "# lldpd defaults\nDAEMON_ARGS=\"-M 1\"\nOTHER=yes\n".to_string(),
+                "# lldpd defaults\r\nDAEMON_ARGS=\"--foo\"\r\nOTHER=yes\r\n" =>
+                    "# lldpd defaults\r\nDAEMON_ARGS=\"-M 1\"\r\nOTHER=yes\r\n".to_string(),
+                "# lldpd defaults\nDAEMON_ARGS=\"--foo\"" =>
+                    "# lldpd defaults\nDAEMON_ARGS=\"-M 1\"".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_lldp_med_inventory_disabled() {
+        scenarios!(run = |configuration: &str| {
+            parse_lldp_med_inventory_disabled(configuration.as_bytes()).map_err(drop)
+        };
+            "reported inventory state" {
+                r#"{"configuration":[{"config":[{"lldpmed-no-inventory":[{"value":"yes"}]}]}]}"# =>
+                    Yields(true),
+                r#"{"configuration":[{"config":[{"lldpmed-no-inventory":[{"value":"no"}]}]}]}"# =>
+                    Yields(false),
+            }
+
+            "invalid inventory state" {
+                r#"{"configuration":[{"config":[{}]}]}"# => Fails,
+                r#"{"configuration":[{"config":[{"lldpmed-no-inventory":[{"value":"maybe"}]}]}]}"# =>
+                    Fails,
+            }
+        );
+    }
 
     #[test]
     fn test_lldp_contents() {
