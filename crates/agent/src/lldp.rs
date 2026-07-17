@@ -15,14 +15,206 @@
  * limitations under the License.
  */
 use std::fmt::Write;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use carbide_uuid::machine::MachineId;
+use eyre::WrapErr;
 
 // FIXME: This should probably be configurable and come from the API's config
 // file.
 const SITE_OPERATOR: &str = "Forge-SRE (ngc-forge-sre@exchange.nvidia.com)";
+const LLDP_INTERFACES_CONFIG: &str = "/etc/lldpd.d/lldp-interfaces.conf";
+const DISABLED_LLDP_INTERFACES_CONFIG: &str = "/etc/lldpd.d/lldp-interfaces.conf.disabled";
+const LLDPD_DEFAULT_CONFIG: &str = "/etc/default/lldpd";
+const LLDPD_DAEMON_ARGS: &str = "DAEMON_ARGS=\"-M 1\"";
+const LLDPD_RESTART_ATTEMPTS: u8 = 3;
+const LLDP_MED_CONFIGURATION_CHECK_ATTEMPTS: u8 = 3;
+
+pub(crate) fn prepare_lldp() -> eyre::Result<()> {
+    let interfaces_config_disabled = disable_interfaces_config()?;
+    let daemon_args_updated = ensure_lldpd_daemon_args()?;
+
+    if interfaces_config_disabled || daemon_args_updated {
+        restart_lldpd()?;
+    }
+
+    ensure_lldp_med_inventory_enabled()
+}
+
+fn disable_interfaces_config() -> eyre::Result<bool> {
+    let source_path = Path::new(LLDP_INTERFACES_CONFIG);
+    if !source_path.try_exists().wrap_err_with(|| {
+        format!(
+            "couldn't check existence of LLDP interfaces config {path}",
+            path = source_path.display()
+        )
+    })? {
+        return Ok(false);
+    }
+
+    let destination_path = Path::new(DISABLED_LLDP_INTERFACES_CONFIG);
+    fs::rename(source_path, destination_path).wrap_err_with(|| {
+        format!(
+            "couldn't rename LLDP interfaces config from {source} to {destination}",
+            source = source_path.display(),
+            destination = destination_path.display()
+        )
+    })?;
+    tracing::info!(
+        source_path = %source_path.display(),
+        destination_path = %destination_path.display(),
+        "Disabled LLDP interfaces config"
+    );
+
+    Ok(true)
+}
+
+fn ensure_lldpd_daemon_args() -> eyre::Result<bool> {
+    let current_contents =
+        fs::read_to_string(LLDPD_DEFAULT_CONFIG).wrap_err("couldn't read lldpd default config")?;
+    let mut daemon_args_found = false;
+    let mut desired_contents = String::with_capacity(current_contents.len());
+
+    for line in current_contents.split_inclusive('\n') {
+        let line_contents = line.strip_suffix('\n').unwrap_or(line);
+        let line_contents = line_contents.strip_suffix('\r').unwrap_or(line_contents);
+        if line_contents.trim_start().starts_with("DAEMON_ARGS=") {
+            daemon_args_found = true;
+            desired_contents.push_str(LLDPD_DAEMON_ARGS);
+            if line.ends_with("\r\n") {
+                desired_contents.push_str("\r\n");
+            } else if line.ends_with('\n') {
+                desired_contents.push('\n');
+            }
+        } else {
+            desired_contents.push_str(line);
+        }
+    }
+
+    if !daemon_args_found {
+        if !desired_contents.is_empty() && !desired_contents.ends_with('\n') {
+            desired_contents.push('\n');
+        }
+        desired_contents.push_str(LLDPD_DAEMON_ARGS);
+        desired_contents.push('\n');
+    }
+
+    let mut config_file =
+        crate::agent_platform::ManagedFile::new(PathBuf::from(LLDPD_DEFAULT_CONFIG));
+    let updated = config_file.ensure_contents(desired_contents.as_bytes())?;
+    if updated {
+        tracing::info!(
+            path = LLDPD_DEFAULT_CONFIG,
+            "Updated lldpd daemon arguments"
+        );
+    }
+
+    Ok(updated)
+}
+
+fn lldp_med_inventory_disabled() -> eyre::Result<bool> {
+    let output = Command::new("lldpcli")
+        .args(["show", "configuration", "-f", "json0"])
+        .output()
+        .wrap_err("couldn't run lldpcli show configuration -f json0")?;
+    if !output.status.success() {
+        eyre::bail!(
+            "lldpcli show configuration -f json0 failed with status {status}: {stderr}",
+            status = output.status,
+            stderr = String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    let configuration: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .wrap_err("lldpcli returned invalid JSON configuration")?;
+    let inventory_disabled = configuration
+        .pointer("/configuration/0/config/0/lldpmed-no-inventory/0/value")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| eyre::eyre!("lldpcli configuration did not report LLDP-MED inventory"))?;
+
+    match inventory_disabled {
+        "yes" => Ok(true),
+        "no" => Ok(false),
+        value => eyre::bail!("lldpcli returned unexpected LLDP-MED inventory value {value:?}"),
+    }
+}
+
+fn ensure_lldp_med_inventory_enabled() -> eyre::Result<()> {
+    let mut attempt = 1;
+    loop {
+        match lldp_med_inventory_disabled() {
+            Ok(false) => return Ok(()),
+            Ok(true) if attempt == LLDP_MED_CONFIGURATION_CHECK_ATTEMPTS => {
+                eyre::bail!(
+                    "LLDP-MED inventory remained disabled after {attempt} configuration checks"
+                );
+            }
+            Err(error) if attempt == LLDP_MED_CONFIGURATION_CHECK_ATTEMPTS => {
+                return Err(error).wrap_err_with(|| {
+                    format!(
+                        "couldn't verify LLDP-MED inventory after {attempt} configuration checks"
+                    )
+                });
+            }
+            Ok(true) => {
+                tracing::warn!(
+                    attempt,
+                    "LLDP-MED inventory is disabled, restarting lldpd service"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    attempt,
+                    "Couldn't query LLDP-MED inventory, restarting lldpd service"
+                );
+            }
+        }
+
+        restart_lldpd()?;
+        attempt += 1;
+    }
+}
+
+fn restart_lldpd() -> eyre::Result<()> {
+    let mut attempt = 1;
+    loop {
+        let restart_result = Command::new("systemctl")
+            .args(["restart", "lldpd.service"])
+            .status()
+            .wrap_err("couldn't run systemctl restart lldpd.service")
+            .and_then(|status| {
+                if status.success() {
+                    Ok(())
+                } else {
+                    eyre::bail!("systemctl restart lldpd.service failed with status {status}")
+                }
+            });
+
+        match restart_result {
+            Ok(()) => {
+                tracing::info!(attempt, "Restarted lldpd service");
+                return Ok(());
+            }
+            Err(error) if attempt == LLDPD_RESTART_ATTEMPTS => {
+                tracing::error!(
+                    error = %error,
+                    attempt_count = attempt,
+                    "Couldn't restart lldpd service"
+                );
+                return Err(error);
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, attempt, "Couldn't restart lldpd service, retrying");
+                std::thread::sleep(Duration::from_secs(u64::from(attempt)));
+                attempt += 1;
+            }
+        }
+    }
+}
 
 pub fn set_lldp_system_description(machine_id: &MachineId) -> eyre::Result<()> {
     let system_description = format!("{SITE_OPERATOR}, {machine_id}");

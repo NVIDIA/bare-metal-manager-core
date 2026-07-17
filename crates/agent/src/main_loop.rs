@@ -326,10 +326,13 @@ pub async fn setup_and_run(
         managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
     }
 
-    if options.agent_platform_type.is_dpu_os()
-        && let Err(e) = lldp::set_lldp_system_description(&machine_id)
-    {
-        tracing::warn!(error = %e, "Couldn't update LLDP system description")
+    if options.agent_platform_type.is_dpu_os() {
+        if let Err(e) = lldp::prepare_lldp() {
+            tracing::error!(error = %e, "Couldn't prepare LLDP configuration");
+        }
+        if let Err(e) = lldp::set_lldp_system_description(&machine_id) {
+            tracing::warn!(error = %e, "Couldn't update LLDP system description");
+        }
     }
 
     let periodic_config_reader = periodic_config_fetcher.reader();
