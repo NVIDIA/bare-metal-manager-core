@@ -106,7 +106,7 @@ func TestManageInfiniBandPartition_UpdateInfiniBandPartitionsInDB(t *testing.T) 
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", tnu)
+	tn := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", nil, tnu)
 	assert.NotNil(t, tn)
 
 	st1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)

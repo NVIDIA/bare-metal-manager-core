@@ -48,7 +48,7 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, tnOrg, "test-tenant", tnu)
+	tn := util.TestBuildTenant(t, dbSession, tnOrg, "test-tenant", nil, tnu)
 	assert.NotNil(t, tn)
 
 	st1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)
@@ -418,7 +418,7 @@ func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, tnRoles)
 
-	tn := util.TestBuildTenant(t, dbSession, tnOrg, "test-tenant", tnu)
+	tn := util.TestBuildTenant(t, dbSession, tnOrg, "test-tenant", nil, tnu)
 	assert.NotNil(t, tn)
 
 	st1 := util.TestBuildSite(t, dbSession, ip, "test-site-1", cdbm.SiteStatusRegistered, nil, ipu)
@@ -721,7 +721,7 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		tnOrg := "tenant-anomaly-org"
 		tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{"FORGE_TENANT_ADMIN"})
-		tn := util.TestBuildTenant(t, dbSession, tnOrg, "tenant-anomaly", tnu)
+		tn := util.TestBuildTenant(t, dbSession, tnOrg, "tenant-anomaly", nil, tnu)
 
 		osID := uuid.New()
 		_, err := osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{

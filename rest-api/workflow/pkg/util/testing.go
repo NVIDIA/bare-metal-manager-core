@@ -238,12 +238,13 @@ func TestBuildSite(t *testing.T, dbSession *cdb.Session, ip *cdbm.Infrastructure
 }
 
 // TestBuildTenant build tenant
-func TestBuildTenant(t *testing.T, dbSession *cdb.Session, org string, orgDisplayName string, user *cdbm.User) *cdbm.Tenant {
+func TestBuildTenant(t *testing.T, dbSession *cdb.Session, org string, orgDisplayName string, config *cdbm.TenantConfig, user *cdbm.User) *cdbm.Tenant {
 	tenant := &cdbm.Tenant{
 		ID:             uuid.New(),
 		Name:           orgDisplayName,
 		Org:            org,
 		OrgDisplayName: cutil.GetPtr(orgDisplayName),
+		Config:         config,
 		CreatedBy:      user.ID,
 	}
 	_, err := dbSession.DB.NewInsert().Model(tenant).Exec(context.Background())
