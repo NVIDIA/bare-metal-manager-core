@@ -126,7 +126,7 @@ impl From<OperatingSystem> for SerializableOs {
             id: os.id.map(|u| u.to_string()).unwrap_or_default(),
             name: os.name,
             description: os.description,
-            org: os.tenant_organization_id,
+            org: os.tenant_organization_id.unwrap_or_default(),
             os_type: forgerpc::OperatingSystemType::try_from(os.r#type)
                 .map(|t| t.as_str_name().to_string())
                 .unwrap_or_else(|_| os.r#type.to_string()),

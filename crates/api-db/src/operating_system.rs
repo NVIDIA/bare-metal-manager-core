@@ -117,7 +117,7 @@ pub struct OperatingSystem {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
-    pub org: String,
+    pub org: Option<String>,
     #[sqlx(rename = "type")]
     #[serde(rename = "type")]
     pub type_: String,
@@ -197,7 +197,7 @@ pub struct CreateOperatingSystem {
     pub id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
-    pub org: String,
+    pub org: Option<String>,
     pub type_: String,
     pub status: String,
     pub is_active: bool,
@@ -396,5 +396,49 @@ mod tests {
         let mut txn = pool.begin().await.unwrap();
         let rows = get_many(&mut *txn, &[Uuid::nil()]).await.unwrap();
         assert!(rows.is_empty());
+    }
+
+    fn ipxe_create_input(name: &str, org: Option<String>) -> CreateOperatingSystem {
+        CreateOperatingSystem {
+            id: None,
+            name: name.to_string(),
+            description: None,
+            org,
+            type_: model::operating_system_definition::OS_TYPE_IPXE.to_string(),
+            status: OS_STATUS_READY.to_string(),
+            is_active: true,
+            allow_override: false,
+            phone_home_enabled: false,
+            user_data: None,
+            ipxe_script: Some("#!ipxe\nboot".to_string()),
+            ipxe_template_id: None,
+            ipxe_parameters: None,
+            ipxe_artifacts: None,
+            ipxe_definition_hash: None,
+        }
+    }
+
+    #[crate::sqlx_test]
+    async fn test_create_persists_null_org(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let created = create(&mut txn, &ipxe_create_input("no-org-os", None))
+            .await
+            .unwrap();
+        assert_eq!(created.org, None);
+
+        let fetched = get(&mut *txn, created.id).await.unwrap();
+        assert_eq!(fetched.org, None);
+    }
+
+    #[crate::sqlx_test]
+    async fn test_create_persists_org(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+        let created = create(&mut txn, &ipxe_create_input("org-os", Some("acme".to_string())))
+            .await
+            .unwrap();
+        assert_eq!(created.org.as_deref(), Some("acme"));
+
+        let fetched = get(&mut *txn, created.id).await.unwrap();
+        assert_eq!(fetched.org.as_deref(), Some("acme"));
     }
 }

@@ -57934,19 +57934,19 @@ func (x *AdminForceDeletePowerShelfResponse) GetInterfacesDeleted() uint32 {
 }
 
 type OperatingSystem struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	Id                   *OperatingSystemId     `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name                 string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Description          *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
-	TenantOrganizationId string                 `protobuf:"bytes,4,opt,name=tenant_organization_id,json=tenantOrganizationId,proto3" json:"tenant_organization_id,omitempty"`
-	Type                 OperatingSystemType    `protobuf:"varint,5,opt,name=type,proto3,enum=forge.OperatingSystemType" json:"type,omitempty"`
-	Status               TenantState            `protobuf:"varint,6,opt,name=status,proto3,enum=forge.TenantState" json:"status,omitempty"` // we only use some states from TenantState
-	IsActive             bool                   `protobuf:"varint,7,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
-	AllowOverride        bool                   `protobuf:"varint,8,opt,name=allow_override,json=allowOverride,proto3" json:"allow_override,omitempty"`
-	PhoneHomeEnabled     bool                   `protobuf:"varint,9,opt,name=phone_home_enabled,json=phoneHomeEnabled,proto3" json:"phone_home_enabled,omitempty"`
-	UserData             *string                `protobuf:"bytes,10,opt,name=user_data,json=userData,proto3,oneof" json:"user_data,omitempty"`
-	Created              string                 `protobuf:"bytes,11,opt,name=created,proto3" json:"created,omitempty"`
-	Updated              string                 `protobuf:"bytes,12,opt,name=updated,proto3" json:"updated,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Id          *OperatingSystemId     `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	TenantOrganizationId *string             `protobuf:"bytes,4,opt,name=tenant_organization_id,json=tenantOrganizationId,proto3,oneof" json:"tenant_organization_id,omitempty"`
+	Type                 OperatingSystemType `protobuf:"varint,5,opt,name=type,proto3,enum=forge.OperatingSystemType" json:"type,omitempty"`
+	Status               TenantState         `protobuf:"varint,6,opt,name=status,proto3,enum=forge.TenantState" json:"status,omitempty"` // we only use some states from TenantState
+	IsActive             bool                `protobuf:"varint,7,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	AllowOverride        bool                `protobuf:"varint,8,opt,name=allow_override,json=allowOverride,proto3" json:"allow_override,omitempty"`
+	PhoneHomeEnabled     bool                `protobuf:"varint,9,opt,name=phone_home_enabled,json=phoneHomeEnabled,proto3" json:"phone_home_enabled,omitempty"`
+	UserData             *string             `protobuf:"bytes,10,opt,name=user_data,json=userData,proto3,oneof" json:"user_data,omitempty"`
+	Created              string              `protobuf:"bytes,11,opt,name=created,proto3" json:"created,omitempty"`
+	Updated              string              `protobuf:"bytes,12,opt,name=updated,proto3" json:"updated,omitempty"`
 	// Variant: ipxe
 	IpxeScript *string `protobuf:"bytes,20,opt,name=ipxe_script,json=ipxeScript,proto3,oneof" json:"ipxe_script,omitempty"`
 	// Variant: ipxe_os_definition
@@ -58010,8 +58010,8 @@ func (x *OperatingSystem) GetDescription() string {
 }
 
 func (x *OperatingSystem) GetTenantOrganizationId() string {
-	if x != nil {
-		return x.TenantOrganizationId
+	if x != nil && x.TenantOrganizationId != nil {
+		return *x.TenantOrganizationId
 	}
 	return ""
 }
@@ -58108,15 +58108,15 @@ func (x *OperatingSystem) GetIpxeTemplateDefinitionHash() string {
 }
 
 type CreateOperatingSystemRequest struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	Name                 string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description          *string                `protobuf:"bytes,2,opt,name=description,proto3,oneof" json:"description,omitempty"`
-	TenantOrganizationId string                 `protobuf:"bytes,3,opt,name=tenant_organization_id,json=tenantOrganizationId,proto3" json:"tenant_organization_id,omitempty"`
-	IsActive             bool                   `protobuf:"varint,4,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
-	AllowOverride        bool                   `protobuf:"varint,5,opt,name=allow_override,json=allowOverride,proto3" json:"allow_override,omitempty"`
-	PhoneHomeEnabled     bool                   `protobuf:"varint,6,opt,name=phone_home_enabled,json=phoneHomeEnabled,proto3" json:"phone_home_enabled,omitempty"`
-	UserData             *string                `protobuf:"bytes,7,opt,name=user_data,json=userData,proto3,oneof" json:"user_data,omitempty"`
-	Id                   *OperatingSystemId     `protobuf:"bytes,8,opt,name=id,proto3,oneof" json:"id,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description *string                `protobuf:"bytes,2,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	TenantOrganizationId *string            `protobuf:"bytes,3,opt,name=tenant_organization_id,json=tenantOrganizationId,proto3,oneof" json:"tenant_organization_id,omitempty"`
+	IsActive             bool               `protobuf:"varint,4,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	AllowOverride        bool               `protobuf:"varint,5,opt,name=allow_override,json=allowOverride,proto3" json:"allow_override,omitempty"`
+	PhoneHomeEnabled     bool               `protobuf:"varint,6,opt,name=phone_home_enabled,json=phoneHomeEnabled,proto3" json:"phone_home_enabled,omitempty"`
+	UserData             *string            `protobuf:"bytes,7,opt,name=user_data,json=userData,proto3,oneof" json:"user_data,omitempty"`
+	Id                   *OperatingSystemId `protobuf:"bytes,8,opt,name=id,proto3,oneof" json:"id,omitempty"`
 	// Exactly one variant must be provided to determine the type.
 	// This is only set for 'ipxe' variant:
 	IpxeScript *string `protobuf:"bytes,20,opt,name=ipxe_script,json=ipxeScript,proto3,oneof" json:"ipxe_script,omitempty"`
@@ -58173,8 +58173,8 @@ func (x *CreateOperatingSystemRequest) GetDescription() string {
 }
 
 func (x *CreateOperatingSystemRequest) GetTenantOrganizationId() string {
-	if x != nil {
-		return x.TenantOrganizationId
+	if x != nil && x.TenantOrganizationId != nil {
+		return *x.TenantOrganizationId
 	}
 	return ""
 }
@@ -66060,48 +66060,50 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x11delete_interfaces\x18\x02 \x01(\bR\x10deleteInterfaces\"y\n" +
 	"\"AdminForceDeletePowerShelfResponse\x12$\n" +
 	"\x0epower_shelf_id\x18\x01 \x01(\tR\fpowerShelfId\x12-\n" +
-	"\x12interfaces_deleted\x18\x02 \x01(\rR\x11interfacesDeleted\"\x98\a\n" +
+	"\x12interfaces_deleted\x18\x02 \x01(\rR\x11interfacesDeleted\"\xb8\a\n" +
 	"\x0fOperatingSystem\x12)\n" +
 	"\x02id\x18\x01 \x01(\v2\x19.common.OperatingSystemIdR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
-	"\vdescription\x18\x03 \x01(\tH\x00R\vdescription\x88\x01\x01\x124\n" +
-	"\x16tenant_organization_id\x18\x04 \x01(\tR\x14tenantOrganizationId\x12.\n" +
+	"\vdescription\x18\x03 \x01(\tH\x00R\vdescription\x88\x01\x01\x129\n" +
+	"\x16tenant_organization_id\x18\x04 \x01(\tH\x01R\x14tenantOrganizationId\x88\x01\x01\x12.\n" +
 	"\x04type\x18\x05 \x01(\x0e2\x1a.forge.OperatingSystemTypeR\x04type\x12*\n" +
 	"\x06status\x18\x06 \x01(\x0e2\x12.forge.TenantStateR\x06status\x12\x1b\n" +
 	"\tis_active\x18\a \x01(\bR\bisActive\x12%\n" +
 	"\x0eallow_override\x18\b \x01(\bR\rallowOverride\x12,\n" +
 	"\x12phone_home_enabled\x18\t \x01(\bR\x10phoneHomeEnabled\x12 \n" +
 	"\tuser_data\x18\n" +
-	" \x01(\tH\x01R\buserData\x88\x01\x01\x12\x18\n" +
+	" \x01(\tH\x02R\buserData\x88\x01\x01\x12\x18\n" +
 	"\acreated\x18\v \x01(\tR\acreated\x12\x18\n" +
 	"\aupdated\x18\f \x01(\tR\aupdated\x12$\n" +
-	"\vipxe_script\x18\x14 \x01(\tH\x02R\n" +
-	"ipxeScript\x88\x01\x01\x12E\n" +
-	"\x10ipxe_template_id\x18\x16 \x01(\v2\x16.common.IpxeTemplateIdH\x03R\x0eipxeTemplateId\x88\x01\x01\x12V\n" +
-	"\x18ipxe_template_parameters\x18\x17 \x03(\v2\x1c.forge.IpxeTemplateParameterR\x16ipxeTemplateParameters\x12S\n" +
-	"\x17ipxe_template_artifacts\x18\x18 \x03(\v2\x1b.forge.IpxeTemplateArtifactR\x15ipxeTemplateArtifacts\x12F\n" +
-	"\x1dipxe_template_definition_hash\x18\x19 \x01(\tH\x04R\x1aipxeTemplateDefinitionHash\x88\x01\x01B\x0e\n" +
-	"\f_descriptionB\f\n" +
-	"\n" +
-	"_user_dataB\x0e\n" +
-	"\f_ipxe_scriptB\x13\n" +
-	"\x11_ipxe_template_idB \n" +
-	"\x1e_ipxe_template_definition_hash\"\xb7\x05\n" +
-	"\x1cCreateOperatingSystemRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
-	"\vdescription\x18\x02 \x01(\tH\x00R\vdescription\x88\x01\x01\x124\n" +
-	"\x16tenant_organization_id\x18\x03 \x01(\tR\x14tenantOrganizationId\x12\x1b\n" +
-	"\tis_active\x18\x04 \x01(\bR\bisActive\x12%\n" +
-	"\x0eallow_override\x18\x05 \x01(\bR\rallowOverride\x12,\n" +
-	"\x12phone_home_enabled\x18\x06 \x01(\bR\x10phoneHomeEnabled\x12 \n" +
-	"\tuser_data\x18\a \x01(\tH\x01R\buserData\x88\x01\x01\x12.\n" +
-	"\x02id\x18\b \x01(\v2\x19.common.OperatingSystemIdH\x02R\x02id\x88\x01\x01\x12$\n" +
 	"\vipxe_script\x18\x14 \x01(\tH\x03R\n" +
 	"ipxeScript\x88\x01\x01\x12E\n" +
 	"\x10ipxe_template_id\x18\x16 \x01(\v2\x16.common.IpxeTemplateIdH\x04R\x0eipxeTemplateId\x88\x01\x01\x12V\n" +
 	"\x18ipxe_template_parameters\x18\x17 \x03(\v2\x1c.forge.IpxeTemplateParameterR\x16ipxeTemplateParameters\x12S\n" +
+	"\x17ipxe_template_artifacts\x18\x18 \x03(\v2\x1b.forge.IpxeTemplateArtifactR\x15ipxeTemplateArtifacts\x12F\n" +
+	"\x1dipxe_template_definition_hash\x18\x19 \x01(\tH\x05R\x1aipxeTemplateDefinitionHash\x88\x01\x01B\x0e\n" +
+	"\f_descriptionB\x19\n" +
+	"\x17_tenant_organization_idB\f\n" +
+	"\n" +
+	"_user_dataB\x0e\n" +
+	"\f_ipxe_scriptB\x13\n" +
+	"\x11_ipxe_template_idB \n" +
+	"\x1e_ipxe_template_definition_hash\"\xd7\x05\n" +
+	"\x1cCreateOperatingSystemRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
+	"\vdescription\x18\x02 \x01(\tH\x00R\vdescription\x88\x01\x01\x129\n" +
+	"\x16tenant_organization_id\x18\x03 \x01(\tH\x01R\x14tenantOrganizationId\x88\x01\x01\x12\x1b\n" +
+	"\tis_active\x18\x04 \x01(\bR\bisActive\x12%\n" +
+	"\x0eallow_override\x18\x05 \x01(\bR\rallowOverride\x12,\n" +
+	"\x12phone_home_enabled\x18\x06 \x01(\bR\x10phoneHomeEnabled\x12 \n" +
+	"\tuser_data\x18\a \x01(\tH\x02R\buserData\x88\x01\x01\x12.\n" +
+	"\x02id\x18\b \x01(\v2\x19.common.OperatingSystemIdH\x03R\x02id\x88\x01\x01\x12$\n" +
+	"\vipxe_script\x18\x14 \x01(\tH\x04R\n" +
+	"ipxeScript\x88\x01\x01\x12E\n" +
+	"\x10ipxe_template_id\x18\x16 \x01(\v2\x16.common.IpxeTemplateIdH\x05R\x0eipxeTemplateId\x88\x01\x01\x12V\n" +
+	"\x18ipxe_template_parameters\x18\x17 \x03(\v2\x1c.forge.IpxeTemplateParameterR\x16ipxeTemplateParameters\x12S\n" +
 	"\x17ipxe_template_artifacts\x18\x18 \x03(\v2\x1b.forge.IpxeTemplateArtifactR\x15ipxeTemplateArtifactsB\x0e\n" +
-	"\f_descriptionB\f\n" +
+	"\f_descriptionB\x19\n" +
+	"\x17_tenant_organization_idB\f\n" +
 	"\n" +
 	"_user_dataB\x05\n" +
 	"\x03_idB\x0e\n" +
