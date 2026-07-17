@@ -4178,6 +4178,17 @@ mod tests {
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
+
+        assert_eq!(config.certificates.backend, CertBackendKind::DedicatedVault);
+        let dedicated = config.certificates.dedicated_vault.as_ref().unwrap();
+        assert_eq!(dedicated.address, "https://vault-certs.example:8200");
+        assert_eq!(dedicated.pki_mount_location, "pki-machine");
+        assert_eq!(dedicated.pki_role_name, "machine");
+        assert_eq!(dedicated.token.as_deref(), Some("s.fulltest"));
+        assert_eq!(
+            dedicated.vault_cacert.as_deref(),
+            Some("/path/to/vault-ca.pem")
+        );
     }
 
     #[test]
