@@ -291,7 +291,7 @@ The required A records (shown for `.nico`; substitute `.nico` if your binaries u
 | Hostname | Port | Resolves to | Purpose | Configurable at runtime? |
 |---|---|---|---|---|
 | `nico-api.nico` | 443 | `nico-api` external LoadBalancer VIP | NICo gRPC API | Yes — `NICO_API_URL` env var on most clients |
-| `nico-pxe.nico` | 80 | `nico-pxe` LoadBalancer VIP | iPXE scripts, cloud-init, internal APT, TLS root CA | **No** — hardcoded in the compiled DPU agent |
+| `nico-pxe.nico` | 80 | `nico-pxe` LoadBalancer VIP | iPXE scripts, cloud-init, internal APT, and the legacy bootstrap-CA endpoint | The DNS record remains fixed for general consumers. DPF can separately configure bootstrap CA acquisition through a complete URL override or mounted Secret or ConfigMap. Non-DPF boot instructions include `pxe_uri`. Other consumers retain the compatibility hostname. |
 | `nico-static-pxe.nico` | 80 | Static PXE asset server VIP | `scout.squashfs`, `scout.efi`, BFB images, and other static boot artifacts | **No** — hardcoded in the host boot scripts that ship inside boot images |
 | `nico-ntp.nico` | 123 | Operator-supplied NTP server IP(s) — the record points at your existing NTP infrastructure, not a NICo-deployed service | Legacy NTP fallback for DPU agents when `siteConfig.ntp_servers` is empty | **Fallback only** — prefer `siteConfig.ntp_servers`, but keep this DNS record if any deployed agent still relies on it |
 | `unbound.nico` | 53 | `unbound` LoadBalancer VIP | Recursive DNS resolver | Yes — the resolver address itself is distributed via DHCP option 6 |
@@ -300,6 +300,73 @@ The required A records (shown for `.nico`; substitute `.nico` if your binaries u
 One additional `.nico` hostname, `socks.nico`, is hardcoded into the DPU agent as the SOCKS5 outbound proxy for DPU extension-service pods. Add a corresponding A record only if your environment runs a SOCKS5 proxy for that purpose; it is not part of every NICo deployment. For per-endpoint detail (consumers, in-cluster addresses, hardcode locations, and the `unbound`-vs-other-resolver guidance), see [`deploy/DNS.md`](https://github.com/NVIDIA/infra-controller/blob/main/deploy/DNS.md). That file is the canonical endpoint reference; the table above is the operator-facing summary.
 
 > **Note:** Neither `.nico` nor `.nico` is a publicly registered TLD. Both are used exclusively on the isolated OOB management network. Configure the recursive resolver to treat the chosen TLD as locally authoritative and **not** forward queries to upstream public resolvers.
+
+#### Bootstrap CA Selection and Network Trust
+
+If you do not configure a bootstrap certificate authority (CA), DPUs retain the
+historical behavior and download
+`http://<nico-pxe>/api/v0/tls/root_ca`. You can make the bytes served by that
+legacy endpoint independent of PXE's own outbound API trust. Reference an
+existing ConfigMap or Secret in the `nico-pxe` Helm release namespace:
+
+```yaml
+nico-pxe:
+  bootstrapRootCa:
+    configMapName: forge-root-ca # Set secretName instead for a Secret.
+    key: ca.crt
+```
+
+Set either `configMapName` or `secretName`, but not both. If you set neither,
+the chart preserves the old PXE deployment and payload path. This option can
+serve a stable root instead of a rotating site intermediate. It does not
+authenticate a CA fetched over DHCP-directed, DNS-resolved HTTP. Existing DPUs
+retain the CA they already installed. A payload change affects only later
+downloads unless you reprovision or refresh the DPU through another trusted
+mechanism.
+
+Outside Helm, set `FORGE_BOOTSTRAP_ROOT_CAFILE_PATH` to the PEM bundle path in
+the `nico-pxe` container. If you do not set it, `nico-pxe` serves the file named
+by `FORGE_ROOT_CAFILE_PATH`, preserving the historical bundle.
+
+Non-DPF deployments can set `[dpu_config].bootstrap_ca_source` to `embedded`
+or `mounted`. That setting applies only to DPU provisioning, not host Scout
+boots. Embedded mode requires a site-specific BFB build with an explicit
+`BOOTSTRAP_CA_PATH`. There is no default fallback for the dedicated embedded
+payload. Existing legacy artifact inputs remain unchanged. Mounted mode
+consumes the operator-populated final `/opt/forge/forge_root.pem` path instead
+of the distinct embedded `/opt/forge/embedded_forge_root.pem` source. DPF
+deployments use
+`[dpf.dpu_agent_bootstrap_ca]` and support the legacy download or a mounted
+Secret or ConfigMap. In legacy mode, `url` can replace the complete default
+endpoint with an HTTP or HTTPS URL. The
+[DPU Agent Bootstrap CA](../manuals/dpf.md#dpu-agent-bootstrap-ca) section
+provides full URL and mounted-object examples. The shared published DPU agent
+image does not embed a site CA. Non-network modes require a valid local bundle
+and fail closed without falling back to the download. Upgrade code, images, and
+boot artifacts before enabling them. Reprovision non-DPF DPUs. For DPF changes,
+restart `carbide-api` and roll the DPU agent pods.
+
+Before pinning a root, inspect the NICo API certificate chain with the same DNS
+name the DPU uses:
+
+```bash
+export NICO_API_HOST='<nico-api-hostname-used-by-dpu>'
+openssl s_client -connect "${NICO_API_HOST}:443" \
+  -servername "${NICO_API_HOST}" -verify_hostname "${NICO_API_HOST}" \
+  -showcerts -verify_return_error \
+  -CAfile /path/to/site-bootstrap-roots.pem </dev/null
+```
+
+Confirm the server sends the issuing intermediate certificate as well as the
+leaf. The bundle validates the server certificate independently of whether
+client-certificate authentication is enabled. If each replacement intermediate
+chains to the pinned root and the server presents the complete chain, clients
+can validate leaf certificates across those rotations without replacing the
+bundle. If an intermediate chains to a different root, stage and verify an
+updated root bundle before rotating the server chain. TLS server authentication
+does not authenticate the broader DHCP, DNS, iPXE, and user-data boot chain.
+Embedded deployments must separately protect artifact integrity and enforce
+Secure Boot or an equivalent trusted boot chain.
 
 ### 3.4 How to Verify DNS Is Working
 
@@ -340,7 +407,10 @@ A successful external recursion via `unbound.nico` confirms both DHCP option 6 (
 
 ## 4. End-to-end Day 0 Checklist
 
-Use this checklist as the final gate before powering on the first host BMC:
+Use this checklist across the Day 0 rollout. Complete the configuration and
+infrastructure prerequisites before powering on the first host BMC. Complete
+the runtime checks as the first DPUs come online and before expanding the
+rollout to the rest of the fleet:
 
 - [ ] `siteConfig` `[pools.lo-ip]` and `[pools.vpc-dpu-lo]` populated with non-empty ranges.
 - [ ] `siteConfig` `[networks.admin]` has non-empty `prefix` and `gateway`.
@@ -354,6 +424,11 @@ Use this checklist as the final gate before powering on the first host BMC:
 - [ ] `unbound`'s `local_data.conf` ConfigMap contains A records for `nico-api`, `nico-pxe`, `nico-static-pxe`, `unbound`, and `otel-receiver` in the `.nico` zone; include `nico-ntp` pointing at your operator-supplied NTP server if you use the legacy fallback.
 - [ ] `nico-dns` zone for `initial_domain_name` is delegated from upstream DNS, or `unbound` forwards the zone to the `nico-dns` VIPs.
 - [ ] `unbound.nico` resolves every NICo service hostname (verified with the `dig` loop in [section 3.4](#34-how-to-verify-dns-is-working)).
+- [ ] Select the bootstrap-CA mode intentionally.
+- [ ] For non-DPF `embedded`, deploy site-specific artifacts built with `BOOTSTRAP_CA_PATH`, verify their integrity, and enforce Secure Boot or an equivalent trusted boot chain.
+- [ ] For non-DPF `mounted`, verify that provisioning installs a valid bundle at `/opt/forge/forge_root.pem` on every DPU and that each DPU authenticates the NICo API without TLS errors.
+- [ ] For DPF `mounted`, verify that the selected Secret or ConfigMap and key exist in the `dpu-agent` workload namespace of every target DPU cluster. After the pods start, verify that every DPU agent pod installs `/opt/forge/forge_root.pem` and authenticates the NICo API without TLS errors.
+- [ ] When pinning a root, the NICo API TLS handshake includes the issuing intermediate certificate.
 - [ ] `nico-dhcp` logs show DISCOVER → OFFER for a test BMC power-on.
 
 When every item is checked, proceed to [Ingesting Hosts](ingesting-hosts.md).
