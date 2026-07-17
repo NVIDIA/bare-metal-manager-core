@@ -61,6 +61,30 @@ func TestNewConfig(t *testing.T) {
 	}
 }
 
+func TestGetIssuersConfigClaimMappingAudiences(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	require.NoError(t, v.ReadConfig(strings.NewReader(`
+issuers:
+  - name: custom-issuer
+    issuer: https://auth.example.com
+    jwks: https://auth.example.com/.well-known/jwks.json
+    origin: custom
+    audiences: [issuer-audience]
+    claimMappings:
+      - orgName: acme
+        roles: [TENANT_ADMIN]
+        audiences: [org-audience]
+`)))
+
+	c := &Config{v: v}
+	issuers := c.GetIssuersConfig()
+	require.Len(t, issuers, 1)
+	require.Len(t, issuers[0].ClaimMappings, 1)
+	assert.Equal(t, []string{"issuer-audience"}, issuers[0].Audiences)
+	assert.Equal(t, []string{"org-audience"}, issuers[0].ClaimMappings[0].Audiences)
+}
+
 func TestConfig_WatchConfigFile(t *testing.T) {
 	const initialSitePhoneHomeURL = "http://initial.example/phone_home"
 
