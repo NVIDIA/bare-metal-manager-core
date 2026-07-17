@@ -404,17 +404,17 @@ functional for the rest of the current major version.
 
 Removal of, or an incompatible behavior change to, a guaranteed public API is
 allowed only in a future major release. Any such change must be announced in the
-release notes and the three-month rolling roadmap, and should include a
+changelog and the three-month rolling roadmap, and should include a
 replacement or migration path when one exists.
 
 When practical, deprecated public APIs should also produce an operator-visible
-warning, such as an API warning, CLI warning, log message, or release-note
+warning, such as an API warning, CLI warning, log message, or changelog
 callout.
 
 The minimum notice period for a breaking change to a guaranteed public API is
 one full three-month rolling-roadmap window before the first release that removes
 or changes it incompatibly. Emergency exceptions for security, data corruption,
-or similarly severe issues must be called out explicitly in the release notes.
+or similarly severe issues must be called out explicitly in the changelog.
 
 This notice policy applies only to the guaranteed surfaces below. Internal APIs
 and storage formats listed under

@@ -43,3 +43,5 @@ redirects:
     destination: "/infra-controller/documentation/getting-started/quick-start-guide"
   - source: "/infra-controller/documentation/getting-started/building-ni-co-containers"
     destination: "/infra-controller/documentation/getting-started/building-nico-containers"
+  - source: "/infra-controller/documentation/reference/release-notes"
+    destination: "/infra-controller/changelog"

@@ -1,0 +1,46 @@
+---
+tags: ["release", "deployment", "ntp", "security", "database"]
+---
+
+## NVIDIA Infra Controller v2.0
+
+NVIDIA Infra Controller v2.0 adds a site-local NTP service, automated NVSwitch credential rotation, and a shared PostgreSQL deployment for Core and REST services.
+
+### Built-in NTP service
+
+The `nico-ntp` subchart deploys three chrony replicas, each exposed through a dedicated MetalLB LoadBalancer VIP. The Kea DHCP hook advertises these VIPs to DPUs through DHCP option 42.
+
+Configure the three VIPs in `helm-prereqs/values/nico-core.yaml`:
+
+```yaml
+nico-ntp:
+  externalService:
+    enabled: true
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "<ntp-vip-0>"
+      - metallb.universe.tf/loadBalancerIPs: "<ntp-vip-1>"
+      - metallb.universe.tf/loadBalancerIPs: "<ntp-vip-2>"
+```
+
+Set `nico-dhcp.config.kea.hookParameters.ntpServer` to the same comma-separated VIPs. Existing enterprise servers in `siteConfig.ntp_servers` remain available for BMC pre-ingestion time synchronization and can coexist with `nico-ntp`. Upstream peers default to `time1.google.com` through `time4.google.com`; override `nico-ntp.ntp.upstreamServers` for enterprise or air-gapped environments.
+
+### NVSwitch credential rotation
+
+The `nico-vault-policy` role can now automate NVSwitch NVOS credential rotation. It has create, read, patch, list, update, and delete access under `secret/data/switch_nvos/*`; list, read, and delete access under `secret/metadata/switch_nvos/*`; and delete access under `secret/destroy/switch_nvos/*`. `setup.sh` applies the policy during installation or upgrade, with no separate operator action.
+
+### REST database consolidation
+
+<Warning>
+Upgrades from NICo Core v0.8 with REST v1.x consolidate REST API data into the shared `nico-pg-cluster`. Back up and migrate existing REST state when it must be preserved.
+</Warning>
+
+The standalone REST PostgreSQL instance is no longer deployed. When `rest.enabled` is `true`, NICo provisions the `nico_rest` database and `nico-rest.nico` user on `nico-pg-cluster`, synchronizes credentials through External Secrets Operator into the `nico-rest-pg-creds` Secret, and points the REST database migration job at the shared cluster.
+
+To upgrade from v0.8:
+
+1. Back up the REST database from the standalone PostgreSQL pod.
+2. Run `setup.sh` to provision the shared database and External Secrets synchronization.
+3. Restore the backup into `nico_rest` on `nico-pg-cluster` when existing REST state must be retained.
+4. Confirm that `nico-rest-pg-creds` exists in the `nico-rest` namespace before starting the REST database migration job.
+
+<Button intent="none" outlined rightIcon="arrow-right" href="/infra-controller/documentation/getting-started/quick-start-guide">Deploy or upgrade NVIDIA Infra Controller</Button>

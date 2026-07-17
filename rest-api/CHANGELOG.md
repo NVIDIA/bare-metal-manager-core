@@ -2,7 +2,7 @@
 
 This file is the historical record for independent **NVIDIA Infra Controller REST**
 releases through v1.6.0. Future release information is maintained only in the
-[unified NICo release notes](../docs/release-notes.md).
+[unified NICo changelog](https://docs.nvidia.com/infra-controller/changelog).
 
 Each release lists pull requests grouped by category, with the most recent version
 first. Entries within each category preserve their published order.
@@ -17,7 +17,7 @@ This release is compatible with Core **v0.10.x**.
 
 <Warning>
 This is the last independent release of NICo REST. Future releases are documented
-in the [unified NICo release notes](../docs/release-notes.md).
+in the [unified NICo changelog](https://docs.nvidia.com/infra-controller/changelog).
 </Warning>
 
 ### Features
