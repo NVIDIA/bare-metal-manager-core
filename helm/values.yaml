@@ -82,11 +82,13 @@ nico-api:
   enabled: true
 
 ## ---------------------------------------------------------------------------
-## nico-bmc-proxy — Standalone BMC proxy
-## Provides an authenticated HTTP proxy to each BMC known by nico
+## nico-bmc-proxy — BMC proxy used by DPS-based power provisioning
+## Provides an authenticated HTTP proxy to each BMC known by nico.
+## Enabled by default as part of NICo Core; set enabled=false only when an
+## external BMC proxy is deployed and wired separately.
 ## ---------------------------------------------------------------------------
 nico-bmc-proxy:
-  enabled: false
+  enabled: true
 
 ## ---------------------------------------------------------------------------
 ## nico-dhcp — DHCP server (Kea-based)
