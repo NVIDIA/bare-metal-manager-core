@@ -476,6 +476,14 @@ pub async fn action(action: RedfishAction) -> color_eyre::Result<()> {
             redfish.set_bios(attrmap).await?;
             println!("success");
         }
+        ResetBios(args) => {
+            redfish.reset_bios().await?;
+            if args.reboot {
+                redfish.power(SystemPowerControl::ForceRestart).await?;
+            } else {
+                println!("BIOS changes require a system restart to take effect.");
+            }
+        }
         GetNicMode => {
             let is_dpu_in_nic_mode = redfish.get_nic_mode().await?;
             println!("{is_dpu_in_nic_mode:#?}");
