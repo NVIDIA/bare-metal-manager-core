@@ -69,6 +69,8 @@ jobs:
 
       - name: Generate version and build information
         id: generate-version
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
         run: |
           git fetch --tags --force
           RAW_VERSION=$(git describe --tags --first-parent --always --long)
@@ -96,7 +98,7 @@ jobs:
             RELEASE_TAG=""
           fi
 
-          if echo "${{ github.event.head_commit.message }}" | grep -q "push-container"; then
+          if printf '%s' "${COMMIT_MESSAGE}" | grep -q "push-container"; then
             PUSH_REQUESTED="true"
           else
             PUSH_REQUESTED="false"

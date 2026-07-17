@@ -16938,8 +16938,6 @@ components:
           allowOverride: false
         - name: debian-12-amd64
           description: Official Debian 12 for AMD/Intel
-          imageUrl: 'https://saimei.ftp.acc.umu.se/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2'
-          imageSha: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
           imageAuthType: Bearer
           imageAuthToken: acbd18db4cc2f85cedef654fccc4a4d8
           imageDisk: /dev/sda
@@ -16948,7 +16946,7 @@ components:
           allowOverride: false
         - isActive: false
           deactivationNote: 'iPXE script is referencing a URL that is unreachable, needs to be researched'
-      description: Request data to update an Operating System. Only image-related attributes can be updated for image-based OS, and only iPXE attributes can be updated for iPXE-based OS
+      description: 'Request data to update an Operating System. For image-based OS, mutable image attributes (image authentication, root filesystem, image disk) can be updated; imageUrl and imageSha identify the underlying image and are immutable after creation. Only iPXE attributes can be updated for iPXE-based OS'
       properties:
         name:
           type:
@@ -16972,22 +16970,22 @@ components:
             - string
             - 'null'
           format: uri
-          description: 'Original URL from which the Operating System image can be retrieved; required for image-based OS'
+          description: 'Original URL from which the Operating System image can be retrieved. Immutable after creation: it may be re-sent unchanged, but changing it is rejected. Create a new Operating System to use a different image.'
         imageSha:
           type:
             - string
             - 'null'
-          description: 'SHA hash of the image file, required for image-based OS'
+          description: 'SHA hash of the image file. Immutable after creation: it may be re-sent unchanged, but changing it is rejected.'
         imageAuthType:
           type:
             - string
             - 'null'
-          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified'
+          description: 'Authentication type for image URL, if needed, e.g., basic/bearer/token; required if imageAuthToken is specified. Can be updated independently without re-sending imageUrl/imageSha.'
         imageAuthToken:
           type:
             - string
             - 'null'
-          description: 'Auth token to retrieve the image from image URL, required if imageAuthType is specified'
+          description: 'Auth token to retrieve the image from image URL, required if imageAuthType is specified. Can be updated independently without re-sending imageUrl/imageSha.'
         imageDisk:
           type:
             - string
