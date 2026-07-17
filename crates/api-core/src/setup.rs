@@ -1362,6 +1362,8 @@ async fn initialize_and_start_controllers<'a>(
                 redfish_client_pool: shared_redfish_pool.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: carbide_config.machine_state_handler_site_config().into(),
+                component_manager: component_manager.clone().map(Arc::new),
+                credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),

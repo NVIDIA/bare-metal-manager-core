@@ -7,10 +7,12 @@ use std::sync::Arc;
 use carbide_rack::firmware_object::rack_maintenance_access_token_key;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_secrets::credentials::{CredentialManager, Credentials};
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{ObjectColumnFilter, WithTransaction};
 use librms::RmsApi;
+use model::machine::MachineMaintenanceOperation;
 use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
 use model::rack_type::RackProfileConfig;
 use model::switch::SwitchMaintenanceOperation;
@@ -52,6 +54,12 @@ pub struct ComponentManager {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwitchMaintenanceRequestResult {
     pub switch_id: SwitchId,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineMaintenanceRequestResult {
+    pub machine_id: MachineId,
     pub error: Option<String>,
 }
 
@@ -341,6 +349,91 @@ impl ComponentManager {
 
                         results.push(SwitchMaintenanceRequestResult {
                             switch_id: *switch_id,
+                            error: None,
+                        });
+                    }
+
+                    Ok(results)
+                })
+            })
+            .await
+            .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+    }
+
+    pub async fn request_machine_maintenance_via_state_controller(
+        &self,
+        db_pool: &PgPool,
+        machine_ids: &[MachineId],
+        operation: MachineMaintenanceOperation,
+        initiator: &str,
+    ) -> Result<Vec<MachineMaintenanceRequestResult>, ComponentManagerError> {
+        if !self.compute_tray_use_state_controller {
+            return Err(ComponentManagerError::InvalidArgument(
+                "compute_tray_use_state_controller is disabled; machine maintenance through the state controller is unavailable"
+                    .to_string(),
+            ));
+        }
+
+        let machine_ids = machine_ids.to_vec();
+        let initiator = initiator.to_string();
+        db_pool
+            .with_txn(|txn| {
+                Box::pin(async move {
+                    let existing = db::machine::find(
+                        txn.as_mut(),
+                        db::ObjectFilter::List(&machine_ids),
+                        model::machine::machine_search_config::MachineSearchConfig::default(),
+                    )
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+
+                    let by_id: HashMap<MachineId, model::machine::Machine> = existing
+                        .into_iter()
+                        .map(|machine| (machine.id, machine))
+                        .collect();
+                    let mut results = Vec::with_capacity(machine_ids.len());
+
+                    for machine_id in &machine_ids {
+                        let Some(machine) = by_id.get(machine_id) else {
+                            results.push(MachineMaintenanceRequestResult {
+                                machine_id: *machine_id,
+                                error: Some(format!("machine {machine_id} not found")),
+                            });
+                            continue;
+                        };
+
+                        if !machine_id.machine_type().is_host() {
+                            results.push(MachineMaintenanceRequestResult {
+                                machine_id: *machine_id,
+                                error: Some(format!("machine {machine_id} is not a host machine")),
+                            });
+                            continue;
+                        }
+
+                        if matches!(
+                            machine.state.value,
+                            model::machine::ManagedHostState::ForceDeletion
+                        ) {
+                            results.push(MachineMaintenanceRequestResult {
+                                machine_id: *machine_id,
+                                error: Some(format!(
+                                    "machine {machine_id} is marked for forced deletion"
+                                )),
+                            });
+                            continue;
+                        }
+
+                        db::machine::set_machine_maintenance_requested(
+                            txn,
+                            *machine_id,
+                            &initiator,
+                            operation,
+                        )
+                        .await
+                        .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+
+                        results.push(MachineMaintenanceRequestResult {
+                            machine_id: *machine_id,
                             error: None,
                         });
                     }

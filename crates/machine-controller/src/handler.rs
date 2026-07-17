@@ -121,6 +121,7 @@ mod firmware_artifact;
 mod helpers;
 mod host_boot_config;
 mod machine_validation;
+mod maintenance;
 mod power;
 mod sku;
 #[cfg(test)]
@@ -830,6 +831,11 @@ impl MachineStateHandler {
                     return Ok(outcome);
                 }
 
+                if let Some(outcome) = maintenance::maintenance_transition_if_requested(mh_snapshot)
+                {
+                    return Ok(outcome);
+                }
+
                 // Check if instance to be created.
                 if mh_snapshot.instance.is_some() {
                     return Ok(StateHandlerOutcome::transition(
@@ -1297,6 +1303,15 @@ impl MachineStateHandler {
                 machine_id,
                 retry_count,
             } => {
+                if let Some(outcome) = maintenance::maintenance_transition_if_requested(mh_snapshot)
+                {
+                    // Clear stale host failure details before accepting maintenance,
+                    // matching other Failed recovery branches that exit with a txn.
+                    let mut txn = ctx.services.db_pool.begin().await?;
+                    db::machine::clear_failure_details(host_machine_id, &mut txn).await?;
+                    return Ok(outcome.with_txn(txn));
+                }
+
                 match details.cause {
                     // DPU discovery failed needs more logic to handle.
                     // DPU discovery can failed from multiple states init,
@@ -1542,6 +1557,10 @@ impl MachineStateHandler {
                         HostFirmwareScenario::Ready,
                     )
                     .await
+            }
+
+            ManagedHostState::Maintenance { .. } => {
+                maintenance::handle_maintenance(host_machine_id, mh_snapshot, ctx).await
             }
 
             // ManagedHostState::Measuring is introduced into the flow when

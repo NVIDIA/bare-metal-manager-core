@@ -50,8 +50,8 @@ use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
     Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
     FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineValidationContext, ManagedHostState, ReprovisionRequest,
-    UpgradeDecision,
+    MachineLastRebootRequestedMode, MachineMaintenanceOperation, MachineValidationContext,
+    ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -2445,6 +2445,41 @@ pub async fn set_machine_validation_request(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
+    Ok(())
+}
+
+pub async fn set_machine_maintenance_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+    initiator: &str,
+    operation: MachineMaintenanceOperation,
+) -> DatabaseResult<()> {
+    let req = model::machine::MachineMaintenanceRequest {
+        requested_at: Utc::now(),
+        initiator: initiator.to_string(),
+        operation,
+    };
+    let query = "UPDATE machines SET machine_maintenance_requested = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(sqlx::types::Json(req))
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("set_machine_maintenance_requested", e))?;
+    Ok(())
+}
+
+pub async fn clear_machine_maintenance_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET machine_maintenance_requested = NULL WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_machine_maintenance_requested", e))?;
     Ok(())
 }
 

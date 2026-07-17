@@ -817,6 +817,10 @@ pub struct Machine {
     /// Last time when host reprovision requested
     pub host_reprovision_requested: Option<HostReprovisionRequest>,
 
+    /// When set by an external entity, the state controller transitions the host into
+    /// [`ManagedHostState::Maintenance`] to execute the requested operation.
+    pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
@@ -1206,6 +1210,12 @@ pub enum ManagedHostState {
     },
     /// Host is Ready for instance creation.
     Ready,
+
+    /// Host is executing an operator-requested maintenance operation.
+    Maintenance {
+        operation: MachineMaintenanceOperation,
+    },
+
     /// Host is assigned to an Instance.
     Assigned {
         instance_state: InstanceState,
@@ -1357,6 +1367,11 @@ impl std::fmt::Display for ValidationState {
 pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
 
 impl ManagedHostState {
+    /// Builds the controller state for a requested maintenance operation.
+    pub fn maintenance_for_operation(operation: MachineMaintenanceOperation) -> Self {
+        Self::Maintenance { operation }
+    }
+
     pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
         match self {
             ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.get(dpu_id),
@@ -2175,6 +2190,25 @@ pub struct ReprovisionRequest {
     pub restart_reprovision_requested_at: DateTime<Utc>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
+pub enum MachineMaintenanceOperation {
+    /// Power on the host.
+    PowerOn,
+    /// Power off the host.
+    PowerOff,
+    /// Reset the host (restart / AC power cycle).
+    Reset,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineMaintenanceRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    pub operation: MachineMaintenanceOperation,
+}
+
 /// Struct to store information if host reprovision is requested.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostReprovisionRequest {
@@ -2321,6 +2355,9 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
+            ManagedHostState::Maintenance { operation } => {
+                write!(f, "Maintenance({operation:?})")
+            }
             ManagedHostState::Assigned { instance_state, .. } => match instance_state {
                 InstanceState::DPUReprovision { dpu_states } => {
                     let dpu_lowest_state = dpu_states
@@ -2413,6 +2450,9 @@ impl ManagedHostState {
                 format!("HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => "Ready".to_string(),
+            ManagedHostState::Maintenance { operation } => {
+                format!("Maintenance({operation:?})")
+            }
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::DPUReprovision { dpu_states } => {
                     format!(
@@ -2612,6 +2652,9 @@ pub fn state_sla(
             _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
+        ManagedHostState::Maintenance { .. } => {
+            StateSla::with_sla(slas::MAINTENANCE, time_in_state)
+        }
         ManagedHostState::Assigned { instance_state } => match instance_state {
             InstanceState::Ready => StateSla::no_sla(),
             InstanceState::BootingWithDiscoveryImage { retry } => {

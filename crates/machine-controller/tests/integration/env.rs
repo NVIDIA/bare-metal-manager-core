@@ -24,8 +24,10 @@ use carbide_machine_controller::handler::{
 };
 use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_redfish::libredfish::test_support::RedfishSim;
+use carbide_secrets::credentials::CredentialManager;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::{CarbideConfig, test_support};
+use component_manager::component_manager::ComponentManager;
 use futures::FutureExt as _;
 use model::machine::slas::MachineSlaConfig;
 use state_controller::controller::StateController;
@@ -41,6 +43,8 @@ pub struct Env {
 pub struct EnvBuilder {
     pool: PgPool,
     runtime_config: CarbideConfig,
+    component_manager: Option<Arc<ComponentManager>>,
+    credential_manager: Option<Arc<dyn CredentialManager>>,
 }
 
 impl Env {
@@ -54,6 +58,8 @@ impl Env {
         EnvBuilder {
             pool,
             runtime_config,
+            component_manager: None,
+            credential_manager: None,
         }
     }
 
@@ -68,10 +74,25 @@ impl EnvBuilder {
         self
     }
 
+    pub fn with_component_manager(mut self, component_manager: Arc<ComponentManager>) -> Self {
+        self.component_manager = Some(component_manager);
+        self
+    }
+
+    pub fn with_credential_manager(
+        mut self,
+        credential_manager: Arc<dyn CredentialManager>,
+    ) -> Self {
+        self.credential_manager = Some(credential_manager);
+        self
+    }
+
     pub async fn build(self) -> Env {
         let Self {
             pool,
             runtime_config,
+            component_manager,
+            credential_manager,
         } = self;
         let redfish_sim = Arc::new(RedfishSim::default());
         let controller_redfish_sim = redfish_sim.clone();
@@ -136,6 +157,9 @@ impl EnvBuilder {
             redfish_client_pool: controller_redfish_sim,
             ipmi_tool: carbide_ipmi::test_support(),
             site_config: runtime_config.machine_state_handler_site_config().into(),
+            component_manager,
+            credential_manager: credential_manager
+                .unwrap_or_else(|| api.credential_manager().clone()),
             per_object_metrics_registry,
         };
         let machine_controller = StateController::<MachineStateControllerIO>::builder()
