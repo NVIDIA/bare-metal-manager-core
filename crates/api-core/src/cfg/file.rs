@@ -3143,88 +3143,145 @@ mod tests {
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
+    /// Exercises the real `[certificates]` / `[certificates.dedicated_vault]`
+    /// TOML contract through Figment (the production config path), rather than
+    /// JSON serde. Each case parses a TOML fragment into `CertificatesConfig`
+    /// and asserts either the parse outcome or the `to_certificate_config`
+    /// mapping/error.
     #[test]
-    fn certificates_absent_defaults_to_shared_vault() {
-        let cfg: CertificatesConfig = serde_json::from_str("{}").unwrap();
-        assert_eq!(cfg.backend, CertBackendKind::SharedVault);
-        let runtime = cfg.to_certificate_config().unwrap();
-        assert!(matches!(
-            runtime.backend,
-            carbide_secrets::CertBackend::SharedVault
-        ));
-    }
+    fn certificates_toml_config_contract() {
+        use carbide_secrets::CertBackend;
 
-    #[test]
-    fn certificates_explicit_shared_vault() {
-        let cfg: CertificatesConfig =
-            serde_json::from_str(r#"{"backend":"shared_vault"}"#).unwrap();
-        assert!(matches!(
-            cfg.to_certificate_config().unwrap().backend,
-            carbide_secrets::CertBackend::SharedVault
-        ));
-    }
-
-    #[test]
-    fn certificates_dedicated_vault_maps_all_fields() {
-        let cfg: CertificatesConfig = serde_json::from_str(
-            r#"{
-                "backend": "dedicated_vault",
-                "dedicated_vault": {
-                    "address": "https://vault-certs.example:8200",
-                    "pki_mount_location": "pki",
-                    "pki_role_name": "machine",
-                    "token": "s.abc123"
-                }
-            }"#,
-        )
-        .unwrap();
-
-        match cfg.to_certificate_config().unwrap().backend {
-            carbide_secrets::CertBackend::DedicatedVault(dedicated) => {
-                assert_eq!(dedicated.address, "https://vault-certs.example:8200");
-                assert_eq!(dedicated.pki_mount_location, "pki");
-                assert_eq!(dedicated.pki_role_name, "machine");
-                assert_eq!(dedicated.token.as_deref(), Some("s.abc123"));
-                assert!(dedicated.vault_cacert.is_none());
-            }
-            other => panic!("expected dedicated vault backend, got {other:?}"),
+        enum Expect {
+            /// Figment/serde extraction fails (missing required field, unknown key).
+            ParseErr,
+            /// Extraction succeeds but `to_certificate_config` rejects it.
+            ConvertErr,
+            Shared,
+            Dedicated {
+                address: &'static str,
+                pki_mount_location: &'static str,
+                pki_role_name: &'static str,
+                token: Option<&'static str>,
+                vault_cacert: Option<&'static str>,
+            },
         }
-    }
 
-    #[test]
-    fn certificates_dedicated_vault_without_section_fails_fast() {
-        // backend selected but no settings -> must error rather than fall back
-        // to the credential Vault.
-        let cfg: CertificatesConfig =
-            serde_json::from_str(r#"{"backend":"dedicated_vault"}"#).unwrap();
-        let err = cfg.to_certificate_config().unwrap_err();
-        assert!(
-            err.to_string().contains("dedicated_vault"),
-            "unexpected error: {err}"
-        );
-    }
+        // The fragments extract into `CertificatesConfig` directly, so the root
+        // fields (`backend`, `[dedicated_vault]`) are the same ones that live
+        // under the `[certificates]` / `[certificates.dedicated_vault]` tables.
+        let cases: &[(&str, &str, Expect)] = &[
+            (
+                "absent section defaults to shared_vault",
+                "",
+                Expect::Shared,
+            ),
+            (
+                "explicit shared_vault",
+                r#"backend = "shared_vault""#,
+                Expect::Shared,
+            ),
+            (
+                "dedicated_vault maps all fields",
+                r#"
+                    backend = "dedicated_vault"
+                    [dedicated_vault]
+                    address = "https://vault-certs.example:8200"
+                    pki_mount_location = "pki"
+                    pki_role_name = "machine"
+                    token = "s.abc123"
+                    vault_cacert = "/etc/ssl/certs/vault-ca.pem"
+                "#,
+                Expect::Dedicated {
+                    address: "https://vault-certs.example:8200",
+                    pki_mount_location: "pki",
+                    pki_role_name: "machine",
+                    token: Some("s.abc123"),
+                    vault_cacert: Some("/etc/ssl/certs/vault-ca.pem"),
+                },
+            ),
+            (
+                "dedicated_vault selected without its section fails conversion",
+                r#"backend = "dedicated_vault""#,
+                Expect::ConvertErr,
+            ),
+            (
+                "dedicated_vault missing required address fails parse",
+                r#"
+                    backend = "dedicated_vault"
+                    [dedicated_vault]
+                    pki_mount_location = "pki"
+                    pki_role_name = "machine"
+                "#,
+                Expect::ParseErr,
+            ),
+            (
+                "unknown field rejected by deny_unknown_fields",
+                "backend = \"shared_vault\"\ntypo = true",
+                Expect::ParseErr,
+            ),
+        ];
 
-    #[test]
-    fn certificates_dedicated_vault_missing_required_field_fails_parse() {
-        // `address` is required; omitting it must fail at parse time, not vend
-        // certs from a half-specified Vault.
-        let result: Result<CertificatesConfig, _> = serde_json::from_str(
-            r#"{
-                "backend": "dedicated_vault",
-                "dedicated_vault": {
-                    "pki_mount_location": "pki",
-                    "pki_role_name": "machine"
+        for (name, toml, expect) in cases {
+            let parsed: Result<CertificatesConfig, _> =
+                Figment::new().merge(Toml::string(toml)).extract();
+
+            match expect {
+                Expect::ParseErr => {
+                    assert!(parsed.is_err(), "{name}: expected a parse error");
                 }
-            }"#,
-        );
-        assert!(result.is_err(), "expected parse error for missing address");
-    }
-
-    #[test]
-    fn certificates_unknown_field_rejected() {
-        let result: Result<CertificatesConfig, _> =
-            serde_json::from_str(r#"{"backend":"shared_vault","typo":true}"#);
-        assert!(result.is_err(), "deny_unknown_fields should reject typos");
+                Expect::ConvertErr => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    let err = match cfg.to_certificate_config() {
+                        Ok(_) => panic!("{name}: expected conversion to fail"),
+                        Err(err) => err,
+                    };
+                    assert!(
+                        err.to_string().contains("dedicated_vault"),
+                        "{name}: unexpected error: {err}"
+                    );
+                }
+                Expect::Shared => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    assert!(
+                        matches!(
+                            cfg.to_certificate_config().unwrap().backend,
+                            CertBackend::SharedVault
+                        ),
+                        "{name}: expected SharedVault backend"
+                    );
+                }
+                Expect::Dedicated {
+                    address,
+                    pki_mount_location,
+                    pki_role_name,
+                    token,
+                    vault_cacert,
+                } => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    match cfg.to_certificate_config().unwrap().backend {
+                        CertBackend::DedicatedVault(d) => {
+                            assert_eq!(d.address, *address, "{name}: address");
+                            assert_eq!(
+                                d.pki_mount_location, *pki_mount_location,
+                                "{name}: pki_mount_location"
+                            );
+                            assert_eq!(d.pki_role_name, *pki_role_name, "{name}: pki_role_name");
+                            assert_eq!(d.token.as_deref(), *token, "{name}: token");
+                            assert_eq!(
+                                d.vault_cacert.as_deref(),
+                                *vault_cacert,
+                                "{name}: vault_cacert"
+                            );
+                        }
+                        other => panic!("{name}: expected dedicated vault backend, got {other:?}"),
+                    }
+                }
+            }
+        }
     }
 
     #[test]
