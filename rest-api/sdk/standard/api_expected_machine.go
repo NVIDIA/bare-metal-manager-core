@@ -196,6 +196,8 @@ BatchUpdateExpectedMachines Batch Update Expected Machines
 
 Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
+All items in a batch update must provide the same set of fields.
+
 Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 Infrastructure Provider must own the Expected Machines.

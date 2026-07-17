@@ -26,6 +26,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 	tmocks "go.temporal.io/sdk/mocks"
 )
@@ -1362,6 +1363,142 @@ func TestUpdateExpectedMachineHandler_Handle(t *testing.T) {
 			// Check response content if provided
 			if tt.checkResponseContent != nil && rec.Code == http.StatusOK {
 				tt.checkResponseContent(t, rec.Body.Bytes())
+			}
+		})
+	}
+}
+
+func TestUpdateExpectedMachineHandler_BmcIpAddressPatchSemantics(t *testing.T) {
+	e := echo.New()
+	dbSession := testExpectedMachineInitDB(t)
+	defer dbSession.Close()
+
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+	org := "test-org"
+	_, site := testExpectedMachineSetupTestData(t, dbSession, org)
+	ctx := context.Background()
+
+	originalIP := "192.0.2.30"
+	emDAO := cdbm.NewExpectedMachineDAO(dbSession)
+	testEM, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
+		ExpectedMachineID:   uuid.New(),
+		SiteID:              site.ID,
+		BmcMacAddress:       "00:11:22:33:44:C1",
+		ChassisSerialNumber: "BMC-IP-PATCH-001",
+		BmcIpAddress:        &originalIP,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, testEM)
+
+	var capturedRequests []*corev1.ExpectedMachine
+	mockTemporalClient := &tmocks.Client{}
+	mockWorkflowRun := &tmocks.WorkflowRun{}
+	mockWorkflowRun.On("GetID").Return("test-workflow-id")
+	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Return(nil)
+	mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateExpectedMachine", mock.Anything).
+		Run(func(args mock.Arguments) {
+			if request, ok := args.Get(3).(*corev1.ExpectedMachine); ok {
+				capturedRequests = append(capturedRequests, request)
+			}
+		}).
+		Return(mockWorkflowRun, nil)
+	scp.IDClientMap[site.ID.String()] = mockTemporalClient
+
+	handler := NewUpdateExpectedMachineHandler(dbSession, scp, cfg)
+	user := &cdbm.User{
+		StarfleetID: cutil.GetPtr("test-user"),
+		OrgData: cdbm.OrgData{
+			org: cdbm.Org{
+				ID:          123,
+				Name:        org,
+				DisplayName: org,
+				OrgType:     "ENTERPRISE",
+				Roles:       []string{authz.ProviderAdminRole},
+			},
+		},
+	}
+	updatedIP := "192.0.2.31"
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantIP     *string
+		requests   int
+	}{
+		{
+			name:       "omission preserves address",
+			body:       `{"name":"preserved-address"}`,
+			wantStatus: http.StatusOK,
+			wantIP:     &originalIP,
+		},
+		{
+			name:       "address sets value",
+			body:       `{"bmcIpAddress":"192.0.2.31"}`,
+			wantStatus: http.StatusOK,
+			wantIP:     &updatedIP,
+		},
+		{
+			name:       "empty string remains invalid",
+			body:       `{"bmcIpAddress":""}`,
+			wantStatus: http.StatusBadRequest,
+			wantIP:     &originalIP,
+		},
+		{
+			name:       "explicit null clears address",
+			body:       `{"bmcIpAddress":null}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "repeated explicit null remains cleared",
+			body:       `{"bmcIpAddress":null}`,
+			wantStatus: http.StatusOK,
+			requests:   2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := emDAO.Update(ctx, nil, cdbm.ExpectedMachineUpdateInput{
+				ExpectedMachineID: testEM.ID,
+				BmcIpAddress:      &originalIP,
+			})
+			require.NoError(t, err)
+
+			requestCount := tc.requests
+			if requestCount == 0 {
+				requestCount = 1
+			}
+			for range requestCount {
+				workflowCount := len(capturedRequests)
+				url := "/v2/org/" + org + "/nico/expected-machine/" + testEM.ID.String()
+				req := httptest.NewRequest(http.MethodPatch, url, bytes.NewBufferString(tc.body))
+				req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+				rec := httptest.NewRecorder()
+				c := e.NewContext(req, rec)
+				c.Set("user", user)
+				c.SetParamNames("orgName", "id")
+				c.SetParamValues(org, testEM.ID.String())
+
+				err := handler.Handle(c)
+				assert.NoError(t, err)
+				assert.Equal(t, tc.wantStatus, rec.Code, "Response: %s", rec.Body.String())
+
+				stored, err := emDAO.Get(ctx, nil, testEM.ID, nil, false)
+				assert.NoError(t, err)
+				assert.Equal(t, tc.wantIP, stored.BmcIpAddress)
+				if tc.wantStatus != http.StatusOK {
+					assert.Len(t, capturedRequests, workflowCount)
+					continue
+				}
+
+				var response model.APIExpectedMachine
+				assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+				assert.Equal(t, tc.wantIP, response.BmcIpAddress)
+				if assert.Len(t, capturedRequests, workflowCount+1) {
+					assert.Equal(t, tc.wantIP, capturedRequests[workflowCount].BmcIpAddress)
+				}
 			}
 		})
 	}
@@ -2731,5 +2868,132 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 				tt.validateResp(t, rec.Body.Bytes())
 			}
 		})
+	}
+}
+
+func TestUpdateExpectedMachinesHandler_BmcIpAddress(t *testing.T) {
+	e := echo.New()
+	dbSession := testExpectedMachineInitDB(t)
+	defer dbSession.Close()
+
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+	org := "test-org"
+	_, site := testExpectedMachineSetupTestData(t, dbSession, org)
+	ctx := context.Background()
+	emDAO := cdbm.NewExpectedMachineDAO(dbSession)
+
+	createExpectedMachine := func(mac, serial string, bmcIP, name *string) *cdbm.ExpectedMachine {
+		em, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
+			ExpectedMachineID:   uuid.New(),
+			SiteID:              site.ID,
+			BmcMacAddress:       mac,
+			ChassisSerialNumber: serial,
+			BmcIpAddress:        bmcIP,
+			Name:                name,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, em)
+		return em
+	}
+
+	clearedIP := "192.0.2.41"
+	updatedIP := "192.0.2.42"
+	clearedName := "cleared-machine"
+	updatedName := "updated-machine"
+	emCleared := createExpectedMachine("00:11:22:33:44:D2", "BMC-IP-BATCH-002", &clearedIP, &clearedName)
+	emUpdated := createExpectedMachine("00:11:22:33:44:D3", "BMC-IP-BATCH-003", nil, &updatedName)
+
+	var capturedRequest *corev1.BatchExpectedMachineOperationRequest
+	mockTemporalClient := &tmocks.Client{}
+	mockWorkflowRun := &tmocks.WorkflowRun{}
+	mockWorkflowRun.On("GetID").Return("test-workflow-id")
+	mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "UpdateExpectedMachines", mock.Anything).
+		Run(func(args mock.Arguments) {
+			capturedRequest, _ = args.Get(3).(*corev1.BatchExpectedMachineOperationRequest)
+		}).
+		Return(mockWorkflowRun, nil)
+	mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) {
+			response, ok := args.Get(1).(*corev1.BatchExpectedMachineOperationResponse)
+			if !ok || capturedRequest == nil || capturedRequest.ExpectedMachines == nil {
+				return
+			}
+			for _, machine := range capturedRequest.ExpectedMachines.ExpectedMachines {
+				response.Results = append(response.Results, &corev1.ExpectedMachineOperationResult{
+					Id:      machine.Id,
+					Success: true,
+				})
+			}
+		}).
+		Return(nil)
+	scp.IDClientMap[site.ID.String()] = mockTemporalClient
+
+	body, err := json.Marshal([]map[string]interface{}{
+		{
+			"id":           emCleared.ID.String(),
+			"bmcIpAddress": nil,
+		},
+		{
+			"id":           emUpdated.ID.String(),
+			"bmcIpAddress": updatedIP,
+		},
+	})
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPatch, "/v2/org/"+org+"/nico/expected-machine/batch", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("user", &cdbm.User{
+		StarfleetID: cutil.GetPtr("test-user"),
+		OrgData: cdbm.OrgData{
+			org: cdbm.Org{
+				ID:          123,
+				Name:        org,
+				DisplayName: org,
+				OrgType:     "ENTERPRISE",
+				Roles:       []string{authz.ProviderAdminRole},
+			},
+		},
+	})
+	c.SetParamNames("orgName")
+	c.SetParamValues(org)
+
+	handler := NewUpdateExpectedMachinesHandler(dbSession, scp, cfg)
+	err = handler.Handle(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code, "Response: %s", rec.Body.String())
+
+	wantByID := map[uuid.UUID]*string{
+		emCleared.ID: nil,
+		emUpdated.ID: &updatedIP,
+	}
+	wantNameByID := map[uuid.UUID]*string{
+		emCleared.ID: &clearedName,
+		emUpdated.ID: &updatedName,
+	}
+	var response []model.APIExpectedMachine
+	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Len(t, response, len(wantByID))
+	for _, machine := range response {
+		assert.Equal(t, wantByID[machine.ID], machine.BmcIpAddress)
+		assert.Equal(t, wantNameByID[machine.ID], machine.Name)
+	}
+	for id, wantIP := range wantByID {
+		stored, err := emDAO.Get(ctx, nil, id, nil, false)
+		assert.NoError(t, err)
+		assert.Equal(t, wantIP, stored.BmcIpAddress)
+		assert.Equal(t, wantNameByID[id], stored.Name)
+	}
+
+	if assert.NotNil(t, capturedRequest) && assert.NotNil(t, capturedRequest.ExpectedMachines) {
+		assert.Len(t, capturedRequest.ExpectedMachines.ExpectedMachines, len(wantByID))
+		for _, machine := range capturedRequest.ExpectedMachines.ExpectedMachines {
+			id, err := uuid.Parse(machine.Id.Value)
+			assert.NoError(t, err)
+			assert.Equal(t, wantByID[id], machine.BmcIpAddress)
+			assert.Equal(t, wantNameByID[id], machine.Name)
+		}
 	}
 }
