@@ -195,7 +195,7 @@ Use descriptive branch names like:
 ## Contribution Process
 
 1. **Fork the repository** and create your branch from `main`.
-2. **Make your changes** following our coding guidelines.
+2. **Make your changes** following our style guides: [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for Rust code and [`DOCS_STYLE_GUIDE.md`](DOCS_STYLE_GUIDE.md) for documentation.
 3. **Sign and sign off all your commits** using `git commit -s -S`.
 4. **Submit a pull request** with a clear description of your changes.
 

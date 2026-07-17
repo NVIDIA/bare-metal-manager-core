@@ -169,6 +169,10 @@ verification expectations.
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 
+When writing or updating documentation (Markdown docs, READMEs, guides, or
+design-doc prose), follow [`DOCS_STYLE_GUIDE.md`](DOCS_STYLE_GUIDE.md) for voice,
+wording, and formatting conventions.
+
 ### Instrumentation: logs and metrics
 
 The decision rule:
@@ -217,5 +221,6 @@ verbatim. Existing metric names never change. The full standard lives in
 
 - [`README.md`](README.md) — Project overview and getting started
 - [`STYLE_GUIDE.md`](STYLE_GUIDE.md) — Detailed Rust coding conventions
+- [`DOCS_STYLE_GUIDE.md`](DOCS_STYLE_GUIDE.md) — Documentation and prose style for docs, READMEs, and guides
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — Contribution workflow and DCO process
 - [`book/src/README.md`](book/src/README.md) — Architecture and operational guides

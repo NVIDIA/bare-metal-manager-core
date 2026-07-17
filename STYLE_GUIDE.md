@@ -5,6 +5,10 @@ learned through experience. It is currently a mix of best practices for _this co
 be organized), and best practices for *Rust in general*. The latter is mostly motivated by issues we seen enough to
 warrant writing them down, but otherwise this document not aim to be a "how to write Rust" guide.
 
+> **Writing documentation?** This guide covers Rust code. For documentation and
+> prose style (guides, READMEs, reference docs), refer to
+> [`DOCS_STYLE_GUIDE.md`](DOCS_STYLE_GUIDE.md).
+
 ## Core Principles
 
 - Prefer simple, explicit code over clever or heavily abstracted code. Optimize for readability and maintainability
