@@ -13,7 +13,11 @@ nico-admin-cli-rack-state-history - Show rack state history
 
 ## DESCRIPTION
 
-Show rack state history
+Show rack state history.
+
+Records are always returned in chronological order (oldest first). The
+global **--sort-by** option is inherited by this command but has no effect
+on the output.
 
 ## OPTIONS
 
@@ -26,6 +30,9 @@ internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
 Sort output by specified field\
+
+Global option; **not used** by `rack state-history`. Records are always
+listed in chronological order regardless of this value.\
 
 \
 *Possible values:*
