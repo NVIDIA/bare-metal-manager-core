@@ -229,10 +229,18 @@ fn parse_lldp_neighbors(
             .map(|id| (id.id_type.clone(), id.value.clone()))
             .unwrap_or_default();
 
-        let inventory = entry.lldp_med.first().and_then(|med| med.inventory.first());
-        let inv_field = |select: fn(&LldpInventory) -> &Vec<LldpValue>| {
-            inventory.and_then(|inv| select(inv).first().map(|v| v.value.clone()))
-        };
+        let med_inventory = entry
+            .lldp_med
+            .first()
+            .and_then(|med| med.inventory.first())
+            .map(|inv| {
+                let field = |vals: &[LldpValue]| vals.first().map(|v| v.value.clone());
+                rpc_discovery::LldpMedInventory {
+                    serial: field(&inv.serial),
+                    manufacturer: field(&inv.manufacturer),
+                    model: field(&inv.model),
+                }
+            });
 
         // The `deprecated` allow keeps the legacy combined `id`/`remote_port`
         // strings populated for backward compatibility until consumers migrate
@@ -257,9 +265,7 @@ fn parse_lldp_neighbors(
             id_value,
             remote_port_type,
             remote_port_value,
-            serial: inv_field(|inv| &inv.serial),
-            manufacturer: inv_field(|inv| &inv.manufacturer),
-            model: inv_field(|inv| &inv.model),
+            med_inventory,
         });
     }
 
@@ -365,20 +371,17 @@ mod tests {
     fn parses_lldp_med_inventory() {
         let neighbors = parse_lldp_neighbors(INVENTORY_NEIGHBOR).expect("parse");
         assert_eq!(neighbors.len(), 1);
-        let n = &neighbors[0];
-        assert_eq!(n.serial.as_deref(), Some("SN0123456789"));
-        assert_eq!(n.manufacturer.as_deref(), Some("https://example.com"));
-        assert_eq!(n.model.as_deref(), Some("BlueField-3 DPU"));
+        let inv = neighbors[0].med_inventory.as_ref().expect("inventory");
+        assert_eq!(inv.serial.as_deref(), Some("SN0123456789"));
+        assert_eq!(inv.manufacturer.as_deref(), Some("https://example.com"));
+        assert_eq!(inv.model.as_deref(), Some("BlueField-3 DPU"));
     }
 
     #[test]
     fn parses_missing_inventory_as_none() {
         let neighbors = parse_lldp_neighbors(SINGLE_NEIGHBOR).expect("parse");
         assert_eq!(neighbors.len(), 1);
-        let n = &neighbors[0];
-        assert!(n.serial.is_none());
-        assert!(n.manufacturer.is_none());
-        assert!(n.model.is_none());
+        assert!(neighbors[0].med_inventory.is_none());
     }
 
     #[test]

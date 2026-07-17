@@ -155,10 +155,16 @@ message LldpSwitchData {
   // Remote port id split into its LLDP subtype (e.g. "ifname") and value.
   string remote_port_type = 9;
   string remote_port_value = 10;
-  // LLDP-MED inventory fields, when the neighbor advertises them.
-  optional string serial = 11;
-  optional string manufacturer = 12;
-  optional string model = 13;
+  // LLDP-MED inventory, present only when the neighbor advertises it.
+  optional LldpMedInventory med_inventory = 11;
+}
+
+// LLDP-MED inventory advertised by some neighbors (e.g. BlueField DPUs).
+// Every field is optional.
+message LldpMedInventory {
+  optional string serial = 1;
+  optional string manufacturer = 2;
+  optional string model = 3;
 }
 
 message DpuData {
