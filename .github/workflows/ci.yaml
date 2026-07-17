@@ -1412,7 +1412,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate Helm chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@197ece553bb6353e3e9cad153e41b5e311ebcf13
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@0969f64c3efa9e757135cbf457ea13cde4c3fa38
         with:
           chart-path: helm
           helm-version: 'v3.18.3'
