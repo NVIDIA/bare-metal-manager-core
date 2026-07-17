@@ -456,11 +456,47 @@ impl DiscoveredDrive<'_> {
     }
 }
 
+/// Attempt to place `drive` into an eligible, unfilled slot using Kuhn's
+/// augmenting-path algorithm, displacing already-placed drives when doing so
+/// frees a slot for them elsewhere. `slot_group[s]` is the expected-group index
+/// that owns slot `s`; `eligibility[g]` lists the drive indices group `g` can
+/// legally claim. Returns whether `drive` was placed.
+fn augment_drive(
+    drive: usize,
+    slot_group: &[usize],
+    eligibility: &[Vec<usize>],
+    slot_to_drive: &mut [Option<usize>],
+    visited: &mut [bool],
+) -> bool {
+    for s in 0..slot_group.len() {
+        if visited[s] || !eligibility[slot_group[s]].contains(&drive) {
+            continue;
+        }
+        visited[s] = true;
+        let freed = match slot_to_drive[s] {
+            None => true,
+            Some(occupant) => {
+                augment_drive(occupant, slot_group, eligibility, slot_to_drive, visited)
+            }
+        };
+        if freed {
+            slot_to_drive[s] = Some(drive);
+            return true;
+        }
+    }
+    false
+}
+
 /// Storage comparison for schema version >= 5. Model is intentionally ignored;
 /// each expected storage group is validated by drive size range, count, and PCI
 /// location patterns. Fails safely (emits a diff) when an expected drive is
 /// missing, when a location is ambiguous, when a drive is the wrong size, or
 /// when a discovered drive is not expected anywhere.
+///
+/// Drives are assigned to expected groups with a global maximum matching rather
+/// than greedily, so a broad group (e.g. `/nvme/`) never claims a drive that
+/// only a more specific group (e.g. `0000:04:00\.0`) can satisfy when a valid
+/// overall assignment exists.
 fn diff_storage_by_location(actual_sku: &Sku, expected_sku: &Sku, diffs: &mut Vec<String>) {
     let drives: Vec<DiscoveredDrive> = actual_sku
         .components
@@ -472,102 +508,144 @@ fn diff_storage_by_location(actual_sku: &Sku, expected_sku: &Sku, diffs: &mut Ve
         })
         .collect();
 
-    // Track which discovered drives have been claimed by an expected group so
-    // that leftovers can be reported as unexpected.
-    let mut claimed = vec![false; drives.len()];
-
-    // Process location-constrained groups before generic (size-only) ones. A
-    // generic group is greedy and would otherwise claim a drive that only a
-    // constrained group can match, producing a false mismatch even when a valid
-    // overall assignment exists.
+    // Order location-constrained groups before generic (size-only) ones. The
+    // assignment below is global, so this ordering does not affect whether a
+    // valid assignment is found; it only biases which of several equivalent
+    // assignments is chosen so a drive prefers the group naming its PCI
+    // location, keeping diagnostics deterministic.
     let (constrained, generic): (Vec<_>, Vec<_>) = expected_sku
         .components
         .storage
         .iter()
         .partition(|es| !es.pci_patterns.is_empty());
+    let groups: Vec<&SkuComponentStorage> = constrained.into_iter().chain(generic).collect();
 
-    for es in constrained.into_iter().chain(generic) {
+    // Compute, per expected group, the drives it may legally claim. A generic
+    // group (no patterns) accepts any drive within its size range. A
+    // location-constrained group accepts any drive matching at least one of its
+    // patterns; size is validated after assignment (as a diagnostic) so a drive
+    // at the right location but wrong size is reported as out-of-range rather
+    // than silently left unclaimed. Invalid patterns are reported and match
+    // nothing, and a pattern that matches no drive at all is reported here since
+    // it is unsatisfiable regardless of the final assignment.
+    let mut eligibility: Vec<Vec<usize>> = Vec::with_capacity(groups.len());
+    for es in &groups {
+        let mut eligible = Vec::new();
         if es.pci_patterns.is_empty() {
-            // No location constraint: claim up to `count` unclaimed drives that
-            // fall within the size range.
-            let mut matched = 0u32;
             for (i, drive) in drives.iter().enumerate() {
-                if matched >= es.count {
-                    break;
-                }
-                if !claimed[i] && drive.size_in_range(es.min_size_mb, es.max_size_mb) {
-                    claimed[i] = true;
-                    matched += 1;
+                if drive.size_in_range(es.min_size_mb, es.max_size_mb) {
+                    eligible.push(i);
                 }
             }
-            if matched != es.count {
-                diffs.push(format!(
-                    "Expected {} storage drive(s) ({es}) but found {matched} matching the size range",
-                    es.count,
-                ));
-            }
-            continue;
-        }
-
-        // Location-constrained group: every pattern must match at least one
-        // drive, the group must claim exactly `count` drives, and each claimed
-        // drive must be within the size range.
-        let mut group_claimed: Vec<usize> = Vec::new();
-        for pattern in &es.pci_patterns {
-            let re = match Regex::new(pattern) {
-                Ok(re) => re,
-                Err(err) => {
-                    diffs.push(format!("Invalid storage PCI pattern \"{pattern}\": {err}"));
-                    continue;
-                }
-            };
-            let hits: Vec<usize> = drives
+        } else {
+            let compiled: Vec<(&String, Option<Regex>)> = es
+                .pci_patterns
                 .iter()
-                .enumerate()
-                .filter(|(i, drive)| !claimed[*i] && drive.path.is_some_and(|p| re.is_match(p)))
-                .map(|(i, _)| i)
+                .map(|pattern| match Regex::new(pattern) {
+                    Ok(re) => (pattern, Some(re)),
+                    Err(err) => {
+                        diffs.push(format!("Invalid storage PCI pattern \"{pattern}\": {err}"));
+                        (pattern, None)
+                    }
+                })
                 .collect();
 
-            if hits.is_empty() {
-                diffs.push(format!(
-                    "Expected storage drive at PCI location /{pattern}/ not found"
-                ));
-                continue;
+            for (i, drive) in drives.iter().enumerate() {
+                let matches = drive.path.is_some_and(|p| {
+                    compiled
+                        .iter()
+                        .any(|(_, re)| re.as_ref().is_some_and(|re| re.is_match(p)))
+                });
+                if matches {
+                    eligible.push(i);
+                }
             }
-            for i in hits {
-                if !claimed[i] {
-                    claimed[i] = true;
-                    group_claimed.push(i);
+
+            for (pattern, re) in &compiled {
+                if let Some(re) = re {
+                    let found = drives
+                        .iter()
+                        .any(|d| d.path.is_some_and(|p| re.is_match(p)));
+                    if !found {
+                        diffs.push(format!(
+                            "Expected storage drive at PCI location /{pattern}/ not found"
+                        ));
+                    }
                 }
             }
         }
+        eligibility.push(eligible);
+    }
 
-        if group_claimed.len() as u32 != es.count {
-            diffs.push(format!(
-                "Expected {} storage drive(s) ({es}) but matched {} at those PCI locations",
-                es.count,
-                group_claimed.len(),
-            ));
+    // Expand each group into `count` interchangeable slots, then find a global
+    // maximum matching of drives to slots. Maximising the number of matched
+    // drives yields a saturating assignment whenever one exists.
+    let mut slot_group: Vec<usize> = Vec::new();
+    for (g, es) in groups.iter().enumerate() {
+        for _ in 0..es.count {
+            slot_group.push(g);
         }
+    }
+    let mut slot_to_drive: Vec<Option<usize>> = vec![None; slot_group.len()];
+    for drive in 0..drives.len() {
+        let mut visited = vec![false; slot_group.len()];
+        augment_drive(
+            drive,
+            &slot_group,
+            &eligibility,
+            &mut slot_to_drive,
+            &mut visited,
+        );
+    }
 
-        for i in group_claimed {
-            if !drives[i].size_in_range(es.min_size_mb, es.max_size_mb) {
-                diffs.push(format!(
-                    "Storage drive ({}) is outside expected size range {}-{} MB",
-                    drives[i].describe(),
-                    es.min_size_mb
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "*".to_string()),
-                    es.max_size_mb
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| "*".to_string()),
-                ));
-            }
+    let mut drive_to_group: Vec<Option<usize>> = vec![None; drives.len()];
+    let mut assigned_per_group = vec![0u32; groups.len()];
+    for (s, occupant) in slot_to_drive.iter().enumerate() {
+        if let Some(drive) = occupant {
+            drive_to_group[*drive] = Some(slot_group[s]);
+            assigned_per_group[slot_group[s]] += 1;
         }
     }
 
+    // Report groups that could not be fully satisfied.
+    for (g, es) in groups.iter().enumerate() {
+        if assigned_per_group[g] == es.count {
+            continue;
+        }
+        if es.pci_patterns.is_empty() {
+            diffs.push(format!(
+                "Expected {} storage drive(s) ({es}) but found {} matching the size range",
+                es.count, assigned_per_group[g],
+            ));
+        } else {
+            diffs.push(format!(
+                "Expected {} storage drive(s) ({es}) but matched {} at those PCI locations",
+                es.count, assigned_per_group[g],
+            ));
+        }
+    }
+
+    // Report size mismatches for drives claimed by a location-constrained group.
     for (i, drive) in drives.iter().enumerate() {
-        if !claimed[i] {
+        let Some(g) = drive_to_group[i] else { continue };
+        let es = groups[g];
+        if !es.pci_patterns.is_empty() && !drive.size_in_range(es.min_size_mb, es.max_size_mb) {
+            diffs.push(format!(
+                "Storage drive ({}) is outside expected size range {}-{} MB",
+                drive.describe(),
+                es.min_size_mb
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "*".to_string()),
+                es.max_size_mb
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "*".to_string()),
+            ));
+        }
+    }
+
+    // Any drive not claimed by a group is unexpected.
+    for (i, drive) in drives.iter().enumerate() {
+        if drive_to_group[i].is_none() {
             diffs.push(format!(
                 "Found unexpected storage drive ({})",
                 drive.describe()
@@ -699,16 +777,34 @@ mod tests {
     }
 
     #[test]
-    fn v5_broad_pattern_count_mismatch() {
-        // One pattern matches both drives but only one is expected.
+    fn v5_broad_pattern_over_matches_reported_as_unexpected() {
+        // One pattern matches both drives but only one is expected. Global
+        // assignment claims a single drive for the group and reports the
+        // leftover as unexpected rather than inflating the group's match count.
         let diffs = v5_storage_diffs(
             vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)],
             vec![expected(1, None, None, &[r"nvme"])],
         );
         assert!(
-            diffs.iter().any(|d| d.contains("but matched 2")),
+            diffs.iter().any(|d| d.contains("unexpected storage drive")),
             "got {diffs:?}"
         );
+    }
+
+    #[test]
+    fn v5_broad_constrained_group_does_not_starve_specific_group() {
+        // A broad constrained group (/nvme/) and a specific one (0000:04:00.0)
+        // each expect one of two drives. A valid assignment exists
+        // (/nvme/ -> PATH_B, 0000:04:00.0 -> PATH_A), so global matching must
+        // find it instead of letting the broad group claim both drives.
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)],
+            vec![
+                expected(1, None, None, &[r"/nvme/"]),
+                expected(1, None, None, &[r"0000:04:00\.0"]),
+            ],
+        );
+        assert!(diffs.is_empty(), "expected no diffs, got {diffs:?}");
     }
 
     #[test]
