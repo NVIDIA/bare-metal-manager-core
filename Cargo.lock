@@ -7668,9 +7668,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f381d59345a3974aacc20e44148621457b5002d32fe5c9850fbce9c11c22f90"
+checksum = "a479451ed177b194f1516905192cca7afcb19df746929a696cde25bb59505d22"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7685,9 +7685,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67abd866b1c01bd615cd18afc96305cd436076a16d7a76e53b25bed7fab8422b"
+checksum = "de3e56d83d55644a02a8df38e8708acaae92502e9365ed89283659e772f384e3"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7709,9 +7709,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5ec054643796ede5865fff5f0e3913ddc2bf7f954975f6f512b40d78be07db7"
+checksum = "a53785a0f2fe9ec12e7d5eea889878f9f6957dd71057685b65d4a67014382192"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7724,9 +7724,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34c88dbe8742e28c0e733596661d9c4605ef6cab438cf2c54d1ceb9577053f9a"
+checksum = "40e98d0fb2cfe55eef14406dc37abe45d8423eeff76e4f24bac222a30e9fd6b0"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7742,9 +7742,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-schema"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc0a401a80543b6d7c27f28614bc70aa37103cd95b03b0746419bd87e43977f3"
+checksum = "fab0ee38389eee599875be88eee81f6f879d0671e830d20ec424654b74097bd5"
 dependencies = [
  "glob",
 ]
@@ -10890,9 +10890,9 @@ dependencies = [
 
 [[package]]
 name = "sse-stream"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3962b63f038885f15bce2c6e02c0e7925c072f1ac86bb60fd44c5c6b762fb72"
+checksum = "39f24a9b78c40b90817bbcd1821c74ddfd74916aadd29403d001532a9195532d"
 dependencies = [
  "bytes",
  "futures-util",

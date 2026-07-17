@@ -1496,6 +1496,8 @@ pub struct Manager {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ethernet_interfaces: Vec<EthernetInterface>,
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ipmi_port: Option<u16>,
 }
 
 /// `EthernetInterface` definition. Matches redfish definition
@@ -2900,6 +2902,7 @@ mod tests {
             managers: vec![Manager {
                 ethernet_interfaces: vec![],
                 id: "bmc".to_string(),
+                ipmi_port: None,
             }],
             systems: vec![ComputerSystem {
                 ethernet_interfaces: vec![],
@@ -2971,6 +2974,7 @@ mod tests {
             managers: vec![Manager {
                 ethernet_interfaces: vec![],
                 id: "bmc".to_string(),
+                ipmi_port: None,
             }],
             systems: vec![ComputerSystem {
                 ethernet_interfaces: vec![],

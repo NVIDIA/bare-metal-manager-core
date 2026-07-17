@@ -4328,6 +4328,7 @@ mod tests {
             }],
             managers: vec![Manager {
                 id: "Bluefield_BMC".to_string(),
+                ipmi_port: None,
                 ethernet_interfaces: vec![EthernetInterface {
                     id: Some("eth0".to_string()),
                     mac_address: Some(eth0_mac.parse().unwrap()),
