@@ -30,13 +30,21 @@
 #   5. Node resources           — at least 3 schedulable (Ready + untainted) nodes
 #   6. MetalLB BGPPeer nodes    — hostnames in config exist in the cluster
 #   7. Per-node checks          — kernel params (sysctl) and DNS on every node
-#   8. Registry connectivity    — registry host is reachable over HTTPS
+#   8. Registry/image access    — registry host and rendered NICo image refs
+#                                  are reachable with the supplied credentials
 #   9. NICo REST source/charts   — in-tree rest-api/ and helm/rest/ are present
 #
 # Configurable:
 #   PREFLIGHT_CHECK_IMAGE — image used for per-node pod checks (default: busybox:1.36)
 #                           Override for air-gapped clusters:
 #                           export PREFLIGHT_CHECK_IMAGE=my-registry.example.com/busybox:1.36
+#   REGISTRY_PULL_USERNAME / REGISTRY_PULL_SECRET
+#                         — credentials used by check 8 to validate pull access
+#                           to the rendered NICo image refs (username defaults
+#                           to $oauthtoken). Sent only to the NICO_IMAGE_REGISTRY
+#                           host and the Bearer token endpoint it advertises;
+#                           other registries are probed anonymously. When unset,
+#                           auth/not-found/transport findings are warnings.
 #
 # Exit codes:
 #   0 — all checks passed (or user chose to continue despite issues)
@@ -121,6 +129,270 @@ _collect_image_pull_secret_names() {
             }
         }
     ' "$1" | sort -u
+}
+
+_collect_literal_image_refs() {
+    sed -E '/^[[:space:]]*#/d' "$1" | awk '
+        /^[[:space:]]*image:[[:space:]]*/ {
+            image = $0
+            sub(/^[[:space:]]*image:[[:space:]]*/, "", image)
+            sub(/[[:space:]]*#.*$/, "", image)
+            gsub(/["\047]/, "", image)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", image)
+            if (image !~ /^[^[:space:]]+\/[^[:space:]]+:[^[:space:]]+$/) next
+            # Only refs whose first component is a registry host (contains a
+            # dot or port, or is localhost) map to a /v2 endpoint we can
+            # probe; Docker Hub shorthand like "org/image:tag" does not.
+            host = image
+            sub(/\/.*$/, "", host)
+            if (host ~ /[.:]/ || host == "localhost") print image
+        }
+    ' | sort -u
+}
+
+_registry_auth_param() {
+    local _challenge="$1"
+    local _key="$2"
+    printf "%s\n" "${_challenge}" | sed -nE "s/.*${_key}=\"([^\"]+)\".*/\1/p" | head -1
+}
+
+_registry_transport_detail() {
+    local _curl_rc="$1"
+    case "${_curl_rc}" in
+        6)  echo "DNS resolution failed" ;;
+        7)  echo "connection failed" ;;
+        28) echo "connection timed out" ;;
+        35|51|58|60) echo "TLS/certificate failure" ;;
+        *)  echo "curl exited ${_curl_rc}" ;;
+    esac
+}
+
+_record_registry_transport_issue() {
+    local _label="$1"
+    local _image_ref="$2"
+    local _detail="$3"
+    local _stderr="$4"
+    local _creds_in_use="$5"
+    local _msg="${_label} '${_image_ref}' could not be checked: ${_detail}"
+    [[ -n "${_stderr}" ]] && _msg="${_msg} (${_stderr})"
+
+    if [[ -n "${_creds_in_use}" ]]; then
+        ERRORS+=("${_msg}")
+    else
+        WARNINGS+=("${_msg}; preflight has no registry credentials for this host, so setup may still work if images are public, preloaded, or existing imagePullSecrets are valid")
+    fi
+}
+
+_curl_registry_manifest() {
+    local _url="$1"
+    local _header_file="$2"
+    local _err_file="$3"
+    local _bearer_token="$4"
+    local _secret="$5"
+    local _username="${REGISTRY_PULL_USERNAME:-\$oauthtoken}"
+    local _accept="application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+    local _auth_args=()
+
+    if [[ -n "${_bearer_token}" ]]; then
+        _auth_args=(-H "Authorization: Bearer ${_bearer_token}")
+    elif [[ -n "${_secret}" ]]; then
+        _auth_args=(--user "${_username}:${_secret}")
+    fi
+
+    # HEAD is the spec'd existence probe and does not count as a pull
+    # against registry rate limits, unlike GET.
+    curl --silent --show-error --location --head \
+        --connect-timeout 5 --max-time 20 \
+        -H "Accept: ${_accept}" \
+        -D "${_header_file}" \
+        -o /dev/null \
+        -w "%{http_code}" \
+        "${_auth_args[@]}" \
+        "${_url}" \
+        2>"${_err_file}"
+}
+
+_validate_image_manifest_access() {
+    local _image_ref="$1"
+    local _label="$2"
+    local _image_no_tag _tag _registry _repo _url
+    local _header_file _err_file _token_file
+    local _http_code _curl_rc _stderr
+    local _www_auth _realm _service _scope _token_json _token _token_code _token_rc
+    local _username="${REGISTRY_PULL_USERNAME:-\$oauthtoken}"
+
+    # Digest-pinned refs (repo@sha256:...) resolve through the same
+    # /v2/<repo>/manifests/<reference> endpoint as tags.
+    if [[ "${_image_ref}" == *@* ]]; then
+        _image_no_tag="${_image_ref%%@*}"
+        _tag="${_image_ref#*@}"
+    else
+        _image_no_tag="${_image_ref%:*}"
+        _tag="${_image_ref##*:}"
+    fi
+    # A "/" in _tag means the only colon belonged to a registry port and the
+    # ref has no tag at all (e.g. registry:5000/repo).
+    if [[ "${_image_no_tag}" == "${_image_ref}" || -z "${_tag}" || "${_tag}" == */* || "${_image_no_tag}" != */* ]]; then
+        ERRORS+=("${_label} '${_image_ref}' is not a fully-qualified image reference (expected registry/repository:tag)")
+        return
+    fi
+
+    _registry="${_image_no_tag%%/*}"
+    _repo="${_image_no_tag#*/}"
+    _url="https://${_registry}/v2/${_repo}/manifests/${_tag}"
+
+    # Only offer REGISTRY_PULL_SECRET to the registry it was provided for
+    # (the NICO_IMAGE_REGISTRY host). Refs pointing at other hosts — or any
+    # host when no secret is set — are probed anonymously, so the secret is
+    # never sent to unrelated registries and registries that do not require
+    # auth just answer 200. Failures without credentials stay warnings.
+    local _host_secret=""
+    if [[ -n "${REGISTRY_PULL_SECRET:-}" && "${_registry}" == "${NICO_IMAGE_REGISTRY%%/*}" ]]; then
+        _host_secret="${REGISTRY_PULL_SECRET}"
+    fi
+
+    _header_file="$(mktemp)"
+    _err_file="$(mktemp)"
+    _token_file="$(mktemp)"
+
+    if _http_code="$(_curl_registry_manifest "${_url}" "${_header_file}" "${_err_file}" "" "${_host_secret}")"; then
+        _curl_rc=0
+    else
+        _curl_rc=$?
+    fi
+
+    if [[ "${_curl_rc}" -ne 0 ]]; then
+        _stderr="$(cat "${_err_file}" 2>/dev/null || true)"
+        rm -f "${_header_file}" "${_err_file}" "${_token_file}"
+        _record_registry_transport_issue "${_label}" "${_image_ref}" "$(_registry_transport_detail "${_curl_rc}")" "${_stderr}" "${_host_secret}"
+        return
+    fi
+
+    if [[ "${_http_code}" == "401" ]]; then
+        _www_auth="$(grep -i '^WWW-Authenticate:' "${_header_file}" 2>/dev/null | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r')"
+        if printf "%s" "${_www_auth}" | grep -qi '^Bearer '; then
+            _realm="$(_registry_auth_param "${_www_auth}" "realm")"
+            _service="$(_registry_auth_param "${_www_auth}" "service")"
+            _scope="$(_registry_auth_param "${_www_auth}" "scope")"
+            [[ -z "${_scope}" ]] && _scope="repository:${_repo}:pull"
+
+            if [[ -n "${_realm}" ]]; then
+                local _token_auth_args=()
+                if [[ -n "${_host_secret}" ]]; then
+                    _token_auth_args=(--user "${_username}:${_host_secret}")
+                fi
+                if _token_code="$(curl --silent --show-error --location \
+                    --connect-timeout 5 --max-time 20 \
+                    --get \
+                    --data-urlencode "service=${_service}" \
+                    --data-urlencode "scope=${_scope}" \
+                    -o "${_token_file}" \
+                    -w "%{http_code}" \
+                    "${_token_auth_args[@]}" \
+                    "${_realm}" 2>"${_err_file}")"; then
+                    _token_rc=0
+                else
+                    _token_rc=$?
+                fi
+
+                if [[ "${_token_rc}" -ne 0 ]]; then
+                    _stderr="$(cat "${_err_file}" 2>/dev/null || true)"
+                    rm -f "${_header_file}" "${_err_file}" "${_token_file}"
+                    _record_registry_transport_issue "${_label}" "${_image_ref}" "$(_registry_transport_detail "${_token_rc}")" "${_stderr}" "${_host_secret}"
+                    return
+                fi
+
+                # Classify the token response before retrying the manifest so
+                # a broken token endpoint is not misreported as bad credentials.
+                case "${_token_code}" in
+                    2??)
+                        _token_json="$(cat "${_token_file}" 2>/dev/null || true)"
+                        _token="$(printf "%s" "${_token_json}" | jq -r '.token // .access_token // empty' 2>/dev/null || true)"
+                        if [[ -z "${_token}" ]]; then
+                            rm -f "${_header_file}" "${_err_file}" "${_token_file}"
+                            _record_registry_transport_issue "${_label}" "${_image_ref}" "token endpoint returned HTTP ${_token_code} without a usable token" "" "${_host_secret}"
+                            return
+                        fi
+                        : > "${_header_file}"
+                        : > "${_err_file}"
+                        if _http_code="$(_curl_registry_manifest "${_url}" "${_header_file}" "${_err_file}" "${_token}" "")"; then
+                            _curl_rc=0
+                        else
+                            _curl_rc=$?
+                        fi
+                        if [[ "${_curl_rc}" -ne 0 ]]; then
+                            _stderr="$(cat "${_err_file}" 2>/dev/null || true)"
+                            rm -f "${_header_file}" "${_err_file}" "${_token_file}"
+                            _record_registry_transport_issue "${_label}" "${_image_ref}" "$(_registry_transport_detail "${_curl_rc}")" "${_stderr}" "${_host_secret}"
+                            return
+                        fi
+                        ;;
+                    401|403)
+                        _http_code="${_token_code}"
+                        ;;
+                    *)
+                        rm -f "${_header_file}" "${_err_file}" "${_token_file}"
+                        _record_registry_transport_issue "${_label}" "${_image_ref}" "token endpoint returned HTTP ${_token_code}" "" "${_host_secret}"
+                        return
+                        ;;
+                esac
+            fi
+        fi
+    fi
+
+    rm -f "${_header_file}" "${_err_file}" "${_token_file}"
+
+    case "${_http_code}" in
+        200)
+            return
+            ;;
+        401|403)
+            if [[ -n "${_host_secret}" ]]; then
+                ERRORS+=("${_label} '${_image_ref}' is not pullable with REGISTRY_PULL_USERNAME/REGISTRY_PULL_SECRET (HTTP ${_http_code}: unauthorized or forbidden)")
+            else
+                WARNINGS+=("${_label} '${_image_ref}' requires registry authentication (HTTP ${_http_code}); preflight has no credentials for registry '${_registry}', so pull permission could not be validated")
+            fi
+            ;;
+        404)
+            if [[ -n "${_host_secret}" ]]; then
+                ERRORS+=("${_label} '${_image_ref}' was not found (HTTP 404) - check NICO_IMAGE_REGISTRY, NICO_CORE_IMAGE_TAG, and repository access")
+            else
+                WARNINGS+=("${_label} '${_image_ref}' was not found (HTTP 404); setup may still work if the image is preloaded")
+            fi
+            ;;
+        5??)
+            if [[ -n "${_host_secret}" ]]; then
+                ERRORS+=("${_label} '${_image_ref}' registry returned HTTP ${_http_code}; setup would likely fail while pulling this image")
+            else
+                WARNINGS+=("${_label} '${_image_ref}' registry returned HTTP ${_http_code}; setup may fail while pulling this image unless it is preloaded")
+            fi
+            ;;
+        000)
+            _record_registry_transport_issue "${_label}" "${_image_ref}" "connection failed" "" "${_host_secret}"
+            ;;
+        *)
+            ERRORS+=("${_label} '${_image_ref}' registry returned unexpected HTTP ${_http_code}")
+            ;;
+    esac
+}
+
+_validate_nico_core_image_access() {
+    local _core_image_ref _literal_image_ref
+
+    if [[ "${SKIP_CORE:-false}" == "true" || -z "${NICO_IMAGE_REGISTRY:-}" || -z "${NICO_CORE_IMAGE_TAG:-}" ]]; then
+        return
+    fi
+
+    _core_image_ref="${NICO_IMAGE_REGISTRY%/}/nvmetal-carbide:${NICO_CORE_IMAGE_TAG}"
+    _validate_image_manifest_access "${_core_image_ref}" "Rendered NICo Core image"
+
+    if [[ -f "${_CORE_VALUES_CFG}" ]]; then
+        while IFS= read -r _literal_image_ref; do
+            [[ -z "${_literal_image_ref}" ]] && continue
+            [[ "${_literal_image_ref}" == "${_core_image_ref}" ]] && continue
+            _validate_image_manifest_access "${_literal_image_ref}" "NICo Core values image"
+        done < <(_collect_literal_image_refs "${_CORE_VALUES_CFG}")
+    fi
 }
 
 if [[ "${SKIP_CORE:-false}" != "true" ]]; then
@@ -660,17 +932,29 @@ EOF
 fi  # _CLUSTER_REACHABLE
 
 # ---------------------------------------------------------------------------
-# 8. Registry connectivity — treat any HTTP response as reachable;
-#    only warn on connection failure (HTTP 000 = could not connect at all)
+# 8. Registry/image access - validate the exact image refs setup.sh will use.
+#    The host check stays a warning for air-gapped/preloaded environments, but
+#    invalid provided credentials or missing rendered Core tags are hard errors.
 # ---------------------------------------------------------------------------
 if [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] && command -v curl &>/dev/null; then
     _reg_host="${NICO_IMAGE_REGISTRY%%/*}"
-    _http_code=$(curl --connect-timeout 5 --max-time 10 \
+    # curl already prints 000 on transport failure, so an appended fallback
+    # would corrupt the value ("000\n000") and skip the unreachable path.
+    if ! _http_code=$(curl --connect-timeout 5 --max-time 10 \
         -o /dev/null -w "%{http_code}" \
-        "https://${_reg_host}/v2/" 2>/dev/null || echo "000")
-    if [[ "${_http_code}" == "000" ]]; then
-        WARNINGS+=("Registry '${_reg_host}' is not reachable (connection failed) — check network access; image pulls will fail")
+        "https://${_reg_host}/v2/" 2>/dev/null); then
+        _http_code="000"
     fi
+    if [[ "${_http_code}" == "000" ]]; then
+        # Air-gapped/preloaded environments legitimately have no registry
+        # access, so an unreachable host stays a warning and the per-image
+        # checks are skipped rather than piling on hard errors.
+        WARNINGS+=("Registry '${_reg_host}' is not reachable (connection failed) — check network access; image pull-access validation skipped, image pulls will fail unless images are preloaded")
+    else
+        _validate_nico_core_image_access
+    fi
+elif [[ "${SKIP_CORE:-false}" != "true" && -n "${NICO_IMAGE_REGISTRY:-}" && -n "${NICO_CORE_IMAGE_TAG:-}" ]]; then
+    ERRORS+=("'curl' not found in PATH - required to validate NICo Core image pull access before setup.sh proceeds")
 fi
 
 # ---------------------------------------------------------------------------
