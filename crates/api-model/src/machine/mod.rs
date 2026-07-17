@@ -226,26 +226,26 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
 /// Reasons why a Machine is not allocatable
 #[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
 pub enum NotAllocatableReason {
-    #[error("The Machine is in a state other than `Ready`: {0:?}")]
+    #[error("the machine is in a state other than `ready`: {0:?}")]
     InvalidState(Box<ManagedHostState>),
     #[error(
-        "The Machine has a pending instance creation request, that has not yet been processed by the state handler"
+        "the machine has a pending instance creation request, that has not yet been processed by the state handler"
     )]
     PendingInstanceCreation,
-    #[error("There are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]
+    #[error("there are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]
     NoDpuSnapshots,
-    #[error("The Machine is in Maintenance Mode")]
+    #[error("the machine is in maintenance mode")]
     MaintenanceMode,
-    #[error("A Health Alert prevents the Machine from being allocated: {0:?}")]
+    #[error("A health alert prevents the machine from being allocated: {0:?}")]
     HealthAlert(Box<health_report::HealthProbeAlert>),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagedHostStateSnapshotError {
-    #[error("Missing primary interface. Machine id: {0}")]
+    #[error("missing primary interface. machine id: {0}")]
     PrimaryInterfaceMissing(MachineId),
 
-    #[error("Missing dpu with primary dpu id. Machine id: {0}, DPU ID: {1}")]
+    #[error("missing dpu with primary dpu id. machine id: {0}, DPU ID: {1}")]
     MissingPrimaryDpu(MachineId, MachineId),
 }
 

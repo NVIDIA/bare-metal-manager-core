@@ -1400,6 +1400,7 @@ pub async fn create_test_env_with_overrides(
             power_shelf_backend: component_manager::power_shelf_manager::Backend::Rms,
             compute_tray_backend: component_manager::compute_tray_manager::Backend::Mock,
             nv_switch_use_state_controller: true,
+            power_shelf_use_state_controller: true,
             ..Default::default()
         },
         component_manager_rack_profiles,
@@ -1463,9 +1464,7 @@ pub async fn create_test_env_with_overrides(
         db_pool.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
-        rms_sim.as_rms_client(),
-        composite_manager.clone(),
-        config.rack_profiles.clone(),
+        test_component_manager.clone(),
         api.work_lock_manager_handle.clone(),
     );
 

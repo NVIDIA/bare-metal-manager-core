@@ -18,8 +18,6 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use carbide_utils::arch::CpuArchitecture;
-use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, NvmeDevice};
 use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
@@ -262,71 +260,6 @@ impl WiwynnGB200Nvl<'_> {
             .iter()
             .map(|(id, version)| fw_inv_builder(id).version(version).build())
             .collect(),
-        }
-    }
-
-    pub fn discovery_info(&self) -> DiscoveryInfo {
-        DiscoveryInfo {
-            network_interfaces: vec![
-                self.dpu1.host_nic().discovery_info(0x0603),
-                self.dpu2.host_nic().discovery_info(0x1603),
-            ],
-            infiniband_interfaces: self
-                .io_board
-                .iter()
-                .flat_map(|board| board.discovery_infiniband())
-                .collect(),
-            cpu_info: vec![CpuInfo {
-                model: "Neoverse-V2".into(),
-                vendor: "ARM".into(),
-                sockets: 2,
-                cores: 72,
-                threads: 72,
-            }],
-            block_devices: (0..9)
-                .map(|n| BlockDevice {
-                    model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),
-                    revision: "LDDL4U2Q".into(),
-                    serial: format!("BDFAKESERNUM{n}"),
-                    device_type: "disk".into(),
-                })
-                .collect(),
-            machine_type: CpuArchitecture::Aarch64.to_string(),
-            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(
-                CpuArchitecture::Aarch64,
-            )),
-            nvme_devices: (0..9)
-                .map(|n| NvmeDevice {
-                    model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),
-                    firmware_rev: "LDDL4U2Q".into(),
-                    serial: format!("BDFAKESERNUM{n}"),
-                })
-                .collect(),
-            dmi_data: Some(DmiData {
-                board_name: "KINABALU BMC CARD".into(),
-                board_version: "PVT".into(),
-                bios_version: "00000083".into(),
-                bios_date: "20260107".into(),
-                product_serial: self.chassis_serial_number.to_string(),
-                board_serial: self.chassis_serial_number.to_string(),
-                chassis_serial: self.chassis_serial_number.to_string(),
-                product_name: "GB200 NVL".into(),
-                sys_vendor: "NVIDIA".into(),
-            }),
-            dpu_info: None,
-            gpus: self
-                .compute_board
-                .iter()
-                .flat_map(|board| board.discovery_gpu())
-                .collect(),
-            memory_devices: self
-                .compute_board
-                .iter()
-                .map(|board| board.discovery_memory())
-                .collect(),
-            tpm_ek_certificate: None,
-            tpm_description: None,
-            ..Default::default()
         }
     }
 }

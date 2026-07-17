@@ -36,13 +36,13 @@ use crate::MachineConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     ConfigError(String),
 
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("unable to connect to carbide API: {0}")]
     ConnectFailed(String),
 
-    #[error("The API call to the Forge API server returned {0}")]
+    #[error("the API call to the forge API server returned {0}")]
     InvocationError(#[from] tonic::Status),
 }
 
@@ -136,7 +136,7 @@ impl ApiClient {
             machine_interface_id,
             tpm_ek_certificate,
         } = discovery_data;
-        let mut machine_discovery_info = machine_info.discovery_info();
+        let mut machine_discovery_info = crate::discovery_info::for_machine(machine_info);
         if matches!(machine_info, MachineInfo::Host(_)) {
             machine_discovery_info.tpm_ek_certificate =
                 Some(BASE64_STANDARD.encode(tpm_ek_certificate.ok_or(

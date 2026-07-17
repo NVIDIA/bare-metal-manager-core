@@ -529,7 +529,7 @@ enum WorkLockManagerCommand {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AcquireLockError {
-    #[error("Work is already locked for {0}")]
+    #[error("work is already locked for {0}")]
     WorkAlreadyLocked(WorkKey),
     #[error(transparent)]
     Database(#[from] DatabaseError),
@@ -539,11 +539,11 @@ pub enum AcquireLockError {
     /// no connections available), this should only  happen if the database is completely down, or
     /// is going so slow that simple updates to the table are blocked.
     #[error(
-        "Error sending AcquireLock command to WorkLockManager, database is likely overloaded: {0}"
+        "error sending AcquireLock command to WorkLockManager, database is likely overloaded: {0}"
     )]
     WorkLockManagerSend(String),
     #[error(
-        "BUG: Error receiving AcquireLock reply from WorkLockManager, database connections are likely failing: {0}"
+        "BUG: error receiving AcquireLock reply from WorkLockManager, database connections are likely failing: {0}"
     )]
     WorkLockManagerReply(#[from] tokio::sync::oneshot::error::RecvError),
     #[error(transparent)]
@@ -558,11 +558,11 @@ pub enum KeepAliveError {
     Database(#[from] DatabaseError),
     /// See notes in AcquireLockError::WorkLockManagerSend
     #[error(
-        "Error sending KeepAlive command to WorkLockManager, database is likely overloaded: {0}"
+        "error sending KeepAlive command to WorkLockManager, database is likely overloaded: {0}"
     )]
     WorkLockManagerSend(String),
     #[error(
-        "BUG: Error receiving KeepAlive reply from WorkLockManager, database connections are likely failing: {0}"
+        "BUG: error receiving KeepAlive reply from WorkLockManager, database connections are likely failing: {0}"
     )]
     WorkLockManagerReply(#[from] tokio::sync::oneshot::error::RecvError),
 }

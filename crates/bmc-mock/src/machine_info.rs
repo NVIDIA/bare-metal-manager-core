@@ -242,13 +242,6 @@ impl DpuMachineInfo {
         }
     }
 
-    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
-        match self.dpu_type() {
-            DpuType::Bluefield3 => self.bluefield3().discovery_info(),
-            DpuType::Bluefield4 => self.bluefield4().discovery_info(),
-        }
-    }
-
     pub fn oem_state(&self) -> redfish::oem::State {
         match self.dpu_type() {
             DpuType::Bluefield3 => redfish::oem::State::NvidiaBluefield(
@@ -527,32 +520,6 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
-        match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().discovery_info(),
-            HostHardwareType::DellPowerEdgeR760Bf4 => {
-                self.dell_poweredge_r760_bf4().discovery_info()
-            }
-            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
-            HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().discovery_info(),
-            HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().discovery_info(),
-            HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().discovery_info(),
-            HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().discovery_info(),
-            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
-            HostHardwareType::HpeProliantDl380aGen11 => {
-                self.hpe_proliant_dl380a_gen11().discovery_info()
-            }
-            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_server().discovery_info()
-            }
-            HostHardwareType::LiteOnPowerShelf
-            | HostHardwareType::DeltaPowerShelf
-            | HostHardwareType::NvidiaSwitchNd5200Ld => {
-                panic!("discovery_info requested for {}", self.hw_type)
-            }
-        }
-    }
-
     pub fn factory_default_account(&self) -> redfish::account_service::Account {
         // TODO: need to be updated for each individual system.
         let id = match self.hw_type {
@@ -633,11 +600,9 @@ impl HostMachineInfo {
                 .bluefield3(),
             io_board: [
                 hw::nvidia_gb200::IoBoard {
-                    index: hw::nvidia_gb200::BoardIndex::Board0,
                     serial_number: "MT0000000001".into(),
                 },
                 hw::nvidia_gb200::IoBoard {
-                    index: hw::nvidia_gb200::BoardIndex::Board1,
                     serial_number: "MT0000000002".into(),
                 },
             ],
@@ -748,6 +713,7 @@ impl HostMachineInfo {
         let io_board1_sn = "MT2524000002";
         let mut pool = MacAddressPool::new_pool(self.hw_mac_addr_pool);
         let mut next_mac = || pool.allocate().expect("MAC address must be allocated");
+        let cx8_mac_addresses = std::array::from_fn(|_| next_mac());
         hw::lenovo_gb300_nvl::LenovoGB300Nvl {
             system_0_serial_number: Cow::Borrowed(&self.serial),
             chassis_0_serial_number: Cow::Borrowed(&self.serial),
@@ -755,6 +721,7 @@ impl HostMachineInfo {
                 .next()
                 .expect("One DPU must present for GB300 NVL")
                 .bluefield3(),
+            cx8_mac_addresses,
             embedded_1g_nic: hw::nic_intel_i210::NicIntelI210 {
                 mac_address: next_mac(),
             },
@@ -943,6 +910,18 @@ impl HostMachineInfo {
 }
 
 impl MachineInfo {
+    pub fn supports_ipmi_console(&self) -> bool {
+        matches!(
+            self,
+            MachineInfo::Host(host)
+                if matches!(
+                    host.bmc_vendor(),
+                    redfish::oem::BmcVendor::Supermicro
+                        | redfish::oem::BmcVendor::Nvidia(_)
+                )
+        )
+    }
+
     pub fn oem_state(&self) -> redfish::oem::State {
         match self {
             MachineInfo::Host(host) => host.oem_state(),
@@ -1047,13 +1026,6 @@ impl MachineInfo {
             Some(d.host_mac_address)
         } else {
             None
-        }
-    }
-
-    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
-        match self {
-            Self::Host(h) => h.discovery_info(),
-            Self::Dpu(dpu) => dpu.discovery_info(),
         }
     }
 

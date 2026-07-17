@@ -39,7 +39,7 @@ pub(crate) async fn create_attest_key_bind_challenge(
     .await?;
     if !matched {
         return Err(CarbideError::AttestBindKeyError(
-            "Certificate's public key did not match EK Pub Key".to_string(),
+            "certificate's public key did not match EK pub key".to_string(),
         )
         .into());
     }

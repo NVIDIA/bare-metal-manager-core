@@ -360,7 +360,7 @@ pub async fn handle_validating(
         other => {
             let run_id = other.run_id().ok_or_else(|| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "Validating substates must carry the active run_id"
+                    "validating substates must carry the active run_id"
                 ))
             })?;
 

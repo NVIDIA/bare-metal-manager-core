@@ -1,0 +1,307 @@
+## =============================================================================
+## nico-machine-a-tron - Mock machine simulator for NICo testing
+## =============================================================================
+##
+## DEPLOYMENT MODES:
+##
+## 1. OVERRIDE MODE (Development) - bmcServices.enabled: false
+##    - NICo Site-Explorer redirects ALL Redfish calls to machine-a-tron
+##    - Simple setup, single pod
+##    - INCOMPATIBLE with real hardware
+##
+## 2. CLUSTERIP MODE (Large-Scale Testing) - bmcServices.enabled: true
+##    - Each simulated BMC gets dedicated ClusterIP service
+##    - Supports multi-pod deployments via `pods` configuration
+##    - Compatible with real hardware
+##
+## See README.md for detailed setup instructions.
+##
+## =============================================================================
+
+global:
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-nico-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: nico.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+image:
+  ## Container image repository. When empty, uses global.image.repository or defaults to nico:latest
+  repository: ""
+  ## Container image tag. Defaults to chart appVersion
+  tag: ""
+  pullPolicy: IfNotPresent
+
+namespaceOverride: ""
+
+## Create namespace when namespaceOverride is set
+createNamespace: true
+
+automountServiceAccountToken: true
+
+## Graceful shutdown timeout (seconds)
+terminationGracePeriodSeconds: 60
+
+annotations:
+  configmap.reloader.stakater.com/reload: '{{ include "nico-machine-a-tron.name" . }}-config-files'
+
+resources:
+  limits:
+    cpu: 4
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+service:
+  bmcMock:
+    port: 1266
+  ssh:
+    port: 22
+    targetPort: 2222
+  metrics:
+    port: 9090
+
+certificate:
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  dnsNames: []
+  uris: []
+  extraDnsNames: []
+  extraUris: []
+
+command:
+  - /bin/sh
+  - -c
+  - /opt/machine-a-tron/bin/machine-a-tron
+
+env:
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+extraEnv: []
+
+envFrom:
+  vaultApproleTokens:
+    secretName: nico-vault-approle-tokens
+  vaultToken:
+    secretName: nico-vault-token
+  vaultClusterInfo:
+    configMapName: vault-cluster-info
+
+livenessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 10
+
+readinessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 5
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+## =============================================================================
+## Machine-a-tron Core Settings (shared across all pods)
+## =============================================================================
+machineATron:
+  nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  interface: "NOTUSED"
+  tuiEnabled: false
+  logFile: ""
+  useSingleBmcMock: true
+  mockBmcSshServer: true
+  mockBmcSshPort: 2222
+  configureBmcProxyHost: ""
+  persistDir: "/tmp/machine-a-tron-data"
+  cleanupOnQuit: false
+  registerExpectedMachines: true
+  hostBmcPassword: ""
+  dpuBmcPassword: ""
+  apiRefreshInterval: "2s"
+
+## =============================================================================
+## Machine Defaults - Shared settings for all machine groups
+## =============================================================================
+## These defaults apply to all machine groups in all pods.
+## Override per-group by specifying the value in pods.*.machines.*.
+##
+machineDefaults:
+  vpcCount: 0
+  subnetsPerVpc: 0
+  dpuRebootDelay: 1
+  hostRebootDelay: 1
+  scoutRunInterval: "60s"
+  runIntervalWorking: "1s"
+  runIntervalIdle: "10s"
+  networkStatusRunInterval: "20s"
+  templateDir: "/opt/machine-a-tron/templates"
+  networkVirtualizationType: ""
+  dpusInNicMode: false
+
+## =============================================================================
+## Pod Configurations - One pod per config entry
+## =============================================================================
+## Each entry creates:
+##   - 1 Deployment (pod)
+##   - 1 ConfigMap with mat.toml
+##   - 1 Certificate
+##   - 1 internal Service
+##   - N ClusterIP BMC services (when bmcServices.enabled)
+##
+## SCALE: Use /22 CIDR per pod = 1021 usable IPs = ~14 racks worth of BMCs
+##
+## BMC count per GB200 NVL72 rack: 71
+##   - Compute trays: 18 × 3 = 54
+##   - NVLink switches: 9 × 1 = 9
+##   - Power shelves: 8 × 1 = 8
+##
+## Per-machine group, only these fields are typically needed:
+##   - hwType: Hardware type (required)
+##   - hostCount: Number of hosts (required)
+##   - dpuPerHostCount: DPUs per host (default: 0)
+##   - oobDhcpRelayAddress: OOB network gateway
+##   - adminDhcpRelayAddress: Admin network gateway
+##
+## All other settings inherit from machineDefaults above.
+##
+pods:
+  ## Single-pod configuration is used when bmcServices.enabled=false (by default)
+  ## For multi-pod deployments, add more entries below and enable bmcServices
+  default:
+    cidr: ""
+
+    ## Machine groups for this pod
+    machines:
+      rack-machines:
+        hwType: wiwynn_gb200_nvl
+        hostCount: 10
+        dpuPerHostCount: 2
+        oobDhcpRelayAddress: "192.168.192.1"
+        adminDhcpRelayAddress: "192.168.176.1"
+
+## =============================================================================
+## Multi-Pod Example (bmcServices.enabled is required)
+## =============================================================================
+## Uncomment and customize for large-scale deployments:
+##
+#  mat-0:
+#    cidr: "10.100.0.0/22"    # 1021 IPs for ~14 racks
+#    machines:
+#      compute:
+#        hwType: wiwynn_gb200_nvl
+#        hostCount: 252       # 18 trays × 14 racks
+#        dpuPerHostCount: 2   # 2 BF3 per tray
+#        oobDhcpRelayAddress: "10.100.0.1"
+#        adminDhcpRelayAddress: "192.168.176.1"
+#      switches:
+#        hwType: nvidia_switch_nd5200_ld
+#        hostCount: 126       # 9 switches × 14 racks
+#        oobDhcpRelayAddress: "10.100.0.1"
+#        adminDhcpRelayAddress: "192.168.176.1"
+#      power:
+#        hwType: liteon_power_shelf
+#        hostCount: 112       # 8 shelves × 14 racks
+#        oobDhcpRelayAddress: "10.100.0.1"
+#        adminDhcpRelayAddress: "192.168.176.1"
+#
+#  mat-1:
+#    cidr: "10.100.4.0/22"    # Next /22 block
+#    machines:
+#      compute:
+#        hwType: wiwynn_gb200_nvl
+#        hostCount: 252
+#        dpuPerHostCount: 2
+#        oobDhcpRelayAddress: "10.100.4.1"
+#        adminDhcpRelayAddress: "192.168.176.1"
+#      # ... same pattern
+
+## =============================================================================
+## BMC Services Configuration
+## =============================================================================
+bmcServices:
+  enabled: false
+
+  ## External port for BMC services (matches real BMC HTTPS port)
+  servicePort: 443
+
+  ## ServiceCIDR reserves the IP range (Kubernetes 1.29+)
+  serviceCIDR:
+    create: true
+    ## Name for the ServiceCIDR (cluster-scoped)
+    name: ""
+    ## Combined CIDR covering all pods (auto-calculated if empty for single pod)
+    ## Set manually if pods have non-contiguous CIDRs
+    cidr: ""
+
+## Persistence volume for machine state
+persistence:
+  enabled: false
+  storageClass: ""
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+
+externalService:
+  enabled: false
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  annotations: {}
+
+configFiles:
+  ## Override mat.toml per pod (optional)
+  ## Key = pod name, value = full config content
+  ## When set, this completely replaces the auto-generated config for that pod.
+  ##
+  ## Example - simple single-pod config:
+  # matConfigs:
+  #   default: |
+  #     carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
+  #     interface = "NOTUSED"
+  #     tui_enabled = false
+  #     bmc_mock_port = 1266
+  #     use_single_bmc_mock = true
+  #     mock_bmc_ssh_server = true
+  #     mock_bmc_ssh_port = 2222
+  #     cleanup_on_quit = false
+  #     register_expected_machines = true
+  #     api_refresh_interval = "2s"
+  #
+  #     [machines.compute]
+  #     hw_type = "supermicro_gb300_nvl"
+  #     host_count = 10
+  #     dpu_per_host_count = 2
+  #     oob_dhcp_relay_address = "10.100.0.1"
+  #     admin_dhcp_relay_address = "192.168.176.1"
+  #     template_dir = "/opt/machine-a-tron/templates"
+  #
+  #     [machines.switches]
+  #     hw_type = "nvidia_switch_nd5200_ld"
+  #     host_count = 5
+  #     dpu_per_host_count = 0
+  #     oob_dhcp_relay_address = "10.100.0.1"
+  #     admin_dhcp_relay_address = "192.168.176.1"
+  #     template_dir = "/opt/machine-a-tron/templates"
+  matConfigs: {}

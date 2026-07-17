@@ -21,8 +21,8 @@ use std::fmt::Display;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::panic::Location;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
@@ -273,6 +273,57 @@ impl<'a> Endpoint<'a> {
 
 pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationReport)>;
 
+/// When Site Explorer last physically reset a BMC, tracked per reset method.
+/// Backs [`RecentBmcResets`].
+#[derive(Clone, Copy, Default)]
+struct BmcResetTimes {
+    redfish: Option<chrono::DateTime<Utc>>,
+    ipmitool: Option<chrono::DateTime<Utc>>,
+}
+
+/// In-memory record of recent physical BMC resets, keyed by endpoint address.
+///
+/// The reset rate limit is normally driven by the persisted
+/// `last_redfish_bmc_reset` / `last_ipmitool_bmc_reset` timestamps. A physical
+/// BMC reset can succeed even when writing its timestamp to the database fails;
+/// relying on the persisted value alone, the next Site Explorer iteration would
+/// read a stale timestamp and re-issue the reset well inside the rate-limit
+/// window. Recording the reset here lets the throttle use the more recent of the
+/// persisted and in-memory times, keeping it honest for the life of the process
+/// -- across a restart the persisted timestamp (or a fresh start) takes over.
+///
+/// Bounded by the endpoint set: each address holds a single entry that is
+/// overwritten in place on each reset.
+#[derive(Clone, Default)]
+struct RecentBmcResets {
+    inner: Arc<Mutex<HashMap<IpAddr, BmcResetTimes>>>,
+}
+
+impl RecentBmcResets {
+    fn guard(&self) -> std::sync::MutexGuard<'_, HashMap<IpAddr, BmcResetTimes>> {
+        // A poisoned lock only means another thread panicked while holding it;
+        // the map is still consistent, so recover the data instead of panicking.
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Records that the BMC at `address` was physically reset via Redfish at `at`.
+    fn record_redfish(&self, address: IpAddr, at: chrono::DateTime<Utc>) {
+        self.guard().entry(address).or_default().redfish = Some(at);
+    }
+
+    /// Records that the BMC at `address` was physically reset via IPMI at `at`.
+    fn record_ipmitool(&self, address: IpAddr, at: chrono::DateTime<Utc>) {
+        self.guard().entry(address).or_default().ipmitool = Some(at);
+    }
+
+    /// The in-memory reset times recorded for `address`, if any.
+    fn get(&self, address: IpAddr) -> BmcResetTimes {
+        self.guard().get(&address).copied().unwrap_or_default()
+    }
+}
+
 /// The SiteExplorer periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the SiteExplorer will:
 /// 1. collect the number of outstanding updates from all modules.
@@ -294,7 +345,27 @@ pub struct SiteExplorer {
     machine_creator: MachineCreator,
     switch_creator: SwitchCreator,
     boot_order_tracker: BootOrderTracker,
+    /// Backstops the persisted BMC-reset timestamps for the reset rate limit,
+    /// so a reset whose timestamp write failed still throttles the next reset.
+    recent_bmc_resets: RecentBmcResets,
     // rms_client: Option<Arc<dyn RmsApi>>,
+}
+
+/// Which transport a BMC reset was issued through, rendered as the `method` log
+/// field on [`SiteExplorer::record_bmc_reset_outcome`].
+#[derive(Debug, Clone, Copy)]
+enum BmcResetMethod {
+    Ipmitool,
+    Redfish,
+}
+
+impl std::fmt::Display for BmcResetMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            BmcResetMethod::Ipmitool => "ipmitool",
+            BmcResetMethod::Redfish => "redfish",
+        })
+    }
 }
 
 impl SiteExplorer {
@@ -350,6 +421,7 @@ impl SiteExplorer {
             work_lock_manager_handle,
             endpoint_exploration_locks,
             boot_order_tracker: BootOrderTracker::default(),
+            recent_bmc_resets: RecentBmcResets::default(),
         }
     }
 
@@ -2560,6 +2632,27 @@ impl SiteExplorer {
         Ok(index)
     }
 
+    /// Record the outcome of a BMC-reset attempt: count only a reset that
+    /// actually happened (so `bmc_reset_count` tracks successes, not attempts)
+    /// and log the failure otherwise. Returns whether the reset succeeded.
+    fn record_bmc_reset_outcome(
+        outcome: SiteExplorerResult<()>,
+        via: BmcResetMethod,
+        address: IpAddr,
+        metrics: &mut SiteExplorationMetrics,
+    ) -> bool {
+        match outcome {
+            Ok(()) => {
+                metrics.bmc_reset_count += 1;
+                true
+            }
+            Err(err) => {
+                tracing::error!(%address, method = %via, error = %err, "Site Explorer failed to reset BMC");
+                false
+            }
+        }
+    }
+
     pub async fn handle_redfish_error(
         &self,
         endpoint: &Endpoint<'_>,
@@ -2659,16 +2752,23 @@ impl SiteExplorer {
                 .and_then(|e| e.last_redfish_reboot)
                 .unwrap_or_default(),
         );
+        // Throttle on the more recent of the persisted reset timestamp and any
+        // in-memory marker. A physical reset whose timestamp write failed still
+        // left an in-memory time, and it must keep the reset throttled rather
+        // than letting a stale persisted timestamp trigger a too-soon re-reset.
+        let recent_bmc_resets = self.recent_bmc_resets.get(endpoint.address);
         let time_since_redfish_bmc_reset = start.signed_duration_since(
             endpoint
                 .last_explored
                 .and_then(|e| e.last_redfish_bmc_reset)
+                .max(recent_bmc_resets.redfish)
                 .unwrap_or_default(),
         );
         let time_since_ipmitool_bmc_reset = start.signed_duration_since(
             endpoint
                 .last_explored
                 .and_then(|e| e.last_ipmitool_bmc_reset)
+                .max(recent_bmc_resets.ipmitool)
                 .unwrap_or_default(),
         );
 
@@ -2738,35 +2838,36 @@ impl SiteExplorer {
         }
 
         if time_since_redfish_bmc_reset > reset_rate_limit
-            && self
-                .redfish_reset_bmc(endpoint)
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        bmc_ip_address = %endpoint.address,
-                        error = %err,
-                        "Site Explorer failed to reset BMC through redfish"
-                    )
-                })
-                .is_ok()
+            && Self::record_bmc_reset_outcome(
+                self.redfish_reset_bmc(endpoint).await,
+                BmcResetMethod::Redfish,
+                endpoint.address,
+                metrics,
+            )
         {
-            metrics.bmc_reset_count += 1;
             return;
         }
 
         if time_since_ipmitool_bmc_reset > reset_rate_limit {
-            self.ipmitool_reset_bmc(endpoint)
-                .await
-                .map_err(|err| {
-                    tracing::error!(
-                        bmc_ip_address = %endpoint.address,
-                        error = %err,
-                        "Site Explorer failed to reset BMC through ipmitool"
-                    )
-                })
-                .ok();
-            metrics.bmc_reset_count += 1;
+            Self::record_bmc_reset_outcome(
+                self.ipmitool_reset_bmc(endpoint).await,
+                BmcResetMethod::Ipmitool,
+                endpoint.address,
+                metrics,
+            );
         }
+    }
+
+    /// Records the rate-limit timestamp for the most recent IPMI BMC reset.
+    ///
+    /// Kept separate from `ipmitool_reset_bmc` so that a failure to persist this
+    /// bookkeeping timestamp can be handled without being mistaken for a failure
+    /// of the physical reset itself.
+    async fn persist_last_ipmitool_bmc_reset(&self, address: IpAddr) -> SiteExplorerResult<()> {
+        let mut txn = self.txn_begin().await?;
+        db::explored_endpoints::set_last_ipmitool_bmc_reset(address, &mut txn).await?;
+        txn.commit().await?;
+        Ok(())
     }
 
     pub async fn ipmitool_reset_bmc(&self, endpoint: &Endpoint<'_>) -> SiteExplorerResult<()> {
@@ -2783,13 +2884,21 @@ impl SiteExplorer {
             .await
         {
             Ok(_) => {
-                let mut txn = self.txn_begin().await?;
-
-                db::explored_endpoints::set_last_ipmitool_bmc_reset(endpoint.address, &mut txn)
-                    .await?;
-
-                txn.commit().await?;
-
+                // The BMC was physically reset. Record it in memory first so the
+                // reset rate limit honors it even if persisting the timestamp
+                // below fails -- otherwise the next iteration would read a stale
+                // persisted timestamp and re-issue the reset. Persisting is
+                // bookkeeping: a failure there must not be reported as a reset
+                // failure, or the successful reset would be miscounted.
+                self.recent_bmc_resets
+                    .record_ipmitool(endpoint.address, Utc::now());
+                if let Err(e) = self.persist_last_ipmitool_bmc_reset(endpoint.address).await {
+                    tracing::warn!(
+                        bmc_ip_address = %endpoint.address,
+                        error = %e,
+                        "BMC reset succeeded but recording its rate-limit timestamp failed"
+                    );
+                }
                 Ok(())
             }
             Err(e) => Err(SiteExplorerError::internal(format!(
@@ -2797,6 +2906,18 @@ impl SiteExplorer {
                 endpoint.address, e
             ))),
         }
+    }
+
+    /// Records the rate-limit timestamp for the most recent Redfish BMC reset.
+    ///
+    /// Kept separate from `redfish_reset_bmc` so that a failure to persist this
+    /// bookkeeping timestamp can be handled without being mistaken for a failure
+    /// of the physical reset itself.
+    async fn persist_last_redfish_bmc_reset(&self, address: IpAddr) -> SiteExplorerResult<()> {
+        let mut txn = self.txn_begin().await?;
+        db::explored_endpoints::set_last_redfish_bmc_reset(address, &mut txn).await?;
+        txn.commit().await?;
+        Ok(())
     }
 
     pub async fn redfish_reset_bmc(&self, endpoint: &Endpoint<'_>) -> SiteExplorerResult<()> {
@@ -2812,13 +2933,22 @@ impl SiteExplorer {
             .await
         {
             Ok(_) => {
-                let mut txn = self.txn_begin().await?;
-
-                db::explored_endpoints::set_last_redfish_bmc_reset(endpoint.address, &mut txn)
-                    .await?;
-
-                txn.commit().await?;
-
+                // The BMC was physically reset. Record it in memory first so the
+                // reset rate limit honors it even if persisting the timestamp
+                // below fails -- otherwise the next iteration would read a stale
+                // persisted timestamp and re-issue the reset. Persisting is
+                // bookkeeping: a failure there must not be reported as a reset
+                // failure, or the successful reset would be miscounted and the
+                // dispatch would fall through to a redundant second reset via IPMI.
+                self.recent_bmc_resets
+                    .record_redfish(endpoint.address, Utc::now());
+                if let Err(e) = self.persist_last_redfish_bmc_reset(endpoint.address).await {
+                    tracing::warn!(
+                        bmc_ip_address = %endpoint.address,
+                        error = %e,
+                        "BMC reset succeeded but recording its rate-limit timestamp failed"
+                    );
+                }
                 Ok(())
             }
             Err(e) => Err(SiteExplorerError::internal(format!(
@@ -3987,10 +4117,177 @@ mod tests {
     use super::*;
 
     #[test]
+    fn in_memory_marker_keeps_bmc_reset_throttled_when_persist_fails() {
+        // Reproduces the reset-throttle computation in `handle_redfish_error`:
+        // a BMC was physically reset but persisting its timestamp failed, so the
+        // persisted value stays absent/stale. The in-memory marker must make the
+        // effective "time since last reset" small enough to keep the reset inside
+        // the one-hour rate limit, preventing a redundant re-reset next iteration.
+        let addr: IpAddr = "10.1.2.3".parse().unwrap();
+        let resets = RecentBmcResets::default();
+
+        // Persist failed (None) and no marker yet: the effective last-reset falls
+        // back to the epoch default, so the throttle would wrongly allow an
+        // immediate re-reset.
+        let persisted: Option<chrono::DateTime<Utc>> = None;
+        let without_marker = persisted.max(resets.get(addr).redfish).unwrap_or_default();
+        assert!(
+            Utc::now().signed_duration_since(without_marker) > chrono::Duration::hours(1),
+            "without a marker a stale persisted timestamp should look far in the past"
+        );
+
+        // Record the physical reset in memory (as the reset method now does even
+        // when the persist fails).
+        resets.record_redfish(addr, Utc::now());
+
+        // Now the effective last-reset is the recent in-memory time, so the
+        // throttle keeps the window closed.
+        let with_marker = persisted.max(resets.get(addr).redfish).unwrap_or_default();
+        assert!(
+            Utc::now().signed_duration_since(with_marker) < chrono::Duration::hours(1),
+            "the in-memory marker should keep the reset throttled"
+        );
+
+        // Isolation: the IPMI method and unrelated endpoints are untouched.
+        assert_eq!(resets.get(addr).ipmitool, None);
+        let other: IpAddr = "10.9.9.9".parse().unwrap();
+        assert_eq!(resets.get(other).redfish, None);
+    }
+
+    #[test]
+    fn effective_bmc_reset_time_takes_the_more_recent_source() {
+        // The throttle uses `max()` of the persisted and in-memory times, so
+        // whichever reset happened more recently wins.
+        let addr: IpAddr = "10.1.2.3".parse().unwrap();
+        let two_hours_ago = Utc::now() - chrono::Duration::hours(2);
+        let recent = Utc::now();
+
+        // In-memory newer than persisted -> in-memory wins.
+        let resets = RecentBmcResets::default();
+        resets.record_ipmitool(addr, recent);
+        assert_eq!(
+            Some(two_hours_ago).max(resets.get(addr).ipmitool),
+            Some(recent)
+        );
+
+        // Persisted newer than in-memory -> persisted wins.
+        let resets = RecentBmcResets::default();
+        resets.record_ipmitool(addr, two_hours_ago);
+        assert_eq!(Some(recent).max(resets.get(addr).ipmitool), Some(recent));
+    }
+
+    #[test]
     fn mac_u64_roundtrip() {
         let mac: MacAddress = "a0:88:c2:46:0c:68".parse().unwrap();
         assert_eq!(mac_to_u64(mac), 0x0000_a088_c246_0c68);
         assert_eq!(u64_to_mac(mac_to_u64(mac)), mac);
+    }
+
+    /// The BMC-reset counter tracks resets that happened: a successful reset
+    /// moves `bmc_reset_count`, a failed reset leaves it and logs the failure
+    /// instead. This pins that semantics -- the one the ipmitool path used to
+    /// get wrong, counting every attempt -- across both transports, and checks
+    /// the failure log carries the transport, address, and error.
+    #[test]
+    fn bmc_reset_counter_counts_successes_not_attempts() {
+        use carbide_instrument::testing::{CapturedLog, capture_logs};
+
+        /// One reset outcome to record. A success moves `bmc_reset_count` and
+        /// logs nothing; a failure leaves the counter and emits the ERROR line,
+        /// whose `error` field is `expect_error` (`None` on the success rows).
+        struct Case {
+            name: &'static str,
+            method: BmcResetMethod,
+            outcome: SiteExplorerResult<()>,
+            expect_succeeded: bool,
+            expect_count: usize,
+            expect_error: Option<&'static str>,
+        }
+
+        let addr: IpAddr = "127.0.0.1".parse().unwrap();
+
+        let cases = [
+            Case {
+                name: "ipmitool success counts, logs nothing",
+                method: BmcResetMethod::Ipmitool,
+                outcome: Ok(()),
+                expect_succeeded: true,
+                expect_count: 1,
+                expect_error: None,
+            },
+            Case {
+                name: "ipmitool failure logs, does not count",
+                method: BmcResetMethod::Ipmitool,
+                outcome: Err(SiteExplorerError::internal(
+                    "simulated ipmitool failure".to_string(),
+                )),
+                expect_succeeded: false,
+                expect_count: 0,
+                expect_error: Some("internal error: simulated ipmitool failure"),
+            },
+            Case {
+                name: "redfish success counts, logs nothing",
+                method: BmcResetMethod::Redfish,
+                outcome: Ok(()),
+                expect_succeeded: true,
+                expect_count: 1,
+                expect_error: None,
+            },
+            Case {
+                name: "redfish failure logs, does not count",
+                method: BmcResetMethod::Redfish,
+                outcome: Err(SiteExplorerError::internal(
+                    "simulated redfish failure".to_string(),
+                )),
+                expect_succeeded: false,
+                expect_count: 0,
+                expect_error: Some("internal error: simulated redfish failure"),
+            },
+        ];
+
+        fn field<'a>(log: &'a CapturedLog, name: &str) -> Option<&'a str> {
+            log.fields
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        }
+
+        for case in cases {
+            let Case {
+                name,
+                method,
+                outcome,
+                expect_succeeded,
+                expect_count,
+                expect_error,
+            } = case;
+
+            // Fresh metrics per case so the counter reads as this outcome alone.
+            let mut metrics = SiteExplorationMetrics::new();
+            let mut succeeded = false;
+            let logs = capture_logs(|| {
+                succeeded =
+                    SiteExplorer::record_bmc_reset_outcome(outcome, method, addr, &mut metrics);
+            });
+
+            assert_eq!(succeeded, expect_succeeded, "{name}");
+            assert_eq!(metrics.bmc_reset_count, expect_count, "{name}");
+
+            match expect_error {
+                None => assert!(logs.is_empty(), "{name}: a success must not log: {logs:?}"),
+                Some(expect_error) => {
+                    assert_eq!(logs.len(), 1, "{name}");
+                    let log = &logs[0];
+                    let method = method.to_string();
+                    let address = addr.to_string();
+                    assert_eq!(log.level, tracing::Level::ERROR, "{name}");
+                    assert_eq!(log.message, "Site Explorer failed to reset BMC", "{name}");
+                    assert_eq!(field(log, "method"), Some(method.as_str()), "{name}");
+                    assert_eq!(field(log, "address"), Some(address.as_str()), "{name}");
+                    assert_eq!(field(log, "error"), Some(expect_error), "{name}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -4398,7 +4695,7 @@ mod tests {
                 Case {
                     scenario: "legacy sys-image MAC fails sanitization",
                     input: with_sys_image("b83f:d203:0090:95fz"),
-                    expect: FailsWith("Failed to build sanitized MAC from legacy/service MAC: Invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string()),
+                    expect: FailsWith("Failed to build sanitized MAC from legacy/service MAC: invalid stripped MAC length: 11 (input: b83fd29095fz, output: b83fd29095f) (source_mac: b83fd29095fz)".to_string()),
                 },
                 Case {
                     scenario: "legacy sys-image is too short",

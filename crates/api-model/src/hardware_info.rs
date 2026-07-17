@@ -281,13 +281,13 @@ pub struct TpmDescription {
 
 #[derive(thiserror::Error, Debug)]
 pub enum HardwareInfoError {
-    #[error("DPU Info is missing.")]
+    #[error("DPU info is missing")]
     MissingDpuInfo,
 
-    #[error("Mac address conversion error: {0}")]
+    #[error("mac address conversion error: {0}")]
     MacAddressConversionError(#[from] MacParseError),
 
-    #[error("Missing hardware info: {0}")]
+    #[error("missing hardware info: {0}")]
     MissingHardwareInfo(#[from] MissingHardwareInfo),
 }
 

@@ -82,7 +82,7 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                 "PowerShelf::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
-                        "Searching for PowerShelf {} returned multiple results",
+                        "searching for PowerShelf {} returned multiple results",
                         power_shelf_id
                     )
                     .into(),

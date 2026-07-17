@@ -40,10 +40,10 @@ pub(crate) async fn set_primary_dpu(
     let request = request.into_inner();
     let host_machine_id = request
         .host_machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("Host Machine ID is required".to_string()))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("host machine ID is required".to_string()))?;
     let dpu_machine_id = request
         .dpu_machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("DPU Machine ID is required".to_string()))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("DPU machine ID is required".to_string()))?;
 
     log_machine_id(&host_machine_id);
 
@@ -63,7 +63,7 @@ pub(crate) async fn set_primary_dpu(
             })?;
     if !snapshot.has_managed_dpus() {
         return Err(CarbideError::FailedPrecondition(format!(
-            "Host {host_machine_id} has no DPUs; set-primary-dpu does not apply to zero-DPU hosts."
+            "host {host_machine_id} has no DPUs; set-primary-dpu does not apply to zero-DPU hosts"
         ))
         .into());
     }
@@ -107,10 +107,10 @@ pub(crate) async fn set_primary_interface(
     let request = request.into_inner();
     let host_machine_id = request
         .host_machine_id
-        .ok_or_else(|| CarbideError::InvalidArgument("Host Machine ID is required".to_string()))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("host machine ID is required".to_string()))?;
     let interface_id = request
         .interface_id
-        .ok_or_else(|| CarbideError::InvalidArgument("Interface ID is required".to_string()))?;
+        .ok_or_else(|| CarbideError::InvalidArgument("interface ID is required".to_string()))?;
 
     log_machine_id(&host_machine_id);
 
@@ -145,7 +145,7 @@ async fn set_primary_interface_core(
     // host id here, so this guards both entry points.
     if !host_machine_id.machine_type().is_host() {
         return Err(CarbideError::InvalidArgument(format!(
-            "Machine {host_machine_id} is not a host machine; set-primary-interface can \
+            "machine {host_machine_id} is not a host machine; set-primary-interface can \
              only promote an interface on a host"
         ))
         .into());
@@ -183,12 +183,12 @@ async fn set_primary_interface_core(
 
     let new_primary_interface = new_primary_interface.ok_or_else(|| {
         CarbideError::InvalidArgument(format!(
-            "Interface {new_primary_interface_id} not found on host {host_machine_id}"
+            "interface {new_primary_interface_id} not found on host {host_machine_id}"
         ))
     })?;
     if new_primary_interface.primary_interface {
         return Err(CarbideError::InvalidArgument(
-            "Requested interface is already primary".to_string(),
+            "requested interface is already primary".to_string(),
         )
         .into());
     }
@@ -210,8 +210,8 @@ async fn set_primary_interface_core(
         && new_primary_interface.network_segment_type != Some(NetworkSegmentType::Admin)
     {
         return Err(CarbideError::InvalidArgument(format!(
-            "Interface {new_primary_interface_id} is not on the Admin segment; a \
-             DPU-managed host's primary interface must be an Admin interface"
+            "interface {new_primary_interface_id} is not on the admin segment; a \
+             DPU-managed host's primary interface must be an admin interface"
         ))
         .into());
     }
@@ -372,7 +372,7 @@ pub(crate) async fn set_maintenance(
         .await?;
     if host_machine.is_dpu() {
         return Err(CarbideError::InvalidArgument(
-            "DPU ID provided. Need managed host.".to_string(),
+            "DPU ID provided. need managed host".to_string(),
         )
         .into());
     }
@@ -384,14 +384,14 @@ pub(crate) async fn set_maintenance(
         rpc::MaintenanceOperation::Enable => {
             let Some(reference) = req.reference else {
                 return Err(
-                    CarbideError::InvalidArgument("Missing reference url".to_string()).into(),
+                    CarbideError::InvalidArgument("missing reference url".to_string()).into(),
                 );
             };
 
             let reference = reference.trim().to_string();
             if reference.len() < 5 {
                 return Err(CarbideError::InvalidArgument(
-                    "Provide some valid reference. Minimum expected length is 5.".into(),
+                    "provide some valid reference. minimum expected length is 5".into(),
                 )
                 .into());
             }
@@ -431,7 +431,7 @@ pub(crate) async fn set_maintenance(
             for dpu_machine in dpu_machines.iter() {
                 if dpu_machine.reprovision_requested.is_some() {
                     return Err(CarbideError::InvalidArgument(format!(
-                        "Reprovisioning request is set on DPU: {}. Clear it first.",
+                        "reprovisioning request is set on DPU: {}. clear it first",
                         &dpu_machine.id
                     ))
                     .into());

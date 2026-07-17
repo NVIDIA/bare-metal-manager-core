@@ -94,14 +94,14 @@ fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Rep
                 %env_path,
                 "VAULT_CACERT does not exist. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
         Err(_) => {
             tracing::error!(
                 configured_path,
                 "Vault root CA not found. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
     }
 }
@@ -183,7 +183,8 @@ impl LabelValue for VaultFailureStatusCode {
 /// logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_attempted_total",
+    event_name = "vault_request_attempted",
+    metric_name = "carbide_api_vault_requests_attempted_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -197,7 +198,8 @@ struct VaultRequestAttempted {
 /// A Vault request succeeded. Metric-only (`log = off`): counted, never logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_succeeded_total",
+    event_name = "vault_request_succeeded",
+    metric_name = "carbide_api_vault_requests_succeeded_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -214,7 +216,8 @@ struct VaultRequestSucceeded {
 /// client error carried one, and empty otherwise.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_failed_total",
+    event_name = "vault_request_failed",
+    metric_name = "carbide_api_vault_requests_failed_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -231,7 +234,8 @@ struct VaultRequestFailed {
 /// milliseconds. Metric-only (`log = off`).
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_request_duration_milliseconds",
+    event_name = "vault_request_duration",
+    metric_name = "carbide_api_vault_request_duration_milliseconds",
     component = "nico-api",
     log = off,
     metric = histogram,
@@ -330,7 +334,7 @@ async fn vault_token_refresh(
                 .inspect_err(|err| {
                     record_vault_client_error(err, VaultRequestType::ServiceAccountLogin);
                 })
-                .wrap_err("Failed to execute kubernetes service account login request")?;
+                .wrap_err("failed to execute kubernetes service account login request")?;
 
             emit(VaultRequestSucceeded {
                 request_type: VaultRequestType::ServiceAccountLogin,

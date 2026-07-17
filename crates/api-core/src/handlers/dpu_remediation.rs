@@ -44,7 +44,7 @@ pub fn external_user_name<T>(request: &Request<T>) -> Result<String, CarbideErro
         Ok(external_user_name)
     } else {
         Err(CarbideError::ClientCertificateMissingInformation(
-            "Client certificate is missing external user name.".to_string(),
+            "client certificate is missing external user name".to_string(),
         ))
     }
 }

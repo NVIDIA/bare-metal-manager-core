@@ -472,7 +472,8 @@ pub struct ConnectionAttributes {
 /// level this site has always logged at.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_authn_client_cert_rejected_total",
+    event_name = "client_cert_rejected",
+    metric_name = "carbide_authn_client_cert_rejected_total",
     component = "authn",
     log = debug,
     metric = counter,

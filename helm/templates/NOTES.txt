@@ -30,6 +30,9 @@ Deployed sub-charts:
 {{- if index .Values "nico-ssh-console-rs" "enabled" | default true }}
   ✓ nico-ssh-console-rs
 {{- end }}
+{{- if index .Values "nico-machine-a-tron" "enabled" | default false }}
+  ✓ nico-machine-a-tron (mock machines for dev/test)
+{{- end }}
 {{- if index .Values "unbound" "enabled" | default false }}
   ✓ unbound
 {{- end }}

@@ -156,7 +156,7 @@ async fn test_add_expected_rack_invalid_type(pool: sqlx::PgPool) {
         .unwrap_err();
 
     assert!(
-        err.message().contains("Unknown rack_profile_id"),
+        err.message().contains("unknown rack_profile_id"),
         "Expected error about unknown rack_profile_id, got: {}",
         err.message()
     );

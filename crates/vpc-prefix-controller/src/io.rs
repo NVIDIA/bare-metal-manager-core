@@ -82,7 +82,7 @@ impl StateControllerIO for VpcPrefixStateControllerIO {
                 "db::vpc_prefix::get_by_id()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
-                        "Searching for VpcPrefix {} returned multiple results",
+                        "searching for VpcPrefix {} returned multiple results",
                         vpc_prefix_id
                     )
                     .into(),

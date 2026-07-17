@@ -363,7 +363,7 @@ rules:
     resources: ["dpuservices", "dpuservicechains"]
     verbs: ["get", "list", "create", "patch", "delete"]
   - apiGroups: ["svc.dpu.nvidia.com"]
-    resources: ["dpuserviceinterfaces", "dpuservicetemplates", "dpuserviceconfigurations", "dpuservicenads"]
+    resources: ["dpuserviceinterfaces", "dpuservicetemplates", "dpuserviceconfigurations", "dpuservicenads", "bluefieldsoftwares"]
     verbs: ["get", "list", "create", "patch", "delete"]
   - apiGroups: ["operator.dpu.nvidia.com"]
     resources: ["dpfoperatorconfigs"]

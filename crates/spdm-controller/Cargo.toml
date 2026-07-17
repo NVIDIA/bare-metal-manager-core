@@ -24,6 +24,7 @@ authors.workspace = true
 [dependencies]
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-instrument = { path = "../instrument" }
 carbide-redfish = { path = "../redfish" }
 carbide-utils = { path = "../utils", default-features = false }
 config-version = { path = "../config-version", default-features = false }

@@ -3183,7 +3183,7 @@ async fn test_check_boot_order_respects_configured_convergence_budget(pool: sqlx
             matches!(
                 host.controller_state_outcome.as_ref(),
                 Some(PersistentStateHandlerOutcome::Error { err, .. })
-                    if err.contains("Manual intervention required")
+                    if err.contains("manual intervention required")
                         && err.contains("max_retries: 1")
             ),
             "expected boot-order exhaustion to report the configured limit, got: {:?}",

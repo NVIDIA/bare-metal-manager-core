@@ -92,7 +92,9 @@ func GetAllComponents(ctx context.Context, idb bun.IDB) (ret []Component, err er
 	return ret, err
 }
 
-// GetComponentsByType returns all components of a specific type with their associated BMCs
+// GetComponentsByType returns all components of the given type, with each
+// component's BMCs relation preloaded (callers rely on this for BMC-MAC-based
+// linking).
 func GetComponentsByType(ctx context.Context, idb bun.IDB, componentType devicetypes.ComponentType) (ret []Component, err error) {
 	err = idb.NewSelect().Model(&ret).Where("type = ?", devicetypes.ComponentTypeToString(componentType)).Relation("BMCs").Scan(ctx)
 	return ret, err
@@ -278,14 +280,6 @@ func (cd *Component) SerialInfo() deviceinfo.SerialInfo {
 // InvalidType returns true if the component type is unknown.
 func (cd *Component) InvalidType() bool {
 	return !devicetypes.IsValidComponentTypeString(cd.Type)
-}
-
-func (cd *Component) SetComponentIDBySerial(ctx context.Context, idb bun.IDB) error {
-	if cd.ComponentID == nil {
-		return errors.New("component ID not set")
-	}
-	_, err := idb.NewUpdate().Model(cd).Set("external_id = ?", *cd.ComponentID).Where("serial_number = ?", cd.SerialNumber).Exec(ctx)
-	return err
 }
 
 func (cd *Component) SetPowerStateByComponentID(ctx context.Context, idb bun.IDB) error {

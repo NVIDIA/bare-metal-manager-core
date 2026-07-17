@@ -70,12 +70,12 @@ The output will display:
 To delete an existing VPC peering connection:
 
 ```bash
-nico-admin-cli vpc-peering delete <PEERING_CONNECTION_ID>
+nico-admin-cli vpc-peering delete --id <PEERING_CONNECTION_ID>
 ```
 
 **Example:**
 ```bash
-nico-admin-cli vpc-peering delete 123e4567-e89b-12d3-a456-426614174000
+nico-admin-cli vpc-peering delete --id 123e4567-e89b-12d3-a456-426614174000
 ```
 
 **Notes:**

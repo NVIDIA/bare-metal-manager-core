@@ -324,7 +324,30 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         &self,
         boot_interface_mac: MacAddress,
     ) -> Option<MachineSetupDiff> {
-        let expected = self
+        let expected = self.boot_option_by_uefi_prefix(boot_interface_mac);
+
+        // Find actual option that is first in boot_order.
+        let actual = self.boot_order_first_option();
+        compare_boot_options(expected, actual)
+    }
+
+    pub fn check_boot_option_enabled_by_uefi_prefix(
+        &self,
+        boot_interface_mac: MacAddress,
+    ) -> Option<MachineSetupDiff> {
+        let option = self.boot_option_by_uefi_prefix(boot_interface_mac)?;
+        (option.enabled() != Some(true)).then(|| MachineSetupDiff {
+            key: "boot_option_enabled".to_string(),
+            expected: "true".to_string(),
+            actual: option
+                .enabled()
+                .map(|enabled| enabled.to_string())
+                .unwrap_or_else(|| "Not provided".to_string()),
+        })
+    }
+
+    fn boot_option_by_uefi_prefix(&self, boot_interface_mac: MacAddress) -> Option<&BootOption<B>> {
+        self
             // Find UEFI device path of the ethernet interface
             // that has boot_interface_mac MAC address.
             .ethernet_interfaces
@@ -348,11 +371,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                             && path.inner().contains("/IPv4(")
                     })
                 })
-            });
-
-        // Find actual option that is first in boot_order.
-        let actual = self.boot_order_first_option();
-        compare_boot_options(expected, actual)
+            })
     }
 
     fn ethernet_interfaces(

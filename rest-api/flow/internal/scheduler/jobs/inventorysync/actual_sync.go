@@ -6,7 +6,6 @@ package inventorysync
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/uptrace/bun"
@@ -17,10 +16,6 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/flow/pkg/types"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
-
-// driftFieldSerialNumber is the canonical drift field name used by both the
-// machine and inventory paths when chassis serial mismatches show up.
-const driftFieldSerialNumber = "serial_number"
 
 // runActualSync runs every per-type actual-vs-expected drift detector,
 // concatenates their drifts, and logs a per-type "received from Core"
@@ -125,8 +120,9 @@ func persistComponentOperationStatuses(
 
 // applyInventoryToComponents extracts firmware_version and power_state from
 // GetComponentInventoryResponse and direct-writes them to the matching
-// components. Serial numbers are compared (not overwritten) and returned as
-// drift records. componentsByID maps the component_id echoed back in each
+// components. It does not emit drift: correlation and drift are keyed on BMC
+// MAC (handled by each type's linked-RPC sync), and serial number is no longer
+// compared. componentsByID maps the component_id echoed back in each
 // ComponentResult to the DB component. Shared by the switch and power-shelf
 // syncs; the machine sync uses pre-fetched MachineDetail directly instead of
 // going through GetComponentInventory.
@@ -135,10 +131,7 @@ func applyInventoryToComponents(
 	pool *cdb.Session,
 	resp *corev1.GetComponentInventoryResponse,
 	componentsByID map[string]*model.Component,
-) []model.ComponentDrift {
-	now := time.Now()
-	var drifts []model.ComponentDrift
-
+) {
 	for _, entry := range resp.GetEntries() {
 		result := entry.GetResult()
 		if result == nil {
@@ -172,25 +165,6 @@ func applyInventoryToComponents(
 			}
 		}
 
-		// Compare serial_number from first Chassis entry (drift, not overwrite)
-		if chassisList := report.GetChassis(); len(chassisList) > 0 {
-			if sn := chassisList[0].GetSerialNumber(); sn != "" && comp.SerialNumber != sn {
-				compID := comp.ID
-				extID := result.GetComponentId()
-				drifts = append(drifts, model.ComponentDrift{
-					ComponentID: &compID,
-					ExternalID:  &extID,
-					DriftType:   model.DriftTypeMismatch,
-					Diffs: []model.FieldDiff{{
-						FieldName:     driftFieldSerialNumber,
-						ExpectedValue: comp.SerialNumber,
-						ActualValue:   sn,
-					}},
-					CheckedAt: now,
-				})
-			}
-		}
-
 		// Extract power_state from first ComputerSystem entry
 		if systems := report.GetSystems(); len(systems) > 0 {
 			ps := computerSystemPowerStateToNICo(systems[0].GetPowerState())
@@ -206,8 +180,6 @@ func applyInventoryToComponents(
 			}
 		}
 	}
-
-	return drifts
 }
 
 func computerSystemPowerStateToNICo(

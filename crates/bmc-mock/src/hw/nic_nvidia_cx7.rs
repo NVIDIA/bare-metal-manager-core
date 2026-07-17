@@ -18,7 +18,6 @@
 use std::borrow::Cow;
 
 use mac_address::MacAddress;
-use rpc::{NetworkInterface, PciDeviceProperties};
 
 use crate::hw;
 
@@ -40,26 +39,6 @@ impl NicNvidiaCx7A<'_> {
             firmware_version: None,
             is_mat_dpu: false,
         })
-    }
-
-    pub fn discovery_info(
-        &self,
-        port: usize,
-        path: &str,
-        slot: &str,
-        numa_node: i32,
-    ) -> NetworkInterface {
-        NetworkInterface {
-            mac_address: self.mac_addresses[port].to_string(),
-            pci_properties: Some(PciDeviceProperties {
-                vendor: "Mellanox Technologies".into(),
-                device: "MT2910 Family [ConnectX-7]".into(),
-                path: path.into(),
-                numa_node,
-                description: Some("MT2910 Family [ConnectX-7]".into()),
-                slot: Some(slot.into()),
-            }),
-        }
     }
 }
 

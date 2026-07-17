@@ -65,9 +65,7 @@ pub(crate) async fn trigger_host_reprovisioning(
     if let Some(request) = snapshot.host_snapshot.reprovision_requested
         && request.started_at.is_some()
     {
-        return Err(
-            CarbideError::internal("Reprovisioning is already started.".to_string()).into(),
-        );
+        return Err(CarbideError::internal("reprovisioning is already started".to_string()).into());
     }
 
     let started_initiator = match req.mode() {
@@ -192,7 +190,7 @@ pub async fn report_scout_firmware_upgrade_status(
     } = machine.current_state().clone()
     else {
         return Err(CarbideError::FailedPrecondition(format!(
-            "Machine {machine_id} is not in WaitingForScoutUpgrade state"
+            "machine {machine_id} is not in WaitingForScoutUpgrade state"
         ))
         .into());
     };
@@ -205,7 +203,7 @@ pub async fn report_scout_firmware_upgrade_status(
             "Rejecting stale scout firmware upgrade status report",
         );
         return Err(CarbideError::FailedPrecondition(format!(
-            "Scout firmware upgrade status task ID mismatch for machine {machine_id}"
+            "scout firmware upgrade status task ID mismatch for machine {machine_id}"
         ))
         .into());
     }

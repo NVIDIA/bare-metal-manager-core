@@ -51,7 +51,8 @@ const BMC_AUTH_RETRY_DURATION: Duration = Duration::from_secs(3);
 /// line carries the device address plus the error when one occurred.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_site_explorer_bmc_password_rotations_total",
+    event_name = "bmc_password_rotation_finished",
+    metric_name = "carbide_site_explorer_bmc_password_rotations_total",
     component = "site-explorer",
     log = info,
     metric = counter,
@@ -710,6 +711,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         };
 
         tracing::info!(
+            target: "carbide_diagnostics::bmc_redfish_supported",
             %bmc_ip_address,
             %vendor,
             "BMC supports Redfish"

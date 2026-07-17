@@ -44,19 +44,19 @@ use crate::machine_state_machine::OsImage;
 pub struct MachineATronArgs {
     #[clap(long, env = "FORGE_ROOT_CA_PATH")]
     #[clap(
-        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub forge_root_ca_path: Option<String>,
 
     #[clap(long, env = "CLIENT_CERT_PATH")]
     #[clap(
-        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_cert_path: Option<String>,
 
     #[clap(long, env = "CLIENT_KEY_PATH")]
     #[clap(
-        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_key_path: Option<String>,
 
@@ -220,6 +220,10 @@ pub struct MachineATronConfig {
     /// for testing things like ssh-console.
     #[serde(default = "default_false")]
     pub mock_bmc_ssh_server: bool,
+
+    /// Opt in to an independent IPMI/SOL simulator for each IPMI-capable host BMC.
+    #[serde(default = "default_false")]
+    pub enable_ipmi_simulation: bool,
 
     /// Set this to configure the port to use when mocking a BMC SSH server. If unset and
     /// use_single_bmc_mock is true, it will pick a random port. If unset and use_single_bmc_mock
@@ -602,6 +606,11 @@ scout_run_interval = "5s"
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
             .expect("Could not deserialize serialized config");
         assert_eq!(round_tripped, cfg);
+    }
+
+    #[test]
+    fn ipmi_simulation_is_disabled_by_default() {
+        assert!(!rack_config().enable_ipmi_simulation);
     }
 
     #[test]

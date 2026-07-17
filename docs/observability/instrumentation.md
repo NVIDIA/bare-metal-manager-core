@@ -13,11 +13,15 @@ named, and with metric cardinality bounded by the type system.
 - **Need a count, rate, or duration? Declare an `Event` and `emit()` it.** The event's two
   options -- `log = error|warn|info|debug|trace|off` and `metric = counter|histogram|none` --
   cover metric-only, log-only, or both from the same call.
+- **Every Event has a stable identity.** `event_name` is a unique, flat `lower_snake_case`
+  category for searches and schemas. Metric-backed Events separately declare the exact
+  Prometheus `metric_name`; Event-generated logs carry both names when both sides emit.
 - **Cardinality is enforced by the types.** `#[label]` fields must be bounded via
   `LabelValue` -- usually a fieldless enum, with a manual impl on a bounded newtype as the
   reviewed escape hatch; high-cardinality detail (`machine_id`, IPs, error text) goes in
-  `#[context]` fields, which appear on the log line only and *cannot* become a metric label.
-- **The metric name in the attribute is the exposed name, verbatim** -- what you grep on a
+  `#[context]` fields, which appear only when the Event emits a log line and *cannot* become
+  metric labels.
+- **The `metric_name` in the attribute is the exposed name, verbatim** -- what you grep on a
   dashboard is the string in the source. The derive validates it at compile time
   (`carbide_` prefix, `_total` for counters, a unit suffix for histograms).
 - **Point-in-time state (gauges) is unchanged.** The framework models *occurrences*; observable
@@ -40,8 +44,9 @@ Part of the instrumentation-coherency initiative
 
 **Adoption is opt-in** and call-site-by-call-site. Existing `tracing::` sites and existing
 metric emitter structs keep working unchanged; when a site *does* migrate, its log line
-keeps the same level, message, and fields (labels and context render as ordinary logfmt
-fields), so greps and dashboards keep working -- it just also gains the metric.
+keeps the same level, message, and domain fields (labels and context render as ordinary
+logfmt fields), so existing greps keep working. Event-generated logs also gain the stable
+identity fields, and a metric-backed migration gains the declared metric.
 
 ## Quick start
 
@@ -59,12 +64,13 @@ enum Backend {
 
 #[derive(Event)]
 #[event(
-    name      = "carbide_power_control_total", // the exposed name, verbatim
-    component = "component_manager",
-    log       = warn,                          // error|warn|info|debug|trace|off
-    metric    = counter,                       // counter | histogram | none
-    message   = "power control failed",
-    describe  = "Power control has failed.",
+    event_name  = "power_control_failed",       // stable event category
+    metric_name = "carbide_power_control_total", // exposed metric, verbatim
+    component   = "component_manager",
+    log         = warn,                          // error|warn|info|debug|trace|off
+    metric      = counter,                       // counter | histogram | none
+    message     = "power control failed",
+    describe    = "Power control has failed.",
 )]
 struct PowerControlFailed {
     #[label]
@@ -72,7 +78,7 @@ struct PowerControlFailed {
     #[label]
     outcome: Outcome, // the framework's shared ok|error vocabulary
     #[context]
-    bmc_ip: std::net::IpAddr, // log-only, never a metric label
+    bmc_ip_address: std::net::IpAddr, // log-only, never a metric label
     #[context]
     error: String, // log-only
 }
@@ -81,7 +87,7 @@ if let Err(e) = backend.power_control(&target, action).await {
     emit(PowerControlFailed {
         backend: Backend::Rms,
         outcome: Outcome::Error,
-        bmc_ip,
+        bmc_ip_address,
         error: e.to_string(),
     });
 }
@@ -93,7 +99,7 @@ runs the other way: pivot from the moving metric to the matching log lines by me
 and label values, and `span_id` then ties each line to its request:
 
 ```logfmt
-level=WARN component=nico-api span_id=0x4f... msg="power control failed" backend=rms outcome=error bmc_ip=10.0.0.5 error="deadline exceeded" location="..."
+level=WARN component=nico-api span_id=0x4f... event_name=power_control_failed metric_name=carbide_power_control_total msg="power control failed" backend=rms outcome=error bmc_ip_address=10.0.0.5 error="deadline exceeded" location="..."
 ```
 
 ```text
@@ -116,6 +122,8 @@ Every event declares its log side and its metric side independently:
 | `log = off, metric = histogram` | No | Yes | High-frequency latency as a distribution only |
 
 `log = off` constructs no `tracing` event at all -- it is not "logged then filtered".
+It still has a declared `event_name` for source-level identity and future cataloguing, but
+there is no log record on which to render that field.
 
 For per-instance control (count everything, log only failures), declare `log = dynamic`
 and implement `DynamicLog` -- the derive routes `Event::log_at()` through it:
@@ -156,8 +164,8 @@ must be small and closed. The framework makes that structural instead of a revie
 - **`#[label]` fields must implement `LabelValue`**, which is derivable **only for
   fieldless enums**. A derived label value is the variant's snake_case name.
   `String` never implements it.
-- **`#[context]` fields take anything `Display`** and appear on the log line only. This is
-  where `machine_id`, addresses, and error text belong. A context field cannot
+- **`#[context]` fields take anything `Display`** and appear only when the Event emits a log
+  line. This is where `machine_id`, addresses, and error text belong. A context field cannot
   become a metric label.
 - **Bounded-but-not-enumerated values** such as vendor strings or SKUs can go through a
   **manual `impl LabelValue` on a newtype** -- the deliberate, greppable escape hatch, and
@@ -176,7 +184,8 @@ the unit the metric name declares) or a plain number (recorded as-is).
 ```rust
 #[derive(Event)]
 #[event(
-    name = "carbide_preingestion_bfb_copy_duration_seconds",
+    event_name = "bfb_copy_finished",
+    metric_name = "carbide_preingestion_bfb_copy_duration_seconds",
     component = "preingestion-manager",
     log = info,
     metric = histogram,
@@ -186,9 +195,9 @@ struct BfbCopyFinished {
     #[label]
     outcome: Outcome,
     #[observation]
-    took: std::time::Duration, // recorded in seconds -- checked against the name
+    took: std::time::Duration, // recorded in seconds -- checked against metric_name
     #[context]
-    host_ip: std::net::IpAddr,
+    host_ip_address: std::net::IpAddr,
 }
 ```
 
@@ -196,8 +205,20 @@ A histogram already exports a `_count` series, so it never needs a twin counter.
 
 ## Naming conventions
 
-The `name` in the attribute is the exposed Prometheus name, verbatim, and the derive
-enforces the conventions at compile time:
+`event_name` and `metric_name` serve different contracts:
+
+- `event_name` identifies a reusable semantic event category. It is a unique ASCII
+  `lower_snake_case` literal, starts with a letter, and has no dot namespace, component
+  prefix, severity, or unit. Add a semantic qualifier only when distinct Events would
+  otherwise collide. Changing it breaks saved log searches and future schemas.
+- `metric_name` is required exactly when `metric != none`. It is the exposed Prometheus
+  name, verbatim, and keeps the existing metric compatibility contract.
+
+`cargo xtask check-event-names` verifies that production Event declarations have unique
+static event names. One Event declaration may still be emitted from any number of call
+sites; uniqueness is about declarations, not occurrences.
+
+For `metric_name`, the derive enforces these conventions at compile time:
 
 - All new metrics use the `carbide_` prefix.
 - Counter names have a `_total` suffix.
@@ -205,15 +226,20 @@ enforces the conventions at compile time:
 - Gauge names (existing pattern, not the framework) are mixed legacy forms; follow established
   neighboring names rather than a single suffix rule.
 
-The name in the attribute is what lands on `/metrics`, byte for byte -- a dashboard name
-greps straight back to the declaring line. (Implementation detail: the Prometheus exporter
-appends the conventional suffix, so the framework registers the instrument
-without the suffix; the two cancel out to exactly the attribute string.)
+The `metric_name` in the attribute is the Prometheus metric-family name operators use -- a
+dashboard name greps straight back to the declaring line. The framework accounts for the
+exporter's suffix handling when it registers the instrument: a counter's declared `_total` remains
+the exposed family name, while a histogram additionally exposes the normal `_bucket`, `_sum`, and
+`_count` series derived from its family name.
 
 **Existing metric names never change.** Migrating a pre-standard site onto the framework keeps
-its frozen name via `name_unchecked` (plus an explicit `unit = "..."` for histograms);
-a search for `name_unchecked` finds every grandfathered site, and new metrics cannot
-use the opt-out silently.
+its frozen name via `metric_name_unchecked` (plus an explicit `unit = "..."` for histograms);
+there are no such sites today, and a future use stays easy to audit because new metrics cannot use
+the opt-out silently.
+
+An Event that can log keeps a required, stable, human-readable `message`. `event_name` is
+the machine contract while `message` is presentation for people and UIs; occasional wording
+overlap is fine. Metric-only Events require no message because they construct no log line.
 
 Give every metric a `describe = "..."` attribute -- it becomes the Prometheus HELP text and the
 Description column of the [core_metrics.md](core_metrics.md) catalogue, which is
@@ -230,7 +256,8 @@ with the semantics in attributes. The generated code:
   atomic load plus an `add()`
 - Emits the log via `tracing::event!` with real static field names, so `logfmt`, the
   admin-UI log stream, and every other subscriber layer see an ordinary tracing event in
-  the surrounding span
+  the surrounding span. Its tracing metadata name and structured `event_name` field are the
+  declared event identity; a metric-backed Event also emits `metric_name` on that log line.
 - Never panics
 
 ## Testing the coherency
@@ -245,6 +272,9 @@ let metrics = MetricsCapture::start();
 let logs = capture_logs(|| emit(PowerControlFailed { ... }));
 
 assert_eq!(logs[0].level, tracing::Level::WARN);
+assert_eq!(logs[0].metadata_name, "power_control_failed");
+assert_eq!(logs[0].field("event_name"), Some("power_control_failed"));
+assert_eq!(logs[0].field("metric_name"), Some("carbide_power_control_total"));
 assert_eq!(
     metrics.counter_delta("carbide_power_control_total", &[("backend", "rms"), ("outcome", "error")]),
     1.0,
@@ -266,7 +296,10 @@ inspection.
   tooling and tests and is not written as a log field.
 - **Events are occurrences.** Do not model state with counters; keep gauges on the
   existing observable-gauge pattern.
-- **Don't name a field `message`** -- that name is reserved for the event message.
+- **Reserved Event-log fields**: `message` is always reserved. Events that can log must
+  also not declare payload fields named `msg`, `level`, `location`, `component`, `span_id`,
+  `event_name`, or `metric_name`. Metric-only legacy labels remain allowed because renaming
+  a Prometheus label would break its metric contract.
 
 ## References
 

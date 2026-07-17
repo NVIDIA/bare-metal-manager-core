@@ -927,3 +927,72 @@ func TestValidateAudiences(t *testing.T) {
 		assert.ErrorIs(t, err, core.ErrInvalidAudience)
 	})
 }
+
+func TestGetOrgDataFromClaimMappingAudiences(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *JwksConfig
+		claims     jwt.MapClaims
+		requestOrg string
+		wantErr    error
+	}{
+		{
+			name: "matching audience authorizes org",
+			config: &JwksConfig{ClaimMappings: []ClaimMapping{{
+				OrgName:   "acme",
+				Roles:     []string{"TENANT_ADMIN"},
+				Audiences: []string{"org-acme"},
+			}}},
+			claims:     jwt.MapClaims{"aud": []string{"issuer-audience", "org-acme"}},
+			requestOrg: "acme",
+		},
+		{
+			name: "wrong audience denies org",
+			config: &JwksConfig{ClaimMappings: []ClaimMapping{{
+				OrgName:   "acme",
+				Roles:     []string{"TENANT_ADMIN"},
+				Audiences: []string{"org-acme"},
+			}}},
+			claims:     jwt.MapClaims{"aud": "different-audience"},
+			requestOrg: "acme",
+			wantErr:    core.ErrInvalidAudience,
+		},
+		{
+			name: "mapping without audiences remains allowed",
+			config: &JwksConfig{ClaimMappings: []ClaimMapping{{
+				OrgName: "acme",
+				Roles:   []string{"TENANT_ADMIN"},
+			}}},
+			claims:     jwt.MapClaims{},
+			requestOrg: "acme",
+		},
+		{
+			name: "reserved dynamic org is rejected before audience",
+			config: &JwksConfig{
+				ClaimMappings: []ClaimMapping{{
+					OrgAttribute:   "org",
+					RolesAttribute: "roles",
+					Audiences:      []string{"org-acme"},
+				}},
+				ReservedOrgNames: map[string]bool{"acme": true},
+			},
+			claims:     jwt.MapClaims{"org": "acme", "roles": []string{"TENANT_ADMIN"}, "aud": "different-audience"},
+			requestOrg: "acme",
+			wantErr:    core.ErrReservedOrgName,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orgData, _, err := tt.config.GetOrgDataFromClaim(tt.claims, tt.requestOrg)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, orgData)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Contains(t, orgData, strings.ToLower(tt.requestOrg))
+		})
+	}
+}

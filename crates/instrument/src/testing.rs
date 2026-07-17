@@ -24,7 +24,7 @@
 //! use carbide_instrument::{Event, emit};
 //!
 //! #[derive(Event)]
-//! #[event(name = "carbide_doc_demo_total", component = "demo",
+//! #[event(event_name = "doc_demo", metric_name = "carbide_doc_demo_total", component = "demo",
 //!         log = warn, metric = counter, message = "demo fired")]
 //! struct Demo {}
 //!
@@ -45,12 +45,23 @@ use tracing_subscriber::layer::{Context, SubscriberExt};
 /// One captured log event: its level, message, and rendered fields.
 #[derive(Debug, Clone)]
 pub struct CapturedLog {
+    /// The event's stable `tracing` metadata name.
+    pub metadata_name: String,
     pub level: tracing::Level,
     /// The event's `tracing` target (usually the emitting module path).
     pub target: String,
     pub message: String,
     /// Field name/value pairs as strings, in emission order.
     pub fields: Vec<(String, String)>,
+}
+
+impl CapturedLog {
+    /// Returns the rendered value of the first field named `name`.
+    pub fn field(&self, name: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find_map(|(field_name, value)| (field_name == name).then_some(value.as_str()))
+    }
 }
 
 /// Runs `f` under a capturing subscriber (this thread only) and returns every
@@ -86,6 +97,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CaptureLayer {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .push(CapturedLog {
+                metadata_name: event.metadata().name().to_string(),
                 level: *event.metadata().level(),
                 target: event.metadata().target().to_string(),
                 message: visitor.message,
