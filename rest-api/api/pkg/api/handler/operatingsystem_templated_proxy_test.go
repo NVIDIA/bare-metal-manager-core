@@ -171,7 +171,7 @@ func assertProxyCreatePayload(t *testing.T, tnOrg, tmplID string, reqJSON []byte
 	var coreReq corev1.CreateOperatingSystemRequest
 	require.NoError(t, protojson.Unmarshal(reqJSON, &coreReq))
 	assert.Equal(t, "tmpl-proxy-os", coreReq.Name)
-	assert.Equal(t, tnOrg, coreReq.TenantOrganizationId)
+	assert.Equal(t, tnOrg, coreReq.GetTenantOrganizationId())
 	assert.Equal(t, tmplID, coreReq.GetIpxeTemplateId().GetValue())
 	require.Len(t, coreReq.IpxeTemplateParameters, 1)
 	assert.Equal(t, "version", coreReq.IpxeTemplateParameters[0].Name)

@@ -152,7 +152,7 @@ func TestBuildOperatingSystemRequests(t *testing.T) {
 		require.NotNil(t, req)
 		assert.Equal(t, id.String(), req.GetId().GetValue())
 		assert.Equal(t, "templated-os", req.Name)
-		assert.Equal(t, "org-1", req.TenantOrganizationId)
+		assert.Equal(t, "org-1", req.GetTenantOrganizationId())
 		assert.True(t, req.IsActive)
 		assert.True(t, req.AllowOverride)
 		assert.True(t, req.PhoneHomeEnabled)
