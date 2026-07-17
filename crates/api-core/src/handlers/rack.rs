@@ -792,14 +792,14 @@ pub(crate) async fn on_demand_rack_maintenance(
         ) => None,
         Ok(RackMaintenanceRequestOutcome::Busy) => Some(
             CarbideError::InvalidArgument(format!(
-                "On-demand maintenance for rack {} is already scheduled.",
+                "on-demand maintenance for rack {} is already scheduled",
                 rack_id,
             ))
             .into(),
         ),
         Ok(RackMaintenanceRequestOutcome::Deferred { state }) => Some(
             CarbideError::InvalidArgument(format!(
-                "Rack {} is not in Ready or Error state (current: {:?}). Maintenance can only be requested when the rack is Ready or in Error.",
+                "rack {} is not in ready or error state (current: {:?}). maintenance can only be requested when the rack is ready or in error",
                 rack_id, state,
             ))
             .into(),
