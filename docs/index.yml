@@ -137,6 +137,8 @@ navigation:
           path: configuration/org-permissions.md
         - page: Machine Identity
           path: configuration/machine_identity.md
+        - page: Secrets Storage
+          path: configuration/secrets-storage.md
         - page: Host Naming
           path: configuration/host-naming.md
 
