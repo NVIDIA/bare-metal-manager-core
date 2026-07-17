@@ -242,8 +242,10 @@ below should be repeatable as a checklist.
 
 1. **Reconciler is running.**
    `carbide_nvlink_partition_monitor_iteration_latency_milliseconds` is being
-   recorded and
-   `carbide_nvlink_partition_monitor_nmxc_connect_error_count` is `0`.
+   recorded. Evaluate the recent increase or rate of
+   `carbide_nvlink_partition_monitor_nmxc_connect_error_count` over a time
+   window appropriate to the reconcile interval; its historical total alone
+   does not indicate a current connection problem.
 2. **Logical-partition count matches expectation.**
    `carbide_nvlink_partition_monitor_num_logical_partitions` reflects
    the partitions a site planner expects to exist. A sudden change is
