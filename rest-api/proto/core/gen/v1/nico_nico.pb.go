@@ -57934,19 +57934,19 @@ func (x *AdminForceDeletePowerShelfResponse) GetInterfacesDeleted() uint32 {
 }
 
 type OperatingSystem struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Id          *OperatingSystemId     `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name        string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Description *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
-	TenantOrganizationId *string             `protobuf:"bytes,4,opt,name=tenant_organization_id,json=tenantOrganizationId,proto3,oneof" json:"tenant_organization_id,omitempty"`
-	Type                 OperatingSystemType `protobuf:"varint,5,opt,name=type,proto3,enum=forge.OperatingSystemType" json:"type,omitempty"`
-	Status               TenantState         `protobuf:"varint,6,opt,name=status,proto3,enum=forge.TenantState" json:"status,omitempty"` // we only use some states from TenantState
-	IsActive             bool                `protobuf:"varint,7,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
-	AllowOverride        bool                `protobuf:"varint,8,opt,name=allow_override,json=allowOverride,proto3" json:"allow_override,omitempty"`
-	PhoneHomeEnabled     bool                `protobuf:"varint,9,opt,name=phone_home_enabled,json=phoneHomeEnabled,proto3" json:"phone_home_enabled,omitempty"`
-	UserData             *string             `protobuf:"bytes,10,opt,name=user_data,json=userData,proto3,oneof" json:"user_data,omitempty"`
-	Created              string              `protobuf:"bytes,11,opt,name=created,proto3" json:"created,omitempty"`
-	Updated              string              `protobuf:"bytes,12,opt,name=updated,proto3" json:"updated,omitempty"`
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Id                   *OperatingSystemId     `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                 string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description          *string                `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	TenantOrganizationId *string                `protobuf:"bytes,4,opt,name=tenant_organization_id,json=tenantOrganizationId,proto3,oneof" json:"tenant_organization_id,omitempty"`
+	Type                 OperatingSystemType    `protobuf:"varint,5,opt,name=type,proto3,enum=forge.OperatingSystemType" json:"type,omitempty"`
+	Status               TenantState            `protobuf:"varint,6,opt,name=status,proto3,enum=forge.TenantState" json:"status,omitempty"` // we only use some states from TenantState
+	IsActive             bool                   `protobuf:"varint,7,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	AllowOverride        bool                   `protobuf:"varint,8,opt,name=allow_override,json=allowOverride,proto3" json:"allow_override,omitempty"`
+	PhoneHomeEnabled     bool                   `protobuf:"varint,9,opt,name=phone_home_enabled,json=phoneHomeEnabled,proto3" json:"phone_home_enabled,omitempty"`
+	UserData             *string                `protobuf:"bytes,10,opt,name=user_data,json=userData,proto3,oneof" json:"user_data,omitempty"`
+	Created              string                 `protobuf:"bytes,11,opt,name=created,proto3" json:"created,omitempty"`
+	Updated              string                 `protobuf:"bytes,12,opt,name=updated,proto3" json:"updated,omitempty"`
 	// Variant: ipxe
 	IpxeScript *string `protobuf:"bytes,20,opt,name=ipxe_script,json=ipxeScript,proto3,oneof" json:"ipxe_script,omitempty"`
 	// Variant: ipxe_os_definition
@@ -58108,15 +58108,15 @@ func (x *OperatingSystem) GetIpxeTemplateDefinitionHash() string {
 }
 
 type CreateOperatingSystemRequest struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description *string                `protobuf:"bytes,2,opt,name=description,proto3,oneof" json:"description,omitempty"`
-	TenantOrganizationId *string            `protobuf:"bytes,3,opt,name=tenant_organization_id,json=tenantOrganizationId,proto3,oneof" json:"tenant_organization_id,omitempty"`
-	IsActive             bool               `protobuf:"varint,4,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
-	AllowOverride        bool               `protobuf:"varint,5,opt,name=allow_override,json=allowOverride,proto3" json:"allow_override,omitempty"`
-	PhoneHomeEnabled     bool               `protobuf:"varint,6,opt,name=phone_home_enabled,json=phoneHomeEnabled,proto3" json:"phone_home_enabled,omitempty"`
-	UserData             *string            `protobuf:"bytes,7,opt,name=user_data,json=userData,proto3,oneof" json:"user_data,omitempty"`
-	Id                   *OperatingSystemId `protobuf:"bytes,8,opt,name=id,proto3,oneof" json:"id,omitempty"`
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Name                 string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description          *string                `protobuf:"bytes,2,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	TenantOrganizationId *string                `protobuf:"bytes,3,opt,name=tenant_organization_id,json=tenantOrganizationId,proto3,oneof" json:"tenant_organization_id,omitempty"`
+	IsActive             bool                   `protobuf:"varint,4,opt,name=is_active,json=isActive,proto3" json:"is_active,omitempty"`
+	AllowOverride        bool                   `protobuf:"varint,5,opt,name=allow_override,json=allowOverride,proto3" json:"allow_override,omitempty"`
+	PhoneHomeEnabled     bool                   `protobuf:"varint,6,opt,name=phone_home_enabled,json=phoneHomeEnabled,proto3" json:"phone_home_enabled,omitempty"`
+	UserData             *string                `protobuf:"bytes,7,opt,name=user_data,json=userData,proto3,oneof" json:"user_data,omitempty"`
+	Id                   *OperatingSystemId     `protobuf:"bytes,8,opt,name=id,proto3,oneof" json:"id,omitempty"`
 	// Exactly one variant must be provided to determine the type.
 	// This is only set for 'ipxe' variant:
 	IpxeScript *string `protobuf:"bytes,20,opt,name=ipxe_script,json=ipxeScript,proto3,oneof" json:"ipxe_script,omitempty"`

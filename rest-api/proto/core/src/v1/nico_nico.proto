@@ -9130,7 +9130,7 @@ message OperatingSystem {
   common.OperatingSystemId id = 1;
   string name = 2;
   optional string description = 3;
-  optional string tenant_organization_id = 4; // tenant org id if not provider-owned
+  optional string tenant_organization_id = 4;
   OperatingSystemType type = 5;
   TenantState status = 6; // we only use some states from TenantState
   bool is_active = 7;
@@ -9152,7 +9152,7 @@ message OperatingSystem {
 message CreateOperatingSystemRequest {
   string name = 1;
   optional string description = 2;
-  optional string tenant_organization_id = 3; // tenant org id if not provider-owned
+  optional string tenant_organization_id = 3;
   bool is_active = 4;
   bool allow_override = 5;
   bool phone_home_enabled = 6;

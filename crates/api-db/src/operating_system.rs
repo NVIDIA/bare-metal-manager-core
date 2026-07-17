@@ -439,10 +439,18 @@ mod tests {
                 ipxe_definition_hash: None,
             };
             let created = create(&mut txn, &input).await.unwrap();
-            assert_eq!(created.org, case.expected_org, "created.org for {}", case.name);
+            assert_eq!(
+                created.org, case.expected_org,
+                "created.org for {}",
+                case.name
+            );
 
             let fetched = get(&mut *txn, created.id).await.unwrap();
-            assert_eq!(fetched.org, case.expected_org, "fetched.org for {}", case.name);
+            assert_eq!(
+                fetched.org, case.expected_org,
+                "fetched.org for {}",
+                case.name
+            );
         }
     }
 }
