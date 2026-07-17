@@ -42,7 +42,8 @@ enum PhoneHomeOutcome {
 /// (the success path keeps its own "Successfully phoned home" INFO log).
 #[derive(Event)]
 #[event(
-    name = "carbide_fmds_phone_home_total",
+    event_name = "fmds_phone_home_completed",
+    metric_name = "carbide_fmds_phone_home_total",
     component = "fmds",
     log = dynamic,
     metric = counter,

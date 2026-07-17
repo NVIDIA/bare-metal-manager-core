@@ -185,7 +185,8 @@ pub struct MessageAge {
 /// `/metrics` shows.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_health_report_persist_failures_total",
+    event_name = "dsx_exchange_health_report_persist_failed",
+    metric_name = "carbide_dsx_exchange_consumer_health_report_persist_failures_total",
     component = "nico-dsx-exchange-consumer",
     log = warn,
     metric = counter,
