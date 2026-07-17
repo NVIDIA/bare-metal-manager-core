@@ -1046,7 +1046,7 @@ jobs:
       # init container on both amd64 and arm64 control-plane nodes; the payload
       # it ships is unchanged (x86_64 boot blobs). The Dockerfile has no RUN
       # steps (FROM alpine + COPY only), so no QEMU is needed. Single-arch on PR
-      # so the image loads to the daemon for the Grype scan.
+      # so the image can load to the daemon.
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       runner: linux-amd64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -1079,7 +1079,7 @@ jobs:
       # the aarch64 boot blobs as files. Build it multi-arch on push so it can
       # run as an init container on both amd64 and arm64 control-plane nodes. The
       # Dockerfile has no RUN steps (FROM alpine + COPY only), so no QEMU is
-      # needed. Single-arch on PR so the image loads to the daemon for Grype.
+      # needed. Single-arch on PR so the image can load to the daemon.
       platforms: ${{ needs.prepare.outputs.publish_images == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
       runner: linux-amd64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -1171,7 +1171,7 @@ jobs:
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
-      load: true  # load to daemon so the Grype scan can read it on PR builds
+      load: true
       scan: true
     secrets: inherit
 
@@ -1191,7 +1191,7 @@ jobs:
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
-      load: true  # load to daemon so the Grype scan can read it on PR builds
+      load: true
       scan: true
     secrets: inherit
 
@@ -1217,7 +1217,7 @@ jobs:
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
-      load: true  # load to daemon so the Grype scan can read it on PR builds
+      load: true
       scan: true
     secrets: inherit
 
@@ -1860,34 +1860,6 @@ jobs:
       SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
       DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
       DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
-
-  # ============================================================================
-  # CONTAINER SCAN SUMMARY
-  # ============================================================================
-  # Aggregates the per-image `grype-*` artifacts produced by the `scan: true`
-  # docker-build jobs into a single sticky comment on copy-pr-bot
-  # `pull-request/N` PRs. Inline Grype only runs on PRs (images are loaded, not
-  # pushed), so this job is PR-only. Advisory only — intentionally NOT wired
-  # into `core-ci-pass` so a scan/aggregation hiccup never blocks a merge.
-  security-container-scan-summary:
-    name: Container Scan Summary
-    runs-on: linux-amd64-cpu4
-    needs:
-      - build-release-container-x86_64
-      - build-machine-a-tron
-      - build-forge-cli-x86_64
-      - build-release-artifacts-x86-host
-      - build-release-artifacts-arm-host
-      - build-release-machine-validation-runner
-      - build-release-machine-validation-artifacts-x86-host
-    if: ${{ always() && contains(github.ref, 'pull-request/') }}
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan-aggregate@aa4e470cc53f3886545c7d72a984eb81f1d203e2 # v1.16.2
-        with:
-          post-pr-comment: 'true'
 
   # ============================================================================
   # NOTIFICATION STAGE
