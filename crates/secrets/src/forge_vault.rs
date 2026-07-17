@@ -1202,7 +1202,7 @@ pub fn create_dedicated_vault_client(
     ] {
         if value.trim().is_empty() {
             return Err(eyre!(
-                "dedicated certificate Vault requires a non-empty `{field}`"
+                "dedicated certificate vault requires a non-empty `{field}`"
             ));
         }
     }
@@ -1225,7 +1225,7 @@ pub fn create_dedicated_vault_client(
             .cloned()
             .ok_or_else(|| {
                 eyre!(
-                    "dedicated certificate Vault requires a non-empty explicit `token` when no Kubernetes service-account token is present"
+                    "dedicated certificate vault requires a non-empty explicit `token` when no kubernetes service-account token is present"
                 )
             })?;
         ForgeVaultAuthenticationType::Root(token)
