@@ -1382,9 +1382,15 @@ async fn create_fast_path(
         }
     }
 
+    let segment_list = segments
+        .iter()
+        .map(|segment| format!("`{}` ({})", segment.config.name, segment.id))
+        .collect::<Vec<_>>()
+        .join(", ");
+
     Err(DatabaseError::internal(format!(
-        "unable to create machine interface in fast path out of segments {:?} after {} retries",
-        segments, FAST_PATH_MAX_RETRIES
+        "unable to create machine interface in fast path out of segments {} after {} retries",
+        segment_list, FAST_PATH_MAX_RETRIES
     )))
 }
 
