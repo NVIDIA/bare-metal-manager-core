@@ -16,6 +16,13 @@ pub enum LldpCollectorError {
 
 pub type LldpCollectorResult<T> = Result<T, LldpCollectorError>;
 
+/// One LLDP neighbor plus the MAC of the local interface that sees it.
+#[derive(Debug, Clone)]
+pub struct LldpNeighbor {
+    pub local_mac: String,
+    pub switch: rpc_discovery::LldpSwitchData,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LldpValue {
     pub value: String,
@@ -91,10 +98,8 @@ pub struct LldpResponse {
     pub lldp: Vec<LldpRoot>,
 }
 
-/// Returns a `(our local interface's MAC, neighbor)` pair for each LLDP neighbor,
-/// filtering out self-loopback ones.
-pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<(String, rpc_discovery::LldpSwitchData)>>
-{
+/// Returns one `LldpNeighbor` per LLDP neighbor, filtering out self-loopback ones.
+pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<LldpNeighbor>> {
     let local_chassis_id = get_local_chassis_id();
 
     Ok(get_all_lldp_neighbors()?
@@ -106,7 +111,12 @@ pub fn collect_lldp_neighbors() -> LldpCollectorResult<Vec<(String, rpc_discover
                 .as_ref()
                 .is_none_or(|own| !is_self_loopback(lldp, own))
         })
-        .filter_map(|lldp| Some((read_interface_mac(&lldp.local_port)?, lldp)))
+        .filter_map(|lldp| {
+            Some(LldpNeighbor {
+                local_mac: read_interface_mac(&lldp.local_port)?,
+                switch: lldp,
+            })
+        })
         .collect())
 }
 
@@ -170,22 +180,6 @@ fn parse_local_chassis_id(json: &str) -> Option<LldpId> {
         .into_iter()
         .flat_map(|entry| entry.chassis)
         .find_map(|chassis| chassis.id.into_iter().next())
-}
-
-/// Collect the LLDP neighbors visible on this host and print them. Purely local
-/// interrogation for troubleshooting: no API integration.
-pub fn print_lldp_neighbors() -> Result<(), eyre::Report> {
-    let pairs = collect_lldp_neighbors().map_err(|e| eyre::eyre!("lldp collect: {e}"))?;
-
-    if pairs.is_empty() {
-        println!("No LLDP neighbors found.");
-        return Ok(());
-    }
-
-    for (mac_address, lldp) in pairs {
-        println!("{mac_address}: {lldp:#?}");
-    }
-    Ok(())
 }
 
 fn read_interface_mac(ifname: &str) -> Option<String> {

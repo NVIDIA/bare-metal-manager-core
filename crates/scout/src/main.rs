@@ -98,7 +98,9 @@ async fn main() -> Result<(), eyre::Report> {
 
     // Purely local interrogation for troubleshooting.
     if matches!(config.subcmd, Some(Command::LldpNeighbors)) {
-        return carbide_host_support::lldp_collector::print_lldp_neighbors();
+        let neighbors = carbide_host_support::lldp_collector::collect_lldp_neighbors()?;
+        println!("{neighbors:#?}");
+        return Ok(());
     }
 
     check_if_running_in_qemu().await;
