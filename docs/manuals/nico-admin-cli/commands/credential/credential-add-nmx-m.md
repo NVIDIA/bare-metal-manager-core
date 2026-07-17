@@ -4,7 +4,8 @@ _[Hardware commands](../../hardware.md) › [credential](./credential.md) › **
 
 ## NAME
 
-nico-admin-cli-credential-add-nmx-m - Add NmxM credentials
+nico-admin-cli-credential-add-nmx-m - Deprecated compatibility command;
+NMX-M is no longer supported
 
 ## SYNOPSIS
 
@@ -14,7 +15,9 @@ nico-admin-cli-credential-add-nmx-m - Add NmxM credentials
 
 ## DESCRIPTION
 
-Add NmxM credentials
+Deprecated compatibility command. NMX-M is no longer supported. This
+command always returns an error and does not modify credentials. Use
+NMX-C for NVLink partition management.
 
 ## OPTIONS
 

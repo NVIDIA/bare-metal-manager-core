@@ -4,7 +4,8 @@ _[Hardware commands](../../hardware.md) › [credential](./credential.md) › **
 
 ## NAME
 
-nico-admin-cli-credential-delete-nmx-m - Delete NmxM credentials
+nico-admin-cli-credential-delete-nmx-m - Deprecated compatibility
+command; NMX-M is no longer supported
 
 ## SYNOPSIS
 
