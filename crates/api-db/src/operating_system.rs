@@ -398,47 +398,51 @@ mod tests {
         assert!(rows.is_empty());
     }
 
-    fn ipxe_create_input(name: &str, org: Option<String>) -> CreateOperatingSystem {
-        CreateOperatingSystem {
-            id: None,
-            name: name.to_string(),
-            description: None,
-            org,
-            type_: model::operating_system_definition::OS_TYPE_IPXE.to_string(),
-            status: OS_STATUS_READY.to_string(),
-            is_active: true,
-            allow_override: false,
-            phone_home_enabled: false,
-            user_data: None,
-            ipxe_script: Some("#!ipxe\nboot".to_string()),
-            ipxe_template_id: None,
-            ipxe_parameters: None,
-            ipxe_artifacts: None,
-            ipxe_definition_hash: None,
-        }
-    }
-
-    #[crate::sqlx_test]
-    async fn test_create_persists_null_org(pool: sqlx::PgPool) {
-        let mut txn = pool.begin().await.unwrap();
-        let created = create(&mut txn, &ipxe_create_input("no-org-os", None))
-            .await
-            .unwrap();
-        assert_eq!(created.org, None);
-
-        let fetched = get(&mut *txn, created.id).await.unwrap();
-        assert_eq!(fetched.org, None);
-    }
-
     #[crate::sqlx_test]
     async fn test_create_persists_org(pool: sqlx::PgPool) {
-        let mut txn = pool.begin().await.unwrap();
-        let created = create(&mut txn, &ipxe_create_input("org-os", Some("acme".to_string())))
-            .await
-            .unwrap();
-        assert_eq!(created.org.as_deref(), Some("acme"));
+        struct Case {
+            name: &'static str,
+            input_org: Option<String>,
+            expected_org: Option<String>,
+        }
 
-        let fetched = get(&mut *txn, created.id).await.unwrap();
-        assert_eq!(fetched.org.as_deref(), Some("acme"));
+        let cases = [
+            Case {
+                name: "no-org-os",
+                input_org: None,
+                expected_org: None,
+            },
+            Case {
+                name: "org-os",
+                input_org: Some("acme".to_string()),
+                expected_org: Some("acme".to_string()),
+            },
+        ];
+
+        for case in cases {
+            let mut txn = pool.begin().await.unwrap();
+            let input = CreateOperatingSystem {
+                id: None,
+                name: case.name.to_string(),
+                description: None,
+                org: case.input_org.clone(),
+                type_: model::operating_system_definition::OS_TYPE_IPXE.to_string(),
+                status: OS_STATUS_READY.to_string(),
+                is_active: true,
+                allow_override: false,
+                phone_home_enabled: false,
+                user_data: None,
+                ipxe_script: Some("#!ipxe\nboot".to_string()),
+                ipxe_template_id: None,
+                ipxe_parameters: None,
+                ipxe_artifacts: None,
+                ipxe_definition_hash: None,
+            };
+            let created = create(&mut txn, &input).await.unwrap();
+            assert_eq!(created.org, case.expected_org, "created.org for {}", case.name);
+
+            let fetched = get(&mut *txn, created.id).await.unwrap();
+            assert_eq!(fetched.org, case.expected_org, "fetched.org for {}", case.name);
+        }
     }
 }
