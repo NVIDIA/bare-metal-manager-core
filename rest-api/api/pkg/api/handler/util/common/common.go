@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	mapset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
@@ -1627,27 +1627,15 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 // TenantSite.config overrides. It is nil-safe and returns an empty slice when
 // the Tenant has no privileged Site access.
 func GetPrivilegedAccessSiteIDsForTenant(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant) ([]uuid.UUID, error) {
-	return getPrivilegedAccessSiteIDsForTenant(ctx, tx, dbSession, tenant, nil)
-}
-
-// getPrivilegedAccessSiteIDsForTenant is the scoped implementation behind
-// GetPrivilegedAccessSiteIDsForTenant. A non-nil providerFilter restricts the
-// result to Sites under that Infrastructure Provider.
-func getPrivilegedAccessSiteIDsForTenant(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant, providerFilter *uuid.UUID) ([]uuid.UUID, error) {
 	if tenant == nil {
 		return nil, nil
 	}
 
-	taFilter := cdbm.TenantAccountFilterInput{
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
 		TenantIDs: []uuid.UUID{tenant.ID},
 		Statuses:  []string{cdbm.TenantAccountStatusReady},
-	}
-	if providerFilter != nil {
-		taFilter.InfrastructureProviderID = providerFilter
-	}
-
-	taDAO := cdbm.NewTenantAccountDAO(dbSession)
-	tas, _, err := taDAO.GetAll(ctx, tx, taFilter, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1655,58 +1643,45 @@ func getPrivilegedAccessSiteIDsForTenant(ctx context.Context, tx *cdb.Tx, dbSess
 		return nil, nil
 	}
 
-	providerPrivilegeScopeMap := make(map[uuid.UUID]bool, len(tas))
+	providerIDs := mapset.NewSet[uuid.UUID]()
 	for _, ta := range tas {
-		if _, ok := providerPrivilegeScopeMap[ta.InfrastructureProviderID]; ok {
-			continue
+		if ta.Config.TargetedInstanceCreation {
+			providerIDs.Add(ta.InfrastructureProviderID)
 		}
-		providerPrivilegeScopeMap[ta.InfrastructureProviderID] = ta.Config.TargetedInstanceCreation
 	}
 
 	siteDAO := cdbm.NewSiteDAO(dbSession)
 	sites, _, err := siteDAO.GetAll(ctx, tx, cdbm.SiteFilterInput{
-		InfrastructureProviderIDs: slices.Collect(maps.Keys(providerPrivilegeScopeMap)),
+		InfrastructureProviderIDs: providerIDs.ToSlice(),
 	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
-	if len(sites) == 0 {
-		return nil, nil
+
+	siteIDs := mapset.NewSet[uuid.UUID]()
+	for _, site := range sites {
+		siteIDs.Add(site.ID)
 	}
 
 	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
-	tenantSites, _, err := tsDAO.GetAll(ctx, tx, cdbm.TenantSiteFilterInput{
+	tss, _, err := tsDAO.GetAll(ctx, tx, cdbm.TenantSiteFilterInput{
 		TenantIDs: []uuid.UUID{tenant.ID},
 	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	sitePrivilegeScopeMap := make(map[uuid.UUID]*bool, len(tenantSites))
-	for _, ts := range tenantSites {
+	for _, ts := range tss {
 		if ts.Config.TargetedInstanceCreation != nil {
-			sitePrivilegeScopeMap[ts.SiteID] = ts.Config.TargetedInstanceCreation
+			if *ts.Config.TargetedInstanceCreation {
+				siteIDs.Add(ts.SiteID)
+			} else {
+				siteIDs.Remove(ts.SiteID)
+			}
 		}
 	}
 
-	privilegedSiteIDs := make([]uuid.UUID, 0, len(sites))
-	for _, site := range sites {
-		global, ok := providerPrivilegeScopeMap[site.InfrastructureProviderID]
-		if !ok {
-			continue
-		}
-
-		effective := global
-		if override, ok := sitePrivilegeScopeMap[site.ID]; ok {
-			effective = *override
-		}
-
-		if effective {
-			privilegedSiteIDs = append(privilegedSiteIDs, site.ID)
-		}
-	}
-
-	return privilegedSiteIDs, nil
+	return siteIDs.ToSlice(), nil
 }
 
 // IsProviderOrTenant ensures that user is authorized to act as a Provider Admin or/and Tenant Admin for the org.
