@@ -24,7 +24,6 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use mac_address::MacAddress;
-use rpc::DiscoveryInfo;
 use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
@@ -270,13 +269,6 @@ impl DgxGB300Nvl<'_> {
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
-        }
-    }
-
-    pub fn discovery_info(&self) -> DiscoveryInfo {
-        DiscoveryInfo {
-            network_interfaces: vec![self.dpu.host_nic().discovery_info(0x0603)],
-            ..Default::default()
         }
     }
 }

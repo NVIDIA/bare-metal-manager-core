@@ -18,10 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use bmc_vendor::BMCVendor;
-use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
-use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, MemoryDevice};
 use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
@@ -199,63 +196,6 @@ impl HpeProliantDl380aGen11<'_> {
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
-        }
-    }
-
-    pub fn discovery_info(&self) -> DiscoveryInfo {
-        DiscoveryInfo {
-            network_interfaces: self
-                .nics
-                .iter()
-                .map(|(slot, nic)| nic.discovery_info(*slot))
-                .collect(),
-            infiniband_interfaces: vec![],
-            cpu_info: vec![CpuInfo {
-                model: "INTEL(R) XEON(R) GOLD 6542Y".into(),
-                vendor: "GenuineIntel".into(),
-                sockets: 2,
-                cores: 24,
-                threads: 48,
-            }],
-            block_devices: (0..2)
-                .map(|n| BlockDevice {
-                    model: "VO001920KXPTN".into(),
-                    revision: "HPK0".into(),
-                    serial: format!("KNC8N5359I0108R1{}", if n == 0 { "X" } else { "W" }),
-                    device_type: "disk".into(),
-                })
-                .collect(),
-            machine_type: CpuArchitecture::X86_64.to_string(),
-            machine_arch: Some(rpc::utils::cpu_architecture_to_rpc(CpuArchitecture::X86_64)),
-            nvme_devices: (0..2)
-                .map(|n| rpc::machine_discovery::NvmeDevice {
-                    model: "VO001920KXPTN".into(),
-                    firmware_rev: "HPK0".into(),
-                    serial: format!("KNC8N5359I0108R1{}", if n == 0 { "X" } else { "W" }),
-                })
-                .collect(),
-            dmi_data: Some(DmiData {
-                board_name: MODEL.into(),
-                board_version: "".into(),
-                bios_version: "2.22".into(),
-                bios_date: "06/19/2024".into(),
-                product_serial: self.product_serial_number.to_string(),
-                board_serial: "PYFCA0ARHJM00Z".into(),
-                chassis_serial: self.product_serial_number.to_string(),
-                product_name: MODEL.into(),
-                sys_vendor: hw::bmc_vendor_to_udev_dmi(BMCVendor::Hpe).into(),
-            }),
-            dpu_info: None,
-            gpus: vec![],
-            memory_devices: (0..16)
-                .map(|_| MemoryDevice {
-                    size_mb: Some(16384),
-                    mem_type: Some("DDR5".into()),
-                })
-                .collect(),
-            tpm_ek_certificate: None,
-            tpm_description: None,
-            ..Default::default()
         }
     }
 }

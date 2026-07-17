@@ -23,10 +23,6 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-bmc-vendor = { path = "../bmc-vendor" }
-carbide-rpc = { path = "../rpc", default-features = false }
-carbide-utils = { path = "../utils", default-features = false }
-
 arc-swap = { workspace = true }
 axum = { workspace = true }
 axum-extra = { features = ["typed-header"], workspace = true }
