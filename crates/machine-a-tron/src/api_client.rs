@@ -136,7 +136,7 @@ impl ApiClient {
             machine_interface_id,
             tpm_ek_certificate,
         } = discovery_data;
-        let mut machine_discovery_info = machine_info.discovery_info();
+        let mut machine_discovery_info = crate::discovery_info::for_machine(machine_info);
         if matches!(machine_info, MachineInfo::Host(_)) {
             machine_discovery_info.tpm_ek_certificate =
                 Some(BASE64_STANDARD.encode(tpm_ek_certificate.ok_or(

@@ -59,13 +59,16 @@ nico-api:
   ## is auto-injected by the template.
   bootArtifactContainers:
     - name: boot-artifacts-x86-64
-      image: "your-registry.example.com/boot-artifacts-x86_64:latest"
+      repository: "your-registry.example.com/boot-artifacts-x86_64"
+      tag: "latest"
       command: ["sh", "-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal"]
     - name: boot-artifacts-aarch64
-      image: "your-registry.example.com/boot-artifacts-aarch64:latest"
+      repository: "your-registry.example.com/boot-artifacts-aarch64"
+      tag: "latest"
       command: ["sh", "-c", "cp -r /aarch64 /apt /forge-boot-artifacts/blobs/internal"]
     - name: machine-validation-config
-      image: "your-registry.example.com/machine-validation-config:latest"
+      repository: "your-registry.example.com/machine-validation-config"
+      tag: "latest"
       command: ["sh", "-c", "cp -r /machine-validation /forge-boot-artifacts/blobs/internal"]
 
   env:
@@ -245,13 +248,16 @@ nico-pxe:
 
   bootArtifactContainers:
     - name: boot-artifacts-x86-64
-      image: "your-registry.example.com/boot-artifacts-x86_64:latest"
+      repository: "your-registry.example.com/boot-artifacts-x86_64"
+      tag: "latest"
       command: ["sh", "-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal"]
     - name: boot-artifacts-aarch64
-      image: "your-registry.example.com/boot-artifacts-aarch64:latest"
+      repository: "your-registry.example.com/boot-artifacts-aarch64"
+      tag: "latest"
       command: ["sh", "-c", "cp -r /aarch64 /apt /forge-boot-artifacts/blobs/internal"]
     - name: machine-validation-config
-      image: "your-registry.example.com/machine-validation-config:latest"
+      repository: "your-registry.example.com/machine-validation-config"
+      tag: "latest"
       command: ["sh", "-c", "cp -r /machine-validation /forge-boot-artifacts/blobs/internal"]
 
   externalService:

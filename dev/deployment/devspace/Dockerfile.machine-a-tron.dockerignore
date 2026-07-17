@@ -22,3 +22,6 @@
 !pxe/ipxe/
 !pxe/ipxe/local/
 !pxe/ipxe/local/embed.ipxe
+!dev/
+!dev/ipmi/
+!dev/ipmi/ipmi_sim_chassiscontrol.sh

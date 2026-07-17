@@ -58,6 +58,17 @@ where
         .map_err(|e| DatabaseError::new(query.sql(), e))
 }
 
+/// Lock one active rack until the caller's transaction completes.
+pub async fn lock_for_update(txn: &mut PgConnection, rack_id: &RackId) -> DatabaseResult<bool> {
+    let query = "SELECT id FROM racks WHERE id = $1 AND deleted IS NULL FOR UPDATE";
+    sqlx::query_as::<_, (RackId,)>(query)
+        .bind(rack_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))
+        .map(|row| row.is_some())
+}
+
 pub async fn find_ids(
     txn: impl DbReader<'_>,
     filter: model::rack::RackSearchFilter,

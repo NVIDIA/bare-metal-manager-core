@@ -242,13 +242,6 @@ impl DpuMachineInfo {
         }
     }
 
-    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
-        match self.dpu_type() {
-            DpuType::Bluefield3 => self.bluefield3().discovery_info(),
-            DpuType::Bluefield4 => self.bluefield4().discovery_info(),
-        }
-    }
-
     pub fn oem_state(&self) -> redfish::oem::State {
         match self.dpu_type() {
             DpuType::Bluefield3 => redfish::oem::State::NvidiaBluefield(
@@ -527,32 +520,6 @@ impl HostMachineInfo {
         }
     }
 
-    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
-        match self.hw_type {
-            HostHardwareType::DellPowerEdgeR750 => self.dell_poweredge_r750().discovery_info(),
-            HostHardwareType::DellPowerEdgeR760Bf4 => {
-                self.dell_poweredge_r760_bf4().discovery_info()
-            }
-            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().discovery_info(),
-            HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().discovery_info(),
-            HostHardwareType::NvidiaDgxGb300 => self.dgx_gb300_nvl().discovery_info(),
-            HostHardwareType::SupermicroGb300Nvl => self.supermicro_gb300_nvl().discovery_info(),
-            HostHardwareType::NvidiaDgxVr => self.dgx_vr_nvl().discovery_info(),
-            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().discovery_info(),
-            HostHardwareType::HpeProliantDl380aGen11 => {
-                self.hpe_proliant_dl380a_gen11().discovery_info()
-            }
-            HostHardwareType::GenericAmi | HostHardwareType::GenericSupermicro => {
-                self.generic_server().discovery_info()
-            }
-            HostHardwareType::LiteOnPowerShelf
-            | HostHardwareType::DeltaPowerShelf
-            | HostHardwareType::NvidiaSwitchNd5200Ld => {
-                panic!("discovery_info requested for {}", self.hw_type)
-            }
-        }
-    }
-
     pub fn factory_default_account(&self) -> redfish::account_service::Account {
         // TODO: need to be updated for each individual system.
         let id = match self.hw_type {
@@ -633,11 +600,9 @@ impl HostMachineInfo {
                 .bluefield3(),
             io_board: [
                 hw::nvidia_gb200::IoBoard {
-                    index: hw::nvidia_gb200::BoardIndex::Board0,
                     serial_number: "MT0000000001".into(),
                 },
                 hw::nvidia_gb200::IoBoard {
-                    index: hw::nvidia_gb200::BoardIndex::Board1,
                     serial_number: "MT0000000002".into(),
                 },
             ],
@@ -1064,13 +1029,6 @@ impl MachineInfo {
         }
     }
 
-    pub fn discovery_info(&self) -> rpc::machine_discovery::DiscoveryInfo {
-        match self {
-            Self::Host(h) => h.discovery_info(),
-            Self::Dpu(dpu) => dpu.discovery_info(),
-        }
-    }
-
     pub fn factory_default_account(&self) -> redfish::account_service::Account {
         match self {
             MachineInfo::Host(h) => h.factory_default_account(),
@@ -1169,174 +1127,5 @@ mod tests {
             supermicro.serial
         );
         assert_ne!(dgx.serial, supermicro.serial);
-    }
-
-    #[test]
-    fn lenovo_gb300_discovery_info_matches_platform_shape() {
-        let pool_config =
-            PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid MAC pool");
-        let mut pool = MacAddressPool::new(Config {
-            ranges: None,
-            pool: Some(pool_config),
-        });
-        let host = gb300_host_info(HostHardwareType::LenovoGB300Nvl, &mut pool);
-        let mock = host.lenovo_gb300_nvl();
-        let discovery = mock.discovery_info();
-
-        assert_eq!(discovery.network_interfaces.len(), 12);
-        assert_eq!(
-            discovery
-                .network_interfaces
-                .iter()
-                .map(|nic| nic.mac_address.as_str())
-                .collect::<std::collections::HashSet<_>>()
-                .len(),
-            12
-        );
-        let pci_properties = discovery
-            .network_interfaces
-            .iter()
-            .map(|nic| nic.pci_properties.as_ref().expect("PCI properties"))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            pci_properties
-                .iter()
-                .map(|pci| pci.slot.as_deref().expect("PCI slot"))
-                .collect::<Vec<_>>(),
-            [
-                "0000:03:00.0",
-                "0000:03:00.1",
-                "0000:03:00.2",
-                "0000:03:00.3",
-                "0002:03:00.0",
-                "0002:03:00.1",
-                "0005:09:00.0",
-                "0010:03:00.0",
-                "0010:03:00.1",
-                "0012:03:00.0",
-                "0012:03:00.1",
-                "0016:01:00.0",
-            ]
-        );
-        assert_eq!(
-            pci_properties
-                .iter()
-                .map(|pci| pci.numa_node)
-                .collect::<Vec<_>>(),
-            [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
-        );
-        assert!(
-            pci_properties[..6]
-                .iter()
-                .all(|pci| pci.device == "CX8 Family [ConnectX-8]")
-        );
-        assert_eq!(pci_properties[6].device, "I210 Gigabit Network Connection");
-        assert!(
-            pci_properties[7..11]
-                .iter()
-                .all(|pci| pci.device == "CX8 Family [ConnectX-8]")
-        );
-        assert!(pci_properties[11].device.contains("BlueField-3"));
-        assert!(pci_properties[0].path.ends_with("/net/enp3s0f0np0"));
-        assert!(pci_properties[4].path.ends_with("/net/enP2p3s0f0np0"));
-        assert!(pci_properties[7].path.ends_with("/net/enP16p3s0f0np0"));
-        assert!(pci_properties[9].path.ends_with("/net/enP18p3s0f0np0"));
-
-        assert_eq!(discovery.infiniband_interfaces.len(), 0);
-        assert_eq!(discovery.cpu_info.len(), 1);
-        assert_eq!(discovery.cpu_info[0].model, "Neoverse-V2");
-        assert_eq!(discovery.cpu_info[0].sockets, 2);
-        assert_eq!(discovery.cpu_info[0].cores, 72);
-        assert_eq!(discovery.cpu_info[0].threads, 72);
-        assert_eq!(discovery.machine_type, "aarch64");
-        assert_eq!(
-            discovery.machine_arch,
-            Some(rpc::utils::cpu_architecture_to_rpc(
-                carbide_utils::arch::CpuArchitecture::Aarch64
-            ))
-        );
-
-        assert_eq!(discovery.block_devices.len(), 5);
-        assert_eq!(discovery.nvme_devices.len(), 5);
-        for (block, nvme) in discovery.block_devices.iter().zip(&discovery.nvme_devices) {
-            assert_eq!(block.model, nvme.model);
-            assert_eq!(block.revision, nvme.firmware_rev);
-            assert_eq!(block.serial, nvme.serial);
-        }
-        assert_eq!(
-            discovery.block_devices[0].model,
-            "SAMSUNG MZTL63T8HFLT-00AW7"
-        );
-        assert_eq!(
-            discovery.block_devices[4].model,
-            "SAMSUNG MZ1L21T9HCLS-00A07"
-        );
-
-        let dmi = discovery.dmi_data.as_ref().expect("DMI data");
-        assert_eq!(dmi.board_name, "PG548");
-        assert_eq!(dmi.board_version, "699-2G548-0301-B00");
-        assert_eq!(dmi.bios_version, "GBHC01A_01.05.0");
-        assert_eq!(dmi.bios_date, "03/05/2026");
-        assert_eq!(dmi.product_name, "HG635N_V2");
-        assert_eq!(dmi.sys_vendor, "Lenovo");
-        assert_eq!(dmi.product_serial, mock.system_0_serial_number);
-        assert_eq!(dmi.chassis_serial, mock.chassis_0_serial_number);
-        assert_eq!(dmi.board_serial, mock.gpu[0].serial_number);
-
-        assert_eq!(discovery.gpus.len(), 4);
-        assert_eq!(
-            discovery
-                .gpus
-                .iter()
-                .map(|gpu| gpu.pci_bus_id.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "00000008:06:00.0",
-                "00000009:06:00.0",
-                "00000018:06:00.0",
-                "00000019:06:00.0",
-            ]
-        );
-        assert!(discovery.gpus.iter().all(|gpu| gpu.name == "NVIDIA GB300"));
-        assert_eq!(
-            discovery
-                .gpus
-                .iter()
-                .map(|gpu| {
-                    gpu.platform_info
-                        .as_ref()
-                        .expect("GPU platform info")
-                        .module_id
-                })
-                .collect::<Vec<_>>(),
-            [2, 1, 4, 3]
-        );
-        assert_eq!(
-            discovery
-                .gpus
-                .iter()
-                .map(|gpu| {
-                    gpu.platform_info
-                        .as_ref()
-                        .expect("GPU platform info")
-                        .fabric_guid
-                        .as_str()
-                })
-                .collect::<std::collections::HashSet<_>>()
-                .len(),
-            4
-        );
-
-        assert_eq!(discovery.memory_devices.len(), 2);
-        assert!(discovery.memory_devices.iter().all(|memory| {
-            memory.size_mb == Some(491520) && memory.mem_type.as_deref() == Some("LPDDR5")
-        }));
-        assert!(discovery.dpu_info.is_none());
-        assert!(discovery.tpm_ek_certificate.is_none());
-        assert!(discovery.attest_key_info.is_none());
-        let tpm = discovery.tpm_description.as_ref().expect("TPM description");
-        assert_eq!(tpm.vendor, "Could not convert spec_version672");
-        assert_eq!(tpm.firmware_version, "0xf0018.0x4a0a00");
-        assert_eq!(tpm.tpm_spec, "2.0");
     }
 }

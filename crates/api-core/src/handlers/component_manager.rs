@@ -29,7 +29,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
-use component_manager::component_manager::ComponentManager;
+use component_manager::component_manager::{ComponentManager, SwitchMaintenanceRequestResult};
 use component_manager::compute_tray_manager::{ComputeTrayEndpoint, ComputeTrayVendor};
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
@@ -50,7 +50,6 @@ use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use model::switch::SwitchMaintenanceOperation;
 use tonic::{Code, Request, Response, Status};
 
-use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::handlers::firmware::load_desired_firmware_version_entries;
 
@@ -69,7 +68,7 @@ fn unsupported_from_json_firmware_versions(target: &str) -> Status {
     ))
 }
 
-fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
+pub(crate) fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
     match err {
         ComponentManagerError::Unavailable(msg) => Status::unavailable(msg),
         ComponentManagerError::NotFound(msg) => Status::not_found(msg),
@@ -323,61 +322,43 @@ fn map_power_shelf_maintenance_operation(
 
 async fn queue_switch_power_control_via_state_controller(
     api: &Api,
+    cm: &ComponentManager,
     switch_ids: &[SwitchId],
     action: PowerAction,
 ) -> Result<Vec<rpc::ComponentResult>, Status> {
     let operation = map_switch_maintenance_operation(action);
-    queue_switch_maintenance_via_state_controller(api, switch_ids, operation).await
+    queue_switch_maintenance_via_state_controller(api, cm, switch_ids, operation).await
 }
 
 async fn queue_switch_maintenance_via_state_controller(
     api: &Api,
+    cm: &ComponentManager,
     switch_ids: &[SwitchId],
     operation: SwitchMaintenanceOperation,
 ) -> Result<Vec<rpc::ComponentResult>, Status> {
-    let mut txn = api.txn_begin().await?;
-    let existing = db::switch::find_by(
-        &mut txn,
-        db::ObjectColumnFilter::List(db::switch::IdColumn, switch_ids),
-    )
-    .await
-    .map_err(CarbideError::from)?;
-
-    let by_id: HashMap<SwitchId, model::switch::Switch> =
-        existing.into_iter().map(|sw| (sw.id, sw)).collect();
-    let mut results = Vec::with_capacity(switch_ids.len());
-
-    for switch_id in switch_ids {
-        let Some(switch) = by_id.get(switch_id) else {
-            results.push(error_result(
-                &switch_id.to_string(),
-                format!("switch {switch_id} not found"),
-            ));
-            continue;
-        };
-
-        if switch.is_marked_as_deleted() {
-            results.push(error_result(
-                &switch_id.to_string(),
-                format!("switch {switch_id} is marked for deletion"),
-            ));
-            continue;
-        }
-
-        db::switch::set_switch_maintenance_requested(
-            &mut txn,
-            *switch_id,
-            "component-manager",
+    let results = cm
+        .request_switch_maintenance_via_state_controller(
+            &api.database_connection,
+            switch_ids,
             operation,
+            "component-manager",
         )
         .await
-        .map_err(CarbideError::from)?;
+        .map_err(component_manager_error_to_status)?;
 
-        results.push(success_result(&switch_id.to_string()));
+    Ok(results
+        .iter()
+        .map(switch_maintenance_request_result_to_component_result)
+        .collect())
+}
+
+fn switch_maintenance_request_result_to_component_result(
+    result: &SwitchMaintenanceRequestResult,
+) -> rpc::ComponentResult {
+    match &result.error {
+        Some(error) => error_result(&result.switch_id.to_string(), error.clone()),
+        None => success_result(&result.switch_id.to_string()),
     }
-
-    txn.commit().await?;
-    Ok(results)
 }
 
 async fn queue_power_shelf_power_control_via_state_controller(
@@ -1509,7 +1490,8 @@ pub(crate) async fn component_power_control(
         rpc::component_power_control_request::Target::SwitchIds(list) => {
             if cm.nv_switch_use_state_controller && !bypass_state_controller {
                 let results =
-                    queue_switch_power_control_via_state_controller(api, &list.ids, action).await?;
+                    queue_switch_power_control_via_state_controller(api, cm, &list.ids, action)
+                        .await?;
                 (results, Vec::new())
             } else {
                 let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
@@ -1727,6 +1709,7 @@ pub(crate) async fn component_configure_switch_certificate(
     if cm.nv_switch_use_state_controller && !bypass_state_controller {
         let results = queue_switch_maintenance_via_state_controller(
             api,
+            cm,
             &switch_ids.ids,
             SwitchMaintenanceOperation::ReconfigureCertificate,
         )

@@ -1464,9 +1464,7 @@ pub async fn create_test_env_with_overrides(
         db_pool.clone(),
         test_meter.meter(),
         config.nvlink_config.clone().unwrap(),
-        rms_sim.as_rms_client(),
-        composite_manager.clone(),
-        config.rack_profiles.clone(),
+        test_component_manager.clone(),
         api.work_lock_manager_handle.clone(),
     );
 

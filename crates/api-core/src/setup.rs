@@ -1564,9 +1564,7 @@ async fn initialize_and_start_controllers<'a>(
         meter: meter.clone(),
         config: carbide_config.nvlink_config.clone().unwrap_or_default(),
         host_health: carbide_config.host_health,
-        rms_client: api_service.rms_client.clone(),
-        credential_manager: api_service.credential_manager.clone(),
-        rack_profiles: carbide_config.rack_profiles.clone(),
+        component_manager: api_service.component_manager.clone().map(Arc::new),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
     })
     .start(join_set, cancel_token.clone())?;

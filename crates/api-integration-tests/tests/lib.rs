@@ -1129,52 +1129,67 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     "Force-deleted machine; awaiting re-ingestion as NicMode",
                 );
 
-                // 4. Wait for the host to re-ingest as a zero-managed-DPU machine,
-                //    asserted directly against the database. The host's TPM-derived
-                //    MachineId is deterministic (a hash of its EK cert), so the
-                //    re-ingested host resurrects under the SAME id captured before
-                //    the flip -- the machine-a-tron handle's observed id is cleared
-                //    by the force-delete, so we key off the captured id. First
-                //    confirm the re-ingest milestone (the host row is back with its
-                //    NIC and no managed DPU); step 5 then drives it all the way to
-                //    Ready. Allow generous time for the rate-limited flip
-                //    power-cycle plus full rediscovery.
+                // 4. Wait for the physical host to re-ingest as a zero-managed-DPU
+                //    machine, asserted directly against the database. Zero-DPU
+                //    ingestion initially mints an `fm100ps...` predicted host ID
+                //    from the host serial. Later host discovery supplies the TPM
+                //    identity and atomically promotes that row back to its stable
+                //    `fm100ht...` ID. Follow the BMC MAC across that rename instead
+                //    of requiring promotion to have happened before declaring the
+                //    re-ingestion milestone complete.
                 let host_id = initial_machine_id.to_string();
                 let pool = &test_env.db_pool;
                 let reingest_deadline = time::Instant::now() + Duration::from_secs(180);
                 loop {
-                    // The host row is back under its stable TPM-derived id.
-                    let host_exists: bool =
-                        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM machines WHERE id = $1)")
-                            .bind(&host_id)
-                            .fetch_one(pool)
-                            .await?;
-                    // It re-ingested with at least one data-plane (non-BMC) NIC.
-                    let nic_count: i64 = sqlx::query_scalar(
-                        "SELECT COUNT(*) FROM machine_interfaces \
-                         WHERE machine_id = $1 AND interface_type != 'Bmc'",
+                    // The machine ID may still be predicted here. The BMC MAC is
+                    // the stable physical identity throughout re-ingestion.
+                    let current_host_id: Option<String> = sqlx::query_scalar(
+                        "SELECT machine_id FROM machine_interfaces \
+                         WHERE interface_type = 'Bmc' \
+                         AND machine_id IS NOT NULL \
+                         AND mac_address = $1::macaddr",
                     )
-                    .bind(&host_id)
-                    .fetch_one(pool)
+                    .bind(&bmc_mac)
+                    .fetch_optional(pool)
                     .await?;
+                    // It re-ingested with at least one data-plane (non-BMC) NIC.
+                    let nic_count: i64 = if let Some(current_host_id) = &current_host_id {
+                        sqlx::query_scalar(
+                            "SELECT COUNT(*) FROM machine_interfaces \
+                             WHERE machine_id = $1 AND interface_type != 'Bmc'",
+                        )
+                        .bind(current_host_id)
+                        .fetch_one(pool)
+                        .await?
+                    } else {
+                        0
+                    };
                     // Zero managed DPUs: no data-plane interface still points at a
                     // DPU (any non-null `attached_dpu_machine_id`), so the BlueField
                     // flipped to NIC mode and is no longer managed. Count attachments
                     // directly instead of joining `machines`, so a stale attachment
                     // pointing at an already-deleted DPU row still counts.
-                    let managed_dpu_count: i64 = sqlx::query_scalar(
-                        "SELECT COUNT(*) FROM machine_interfaces \
-                         WHERE machine_id = $1 \
-                         AND interface_type != 'Bmc' \
-                         AND attached_dpu_machine_id IS NOT NULL",
-                    )
-                    .bind(&host_id)
-                    .fetch_one(pool)
-                    .await?;
+                    let managed_dpu_count: i64 = if let Some(current_host_id) = &current_host_id {
+                        sqlx::query_scalar(
+                            "SELECT COUNT(*) FROM machine_interfaces \
+                             WHERE machine_id = $1 \
+                             AND interface_type != 'Bmc' \
+                             AND attached_dpu_machine_id IS NOT NULL",
+                        )
+                        .bind(current_host_id)
+                        .fetch_one(pool)
+                        .await?
+                    } else {
+                        0
+                    };
 
-                    if host_exists && nic_count >= 1 && managed_dpu_count == 0 {
+                    if let Some(current_host_id) = &current_host_id
+                        && nic_count >= 1
+                        && managed_dpu_count == 0
+                    {
                         tracing::info!(
-                            host_machine_id = %host_id,
+                            host_machine_id = %current_host_id,
+                            stable_host_machine_id = %host_id,
                             nic_interface_count = nic_count,
                             "Host re-ingested as a zero-managed-DPU machine; DPU-to-NIC flip applied",
                         );
@@ -1182,16 +1197,19 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     }
                     if time::Instant::now() >= reingest_deadline {
                         panic!(
-                            "host {host_id} did not re-ingest as a zero-managed-DPU NicMode machine \
-                             within the timeout (host_exists={host_exists}, nic_count={nic_count}, \
+                            "host with BMC MAC {bmc_mac} did not re-ingest as a zero-managed-DPU \
+                             NicMode machine within the timeout (stable_host_id={host_id}, \
+                             current_host_id={current_host_id:?}, nic_count={nic_count}, \
                              managed_dpu_count={managed_dpu_count})"
                         );
                     }
                     sleep(Duration::from_secs(2)).await;
                 }
 
-                // 5. Drive the re-ingested NicMode host all the way to Ready --
-                //    the host BMC now serves an event log so the controller's
+                // 5. Drive the re-ingested NicMode host all the way to Ready and
+                //    verify that discovery promoted its predicted ID back to the
+                //    original stable TPM-derived ID. The host BMC now serves an
+                //    event log so the controller's
                 //    restart verification can confirm reboots, and the zero-DPU
                 //    lockdown short-circuit lets it skip the DPU-down wait.
                 tracing::info!(
@@ -1200,17 +1218,41 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                 );
                 let ready_deadline = time::Instant::now() + Duration::from_secs(240);
                 loop {
+                    let current_host_id: Option<String> = sqlx::query_scalar(
+                        "SELECT machine_id FROM machine_interfaces \
+                         WHERE interface_type = 'Bmc' \
+                         AND machine_id IS NOT NULL \
+                         AND mac_address = $1::macaddr",
+                    )
+                    .bind(&bmc_mac)
+                    .fetch_optional(pool)
+                    .await?;
+                    let Some(current_host_id) = current_host_id else {
+                        if time::Instant::now() >= ready_deadline {
+                            panic!(
+                                "re-ingested NicMode host with BMC MAC {bmc_mac} disappeared \
+                                 before reaching Ready"
+                            );
+                        }
+                        sleep(Duration::from_secs(2)).await;
+                        continue;
+                    };
                     let resp = api_test_helper::grpcurl::grpcurl(
                         carbide_api_addrs,
                         "FindMachinesByIds",
-                        Some(&serde_json::json!({ "machine_ids": [{"id": host_id}] })),
+                        Some(&serde_json::json!({ "machine_ids": [{"id": current_host_id}] })),
                     )
                     .await?;
                     let resp: serde_json::Value = serde_json::from_str(&resp)?;
                     let state = resp["machines"][0]["state"].as_str().unwrap_or("");
                     if state == "Ready" {
+                        eyre::ensure!(
+                            current_host_id == host_id,
+                            "re-ingested NicMode host reached ready without promotion to its \
+                             original stable ID (current={current_host_id}, expected={host_id})"
+                        );
                         tracing::info!(
-                            host_machine_id = %host_id,
+                            host_machine_id = %current_host_id,
                             machine_state = state,
                             "Re-ingested NicMode host reached Ready",
                         );
@@ -1218,7 +1260,9 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                     }
                     if time::Instant::now() >= ready_deadline {
                         panic!(
-                            "re-ingested NicMode host {host_id} did not reach Ready within the timeout (last state: {state})"
+                            "Re-ingested NicMode host with BMC MAC {bmc_mac} did not reach Ready \
+                             within the timeout (current_host_id={current_host_id}, \
+                             stable_host_id={host_id}, last_state={state})"
                         );
                     }
                     sleep(Duration::from_secs(2)).await;
@@ -1506,7 +1550,7 @@ where
         mac_address_pool: None,
     };
 
-    let (machine_handles, _mat_handle) = api_test_helper::machine_a_tron::run_local(
+    let (machine_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(
         mat_config,
         additional_api_urls,
         &test_env.root_dir,
@@ -1517,9 +1561,13 @@ where
     .unwrap();
 
     let results = join_all(machine_handles.into_iter().map(run_assertions)).await;
-    assert_eq!(results.len(), host_count as usize);
+    let result_count = results.len();
+    let assertion_result: eyre::Result<()> = results.into_iter().try_collect();
+    let shutdown_result = mat_handle.shutdown().await;
 
-    results.into_iter().try_collect()
+    assert_eq!(result_count, host_count as usize);
+    assertion_result?;
+    shutdown_result
 }
 
 // Get the current number of rows in the dns_records view,

@@ -408,26 +408,4 @@ mod test {
             other => panic!("expected invalid response error, got: {other}"),
         }
     }
-
-    #[test]
-    fn lenovo_gb300_discovery_includes_dpu_host_interface() {
-        let machine = host_info(HostHardwareType::LenovoGB300Nvl);
-        let expected_mac = match &machine {
-            MachineInfo::Host(host) => host.primary_dpu().unwrap().host_mac_address.to_string(),
-            MachineInfo::Dpu(_) => unreachable!("Lenovo GB300 must be a host"),
-        };
-
-        let interfaces = machine.discovery_info().network_interfaces;
-        assert_eq!(interfaces.len(), 12);
-        let dpu_interface = interfaces
-            .iter()
-            .find(|interface| interface.mac_address == expected_mac)
-            .expect("discovery must include the DPU host interface");
-        let pci = dpu_interface
-            .pci_properties
-            .as_ref()
-            .expect("DPU host interface must include PCI properties");
-        assert!(pci.vendor.to_ascii_lowercase().contains("mellanox"));
-        assert_eq!(pci.slot.as_deref(), Some("0016:01:00.0"));
-    }
 }

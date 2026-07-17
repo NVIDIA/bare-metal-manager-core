@@ -751,6 +751,35 @@ jobs:
               ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide@${{ needs.build-release-container-x86_64.outputs.image_digest }} \
               ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64@${{ needs.build-release-container-aarch64.outputs.image_digest }}
 
+  build-machine-a-tron:
+    if: >-
+      ${{
+        always()
+        && github.event_name != 'schedule'
+        && needs.prepare.result == 'success'
+        && needs.prepare.outputs.source_files_changed == 'true'
+      }}
+    needs:
+      - prepare
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: crates/machine-a-tron/Dockerfile
+      context_path: .
+      build_args: >-
+        ${{ format('{{"VERSION":"{0}","CI_COMMIT_SHORT_SHA":"{1}"}}',
+          needs.prepare.outputs.version,
+          needs.prepare.outputs.short_sha) }}
+      image_name: ${{ needs.prepare.outputs.image_registry }}/machine-a-tron
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/amd64
+      runner: linux-amd64-cpu16
+      push: ${{ needs.prepare.outputs.publish_images == 'true' }}
+      load: true
+      scan: true
+      tag_latest: false
+      timeout_minutes: 60
+    secrets: inherit
+
   test-release-container-services:
     if: >-
       ${{
@@ -1744,6 +1773,7 @@ jobs:
       - build-artifacts-container-aarch64
       - build-release-container-x86_64
       - build-release-container-aarch64
+      - build-machine-a-tron
       - test-release-container-services
       - build-boot-artifacts-x86
       - build-boot-artifacts-bfb
@@ -1844,6 +1874,7 @@ jobs:
     runs-on: linux-amd64-cpu4
     needs:
       - build-release-container-x86_64
+      - build-machine-a-tron
       - build-forge-cli-x86_64
       - build-release-artifacts-x86-host
       - build-release-artifacts-arm-host
@@ -1874,6 +1905,7 @@ jobs:
       - build-artifacts-container-aarch64
       - build-release-container-x86_64
       - build-release-container-aarch64
+      - build-machine-a-tron
       - test-release-container-services
       - build-boot-artifacts-x86
       - build-boot-artifacts-bfb

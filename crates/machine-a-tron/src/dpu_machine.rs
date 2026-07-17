@@ -506,8 +506,23 @@ impl DpuMachineHandle {
     }
 
     pub fn abort(&self) {
-        if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
-            join_handle.abort();
+        _ = self.abort_task();
+    }
+
+    pub(crate) fn abort_task(&self) -> Option<JoinHandle<()>> {
+        let join_handle = self.0.join_handle.lock().unwrap().take()?;
+        join_handle.abort();
+        Some(join_handle)
+    }
+
+    pub async fn abort_and_wait(&self) -> eyre::Result<()> {
+        if let Some(join_handle) = self.abort_task() {
+            match join_handle.await {
+                Ok(()) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => return Err(error.into()),
+            }
         }
+        Ok(())
     }
 }

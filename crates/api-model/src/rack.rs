@@ -745,7 +745,7 @@ impl std::fmt::Display for MaintenanceActivity {
 /// Specifies which devices in the rack should be included in an on-demand
 /// maintenance cycle. When all three device-id lists are empty, the full rack
 /// is maintained.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MaintenanceScope {
     #[serde(default)]
     pub machine_ids: Vec<MachineId>,

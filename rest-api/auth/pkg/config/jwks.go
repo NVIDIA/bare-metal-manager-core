@@ -81,6 +81,9 @@ type ClaimMapping struct {
 	// Roles: static role list. Used when RolesAttribute is empty and IsServiceAccount is false.
 	Roles []string `mapstructure:"roles"`
 
+	// Audiences: optional token audiences allowed to authorize this mapping. Any one exact match is sufficient.
+	Audiences []string `mapstructure:"audiences"`
+
 	// IsServiceAccount: if true, assigns admin roles (PROVIDER_ADMIN, TENANT_ADMIN). Ignores RolesAttribute/Roles.
 	IsServiceAccount bool `mapstructure:"isServiceAccount"`
 }
@@ -534,18 +537,24 @@ func (jcfg *JwksConfig) GetSubjectPrefix() string {
 	return jcfg.subjectPrefix
 }
 
-// ValidateAudience checks token has at least one configured audience. Returns nil if none configured.
-func (jcfg *JwksConfig) ValidateAudience(claims jwt.MapClaims) error {
-	if len(jcfg.Audiences) == 0 {
-		return nil
+// hasAnyAudience checks if the token has any of the configured audiences.
+func (jcfg *JwksConfig) hasAnyAudience(claims jwt.MapClaims, audiences []string) bool {
+	if audiences == nil || len(audiences) == 0 {
+		return true
 	}
+
 	tokenAudiences, err := claims.GetAudience()
 	if err != nil {
-		return core.ErrInvalidAudience
+		return false
 	}
 	tokenAudSet := mapset.NewSet([]string(tokenAudiences)...)
-	requiredAudSet := mapset.NewSet(jcfg.Audiences...)
-	if tokenAudSet.Intersect(requiredAudSet).Cardinality() == 0 {
+	allowedAudSet := mapset.NewSet(audiences...)
+	return tokenAudSet.Intersect(allowedAudSet).Cardinality() > 0
+}
+
+// ValidateAudience checks token has at least one configured audience. Returns nil if none configured.
+func (jcfg *JwksConfig) ValidateAudience(claims jwt.MapClaims) error {
+	if !jcfg.hasAnyAudience(claims, jcfg.Audiences) {
 		return core.ErrInvalidAudience
 	}
 	return nil
@@ -568,6 +577,7 @@ func (jcfg *JwksConfig) ValidateScopes(claims jwt.MapClaims) error {
 // GetOrgDataFromClaim extracts org data for the requested org from claim mappings.
 // This method validates org access and returns errors if:
 //   - core.ErrReservedOrgName: dynamic org claims a statically-configured org name
+//   - core.ErrInvalidAudience: token audience is not authorized for the requested org
 //   - core.ErrInvalidConfiguration: no claim mapping configured for the requested org
 //   - core.ErrNoClaimRoles: no roles found for the requested org
 //
@@ -583,6 +593,10 @@ func (jcfg *JwksConfig) GetOrgDataFromClaim(claims jwt.MapClaims, reqOrgFromRout
 
 		if cm.IsOrgDynamic() && jcfg.ReservedOrgNames != nil && jcfg.ReservedOrgNames[orgName] {
 			return nil, false, core.ErrReservedOrgName
+		}
+
+		if !jcfg.hasAnyAudience(claims, cm.Audiences) {
+			return nil, false, core.ErrInvalidAudience
 		}
 
 		roles, err := cm.GetRoles(claims)

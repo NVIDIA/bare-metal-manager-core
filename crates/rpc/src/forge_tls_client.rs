@@ -89,6 +89,8 @@ pub struct ForgeClientConfig {
     pub root_ca_path: String,
     pub client_cert: Option<ClientCert>,
     pub enforce_tls: bool,
+    #[cfg(feature = "test-support")]
+    pub suppress_insecure_tls_warning: bool,
     pub use_mgmt_vrf: bool,
     pub max_decoding_message_size: Option<usize>,
     pub socks_proxy: Option<String>,
@@ -110,6 +112,8 @@ impl ForgeClientConfig {
             root_ca_path,
             client_cert,
             enforce_tls: !disabled,
+            #[cfg(feature = "test-support")]
+            suppress_insecure_tls_warning: false,
             use_mgmt_vrf: false,
             max_decoding_message_size,
             socks_proxy: None,
@@ -524,11 +528,17 @@ impl<'a> ForgeTlsClient<'a> {
                 if self.forge_client_config.enforce_tls {
                     base_config_builder().with_root_certificates(roots)
                 } else {
+                    #[cfg(feature = "test-support")]
+                    let verifier = if self.forge_client_config.suppress_insecure_tls_warning {
+                        DummyTlsVerifier::new_for_tests()
+                    } else {
+                        DummyTlsVerifier::new_for_prod()
+                    };
+                    #[cfg(not(feature = "test-support"))]
+                    let verifier = DummyTlsVerifier::new_for_prod();
                     base_config_builder()
                         .dangerous()
-                        .with_custom_certificate_verifier(
-                            Arc::new(DummyTlsVerifier::new_for_prod()),
-                        )
+                        .with_custom_certificate_verifier(Arc::new(verifier))
                 }
             };
 

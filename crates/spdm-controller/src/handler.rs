@@ -337,7 +337,8 @@ enum AttestedDeviceType {
 /// certificates, and the nonce are never put on a label or in the log line.
 #[derive(Event)]
 #[event(
-    name = "carbide_attestation_total",
+    event_name = "attestation_performed",
+    metric_name = "carbide_attestation_total",
     component = "carbide-spdm-controller",
     log = dynamic,
     metric = counter,

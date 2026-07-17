@@ -739,6 +739,28 @@ impl HostMachineHandle {
         }
     }
 
+    pub async fn abort_and_wait(&self) -> eyre::Result<()> {
+        let mut join_handles = self
+            .0
+            .dpus
+            .iter()
+            .filter_map(DpuMachineHandle::abort_task)
+            .collect::<Vec<_>>();
+        if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
+            join_handle.abort();
+            join_handles.push(join_handle);
+        }
+
+        for join_handle in join_handles {
+            match join_handle.await {
+                Ok(()) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
     pub fn bmc_ssh_host_pubkey(&self) -> Option<String> {
         self.0.live_state.read().unwrap().ssh_host_key.clone()
     }
