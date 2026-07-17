@@ -189,6 +189,7 @@ impl<B: Bmc> ExploredManager<B> {
                     && is_locally_administered_mac(mac)
                 {
                     tracing::warn!(
+                        target: "carbide_diagnostics::locally_administered_mac",
                         manager_id = %self.manager.id().inner(),
                         eth0_mac_address = %mac,
                         "manager eth0 MAC is locally-administered (transient pre-sync data?)",

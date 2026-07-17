@@ -171,7 +171,8 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
 /// steady tick is a rate, not news, so the per-refresh log line retires.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_api_tls_cert_refreshes_total",
+    event_name = "api_tls_certs_refreshed",
+    metric_name = "carbide_api_tls_cert_refreshes_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -184,7 +185,8 @@ struct TlsCertsRefreshed;
 /// news.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_api_tls_connection_attempted_total",
+    event_name = "api_tls_connection_attempted",
+    metric_name = "carbide_api_tls_connection_attempted_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -196,7 +198,8 @@ struct TlsConnectionAttempted;
 /// connection was handed to the HTTP stack. Counted, never logged.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_api_tls_connection_success_total",
+    event_name = "api_tls_connection_succeeded",
+    metric_name = "carbide_api_tls_connection_success_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -225,7 +228,8 @@ enum ConnectionFailReason {
 /// distinguishes which leg failed.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_api_tls_connection_fail_total",
+    event_name = "api_tls_connection_failed",
+    metric_name = "carbide_api_tls_connection_fail_total",
     component = "nico-api",
     log = off,
     metric = counter,

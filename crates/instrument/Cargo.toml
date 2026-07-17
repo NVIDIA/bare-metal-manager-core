@@ -47,6 +47,7 @@ test-support = [
 carbide-instrument = { path = ".", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 futures-util = { workspace = true }
+logfmt = { path = "../logfmt" }
 
 [lints]
 workspace = true

@@ -221,6 +221,10 @@ pub struct MachineATronConfig {
     #[serde(default = "default_false")]
     pub mock_bmc_ssh_server: bool,
 
+    /// Opt in to an independent IPMI/SOL simulator for each IPMI-capable host BMC.
+    #[serde(default = "default_false")]
+    pub enable_ipmi_simulation: bool,
+
     /// Set this to configure the port to use when mocking a BMC SSH server. If unset and
     /// use_single_bmc_mock is true, it will pick a random port. If unset and use_single_bmc_mock
     /// is false, it will use port 2222 for each IP alias. (Port 22 is problematic because it
@@ -602,6 +606,11 @@ scout_run_interval = "5s"
         let round_tripped = toml::from_str::<MachineATronConfig>(&serialized)
             .expect("Could not deserialize serialized config");
         assert_eq!(round_tripped, cfg);
+    }
+
+    #[test]
+    fn ipmi_simulation_is_disabled_by_default() {
+        assert!(!rack_config().enable_ipmi_simulation);
     }
 
     #[test]

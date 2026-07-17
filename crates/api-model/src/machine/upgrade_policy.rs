@@ -163,21 +163,21 @@ impl<'a> TryFrom<&'a str> for BuildVersion<'a> {
 
     fn try_from(s: &'_ str) -> Result<BuildVersion<'_>, Self::Error> {
         if s.is_empty() {
-            eyre::bail!("Build version is empty");
+            eyre::bail!("build version is empty");
         }
         if !s.starts_with('v') {
-            eyre::bail!("Build version should start with a 'v'");
+            eyre::bail!("build version should start with a 'v'");
         }
         let parts = s[1..].split('-').collect::<Vec<&str>>();
         if parts.is_empty() || parts[0].is_empty() {
-            eyre::bail!("Build version should have a version number after 'v'");
+            eyre::bail!("build version should have a version number after 'v'");
         }
         // Validate that the first part looks like a version (date or semver)
         // Date: 2023.08, 2024.05.02
         // Semver: 0.0.4, 1.2.3
         let first_char = parts[0].chars().next().unwrap();
         if !first_char.is_ascii_digit() {
-            eyre::bail!("Build version should start with a digit after 'v'");
+            eyre::bail!("build version should start with a digit after 'v'");
         }
         match parts.len() {
             // Tag only. The tag is <year>.<month> or semver. e.g:
@@ -240,7 +240,7 @@ impl<'a> TryFrom<&'a str> for BuildVersion<'a> {
                 git_hash: parts[4],
             }),
             n => {
-                eyre::bail!("Invalid build version. Has {n} dash-separated parts.")
+                eyre::bail!("invalid build version. has {n} dash-separated parts")
             }
         }
     }

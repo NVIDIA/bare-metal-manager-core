@@ -374,7 +374,7 @@ Install the binaries with `make nico-cli` and `make nico-mcp`, run from the `res
 - **Read-only.** Only `GET` operations are exposed. Mutating routes (`POST`, `PATCH`, `PUT`, `DELETE`) are intentionally excluded.
 - **Tool naming.** Tools are named `nico_<snake_case(operationId)>` (e.g. `nico_get_all_site`, `nico_validate_rack`).
 - **Stateless and request/response only.** The server sets `Stateless: true` and `JSONResponse: true` on the MCP streamable-HTTP handler -- responses are always `Content-Type: application/json`, never `text/event-stream`, and the server retains no per-session state.
-- **JWT passthrough.** The `Authorization: Bearer <jwt>` header on the inbound MCP request is forwarded unchanged to NICo REST. NICo REST validates the JWT, resolves the caller org, and enforces role-based authorization. The MCP layer never makes the authz decision itself.
+- **JWT passthrough.** The `Authorization: Bearer <jwt>` header on the inbound MCP request is forwarded unchanged only to the server's configured NICo REST base URL. NICo REST validates the JWT, resolves the caller org, and enforces role-based authorization. The MCP layer never makes the authz decision itself.
 
 ### Flags
 
@@ -384,11 +384,11 @@ Install the binaries with `make nico-cli` and `make nico-mcp`, run from the `res
 | `--path` | `NICO_MCP_PATH` | HTTP path the MCP handler is mounted at (default `/mcp`) |
 | `--shutdown-timeout` | `NICO_MCP_SHUTDOWN_TIMEOUT` | Graceful shutdown timeout (default `10s`) |
 
-`--base-url`, `--org`, `--api-name`, and `--token` are accepted directly by `nico-mcp` and provide optional server-side defaults; each also reads its `NICO_*` environment variable. The MCP server does **not** read `~/.nico/config.yaml`: it is stateless and entirely parameter-driven, so it starts cleanly with no config file present and every connection detail is supplied per tool call (see below), falling back to these flags only when an argument is omitted.
+`--base-url`, `--org`, `--api-name`, and `--token` are accepted directly by `nico-mcp`; each also reads its `NICO_*` environment variable. `--base-url` pins the trusted NICo REST destination, so a per-call `base_url` must match it when configured. Without `--base-url`, a tool call may select its destination and proceed without credentials or with an explicit per-call token; only inherited credentials from the inbound Authorization header or server default token are rejected rather than forwarded. The MCP server does **not** read `~/.nico/config.yaml` and starts cleanly with no config file present.
 
-### Per-call config overrides
+### Per-call config
 
-Every typical config value can also be passed as an argument on each MCP tool call, layered on top of the server defaults:
+Connection values can be passed on each MCP tool call. `org`, `api_name`, and `token` override server defaults; `base_url` supplies the destination only when no server base URL is configured and otherwise must match it:
 
 | Tool arg | Equivalent flag | Config field |
 |----------|-----------------|--------------|
@@ -397,7 +397,7 @@ Every typical config value can also be passed as an argument on each MCP tool ca
 | `api_name` | `--api-name` | `api.name` |
 | `token` | `--token` | `auth.token` |
 
-Precedence per tool call (first non-empty wins): tool argument -> inbound `Authorization` header (token only) -> server startup flag/env. The MCP server does not read the on-disk config file. OIDC credentials and NGC api_key settings are NOT exposed as tool arguments -- they are login-flow inputs configured server-side via flags/env.
+Token precedence per tool call is: tool argument -> inbound `Authorization` header -> server startup flag/env. Inbound and startup tokens are eligible only when a server base URL is configured; a caller-selected destination can use an explicit per-call token or no token. The MCP server does not read the on-disk config file or resolve OIDC and NGC credentials; clients or an upstream gateway must supply the resolved bearer through the per-call `token` argument or inbound `Authorization` header.
 
 ### Probing the server
 

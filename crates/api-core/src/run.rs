@@ -351,7 +351,7 @@ pub async fn run(
             "memory" => Arc::new(MemoryCredentialStore::default()),
             other => {
                 return Err(eyre::eyre!(
-                    "Invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
+                    "invalid CARBIDE_CREDENTIAL_STORE value {other:?}: expected \"vault\" or \"memory\""
                 ));
             }
         };
@@ -481,9 +481,9 @@ fn build_kms_backend(
                 // roots and fails TLS against a site-CA-signed vault.
                 let vault_settings =
                     carbide_secrets::create_raw_vault_client_settings(vault_config).wrap_err(
-                        "building the Transit KMS vault client (Transit requires a static \
-                         VAULT_TOKEN; the Kubernetes service-account login flow is not \
-                         supported for Transit yet)",
+                        "building the transit KMS vault client (transit requires a static \
+                         VAULT_TOKEN; the kubernetes service-account login flow is not \
+                         supported for transit yet)",
                     )?;
                 let vault_client = Arc::new(
                     vaultrs::client::VaultClient::new(vault_settings)
@@ -631,7 +631,7 @@ async fn import_vault_secrets_once(
     if vault_secrets.is_empty() {
         return Err(eyre::eyre!(
             "vault enumeration returned no secrets; refusing to record an import from an \
-             empty vault. If this site really has no vault secrets, remove import_from \
+             empty vault. if this site really has no vault secrets, remove import_from \
              from the [secrets] config; otherwise fix vault and restart"
         ));
     }

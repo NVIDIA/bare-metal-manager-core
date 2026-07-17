@@ -173,7 +173,7 @@ pub async fn create_with_vpc_prefixes(
 
     let v4_id = vpc_prefix_ids
         .first()
-        .ok_or_else(|| eyre::eyre!("At least one VPC prefix ID required"))?;
+        .ok_or_else(|| eyre::eyre!("at least one VPC prefix ID required"))?;
 
     let mut iface = serde_json::json!({
         "function_type": "PHYSICAL",
@@ -373,7 +373,7 @@ pub async fn wait_for_instance_state(
     }
 
     eyre::bail!(
-        "Even after {MAX_WAIT:?} time, {instance_id} did not reach state {target_state}\n
-        Latest state: {latest_state}"
+        "even after {MAX_WAIT:?} time, {instance_id} did not reach state {target_state}\n
+        latest state: {latest_state}"
     );
 }

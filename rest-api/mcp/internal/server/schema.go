@@ -14,7 +14,7 @@ import (
 
 // NicoOpenApiHandler builds the MCP tool input schema for a single OpenAPI
 // GET operation, combining the path-item and operation-level parameters with
-// the common per-call config override fields.
+// the common per-call config fields.
 type NicoOpenApiHandler struct {
 	schema jsonschema.Schema
 }
@@ -49,9 +49,9 @@ func mergeParameters(item *openapi3.PathItem, op *openapi3.Operation) []*openapi
 }
 
 // buildInput populates the handler's schema from the operation's path and
-// query parameters merged with the four common config override fields (org,
+// query parameters merged with the four common config fields (org,
 // base_url, api_name, token) and returns it. Path parameters are required;
-// OpenAPI-required query parameters are required; the config overrides are
+// OpenAPI-required query parameters are required; the config fields are
 // always optional.
 func (h *NicoOpenApiHandler) buildInput(item *openapi3.PathItem, op *openapi3.Operation) *jsonschema.Schema {
 	props := map[string]*jsonschema.Schema{}

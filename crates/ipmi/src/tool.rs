@@ -62,9 +62,9 @@ impl IPMITool for IPMIToolImpl {
             .get_credentials(credential_key)
             .await
             .map_err(|e| {
-                eyre!("Secret engine getting credentilas for key {credential_key:#?}: {e:#?}")
+                eyre!("secret engine getting credentilas for key {credential_key:#?}: {e:#?}")
             })?
-            .ok_or_else(|| eyre!("No credentials for key {credential_key:#?} found"))?;
+            .ok_or_else(|| eyre!("no credentials for key {credential_key:#?} found"))?;
 
         match self
             .execute_ipmitool_command(IpmiCommand::BmcColdReset, bmc_ip, &credentials)
@@ -88,11 +88,11 @@ impl IPMITool for IPMIToolImpl {
             .await
             .map_err(|e| {
                 eyre!(
-                    "Secret engine error for machine {}: {e}",
+                    "secret engine error for machine {}: {e}",
                     machine_id.clone(),
                 )
             })?
-            .ok_or_else(|| eyre!("No credentials for machine {} found", machine_id.clone()))?;
+            .ok_or_else(|| eyre!("no credentials for machine {} found", machine_id.clone()))?;
 
         let mut errors: Vec<CmdError> = Vec::default();
 
@@ -120,7 +120,7 @@ impl IPMITool for IPMIToolImpl {
         Err(match result {
             None => {
                 // This should be impossible, right? We always call execute_ipmitool_command.
-                eyre::eyre!("No commands were successful and no error reported")
+                eyre::eyre!("no commands were successful and no error reported")
             }
             Some(err) => err.into(),
         })

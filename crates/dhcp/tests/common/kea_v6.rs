@@ -291,7 +291,7 @@ impl Kea6 {
 
         let (port, status) = last_exit.expect("at least one Kea6 start attempt should have run");
         Err(eyre::eyre!(
-            "Kea6 exited before binding DHCP port {port} after {KEA_START_ATTEMPTS} attempts: {status}"
+            "kea6 exited before binding DHCP port {port} after {KEA_START_ATTEMPTS} attempts: {status}"
         ))
     }
 
@@ -370,12 +370,12 @@ impl Kea6 {
                     break;
                 }
                 Ok(_) => {}
-                Err(e) => return Err(eyre::eyre!("Unexpected error probing Kea6 readiness: {e}")),
+                Err(e) => return Err(eyre::eyre!("unexpected error probing kea6 readiness: {e}")),
             }
             if Instant::now() >= deadline {
                 self.stop_process();
                 return Err(eyre::eyre!(
-                    "Kea6 did not bind DHCP port {} within {KEA_READY_TIMEOUT:?}",
+                    "kea6 did not bind DHCP port {} within {KEA_READY_TIMEOUT:?}",
                     self.dhcp_in_port
                 ));
             }
@@ -403,7 +403,7 @@ impl Kea6 {
             if Instant::now() >= deadline {
                 self.stop_process();
                 return Err(eyre::eyre!(
-                    "Kea6 did not bind metrics endpoint {} within {KEA_READY_TIMEOUT:?}",
+                    "kea6 did not bind metrics endpoint {} within {KEA_READY_TIMEOUT:?}",
                     self.metrics_endpoint
                 ));
             }
@@ -445,7 +445,7 @@ impl Kea6 {
         self.stop_process();
         self.logs.lock().unwrap().clear();
         match self.run_once()? {
-            Some(status) => Err(eyre::eyre!("Kea6 exited during restart: {status}")),
+            Some(status) => Err(eyre::eyre!("kea6 exited during restart: {status}")),
             None => {
                 self._run_permit = Some(run_permit);
                 Ok(())

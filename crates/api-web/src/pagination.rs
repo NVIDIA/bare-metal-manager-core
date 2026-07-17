@@ -114,6 +114,21 @@ impl PageContext {
         }
     }
 
+    /// Create a PageContext representing the "show all" view: a single page
+    /// holding every item. Used by handlers that opt into the `limit=0` "All"
+    /// pagination option and already know the total item count.
+    pub fn all(total_items: usize, path: impl Into<String>) -> Self {
+        Self {
+            info: PaginationInfo {
+                current_page: 0,
+                limit: 0,
+                total_items,
+            },
+            path: path.into(),
+            extra_query_params: String::new(),
+        }
+    }
+
     pub fn with_extra_params(mut self, extra: String) -> Self {
         self.extra_query_params = extra;
         self

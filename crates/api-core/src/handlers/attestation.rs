@@ -263,7 +263,7 @@ pub(crate) async fn attest_quote(
             Some(entry) => entry.ak_pub,
             None => {
                 return Err(CarbideError::AttestQuoteError(
-                    "Could not form SQL query to fetch AK Pub".into(),
+                    "could not form SQL query to fetch AK pub".into(),
                 )
                 .into());
             }

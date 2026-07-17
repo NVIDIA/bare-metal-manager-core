@@ -161,7 +161,8 @@ impl From<tonic::Code> for GrpcCode {
 /// non-retryable status, or the retry budget ran out.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_health_otlp_export_failures_total",
+    event_name = "otlp_export_failed",
+    metric_name = "carbide_health_otlp_export_failures_total",
     component = "nico-hardware-health",
     log = error,
     metric = counter,

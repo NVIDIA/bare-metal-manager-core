@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 
     let crd_paths = discover_yaml_files(&crd_dir)?;
     if crd_paths.is_empty() {
-        bail!("No CRD YAML files found in {}", crd_dir.display());
+        bail!("no CRD YAML files found in {}", crd_dir.display());
     }
 
     let generator = kopium::TypeGenerator::builder()
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
         let module_name = format!("{}_generated", crd.spec.names.plural.to_lowercase());
         if !generated_modules.insert(module_name.clone()) {
             bail!(
-                "Duplicate generated module name '{}' while processing {}",
+                "duplicate generated module name '{}' while processing {}",
                 module_name,
                 crd_path.display()
             );
@@ -77,7 +77,7 @@ fn main() -> Result<()> {
 
         let generated = generator
             .generate_rust_types_for(&crd, Some(format!("-f {}", crd_path.display())))
-            .with_context(|| format!("failed to generate Rust types for {}", crd_path.display()))?;
+            .with_context(|| format!("failed to generate rust types for {}", crd_path.display()))?;
 
         let output_path = out_dir.join(format!("{module_name}.rs"));
         fs::write(&output_path, generated)

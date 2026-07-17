@@ -51,6 +51,31 @@ tests:
             name: boot-artifacts
             mountPath: /forge-boot-artifacts/blobs/internal
 
+  - it: should build image from repository + tag when provided (new fields win)
+    set:
+      bootArtifactContainers:
+        - name: boot-artifacts-x86-64
+          repository: registry.example.com/boot-artifacts-x86_64
+          tag: v1.2.3
+          command: ["sh", "-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal"]
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: registry.example.com/boot-artifacts-x86_64:v1.2.3
+
+  - it: should ignore combined image when repository + tag are also set (new fields win)
+    set:
+      bootArtifactContainers:
+        - name: boot-artifacts-x86-64
+          repository: registry.example.com/boot-artifacts-x86_64
+          tag: v1.2.3
+          image: legacy.example.com/should-be-ignored:old
+          command: ["sh", "-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal"]
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: registry.example.com/boot-artifacts-x86_64:v1.2.3
+
   - it: should add boot-artifacts volume and mount on main container
     set:
       bootArtifactContainers:

@@ -287,7 +287,7 @@ impl RotatableLogFile {
 
 #[derive(thiserror::Error, Debug)]
 enum LogRotationError {
-    #[error("Invalid log file path: {path}")]
+    #[error("invalid log file path: {path}")]
     InvalidPath { path: PathBuf },
     #[error("error rotating logs: {context}: {error}")]
     Io { context: String, error: io::Error },

@@ -37,7 +37,8 @@ use metrics::MeasuredBootMetricsCollectorMetrics;
 /// pass costs as the site's measured-boot data grows.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_measured_boot_collector_iteration_latency_milliseconds",
+    event_name = "measured_boot_collector_iteration",
+    metric_name = "carbide_measured_boot_collector_iteration_latency_milliseconds",
     component = "nico-api",
     log = off,
     metric = histogram,

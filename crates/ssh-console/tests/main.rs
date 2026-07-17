@@ -344,7 +344,7 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
                 ),
             )
             .await
-            .context("Error authenticating with public key")?;
+            .context("error authenticating with public key")?;
 
         Ok::<_, eyre::Error>(session)
     }?;
@@ -353,13 +353,13 @@ async fn test_ssh_console_reconnect() -> eyre::Result<()> {
     let channel = session
         .channel_open_session()
         .await
-        .context("Error opening session")?;
+        .context("error opening session")?;
 
     // Request PTY
     channel
         .request_pty(false, "xterm", 80, 24, 0, 0, &[])
         .await
-        .context("Error requesting PTY")?;
+        .context("error requesting PTY")?;
 
     // Request Shell
     channel.request_shell(false).await?;

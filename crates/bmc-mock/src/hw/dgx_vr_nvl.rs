@@ -21,7 +21,6 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use mac_address::MacAddress;
-use rpc::DiscoveryInfo;
 use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
@@ -235,10 +234,6 @@ impl DgxVrNvl<'_> {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
         }
-    }
-
-    pub fn discovery_info(&self) -> DiscoveryInfo {
-        DiscoveryInfo::default()
     }
 }
 

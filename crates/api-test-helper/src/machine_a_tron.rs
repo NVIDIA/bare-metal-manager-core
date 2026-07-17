@@ -47,7 +47,8 @@ pub async fn run_local(
     app_config.validate()?;
 
     let forge_root_ca_path = get_root_ca_path(None, None); // Will get it from the local repo
-    let forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
+    let mut forge_client_config = ForgeClientConfig::new(forge_root_ca_path.clone(), None);
+    forge_client_config.suppress_insecure_tls_warning = true;
 
     let api_config = ApiConfig::new_with_multiple_urls(
         &app_config.carbide_api_url,
@@ -104,6 +105,13 @@ pub async fn run_local(
 
         try_join_all(
             machine_handles_clone
+                .iter()
+                .map(HostMachineHandle::abort_and_wait),
+        )
+        .await?;
+
+        try_join_all(
+            machine_handles_clone
                 .into_iter()
                 .map(|m| m.delete_from_api(app_context.api_client())),
         )
@@ -124,4 +132,12 @@ pub async fn run_local(
 pub struct MachineATronHandle {
     _stop_tx: oneshot::Sender<()>,
     _join_handle: JoinHandle<eyre::Result<()>>,
+}
+
+impl MachineATronHandle {
+    pub async fn shutdown(self) -> eyre::Result<()> {
+        drop(self._stop_tx);
+        self._join_handle.await??;
+        Ok(())
+    }
 }

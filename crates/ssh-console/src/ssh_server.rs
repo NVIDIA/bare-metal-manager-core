@@ -88,12 +88,12 @@ pub async fn spawn(
 
 #[derive(thiserror::Error, Debug)]
 pub enum SpawnError {
-    #[error("Error reading host key file at {path}: {error}")]
+    #[error("error reading host key file at {path}: {error}")]
     ReadingHostKeyFile {
         path: String,
         error: russh::keys::ssh_key::Error,
     },
-    #[error("Error listening on {addr}: {error}")]
+    #[error("error listening on {addr}: {error}")]
     Listening {
         addr: SocketAddr,
         error: std::io::Error,

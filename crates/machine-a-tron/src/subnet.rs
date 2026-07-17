@@ -52,7 +52,7 @@ impl Subnet {
                     error = %e,
                     "Error creating network segment",
                 );
-                Status::internal("Failed to create network segment.")
+                Status::internal("failed to create network segment")
             })?;
 
         let config = network_segment

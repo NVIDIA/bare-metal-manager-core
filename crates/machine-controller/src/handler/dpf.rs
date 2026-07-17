@@ -195,6 +195,13 @@ async fn create_and_register_dpudevices_and_dpunode(
             .and_then(|x| x.dmi_data.as_ref())
             .map(|x| x.product_serial.as_str())
             .unwrap_or_default();
+        if serial_number.is_empty() {
+            tracing::warn!(
+                dpu_machine_id = %dpu.id,
+                host_machine_id = %state.host_snapshot.id,
+                "DPU product serial is missing; registering DPU device with DPF using an empty serial"
+            );
+        }
         let device_info = carbide_dpf::DpuDeviceInfo {
             device_id: dpf_id(dpu)?,
             dpu_bmc_ip: bmc_ip(dpu)?,

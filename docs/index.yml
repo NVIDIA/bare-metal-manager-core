@@ -291,6 +291,8 @@ navigation:
               path: development/new_hardware_support.md
             - page: Build Guide
               path: development/build-guide.md
+            - page: Machine-a-tron Deployment
+              path: development/machine-a-tron-deployment.md
         - page: Glossary
           path: glossary.md
 

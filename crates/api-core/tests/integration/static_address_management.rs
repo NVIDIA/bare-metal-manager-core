@@ -452,6 +452,170 @@ async fn test_assign_remove_then_dhcp_reallocates(
     Ok(())
 }
 
+/// Regression for #3383: assign-address and remove-address must keep the
+/// interface's IP-derived hostname consistent with its address, like every
+/// other allocation path. A stale hostname encoding a now-freed IP collides
+/// with the fqdn_must_be_unique constraint and wedges DHCP allocation on the
+/// whole segment.
+#[sqlx_test]
+async fn test_assign_and_remove_resync_hostname(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+    let mac = MacAddress::from_str("aa:bb:cc:dd:ee:17").unwrap();
+    let mac_str = mac.to_string();
+
+    // Let the interface get a DHCP address; its hostname is derived from it.
+    let discover_resp = env
+        .api()
+        .discover_dhcp(
+            DhcpDiscovery::builder(&mac_str, admin_segment.relay_address).tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let dhcp_ip = discover_resp.address.clone();
+    let interface_id = discover_resp.machine_interface_id.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let iface = db::machine_interface::find_one(&mut *txn, interface_id).await?;
+    assert_eq!(
+        iface.hostname,
+        dhcp_ip.replace('.', "-"),
+        "hostname should be derived from the DHCP address"
+    );
+    txn.commit().await?;
+
+    // Move it to a different static IP (same family, so it replaces the DHCP
+    // one). The hostname must follow the new address, not stay pinned to the
+    // now-freed DHCP IP.
+    let static_ip = "192.0.2.217";
+    env.api()
+        .assign_static_address(Request::new(AssignStaticAddressRequest {
+            interface_id: Some(interface_id),
+            ip_address: static_ip.to_string(),
+        }))
+        .await?;
+
+    let mut txn = env.db_txn().await;
+    let iface_after_assign = db::machine_interface::find_one(&mut *txn, interface_id).await?;
+    assert_eq!(
+        iface_after_assign.hostname,
+        static_ip.replace('.', "-"),
+        "hostname should resync to the newly assigned static address"
+    );
+    txn.commit().await?;
+
+    // Remove the static address; with no addresses left the hostname must reset
+    // to the dormant placeholder rather than keep encoding the freed IP.
+    env.api()
+        .remove_static_address(Request::new(RemoveStaticAddressRequest {
+            interface_id: Some(interface_id),
+            ip_address: static_ip.to_string(),
+        }))
+        .await?;
+
+    let mut txn = env.db_txn().await;
+    let iface_after_remove = db::machine_interface::find_one(&mut *txn, interface_id).await?;
+    assert!(
+        iface_after_remove
+            .hostname
+            .to_lowercase()
+            .starts_with("noip"),
+        "hostname should reset to dormant format after removal, got: {}",
+        iface_after_remove.hostname,
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+/// Regression for #3383 (review follow-up): remove-address is scoped to the
+/// caller's interface. Passing an interface_id that does not own the IP must not
+/// remove another interface's address — it returns NotFound and changes nothing.
+#[sqlx_test]
+async fn test_remove_with_mismatched_interface_id_is_rejected(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let StaticAddressTestEnv {
+        env, admin_segment, ..
+    } = init(pool).await;
+
+    // Owner interface: give it a static address so its hostname is IP-derived.
+    let owner_mac = MacAddress::from_str("aa:bb:cc:dd:ee:18")
+        .unwrap()
+        .to_string();
+    let owner = env
+        .api()
+        .discover_dhcp(
+            DhcpDiscovery::builder(&owner_mac, admin_segment.relay_address).tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let owner_id = owner.machine_interface_id.unwrap();
+    let owned_ip = "192.0.2.218";
+    env.api()
+        .assign_static_address(Request::new(AssignStaticAddressRequest {
+            interface_id: Some(owner_id),
+            ip_address: owned_ip.to_string(),
+        }))
+        .await?;
+
+    let mut txn = env.db_txn().await;
+    let owner_hostname_before = db::machine_interface::find_one(&mut *txn, owner_id)
+        .await?
+        .hostname;
+    txn.commit().await?;
+
+    // A second, unrelated interface whose id we will (incorrectly) pass to
+    // remove-address.
+    let other_mac = MacAddress::from_str("aa:bb:cc:dd:ee:19")
+        .unwrap()
+        .to_string();
+    let other = env
+        .api()
+        .discover_dhcp(
+            DhcpDiscovery::builder(&other_mac, admin_segment.relay_address).tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let other_id = other.machine_interface_id.unwrap();
+
+    // Remove the owner's IP but pass the *other* interface's id.
+    let resp = env
+        .api()
+        .remove_static_address(Request::new(RemoveStaticAddressRequest {
+            interface_id: Some(other_id),
+            ip_address: owned_ip.to_string(),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(resp.status(), RemoveStaticAddressStatus::NotFound);
+
+    // The owner still holds its address and keeps its IP-derived hostname; the
+    // mismatched interface was not touched.
+    let addrs = env
+        .api()
+        .find_interface_addresses(Request::new(FindInterfaceAddressesRequest {
+            interface_id: Some(owner_id),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(addrs.addresses.len(), 1);
+    assert_eq!(addrs.addresses[0].address, owned_ip);
+
+    let mut txn = env.db_txn().await;
+    let owner_after = db::machine_interface::find_one(&mut *txn, owner_id).await?;
+    txn.commit().await?;
+    assert_eq!(
+        owner_after.hostname, owner_hostname_before,
+        "the owner's hostname must be unchanged after a mismatched remove"
+    );
+
+    Ok(())
+}
+
 /// When assigning a static IP that's within a managed segment's prefix,
 /// the interface's segment_id should be updated to that segment.
 #[sqlx_test]

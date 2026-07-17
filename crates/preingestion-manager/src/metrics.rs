@@ -130,7 +130,8 @@ pub(crate) enum BfbCopyOutcome {
 /// existed only as log timestamps.
 #[derive(Event)]
 #[event(
-    name = "carbide_preingestion_bfb_copy_duration_seconds",
+    event_name = "bfb_copy_finished",
+    metric_name = "carbide_preingestion_bfb_copy_duration_seconds",
     component = "preingestion-manager",
     log = dynamic,
     metric = histogram,
@@ -177,7 +178,8 @@ pub(crate) enum FirmwareUploadMethod {
 /// error followed by the `http_push` fallback's own outcome.
 #[derive(Event)]
 #[event(
-    name = "carbide_preingestion_firmware_upload_total",
+    event_name = "preingestion_firmware_upload_finished",
+    metric_name = "carbide_preingestion_firmware_upload_total",
     component = "preingestion-manager",
     log = off,
     metric = counter,
@@ -248,7 +250,8 @@ impl UpgradeTaskFinalState {
 /// shows up as a moving error series.
 #[derive(Event)]
 #[event(
-    name = "carbide_preingestion_firmware_upgrade_tasks_total",
+    event_name = "preingestion_firmware_upgrade_task_finished",
+    metric_name = "carbide_preingestion_firmware_upgrade_tasks_total",
     component = "preingestion-manager",
     log = dynamic,
     metric = counter,
@@ -330,7 +333,8 @@ impl PowerOperation {
 /// beside them.
 #[derive(Event)]
 #[event(
-    name = "carbide_preingestion_power_control_total",
+    event_name = "preingestion_power_control_finished",
+    metric_name = "carbide_preingestion_power_control_total",
     component = "preingestion-manager",
     log = off,
     metric = counter,

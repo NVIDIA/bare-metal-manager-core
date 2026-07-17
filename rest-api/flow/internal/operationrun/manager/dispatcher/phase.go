@@ -13,6 +13,20 @@ type phasePolicyRuntime struct {
 	autoAdvance bool
 }
 
+type phaseDecisionAction int
+
+const (
+	phaseDecisionActionClaim phaseDecisionAction = iota
+	phaseDecisionActionAdvance
+	phaseDecisionActionPause
+)
+
+type phaseDecision struct {
+	action  phaseDecisionAction
+	reason  operationrun.OperationRunStatusReason
+	message string
+}
+
 func newPhasePolicy(options *operationrun.Options) (*phasePolicyRuntime, error) {
 	if err := options.PhasePolicy.Validate(); err != nil {
 		return nil, fmt.Errorf("phase policy: %w", err)
@@ -25,27 +39,22 @@ func newPhasePolicy(options *operationrun.Options) (*phasePolicyRuntime, error) 
 
 func (p phasePolicyRuntime) evaluate(
 	summary operationrun.TargetPhaseSummary,
-	previousPhaseTerminalChanged bool,
-) pauseDecision {
-	if summary.CurrentPhaseIndex == 0 ||
-		!previousPhaseTerminalChanged ||
-		!summary.CurrentPhaseNotStarted() {
-		// No phase boundary was crossed into a fresh phase, so there is
-		// nothing for phase policy to pause or report.
-		return pauseDecision{
-			pause: false,
+) phaseDecision {
+	if !summary.CurrentPhaseTerminal() || !summary.HasNextPhase() {
+		return phaseDecision{
+			action: phaseDecisionActionClaim,
 		}
 	}
 
 	if p.autoAdvance {
-		return pauseDecision{
-			pause:   false,
+		return phaseDecision{
+			action:  phaseDecisionActionAdvance,
 			message: "advanced to next phase",
 		}
 	}
 
-	return pauseDecision{
-		pause:   true,
+	return phaseDecision{
+		action:  phaseDecisionActionPause,
 		reason:  operationrun.OperationRunStatusReasonPhaseGate,
 		message: "waiting for phase advance",
 	}

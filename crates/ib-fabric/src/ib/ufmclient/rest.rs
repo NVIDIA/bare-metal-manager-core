@@ -37,15 +37,15 @@ use crate::ib::ufmclient::UFMCert;
 
 #[derive(Error, Debug)]
 pub enum RestError {
-    #[error("Invalid configuration: '{0}'")]
+    #[error("invalid configuration: '{0}'")]
     InvalidConfig(String),
-    #[error("Response body can not be deserialized: {body}")]
+    #[error("response body can not be deserialized: {body}")]
     MalformedResponse {
         status_code: u16,
         body: String,
         headers: Box<http::HeaderMap>,
     },
-    #[error("Failed to execute HTTP request: {0}")]
+    #[error("failed to execute HTTP request: {0}")]
     HttpConnectionError(String),
     #[error("HTTP error code {status_code}")]
     HttpError {
@@ -56,7 +56,7 @@ pub enum RestError {
     /// This error type is just needed because UFM in some cases does not return a 404 status
     /// code but a 200 status code with a body containing {}
     #[error(
-        "Resource at path {path} was not found. UFM returned: '{body}'. Status code: {status_code}"
+        "resource at path {path} was not found. UFM returned: '{body}'. status code: {status_code}"
     )]
     NotFound {
         path: String,

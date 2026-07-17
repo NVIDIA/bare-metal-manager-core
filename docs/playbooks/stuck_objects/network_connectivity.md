@@ -62,6 +62,12 @@ Common causes:
 | Request but no lease | no matching reservation or exhausted pool. |
 | Lease assigned but no progress | PXE/HTTP boot, scout, or API reachability failure. |
 
+A prior DHCPDECLINE can make Kea reject the correct address with a NAK
+because the lease is temporarily marked unavailable.
+nico-dhcp.config.kea.declineProbationPeriod now defaults to 900 seconds,
+instead of the kea default of 24 hours, limiting how long the address
+remains quarantined.
+
 ## PXE and HTTP Boot
 
 `nico-pxe` serves discovery images, iPXE scripts, cloud-init, kickstart, BFB

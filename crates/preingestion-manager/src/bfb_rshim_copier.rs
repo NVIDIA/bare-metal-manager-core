@@ -29,11 +29,11 @@ const PREINGESTION_BFB_PATH: &str = "/forge-boot-artifacts/blobs/internal/aarch6
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BfbRshimCopyError {
-    #[error("Missing credential {key}: {cause}")]
+    #[error("missing credential {key}: {cause}")]
     MissingCredentials { key: String, cause: String },
-    #[error("Secrets engine error occurred: {cause}")]
+    #[error("secrets engine error occurred: {cause}")]
     SecretsEngineError { cause: String },
-    #[error("Error: {details}")]
+    #[error("error: {details}")]
     Other { details: String },
 }
 

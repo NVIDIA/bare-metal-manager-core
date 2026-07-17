@@ -1,0 +1,10 @@
+{{- if and .Values.namespaceOverride .Values.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "nico-machine-a-tron.namespace" . }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+{{- end }}

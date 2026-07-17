@@ -97,14 +97,14 @@ pub enum BmcSessionError {
 
     /// Failure interacting with the BMC via nv-redfish (connect, create,
     /// or delete failed for a reason other than auth).
-    #[error("Redfish error talking to BMC at {bmc_addr}: {detail}")]
+    #[error("redfish error talking to BMC at {bmc_addr}: {detail}")]
     Redfish {
         bmc_addr: SocketAddr,
         detail: String,
     },
 
     /// Failure reading the BMC root credentials from the credential store.
-    #[error("Credential store error: {0}")]
+    #[error("credential store error: {0}")]
     CredentialStore(String),
 
     /// Failure persisting or reading session metadata from the
@@ -113,7 +113,7 @@ pub enum BmcSessionError {
     Store(String),
 
     /// The BMC's Redfish ServiceRoot does not expose a `SessionService`.
-    #[error("BMC at {bmc_addr} does not expose Redfish SessionService")]
+    #[error("BMC at {bmc_addr} does not expose redfish SessionService")]
     NoSessionService { bmc_addr: SocketAddr },
 
     /// The lockout-avoidance circuit breaker is tripped for this BMC and
