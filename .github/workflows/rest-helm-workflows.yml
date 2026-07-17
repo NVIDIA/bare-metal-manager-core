@@ -33,9 +33,10 @@ jobs:
       matrix:
         include:
           - chart: helm/rest/nico-rest
-            valueOverrides: '["nico-rest-api.config.keycloak.enabled=true","nico-rest-api.config.keycloak.baseURL=http://keycloak:8082","nico-rest-api.config.keycloak.realm=test","nico-rest-api.config.keycloak.clientID=test"]'
+            valueOverrides: >-
+              ["global.image.repository=registry.example.invalid/nico-rest","nico-rest-api.config.keycloak.enabled=true","nico-rest-api.config.keycloak.baseURL=http://keycloak:8082","nico-rest-api.config.keycloak.realm=test","nico-rest-api.config.keycloak.clientID=test"]
           - chart: helm/rest/nico-rest-site-agent
-            valueOverrides: '[]'
+            valueOverrides: '["global.image.repository=registry.example.invalid/nico-rest"]'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -128,6 +129,53 @@ jobs:
             [[ "$actual" == "${excluded_app_versions[$child]}" ]] || \
               fail "$child appVersion changed unexpectedly: expected ${excluded_app_versions[$child]}, got $actual"
           done
+
+          negative_render_args=()
+          expected_guard="$chart_name: global.image.repository is required"
+          if [[ "$chart_name" == 'nico-rest' ]]; then
+            negative_render_args+=(
+              --set 'nico-rest-api.config.keycloak.enabled=true'
+              --set-string 'nico-rest-api.config.keycloak.baseURL=http://keycloak:8082'
+              --set-string 'nico-rest-api.config.keycloak.realm=test'
+              --set-string 'nico-rest-api.config.keycloak.clientID=test'
+            )
+          fi
+
+          schema_log="$tmp_dir/missing-repository-schema.log"
+          if helm template package-validation "$package" "${negative_render_args[@]}" \
+            --set-string 'global.image.tag=' \
+            >/dev/null 2>"$schema_log"; then
+            fail 'Expected schema validation without global.image.repository to fail'
+          fi
+          grep -Fq 'global.image.repository' "$schema_log" || {
+            cat "$schema_log"
+            fail 'Packaged schema error did not identify global.image.repository'
+          }
+
+          missing_repository_log="$tmp_dir/missing-repository.log"
+          if helm template package-validation "$package" "${negative_render_args[@]}" \
+            --skip-schema-validation \
+            --set-string 'global.image.tag=' \
+            >/dev/null 2>"$missing_repository_log"; then
+            fail 'Expected render without global.image.repository to fail'
+          fi
+          grep -Fq "$expected_guard" "$missing_repository_log" || {
+            cat "$missing_repository_log"
+            fail 'Missing-repository error did not identify global.image.repository'
+          }
+
+          whitespace_repository_log="$tmp_dir/whitespace-repository.log"
+          if helm template package-validation "$package" "${negative_render_args[@]}" \
+            --skip-schema-validation \
+            --set-string 'global.image.repository=   ' \
+            --set-string 'global.image.tag=' \
+            >/dev/null 2>"$whitespace_repository_log"; then
+            fail 'Expected render with a whitespace-only global.image.repository to fail'
+          fi
+          grep -Fq "$expected_guard" "$whitespace_repository_log" || {
+            cat "$whitespace_repository_log"
+            fail 'Whitespace-repository error did not identify global.image.repository'
+          }
 
           image_repository='registry.example.invalid/nico-rest'
           explicit_tag='operator-override'

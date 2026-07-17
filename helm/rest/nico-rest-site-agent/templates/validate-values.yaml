@@ -1,0 +1,8 @@
+{{/*
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+{{- $repository := .Values.global.image.repository | default "" | trim -}}
+{{- if eq $repository "" -}}
+{{- fail "nico-rest-site-agent: global.image.repository is required; set it through Helm values or Argo CD Application values (for example, registry.example.com/team/nico-rest)" -}}
+{{- end -}}

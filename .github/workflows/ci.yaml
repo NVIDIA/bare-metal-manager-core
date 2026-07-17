@@ -1417,6 +1417,7 @@ jobs:
           chart-path: helm
           lint: 'true'
           template: 'true'
+          valueOverrides: '["global.image.repository=registry.example.invalid/nico-core"]'
 
       # Publishing is intentionally disabled for PR refs, so exercise the exact
       # package metadata and render-time fallback without pushing or uploading it.
@@ -1489,6 +1490,45 @@ jobs:
             [[ "$actual" == "${excluded_app_versions[$child]}" ]] || \
               fail "$child appVersion changed unexpectedly: expected ${excluded_app_versions[$child]}, got $actual"
           done
+
+          schema_log="$tmp_dir/missing-repository-schema.log"
+          if helm template package-validation "$package" \
+            --set-string 'global.image.tag=' \
+            --set 'nico-bmc-proxy.enabled=true' \
+            >/dev/null 2>"$schema_log"; then
+            fail 'Expected schema validation without global.image.repository to fail'
+          fi
+          grep -Fq 'global.image.repository' "$schema_log" || {
+            cat "$schema_log"
+            fail 'Packaged schema error did not identify global.image.repository'
+          }
+
+          missing_repository_log="$tmp_dir/missing-repository.log"
+          if helm template package-validation "$package" \
+            --skip-schema-validation \
+            --set-string 'global.image.tag=' \
+            --set 'nico-bmc-proxy.enabled=true' \
+            >/dev/null 2>"$missing_repository_log"; then
+            fail 'Expected render without global.image.repository to fail'
+          fi
+          grep -Fq 'nico: global.image.repository is required' "$missing_repository_log" || {
+            cat "$missing_repository_log"
+            fail 'Missing-repository error did not identify global.image.repository'
+          }
+
+          whitespace_repository_log="$tmp_dir/whitespace-repository.log"
+          if helm template package-validation "$package" \
+            --skip-schema-validation \
+            --set-string 'global.image.repository=   ' \
+            --set-string 'global.image.tag=' \
+            --set 'nico-bmc-proxy.enabled=true' \
+            >/dev/null 2>"$whitespace_repository_log"; then
+            fail 'Expected render with a whitespace-only global.image.repository to fail'
+          fi
+          grep -Fq 'nico: global.image.repository is required' "$whitespace_repository_log" || {
+            cat "$whitespace_repository_log"
+            fail 'Whitespace-repository error did not identify global.image.repository'
+          }
 
           image_repository='registry.example.invalid/nico-core'
           explicit_tag='operator-override'
