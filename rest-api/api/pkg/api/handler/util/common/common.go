@@ -1565,67 +1565,61 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 		return false, nil
 	}
 
+	if scope == nil {
+		return false, errors.New("scope must be specified when evaluating Tenant's targeted Instance creation capability")
+	}
+
+	if scope.SiteID != nil && scope.InfrastructureProviderID != nil {
+		return false, errors.New("site ID and infrastructure provider ID cannot be specified together when evaluating Tenant's targeted Instance creation capability")
+	}
+
+	siteID := scope.SiteID
+	providerID := scope.InfrastructureProviderID
+
 	// Site-scoped: resolve the effective capability for the exact Site.
-	if scope != nil && scope.SiteID != nil {
-		siteID := *scope.SiteID
-		resolvedProviderID := scope.InfrastructureProviderID
-		if resolvedProviderID == nil {
-			siteDAO := cdbm.NewSiteDAO(dbSession)
-			site, err := siteDAO.GetByID(ctx, tx, siteID, nil, false)
-			if err != nil {
-				if errors.Is(err, cdb.ErrDoesNotExist) {
-					return false, nil
+	if siteID != nil {
+		tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+		ts, err := tsDAO.GetByTenantIDAndSiteID(ctx, tx, tenant.ID, *siteID, nil)
+		if err != nil {
+			if errors.Is(err, cdb.ErrDoesNotExist) {
+				siteDAO := cdbm.NewSiteDAO(dbSession)
+				site, err := siteDAO.GetByID(ctx, tx, *siteID, nil, false)
+				if err != nil {
+					return false, err
 				}
+
+				providerID = &site.InfrastructureProviderID
+			} else {
 				return false, err
 			}
-			resolvedProviderID = &site.InfrastructureProviderID
+		} else {
+			if ts.Config.TargetedInstanceCreation != nil {
+				return *ts.Config.TargetedInstanceCreation, nil
+			}
 		}
+	}
 
+	if providerID != nil {
 		taDAO := cdbm.NewTenantAccountDAO(dbSession)
 		tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
-			InfrastructureProviderID: resolvedProviderID,
+			InfrastructureProviderID: providerID,
 			TenantIDs:                []uuid.UUID{tenant.ID},
 			Statuses:                 []string{cdbm.TenantAccountStatusReady},
 		}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
 		if err != nil {
 			return false, err
 		}
+
 		if len(tas) == 0 {
 			return false, nil
 		}
 
-		global := tas[0].Config.TargetedInstanceCreation
+		ta := tas[0]
 
-		tsDAO := cdbm.NewTenantSiteDAO(dbSession)
-		ts, err := tsDAO.GetByTenantIDAndSiteID(ctx, tx, tenant.ID, siteID, nil)
-		if err != nil {
-			if errors.Is(err, cdb.ErrDoesNotExist) {
-				return global, nil
-			}
-			return false, err
-		}
-
-		if ts.Config.TargetedInstanceCreation != nil {
-			return *ts.Config.TargetedInstanceCreation, nil
-		}
-
-		return global, nil
+		return ta.Config.TargetedInstanceCreation, nil
 	}
 
-	// Coarse ceiling, optionally narrowed to a single Provider. A nil scope or
-	// a scope with neither field set is the provider-agnostic ceiling. The
-	// privileged-Site resolution below performs its own Ready TenantAccount
-	// lookup, so no separate account query is needed here.
-	var providerFilter *uuid.UUID
-	if scope != nil {
-		providerFilter = scope.InfrastructureProviderID
-	}
-
-	privilegedSiteIDs, err := getPrivilegedAccessSiteIDsForTenant(ctx, tx, dbSession, tenant, providerFilter)
-	if err != nil {
-		return false, err
-	}
-	return len(privilegedSiteIDs) > 0, nil
+	return false, nil
 }
 
 // GetPrivilegedAccessSiteIDsForTenant returns Site IDs where the Tenant has
