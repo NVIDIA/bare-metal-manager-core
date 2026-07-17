@@ -120,15 +120,15 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 
 		subnet, ok := existingSubnetCtrlIDMap[controllerSegment.Id.Value]
 		if !ok {
-			// Check if the Subnet is found by ID (controllerSegment.Name == cloudSubnet.ID)
-			subnet, ok = existingSubnetIDMap[controllerSegment.Name]
+			// Check if the Subnet is found by ID (segment name == cloudSubnet.ID)
+			subnet, ok = existingSubnetIDMap[controllerSegment.GetMetadata().GetName()]
 			if ok {
 				existingSubnetCtrlIDMap[controllerSegment.Id.Value] = subnet
 			}
 		}
 
 		if subnet == nil {
-			if controllerSegment.SegmentType == corev1.NetworkSegmentType_TENANT {
+			if controllerSegment.GetConfig().GetSegmentType() == corev1.NetworkSegmentType_TENANT {
 				logger.Error().Str("Controller Segment ID", controllerSegment.Id.Value).Msg("Network Segment does not have a Subnet record in DB, possibly created directly on Site")
 			}
 			continue
@@ -154,8 +154,9 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		}
 
 		var mtu *int
-		if controllerSegment.Mtu != nil {
-			mtuVal := int(*controllerSegment.Mtu)
+		cfg := controllerSegment.GetConfig()
+		if cfg != nil && cfg.Mtu != nil {
+			mtuVal := int(*cfg.Mtu)
 			mtu = &mtuVal
 		}
 
@@ -168,7 +169,7 @@ func (ms ManageSubnet) UpdateSubnetsInDB(ctx context.Context, siteID uuid.UUID, 
 		}
 
 		// Update Subnet in DB
-		status, statusMessage := getNICoSubnetStatus(controllerSegment.State)
+		status, statusMessage := getNICoSubnetStatus(controllerSegment.GetStatus().GetTenantState())
 
 		// If Subnet is already in Deleting state then no need to update status
 		if subnet.Status == cdbm.SubnetStatusDeleting {

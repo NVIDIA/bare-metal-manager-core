@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
@@ -163,45 +164,32 @@ func (vpc *Vpc) GetSiteID() *uuid.UUID {
 	return &vpc.ID
 }
 
-// toMetadataProto builds a workflow Metadata proto from the VPC's Name,
-// Description, and Labels. Description defaults to the empty string when
-// the receiver's pointer is nil; this matches the existing handler
-// behaviour.
-func (vpc *Vpc) toMetadataProto() *corev1.Metadata {
-	md := &corev1.Metadata{
-		Name:        vpc.Name,
-		Description: "",
-	}
-	if vpc.Description != nil {
-		md.Description = *vpc.Description
-	}
-	if vpc.Labels != nil {
-		md.Labels = vpc.Labels.ToProto()
-	}
-	return md
-}
-
 // ToProto converts this VPC into its workflow proto representation.
 // Used as the canonical entity-to-proto conversion; request-shape
 // protos (create / update) are produced by `ToProto` methods on the
 // corresponding API request types in api/pkg/api/model/vpc.go.
 //
-// `NetworkVirtualizationType` is mapped from the DB column's string
-// value to the workflow enum (defaulting to `ETHERNET_VIRTUALIZER`
-// when the string is set but unrecognized, matching the pre-refactor
-// handler behaviour). It is omitted from the proto when the DB
-// column is nil.
+// Desired configuration is emitted via the structured `config` field
+// and the allocated VNI via `status`. The deprecated flat mirror fields
+// are no longer populated: site agents at or after commit a2e3f88b read
+// exclusively from `config`/`status`.
 func (vpc *Vpc) ToProto() *corev1.Vpc {
-	proto := &corev1.Vpc{
-		Id:                     &corev1.VpcId{Value: vpc.GetSiteID().String()},
-		Name:                   vpc.Name,
-		TenantOrganizationId:   vpc.Org,
-		NetworkSecurityGroupId: vpc.NetworkSecurityGroupID,
-		Metadata:               vpc.toMetadataProto(),
+	metadata := &corev1.Metadata{
+		Name:        vpc.Name,
+		Description: "",
 	}
+	if vpc.Description != nil {
+		metadata.Description = *vpc.Description
+	}
+	if vpc.Labels != nil {
+		metadata.Labels = vpc.Labels.ToProto()
+	}
+
+	var nvllpProto *corev1.NVLinkLogicalPartitionId
 	if vpc.NVLinkLogicalPartitionID != nil {
-		proto.DefaultNvlinkLogicalPartitionId = &corev1.NVLinkLogicalPartitionId{Value: vpc.NVLinkLogicalPartitionID.String()}
+		nvllpProto = &corev1.NVLinkLogicalPartitionId{Value: vpc.NVLinkLogicalPartitionID.String()}
 	}
+	var networkVirtualizationType *corev1.VpcVirtualizationType
 	if vpc.NetworkVirtualizationType != nil {
 		nwvt := corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER
 		switch *vpc.NetworkVirtualizationType {
@@ -210,24 +198,46 @@ func (vpc *Vpc) ToProto() *corev1.Vpc {
 		case corev1.VpcVirtualizationType_FLAT.String():
 			nwvt = corev1.VpcVirtualizationType_FLAT
 		}
-		proto.NetworkVirtualizationType = &nwvt
+		networkVirtualizationType = &nwvt
 	}
+
+	config := &corev1.VpcConfig{
+		TenantOrganizationId:            vpc.Org,
+		NetworkSecurityGroupId:          vpc.NetworkSecurityGroupID,
+		DefaultNvlinkLogicalPartitionId: nvllpProto,
+		Vni:                             cutil.IntPtrToUint32Ptr(vpc.Vni),
+		RoutingProfileType:              vpc.RoutingProfile,
+		NetworkVirtualizationType:       networkVirtualizationType,
+	}
+
+	proto := &corev1.Vpc{
+		Id:       &corev1.VpcId{Value: vpc.GetSiteID().String()},
+		Name:     vpc.Name,
+		Metadata: metadata,
+		Config:   config,
+	}
+
+	allocatedVni := cutil.IntPtrToUint32Ptr(vpc.ActiveVni)
+	if allocatedVni != nil {
+		proto.Status = &corev1.VpcStatus{Vni: allocatedVni}
+	}
+
 	return proto
 }
 
 // FromProto populates this VPC from its workflow proto representation.
-// A nil proto is a no-op. This is the inverse of `ToProto` and exists
-// for convention symmetry — currently no code path on the cloud side
-// reconstructs a full VPC entity from a `corev1.Vpc` (the site is the
-// destination, not the source), but the method is provided so future
-// reconciliation flows have a single canonical entry point.
+// A nil proto is a no-op. This is the inverse of `ToProto` and is the
+// canonical entry point for cloud-side callers that consume structured
+// config and status reported by a site.
 //
 // Field-level contract:
 //   - `vpc.ID` is preserved on a missing or unparseable `proto.Id`,
 //     because callers pre-validate the UUID before calling.
 //   - `Name` is sourced from `proto.Metadata.Name` when set, falling
-//     back to the (deprecated) top-level `proto.Name` so the method
-//     keeps working through the deprecation window.
+//     back to the legacy top-level `proto.Name` when metadata omits it.
+//   - Desired-configuration fields (Org, NSG, NVLink, virtualization
+//     type, routing profile, requested VNI) are read from the structured
+//     `config`. The allocated VNI comes from `status`, not `config`.
 //   - Optional pointer fields (NetworkSecurityGroupID,
 //     NVLinkLogicalPartitionID) are cleared when the proto omits them
 //     OR when the proto value is invalid (e.g. an unparseable UUID).
@@ -246,26 +256,49 @@ func (vpc *Vpc) FromProto(proto *corev1.Vpc) {
 	if proto.Metadata != nil && proto.Metadata.Name != "" {
 		vpc.Name = proto.Metadata.Name
 	}
-	vpc.Org = proto.TenantOrganizationId
-	vpc.NetworkSecurityGroupID = proto.NetworkSecurityGroupId
-	if proto.DefaultNvlinkLogicalPartitionId != nil {
-		if id, err := uuid.Parse(proto.DefaultNvlinkLogicalPartitionId.Value); err == nil {
-			vpc.NVLinkLogicalPartitionID = &id
-		} else {
-			vpc.NVLinkLogicalPartitionID = nil
-		}
-	} else {
-		vpc.NVLinkLogicalPartitionID = nil
+
+	cfg := proto.GetConfig()
+	if cfg == nil {
+		cfg = &corev1.VpcConfig{}
 	}
+
+	vpc.Org = cfg.TenantOrganizationId
+	vpc.NetworkSecurityGroupID = cfg.NetworkSecurityGroupId
+	vpc.RoutingProfile = cfg.RoutingProfileType
+	vpc.Vni = cutil.Uint32PtrToIntPtr(cfg.Vni)
+	vpc.ActiveVni = nil
+	status := proto.GetStatus()
+	if status != nil {
+		vpc.ActiveVni = cutil.Uint32PtrToIntPtr(status.Vni)
+	}
+
+	vpc.NVLinkLogicalPartitionID = nil
+	if cfg.DefaultNvlinkLogicalPartitionId != nil {
+		if id, err := uuid.Parse(cfg.DefaultNvlinkLogicalPartitionId.Value); err == nil {
+			vpc.NVLinkLogicalPartitionID = &id
+		}
+	}
+
+	vpc.NetworkVirtualizationType = nil
+	if cfg.NetworkVirtualizationType != nil {
+		s := VpcEthernetVirtualizer
+		switch *cfg.NetworkVirtualizationType {
+		case corev1.VpcVirtualizationType_FNN:
+			s = VpcFNN
+		case corev1.VpcVirtualizationType_FLAT:
+			s = VpcFlat
+		}
+		vpc.NetworkVirtualizationType = &s
+	}
+
+	vpc.Description = nil
 	if proto.Metadata != nil {
-		vpc.Description = nil
 		if proto.Metadata.Description != "" {
 			desc := proto.Metadata.Description
 			vpc.Description = &desc
 		}
 		vpc.Labels.FromProto(proto.Metadata.GetLabels())
 	} else {
-		vpc.Description = nil
 		vpc.Labels = nil
 	}
 }
