@@ -9,8 +9,8 @@ NMX-M is no longer supported
 
 ## SYNOPSIS
 
-**nico-admin-cli credential add-nmx-m** \<**--username**\>
-\<**--password**\> \[**--extended**\] \[**--sort-by**\]
+**nico-admin-cli credential add-nmx-m** \[**--username**\]
+\[**--password**\] \[**--extended**\] \[**--sort-by**\]
 \[**-h**\|**--help**\]
 
 ## DESCRIPTION
@@ -50,7 +50,7 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-nico-admin-cli credential add-nmx-m --username admin --password mypassword
+nico-admin-cli credential add-nmx-m
 ```
 
 ---

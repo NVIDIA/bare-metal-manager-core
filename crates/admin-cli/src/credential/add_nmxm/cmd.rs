@@ -32,8 +32,8 @@ mod tests {
     #[test]
     fn returns_unsupported_without_creating_a_credential() {
         let error = add_nmxm(Args {
-            username: "admin".to_string(),
-            password: "password".to_string(),
+            username: None,
+            password: None,
         })
         .expect_err("the compatibility command must not create a credential");
 

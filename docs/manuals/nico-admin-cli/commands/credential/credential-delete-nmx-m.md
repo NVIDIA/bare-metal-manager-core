@@ -9,7 +9,7 @@ command; NMX-M is no longer supported
 
 ## SYNOPSIS
 
-**nico-admin-cli credential delete-nmx-m** \<**--username**\>
+**nico-admin-cli credential delete-nmx-m** \[**--username**\]
 \[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION

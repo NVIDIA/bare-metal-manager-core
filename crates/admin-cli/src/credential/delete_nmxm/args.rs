@@ -29,6 +29,6 @@ Invoke the retained compatibility command (returns an unsupported error):
 "
 )]
 pub struct Args {
-    #[clap(long, required(true), help = "Legacy NMX-M credential username")]
-    pub username: String,
+    #[clap(long, help = "Legacy NMX-M credential username")]
+    pub username: Option<String>,
 }

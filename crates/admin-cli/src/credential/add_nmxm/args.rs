@@ -24,13 +24,13 @@ use clap::Parser;
 EXAMPLES:
 
 Invoke the retained compatibility command (returns an unsupported error):
-    $ nico-admin-cli credential add-nmx-m --username admin --password mypassword
+    $ nico-admin-cli credential add-nmx-m
 
 "
 )]
 pub struct Args {
-    #[clap(long, required(true), help = "Username")]
-    pub username: String,
-    #[clap(long, required(true), help = "password")]
-    pub password: String,
+    #[clap(long, help = "Username")]
+    pub username: Option<String>,
+    #[clap(long, help = "password")]
+    pub password: Option<String>,
 }

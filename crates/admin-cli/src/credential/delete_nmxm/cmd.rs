@@ -31,10 +31,8 @@ mod tests {
 
     #[test]
     fn returns_unsupported_without_deleting_a_credential() {
-        let error = delete_nmxm(Args {
-            username: "admin".to_string(),
-        })
-        .expect_err("the compatibility command must not delete a credential");
+        let error = delete_nmxm(Args { username: None })
+            .expect_err("the compatibility command must not delete a credential");
 
         assert_eq!(
             error.to_string(),
