@@ -291,7 +291,7 @@ async fn convert_instance_to_nice_format(
                         },
                     ),
                     (
-                        "RESOLVED IPV4 PREFIX",
+                        "RESOLVED IPV4 PREFIX ID",
                         status
                             .resolved_vpc_prefixes
                             .as_ref()
@@ -300,7 +300,7 @@ async fn convert_instance_to_nice_format(
                             .unwrap_or_else(|| "NA".into()),
                     ),
                     (
-                        "RESOLVED IPV6 PREFIX",
+                        "RESOLVED IPV6 PREFIX ID",
                         status
                             .resolved_vpc_prefixes
                             .as_ref()
