@@ -114,16 +114,16 @@ stateDiagram-v2
 ### Transition criteria
 
 
-| From                         | To                           | Required criteria                                                                                                                                                                                                                                                             |
-| ---------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Ready`                      | `Decommissioning/Preparing`  | The request is authorized; the managed host is exactly `Ready`; no instance references the host; no decommission operation exists; the host is not participating in rack maintenance or another exclusive operation.                                                          |
-| `Preparing`                  | `DeconfiguringHost`          | The host BMC MAC and `expected_machines` row exist; suppress site explorer in the ignore table; the correct vanilla artifact and installation method resolve for every DPU; all credentials needed for cleanup are readable; pending update/reprovision requests are cleared. |
-| `DeconfiguringHost`          | `DeconfiguringDPUs`          | lockdown is disabled; UEFI password is cleared; BIOS reset; The host is rebooted when required by the vendor operation.                                                                                                                                                       |
-| `DeconfiguringDPUs`          | `InstallingVanillaBFB`       | NIC/SuperNIC lockdown is removed, DPU UEFI settings are reset, one-time boot overrides are cleared, and any DPF or extension-service resources that would reconfigure the DPU are removed for every DPU. No DPU agent changes are needed after this point.                    |
-| `InstallingVanillaBFB`       | `RemovingManagedCredentials` | Every managed DPU has completed vanilla BFB installation; Redfish/DPF reports success. For a zero-DPU or NIC-mode host this is a no-op.                                                                                                                                       |
-| `RemovingManagedCredentials` | `Finalizing`                 | per-device secrets and rotation markers are absent; DPU OS credentials disappeared with the vanilla BFB.                                                                                                                                                                      |
-| `Finalizing`                 | `Decommissioned`             | Current BMC DHCP allocations are revoked; suppress DHCP in the ignore table.                                                                                                                                                                                                  |
-| `Decommissioned`             | deleted                      | `DeleteDecommissionedMachine` is authorized; all associated database and external control-plane resources are absent; machine rows and ignore rows are removed atomically; `expected_machines` remains.                                                                       |
+| From                         | To                           | Required criteria                                                                                                                                                                                                                                                         |
+| ---------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Ready`                      | `Decommissioning/Preparing`  | The request is authorized; the managed host is exactly `Ready`; no instance references the host; no decommission operation exists; the host is not participating in rack maintenance or another exclusive operation.                                                      |
+| `Preparing`                  | `DeconfiguringHost`          | The BMC MACs and `expected_machines` row exist; suppress site explorer in the ignore table; the correct vanilla artifact and installation method resolve for every DPU; all credentials needed for cleanup are readable; pending update/reprovision requests are cleared. |
+| `DeconfiguringHost`          | `DeconfiguringDPUs`          | lockdown is disabled; UEFI password is cleared; BIOS reset; in-band BMC/IPMI policy restored; NIC/SuperNIC lockdown cleared; The host is rebooted when required by the vendor operation.                                                                                  |
+| `DeconfiguringDPUs`          | `InstallingVanillaBFB`       | NIC/SuperNIC lockdown is removed, DPU UEFI settings are reset, one-time boot overrides are cleared, and any DPF or extension-service resources that would reconfigure the DPU are removed for every DPU. No DPU agent changes are needed after this point.                |
+| `InstallingVanillaBFB`       | `RemovingManagedCredentials` | Every managed DPU has completed vanilla BFB installation; Redfish/DPF reports success. For a zero-DPU or NIC-mode host this is a no-op.                                                                                                                                   |
+| `RemovingManagedCredentials` | `Finalizing`                 | per-device secrets and rotation markers are absent; DPU OS credentials disappeared with the vanilla BFB.                                                                                                                                                                  |
+| `Finalizing`                 | `Decommissioned`             | Current BMC DHCP allocations are revoked; suppress DHCP in the ignore table.                                                                                                                                                                                              |
+| `Decommissioned`             | deleted                      | `DeleteDecommissionedMachine` is authorized; all associated database and external control-plane resources are absent; machine rows and ignore rows are removed atomically; `expected_machines` remains.                                                                   |
 
 
 
@@ -140,7 +140,7 @@ All BMC MAC addresses are added to the ignore table, and `suppress_site_explorer
 
 ### `Decommissioning/DeconfiguringHost`
 
-Decommissioning the host is vendor specific, so these steps are general:
+Decommissioning the host is vendor-specific, so these steps are general:
 
 - disable BIOS/BMC lockdown;
 - clear the host UEFI administrator password;
@@ -216,11 +216,11 @@ Site-wide credentials and lockdown input key material are not deleted.
 
 This state performs the control-plane cutover:
 
-1. Revoke the existing BMC DHCP leases and release their current address
+1. Set `suppress_dhcp` to true in the ignore table for all BMCs.
+2. Revoke the existing BMC DHCP leases and release their current address
   allocations.
-2. Invalidate the DHCP record cache.
-3. Set `suppress_dhcp` to true in the ignore table for all BMCs.
-4. Transition to `Decommissioned` 
+3. Invalidate the DHCP record cache.
+4. Transition to `Decommissioned`
 
 
 
@@ -245,14 +245,14 @@ CREATE TABLE ignored_bmc_macs (
 );
 ```
 
-Site Explorer loads this table on each iteration and filters an endpoint as
-soon as its MAC is known, before Redfish authentication, credential rotation,
-inventory persistence, power control, or managed-host creation. 
+Site Explorer loads this table on each iteration and filters an endpoint as soon as its MAC is known, before Redfish authentication, credential rotation, inventory persistence, power control, or managed-host creation. It's permissible for one queued or currently in-flight site explorer run to finish for the machine, but it will no longer start new explorations after `suppress_site_explorer` is set. 
 
 `DiscoverDhcp` checks the table immediately after parsing the client MAC. For an ignored MAC it  
 returns no DHCP record.
 
 ## APIs and authorization
+
+
 
 ### Start decommissioning
 
