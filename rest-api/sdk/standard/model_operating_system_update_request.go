@@ -61,8 +61,6 @@ type OperatingSystemUpdateRequest struct {
 	IpxeTemplateParameters []OperatingSystemIpxeParameter `json:"ipxeTemplateParameters,omitempty"`
 	// Artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition (Templated iPXE only).
 	IpxeTemplateArtifacts []OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts,omitempty"`
-	// Scope is immutable after creation; if provided the request is rejected.
-	Scope NullableString `json:"scope,omitempty"`
 }
 
 // NewOperatingSystemUpdateRequest instantiates a new OperatingSystemUpdateRequest object
@@ -880,49 +878,6 @@ func (o *OperatingSystemUpdateRequest) SetIpxeTemplateArtifacts(v []OperatingSys
 	o.IpxeTemplateArtifacts = v
 }
 
-// GetScope returns the Scope field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *OperatingSystemUpdateRequest) GetScope() string {
-	if o == nil || IsNil(o.Scope.Get()) {
-		var ret string
-		return ret
-	}
-	return *o.Scope.Get()
-}
-
-// GetScopeOk returns a tuple with the Scope field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-// NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *OperatingSystemUpdateRequest) GetScopeOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return o.Scope.Get(), o.Scope.IsSet()
-}
-
-// HasScope returns a boolean if a field has been set.
-func (o *OperatingSystemUpdateRequest) HasScope() bool {
-	if o != nil && o.Scope.IsSet() {
-		return true
-	}
-
-	return false
-}
-
-// SetScope gets a reference to the given NullableString and assigns it to the Scope field.
-func (o *OperatingSystemUpdateRequest) SetScope(v string) {
-	o.Scope.Set(&v)
-}
-
-// SetScopeNil sets the value for Scope to be an explicit nil
-func (o *OperatingSystemUpdateRequest) SetScopeNil() {
-	o.Scope.Set(nil)
-}
-
-// UnsetScope ensures that no value is present for Scope, not even an explicit nil
-func (o *OperatingSystemUpdateRequest) UnsetScope() {
-	o.Scope.Unset()
-}
-
 func (o OperatingSystemUpdateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -989,9 +944,6 @@ func (o OperatingSystemUpdateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.IpxeTemplateArtifacts) {
 		toSerialize["ipxeTemplateArtifacts"] = o.IpxeTemplateArtifacts
-	}
-	if o.Scope.IsSet() {
-		toSerialize["scope"] = o.Scope.Get()
 	}
 	return toSerialize, nil
 }

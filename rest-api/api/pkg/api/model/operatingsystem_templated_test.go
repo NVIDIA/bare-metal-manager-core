@@ -21,56 +21,37 @@ func TestOperatingSystemCreateRequest_GetOperatingSystemType(t *testing.T) {
 	assert.Equal(t, cdbm.OperatingSystemTypeImage, (&APIOperatingSystemCreateRequest{ImageURL: cutil.GetPtr("http://x")}).GetOperatingSystemType())
 }
 
-func TestOperatingSystemCreateRequest_Validate_TemplatedAndScope(t *testing.T) {
+func TestOperatingSystemCreateRequest_Validate_Templated(t *testing.T) {
 	tmplID := cutil.GetPtr("tmpl-1")
+	siteIDs := []string{uuid.NewString()}
 	tests := []struct {
 		desc      string
 		obj       APIOperatingSystemCreateRequest
 		expectErr bool
 	}{
 		{
-			desc:      "templated requires scope",
+			desc:      "templated requires at least one siteId",
 			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID},
 			expectErr: true,
 		},
 		{
-			desc:      "templated rejects Local scope at create",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeLocal)},
-			expectErr: true,
-		},
-		{
-			desc:      "templated global is ok",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeGlobal)},
-			expectErr: false,
-		},
-		{
-			desc:      "templated global rejects siteIds",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeGlobal), SiteIDs: []string{uuid.NewString()}},
-			expectErr: true,
-		},
-		{
-			desc:      "templated limited requires siteIds",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeLimited)},
-			expectErr: true,
-		},
-		{
-			desc:      "templated limited with siteIds is ok",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeLimited), SiteIDs: []string{uuid.NewString()}},
+			desc:      "templated with siteIds is ok",
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs},
 			expectErr: false,
 		},
 		{
 			desc:      "templated artifact with valid cache strategy is ok",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeGlobal), IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://x/k", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://x/k", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
 			expectErr: false,
 		},
 		{
 			desc:      "templated artifact with invalid cache strategy is rejected",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeGlobal), IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://x/k", CacheStrategy: "BOGUS"}}},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://x/k", CacheStrategy: "BOGUS"}}},
 			expectErr: true,
 		},
 		{
 			desc:      "templated artifact missing url is rejected",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeGlobal), IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
 			expectErr: true,
 		},
 		{
@@ -79,9 +60,14 @@ func TestOperatingSystemCreateRequest_Validate_TemplatedAndScope(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			desc:      "raw ipxe rejects non-global scope",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeScript: cutil.GetPtr("ipxe"), Scope: cutil.GetPtr(cdbm.OperatingSystemScopeLimited)},
+			desc:      "raw ipxe rejects siteIds",
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeScript: cutil.GetPtr("ipxe"), SiteIDs: siteIDs},
 			expectErr: true,
+		},
+		{
+			desc:      "raw ipxe without siteIds is ok",
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeScript: cutil.GetPtr("ipxe")},
+			expectErr: false,
 		},
 		{
 			desc:      "ipxeScript and ipxeTemplateId mutually exclusive",
@@ -89,9 +75,9 @@ func TestOperatingSystemCreateRequest_Validate_TemplatedAndScope(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			desc:      "image rejects scope",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), SiteIDs: []string{uuid.NewString()}, Scope: cutil.GetPtr(cdbm.OperatingSystemScopeGlobal)},
-			expectErr: true,
+			desc:      "image with siteId is ok",
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", ImageURL: cutil.GetPtr("http://iso.net/iso"), ImageSHA: cutil.GetPtr("a1efca12ea51069abb123bf9c77889fcc2a31cc5483fc14d115e44fdf07c7980"), RootFsID: cutil.GetPtr("666c2eee-193d-42db-a490-4c444342bd4e"), SiteIDs: siteIDs},
+			expectErr: false,
 		},
 	}
 	for _, tc := range tests {
@@ -102,14 +88,10 @@ func TestOperatingSystemCreateRequest_Validate_TemplatedAndScope(t *testing.T) {
 	}
 }
 
-func TestOperatingSystemUpdateRequest_Validate_ScopeImmutableAndTemplate(t *testing.T) {
+func TestOperatingSystemUpdateRequest_Validate_Template(t *testing.T) {
 	templatedOS := &cdbm.OperatingSystem{ID: uuid.New(), Name: "ab", Type: cdbm.OperatingSystemTypeTemplatedIPXE, Status: cdbm.OperatingSystemStatusReady}
 	rawIpxeOS := &cdbm.OperatingSystem{ID: uuid.New(), Name: "ab", Type: cdbm.OperatingSystemTypeIPXE, IpxeScript: cutil.GetPtr("x"), Status: cdbm.OperatingSystemStatusReady}
 
-	t.Run("scope is immutable", func(t *testing.T) {
-		err := (&APIOperatingSystemUpdateRequest{Scope: cutil.GetPtr(cdbm.OperatingSystemScopeGlobal)}).Validate(templatedOS)
-		assert.Error(t, err)
-	})
 	t.Run("templated accepts template params", func(t *testing.T) {
 		err := (&APIOperatingSystemUpdateRequest{IpxeTemplateParameters: &[]cdbm.OperatingSystemIpxeParameter{{Name: "p", Value: "v"}}}).Validate(templatedOS)
 		assert.NoError(t, err)
@@ -197,7 +179,6 @@ func TestNewAPIOperatingSystem_RedactsArtifactAuthToken(t *testing.T) {
 		Org:            "org-1",
 		Type:           cdbm.OperatingSystemTypeTemplatedIPXE,
 		IpxeTemplateId: cutil.GetPtr("tmpl-1"),
-		IpxeOsScope:    cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
 		IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{
 			{Name: "kernel", URL: "http://x/k", AuthType: cutil.GetPtr(cdbm.OperatingSystemAuthTypeBearer), AuthToken: &authToken, CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded},
 		},
@@ -205,8 +186,6 @@ func TestNewAPIOperatingSystem_RedactsArtifactAuthToken(t *testing.T) {
 
 	api := NewAPIOperatingSystem(dbOS, nil, nil, nil)
 	require.NotNil(t, api)
-	require.NotNil(t, api.Scope)
-	assert.Equal(t, cdbm.OperatingSystemScopeGlobal, *api.Scope)
 	require.Len(t, api.IpxeTemplateArtifacts, 1)
 	assert.Nil(t, api.IpxeTemplateArtifacts[0].AuthToken, "artifact authToken must be redacted in API responses")
 	// The source DB object must not be mutated by the redaction copy.

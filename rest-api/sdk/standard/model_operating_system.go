@@ -57,8 +57,6 @@ type OperatingSystem struct {
 	IpxeTemplateParameters []OperatingSystemIpxeParameter `json:"ipxeTemplateParameters,omitempty"`
 	// Artifacts for the iPXE OS definition (Templated iPXE only). authToken is redacted.
 	IpxeTemplateArtifacts []OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts,omitempty"`
-	// Synchronization scope for iPXE-based Operating Systems (Local, Global, or Limited)
-	Scope NullableString `json:"scope,omitempty"`
 	// User data for the Operating System
 	UserData NullableString `json:"userData,omitempty"`
 	// Whether the Operating System is cloud-init based; true if there is non-empty `userData`, false otherwise.
@@ -787,49 +785,6 @@ func (o *OperatingSystem) SetIpxeTemplateArtifacts(v []OperatingSystemIpxeArtifa
 	o.IpxeTemplateArtifacts = v
 }
 
-// GetScope returns the Scope field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *OperatingSystem) GetScope() string {
-	if o == nil || IsNil(o.Scope.Get()) {
-		var ret string
-		return ret
-	}
-	return *o.Scope.Get()
-}
-
-// GetScopeOk returns a tuple with the Scope field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-// NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *OperatingSystem) GetScopeOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return o.Scope.Get(), o.Scope.IsSet()
-}
-
-// HasScope returns a boolean if a field has been set.
-func (o *OperatingSystem) HasScope() bool {
-	if o != nil && o.Scope.IsSet() {
-		return true
-	}
-
-	return false
-}
-
-// SetScope gets a reference to the given NullableString and assigns it to the Scope field.
-func (o *OperatingSystem) SetScope(v string) {
-	o.Scope.Set(&v)
-}
-
-// SetScopeNil sets the value for Scope to be an explicit nil
-func (o *OperatingSystem) SetScopeNil() {
-	o.Scope.Set(nil)
-}
-
-// UnsetScope ensures that no value is present for Scope, not even an explicit nil
-func (o *OperatingSystem) UnsetScope() {
-	o.Scope.Unset()
-}
-
 // GetUserData returns the UserData field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *OperatingSystem) GetUserData() string {
 	if o == nil || IsNil(o.UserData.Get()) {
@@ -1264,9 +1219,6 @@ func (o OperatingSystem) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.IpxeTemplateArtifacts) {
 		toSerialize["ipxeTemplateArtifacts"] = o.IpxeTemplateArtifacts
-	}
-	if o.Scope.IsSet() {
-		toSerialize["scope"] = o.Scope.Get()
 	}
 	if o.UserData.IsSet() {
 		toSerialize["userData"] = o.UserData.Get()

@@ -53,7 +53,6 @@ func assertTemplatedOsConfig(t *testing.T, osConfig *corev1.InstanceOperatingSys
 // iPXE OS is rendered on the Site from its template, so only the OS ID is
 // propagated to Core, and only once the definition is synchronized to that Site.
 func TestBuildInstanceOsConfig_TemplatedIPXE(t *testing.T) {
-	ctx := context.Background()
 	dbSession := testMachineInitDB(t)
 	defer dbSession.Close()
 
@@ -69,18 +68,14 @@ func TestBuildInstanceOsConfig_TemplatedIPXE(t *testing.T) {
 	ip := testMachineBuildInfrastructureProvider(t, dbSession, "tmpl-os-instance-ip-org", "tmpl-os-instance-provider")
 	site := testMachineBuildSite(t, dbSession, ip, "tmpl-os-instance-site", cdbm.SiteStatusRegistered)
 
-	// buildOS builds a tenant-owned Templated iPXE OS with the given scope.
-	buildOS := func(name, scope string) *cdbm.OperatingSystem {
-		os := testInstanceBuildOperatingSystem(t, dbSession, name, tenant,
+	// buildOS builds a tenant-owned Templated iPXE OS.
+	buildOS := func(name string) *cdbm.OperatingSystem {
+		return testInstanceBuildOperatingSystem(t, dbSession, name, tenant,
 			cdbm.OperatingSystemTypeTemplatedIPXE, false, nil, false, cdbm.OperatingSystemStatusReady, user)
-		os.IpxeOsScope = cutil.GetPtr(scope)
-		_, err := dbSession.DB.NewUpdate().Model(os).Column("ipxe_os_scope").WherePK().Exec(ctx)
-		require.NoError(t, err)
-		return os
 	}
 
-	// A Global-scope OS synchronized (Synced association) to the Site: the happy path.
-	osSynced := buildOS("tmpl-os-instance-os-synced", cdbm.OperatingSystemScopeGlobal)
+	// An OS synchronized (Synced association) to the Site: the happy path.
+	osSynced := buildOS("tmpl-os-instance-os-synced")
 	testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, site.ID, osSynced.ID)
 
 	t.Run("create", func(t *testing.T) {
@@ -137,31 +132,29 @@ func TestBuildInstanceOsConfig_TemplatedIPXE(t *testing.T) {
 	// The following cases exercise the shared validator through the create path;
 	// the same validator gates the update and batch paths.
 
-	// A Local-scope OS (created in nico-core) is a legitimate, usable definition
-	// once it is present at its Site: selection is gated on site availability, not
-	// on scope. (osScope only constrains OS creation, per the OS API validation
-	// rules, where Local is rejected because such OSes originate in core.)
-	t.Run("allows Local-scope templated OS synchronized to Site", func(t *testing.T) {
-		osLocal := buildOS("tmpl-os-instance-os-local", cdbm.OperatingSystemScopeLocal)
-		testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, site.ID, osLocal.ID)
+	// Selection is gated on site availability, not on ownership: any Templated iPXE
+	// OS that is present (Synced association) at its Site is a usable definition.
+	t.Run("allows any templated OS synchronized to Site", func(t *testing.T) {
+		osOther := buildOS("tmpl-os-instance-os-other")
+		testInstanceBuildOperatingSystemSiteAssociation(t, dbSession, site.ID, osOther.ID)
 
 		ec := newTemplatedOsEchoContext(t)
 		h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}
 		apiReq := &model.APIInstanceCreateRequest{
 			TenantID:          tenant.ID.String(),
-			OperatingSystemID: cutil.GetPtr(osLocal.ID.String()),
+			OperatingSystemID: cutil.GetPtr(osOther.ID.String()),
 		}
 
 		osConfig, osID, apiErr := h.buildInstanceCreateRequestOsConfig(ec, &logger, apiReq, site)
 		require.Nil(t, apiErr)
 		require.NotNil(t, osID)
-		assert.Equal(t, osLocal.ID, *osID)
-		assertTemplatedOsConfig(t, osConfig, osLocal.ID)
+		assert.Equal(t, osOther.ID, *osID)
+		assertTemplatedOsConfig(t, osConfig, osOther.ID)
 	})
 
 	t.Run("rejects templated OS not synchronized to Site", func(t *testing.T) {
-		// No Synced association at this Site, regardless of scope.
-		osUnsynced := buildOS("tmpl-os-instance-os-unsynced", cdbm.OperatingSystemScopeGlobal)
+		// No Synced association at this Site.
+		osUnsynced := buildOS("tmpl-os-instance-os-unsynced")
 
 		ec := newTemplatedOsEchoContext(t)
 		h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}

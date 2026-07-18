@@ -187,33 +187,6 @@ func updateOperatingSystemAggregateStatus(ctx context.Context, logger zerolog.Lo
 	return nil
 }
 
-// getRegisteredTenantSites returns all Registered sites the tenant has access to.
-// Used to resolve target sites for Global-scope Templated iPXE Operating Systems.
-func getRegisteredTenantSites(ctx context.Context, dbSession *cdb.Session, tenantID uuid.UUID) ([]cdbm.Site, error) {
-	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
-	tss, _, err := tsDAO.GetAll(ctx, nil,
-		cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenantID}},
-		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-	if err != nil {
-		return nil, err
-	}
-	if len(tss) == 0 {
-		return nil, nil
-	}
-	siteIDs := make([]uuid.UUID, len(tss))
-	for i, ts := range tss {
-		siteIDs[i] = ts.SiteID
-	}
-	stDAO := cdbm.NewSiteDAO(dbSession)
-	sites, _, err := stDAO.GetAll(ctx, nil,
-		cdbm.SiteFilterInput{SiteIDs: siteIDs, Statuses: []string{cdbm.SiteStatusRegistered}},
-		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-	if err != nil {
-		return nil, err
-	}
-	return sites, nil
-}
-
 // validateIpxeTemplateAvailableAtSites verifies the referenced iPXE template is
 // available (has an IpxeTemplateSiteAssociation) at every one of the given Sites.
 // A Templated iPXE Operating System is rendered on the Site from its template, so
@@ -392,16 +365,6 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 	// ipxeTemplateId -> Templated iPXE, otherwise Image).
 	osType := apiRequest.GetOperatingSystemType()
 
-	// Determine the effective scope to persist. Raw iPXE Operating Systems are
-	// normalized to Global to preserve legacy behavior (a tenant can use them on
-	// any Instance); validation has already ensured any provided scope is Global
-	// or unset for raw iPXE. Templated iPXE scope is caller-set and validated;
-	// Image OS carry a nil scope.
-	osScope := apiRequest.Scope
-	if osType == cdbm.OperatingSystemTypeIPXE {
-		osScope = cutil.GetPtr(cdbm.OperatingSystemScopeGlobal)
-	}
-
 	// Set the phoneHomeEnabled if provided in request
 	phoneHomeEnabled := false
 	if apiRequest.PhoneHomeEnabled != nil {
@@ -469,26 +432,6 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		rdbst = append(rdbst, *site)
 	}
 
-	// Global-scope Templated iPXE Operating Systems are synced to every Registered
-	// site the tenant has access to (siteIds are not specified for Global scope).
-	if osType == cdbm.OperatingSystemTypeTemplatedIPXE && apiRequest.Scope != nil && *apiRequest.Scope == cdbm.OperatingSystemScopeGlobal {
-		globalSites, gerr := getRegisteredTenantSites(ctx, csh.dbSession, tenant.ID)
-		if gerr != nil {
-			logger.Error().Err(gerr).Msg("error retrieving tenant sites for global-scope Operating System")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve tenant sites, DB error", nil)
-		}
-		// A Global-scope Templated iPXE OS is defined by being synced to every
-		// Registered site the tenant can access, and no later mechanism re-expands it
-		// as sites register. With no such sites there is nothing to sync to, so the
-		// post-commit sync (gated on len(dbossa) > 0) is skipped and the OS would be
-		// stranded in Syncing forever. Reject up front rather than persist a no-op.
-		if len(globalSites) == 0 {
-			logger.Warn().Msg("cannot create Global-scope Templated iPXE Operating System: tenant has no Registered Sites")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to create Operating System, Tenant has no Registered Sites to sync a Global-scope Operating System to", nil)
-		}
-		rdbst = append(rdbst, globalSites...)
-	}
-
 	// A Templated iPXE Operating System is rendered on-Site from its iPXE template,
 	// so it can only be synced to Sites that currently have the template. Reject up
 	// front if the referenced template is unavailable at any target Site rather than
@@ -540,7 +483,6 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 			IpxeTemplateId:         apiRequest.IpxeTemplateId,
 			IpxeTemplateParameters: apiRequest.IpxeTemplateParameters,
 			IpxeTemplateArtifacts:  apiRequest.IpxeTemplateArtifacts,
-			IpxeOsScope:            osScope,
 			UserData:               apiRequest.UserData,
 			AllowOverride:          apiRequest.AllowOverride,
 			EnableBlockStorage:     apiRequest.EnableBlockStorage,

@@ -34,9 +34,10 @@ type OperatingSystemCreateRequest struct {
 	// Deprecated: Tenant is now inferred from org membership.
 	// Deprecated
 	TenantId NullableString `json:"tenantId,omitempty"`
-	// Specify only one Site if an Operating System is image-based; more than one Site is not supported.
+	// Target Sites for the Operating System. For image-based OS specify exactly one Site (more than one is not supported). For Templated iPXE OS at least one Site is required and the list is fixed at creation: it cannot be changed on update. Not applicable to raw iPXE OS.
 	SiteIds []string `json:"siteIds,omitempty"`
-	// iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified
+	// Deprecated: raw iPXE Operating Systems are superseded by Templated iPXE (ipxeTemplateId). iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified.
+	// Deprecated
 	IpxeScript NullableString `json:"ipxeScript,omitempty"`
 	// Original URL from which the Operating System image can be retrieved; required for image-based OS. Cannot be specified if ipxeScript is specified
 	ImageUrl NullableString `json:"imageUrl,omitempty"`
@@ -67,8 +68,6 @@ type OperatingSystemCreateRequest struct {
 	IpxeTemplateParameters []OperatingSystemIpxeParameter `json:"ipxeTemplateParameters,omitempty"`
 	// Artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition (Templated iPXE only).
 	IpxeTemplateArtifacts []OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts,omitempty"`
-	// Synchronization scope for iPXE-based Operating Systems. Required for Templated iPXE (Global or Limited; Local is created only in nico-core).
-	Scope NullableString `json:"scope,omitempty"`
 }
 
 type _OperatingSystemCreateRequest OperatingSystemCreateRequest
@@ -283,6 +282,7 @@ func (o *OperatingSystemCreateRequest) SetSiteIds(v []string) {
 }
 
 // GetIpxeScript returns the IpxeScript field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *OperatingSystemCreateRequest) GetIpxeScript() string {
 	if o == nil || IsNil(o.IpxeScript.Get()) {
 		var ret string
@@ -294,6 +294,7 @@ func (o *OperatingSystemCreateRequest) GetIpxeScript() string {
 // GetIpxeScriptOk returns a tuple with the IpxeScript field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *OperatingSystemCreateRequest) GetIpxeScriptOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -311,6 +312,7 @@ func (o *OperatingSystemCreateRequest) HasIpxeScript() bool {
 }
 
 // SetIpxeScript gets a reference to the given NullableString and assigns it to the IpxeScript field.
+// Deprecated
 func (o *OperatingSystemCreateRequest) SetIpxeScript(v string) {
 	o.IpxeScript.Set(&v)
 }
@@ -886,49 +888,6 @@ func (o *OperatingSystemCreateRequest) SetIpxeTemplateArtifacts(v []OperatingSys
 	o.IpxeTemplateArtifacts = v
 }
 
-// GetScope returns the Scope field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *OperatingSystemCreateRequest) GetScope() string {
-	if o == nil || IsNil(o.Scope.Get()) {
-		var ret string
-		return ret
-	}
-	return *o.Scope.Get()
-}
-
-// GetScopeOk returns a tuple with the Scope field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-// NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *OperatingSystemCreateRequest) GetScopeOk() (*string, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return o.Scope.Get(), o.Scope.IsSet()
-}
-
-// HasScope returns a boolean if a field has been set.
-func (o *OperatingSystemCreateRequest) HasScope() bool {
-	if o != nil && o.Scope.IsSet() {
-		return true
-	}
-
-	return false
-}
-
-// SetScope gets a reference to the given NullableString and assigns it to the Scope field.
-func (o *OperatingSystemCreateRequest) SetScope(v string) {
-	o.Scope.Set(&v)
-}
-
-// SetScopeNil sets the value for Scope to be an explicit nil
-func (o *OperatingSystemCreateRequest) SetScopeNil() {
-	o.Scope.Set(nil)
-}
-
-// UnsetScope ensures that no value is present for Scope, not even an explicit nil
-func (o *OperatingSystemCreateRequest) UnsetScope() {
-	o.Scope.Unset()
-}
-
 func (o OperatingSystemCreateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -996,9 +955,6 @@ func (o OperatingSystemCreateRequest) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.IpxeTemplateArtifacts) {
 		toSerialize["ipxeTemplateArtifacts"] = o.IpxeTemplateArtifacts
-	}
-	if o.Scope.IsSet() {
-		toSerialize["scope"] = o.Scope.Get()
 	}
 	return toSerialize, nil
 }

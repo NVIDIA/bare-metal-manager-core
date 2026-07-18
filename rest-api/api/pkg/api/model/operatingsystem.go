@@ -78,11 +78,6 @@ type APIOperatingSystemCreateRequest struct {
 	IpxeTemplateParameters []cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
 	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition
 	IpxeTemplateArtifacts []cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
-	// Scope controls the synchronization direction between carbide-rest and nico-core.
-	// Allowed values: "Global" (rest->core, all owner sites), "Limited" (rest->core, specific
-	// sites listed in siteIds). Required for Templated iPXE OS. For raw iPXE OS, only "Global"
-	// or unspecified is accepted. Rejected for Image OS.
-	Scope *string `json:"scope"`
 }
 
 // GetOperatingSystemType returns the OperatingSystem type inferred from the
@@ -162,26 +157,12 @@ func (oscr *APIOperatingSystemCreateRequest) Validate() error {
 		}
 	}
 
-	// Scope handling differs by OS type. Templated iPXE is validated in full by
-	// validateTemplatedIpxeOS (including its own image-field/site-id rules), so it
-	// returns early and never falls through to the image/raw-iPXE checks below.
-	switch {
-	case oscr.IpxeTemplateId != nil:
+	// Templated iPXE is validated in full by validateTemplatedIpxeOS (including its
+	// own image-field/site-id rules), so it returns early and never falls through to
+	// the image checks below. Raw iPXE and Image types have no further type-specific
+	// pre-checks here.
+	if oscr.IpxeTemplateId != nil {
 		return oscr.validateTemplatedIpxeOS()
-	case oscr.IpxeScript != nil:
-		// raw iPXE: scope is optional but must be Global when set.
-		if oscr.Scope != nil && *oscr.Scope != cdbm.OperatingSystemScopeGlobal {
-			return validation.Errors{
-				"scope": fmt.Errorf("scope must be %q or unspecified for raw iPXE Operating Systems", cdbm.OperatingSystemScopeGlobal),
-			}
-		}
-	default:
-		// Image: scope is not applicable.
-		if oscr.Scope != nil {
-			return validation.Errors{
-				"scope": errors.New("scope can only be specified for Templated iPXE Operating Systems"),
-			}
-		}
 	}
 
 	if oscr.ImageURL != nil {
@@ -363,8 +344,6 @@ type APIOperatingSystemUpdateRequest struct {
 	IpxeTemplateParameters *[]cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
 	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition
 	IpxeTemplateArtifacts *[]cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
-	// Scope is immutable after creation. If provided, the request is rejected.
-	Scope *string `json:"scope"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -397,13 +376,6 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 	} else if existingOS.IsActive && osur.DeactivationNote != nil {
 		return validation.Errors{
 			"deactivationNote": errors.New("cannot change Deactivation Note on an active Operating System"),
-		}
-	}
-
-	// Scope is immutable after creation.
-	if osur.Scope != nil {
-		return validation.Errors{
-			"scope": errors.New("scope cannot be changed after creation"),
 		}
 	}
 
@@ -748,9 +720,6 @@ type APIOperatingSystem struct {
 	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition.
 	// Any artifact authToken is redacted in API responses.
 	IpxeTemplateArtifacts []cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
-	// Scope controls the synchronization direction between carbide-rest and nico-core.
-	// One of "Local", "Global", or "Limited". Only set for iPXE-based Operating Systems.
-	Scope *string `json:"scope"`
 	// PhoneHomeEnabled is an attribute which is specified by user if Operating System needs to be enabled for phone home or not
 	PhoneHomeEnabled bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
@@ -794,7 +763,6 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		RootFsLabel:        dbOS.RootFsLabel,
 		IpxeScript:         dbOS.IpxeScript,
 		IpxeTemplateId:     dbOS.IpxeTemplateId,
-		Scope:              dbOS.IpxeOsScope,
 		PhoneHomeEnabled:   dbOS.PhoneHomeEnabled,
 		UserData:           dbOS.UserData,
 		IsCloudInit:        IsCloudInitFromUserData(dbOS.UserData),
@@ -867,8 +835,8 @@ func NewAPIOperatingSystemSummary(dbos *cdbm.OperatingSystem) *APIOperatingSyste
 }
 
 // validateTemplatedIpxeOS fully validates a Templated iPXE create request: image
-// fields must be absent, scope must be Global or Limited (Local is rejected at
-// creation), siteIds are required only for Limited scope, and the template
+// fields must be absent, at least one target site must be specified (the site list
+// is fixed at creation and is immutable thereafter), and the template
 // parameters/artifacts must be well-formed.
 func (oscr *APIOperatingSystemCreateRequest) validateTemplatedIpxeOS() error {
 	if err := validation.ValidateStruct(oscr,
@@ -882,23 +850,8 @@ func (oscr *APIOperatingSystemCreateRequest) validateTemplatedIpxeOS() error {
 		return err
 	}
 
-	if oscr.Scope == nil {
-		return validation.Errors{"scope": errors.New("scope is required for Templated iPXE Operating Systems")}
-	}
-	switch *oscr.Scope {
-	case cdbm.OperatingSystemScopeGlobal, cdbm.OperatingSystemScopeLimited:
-		// valid
-	case cdbm.OperatingSystemScopeLocal:
-		return validation.Errors{"scope": errors.New("scope 'Local' cannot be specified at creation; Local Operating Systems are created in nico-core")}
-	default:
-		return validation.Errors{"scope": errors.New("scope must be one of 'Global' or 'Limited'")}
-	}
-
-	if len(oscr.SiteIDs) > 0 && *oscr.Scope != cdbm.OperatingSystemScopeLimited {
-		return validation.Errors{"siteIds": errors.New("siteIds can only be specified for Templated iPXE Operating Systems with scope 'Limited'")}
-	}
-	if *oscr.Scope == cdbm.OperatingSystemScopeLimited && len(oscr.SiteIDs) == 0 {
-		return validation.Errors{"siteIds": errors.New("at least one siteId must be specified when scope is 'Limited'")}
+	if len(oscr.SiteIDs) == 0 {
+		return validation.Errors{"siteIds": errors.New("at least one siteId must be specified for Templated iPXE Operating Systems")}
 	}
 
 	if err := validateIpxeTemplateParameters(oscr.IpxeTemplateParameters); err != nil {

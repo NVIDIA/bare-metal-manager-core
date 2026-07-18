@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
-	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/otelecho"
@@ -237,7 +237,7 @@ func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 			Name:           "tmpl-proxy-os",
 			Description:    cutil.GetPtr("templated via proxy"),
 			IpxeTemplateId: cutil.GetPtr(f.tmpl.ID.String()),
-			Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+			SiteIDs:        []string{f.site.ID.String()},
 			IpxeTemplateParameters: []cdbm.OperatingSystemIpxeParameter{
 				{Name: "version", Value: "22.04"},
 			},
@@ -260,8 +260,6 @@ func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), rsp))
 		require.NotNil(t, rsp.Type)
 		assert.Equal(t, cdbm.OperatingSystemTypeTemplatedIPXE, *rsp.Type)
-		require.NotNil(t, rsp.Scope)
-		assert.Equal(t, cdbm.OperatingSystemScopeGlobal, *rsp.Scope)
 		assert.Equal(t, cdbm.OperatingSystemStatusReady, rsp.Status)
 		require.Len(t, rsp.SiteAssociations, 1)
 		require.NotNil(t, rsp.SiteAssociations[0].Site)
@@ -339,7 +337,7 @@ func TestOperatingSystemHandler_TemplatedIPXE_ProxyCreateExecuteError(t *testing
 	createReq := model.APIOperatingSystemCreateRequest{
 		Name:           "tmpl-proxy-os-error",
 		IpxeTemplateId: cutil.GetPtr(f.tmpl.ID.String()),
-		Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+		SiteIDs:        []string{f.site.ID.String()},
 	}
 	body, err := json.Marshal(createReq)
 	require.NoError(t, err)
@@ -373,7 +371,7 @@ func TestOperatingSystemHandler_TemplatedIPXE_ProxyCreateTimeout(t *testing.T) {
 	createReq := model.APIOperatingSystemCreateRequest{
 		Name:           "tmpl-proxy-os-timeout",
 		IpxeTemplateId: cutil.GetPtr(f.tmpl.ID.String()),
-		Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+		SiteIDs:        []string{f.site.ID.String()},
 	}
 	body, err := json.Marshal(createReq)
 	require.NoError(t, err)
@@ -419,7 +417,7 @@ func TestOperatingSystemHandler_TemplatedIPXE_TemplateNotAvailableAtSite(t *test
 	createReq := model.APIOperatingSystemCreateRequest{
 		Name:           "tmpl-proxy-os-no-itsa",
 		IpxeTemplateId: cutil.GetPtr(orphanTmpl.ID.String()),
-		Scope:          cutil.GetPtr(cdbm.OperatingSystemScopeGlobal),
+		SiteIDs:        []string{f.site.ID.String()},
 	}
 	body, merr := json.Marshal(createReq)
 	require.NoError(t, merr)
