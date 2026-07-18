@@ -21,7 +21,7 @@ type WorkerPool struct {
 	cancel  context.CancelFunc
 	started int32
 	stopped int32
-	mu 		sync.RWMutex // protects jobs channel close vs. concurrent sends 
+	mu      sync.RWMutex // protects jobs channel close vs. concurrent sends
 
 	// Metrics
 	metrics *metricsCollector
@@ -115,12 +115,15 @@ func (wp *WorkerPool) Stop() error {
 		return fmt.Errorf("worker pool is already stopped")
 	}
 
+	// Cancel context to signal workers to stop
 	wp.cancel()
 
+	// Close job queue to prevent new submissions
 	wp.mu.Lock()
 	close(wp.jobs)
 	wp.mu.Unlock()
 
+	// Wait for all workers to finish
 	wp.wg.Wait()
 
 	return nil
