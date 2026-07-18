@@ -26,10 +26,15 @@
 //! true, and entries not refreshed within the registry's hold period are
 //! evicted lazily on read.
 //!
+//! Each gauge owns its label schema: writers record only the label *values*
+//! (in schema order), and the label names are applied at collection time. At
+//! fleet scale this halves the per-series memory next to storing full
+//! key/value pairs per entry.
+//!
 //! The per-object health classification metric predates this generalization
 //! and keeps its dedicated [`PerObjectMetricsRegistry::record`]/
 //! [`PerObjectMetricsRegistry::register`] API (opt-in per classification to
-//! bound cardinality), implemented on the first gauge handle.
+//! bound cardinality), sharing the same per-object store underneath.
 //!
 //! [`set_all`]: PerObjectGauge::set_all
 //! [`clear`]: PerObjectGauge::clear
@@ -63,43 +68,50 @@ impl ObjectKey {
     }
 }
 
-/// One object's series on one gauge: `(value, labels)` pairs, shared via
-/// `Arc` so scrape snapshots are pointer clones.
-type SharedSeries = Arc<Vec<(f64, Vec<KeyValue>)>>;
+/// One object's series on a schema'd gauge: `(value, label values in schema
+/// order)` pairs.
+type ValueSeries = Vec<(f64, Vec<String>)>;
 
-/// The series one object currently exposes on one gauge. All per-entry state
-/// is interior-mutable — the series behind its own mutex (per-object, so
-/// effectively uncontended and cheaper than lock-free alternatives), the
-/// eviction deadline as an atomic — so every record/keep-alive/snapshot path
-/// runs under the map's *read* lock, concurrently with everything else.
-/// `updated_at_ms` is milliseconds since the gauge was created.
+/// One object's series on the classification metric, which predates the
+/// schema'd store and carries caller-supplied labels.
+type LabeledSeries = Vec<(f64, Vec<KeyValue>)>;
+
+/// The payload one object currently exposes on one store. All per-entry
+/// state is interior-mutable — the payload behind its own mutex (per-object,
+/// so effectively uncontended), the eviction deadline as an atomic — so every
+/// record/keep-alive/snapshot path runs under the map's *read* lock,
+/// concurrently with everything else. `updated_at_ms` is milliseconds since
+/// the store was created.
 #[derive(Debug)]
-struct SeriesEntry {
-    series: Mutex<SharedSeries>,
+struct StoreEntry<S> {
+    payload: Mutex<Arc<S>>,
     updated_at_ms: AtomicU64,
 }
 
-impl SeriesEntry {
-    fn new(series: Vec<(f64, Vec<KeyValue>)>, now_ms: u64) -> Self {
+impl<S: PartialEq> StoreEntry<S> {
+    fn new(payload: S, now_ms: u64) -> Self {
         Self {
-            series: Mutex::new(Arc::new(series)),
+            payload: Mutex::new(Arc::new(payload)),
             updated_at_ms: AtomicU64::new(now_ms),
         }
     }
 
-    fn series(&self) -> SharedSeries {
-        self.series
+    fn payload(&self) -> Arc<S> {
+        self.payload
             .lock()
             .expect("per-object entry mutex poisoned")
             .clone()
     }
 
-    /// Replaces the series unless unchanged (the common case: controllers
+    /// Replaces the payload unless unchanged (the common case: controllers
     /// re-record every iteration), and extends the eviction deadline.
-    fn record(&self, series: Vec<(f64, Vec<KeyValue>)>, now_ms: u64) {
-        let mut current = self.series.lock().expect("per-object entry mutex poisoned");
-        if **current != series {
-            *current = Arc::new(series);
+    fn record(&self, payload: S, now_ms: u64) {
+        let mut current = self
+            .payload
+            .lock()
+            .expect("per-object entry mutex poisoned");
+        if **current != payload {
+            *current = Arc::new(payload);
         }
         drop(current);
         self.touch(now_ms);
@@ -115,15 +127,11 @@ impl SeriesEntry {
     }
 }
 
-/// Writer handle for one per-object gauge. Cheap to clone; all clones share
-/// the same series store. The `(object_type, object_id)` key controls only
-/// series lifecycle (replace/evict) — labels are emitted exactly as supplied,
-/// so metrics that need `object_type`/`object_id` labels must include them.
-#[derive(Clone, Debug)]
-pub struct PerObjectGauge(Arc<GaugeState>);
-
+/// Concurrent per-object store shared by the schema'd gauges and the
+/// classification metric: an object-keyed map of payloads with hold-period
+/// eviction.
 #[derive(Debug)]
-struct GaugeState {
+struct PerObjectStore<S> {
     hold_period: Duration,
     /// Instant zero for the entries' atomic `updated_at_ms` timestamps.
     created: Instant,
@@ -131,186 +139,113 @@ struct GaugeState {
     /// (per-entry state is interior-mutable), so they all run concurrently;
     /// the write lock is taken only when the object *set* changes (insert,
     /// remove, eviction).
-    entries: RwLock<HashMap<ObjectKey, SeriesEntry>>,
+    entries: RwLock<HashMap<ObjectKey, StoreEntry<S>>>,
 }
 
-impl GaugeState {
-    fn now_ms(&self) -> u64 {
-        self.created.elapsed().as_millis() as u64
-    }
-}
-
-impl PerObjectGauge {
+impl<S: PartialEq> PerObjectStore<S> {
     fn new(hold_period: Duration) -> Self {
-        Self(Arc::new(GaugeState {
+        Self {
             hold_period,
             created: Instant::now(),
             entries: RwLock::new(HashMap::new()),
-        }))
-    }
-
-    /// Replaces the object's series with a single one.
-    pub fn set(
-        &self,
-        object_type: &'static str,
-        object_id: &str,
-        value: f64,
-        labels: Vec<KeyValue>,
-    ) {
-        self.set_all(object_type, object_id, vec![(value, labels)]);
-    }
-
-    /// Replaces all of the object's series on this gauge; an empty set removes
-    /// the object so its series stop being emitted.
-    pub fn set_all(
-        &self,
-        object_type: &'static str,
-        object_id: &str,
-        series: Vec<(f64, Vec<KeyValue>)>,
-    ) {
-        let key = ObjectKey::new(object_type, object_id);
-        let now_ms = self.0.now_ms();
-        if series.is_empty() {
-            self.clear_key(&key);
-            return;
         }
-        // Recording into an existing entry — unchanged or replaced — needs
-        // only the read lock plus the entry's own (per-object, uncontended)
-        // mutex, so writers never serialize with each other or with scrape
-        // snapshots; the write lock is taken only to admit an object seen
-        // for the first time.
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.created.elapsed().as_millis() as u64
+    }
+
+    fn read_entries(&self) -> std::sync::RwLockReadGuard<'_, HashMap<ObjectKey, StoreEntry<S>>> {
+        self.entries.read().expect("per-object store lock poisoned")
+    }
+
+    fn write_entries(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<ObjectKey, StoreEntry<S>>> {
+        self.entries
+            .write()
+            .expect("per-object store lock poisoned")
+    }
+
+    /// Replaces the object's payload (keeping the entry when unchanged).
+    /// Recording into an existing entry needs only the read lock plus the
+    /// entry's own (per-object, uncontended) mutex, so writers never
+    /// serialize with each other or with scrape snapshots; the write lock is
+    /// taken only to admit an object seen for the first time.
+    fn record(&self, key: ObjectKey, payload: S) {
+        let now_ms = self.now_ms();
         if let Some(entry) = self.read_entries().get(&key) {
-            entry.record(series, now_ms);
+            entry.record(payload, now_ms);
             return;
         }
         let mut entries = self.write_entries();
         // Re-check under the write lock: another writer may have inserted the
         // entry between the read and write acquisitions.
         if let Some(entry) = entries.get(&key) {
-            entry.record(series, now_ms);
+            entry.record(payload, now_ms);
         } else {
-            entries.insert(key, SeriesEntry::new(series, now_ms));
+            entries.insert(key, StoreEntry::new(payload, now_ms));
         }
     }
 
-    fn read_entries(&self) -> std::sync::RwLockReadGuard<'_, HashMap<ObjectKey, SeriesEntry>> {
-        self.0
-            .entries
-            .read()
-            .expect("per-object gauge lock poisoned")
-    }
-
-    fn write_entries(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<ObjectKey, SeriesEntry>> {
-        self.0
-            .entries
-            .write()
-            .expect("per-object gauge lock poisoned")
-    }
-
-    /// Removes all of the object's series on this gauge.
-    pub fn clear(&self, object_type: &'static str, object_id: &str) {
-        self.set_all(object_type, object_id, Vec::new());
-    }
-
-    /// Refreshes the entry's eviction deadline without changing its series;
-    /// a no-op if absent. For writers that cannot determine the current value
-    /// this iteration but know the existing series must not be evicted
-    /// meanwhile. Not public: external keep-alives go through
-    /// [`PerObjectMetricsRegistry::touch_object`] or [`Self::touch_if_labels`],
-    /// which cannot keep a series whose labels went stale.
-    fn touch_key(&self, key: &ObjectKey) {
-        let now_ms = self.0.now_ms();
-        if let Some(entry) = self.read_entries().get(key) {
-            entry.touch(now_ms);
-        }
-    }
-
-    /// Removes the entry without the caller re-allocating an [`ObjectKey`].
-    /// Checks existence under the read lock first: clearing an absent entry
-    /// is a steady-state no-op for optional facts (e.g. a machine without an
-    /// instance clears every iteration) and must not take the write lock.
-    fn clear_key(&self, key: &ObjectKey) {
+    /// Removes the object's entry. Checks existence under the read lock
+    /// first: clearing an absent entry is a steady-state no-op for optional
+    /// facts (e.g. a machine without an instance clears every iteration) and
+    /// must not take the write lock.
+    fn remove(&self, key: &ObjectKey) {
         if !self.read_entries().contains_key(key) {
             return;
         }
         self.write_entries().remove(key);
     }
 
-    /// Refreshes the entry's eviction deadline, but only while every series
-    /// still carries all of `required_labels`; otherwise the entry is removed
-    /// — the recorded fact no longer describes the object's current state, so
-    /// keeping it alive would publish contradictory labels.
-    pub fn touch_if_labels(
-        &self,
-        object_type: &'static str,
-        object_id: &str,
-        required_labels: &[KeyValue],
-    ) {
-        let key = ObjectKey::new(object_type, object_id);
-        let now_ms = self.0.now_ms();
-        let still_current = |entry: &SeriesEntry| {
-            entry.series().iter().all(|(_, labels)| {
-                required_labels
-                    .iter()
-                    .all(|required| labels.contains(required))
-            })
-        };
-        match self.read_entries().get(&key) {
+    /// Refreshes the entry's eviction deadline without changing its payload;
+    /// a no-op if absent.
+    fn touch(&self, key: &ObjectKey) {
+        let now_ms = self.now_ms();
+        if let Some(entry) = self.read_entries().get(key) {
+            entry.touch(now_ms);
+        }
+    }
+
+    /// Refreshes the entry's eviction deadline while `still_current` holds
+    /// for its payload; otherwise the entry is removed — the recorded fact no
+    /// longer describes the object's current state, so keeping it alive would
+    /// publish contradictory labels.
+    fn touch_if(&self, key: &ObjectKey, still_current: impl Fn(&S) -> bool) {
+        let now_ms = self.now_ms();
+        match self.read_entries().get(key) {
             None => return,
-            Some(entry) if still_current(entry) => {
+            Some(entry) if still_current(&entry.payload()) => {
                 entry.touch(now_ms);
                 return;
             }
             Some(_) => {}
         }
-        // The recorded fact no longer describes the object's current state:
-        // remove it rather than keep publishing contradictory labels.
         // Re-check under the write lock — a writer may have replaced the
-        // series with a current one in between.
+        // payload with a current one in between.
         let mut entries = self.write_entries();
-        if let Some(entry) = entries.get(&key) {
-            if still_current(entry) {
+        if let Some(entry) = entries.get(key) {
+            if still_current(&entry.payload()) {
                 entry.touch(now_ms);
             } else {
-                entries.remove(&key);
+                entries.remove(key);
             }
         }
     }
 
-    /// Registers this gauge as a u64 OpenTelemetry instrument (the
-    /// pre-existing classification metric's exposition type; changing it
-    /// would fork the series for typed OTLP consumers).
-    fn register_on(&self, meter: &Meter, name: &'static str, description: &'static str) {
-        let state = self.clone();
-        meter
-            .u64_observable_gauge(name)
-            .with_description(description)
-            .with_callback(move |observer| {
-                // Snapshot under the lock (one exact-size Vec of Arc clones),
-                // observe outside it, so a large scrape doesn't stall writers.
-                for series in state.snapshot_live() {
-                    for (value, labels) in series.iter() {
-                        observer.observe(*value as u64, labels);
-                    }
-                }
-            })
-            .build();
-    }
-
-    /// Snapshots the live entries' series as one collection of `Arc` clones
-    /// under the read lock — concurrent with writers — so encoding and
-    /// observation happen outside any lock. Stale entries are skipped, and
-    /// evicted afterwards (the only write-lock the scrape path ever takes,
-    /// and only when something actually expired).
-    fn snapshot_live(&self) -> Vec<SharedSeries> {
-        let now_ms = self.0.now_ms();
+    /// Snapshots the live entries' payloads as one collection of `Arc`
+    /// clones under the read lock — concurrent with writers — so encoding
+    /// and observation happen outside any lock. Stale entries are skipped,
+    /// and evicted afterwards (the only write-lock the scrape path ever
+    /// takes, and only when something actually expired).
+    fn snapshot_live(&self) -> Vec<Arc<S>> {
+        let now_ms = self.now_ms();
         let mut stale = Vec::new();
-        let snapshot: Vec<SharedSeries> = {
+        let snapshot: Vec<Arc<S>> = {
             let entries = self.read_entries();
             let mut snapshot = Vec::with_capacity(entries.len());
             for (key, entry) in entries.iter() {
-                if entry.is_fresh(now_ms, self.0.hold_period) {
-                    snapshot.push(entry.series());
+                if entry.is_fresh(now_ms, self.hold_period) {
+                    snapshot.push(entry.payload());
                 } else {
                     stale.push(key.clone());
                 }
@@ -323,7 +258,7 @@ impl PerObjectGauge {
                 // Re-check: the entry may have been refreshed or replaced
                 // since the read-locked pass.
                 if let Some(entry) = entries.get(&key)
-                    && !entry.is_fresh(now_ms, self.0.hold_period)
+                    && !entry.is_fresh(now_ms, self.hold_period)
                 {
                     entries.remove(&key);
                 }
@@ -336,19 +271,121 @@ impl PerObjectGauge {
     /// production readers go through [`Self::snapshot_live`] so no per-entry
     /// work runs under the lock.
     #[cfg(test)]
-    fn for_each_live(&self, mut visit: impl FnMut(&ObjectKey, &SharedSeries)) {
-        let now_ms = self.0.now_ms();
+    fn for_each_live(&self, mut visit: impl FnMut(&ObjectKey, &S)) {
+        let now_ms = self.now_ms();
         for (key, entry) in self.read_entries().iter() {
-            if entry.is_fresh(now_ms, self.0.hold_period) {
-                visit(key, &entry.series());
+            if entry.is_fresh(now_ms, self.hold_period) {
+                visit(key, &entry.payload());
             }
         }
     }
 }
 
+/// Writer handle for one per-object gauge. Cheap to clone; all clones share
+/// the same series store. The gauge owns its label schema — writers pass
+/// label *values* in schema order and the names are applied at collection
+/// time. The `(object_type, object_id)` key controls only series lifecycle
+/// (replace/evict) — values are emitted exactly as supplied, so metrics that
+/// need `object_type`/`object_id` labels must include them in the schema.
+#[derive(Clone, Debug)]
+pub struct PerObjectGauge(Arc<GaugeState>);
+
+#[derive(Debug)]
+struct GaugeState {
+    label_names: &'static [&'static str],
+    store: PerObjectStore<ValueSeries>,
+}
+
+impl PerObjectGauge {
+    fn new(label_names: &'static [&'static str], hold_period: Duration) -> Self {
+        Self(Arc::new(GaugeState {
+            label_names,
+            store: PerObjectStore::new(hold_period),
+        }))
+    }
+
+    /// Replaces the object's series with a single one. `label_values` must
+    /// match the gauge's label schema in length and order.
+    pub fn set(
+        &self,
+        object_type: &'static str,
+        object_id: &str,
+        value: f64,
+        label_values: Vec<String>,
+    ) {
+        self.set_all(object_type, object_id, vec![(value, label_values)]);
+    }
+
+    /// Replaces all of the object's series on this gauge; an empty set
+    /// removes the object so its series stop being emitted. Each series'
+    /// label values must match the gauge's label schema in length and order.
+    pub fn set_all(&self, object_type: &'static str, object_id: &str, series: ValueSeries) {
+        for (_, label_values) in &series {
+            assert_eq!(
+                label_values.len(),
+                self.0.label_names.len(),
+                "series has {} label values but the gauge schema {:?} has {} labels",
+                label_values.len(),
+                self.0.label_names,
+                self.0.label_names.len(),
+            );
+        }
+        let key = ObjectKey::new(object_type, object_id);
+        if series.is_empty() {
+            self.0.store.remove(&key);
+        } else {
+            self.0.store.record(key, series);
+        }
+    }
+
+    /// Removes all of the object's series on this gauge.
+    pub fn clear(&self, object_type: &'static str, object_id: &str) {
+        self.0.store.remove(&ObjectKey::new(object_type, object_id));
+    }
+
+    /// Refreshes the entry's eviction deadline, but only while every series
+    /// still carries all of the `required` `(label name, value)` pairs;
+    /// otherwise the entry is removed — the recorded fact no longer describes
+    /// the object's current state, so keeping it alive would publish
+    /// contradictory labels. Required names must exist in the gauge's schema.
+    pub fn touch_if_labels(
+        &self,
+        object_type: &'static str,
+        object_id: &str,
+        required: &[(&str, &str)],
+    ) {
+        let indexed: Vec<(usize, &str)> = required
+            .iter()
+            .map(|(name, value)| {
+                let index = self
+                    .0
+                    .label_names
+                    .iter()
+                    .position(|label| label == name)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "required label {name:?} is not in the gauge schema {:?}",
+                            self.0.label_names
+                        )
+                    });
+                (index, *value)
+            })
+            .collect();
+        let key = ObjectKey::new(object_type, object_id);
+        self.0.store.touch_if(&key, |series| {
+            series.iter().all(|(_, label_values)| {
+                indexed
+                    .iter()
+                    .all(|(index, value)| label_values[*index] == *value)
+            })
+        });
+    }
+}
+
 /// Exports one [`PerObjectGauge`] as a native Prometheus metric family. The
 /// family name and help are served from `desc`, the same source the registry
-/// checks for collisions.
+/// checks for collisions; label names come from the gauge's schema and are
+/// applied to the stored values at collection time.
 #[derive(Debug)]
 struct GaugeCollector {
     gauge: PerObjectGauge,
@@ -360,12 +397,16 @@ impl GaugeCollector {
         gauge: PerObjectGauge,
         name: &'static str,
         help: &'static str,
-        label_names: &[&str],
     ) -> prometheus::Result<Self> {
         let desc = Desc::new(
             name.to_string(),
             help.to_string(),
-            label_names.iter().map(|label| label.to_string()).collect(),
+            gauge
+                .0
+                .label_names
+                .iter()
+                .map(|label| label.to_string())
+                .collect(),
             HashMap::new(),
         )?;
         Ok(Self { gauge, desc })
@@ -381,11 +422,18 @@ impl Collector for GaugeCollector {
         // Snapshot under the gauge read lock (one exact-size Vec of Arc
         // clones), then encode just-in-time outside it so a large scrape
         // never stalls writers.
+        let label_names = self.gauge.0.label_names;
         let metrics: Vec<proto::Metric> = self
             .gauge
+            .0
+            .store
             .snapshot_live()
             .iter()
-            .flat_map(|series| series.iter().map(prometheus_metric))
+            .flat_map(|series| {
+                series.iter().map(|(value, label_values)| {
+                    prometheus_metric(*value, label_names, label_values)
+                })
+            })
             .collect();
         if metrics.is_empty() {
             return Vec::new();
@@ -399,20 +447,21 @@ impl Collector for GaugeCollector {
     }
 }
 
-fn prometheus_metric((value, labels): &(f64, Vec<KeyValue>)) -> proto::Metric {
-    let mut labels: Vec<_> = labels
+fn prometheus_metric(value: f64, label_names: &[&str], label_values: &[String]) -> proto::Metric {
+    let mut labels: Vec<proto::LabelPair> = label_names
         .iter()
-        .map(|key_value| {
+        .zip(label_values)
+        .map(|(name, value)| {
             let mut label = proto::LabelPair::default();
-            label.set_name(key_value.key.as_str().to_string());
-            label.set_value(key_value.value.to_string());
+            label.set_name(name.to_string());
+            label.set_value(value.clone());
             label
         })
         .collect();
     labels.sort_by(|left, right| left.name().cmp(right.name()));
 
     let mut gauge = proto::Gauge::default();
-    gauge.set_value(*value);
+    gauge.set_value(value);
     let mut metric = proto::Metric::from_gauge(gauge);
     metric.set_label(labels);
     metric
@@ -424,10 +473,10 @@ fn prometheus_metric((value, labels): &(f64, Vec<KeyValue>)) -> proto::Metric {
 #[derive(Debug)]
 pub struct PerObjectMetricsRegistry {
     emit_for_classifications: HashSet<HealthAlertClassification>,
-    classification: PerObjectGauge,
+    classification: Arc<PerObjectStore<LabeledSeries>>,
     /// The state/info gauges created via [`Self::gauge`], swept by
     /// [`Self::clear_object`] and [`Self::touch_object`]. Deliberately
-    /// excludes the classification gauge: deletion clears it too (explicitly,
+    /// excludes the classification store: deletion clears it too (explicitly,
     /// in `clear_object`), but a keep-alive touch must not extend the
     /// pre-existing main-endpoint metric's eviction beyond its own hold.
     /// Write-locked only by [`Self::gauge`] (setup time); sweeps read-lock.
@@ -438,7 +487,7 @@ impl PerObjectMetricsRegistry {
     /// Emits per-object classification series only for
     /// `emit_for_classifications`; an empty set disables that metric entirely
     /// (gauges created via [`Self::gauge`] are unaffected). `hold_period`
-    /// governs the classification gauge and should match (or slightly
+    /// governs the classification metric and should match (or slightly
     /// exceed) the feeding controllers' `metric_hold_time`.
     pub fn new(
         emit_for_classifications: impl IntoIterator<Item = HealthAlertClassification>,
@@ -446,33 +495,29 @@ impl PerObjectMetricsRegistry {
     ) -> Arc<Self> {
         Arc::new(Self {
             emit_for_classifications: emit_for_classifications.into_iter().collect(),
-            classification: PerObjectGauge::new(hold_period),
+            classification: Arc::new(PerObjectStore::new(hold_period)),
             gauges: RwLock::new(Vec::new()),
         })
     }
 
-    /// Creates a per-object gauge with its own `hold_period` (an object's
-    /// series is only refreshed when its controller processes it, so the hold
-    /// must cover the slowest feeder's refresh interval), exported as a
-    /// native Prometheus collector on `registry` (typically the dedicated
-    /// per-object endpoint's registry). Native collection deliberately
-    /// bypasses OpenTelemetry instruments, whose per-stream cardinality limit
-    /// (2000 series by default) a per-object fleet vastly exceeds.
+    /// Creates a per-object gauge with its own label schema and `hold_period`
+    /// (an object's series is only refreshed when its controller processes
+    /// it, so the hold must cover the slowest feeder's refresh interval),
+    /// exported as a native Prometheus collector on `registry` (typically the
+    /// dedicated per-object endpoint's registry). Native collection
+    /// deliberately bypasses OpenTelemetry instruments, whose per-stream
+    /// cardinality limit (2000 series by default) a per-object fleet vastly
+    /// exceeds.
     pub fn gauge(
         &self,
         registry: &prometheus::Registry,
         name: &'static str,
         help: &'static str,
-        label_names: &[&str],
+        label_names: &'static [&'static str],
         hold_period: Duration,
     ) -> prometheus::Result<PerObjectGauge> {
-        let gauge = PerObjectGauge::new(hold_period);
-        registry.register(Box::new(GaugeCollector::new(
-            gauge.clone(),
-            name,
-            help,
-            label_names,
-        )?))?;
+        let gauge = PerObjectGauge::new(label_names, hold_period);
+        registry.register(Box::new(GaugeCollector::new(gauge.clone(), name, help)?))?;
         self.gauges
             .write()
             .expect("per-object registry lock poisoned")
@@ -481,18 +526,18 @@ impl PerObjectMetricsRegistry {
     }
 
     /// Removes every series of the object — state/info gauges plus the
-    /// classification gauge — e.g. when the object was deleted. (Gauge locks
+    /// classification metric — e.g. when the object was deleted. (Store locks
     /// nest inside the registry lock; no path takes them in the other order.)
     pub fn clear_object(&self, object_type: &'static str, object_id: &str) {
         let key = ObjectKey::new(object_type, object_id);
-        self.classification.clear_key(&key);
+        self.classification.remove(&key);
         for gauge in self
             .gauges
             .read()
             .expect("per-object registry lock poisoned")
             .iter()
         {
-            gauge.clear_key(&key);
+            gauge.0.store.remove(&key);
         }
     }
 
@@ -500,7 +545,7 @@ impl PerObjectMetricsRegistry {
     /// without changing them. For iterations that could not determine the
     /// object's state at all (e.g. a load failure): neither the state series
     /// nor the info/association series recorded by handlers that never ran
-    /// may evict mid-incident. The classification gauge is deliberately not
+    /// may evict mid-incident. The classification metric is deliberately not
     /// touched — its eviction semantics predate this endpoint and stay
     /// governed solely by its own recording cadence and hold.
     pub fn touch_object(&self, object_type: &'static str, object_id: &str) {
@@ -511,7 +556,7 @@ impl PerObjectMetricsRegistry {
             .expect("per-object registry lock poisoned")
             .iter()
         {
-            gauge.touch_key(&key);
+            gauge.0.store.touch(&key);
         }
     }
 
@@ -536,10 +581,15 @@ impl PerObjectMetricsRegistry {
             .map(ToString::to_string)
             .collect();
         // Deterministic order (the input is set-like), so an unchanged
-        // classification set keeps its entry — and cached encoding — in
-        // set_all instead of being replaced every iteration.
+        // classification set keeps its entry in record instead of being
+        // replaced every iteration.
         classifications.sort_unstable();
-        let series: Vec<(f64, Vec<KeyValue>)> = classifications
+        let key = ObjectKey::new(object_type, object_id);
+        if classifications.is_empty() {
+            self.classification.remove(&key);
+            return;
+        }
+        let series: LabeledSeries = classifications
             .into_iter()
             .map(|classification| {
                 let mut labels = vec![
@@ -551,24 +601,37 @@ impl PerObjectMetricsRegistry {
                 (1.0, labels)
             })
             .collect();
-        self.classification.set_all(object_type, object_id, series);
+        self.classification.record(key, series);
     }
 
-    /// Registers the per-object classification gauge. Call once per process;
-    /// with no opted-in classifications nothing is registered.
+    /// Registers the per-object classification metric as a u64 OpenTelemetry
+    /// instrument (its pre-existing exposition type; changing it would fork
+    /// the series for typed OTLP consumers). Call once per process; with no
+    /// opted-in classifications nothing is registered.
     pub fn register(self: &Arc<Self>, meter: &Meter) {
         if self.emit_for_classifications.is_empty() {
             return;
         }
-        self.classification.register_on(
-            meter,
-            UNHEALTHY_BY_CLASSIFICATION_METRIC,
-            "Per-object indication that an object (host, switch, rack, ...) is marked with a \
-             health alert classification due to being unhealthy. Labeled with object_type and \
-             object_id. Only classifications configured via \
-             observability.per_object_metrics_for_classifications are emitted, bounding \
-             metric cardinality.",
-        );
+        let store = self.classification.clone();
+        meter
+            .u64_observable_gauge(UNHEALTHY_BY_CLASSIFICATION_METRIC)
+            .with_description(
+                "Per-object indication that an object (host, switch, rack, ...) is marked with a \
+                 health alert classification due to being unhealthy. Labeled with object_type and \
+                 object_id. Only classifications configured via \
+                 observability.per_object_metrics_for_classifications are emitted, bounding \
+                 metric cardinality.",
+            )
+            .with_callback(move |observer| {
+                // Snapshot under the lock (one exact-size Vec of Arc clones),
+                // observe outside it, so a large scrape doesn't stall writers.
+                for series in store.snapshot_live() {
+                    for (value, labels) in series.iter() {
+                        observer.observe(*value as u64, labels);
+                    }
+                }
+            })
+            .build();
     }
 }
 
@@ -580,23 +643,13 @@ mod tests {
         values.iter().map(|v| v.parse().unwrap()).collect()
     }
 
-    /// `(object_type, object_id, sorted (value, sorted labels) per series)`.
-    type GaugeRow = (String, String, Vec<(f64, Vec<(String, String)>)>);
+    /// `(object_type, object_id, sorted (value, label values) per series)`.
+    type GaugeRow = (String, String, Vec<(f64, Vec<String>)>);
 
     fn gauge_snapshot(gauge: &PerObjectGauge) -> Vec<GaugeRow> {
         let mut rows = Vec::new();
-        gauge.for_each_live(|key, series| {
-            let mut series: Vec<(f64, Vec<(String, String)>)> = series
-                .iter()
-                .map(|(value, labels)| {
-                    let mut labels: Vec<(String, String)> = labels
-                        .iter()
-                        .map(|kv| (kv.key.to_string(), kv.value.to_string()))
-                        .collect();
-                    labels.sort();
-                    (*value, labels)
-                })
-                .collect();
+        gauge.0.store.for_each_live(|key, series| {
+            let mut series: Vec<(f64, Vec<String>)> = series.clone();
             series.sort_by(|a, b| a.partial_cmp(b).unwrap());
             rows.push((key.object_type.to_string(), key.object_id.clone(), series));
         });
@@ -634,6 +687,10 @@ mod tests {
         });
         rows.sort();
         rows
+    }
+
+    fn values(values: &[&str]) -> Vec<String> {
+        values.iter().map(ToString::to_string).collect()
     }
 
     #[test]
@@ -735,42 +792,29 @@ mod tests {
 
     #[test]
     fn gauge_set_replaces_the_objects_series() {
-        let gauge = PerObjectGauge::new(Duration::from_secs(60));
+        let gauge = PerObjectGauge::new(&["state"], Duration::from_secs(60));
 
-        gauge.set(
-            "machine",
-            "machine-a",
-            1.0,
-            vec![KeyValue::new("state", "provisioning")],
-        );
-        gauge.set(
-            "machine",
-            "machine-a",
-            2.0,
-            vec![KeyValue::new("state", "ready")],
-        );
+        gauge.set("machine", "machine-a", 1.0, values(&["provisioning"]));
+        gauge.set("machine", "machine-a", 2.0, values(&["ready"]));
 
         assert_eq!(
             gauge_snapshot(&gauge),
             vec![(
                 "machine".to_string(),
                 "machine-a".to_string(),
-                vec![(2.0, vec![("state".to_string(), "ready".to_string())])],
+                vec![(2.0, values(&["ready"]))],
             )]
         );
     }
 
     #[test]
     fn gauge_set_all_emits_one_series_per_entry_and_empty_removes() {
-        let gauge = PerObjectGauge::new(Duration::from_secs(60));
+        let gauge = PerObjectGauge::new(&["dpu_id"], Duration::from_secs(60));
 
         gauge.set_all(
             "machine",
             "machine-a",
-            vec![
-                (1.0, vec![KeyValue::new("dpu_id", "dpu-1")]),
-                (1.0, vec![KeyValue::new("dpu_id", "dpu-2")]),
-            ],
+            vec![(1.0, values(&["dpu-1"])), (1.0, values(&["dpu-2"]))],
         );
         assert_eq!(gauge_snapshot(&gauge)[0].2.len(), 2);
 
@@ -779,8 +823,15 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "label values")]
+    fn gauge_set_rejects_values_not_matching_the_schema() {
+        let gauge = PerObjectGauge::new(&["state", "substate"], Duration::from_secs(60));
+        gauge.set("machine", "machine-a", 1.0, values(&["provisioning"]));
+    }
+
+    #[test]
     fn gauge_clear_removes_only_the_given_object() {
-        let gauge = PerObjectGauge::new(Duration::from_secs(60));
+        let gauge = PerObjectGauge::new(&[], Duration::from_secs(60));
 
         gauge.set("machine", "machine-a", 1.0, vec![]);
         gauge.set("switch", "switch-a", 1.0, vec![]);
@@ -813,10 +864,7 @@ mod tests {
                 "machine",
                 &format!("machine-{i}"),
                 1.0,
-                vec![
-                    KeyValue::new("object_type", "machine"),
-                    KeyValue::new("object_id", format!("machine-{i}")),
-                ],
+                values(&["machine", &format!("machine-{i}")]),
             );
         }
 
@@ -870,31 +918,22 @@ mod tests {
 
     #[test]
     fn touch_if_labels_clears_series_with_stale_labels() {
-        let gauge = PerObjectGauge::new(Duration::from_secs(60));
-        gauge.set(
-            "machine",
-            "machine-a",
-            1.0,
-            vec![KeyValue::new("state", "failed")],
-        );
+        let gauge = PerObjectGauge::new(&["state"], Duration::from_secs(60));
+        gauge.set("machine", "machine-a", 1.0, values(&["failed"]));
 
         // The fact still matches the object's state: kept alive.
-        gauge.touch_if_labels("machine", "machine-a", &[KeyValue::new("state", "failed")]);
+        gauge.touch_if_labels("machine", "machine-a", &[("state", "failed")]);
         assert_eq!(gauge_snapshot(&gauge).len(), 1);
 
         // The object's state moved on: the stale fact is removed rather than
         // kept publishing contradictory labels.
-        gauge.touch_if_labels(
-            "machine",
-            "machine-a",
-            &[KeyValue::new("state", "provisioning")],
-        );
+        gauge.touch_if_labels("machine", "machine-a", &[("state", "provisioning")]);
         assert!(gauge_snapshot(&gauge).is_empty());
     }
 
     #[test]
     fn gauge_stale_entries_are_evicted_on_read() {
-        let gauge = PerObjectGauge::new(Duration::from_millis(0));
+        let gauge = PerObjectGauge::new(&[], Duration::from_millis(0));
 
         gauge.set("machine", "machine-a", 1.0, vec![]);
 

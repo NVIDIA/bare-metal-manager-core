@@ -22,7 +22,6 @@
 
 use carbide_health_metrics::{PerObjectGauge, PerObjectMetricsRegistry};
 use model::machine::ManagedHostStateSnapshot;
-use opentelemetry::KeyValue;
 
 /// `carbide_object_info` plus association info gauges, recorded by the
 /// machine state handler each iteration.
@@ -84,38 +83,28 @@ impl MachinePerObjectInfo {
             .hardware_info
             .as_ref()
             .and_then(|hardware_info| hardware_info.dmi_data.as_ref());
+        // Label values in the gauges' schema order; the names are applied at
+        // collection time.
         self.object_info.set(
             "machine",
             &machine_id,
             1.0,
             vec![
-                KeyValue::new("object_type", "machine"),
-                KeyValue::new("object_id", machine_id.clone()),
-                KeyValue::new(
-                    "rack_id",
-                    state
-                        .host_snapshot
-                        .rack_id
-                        .as_ref()
-                        .map(ToString::to_string)
-                        .unwrap_or_default(),
-                ),
-                KeyValue::new(
-                    "sku",
-                    state.host_snapshot.hw_sku.clone().unwrap_or_default(),
-                ),
-                KeyValue::new(
-                    "vendor",
-                    dmi_data
-                        .map(|dmi| dmi.sys_vendor.clone())
-                        .unwrap_or_default(),
-                ),
-                KeyValue::new(
-                    "model",
-                    dmi_data
-                        .map(|dmi| dmi.product_name.clone())
-                        .unwrap_or_default(),
-                ),
+                "machine".to_string(),
+                machine_id.clone(),
+                state
+                    .host_snapshot
+                    .rack_id
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+                state.host_snapshot.hw_sku.clone().unwrap_or_default(),
+                dmi_data
+                    .map(|dmi| dmi.sys_vendor.clone())
+                    .unwrap_or_default(),
+                dmi_data
+                    .map(|dmi| dmi.product_name.clone())
+                    .unwrap_or_default(),
             ],
         );
         // Declared associations, not loaded snapshots: a host whose DPU
@@ -127,15 +116,7 @@ impl MachinePerObjectInfo {
                 .host_snapshot
                 .associated_dpu_machine_ids()
                 .iter()
-                .map(|dpu_id| {
-                    (
-                        1.0,
-                        vec![
-                            KeyValue::new("machine_id", machine_id.clone()),
-                            KeyValue::new("dpu_id", dpu_id.to_string()),
-                        ],
-                    )
-                })
+                .map(|dpu_id| (1.0, vec![machine_id.clone(), dpu_id.to_string()]))
                 .collect(),
         );
         match &state.instance {
@@ -144,12 +125,9 @@ impl MachinePerObjectInfo {
                 &machine_id,
                 1.0,
                 vec![
-                    KeyValue::new("machine_id", machine_id.clone()),
-                    KeyValue::new("instance_id", instance.id.to_string()),
-                    KeyValue::new(
-                        "tenant_org",
-                        instance.config.tenant.tenant_organization_id.to_string(),
-                    ),
+                    machine_id.clone(),
+                    instance.id.to_string(),
+                    instance.config.tenant.tenant_organization_id.to_string(),
                 ],
             ),
             None => self.instance_info.clear("machine", &machine_id),

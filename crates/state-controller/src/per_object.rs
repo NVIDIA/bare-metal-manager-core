@@ -29,7 +29,6 @@ use std::time::Duration;
 
 use carbide_health_metrics::{PerObjectGauge, PerObjectMetricsRegistry};
 use chrono::{DateTime, Utc};
-use opentelemetry::KeyValue;
 
 /// The object's manual-intervention status as determined by one iteration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,31 +124,37 @@ impl PerObjectStateRecorder {
         manual_intervention: ManualIntervention,
     ) {
         let object_type = self.object_type;
-        let labels = || {
+        // Label values in STATE_LABELS order; the gauges apply the names at
+        // collection time.
+        let label_values = || {
             vec![
-                KeyValue::new("object_type", object_type),
-                KeyValue::new("object_id", object_id.to_string()),
-                KeyValue::new("state", state),
-                KeyValue::new("substate", substate),
+                object_type.to_string(),
+                object_id.to_string(),
+                state.to_string(),
+                substate.to_string(),
             ]
         };
-        self.metrics
-            .entered
-            .set(object_type, object_id, entered.timestamp() as f64, labels());
+        self.metrics.entered.set(
+            object_type,
+            object_id,
+            entered.timestamp() as f64,
+            label_values(),
+        );
         match sla {
-            Some(sla) => self
-                .metrics
-                .sla
-                .set(object_type, object_id, sla.as_secs_f64(), labels()),
+            Some(sla) => {
+                self.metrics
+                    .sla
+                    .set(object_type, object_id, sla.as_secs_f64(), label_values())
+            }
             None => self.metrics.sla.clear(object_type, object_id),
         }
         match manual_intervention {
             ManualIntervention::Required(reason) => {
-                let mut labels = labels();
-                labels.push(KeyValue::new("reason", reason));
+                let mut label_values = label_values();
+                label_values.push(reason.to_string());
                 self.metrics
                     .manual_intervention
-                    .set(object_type, object_id, 1.0, labels);
+                    .set(object_type, object_id, 1.0, label_values);
             }
             ManualIntervention::NotRequired => self
                 .metrics
@@ -158,11 +163,16 @@ impl PerObjectStateRecorder {
             // Keep the series alive only while it still describes the state
             // the object is in — after an out-of-band state change the kept
             // fact would contradict the entered/sla series just recorded.
-            ManualIntervention::Unknown => {
-                self.metrics
-                    .manual_intervention
-                    .touch_if_labels(object_type, object_id, &labels())
-            }
+            ManualIntervention::Unknown => self.metrics.manual_intervention.touch_if_labels(
+                object_type,
+                object_id,
+                &[
+                    ("object_type", object_type),
+                    ("object_id", object_id),
+                    ("state", state),
+                    ("substate", substate),
+                ],
+            ),
         }
     }
 
