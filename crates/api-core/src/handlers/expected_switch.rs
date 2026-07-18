@@ -18,9 +18,7 @@
 use std::collections::HashSet;
 
 use ::rpc::forge as rpc;
-use ::rpc::forge_api_client::{
-    EXPECTED_SWITCH_UPDATE_MASK_HEADER, expected_switch_update_field as patch_field,
-};
+use ::rpc::forge_api_client::{EXPECTED_SWITCH_UPDATE_MASK_HEADER, ExpectedSwitchUpdateField};
 use db::{DatabaseError, expected_switch as db_expected_switch};
 use mac_address::MacAddress;
 use model::expected_switch::{ExpectedSwitch, ExpectedSwitchRequest};
@@ -32,7 +30,7 @@ use crate::handlers::machine_interface_address::update_preallocated_machine_inte
 
 fn parse_expected_switch_update_mask(
     request: &Request<rpc::ExpectedSwitch>,
-) -> Result<Option<HashSet<String>>, CarbideError> {
+) -> Result<Option<HashSet<ExpectedSwitchUpdateField>>, CarbideError> {
     let Some(value) = request.metadata().get(EXPECTED_SWITCH_UPDATE_MASK_HEADER) else {
         return Ok(None);
     };
@@ -41,17 +39,13 @@ fn parse_expected_switch_update_mask(
         CarbideError::InvalidArgument(format!("invalid expected-switch update mask: {error}"))
     })?;
 
-    let fields: HashSet<String> = value.split(',').map(str::to_string).collect();
-
-    if fields.is_empty()
-        || fields
-            .iter()
-            .any(|field| !patch_field::ALL.contains(&field.as_str()))
-    {
-        return Err(CarbideError::InvalidArgument(format!(
-            "invalid expected-switch update mask: {value}"
-        )));
-    }
+    let fields = value
+        .split(',')
+        .map(str::parse)
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|_| {
+            CarbideError::InvalidArgument(format!("invalid expected-switch update mask: {value}"))
+        })?;
 
     Ok(Some(fields))
 }
@@ -59,63 +53,63 @@ fn parse_expected_switch_update_mask(
 fn merge_expected_switch_patch(
     mut patch: rpc::ExpectedSwitch,
     current: rpc::ExpectedSwitch,
-    fields: &HashSet<String>,
+    fields: &HashSet<ExpectedSwitchUpdateField>,
 ) -> rpc::ExpectedSwitch {
     patch.expected_switch_id = current.expected_switch_id;
     patch.bmc_mac_address = current.bmc_mac_address;
 
-    if !fields.contains(patch_field::BMC_USERNAME) {
+    if !fields.contains(&ExpectedSwitchUpdateField::BmcUsername) {
         patch.bmc_username = current.bmc_username;
     }
 
-    if !fields.contains(patch_field::BMC_PASSWORD) {
+    if !fields.contains(&ExpectedSwitchUpdateField::BmcPassword) {
         patch.bmc_password = current.bmc_password;
     }
 
-    if !fields.contains(patch_field::SWITCH_SERIAL_NUMBER) {
+    if !fields.contains(&ExpectedSwitchUpdateField::SwitchSerialNumber) {
         patch.switch_serial_number = current.switch_serial_number;
     }
 
-    if !fields.contains(patch_field::NVOS_MAC_ADDRESSES) {
+    if !fields.contains(&ExpectedSwitchUpdateField::NvosMacAddresses) {
         patch.nvos_mac_addresses = current.nvos_mac_addresses;
     }
 
-    if !fields.contains(patch_field::NVOS_USERNAME) {
+    if !fields.contains(&ExpectedSwitchUpdateField::NvosUsername) {
         patch.nvos_username = current.nvos_username;
     }
 
-    if !fields.contains(patch_field::NVOS_PASSWORD) {
+    if !fields.contains(&ExpectedSwitchUpdateField::NvosPassword) {
         patch.nvos_password = current.nvos_password;
     }
 
-    if !fields.contains(patch_field::RACK_ID) {
+    if !fields.contains(&ExpectedSwitchUpdateField::RackId) {
         patch.rack_id = current.rack_id;
     }
 
-    if !fields.contains(patch_field::BMC_IP_ADDRESS) {
+    if !fields.contains(&ExpectedSwitchUpdateField::BmcIpAddress) {
         patch.bmc_ip_address = current.bmc_ip_address;
     }
 
-    if !fields.contains(patch_field::NVOS_IP_ADDRESS) {
+    if !fields.contains(&ExpectedSwitchUpdateField::NvosIpAddress) {
         patch.nvos_ip_address = current.nvos_ip_address;
     }
 
-    if !fields.contains(patch_field::BMC_RETAIN_CREDENTIALS) {
+    if !fields.contains(&ExpectedSwitchUpdateField::BmcRetainCredentials) {
         patch.bmc_retain_credentials = current.bmc_retain_credentials;
     }
 
     let mut patch_metadata = patch.metadata.unwrap_or_default();
     let current_metadata = current.metadata.unwrap_or_default();
 
-    if !fields.contains(patch_field::METADATA_NAME) {
+    if !fields.contains(&ExpectedSwitchUpdateField::MetadataName) {
         patch_metadata.name = current_metadata.name;
     }
 
-    if !fields.contains(patch_field::METADATA_DESCRIPTION) {
+    if !fields.contains(&ExpectedSwitchUpdateField::MetadataDescription) {
         patch_metadata.description = current_metadata.description;
     }
 
-    if !fields.contains(patch_field::METADATA_LABELS) {
+    if !fields.contains(&ExpectedSwitchUpdateField::MetadataLabels) {
         patch_metadata.labels = current_metadata.labels;
     }
 

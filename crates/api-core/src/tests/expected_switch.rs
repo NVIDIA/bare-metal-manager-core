@@ -126,14 +126,31 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
 async fn test_add_expected_switch_validates_nvos_credentials_pair(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    for (nvos_username, nvos_password, bmc_mac_address, valid) in [
-        (None, None, "3A:3B:3C:3D:3E:44", true),
-        (Some("admin".to_string()), None, "3A:3B:3C:3D:3E:42", false),
+    for (nvos_username, nvos_password, bmc_mac_address, expected_error) in [
+        (None, None, "3A:3B:3C:3D:3E:44", None),
+        (
+            Some("admin".to_string()),
+            None,
+            "3A:3B:3C:3D:3E:42",
+            Some("nvos_username and nvos_password must be set together"),
+        ),
         (
             None,
             Some("nvos-pass".to_string()),
             "3A:3B:3C:3D:3E:43",
-            false,
+            Some("nvos_username and nvos_password must be set together"),
+        ),
+        (
+            Some(String::new()),
+            Some("nvos-pass".to_string()),
+            "3A:3B:3C:3D:3E:45",
+            Some("nvos_username must not be empty"),
+        ),
+        (
+            Some("admin".to_string()),
+            Some(String::new()),
+            "3A:3B:3C:3D:3E:46",
+            Some("nvos_password must not be empty"),
         ),
     ] {
         let result = env
@@ -150,17 +167,13 @@ async fn test_add_expected_switch_validates_nvos_credentials_pair(pool: sqlx::Pg
             }))
             .await;
 
-        if valid {
-            result.expect("absent NVOS credentials should be accepted");
-        } else {
-            let err = result.expect_err("partial NVOS credentials should be rejected");
+        if let Some(expected_error) = expected_error {
+            let err = result.expect_err("invalid NVOS credentials should be rejected");
 
             assert_eq!(err.code(), tonic::Code::InvalidArgument);
-
-            assert_eq!(
-                err.message(),
-                "nvos_username and nvos_password must be set together"
-            );
+            assert_eq!(err.message(), expected_error);
+        } else {
+            result.expect("absent NVOS credentials should be accepted");
         }
     }
 }

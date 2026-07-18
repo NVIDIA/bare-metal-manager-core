@@ -336,6 +336,9 @@ async fn configuring_skips_credentials_when_rotation_is_not_actionable(
             matches!(
                 switch.controller_state.value,
                 SwitchControllerState::FetchInfo
+                    | SwitchControllerState::Validating { .. }
+                    | SwitchControllerState::BomValidating { .. }
+                    | SwitchControllerState::Ready
             ),
             "{case} should bypass malformed credential data"
         );
@@ -580,6 +583,54 @@ async fn corrected_target_supersedes_rejected_submission(pool: sqlx::PgPool) -> 
     assert_eq!(recovered.rotate_job_id.as_deref(), Some("recovered-job"));
     assert_eq!(recovered.rotate_attempts, 2);
     assert_eq!(recovered.rotate_last_error_redacted, None);
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn staged_target_credential_survives_recovery_before_promotion(
+    pool: sqlx::PgPool,
+) -> TestResult {
+    let env = create_test_env(pool.clone()).await;
+    let (switch_id, bmc_mac_address) = prepare_version_one_rotation(&env, &pool).await?;
+
+    stage_submitted_rotation(&pool, bmc_mac_address, 1, "pending-job").await?;
+
+    let target_credentials = Credentials::UsernamePassword {
+        username: "nvos-admin".to_string(),
+        password: TARGET_PASSWORD.to_string(),
+    };
+
+    env.test_credential_manager
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin { bmc_mac_address },
+            &target_credentials,
+        )
+        .await
+        .expect("failed to stage target NVOS credential");
+
+    let manager = MockNvSwitchManager::default()
+        .with_password_rotation_enabled()
+        .with_password_rotation_job_status(SwitchPasswordRotationState::Pending);
+
+    assert!(matches!(
+        reconcile(&env, &pool, &switch_id, manager).await?,
+        NvosPasswordRotationOutcome::Waiting(_)
+    ));
+
+    let operation = operation_state(&pool, bmc_mac_address).await?;
+
+    assert_eq!(operation.current_version, Some(0));
+    assert_eq!(operation.rotating_to_version, Some(1));
+
+    let stored = env
+        .test_credential_manager
+        .get_credentials_from_writer(&CredentialKey::SwitchNvosAdmin { bmc_mac_address })
+        .await
+        .expect("failed to read staged target NVOS credential")
+        .expect("staged target credential should remain available");
+
+    assert_eq!(stored, target_credentials);
+
     Ok(())
 }
 

@@ -177,19 +177,42 @@ pub(crate) async fn ensure_nvos_admin_credentials(
 
     txn.commit().await?;
 
-    if operation.as_ref().is_some_and(|operation| {
-        operation.current_version.is_none() && operation.rotating_to_version.is_some()
-    }) {
-        return Ok(match existing.as_ref() {
+    if let Some(operation) = operation.as_ref()
+        && let Some(staged_version) = operation.rotating_to_version
+    {
+        let existing_password = match existing.as_ref() {
             Some(Credentials::UsernamePassword { username, password })
                 if !username.is_empty() && !password.is_empty() =>
             {
-                NvosAdminCredentialStatus::Available
+                Some(password.as_str())
             }
-            _ => NvosAdminCredentialStatus::Error(
-                "Staged NVOS rotation has no valid current per-switch credential".to_string(),
-            ),
-        });
+            _ => None,
+        };
+
+        if operation.current_version.is_none() {
+            return Ok(if existing_password.is_some() {
+                NvosAdminCredentialStatus::Available
+            } else {
+                NvosAdminCredentialStatus::Error(
+                    "Staged NVOS rotation has no valid current per-switch credential".to_string(),
+                )
+            });
+        }
+
+        if let Some(existing_password) = existing_password
+            && let Some(Credentials::UsernamePassword {
+                password: staged_password,
+                ..
+            }) = read_nvos_site_credentials(
+                switch_id,
+                staged_version,
+                ctx.services.credential_manager.as_ref(),
+            )
+            .await?
+            && existing_password == staged_password
+        {
+            return Ok(NvosAdminCredentialStatus::Available);
+        }
     }
 
     let Some(expected_switch) = expected_switch else {
@@ -207,7 +230,9 @@ pub(crate) async fn ensure_nvos_admin_credentials(
         Err(error) => return Ok(NvosAdminCredentialStatus::Error(error.to_string())),
     };
 
-    let current_version = operation.and_then(|operation| operation.current_version);
+    let current_version = operation
+        .as_ref()
+        .and_then(|operation| operation.current_version);
 
     let (credentials, source) = match current_version {
         Some(current_version) => {
