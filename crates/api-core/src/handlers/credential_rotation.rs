@@ -417,7 +417,11 @@ pub(crate) async fn get_credential_rotation_status(
     }
 
     let mut txn = api.txn_begin().await?;
-    let status = db::credential_rotation::rotation_status(&mut txn, rotation_type).await?;
+
+    let status = db::credential_rotation::rotation_status(&mut txn, rotation_type)
+        .await
+        .map_err(CarbideError::from)?;
+
     txn.commit().await?;
 
     Ok(Response::new(rpc::CredentialRotationStatusResult {
@@ -455,8 +459,11 @@ async fn device_rotation_status_response(
     })?;
 
     let mut txn = api.txn_begin().await?;
-    let status =
-        db::credential_rotation::device_rotation_status(&mut txn, rotation_type, mac).await?;
+
+    let status = db::credential_rotation::device_rotation_status(&mut txn, rotation_type, mac)
+        .await
+        .map_err(CarbideError::from)?;
+
     txn.commit().await?;
 
     let status = status.ok_or(CarbideError::NotFoundError {
