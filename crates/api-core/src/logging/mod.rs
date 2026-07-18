@@ -18,7 +18,6 @@
 pub mod api_logs;
 pub mod level_filter;
 pub mod log_limiter;
-pub mod metrics_endpoint;
 pub mod service_health_metrics;
 pub mod setup;
 pub mod stream;

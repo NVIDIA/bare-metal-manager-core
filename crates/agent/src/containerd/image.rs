@@ -19,7 +19,7 @@ use std::fmt::{Display, Formatter};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tracing::log::trace;
+use tracing::trace;
 
 /// Represents the individual components of a container image name.
 /// e.g.
@@ -76,7 +76,7 @@ where
     let vec: Vec<String> = Vec::deserialize(deserializer)?;
     let initial: Vec<ImageNameComponent> = Vec::new();
 
-    trace!("Container name component: {vec:?}");
+    trace!(image_name_components = ?vec, "Container name component");
     vec.iter().try_fold(initial, |mut accum, value| {
         let re = Regex::new(r#"(.+)\/(.+):(.+)"#).unwrap();
         re.captures(value.as_str())

@@ -67,8 +67,8 @@ pub async fn handle_ready(
         }
 
         tracing::warn!(
-            "unknown initiator for switch reprovisioning request: {}",
-            req.initiator
+            initiator = %req.initiator,
+            "Unknown initiator for switch reprovisioning request",
         );
         return Ok(StateHandlerOutcome::transition(
             SwitchControllerState::Error {

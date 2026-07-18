@@ -40,6 +40,7 @@ use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_utils::config::{as_duration, as_option_duration, as_std_duration};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
@@ -2991,7 +2992,7 @@ impl TrafficInterceptBridging {
             .join(",");
 
         // An empty map, or one with only skipped entries, means no provisioning config.
-        (!config.is_empty()).then_some(config)
+        config.none_if_empty()
     }
 }
 

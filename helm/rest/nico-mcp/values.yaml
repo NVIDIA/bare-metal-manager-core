@@ -21,15 +21,14 @@ service:
   type: ClusterIP
   port: 8080
 
-# MCP server configuration. The server is stateless and parameter-driven:
-# per-call tool arguments and the inbound Authorization header normally supply
-# the connection details, so the defaults below are optional and are typically
-# left empty. Tokens are intentionally NOT exposed here -- supply them per-call
-# or via the inbound Authorization header.
+# MCP server configuration. Set baseURL when forwarding inbound Authorization
+# headers; a per-call base_url must match it. When baseURL is empty, only a
+# token supplied in the same call may be sent to a per-call base_url. Tokens
+# are intentionally NOT exposed here.
 config:
   path: /mcp
   shutdownTimeout: 10s
-  # -- Optional server-side default base URL (a per-call base_url overrides it)
+  # -- Trusted NICo REST base URL (a per-call base_url must match when set)
   baseURL: ""
   # -- Optional server-side default org (a per-call org overrides it)
   org: ""

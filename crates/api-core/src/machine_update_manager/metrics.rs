@@ -99,7 +99,8 @@ pub enum FirmwareUpdatePhase {
 /// the log lines always had.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_firmware_updates_total",
+    event_name = "firmware_update_progress",
+    metric_name = "carbide_firmware_updates_total",
     component = "nico-api",
     log = info,
     metric = counter,
@@ -137,7 +138,8 @@ pub enum FirmwareUpdateFailureCause {
 /// alert; the log line names the machine and version involved.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_firmware_update_failures_total",
+    event_name = "firmware_update_failed",
+    metric_name = "carbide_firmware_update_failures_total",
     component = "nico-api",
     log = warn,
     metric = counter,

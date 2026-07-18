@@ -303,6 +303,7 @@ const SORTABLE_JS: &str = include_str!("../templates/static/sortable.min.js");
 const SORTABLE_CSS: &str = include_str!("../templates/static/sortable.min.css");
 const CARBIDE_CSS: &str = include_str!("../templates/static/carbide.css");
 const TABS_JS: &str = include_str!("../templates/static/tabs.js");
+const TABLE_FILTER_JS: &str = include_str!("../templates/static/table_filter.js");
 
 // It would appear the oauth2 author read about the typestate pattern and decided making
 // everyone declare 10 type parameters when storing a Client sounds like a great idea.
@@ -408,14 +409,14 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
         }
         "none" | "" => {
             tracing::warn!(
-                "{}: admin web UI has no in-process authentication; restrict access with network policy, a private network, or an authenticating reverse proxy (for example OAuth2 Proxy)",
-                AUTH_TYPE_ENV
+                auth_type_env_var = AUTH_TYPE_ENV,
+                "admin web UI has no in-process authentication; restrict access with network policy, a private network, or an authenticating reverse proxy (for example OAuth2 Proxy)",
             );
             None
         }
         "basic" => {
             return Err(eyre::eyre!(
-                "{AUTH_TYPE_ENV}=basic is not supported. Use \"none\" (default; secure the UI with network controls or an auth proxy) or \"oauth2\" (SSO via Entra)."
+                "{AUTH_TYPE_ENV}=basic is not supported. use \"none\" (default; secure the UI with network controls or an auth proxy) or \"oauth2\" (SSO via entra)"
             ));
         }
         other => {
@@ -875,7 +876,7 @@ pub async fn auth_oauth2(
         let now_seconds = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| {
-                tracing::error!(%e, "failed to get system time for oauth2 expiration check");
+                tracing::error!(error = %e, "failed to get system time for oauth2 expiration check");
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
             .as_secs();
@@ -968,7 +969,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         Ok(x) if x == UpDown as i32 => "Upgrade and Downgrade",
         Ok(_) => "Unknown",
         Err(err) => {
-            tracing::error!(%err, "dpu_agent_upgrade_policy_action");
+            tracing::error!(error = %err, "dpu_agent_upgrade_policy_action");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
         }
     };
@@ -1008,7 +1009,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
     let effective = match serde_json::to_value(state.runtime_config.redacted()) {
         Ok(value) => value,
         Err(err) => {
-            tracing::error!(%err, "serializing runtime config");
+            tracing::error!(error = %err, "serializing runtime config");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string()));
         }
     };
@@ -1049,6 +1050,12 @@ pub async fn static_data(
             (StatusCode::OK, [(CONTENT_TYPE, "text/css")], CARBIDE_CSS).into_response()
         }
         "tabs.js" => (StatusCode::OK, [(CONTENT_TYPE, "text/javascript")], TABS_JS).into_response(),
+        "table_filter.js" => (
+            StatusCode::OK,
+            [(CONTENT_TYPE, "text/javascript")],
+            TABLE_FILTER_JS,
+        )
+            .into_response(),
         _ => (StatusCode::NOT_FOUND, "No such file").into_response(),
     }
 }

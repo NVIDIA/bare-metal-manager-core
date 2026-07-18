@@ -71,6 +71,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
             machine_id: None,
             managers: vec![Manager {
                 id: "bmc".to_string(),
+                ipmi_port: None,
                 ethernet_interfaces: vec![EthernetInterface {
                     id: Some("eth0".to_string()),
                     description: Some("Management Network Interface".to_string()),

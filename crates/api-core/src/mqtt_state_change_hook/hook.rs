@@ -100,7 +100,10 @@ impl StateChangeHook<MachineId, ManagedHostState> for MqttStateChangeHook {
                     deadline,
                 };
                 if let Err(e) = self.sender.try_send(queued) {
-                    tracing::warn!("MQTT state change event dropped (queue full): {e}");
+                    tracing::warn!(
+                        error = %e,
+                        "MQTT state change event dropped (queue full)",
+                    );
                     self.metrics.record_overflow();
                 }
             }

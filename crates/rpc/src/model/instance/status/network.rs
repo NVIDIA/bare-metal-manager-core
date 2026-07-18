@@ -72,6 +72,12 @@ impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
             device: status.device,
             device_instance: status.device_instance as u32,
             vpc_id: status.vpc_id,
+            resolved_vpc_prefixes: status.resolved_vpc_prefixes.map(|resolved| {
+                rpc::forge::InstanceInterfaceResolvedVpcPrefixes {
+                    ipv4_vpc_prefix_id: resolved.ipv4_vpc_prefix_id,
+                    ipv6_vpc_prefix_id: resolved.ipv6_vpc_prefix_id,
+                }
+            }),
         })
     }
 }
@@ -142,5 +148,43 @@ impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatu
                 .transpose()?,
             internal_uuid,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+    use model::instance::config::network::InstanceInterfaceResolvedVpcPrefixes;
+
+    use super::*;
+
+    /// Status conversion keeps both family-keyed prefix IDs for a resolved
+    /// dual-stack interface in its single logical VPC.
+    #[test]
+    fn convert_dual_stack_resolved_vpc_prefixes() {
+        let vpc_id = VpcId::new();
+        let ipv4_vpc_prefix_id = VpcPrefixId::new();
+        let ipv6_vpc_prefix_id = VpcPrefixId::new();
+        let status = InstanceInterfaceStatus {
+            function_id: InterfaceFunctionId::Physical {},
+            mac_address: None,
+            addresses: Vec::new(),
+            prefixes: Vec::new(),
+            gateways: Vec::new(),
+            vpc_id: Some(vpc_id),
+            resolved_vpc_prefixes: Some(InstanceInterfaceResolvedVpcPrefixes {
+                ipv4_vpc_prefix_id: Some(ipv4_vpc_prefix_id),
+                ipv6_vpc_prefix_id: Some(ipv6_vpc_prefix_id),
+            }),
+            device: None,
+            device_instance: 0,
+        };
+
+        let wire = rpc::InstanceInterfaceStatus::try_from(status).unwrap();
+        let resolved = wire.resolved_vpc_prefixes.unwrap();
+
+        assert_eq!(wire.vpc_id, Some(vpc_id));
+        assert_eq!(resolved.ipv4_vpc_prefix_id, Some(ipv4_vpc_prefix_id));
+        assert_eq!(resolved.ipv6_vpc_prefix_id, Some(ipv6_vpc_prefix_id));
     }
 }

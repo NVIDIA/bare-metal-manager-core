@@ -16,7 +16,6 @@
  */
 
 use mac_address::MacAddress;
-use rpc::{NetworkInterface, PciDeviceProperties};
 
 use crate::hw;
 
@@ -36,20 +35,6 @@ impl NicIntelX550 {
             part_number: None,
             firmware_version: None,
             is_mat_dpu: false,
-        }
-    }
-
-    pub fn discovery_info(&self, path: &str, slot: &str, numa_node: i32) -> NetworkInterface {
-        NetworkInterface {
-            mac_address: self.mac_address.to_string(),
-            pci_properties: Some(PciDeviceProperties {
-                vendor: "Intel Corporation".into(),
-                device: "Ethernet Controller X550".into(),
-                path: path.into(),
-                numa_node,
-                description: Some("Ethernet Controller X550".into()),
-                slot: Some(slot.into()),
-            }),
         }
     }
 }

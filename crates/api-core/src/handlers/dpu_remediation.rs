@@ -37,11 +37,14 @@ pub fn external_user_name<T>(request: &Request<T>) -> Result<String, CarbideErro
         .and_then(|auth_context| auth_context.get_external_user_name())
         .map(String::from)
     {
-        tracing::info!("remediation_rpc_name_from_cert: {}", external_user_name);
+        tracing::info!(
+            external_user_name = %external_user_name,
+            "Resolved remediation RPC user name from certificate",
+        );
         Ok(external_user_name)
     } else {
         Err(CarbideError::ClientCertificateMissingInformation(
-            "Client certificate is missing external user name.".to_string(),
+            "client certificate is missing external user name".to_string(),
         ))
     }
 }

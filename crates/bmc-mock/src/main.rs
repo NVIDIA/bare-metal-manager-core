@@ -29,8 +29,9 @@ use bmc_mock::mac_address_pool::{
     RangesConfig as MacAddressRangesConfig,
 };
 use bmc_mock::{
-    BmcCommand, Callbacks, DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo,
-    ListenerOrAddress, MachineInfo, MockPowerState, SetSystemPowerError, SystemPowerControl,
+    BmcCommand, BmcState, Callbacks, DpuMachineInfo, DpuSettings, HostHardwareType,
+    HostMachineInfo, ListenerOrAddress, MachineInfo, MockPowerState, SetSystemPowerError,
+    SystemPowerControl,
 };
 use mac_address::MacAddress;
 use tar_router::TarGzOption;
@@ -70,12 +71,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tar_router_entries = HashMap::default();
 
     let args = command_line::parse_args();
+    if args.enable_ipmi_simulation && (args.targz.is_some() || args.ip_router.is_some()) {
+        return Err(
+            "--enable-ipmi-simulation cannot be combined with archive-backed routers".into(),
+        );
+    }
     if let Some(ip_routers) = args.ip_router {
         for ip_router in ip_routers {
             info!(
-                "Using archive {} for {}",
-                ip_router.targz.to_string_lossy(),
-                ip_router.ip_address
+                archive_path = %ip_router.targz.to_string_lossy(),
+                ip_address = %ip_router.ip_address,
+                "Using BMC mock archive",
             );
             let r = tar_router::tar_router(
                 TarGzOption::Disk(&ip_router.targz),
@@ -87,13 +93,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let listen_addr = args.port.map(|p| SocketAddr::from(([0, 0, 0, 0], p)));
-    info!("Using cert_path: {:?}", args.cert_path);
-    let router = if let Some(tar_path) = args.targz {
-        info!("Using archive {} as default", tar_path.to_string_lossy());
-        tar_router::tar_router(TarGzOption::Disk(&tar_path), Some(&mut tar_router_entries)).unwrap()
+    info!(cert_path = ?args.cert_path, "Using BMC mock certificate path");
+    let (router, generated_state) = if let Some(tar_path) = args.targz {
+        info!(archive_path = %tar_path.to_string_lossy(), "Using default BMC mock archive");
+        (
+            tar_router::tar_router(TarGzOption::Disk(&tar_path), Some(&mut tar_router_entries))
+                .unwrap(),
+            None,
+        )
     } else {
         info!("Using default BMC mock");
-        default_host_mock()
+        let (router, state) = default_host_mock();
+        (router, Some(state))
+    };
+
+    let _ipmi_sim_handle = if args.enable_ipmi_simulation {
+        let state = generated_state
+            .as_ref()
+            .expect("archive-backed routers were rejected above");
+        Some(
+            bmc_mock::ipmi_sim::start(
+                state,
+                bmc_mock::ipmi_sim::IpmiSimConfig {
+                    bind_ip: "0.0.0.0".parse().unwrap(),
+                    stable_id: "standalone-bmc-mock".to_string(),
+                    console_prompt: "root@bmc-mock # ".to_string(),
+                },
+            )
+            .await?,
+        )
+    } else {
+        None
     };
 
     routers_by_ip.insert("".to_owned(), router);
@@ -132,7 +162,10 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
                     continue;
                 }
                 Err(err) => {
-                    tracing::error!("Error trying to run 'virsh reboot ManagedHost'. {}", err);
+                    tracing::error!(
+                        error = %err,
+                        "Failed to run virsh reboot for managed host",
+                    );
                     continue;
                 }
             };
@@ -142,11 +175,15 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
                     tracing::debug!("Rebooted qemu managed host...");
                 }
                 Some(exit_code) => {
-                    tracing::error!(
-                        "Reboot command 'virsh reboot ManagedHost' failed with exit code {exit_code}."
+                    tracing::error!(exit_code, "virsh reboot failed for managed host",);
+                    tracing::info!(
+                        stdout = %String::from_utf8_lossy(&reboot_output.stdout),
+                        "virsh reboot standard output",
                     );
-                    tracing::info!("STDOUT: {}", String::from_utf8_lossy(&reboot_output.stdout));
-                    tracing::info!("STDERR: {}", String::from_utf8_lossy(&reboot_output.stderr));
+                    tracing::info!(
+                        stderr = %String::from_utf8_lossy(&reboot_output.stderr),
+                        "virsh reboot standard error",
+                    );
                 }
                 None => {
                     tracing::error!("Reboot command killed by signal");
@@ -157,7 +194,7 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
     command_tx
 }
 
-fn default_host_mock() -> Router {
+fn default_host_mock() -> (Router, BmcState) {
     let command_channel = spawn_qemu_reboot_handler();
     let callbacks = Arc::new(ChannelCallbacks::new(command_channel));
     let mut pool = MacAddressPool::new(MacAddressConfig {
@@ -184,7 +221,7 @@ fn default_host_mock() -> Router {
         &mut pool,
         mac_range,
     ));
-    bmc_mock::machine_router(&machine_info, callbacks, String::default(), false).0
+    bmc_mock::machine_router(&machine_info, callbacks, String::default(), false)
 }
 
 #[derive(Debug)]

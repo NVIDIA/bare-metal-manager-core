@@ -153,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn disabled_fabric_rejects_operations() {
-        let disabled = "Failed to call IBFabricManager: ib fabric is disabled".to_string();
+        let disabled = "failed to call IBFabricManager: ib fabric is disabled".to_string();
         check_cases_async(
             [
                 Case {

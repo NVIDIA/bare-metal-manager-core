@@ -5,7 +5,7 @@ templates:
   - id: ddbf83c0-a753-5fde-96c1-6b74e9c9db10
     name: raw-ipxe
     description: Allows for raw iPXE scripting but provides base_url, console and arch variables
-    scope: public
+    visibility: public
     required_params:
       - ipxe
     reserved_params:
@@ -34,7 +34,7 @@ templates:
   - id: ea756ddd-add3-5e42-a202-44bfc2d5aac2
     name: qcow-image
     description: Generic multi-platform template iPXE script for qcow images
-    scope: public
+    visibility: public
     required_params:
       - image_url
     reserved_params:
@@ -64,7 +64,7 @@ templates:
   - id: 5c7cfa88-6003-5ac0-b4c0-201eb5b28153
     name: kernel-only
     description: Boot kernel/EFI without initrd (ESXi, etc.)
-    scope: public
+    visibility: public
     required_params:
       - kernel_params
     required_artifacts:
@@ -83,7 +83,7 @@ templates:
   - id: c4b1d4f6-69ba-5f55-90cd-ab2acd002475
     name: kernel-initrd
     description: Generic kernel + initrd boot (Ubuntu autoinstall, NKE, BCM scout, etc.)
-    scope: public
+    visibility: public
     required_params:
       - kernel_params
     required_artifacts:
@@ -104,7 +104,7 @@ templates:
   - id: a7850943-e3cd-5e9a-93ca-9e12f52939cc
     name: ubuntu-autoinstall
     description: Template for Ubuntu autoinstall
-    scope: public
+    visibility: public
     required_artifacts:
       - install_iso
       - kernel
@@ -122,7 +122,7 @@ templates:
   - id: ecaf197e-d60e-50f8-a598-c844afccc24d
     name: dgx-os
     description: Template for DGX OS autoinstall
-    scope: public
+    visibility: public
     required_params:
       - force_platform
     required_artifacts:
@@ -267,7 +267,7 @@ templates:
   - id: 9f1b388e-cf6d-52a2-a20a-19eeeaca2f47
     name: openshift-coreos
     description: OpenShift/Assisted Installer - CoreOS live boot with initrd before kernel
-    scope: public
+    visibility: public
     required_artifacts:
       - initrd
       - kernel
@@ -285,7 +285,7 @@ templates:
   - id: 7be5f99b-9719-53cb-9733-7d674c02e887
     name: chain-efi
     description: Chain to arbitrary EFI binary (firmware update, custom loader, etc.)
-    scope: public
+    visibility: public
     required_params:
       - efi_url
     reserved_params:
@@ -302,7 +302,7 @@ templates:
   - id: d38ae593-8f92-5869-9605-e6d8b2359e7d
     name: loader-rootfs
     description: Chain loader.efi with newrootfs (custom root filesystem)
-    scope: public
+    visibility: public
     required_params:
       - loader_url
       - newrootfs_url
@@ -327,6 +327,6 @@ templates:
   - id: c816a939-0993-5ebf-82dd-5227ad215703
     name: carbide-menu-static-ipxe
     description: NICo Menu
-    scope: public
+    visibility: public
     # Populated from pxe/ipxe/local/embed.ipxe by DefaultIpxeScriptRenderer::new.
     template: ""

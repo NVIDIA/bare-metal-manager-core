@@ -17,7 +17,7 @@ A VPC has a `network_virtualization_type` that determines how the platform imple
 - `FNN`: The production networking model
 - `ETHERNET_VIRTUALIZER`: A legacy, deprecated, and not officially supported model. It may still appear in existing objects or older workflows, but it should not be treated as the target model for production planning.
 
-> **Important**: If no virtualization type is supplied when a VPC is created, the API currently defaults the VPC to `ETHERNET_VIRTUALIZER`. This default should be understood as compatibility behavior, not as a production recommendation. The `FNN` option should always be specified for VPCs on a production site.
+> **Important**: The default applied when no virtualization type is supplied at VPC creation depends on the site and the interface used. On a site with native networking enabled — the default for all newly created sites — the REST API and `nicocli` default an unspecified type to `FNN`. On a site without native networking (a legacy site, or one explicitly downgraded), and when a VPC is created directly through the core gRPC API, the default remains `ETHERNET_VIRTUALIZER`. Regardless of the default, always specify the `FNN` option explicitly for VPCs on a production site so the intended model is never left to inference.
 
 ### Routing Profile Type
 

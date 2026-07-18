@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use carbide_secrets::credentials::Credentials;
@@ -35,16 +37,75 @@ pub type RedfishBmc = HttpBmc<RedfishReqwestClient>;
 pub type ServiceRoot = NvServiceRoot<RedfishBmc>;
 pub type Error = NvError<RedfishBmc>;
 
+/// Service roots are refreshed hourly so long-running processes eventually
+/// observe BMC replacements, upgrades, and configuration changes.
+const DEFAULT_SERVICE_ROOT_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
+
 pub fn new_pool(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Arc<NvRedfishClientPool> {
     NvRedfishClientPool::new(proxy_address).into()
 }
 
 pub struct NvRedfishClientPool {
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
-    cache: Arc<Mutex<HashMap<PoolKey, Arc<ServiceRoot>>>>,
+    cache: Arc<Mutex<ServiceRootCache>>,
+    cache_ttl: Duration,
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Default)]
+struct ServiceRootCache {
+    roots: HashMap<PoolKey, CachedServiceRoot>,
+    expirations: BinaryHeap<Reverse<CacheExpiration>>,
+    next_generation: u64,
+}
+
+impl ServiceRootCache {
+    fn allocate_generation(&mut self) -> u64 {
+        if self.next_generation == u64::MAX {
+            self.roots.clear();
+            self.expirations.clear();
+            self.next_generation = 0;
+        }
+
+        let generation = self.next_generation;
+        self.next_generation += 1;
+        generation
+    }
+}
+
+struct CachedServiceRoot {
+    root: Arc<ServiceRoot>,
+    generation: u64,
+}
+
+struct CacheExpiration {
+    expires_at: Instant,
+    generation: u64,
+    key: PoolKey,
+}
+
+impl PartialEq for CacheExpiration {
+    fn eq(&self, other: &Self) -> bool {
+        self.expires_at == other.expires_at && self.generation == other.generation
+    }
+}
+
+impl Eq for CacheExpiration {}
+
+impl PartialOrd for CacheExpiration {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CacheExpiration {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.expires_at
+            .cmp(&other.expires_at)
+            .then_with(|| self.generation.cmp(&other.generation))
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
 struct PoolKey {
     proxy_address: Arc<Option<HostPortPair>>,
     bmc_address: SocketAddr,
@@ -53,9 +114,21 @@ struct PoolKey {
 
 impl NvRedfishClientPool {
     pub fn new(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Self {
+        Self::with_cache_ttl(proxy_address, DEFAULT_SERVICE_ROOT_CACHE_TTL)
+    }
+
+    /// Creates a client pool with an explicit service-root cache lifetime.
+    ///
+    /// This is primarily useful for tests that need deterministic expiration
+    /// without sleeping.
+    pub fn with_cache_ttl(
+        proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
+        cache_ttl: Duration,
+    ) -> Self {
         Self {
             proxy_address,
             cache: Default::default(),
+            cache_ttl,
         }
     }
 
@@ -64,6 +137,20 @@ impl NvRedfishClientPool {
         bmc_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<Arc<ServiceRoot>, Error> {
+        self.service_root_with_cache_predicate(bmc_address, credentials, |_| true)
+            .await
+    }
+
+    /// Same as [`Self::service_root`], but a freshly fetched root is cached
+    /// only when `should_cache` returns true for it.
+    pub async fn service_root_with_cache_predicate(
+        &self,
+        bmc_address: SocketAddr,
+        credentials: Credentials,
+        should_cache: impl FnOnce(&ServiceRoot) -> bool,
+    ) -> Result<Arc<ServiceRoot>, Error> {
+        self.remove_expired(Instant::now());
+
         let Credentials::UsernamePassword { username, password } = credentials;
         let bmc_credentials = BmcCredentials::new(username, password);
 
@@ -95,7 +182,9 @@ impl NvRedfishClientPool {
                 service_root
             };
             let service_root = Arc::new(service_root);
-            self.update_cache(bmc_address, bmc_credentials, service_root.clone());
+            if should_cache(&service_root) {
+                self.update_cache(bmc_address, bmc_credentials, service_root.clone());
+            }
             Ok(service_root)
         }
     }
@@ -113,9 +202,10 @@ impl NvRedfishClientPool {
         };
         self.cache
             .lock()
-            .expect("nv-redish client cache mutex poisoned")
+            .expect("nv-redfish client cache mutex poisoned")
+            .roots
             .get(&key)
-            .cloned()
+            .map(|entry| entry.root.clone())
     }
 
     fn update_cache(
@@ -133,8 +223,41 @@ impl NvRedfishClientPool {
         let mut cache = self
             .cache
             .lock()
-            .expect("nv-redish client cache mutex poisoned");
-        cache.insert(key, root);
+            .expect("nv-redfish client cache mutex poisoned");
+        let expires_at = Instant::now() + self.cache_ttl;
+        let generation = cache.allocate_generation();
+        cache
+            .roots
+            .insert(key.clone(), CachedServiceRoot { root, generation });
+        cache.expirations.push(Reverse(CacheExpiration {
+            expires_at,
+            generation,
+            key,
+        }));
+    }
+
+    fn remove_expired(&self, now: Instant) {
+        let mut cache = self
+            .cache
+            .lock()
+            .expect("nv-redfish client cache mutex poisoned");
+
+        while cache
+            .expirations
+            .peek()
+            .is_some_and(|expiration| expiration.0.expires_at <= now)
+        {
+            let Some(Reverse(expiration)) = cache.expirations.pop() else {
+                break;
+            };
+            if cache
+                .roots
+                .get(&expiration.key)
+                .is_some_and(|entry| entry.generation == expiration.generation)
+            {
+                cache.roots.remove(&expiration.key);
+            }
+        }
     }
 
     pub fn create_bmc(
@@ -181,5 +304,33 @@ impl NvRedfishClientPool {
             CacheSettings::with_capacity(10),
             headers,
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generation_overflow_clears_expirations_and_restarts_from_zero() {
+        let key = PoolKey {
+            proxy_address: Arc::new(None),
+            bmc_address: "127.0.0.1:443".parse().unwrap(),
+            credentials: BmcCredentials::new("root".to_string(), "password".to_string()),
+        };
+        let mut cache = ServiceRootCache {
+            expirations: BinaryHeap::from([Reverse(CacheExpiration {
+                expires_at: Instant::now(),
+                generation: u64::MAX - 1,
+                key,
+            })]),
+            next_generation: u64::MAX,
+            ..Default::default()
+        };
+
+        assert_eq!(cache.allocate_generation(), 0);
+        assert!(cache.roots.is_empty());
+        assert!(cache.expirations.is_empty());
+        assert_eq!(cache.next_generation, 1);
     }
 }

@@ -21,6 +21,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 pub mod ipmi;
+pub mod ipmi_sim;
 
 mod auth_router;
 mod bmc_state;
@@ -46,6 +47,7 @@ pub use machine_info::{
 };
 pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
+    machine_router_with_injection_store,
 };
 
 pub const DUMMY_FACTORY_USERNAME: &str = "root";
@@ -71,6 +73,8 @@ pub enum HostHardwareType {
     NvidiaDgxVr,
     #[serde(rename = "liteon_power_shelf")]
     LiteOnPowerShelf,
+    #[serde(rename = "delta_power_shelf")]
+    DeltaPowerShelf,
     #[serde(rename = "nvidia_switch_nd5200_ld")]
     NvidiaSwitchNd5200Ld,
     #[serde(rename = "nvidia_dgx_h100")]
@@ -97,6 +101,7 @@ impl fmt::Display for HostHardwareType {
             Self::SupermicroGb300Nvl => "Supermicro GB300 NVL".fmt(f),
             Self::NvidiaDgxVr => "NVIDIA DGX VR NVL".fmt(f),
             Self::LiteOnPowerShelf => "Lite-On Power Shelf".fmt(f),
+            Self::DeltaPowerShelf => "Delta Power Shelf".fmt(f),
             Self::NvidiaSwitchNd5200Ld => "NVIDIA Switch ND5200_LD".fmt(f),
             Self::NvidiaDgxH100 => "NVIDIA DGX H100".fmt(f),
             Self::GenericAmi => "Generic AMI Server".fmt(f),
@@ -120,6 +125,7 @@ impl HostHardwareType {
             Self::SupermicroGb300Nvl => Some(1),
             Self::NvidiaDgxVr => Some(1),
             Self::LiteOnPowerShelf => Some(0),
+            Self::DeltaPowerShelf => Some(0),
             Self::NvidiaSwitchNd5200Ld => Some(0),
             Self::NvidiaDgxH100 => Some(1),
             Self::GenericAmi => None,

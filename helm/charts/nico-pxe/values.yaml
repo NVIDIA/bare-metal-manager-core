@@ -60,16 +60,21 @@ initContainers: []
 ## NOTE: copy ONLY directories that exist in the image. The boot-artifacts-aarch64 image
 ## ships /aarch64 and /apt (NOT /firmware); copying a missing dir makes `cp` exit non-zero
 ## and the init container crash-loops.
+## Prefer separate `repository` + `tag` fields (they win when set). The combined
+## `image: <ref>:<tag>` form is still honored for backward compatibility.
 bootArtifactContainers: []
 # bootArtifactContainers:
 #   - name: boot-artifacts-x86-64
-#     image: <your-registry>/boot-artifacts-x86_64:<tag>
+#     repository: <your-registry>/boot-artifacts-x86_64
+#     tag: <tag>
 #     command: ["sh", "-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal"]
 #   - name: boot-artifacts-aarch64
-#     image: <your-registry>/boot-artifacts-aarch64:<tag>
+#     repository: <your-registry>/boot-artifacts-aarch64
+#     tag: <tag>
 #     command: ["sh", "-c", "cp -r /aarch64 /apt /forge-boot-artifacts/blobs/internal"]
 #   - name: machine-validation-config
-#     image: <your-registry>/machine-validation-config:<tag>
+#     repository: <your-registry>/machine-validation-config
+#     tag: <tag>
 #     command: ["sh", "-c", "cp -r /machine-validation /forge-boot-artifacts/blobs/internal"]
 
 ## Boot artifact serving configuration

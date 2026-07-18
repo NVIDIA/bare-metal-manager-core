@@ -375,6 +375,7 @@ pub enum ReportSource {
     TrayLeakDetection,
     RackLeakDetection,
     NvueLeakage,
+    GpuInventory,
 }
 
 impl ReportSource {
@@ -386,6 +387,7 @@ impl ReportSource {
             Self::TrayLeakDetection => "tray-leak-detection",
             Self::RackLeakDetection => "rack-leak-detection",
             Self::NvueLeakage => "nvue-leakage",
+            Self::GpuInventory => "gpu-inventory",
         }
     }
 }
@@ -396,6 +398,7 @@ pub enum Probe {
     IntrusionSensorTriggered,
     LeakDetection,
     NvueLeakage,
+    GpuInventory,
 }
 
 impl Probe {
@@ -405,6 +408,9 @@ impl Probe {
             Self::IntrusionSensorTriggered => "IntrusionSensorTriggered",
             Self::LeakDetection => "BmcLeakDetection",
             Self::NvueLeakage => "NvueLeakage",
+            // Reuse the existing shared "SkuValidation" probe id so OOB GPU-count
+            // alerts dedup with the machine-controller's in-band SKU alerts.
+            Self::GpuInventory => "SkuValidation",
         }
     }
 }

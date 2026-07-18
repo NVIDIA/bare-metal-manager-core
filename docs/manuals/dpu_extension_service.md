@@ -31,11 +31,11 @@ Currently, the only supported service type is **Kubernetes Pod** (`KubernetesPod
 | **Version** | An immutable snapshot of the Pod manifest (`data`), optional registry credentials, and optional observability configuration. Versions use NICo config version strings (for example, `V1-T1761856992374052`). |
 | **Deployment** | An association between an Instance and a specific `(service_id, version)` pair. |
 | **Active versions** | All non-deleted versions available for deployment. Older versions remain until explicitly deleted. |
-| **Terminating services** | When a service is removed from an Instance, NICo tracks it until all DPUs confirm termination. |
+| **Terminating services** | When a service is removed from an Instance, NICo tracks it until the affected DPUs confirm termination. |
 
 **Important Constraints:**
 
-* Service names must be case-insensitive unique within a tenant.
+* Service names must be case-insensitive unique among non-deleted services within a tenant. After a service is deleted, a new service in the same tenant may reuse the same name.
 * Service type and tenant ownership are immutable after creation.
 * An Instance may deploy multiple services but at most one version of each service at a time.
 * Instance extension service changes are only accepted while the Instance is in `Ready` state.
@@ -154,7 +154,7 @@ Use `--if-version-ctr-match` (CLI only) to prevent concurrent update conflicts.
 
 ### Delete a DPU Extension Service or Version
 
-Deletion succeeds only when no Instance is using the version being deleted. If a version is still deployed, remove it from affected Instances first. When all versions are deleted, the service itself is removed automatically.
+Deletion succeeds only when no Instance is using the version being deleted. If a version is still deployed, remove it from affected Instances first. When all versions are deleted, the service itself is removed automatically. Deleted service names are released and can be reused by new services in the same tenant.
 
 **REST API:**
 
@@ -202,7 +202,7 @@ Include `dpuExtensionServiceDeployments` in the request body:
 }
 ```
 
-During Instance provisioning, NICo waits for all configured extension services to reach a running state before the Instance becomes ready. If no extension services are configured, this step is skipped.
+During Instance provisioning, NICo waits for all configured extension services to reach a running state on every DPU used by the Instance before the Instance becomes ready. On multi-DPU hosts, DPUs that are attached to the host but not selected by the Instance network configuration do not block the extension-service readiness check. If no extension services are configured, this step is skipped.
 
 ### Upgrade a Deployed DPU Extension Service for an Instance
 

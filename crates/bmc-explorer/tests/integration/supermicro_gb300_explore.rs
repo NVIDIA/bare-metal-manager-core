@@ -30,6 +30,7 @@ use crate::common;
 #[test]
 async fn explore_supermicro_gb300() {
     let h = test_support::supermicro_gb300_bmc().await;
+    h.state.manager.set_ipmi_endpoint(Some(1623));
     let config = common::explorer_config();
 
     // Decisive assertion: an SMC GB300 must resolve to SupermicroGb300, not the
@@ -47,6 +48,10 @@ async fn explore_supermicro_gb300() {
         .unwrap();
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Supermicro));
+    assert_eq!(
+        report.managers.first().and_then(|m| m.ipmi_port),
+        Some(1623)
+    );
     assert!(!report.systems.is_empty(), "systems must be present");
     assert!(!report.chassis.is_empty(), "chassis must be present");
 }

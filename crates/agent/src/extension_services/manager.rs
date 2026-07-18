@@ -60,7 +60,7 @@ impl ExtensionServiceManager {
         self.service_handlers
             .get_mut(t)
             .map(|handler| handler.as_mut() as &mut dyn ExtensionServiceHandler)
-            .ok_or_else(|| eyre::eyre!("No handler for {:?}", t))
+            .ok_or_else(|| eyre::eyre!("no handler for {:?}", t))
     }
 
     pub async fn update_desired_services(
@@ -73,7 +73,7 @@ impl ExtensionServiceManager {
         for config in configs {
             let service = ServiceConfig::try_from(config).map_err(|e| {
                 eyre::eyre!(
-                    "Failed to convert ManagedHostDpuExtensionServiceConfig to ServiceConfig: {}",
+                    "failed to convert ManagedHostDpuExtensionServiceConfig to ServiceConfig: {}",
                     e
                 )
             })?;
@@ -101,7 +101,7 @@ impl ExtensionServiceManager {
             .into_iter()
             .map(|c| {
                 ServiceConfig::try_from(c).map_err(|e| eyre::eyre!(
-                "Failed to convert ManagedHostDpuExtensionServiceConfig to ServiceConfig: {e}"
+                "failed to convert ManagedHostDpuExtensionServiceConfig to ServiceConfig: {e}"
             ))
             })
             .collect::<Result<_, _>>()?;

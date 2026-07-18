@@ -71,7 +71,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
                 "IBPartition::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
-                        "Searching for IBPartition {} returned multiple results",
+                        "searching for IBPartition {} returned multiple results",
                         partition_id
                     )
                     .into(),

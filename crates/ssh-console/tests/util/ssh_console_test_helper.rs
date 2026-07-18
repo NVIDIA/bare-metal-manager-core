@@ -132,14 +132,14 @@ pub async fn get_metrics(addr: SocketAddr) -> eyre::Result<String> {
             .build_http::<Full<Bytes>>()
             .get(format!("http://{addr}/metrics").try_into().unwrap())
             .await
-            .context("Error fetching metrics")?
+            .context("error fetching metrics")?
             .into_body()
             .collect()
             .await
-            .context("Error fetching metrics body")?
+            .context("error fetching metrics body")?
             .to_bytes()
             .as_ref(),
     )
     .parse()
-    .context("Error parsing prometheus metrics")
+    .context("error parsing prometheus metrics")
 }

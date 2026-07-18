@@ -86,8 +86,8 @@ impl LldpdConfigFileWriter {
         command.arg(self.filename.as_os_str());
         match command.status() {
             Ok(s) if s.success() => Ok(()),
-            Ok(s) => Err(eyre::eyre!("Unsuccessful exit status from lldpcli: {s}")),
-            Err(e) => Err(eyre::eyre!("Couldn't run lldpcli: {e}")),
+            Ok(s) => Err(eyre::eyre!("unsuccessful exit status from lldpcli: {s}")),
+            Err(e) => Err(eyre::eyre!("couldn't run lldpcli: {e}")),
         }
     }
 }

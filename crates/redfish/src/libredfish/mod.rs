@@ -16,6 +16,7 @@
  */
 
 mod implementation;
+mod instrumented;
 
 pub mod auth;
 pub mod conv;
@@ -449,9 +450,61 @@ pub trait RedfishClientPool: Send + Sync + 'static {
 // we can display them to user. This function is helper to remove
 // password leak for password-related refish functions.
 pub fn redact_password(err: libredfish::RedfishError, password: &str) -> libredfish::RedfishError {
-    type RfError = libredfish::RedfishError;
+    redact_passwords(err, &[password])
+}
+
+/// Replaces every occurrence of every non-empty needle with `REDACTED`,
+/// masking the union of all matches: where two needles' matches touch or
+/// overlap in the text (one password containing the other, or sharing a
+/// boundary), the merged span redacts as one, so no fragment of either
+/// survives.
+fn mask_all(text: &str, needles: &[&str]) -> String {
     const REDACTED: &str = "REDACTED";
-    let redact = |v: String| v.replace(password, REDACTED);
+    let mut ranges: Vec<(usize, usize)> = needles
+        .iter()
+        .filter(|needle| !needle.is_empty())
+        .flat_map(|needle| {
+            // A manual scan over every starting position, not
+            // `match_indices`: that skips overlapping matches of the same
+            // needle, and a self-repetitive password (`aa` in `xaaay`) would
+            // leave a fragment beside the mask. Byte-wise matching of one
+            // valid UTF-8 string inside another can only land on character
+            // boundaries, so the collected ranges slice cleanly.
+            let needle = needle.as_bytes();
+            (0..=text.len().saturating_sub(needle.len()))
+                .filter(move |&start| text.as_bytes()[start..].starts_with(needle))
+                .map(move |start| (start, start + needle.len()))
+        })
+        .collect();
+    ranges.sort_unstable();
+
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0;
+    let mut i = 0;
+    while i < ranges.len() {
+        let (start, mut end) = ranges[i];
+        i += 1;
+        while i < ranges.len() && ranges[i].0 <= end {
+            end = end.max(ranges[i].1);
+            i += 1;
+        }
+        out.push_str(&text[cursor..start]);
+        out.push_str(REDACTED);
+        cursor = end;
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
+/// [`redact_password`] over several passwords at once, with union masking
+/// (see [`mask_all`]) so overlapping matches cannot leave fragments of one
+/// password behind after another is replaced.
+pub fn redact_passwords(
+    err: libredfish::RedfishError,
+    passwords: &[&str],
+) -> libredfish::RedfishError {
+    type RfError = libredfish::RedfishError;
+    let redact = |v: String| mask_all(&v, passwords);
     match err {
         RfError::HTTPErrorCode {
             url,
@@ -518,6 +571,54 @@ mod tests {
 
     use super::*;
     use crate::libredfish::test_support::*;
+
+    /// The mask covers the union of ALL matches, including a needle's
+    /// self-overlapping matches (`aa` occurs at both offsets in `xaaay`) and
+    /// matches of different needles sharing a boundary -- so no fragment of
+    /// any needle is left unmasked.
+    #[test]
+    fn mask_all_covers_overlapping_and_repeated_matches() {
+        struct Case {
+            name: &'static str,
+            text: &'static str,
+            needles: &'static [&'static str],
+            expected: &'static str,
+        }
+        let cases = [
+            Case {
+                name: "self-overlapping needle",
+                text: "xaaay",
+                needles: &["aa"],
+                expected: "xREDACTEDy",
+            },
+            Case {
+                name: "boundary overlap between two needles",
+                text: "rejected abcdefghi",
+                needles: &["abcdef", "defghi"],
+                expected: "rejected REDACTED",
+            },
+            Case {
+                name: "containment",
+                text: "rejected foobar, and foo separately",
+                needles: &["foo", "foobar"],
+                expected: "rejected REDACTED, and REDACTED separately",
+            },
+            Case {
+                name: "disjoint matches and empty needles ignored",
+                text: "a secret and a token",
+                needles: &["secret", "token", ""],
+                expected: "a REDACTED and a REDACTED",
+            },
+        ];
+        for case in cases {
+            assert_eq!(
+                mask_all(case.text, case.needles),
+                case.expected,
+                "case: {}",
+                case.name,
+            );
+        }
+    }
 
     #[tokio::test]
     async fn test_power_state() {

@@ -176,7 +176,7 @@ pub fn create_ib_fabric_manager(
     for (fabric_id, endpoints) in config.endpoints.iter() {
         if endpoints.len() != 1 {
             return Err(eyre::eyre!(
-                "Exactly 1 endpoint can be specified for each IB fabric. Fabric \"{fabric_id}\" specifies endpoints: {}",
+                "exactly 1 endpoint can be specified for each IB fabric. fabric \"{fabric_id}\" specifies endpoints: {}",
                 endpoints.clone().join(",")
             ));
         }
@@ -184,7 +184,7 @@ pub fn create_ib_fabric_manager(
         for ep in endpoints.iter() {
             if ep.parse::<http::Uri>().is_err() {
                 return Err(eyre::eyre!(
-                    "Endpoint \"{ep}\" for fabric \"{fabric_id}\" is not a valid HTTP(S) URI. Expected format is https://1.2.3.4:443 ?"
+                    "endpoint \"{ep}\" for fabric \"{fabric_id}\" is not a valid HTTP(S) URI. expected format is https://1.2.3.4:443 ?"
                 ));
             }
         }
@@ -405,7 +405,7 @@ mod tests {
 
     fn manager_error_kind(error: eyre::Report) -> &'static str {
         let error = error.to_string();
-        if error.contains("Exactly 1 endpoint") {
+        if error.contains("exactly 1 endpoint") {
             "endpoint-count"
         } else if error.contains("not a valid HTTP(S) URI") {
             "invalid-uri"
@@ -459,7 +459,7 @@ mod tests {
 
         assert_eq!(
             client.get_fabric_config().await.unwrap_err().to_string(),
-            "Failed to call IBFabricManager: ib fabric is disabled"
+            "failed to call IBFabricManager: ib fabric is disabled"
         );
     }
 

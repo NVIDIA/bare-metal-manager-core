@@ -122,9 +122,9 @@ impl BmcVendor {
 
 #[derive(thiserror::Error, Debug)]
 pub enum BmcVendorDetectionError {
-    #[error("Machine has no DMI data")]
+    #[error("machine has no DMI data")]
     MissingDmiData,
-    #[error("Unknown or unsupported sys_vendor string: {sys_vendor}")]
+    #[error("unknown or unsupported sys_vendor string: {sys_vendor}")]
     UnknownSysVendor { sys_vendor: String },
 }
 

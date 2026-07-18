@@ -19,6 +19,7 @@ use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
@@ -107,6 +108,7 @@ impl HostMachine {
             nvos_mac_addresses: persisted_host_machine.nvos_mac_addresses.clone(),
             switch_serial_number: persisted_host_machine.switch_serial_number.clone(),
             hw_mac_addr_pool,
+            delta_psu_power: None,
         };
         let dpus = dpu_machines
             .into_iter()
@@ -238,6 +240,7 @@ impl HostMachine {
         let host_info = self.host_info.clone();
         let dpus = self.dpus.clone();
         let machine_config_section = self.machine_config_section.clone();
+        let bmc_injection = self.state_machine.bmc_injection_store();
 
         if !paused {
             self.resume_dpus();
@@ -264,6 +267,7 @@ impl HostMachine {
             host_info,
             dpus,
             machine_config_section,
+            bmc_injection,
 
             join_handle: Mutex::new(Some(join_handle)),
         }))
@@ -313,7 +317,10 @@ impl HostMachine {
                 }
             }
             Some(cmd) = self.bmc_control_rx.recv() => {
-                tracing::debug!("HOST set_system_power request: {cmd:?}");
+                tracing::debug!(
+                    command = ?cmd,
+                    "Received host power command",
+                );
                 match cmd {
                     BmcCommand::SetSystemPower { request, reply } => {
                         let response = self.set_system_power(request);
@@ -401,7 +408,7 @@ impl HostMachine {
     }
 
     fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
-        tracing::debug!("Host set_system_power request: {request:?}");
+        tracing::debug!(?request, "Received host system-power request",);
 
         match request {
             // Force-restart does not restart DPUs
@@ -420,7 +427,8 @@ impl HostMachine {
                         _ = dpu.set_system_power(request).inspect_err(|e| {
                             tracing::error!(
                                 error = %e,
-                                "Could not send power request to DPU {dpu_index}",
+                                dpu_index,
+                                "Could not send power request to DPU",
                             )
                         });
                     }
@@ -530,12 +538,39 @@ struct HostMachineActor {
     host_info: HostMachineInfo,
     dpus: Vec<DpuMachineHandle>,
     machine_config_section: String,
+    bmc_injection: Arc<InjectionStore>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HostMachineHandle(Arc<HostMachineActor>);
 
 impl HostMachineHandle {
+    #[cfg(test)]
+    pub(crate) fn for_control_test(dpus: Vec<DpuMachineHandle>) -> Self {
+        let (message_tx, _message_rx) = mpsc::unbounded_channel();
+        let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 2]);
+        Self(Arc::new(HostMachineActor {
+            message_tx,
+            join_handle: Mutex::new(None),
+            live_state: Arc::new(RwLock::new(LiveState::default())),
+            mat_id: Uuid::new_v4(),
+            host_info: HostMachineInfo {
+                hw_type: Default::default(),
+                bmc_mac_address: mac,
+                serial: "test-host".to_string(),
+                dpus: Vec::new(),
+                non_dpu_mac_address: None,
+                nvos_mac_addresses: Vec::new(),
+                switch_serial_number: None,
+                hw_mac_addr_pool: MacAddressPoolConfig::new(mac, 24).unwrap(),
+                delta_psu_power: None,
+            },
+            dpus,
+            machine_config_section: "test".to_string(),
+            bmc_injection: Arc::new(InjectionStore::new()),
+        }))
+    }
+
     pub fn mat_id(&self) -> Uuid {
         self.0.mat_id
     }
@@ -556,6 +591,10 @@ impl HostMachineHandle {
             .message_tx
             .send(HostMachineMessage::GetApiState(tx))?;
         Ok(rx.await?)
+    }
+
+    pub(crate) fn bmc_injection_store(&self) -> Arc<InjectionStore> {
+        self.0.bmc_injection.clone()
     }
 
     pub async fn wait_until_machine_up_with_api_state(
@@ -662,8 +701,8 @@ impl HostMachineHandle {
         {
             Some(machine_id) => {
                 tracing::info!(
-                    "Attempting to delete machine with id: {} from db.",
-                    machine_id
+                    %machine_id,
+                    "Attempting to delete machine from database",
                 );
                 machine_id.to_string()
             }
@@ -671,7 +710,10 @@ impl HostMachineHandle {
                 // force_delete_machine also supports sending MAC address (which could break if there is 0 DPUs on this host)
                 match self.0.host_info.system_mac_address() {
                     Some(mac) => {
-                        tracing::info!("Attempting to delete machine with mac: {} from db.", mac);
+                        tracing::info!(
+                            mac_address = %mac,
+                            "Attempting to delete machine from database",
+                        );
                         mac.to_string()
                     }
                     None => {
@@ -695,6 +737,28 @@ impl HostMachineHandle {
         if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
             join_handle.abort();
         }
+    }
+
+    pub async fn abort_and_wait(&self) -> eyre::Result<()> {
+        let mut join_handles = self
+            .0
+            .dpus
+            .iter()
+            .filter_map(DpuMachineHandle::abort_task)
+            .collect::<Vec<_>>();
+        if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
+            join_handle.abort();
+            join_handles.push(join_handle);
+        }
+
+        for join_handle in join_handles {
+            match join_handle.await {
+                Ok(()) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
     }
 
     pub fn bmc_ssh_host_pubkey(&self) -> Option<String> {

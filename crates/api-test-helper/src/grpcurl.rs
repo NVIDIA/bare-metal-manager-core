@@ -40,7 +40,7 @@ pub async fn grpcurl_for<T: ToString>(
 ) -> eyre::Result<String> {
     let address = addrs
         .choose(&mut rand::rng())
-        .context("No API servers configured")?
+        .context("no API servers configured")?
         .to_string();
     let grpc_endpoint = format!("forge.Forge/{endpoint}");
     let mut args = vec![

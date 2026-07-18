@@ -242,7 +242,7 @@ pub enum SpawnError {
         #[source]
         error: SolDeactivateError,
     },
-    #[error("Unknown error waiting for ipmitool to be ready")]
+    #[error("unknown error waiting for ipmitool to be ready")]
     WaitingForReady,
     #[error("error running ipmitool: {error}. output: {output}")]
     ProcessLoop {
@@ -368,7 +368,7 @@ async fn run_sol_deactivate_command(
 
 #[derive(thiserror::Error, Debug)]
 pub enum ProcessLoopError {
-    #[error("Error polling from pty master fd: {error}")]
+    #[error("error polling from pty master fd: {error}")]
     PollingFromPty { error: std::io::Error },
     #[error("error writing data from ipmitool to frontend channel: no active receivers")]
     WritingToFrontendChannel,
@@ -663,7 +663,11 @@ impl IpmitoolMessageProxy {
                 return Ok(());
             }
             other => {
-                tracing::debug!(%machine_id, "Not handling unknown SSH frontend message in ipmitool: {other:?}");
+                tracing::debug!(
+                    %machine_id,
+                    ?other,
+                    "Not handling unknown SSH frontend message in ipmitool"
+                );
             }
         };
         Ok(())

@@ -32,14 +32,14 @@ func testIpxeTemplateInitDB(t *testing.T) *db.Session {
 	return util.GetTestDBSession(t, false)
 }
 
-func testIpxeTemplateCreate(ctx context.Context, t *testing.T, dao IpxeTemplateDAO, name, scope string) *IpxeTemplate {
+func testIpxeTemplateCreate(ctx context.Context, t *testing.T, dao IpxeTemplateDAO, name, visibility string) *IpxeTemplate {
 	tmpl, err := dao.Create(ctx, nil, IpxeTemplateCreateInput{
 		ID:                uuid.New(),
 		Name:              name,
 		RequiredParams:    []string{"kernel_params"},
 		ReservedParams:    []string{"base_url", "console"},
 		RequiredArtifacts: []string{"kernel", "initrd"},
-		Scope:             scope,
+		Visibility:        visibility,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, tmpl)
@@ -67,7 +67,7 @@ func TestIpxeTemplateSQLDAO_Create(t *testing.T) {
 				RequiredParams:    []string{"kernel_params"},
 				ReservedParams:    []string{"base_url", "console"},
 				RequiredArtifacts: []string{"kernel", "initrd"},
-				Scope:             IpxeTemplateScopePublic,
+				Visibility:        IpxeTemplateVisibilityPublic,
 			},
 		},
 		{
@@ -78,7 +78,7 @@ func TestIpxeTemplateSQLDAO_Create(t *testing.T) {
 				RequiredParams:    []string{"mac", "cli_cmd", "machine_id", "server_uri"},
 				ReservedParams:    []string{"base_url"},
 				RequiredArtifacts: []string{},
-				Scope:             IpxeTemplateScopeInternal,
+				Visibility:        IpxeTemplateVisibilityInternal,
 			},
 		},
 	}
@@ -91,7 +91,7 @@ func TestIpxeTemplateSQLDAO_Create(t *testing.T) {
 				require.NotNil(t, tmpl)
 				assert.Equal(t, tc.input.ID, tmpl.ID)
 				assert.Equal(t, tc.input.Name, tmpl.Name)
-				assert.Equal(t, tc.input.Scope, tmpl.Scope)
+				assert.Equal(t, tc.input.Visibility, tmpl.Visibility)
 				assert.Equal(t, tc.input.RequiredParams, tmpl.RequiredParams)
 				assert.Equal(t, tc.input.ReservedParams, tmpl.ReservedParams)
 				assert.Equal(t, tc.input.RequiredArtifacts, tmpl.RequiredArtifacts)
@@ -107,7 +107,7 @@ func TestIpxeTemplateSQLDAO_Get(t *testing.T) {
 	testIpxeTemplateSetupSchema(t, dbSession)
 
 	dao := NewIpxeTemplateDAO(dbSession)
-	created := testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateScopePublic)
+	created := testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateVisibilityPublic)
 
 	tests := []struct {
 		desc        string
@@ -138,9 +138,9 @@ func TestIpxeTemplateSQLDAO_GetAll(t *testing.T) {
 	testIpxeTemplateSetupSchema(t, dbSession)
 
 	dao := NewIpxeTemplateDAO(dbSession)
-	t1 := testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateScopePublic)
-	testIpxeTemplateCreate(ctx, t, dao, "ubuntu-autoinstall", IpxeTemplateScopePublic)
-	testIpxeTemplateCreate(ctx, t, dao, "discovery-scout-x86_64", IpxeTemplateScopeInternal)
+	t1 := testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateVisibilityPublic)
+	testIpxeTemplateCreate(ctx, t, dao, "ubuntu-autoinstall", IpxeTemplateVisibilityPublic)
+	testIpxeTemplateCreate(ctx, t, dao, "discovery-scout-x86_64", IpxeTemplateVisibilityInternal)
 
 	tests := []struct {
 		desc          string
@@ -178,7 +178,7 @@ func TestIpxeTemplateSQLDAO_Update(t *testing.T) {
 	testIpxeTemplateSetupSchema(t, dbSession)
 
 	dao := NewIpxeTemplateDAO(dbSession)
-	created := testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateScopeInternal)
+	created := testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateVisibilityInternal)
 
 	updated, err := dao.Update(ctx, nil, IpxeTemplateUpdateInput{
 		IpxeTemplateID:    created.ID,
@@ -186,27 +186,27 @@ func TestIpxeTemplateSQLDAO_Update(t *testing.T) {
 		RequiredParams:    cutil.GetPtr([]string{"kernel_params", "extra_option"}),
 		ReservedParams:    cutil.GetPtr([]string{"base_url"}),
 		RequiredArtifacts: cutil.GetPtr([]string{"kernel"}),
-		Scope:             cutil.GetPtr(IpxeTemplateScopePublic),
+		Visibility:        cutil.GetPtr(IpxeTemplateVisibilityPublic),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 
 	assert.Equal(t, created.ID, updated.ID)
-	assert.Equal(t, IpxeTemplateScopePublic, updated.Scope)
+	assert.Equal(t, IpxeTemplateVisibilityPublic, updated.Visibility)
 	assert.Equal(t, []string{"kernel_params", "extra_option"}, updated.RequiredParams)
 	assert.Equal(t, []string{"base_url"}, updated.ReservedParams)
 	assert.Equal(t, []string{"kernel"}, updated.RequiredArtifacts)
 	assert.Equal(t, "kernel-initrd", updated.Name)
 
-	// Partial update: changing only Scope must leave the other fields untouched.
+	// Partial update: changing only Visibility must leave the other fields untouched.
 	partial, err := dao.Update(ctx, nil, IpxeTemplateUpdateInput{
 		IpxeTemplateID: created.ID,
-		Scope:          cutil.GetPtr(IpxeTemplateScopeInternal),
+		Visibility:     cutil.GetPtr(IpxeTemplateVisibilityInternal),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, partial)
 
-	assert.Equal(t, IpxeTemplateScopeInternal, partial.Scope)
+	assert.Equal(t, IpxeTemplateVisibilityInternal, partial.Visibility)
 	assert.Equal(t, "kernel-initrd", partial.Name)
 	assert.Equal(t, []string{"kernel_params", "extra_option"}, partial.RequiredParams)
 	assert.Equal(t, []string{"base_url"}, partial.ReservedParams)
@@ -220,8 +220,8 @@ func TestIpxeTemplateSQLDAO_Delete(t *testing.T) {
 	testIpxeTemplateSetupSchema(t, dbSession)
 
 	dao := NewIpxeTemplateDAO(dbSession)
-	t1 := testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateScopePublic)
-	testIpxeTemplateCreate(ctx, t, dao, "ubuntu-autoinstall", IpxeTemplateScopePublic)
+	t1 := testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateVisibilityPublic)
+	testIpxeTemplateCreate(ctx, t, dao, "ubuntu-autoinstall", IpxeTemplateVisibilityPublic)
 
 	err := dao.Delete(ctx, nil, t1.ID)
 	require.NoError(t, err)
@@ -245,13 +245,13 @@ func TestIpxeTemplateSQLDAO_UniqueConstraint(t *testing.T) {
 	testIpxeTemplateSetupSchema(t, dbSession)
 
 	dao := NewIpxeTemplateDAO(dbSession)
-	testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateScopePublic)
+	testIpxeTemplateCreate(ctx, t, dao, "kernel-initrd", IpxeTemplateVisibilityPublic)
 
 	// Names are now globally unique.
 	_, err := dao.Create(ctx, nil, IpxeTemplateCreateInput{
-		ID:    uuid.New(),
-		Name:  "kernel-initrd",
-		Scope: IpxeTemplateScopePublic,
+		ID:         uuid.New(),
+		Name:       "kernel-initrd",
+		Visibility: IpxeTemplateVisibilityPublic,
 	})
 	assert.Error(t, err)
 }
@@ -265,9 +265,9 @@ func TestIpxeTemplateSQLDAO_DefaultArrayFields(t *testing.T) {
 	dao := NewIpxeTemplateDAO(dbSession)
 
 	created, err := dao.Create(ctx, nil, IpxeTemplateCreateInput{
-		ID:    uuid.New(),
-		Name:  "ipxe-shell",
-		Scope: IpxeTemplateScopeInternal,
+		ID:         uuid.New(),
+		Name:       "ipxe-shell",
+		Visibility: IpxeTemplateVisibilityInternal,
 	})
 	require.NoError(t, err)
 

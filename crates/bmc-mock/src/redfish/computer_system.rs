@@ -314,6 +314,11 @@ impl SingleSystemState {
 }
 
 async fn get_system_collection(State(state): State<BmcState>) -> Response {
+    // Delta power shelves serve no `Systems` collection at all (the endpoint
+    // 404s), which is the condition site-explorer's Delta path handles.
+    if !state.exposes_computer_systems {
+        return http::not_found();
+    }
     let members = state
         .system_state
         .systems()

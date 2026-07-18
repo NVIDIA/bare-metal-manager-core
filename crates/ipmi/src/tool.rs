@@ -25,6 +25,7 @@ use carbide_uuid::machine::MachineId;
 use eyre::eyre;
 
 use crate::IPMITool;
+use crate::metrics::{IpmiCommand, count_ipmi_command};
 
 pub struct IPMIToolImpl {
     credential_reader: Arc<dyn CredentialReader>,
@@ -32,14 +33,19 @@ pub struct IPMIToolImpl {
 }
 
 impl IPMIToolImpl {
-    const IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 chassis power reset";
-    const IPMITOOL_BMC_RESET_COMMAND_ARGS: &'static str = "-I lanplus -C 17 bmc reset cold";
-    const DPU_LEGACY_IPMITOOL_COMMAND_ARGS: &'static str = "-I lanplus -C 17 raw 0x32 0xA1 0x01";
-
     pub fn new(credential_reader: Arc<dyn CredentialReader>, attempts: Option<u32>) -> Self {
         IPMIToolImpl {
             credential_reader,
             attempts: attempts.unwrap_or(3),
+        }
+    }
+
+    /// The `ipmitool` argument tail that runs `command`.
+    fn command_args(command: IpmiCommand) -> &'static str {
+        match command {
+            IpmiCommand::ChassisPowerReset => "-I lanplus -C 17 chassis power reset",
+            IpmiCommand::DpuLegacyPowerReset => "-I lanplus -C 17 raw 0x32 0xA1 0x01",
+            IpmiCommand::BmcColdReset => "-I lanplus -C 17 bmc reset cold",
         }
     }
 }
@@ -56,12 +62,12 @@ impl IPMITool for IPMIToolImpl {
             .get_credentials(credential_key)
             .await
             .map_err(|e| {
-                eyre!("Secret engine getting credentilas for key {credential_key:#?}: {e:#?}")
+                eyre!("secret engine getting credentilas for key {credential_key:#?}: {e:#?}")
             })?
-            .ok_or_else(|| eyre!("No credentials for key {credential_key:#?} found"))?;
+            .ok_or_else(|| eyre!("no credentials for key {credential_key:#?} found"))?;
 
         match self
-            .execute_ipmitool_command(Self::IPMITOOL_BMC_RESET_COMMAND_ARGS, bmc_ip, &credentials)
+            .execute_ipmitool_command(IpmiCommand::BmcColdReset, bmc_ip, &credentials)
             .await
         {
             Ok(_) => Ok(()),
@@ -82,21 +88,17 @@ impl IPMITool for IPMIToolImpl {
             .await
             .map_err(|e| {
                 eyre!(
-                    "Secret engine error for machine {}: {e}",
+                    "secret engine error for machine {}: {e}",
                     machine_id.clone(),
                 )
             })?
-            .ok_or_else(|| eyre!("No credentials for machine {} found", machine_id.clone()))?;
+            .ok_or_else(|| eyre!("no credentials for machine {} found", machine_id.clone()))?;
 
         let mut errors: Vec<CmdError> = Vec::default();
 
         if legacy_boot {
             match self
-                .execute_ipmitool_command(
-                    Self::DPU_LEGACY_IPMITOOL_COMMAND_ARGS,
-                    bmc_ip,
-                    &credentials,
-                )
+                .execute_ipmitool_command(IpmiCommand::DpuLegacyPowerReset, bmc_ip, &credentials)
                 .await
             {
                 Ok(_) => return Ok(()),   // return early if we get a successful response
@@ -104,24 +106,21 @@ impl IPMITool for IPMIToolImpl {
             }
         }
         match self
-            .execute_ipmitool_command(Self::IPMITOOL_COMMAND_ARGS, bmc_ip, &credentials)
+            .execute_ipmitool_command(IpmiCommand::ChassisPowerReset, bmc_ip, &credentials)
             .await
         {
             Ok(_) => return Ok(()),   // return early if we get a successful response
             Err(e) => errors.push(e), // add error and move on if not
         }
 
+        // Only the last error survives as the returned failure; the earlier
+        // attempts' failures have already been counted where they happened.
         let result = errors.pop();
-        /*
-        for e in errors.iter() {
-            tracing::warn!("ipmitool error restarting machine {machine_id}: {e}");
-        }
-        */
 
         Err(match result {
             None => {
                 // This should be impossible, right? We always call execute_ipmitool_command.
-                eyre::eyre!("No commands were successful and no error reported")
+                eyre::eyre!("no commands were successful and no error reported")
             }
             Some(err) => err.into(),
         })
@@ -131,7 +130,7 @@ impl IPMITool for IPMIToolImpl {
 impl IPMIToolImpl {
     async fn execute_ipmitool_command(
         &self,
-        command: &str,
+        command: IpmiCommand,
         bmc_ip: IpAddr,
         credentials: &Credentials,
     ) -> CmdResult<String> {
@@ -147,13 +146,15 @@ impl IPMIToolImpl {
                 .collect();
 
         let mut args = prefix_args.to_owned();
-        args.extend(command.split(' ').map(str::to_owned));
+        args.extend(Self::command_args(command).split(' ').map(str::to_owned));
         let cmd = TokioCmd::new("/usr/bin/ipmitool")
             .args(&args)
             .attempts(self.attempts);
 
-        tracing::info!("Running command: {:?}", cmd);
-        cmd.env("IPMITOOL_PASSWORD", password).output().await
+        tracing::info!(command = ?cmd, "Running IPMI command");
+        let result = cmd.env("IPMITOOL_PASSWORD", password).output().await;
+        count_ipmi_command(command, &result);
+        result
     }
 }
 

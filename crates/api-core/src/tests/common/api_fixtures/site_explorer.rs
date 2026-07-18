@@ -1340,7 +1340,10 @@ impl<'a> MockExploredHost<'a> {
             let sku = db::sku::generate_sku_from_machine(txn.as_mut(), host_machine_id)
                 .await
                 .unwrap();
-            tracing::info!("creating sku: {}", sku.id);
+            tracing::info!(
+                sku_id = %sku.id,
+                "creating sku",
+            );
             db::sku::create(&mut txn, &sku).await.unwrap();
 
             tracing::info!("assigning sku");
@@ -1824,7 +1827,7 @@ pub async fn new_power_shelf(
         PowerShelfIdSource::ProductBoardChassisSerial,
         PowerShelfType::Rack,
     )
-    .map_err(|e| eyre::eyre!("Failed to create power shelf ID: {:?}", e))?;
+    .map_err(|e| eyre::eyre!("failed to create power shelf ID: {:?}", e))?;
 
     // Create power shelf configuration
     let config = PowerShelfConfig {
@@ -1844,7 +1847,7 @@ pub async fn new_power_shelf(
 
     let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf)
         .await
-        .map_err(|e| eyre::eyre!("Failed to create power shelf: {:?}", e))?;
+        .map_err(|e| eyre::eyre!("failed to create power shelf: {:?}", e))?;
 
     txn.commit().await.unwrap();
 
@@ -1943,7 +1946,7 @@ pub async fn new_switch(
         Some(n) => expected_switches
             .iter()
             .find(|s| s.metadata.name == n)
-            .ok_or(eyre::eyre!("No expected switch found"))?,
+            .ok_or(eyre::eyre!("no expected switch found"))?,
         None => expected_switches.first().unwrap(),
     };
 
@@ -1954,7 +1957,7 @@ pub async fn new_switch(
         carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
         carbide_uuid::switch::SwitchType::NvLink,
     )
-    .map_err(|e| eyre::eyre!("Failed to create switch ID: {:?}", e))
+    .map_err(|e| eyre::eyre!("failed to create switch ID: {:?}", e))
     .unwrap();
 
     let config = SwitchConfig {
@@ -1975,7 +1978,7 @@ pub async fn new_switch(
 
     let _switch = db_switch::create(&mut txn, &new_switch)
         .await
-        .map_err(|e| eyre::eyre!("Failed to create switch: {:?}", e))?;
+        .map_err(|e| eyre::eyre!("failed to create switch: {:?}", e))?;
 
     // Mirror site-explorer ingestion (switch_creator): link the switch's BMC
     // machine_interface back to the switch and annotate it `Bmc`, so that
@@ -1983,7 +1986,7 @@ pub async fn new_switch(
     let bmc_interfaces =
         db::machine_interface::find_by_mac_address(&mut *txn, expected_switch.bmc_mac_address)
             .await
-            .map_err(|e| eyre::eyre!("Failed to find BMC machine interface: {:?}", e))?;
+            .map_err(|e| eyre::eyre!("failed to find BMC machine interface: {:?}", e))?;
     if let Some(interface) = bmc_interfaces.first() {
         db::machine_interface::associate_bmc_interface(
             &interface.id,
@@ -1991,7 +1994,7 @@ pub async fn new_switch(
             &mut txn,
         )
         .await
-        .map_err(|e| eyre::eyre!("Failed to link BMC machine interface: {:?}", e))?;
+        .map_err(|e| eyre::eyre!("failed to link BMC machine interface: {:?}", e))?;
     }
 
     txn.commit().await.unwrap();
@@ -2140,7 +2143,7 @@ pub async fn create_expected_switch(
 
     let network_segments = db::network_segment::admin(txn)
         .await
-        .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
+        .map_err(|e| eyre::eyre!("failed to get admin network segment: {:?}", e))
         .unwrap();
 
     for nvos_mac in &result.nvos_mac_addresses.clone() {
@@ -2153,12 +2156,12 @@ pub async fn create_expected_switch(
             None,
         )
         .await
-        .map_err(|e| eyre::eyre!("Failed to create NVOS machine interface: {:?}", e))
+        .map_err(|e| eyre::eyre!("failed to create NVOS machine interface: {:?}", e))
         .unwrap();
     }
     let overlay_network_segment = db::network_segment::find_by_name(txn, "UNDERLAY")
         .await
-        .map_err(|e| eyre::eyre!("Failed to get overlay network segment: {:?}", e))
+        .map_err(|e| eyre::eyre!("failed to get overlay network segment: {:?}", e))
         .unwrap();
 
     db::machine_interface::create(
@@ -2170,7 +2173,7 @@ pub async fn create_expected_switch(
         None,
     )
     .await
-    .map_err(|e| eyre::eyre!("Failed to create BMC machine interface: {:?}", e))
+    .map_err(|e| eyre::eyre!("failed to create BMC machine interface: {:?}", e))
     .unwrap();
 
     result

@@ -59,7 +59,11 @@ impl StateHandler for IBPartitionStateHandler {
                 match state.status.as_ref().and_then(|s| s.pkey) {
                     None => {
                         let cause = "The pkey is None when deleting an IBPartition.";
-                        tracing::error!(cause);
+                        tracing::error!(
+                            ib_partition_id = %partition_id,
+                            cause = %cause,
+                            "IB partition has no pkey while deleting"
+                        );
                         let new_state = IBPartitionControllerState::Error {
                             cause: cause.to_string(),
                         };
@@ -99,10 +103,9 @@ impl StateHandler for IBPartitionStateHandler {
 
                                     if instance_count > 0 {
                                         tracing::info!(
-                                            %partition_id,
+                                            ib_partition_id = %partition_id,
                                             instance_count,
-                                            "Postponing IB partition deletion: \
-                                             {instance_count} instance(s) still reference this partition",
+                                            "Postponing IB partition deletion because instances still reference it",
                                         );
                                         return Ok(StateHandlerOutcome::wait(format!(
                                             "Waiting for {instance_count} instance(s) to release IB partition"
@@ -143,7 +146,11 @@ impl StateHandler for IBPartitionStateHandler {
             IBPartitionControllerState::Ready => match state.status.as_ref().and_then(|s| s.pkey) {
                 None => {
                     let cause = "The pkey is None when IBPartition is ready";
-                    tracing::error!(cause);
+                    tracing::error!(
+                        ib_partition_id = %partition_id,
+                        cause = %cause,
+                        "IB partition has no pkey while ready"
+                    );
 
                     Ok(StateHandlerOutcome::transition(
                         IBPartitionControllerState::Error {

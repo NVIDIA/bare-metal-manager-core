@@ -91,16 +91,17 @@ fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Rep
         Ok(env_path) if Path::new(&env_path).exists() => Ok(env_path),
         Ok(env_path) => {
             tracing::error!(
-                "VAULT_CACERT={env_path} does not exist. Refusing to connect without TLS verification."
+                %env_path,
+                "VAULT_CACERT does not exist. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
         Err(_) => {
             tracing::error!(
-                "Vault root CA not found at {}. Refusing to connect without TLS verification.",
-                configured_path
+                configured_path,
+                "Vault root CA not found. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
     }
 }
@@ -182,7 +183,8 @@ impl LabelValue for VaultFailureStatusCode {
 /// logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_attempted_total",
+    event_name = "vault_request_attempted",
+    metric_name = "carbide_api_vault_requests_attempted_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -196,7 +198,8 @@ struct VaultRequestAttempted {
 /// A Vault request succeeded. Metric-only (`log = off`): counted, never logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_succeeded_total",
+    event_name = "vault_request_succeeded",
+    metric_name = "carbide_api_vault_requests_succeeded_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -213,7 +216,8 @@ struct VaultRequestSucceeded {
 /// client error carried one, and empty otherwise.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_failed_total",
+    event_name = "vault_request_failed",
+    metric_name = "carbide_api_vault_requests_failed_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -230,7 +234,8 @@ struct VaultRequestFailed {
 /// milliseconds. Metric-only (`log = off`).
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_request_duration_milliseconds",
+    event_name = "vault_request_duration",
+    metric_name = "carbide_api_vault_request_duration_milliseconds",
     component = "nico-api",
     log = off,
     metric = histogram,
@@ -329,7 +334,7 @@ async fn vault_token_refresh(
                 .inspect_err(|err| {
                     record_vault_client_error(err, VaultRequestType::ServiceAccountLogin);
                 })
-                .wrap_err("Failed to execute kubernetes service account login request")?;
+                .wrap_err("failed to execute kubernetes service account login request")?;
 
             emit(VaultRequestSucceeded {
                 request_type: VaultRequestType::ServiceAccountLogin,
@@ -340,7 +345,10 @@ async fn vault_token_refresh(
         }
     };
 
-    tracing::info!("successfully refreshed vault token, with lifetime: {vault_token_expiry_secs}");
+    tracing::info!(
+        vault_token_expiry_seconds = vault_token_expiry_secs,
+        "successfully refreshed vault token"
+    );
 
     let vault_client_settings = create_vault_client_settings(vault_token, vault_client_config)?;
     let vault_client = VaultClient::new(vault_client_settings)?;
@@ -517,15 +525,16 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
                     Some(404) => {
                         // Not found errors are common and of no concern
                         tracing::debug!(
-                            "Credentials not found for key ({})",
-                            self.key.to_key_str().as_ref()
+                            credential_key = %self.key.to_key_str(),
+                            "Credentials not found",
                         );
                         Ok(None)
                     }
                     _ => {
                         tracing::error!(
-                            "Error getting credentials ({}). Error: {ce:?}",
-                            self.key.to_key_str().as_ref()
+                            credential_key = %self.key.to_key_str(),
+                            error = ?ce,
+                            "Error getting credentials",
                         );
                         Err(SecretsError::GenericError(ce.into()))
                     }
@@ -601,7 +610,7 @@ impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
 
         let _secret_version_metadata = vault_response.map_err(|err| {
             record_vault_client_error(&err, VaultRequestType::SetCredentials);
-            tracing::error!("Error setting credentials. Error: {err:?}");
+            tracing::error!(error = ?err, "Error setting credentials");
             err
         })?;
 
@@ -640,7 +649,7 @@ impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
 
         let _secret_version_metadata = vault_response.map_err(|err| {
             record_vault_client_error(&err, VaultRequestType::DeleteCredentials);
-            tracing::error!("Error deleting credentials. Error: {err:?}");
+            tracing::error!(error = ?err, "Error deleting credentials");
             err
         })?;
 
@@ -834,7 +843,10 @@ impl ForgeVaultClient {
         let paths = self
             .list_secrets_for_path("", EnumerationMode::BestEffort)
             .await?;
-        tracing::info!(count = paths.len(), "listed all vault secret paths");
+        tracing::info!(
+            secret_path_count = paths.len(),
+            "listed all vault secret paths"
+        );
         Ok(paths)
     }
 
@@ -849,7 +861,7 @@ impl ForgeVaultClient {
             .await?;
         tracing::info!(
             prefix = prefix.as_str(),
-            count = paths.len(),
+            secret_path_count = paths.len(),
             "listed vault secret paths for prefix"
         );
         Ok(paths)

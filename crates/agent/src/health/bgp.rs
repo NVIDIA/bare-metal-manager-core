@@ -61,7 +61,7 @@ pub async fn check_bgp_stats(
             hbn_device_names,
         ),
         Err(err) => {
-            tracing::warn!("check_network_stats show bgp summary: {err}");
+            tracing::warn!(error = %err, "Failed to fetch BGP summary");
             health_data.other_errors.push(err.to_string());
         }
     };
@@ -73,7 +73,7 @@ pub fn check_daemon_enabled(hr: &mut health_report::HealthReport, hbn_daemons_fi
     let daemons = match std::fs::read_to_string(hbn_daemons_file) {
         Ok(s) => s,
         Err(err) => {
-            tracing::warn!("check_bgp_daemon_enabled: {err}");
+            tracing::warn!(error = %err, "Failed to read BGP daemon configuration");
             failed(
                 hr,
                 probe_ids::BgpDaemonEnabled.clone(),

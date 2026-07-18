@@ -57,6 +57,9 @@ pub mod dgx_vr_nvl;
 /// Support of LiteOn Power Shelf.
 pub mod liteon_power_shelf;
 
+/// Support of Delta Energy Systems Power Shelf.
+pub mod delta_power_shelf;
+
 /// Support of NVIDIA Switch ND5200_LD.
 pub mod nvidia_switch_nd5200_ld;
 
@@ -83,19 +86,3 @@ pub mod nic_intel_i210;
 
 /// NVIDIA ConnectX-7.
 pub mod nic_nvidia_cx7;
-
-use bmc_vendor::BMCVendor;
-
-pub fn bmc_vendor_to_udev_dmi(v: BMCVendor) -> &'static str {
-    match v {
-        BMCVendor::Lenovo => "Lenovo",
-        BMCVendor::Dell => "Dell Inc.",
-        BMCVendor::Nvidia => "https://www.mellanox.com",
-        BMCVendor::Supermicro => "Supermicro",
-        BMCVendor::Hpe => "HPE",
-        BMCVendor::LenovoAMI => "Unknown",
-        BMCVendor::Liteon => "Unknown",
-        BMCVendor::Delta => "Unknown",
-        BMCVendor::Unknown => "Unknown",
-    }
-}

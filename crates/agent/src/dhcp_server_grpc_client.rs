@@ -132,7 +132,9 @@ pub async fn get_dhcp_timestamps(
             let id = e
                 .host_interface_id
                 .parse::<MachineInterfaceId>()
-                .map_err(|err| tracing::warn!("Skipping unparseable host_interface_id: {err}"))
+                .map_err(
+                    |err| tracing::warn!(error = %err, "Skipping unparseable host_interface_id"),
+                )
                 .ok()?;
             Some(::rpc::forge::LastDhcpRequest {
                 host_interface_id: Some(id),
