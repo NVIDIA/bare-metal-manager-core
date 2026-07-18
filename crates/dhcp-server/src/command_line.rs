@@ -53,6 +53,23 @@ pub struct Args {
     )]
     pub host_config: Option<String>,
 
+    #[arg(long, help = "Root CA certificate used to connect to the Carbide API.")]
+    pub forge_root_ca_path: Option<String>,
+
+    #[arg(
+        long,
+        requires = "client_key_path",
+        help = "Client certificate used to connect to the Carbide API."
+    )]
+    pub client_cert_path: Option<String>,
+
+    #[arg(
+        long,
+        requires = "client_cert_path",
+        help = "Client private key used to connect to the Carbide API."
+    )]
+    pub client_key_path: Option<String>,
+
     #[arg(short, long, value_enum, default_value_t=ServerMode::Dpu)]
     pub mode: ServerMode,
 
@@ -99,6 +116,9 @@ mod tests {
             SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 67)
         );
         assert_eq!(defaults.relay_response_port, 67);
+        assert_eq!(defaults.forge_root_ca_path, None);
+        assert_eq!(defaults.client_cert_path, None);
+        assert_eq!(defaults.client_key_path, None);
 
         let overridden = Args::try_parse_from([
             "forge-dhcp-server",
@@ -116,6 +136,29 @@ mod tests {
 
         assert!(
             Args::try_parse_from(["forge-dhcp-server", "--listen-addr", "[::]:6767",]).is_err()
+        );
+
+        let tls = Args::try_parse_from([
+            "forge-dhcp-server",
+            "--forge-root-ca-path",
+            "/local/ca.crt",
+            "--client-cert-path",
+            "/local/client.crt",
+            "--client-key-path",
+            "/local/client.key",
+        ])
+        .unwrap();
+        assert_eq!(tls.forge_root_ca_path.as_deref(), Some("/local/ca.crt"));
+        assert_eq!(tls.client_cert_path.as_deref(), Some("/local/client.crt"));
+        assert_eq!(tls.client_key_path.as_deref(), Some("/local/client.key"));
+
+        assert!(
+            Args::try_parse_from([
+                "forge-dhcp-server",
+                "--client-cert-path",
+                "/local/client.crt",
+            ])
+            .is_err()
         );
     }
 }
