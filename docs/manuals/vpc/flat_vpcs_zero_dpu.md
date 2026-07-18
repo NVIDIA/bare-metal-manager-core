@@ -198,16 +198,23 @@ after Day 0 in either of two ways:
 Note the current CLI surface for the runtime path:
 
 - `nico-admin-cli --cloud-unsafe-op=<username> network-segment create` creates a
-  segment at runtime. The global `--cloud-unsafe-op` acknowledgment is required
-  and must not be used against a production site. For a `HostInband` segment,
-  pass `--segment-type host-inband` with `--name`, `--prefix`, and
-  `--subdomain-id`; add `--gateway` when the IPv4 prefix has a gateway. Run
-  `nico-admin-cli network-segment create --help` for the full flag set. The REST
-  API / `nicocli` do not expose operator network-segment management (the REST
-  `/subnet` endpoints are the tenant subnet surface, not operator `HostInband`
-  segments).
-- `nico-admin-cli network-segment show` and `nico-admin-cli network-segment delete`
-  exist for inspecting and removing segments.
+  segment at runtime.
+
+  The global `--cloud-unsafe-op` acknowledgment is required and must not be used
+  against a production site.
+
+  For a `HostInband` segment, pass `--segment-type host-inband` with `--name`,
+  `--prefix`, and `--subdomain-id`; add `--gateway` when the IPv4 prefix has a
+  gateway.
+
+  Run `nico-admin-cli network-segment create --help` for the full flag set.
+- `nico-admin-cli network-segment show` lists segments. To remove one, use
+  `nico-admin-cli --cloud-unsafe-op=<username> network-segment delete`; the same
+  global acknowledgment is required and must not be used against production.
+
+<Tip>
+The REST API and `nicocli` do not expose operator network-segment management. The REST `/subnet` endpoints are the tenant subnet surface, not operator `HostInband` segments.
+</Tip>
 
 Deleting a `HostInband` segment follows the standard segment lifecycle: the
 segment is drained (it is not removed while any host interface or instance
