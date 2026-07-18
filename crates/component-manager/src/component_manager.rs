@@ -671,6 +671,13 @@ mod tests {
 
     #[async_trait]
     impl CredentialWriter for FailingCredentialManager {
+        async fn get_credentials_from_writer(
+            &self,
+            _key: &CredentialKey,
+        ) -> Result<Option<Credentials>, SecretsError> {
+            Ok(None)
+        }
+
         async fn set_credentials(
             &self,
             _key: &CredentialKey,
