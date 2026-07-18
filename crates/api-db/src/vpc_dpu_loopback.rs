@@ -58,8 +58,8 @@ pub async fn delete_and_deallocate(
 
         if admin_vpcs.is_empty() {
             tracing::warn!(
-                "No VPC attached to one or more admin segments: {:?}.",
-                admin_segments
+                ?admin_segments,
+                "No VPC attached to one or more admin segments.",
             );
         } else {
             // We only allow a single admin VPC, so it seems this could easily be

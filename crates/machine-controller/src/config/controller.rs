@@ -70,7 +70,9 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub uefi_boot_wait: Duration,
-    /// Max configure_host_bios retry cycles through HandleBiosJobFailure recovery.
+    /// Retry budget for automated host boot-configuration convergence, shared
+    /// across BIOS recovery and boot-order verification. The field name is
+    /// retained for configuration compatibility.
     #[serde(default = "MachineStateControllerConfig::max_bios_config_retries_default")]
     pub max_bios_config_retries: u32,
     /// How long PollingBiosSetup may sit on Ok(false) before escalating into

@@ -41,7 +41,7 @@ pub async fn show_dpas_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let dpas = match fetch_dpas(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_dpas");
+            tracing::error!(error = %err, "fetch_dpas");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading dpas").into_response();
         }
     };
@@ -54,7 +54,7 @@ pub async fn show_dpas_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let dpas = match fetch_dpas(state).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_dpas");
+            tracing::error!(error = %err, "fetch_dpas");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading DPAs").into_response();
         }
     };
@@ -156,7 +156,7 @@ pub async fn detail(
             return super::not_found_response(dpa_id);
         }
         Err(err) => {
-            tracing::error!(%err, "find_dpas_by_ids");
+            tracing::error!(error = %err, "find_dpas_by_ids");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading DPAs").into_response();
         }
     };

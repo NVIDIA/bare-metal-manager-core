@@ -128,7 +128,7 @@ impl InjectionStore {
                         method = method_str,
                         path,
                         rule = %rule.id,
-                        status = %status,
+                        http_status = %status,
                         "injecting status",
                     );
                     status_inject = Some(status);
@@ -148,7 +148,7 @@ impl InjectionStore {
                         method = method_str,
                         path,
                         rule = %rule.id,
-                        delay_ms = delay.as_millis() as u64,
+                        delay_milliseconds = delay.as_millis() as u64,
                         "injecting latency",
                     );
                     // Combine delay if multiple rules match.

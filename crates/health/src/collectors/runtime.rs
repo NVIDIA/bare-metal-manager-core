@@ -325,7 +325,7 @@ impl Collector {
         let refresh_counter = Counter::with_opts(
             Opts::new(
                 format!("{}_collector_refresh_total", collector_registry.prefix()),
-                "Count of collector refreshes",
+                "Number of collector refreshes",
             )
             .const_labels(const_labels.clone()),
         )?;
@@ -346,7 +346,7 @@ impl Collector {
                     "{}_collector_fetch_failures_total",
                     collector_registry.prefix()
                 ),
-                "Count of partial collector fetch failures",
+                "Number of partial collector fetch failures",
             )
             .const_labels(const_labels),
         )?;

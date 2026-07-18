@@ -42,6 +42,10 @@ pub struct LogsCollectorConfig {
 
     /// Attach Redfish diagnostic payloads to emitted log records.
     pub include_diagnostics: bool,
+
+    /// Substrings; a discovered LogService whose odata id contains any of these
+    /// is skipped. Empty collects from every service.
+    pub exclude_services: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -70,6 +74,7 @@ pub struct LogsCollector<B: Bmc> {
     service_refresh_interval: Duration,
     data_sink: Option<Arc<dyn DataSink>>,
     include_diagnostics: bool,
+    exclude_services: Vec<String>,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
@@ -90,6 +95,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
             service_refresh_interval: config.service_refresh_interval,
             data_sink: config.data_sink,
             include_diagnostics: config.include_diagnostics,
+            exclude_services: config.exclude_services,
         })
     }
 
@@ -140,19 +146,36 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         Ok(())
     }
 
+    /// True if this service's odata id matches any configured exclude substring.
+    fn is_excluded(&self, service_id: &str) -> bool {
+        service_is_excluded(&self.exclude_services, service_id)
+    }
+
     async fn discover_log_services(&self) -> Result<Vec<LogService<B>>, HealthError> {
         let service_root = ServiceRoot::new(self.bmc.clone()).await?;
         let mut services = Vec::new();
         let mut seen_ids = HashSet::new();
+        let mut excluded_count = 0usize;
+
+        let consider = |service: LogService<B>,
+                        services: &mut Vec<LogService<B>>,
+                        seen_ids: &mut HashSet<String>,
+                        excluded_count: &mut usize| {
+            let service_id = service.odata_id().to_string();
+            if self.is_excluded(&service_id) {
+                *excluded_count += 1;
+                return;
+            }
+            if seen_ids.insert(service_id) {
+                services.push(service);
+            }
+        };
 
         if let Ok(Some(manager_collection)) = service_root.managers().await {
             for manager in manager_collection.members().await.iter().flatten() {
                 if let Ok(Some(log_services)) = manager.log_services().await {
                     for service in log_services {
-                        let service_id = service.odata_id().to_string();
-                        if seen_ids.insert(service_id) {
-                            services.push(service);
-                        }
+                        consider(service, &mut services, &mut seen_ids, &mut excluded_count);
                     }
                 }
             }
@@ -162,10 +185,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             for chassis in chassis_collection.members().await.iter().flatten() {
                 if let Ok(Some(log_services)) = chassis.log_services().await {
                     for service in log_services {
-                        let service_id = service.odata_id().to_string();
-                        if seen_ids.insert(service_id) {
-                            services.push(service);
-                        }
+                        consider(service, &mut services, &mut seen_ids, &mut excluded_count);
                     }
                 }
             }
@@ -175,17 +195,15 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             for system in system_collection.members().await.iter().flatten() {
                 if let Ok(Some(log_services)) = system.log_services().await {
                     for service in log_services {
-                        let service_id = service.odata_id().to_string();
-                        if seen_ids.insert(service_id) {
-                            services.push(service);
-                        }
+                        consider(service, &mut services, &mut seen_ids, &mut excluded_count);
                     }
                 }
             }
         }
 
         tracing::info!(
-            total_services = services.len(),
+            service_count = services.len(),
+            excluded_service_count = excluded_count,
             "Discovered distinct log services"
         );
 
@@ -206,8 +224,8 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             match self.discover_log_services().await {
                 Ok(services) => {
                     tracing::info!(
-                        "Service discovery complete. Found {} log services",
-                        services.len()
+                        service_count = services.len(),
+                        "Log service discovery complete"
                     );
 
                     let persistent_state = self.load_persistent_state().await;
@@ -394,5 +412,92 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         }
 
         Ok((total_log_count, fetch_failures))
+    }
+}
+
+/// True if `service_id` contains any of the configured exclude substrings.
+/// An empty `exclude_services` never excludes anything. Matching is a plain
+/// (case-sensitive) substring test against the Redfish LogService odata id.
+fn service_is_excluded(exclude_services: &[String], service_id: &str) -> bool {
+    exclude_services
+        .iter()
+        .any(|pat| !pat.is_empty() && service_id.contains(pat.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::service_is_excluded;
+
+    const JOURNAL_BMC: &str = "/redfish/v1/Managers/BMC_0/LogServices/Journal";
+    const JOURNAL_HGX: &str = "/redfish/v1/Managers/HGX_BMC_0/LogServices/Journal";
+    const EVENTLOG: &str = "/redfish/v1/Systems/System_0/LogServices/EventLog";
+    const XID: &str = "/redfish/v1/Chassis/HGX_GPU_0/LogServices/XID";
+    const SEL: &str = "/redfish/v1/Systems/System_0/LogServices/SEL";
+
+    #[test]
+    fn service_exclusion_filter() {
+        check_values(
+            [
+                Check {
+                    scenario: "empty exclude list keeps all services",
+                    input: (vec![], JOURNAL_BMC),
+                    expect: false,
+                },
+                Check {
+                    scenario: "empty string pattern never excludes",
+                    input: (vec!["".to_string()], JOURNAL_BMC),
+                    expect: false,
+                },
+                Check {
+                    scenario: "substring match excludes BMC journal",
+                    input: (vec!["Journal".to_string()], JOURNAL_BMC),
+                    expect: true,
+                },
+                Check {
+                    scenario: "substring match excludes HGX journal",
+                    input: (vec!["Journal".to_string()], JOURNAL_HGX),
+                    expect: true,
+                },
+                Check {
+                    scenario: "non-matching service is kept",
+                    input: (vec!["Journal".to_string()], EVENTLOG),
+                    expect: false,
+                },
+                Check {
+                    scenario: "any of multiple patterns excludes",
+                    input: (vec!["Journal".to_string(), "Dump".to_string()], JOURNAL_BMC),
+                    expect: true,
+                },
+                Check {
+                    scenario: "second pattern in list matches",
+                    input: (
+                        vec!["Journal".to_string(), "Dump".to_string()],
+                        "/redfish/v1/Managers/BMC_0/LogServices/Dump",
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "no pattern matches non-excluded services",
+                    input: (vec!["Journal".to_string(), "Dump".to_string()], XID),
+                    expect: false,
+                },
+                Check {
+                    scenario: "matching is case-sensitive",
+                    input: (
+                        vec!["Journal".to_string()],
+                        "/redfish/v1/Managers/BMC_0/LogServices/journal",
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "SEL service is not excluded by Journal pattern",
+                    input: (vec!["Journal".to_string()], SEL),
+                    expect: false,
+                },
+            ],
+            |(patterns, service_id)| service_is_excluded(&patterns, service_id),
+        );
     }
 }

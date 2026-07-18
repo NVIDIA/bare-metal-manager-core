@@ -117,7 +117,7 @@ pub fn get_updated_power_options_for_desired_on_state_off(
     updated_power_options.last_fetched_off_counter += 1;
     let cause =
         "Since desired state is On, but actual state is Off, skipping state machine.".to_string();
-    tracing::warn!(cause);
+    tracing::warn!(reason = %cause, "Skipping state machine");
     (
         PowerHandlingOutcome::new(Some(updated_power_options), false, Some(cause)),
         try_power_on,

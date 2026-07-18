@@ -202,7 +202,10 @@ async fn check_hbn_services_running(
     {
         Ok(s) => s,
         Err(err) => {
-            tracing::warn!("check_hbn_services_running supervisorctl status: {err}");
+            tracing::warn!(
+                error = %err,
+                "Failed to get supervisorctl status for HBN health check"
+            );
             failed(
                 hr,
                 probe_ids::SupervisorctlStatus.clone(),
@@ -215,7 +218,10 @@ async fn check_hbn_services_running(
     let st = match parse_status(&sctl) {
         Ok(s) => s,
         Err(err) => {
-            tracing::warn!("check_hbn_services_running supervisorctl status parse: {err}");
+            tracing::warn!(
+                error = %err,
+                "Failed to parse supervisorctl status for HBN health check"
+            );
             failed(
                 hr,
                 probe_ids::SupervisorctlStatus.clone(),
@@ -231,7 +237,11 @@ async fn check_hbn_services_running(
         match st.status_of(&service) {
             SctlState::Running => passed(hr, probe_ids::ServiceRunning.clone(), Some(service)),
             status => {
-                tracing::warn!("check_hbn_services_running {service}: {status}");
+                tracing::warn!(
+                    service = service.as_str(),
+                    service_state = %status,
+                    "HBN service is not running"
+                );
                 failed(
                     hr,
                     probe_ids::ServiceRunning.clone(),
@@ -255,7 +265,10 @@ async fn check_dhcp_server(hr: &mut health_report::HealthReport, container_id: &
     {
         Ok(s) => s,
         Err(err) => {
-            tracing::warn!("check_hbn_services_running supervisorctl status: {err}");
+            tracing::warn!(
+                error = %err,
+                "Failed to get supervisorctl status for DHCP health check"
+            );
             failed(
                 hr,
                 probe_ids::SupervisorctlStatus.clone(),
@@ -268,7 +281,10 @@ async fn check_dhcp_server(hr: &mut health_report::HealthReport, container_id: &
     let st = match parse_status(&sctl) {
         Ok(s) => s,
         Err(err) => {
-            tracing::warn!("check_hbn_services_running supervisorctl status parse: {err}");
+            tracing::warn!(
+                error = %err,
+                "Failed to parse supervisorctl status for DHCP health check"
+            );
             failed(
                 hr,
                 probe_ids::SupervisorctlStatus.clone(),
@@ -306,12 +322,12 @@ async fn check_ifreload(hr: &mut health_report::HealthReport, container_id: &str
             if stdout.is_empty() {
                 passed(hr, probe_ids::Ifreload.clone(), None);
             } else {
-                tracing::warn!("check_ifreload: {stdout}");
+                tracing::warn!(stdout = stdout.as_str(), "ifreload syntax check failed");
                 failed(hr, probe_ids::Ifreload.clone(), None, stdout);
             }
         }
         Err(err) => {
-            tracing::warn!("check_ifreload: {err}");
+            tracing::warn!(error = %err, "ifreload syntax check failed");
             failed(hr, probe_ids::Ifreload.clone(), None, err.to_string());
         }
     }
@@ -341,7 +357,7 @@ fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_f
         let stat = match std::fs::metadata(path) {
             Ok(s) => s,
             Err(err) => {
-                tracing::warn!("check_files {filename}: {err}");
+                tracing::warn!(filename, error = %err, "Failed to read file metadata");
                 failed(
                     hr,
                     probe_ids::FileIsValid.clone(),
@@ -355,8 +371,10 @@ fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_f
             dhcp_server_size = stat.len();
         } else if stat.len() < MIN_SIZE {
             tracing::warn!(
-                "check_files {filename}: Too small {} < {MIN_SIZE} bytes",
-                stat.len()
+                filename,
+                file_size_bytes = stat.len(),
+                minimum_file_size_bytes = MIN_SIZE,
+                "file is too small"
             );
             failed(
                 hr,
@@ -373,7 +391,12 @@ fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_f
     }
 
     if dhcp_server_size < MIN_SIZE {
-        tracing::warn!("check_files {DHCP_SERVER_FILE}: Too small");
+        tracing::warn!(
+            filename = DHCP_SERVER_FILE,
+            file_size_bytes = dhcp_server_size,
+            minimum_file_size_bytes = MIN_SIZE,
+            "file is too small"
+        );
         failed(
             hr,
             probe_ids::FileIsValid.clone(),
@@ -415,9 +438,9 @@ async fn check_restricted_mode(hr: &mut health_report::HealthReport) {
     };
     if !out.status.success() {
         tracing::debug!(
-            "STDERR {}: {}",
-            super::pretty_cmd(cmd.as_std()),
-            String::from_utf8_lossy(&out.stderr)
+            command = %super::pretty_cmd(cmd.as_std()),
+            stderr = %String::from_utf8_lossy(&out.stderr),
+            "STDERR"
         );
         failed(
             hr,
@@ -459,12 +482,12 @@ async fn check_restricted_mode(hr: &mut health_report::HealthReport) {
 
 fn parse_mlxprivhost(s: &str) -> eyre::Result<String> {
     let Some(level_line) = s.lines().find(|line| line.contains("level")) else {
-        eyre::bail!("Invalid mlxprivhost output, missing 'level' line:\n{s}");
+        eyre::bail!("invalid mlxprivhost output, missing 'level' line:\n{s}");
     };
     // Example ouput:
     // level                         : RESTRICTED
     let Some(level) = level_line.split(':').nth(1).map(|level| level.trim()) else {
-        eyre::bail!("Invalid level line, needs a single colon: '{level_line}'");
+        eyre::bail!("invalid level line, needs a single colon: '{level_line}'");
     };
     Ok(level.to_string())
 }
@@ -499,9 +522,9 @@ async fn check_disk_utilization(hr: &mut health_report::HealthReport) {
     };
     if !out.status.success() {
         tracing::debug!(
-            "STDERR {}: {}",
-            super::pretty_cmd(cmd.as_std()),
-            String::from_utf8_lossy(&out.stderr)
+            command = %super::pretty_cmd(cmd.as_std()),
+            stderr = %String::from_utf8_lossy(&out.stderr),
+            "STDERR"
         );
         failed(
             hr,
@@ -576,7 +599,7 @@ fn parse_disk_utilization(df_out: &str) -> eyre::Result<DiskUtilizations> {
     for line in df_out.lines().skip(1) {
         let parts: Vec<&str> = line.split_ascii_whitespace().collect();
         if parts.len() < 6 {
-            tracing::warn!("du status line too short: '{line}'");
+            tracing::warn!(line, "df output line too short");
             continue;
         }
 
@@ -590,7 +613,7 @@ fn parse_disk_utilization(df_out: &str) -> eyre::Result<DiskUtilizations> {
         let utilization: u32 = match utilization.parse() {
             Ok(u) => u,
             Err(_) => {
-                tracing::warn!("Can not parse disk utilization in line '{line}'");
+                tracing::warn!(line, "Can not parse disk utilization in line");
                 continue;
             }
         };
@@ -615,7 +638,7 @@ fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
     for line in status_out.lines() {
         let parts: Vec<&str> = line.split_ascii_whitespace().collect();
         if parts.len() < 2 {
-            tracing::warn!("supervisorctl status line too short: '{line}'");
+            tracing::warn!(line, "supervisorctl status line too short");
             continue;
         }
         let state: SctlState = match parts[1].parse() {
@@ -623,8 +646,9 @@ fn parse_status(status_out: &str) -> eyre::Result<SctlStatus> {
             Err(_err) => {
                 // unreachable but future proof. SctlState::from_str is currently infallible.
                 tracing::warn!(
-                    "supervisorctl status invalid state '{}' in line '{line}'",
-                    parts[1]
+                    supervisor_state = parts[1],
+                    line,
+                    "supervisorctl status invalid state in line"
                 );
                 continue;
             }
@@ -657,7 +681,7 @@ impl FromStr for SctlState {
             "EXITED" => Self::Exited,
             "FATAL" => Self::Fatal,
             _ => {
-                tracing::warn!("Unknown supervisorctl status '{s}'");
+                tracing::warn!(supervisor_state = s, "Unknown supervisorctl status");
                 Self::Unknown
             }
         })

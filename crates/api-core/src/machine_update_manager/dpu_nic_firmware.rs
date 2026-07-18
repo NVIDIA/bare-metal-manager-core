@@ -70,7 +70,10 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             match dpu_machine_update::get_reprovisioning_machines(txn).await {
                 Ok(current_updating_machines) => current_updating_machines,
                 Err(e) => {
-                    tracing::warn!("Error getting outstanding reprovisioning count: {}", e);
+                    tracing::warn!(
+                        error = %e,
+                        "Error getting outstanding reprovisioning count",
+                    );
                     vec![]
                 }
             };
@@ -166,7 +169,10 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
     async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
         let updated_machines =
             dpu_machine_update::get_updated_machines(txn, self.config.host_health).await?;
-        tracing::debug!("found {} updated machines", updated_machines.len());
+        tracing::debug!(
+            updated_machine_count = updated_machines.len(),
+            "found updated machines",
+        );
         for updated_machine in updated_machines {
             if self
                 .config
@@ -179,7 +185,8 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
                 {
                     tracing::warn!(
                         machine_id = %updated_machine.dpu_machine_id,
-                        "Failed to remove machine update markers: {}", e
+                        error = %e,
+                        "Failed to remove machine update markers",
                     );
                 } else if let Ok(mut reported) = self.reported_wrong_versions.lock() {
                     reported.retain(|(dpu, _)| *dpu != updated_machine.dpu_machine_id);
@@ -295,7 +302,10 @@ impl DpuNicFirmwareUpdate {
         ) {
             Ok(machine_updates) => machine_updates,
             Err(e) => {
-                tracing::warn!("Failed to find machines needing updates: {}", e);
+                tracing::warn!(
+                    error = %e,
+                    "Failed to find machines needing updates",
+                );
                 vec![]
             }
         }

@@ -225,3 +225,75 @@ func osImageFindFallback(ctx context.Context, grpcClient *cClient.CoreGrpcClient
 	}
 	return ids, items.GetImages(), nil
 }
+
+// ManageOperatingSystemInventory is an activity wrapper for Operating System (iPXE /
+// Templated iPXE definition) inventory collection and publishing. This is the inbound
+// (pull) path: it reads OS definitions from on-site nico-core and publishes them to the
+// cloud for reconciliation with the operating_system table. Outbound pushes are handled
+// by the generic Core gRPC proxy, not here.
+type ManageOperatingSystemInventory struct {
+	config ManageInventoryConfig
+}
+
+// NewManageOperatingSystemInventory returns a ManageOperatingSystemInventory activity
+func NewManageOperatingSystemInventory(config ManageInventoryConfig) ManageOperatingSystemInventory {
+	return ManageOperatingSystemInventory{config: config}
+}
+
+// DiscoverOperatingSystemInventory collects Operating System inventory from nico-core and
+// publishes it to the cloud Temporal queue for reconciliation with the operating_system table.
+// It uses the shared paged inventory pipeline (see manageInventoryImpl) so large inventories
+// are chunked and the full reported ID set travels in each page's InventoryPage.ItemIds.
+func (m *ManageOperatingSystemInventory) DiscoverOperatingSystemInventory(ctx context.Context) error {
+	logger := log.With().Str("Activity", "DiscoverOperatingSystemInventory").Logger()
+	logger.Info().Msg("Starting activity")
+
+	inventoryImpl := manageInventoryImpl[*corev1.OperatingSystemId, *corev1.OperatingSystem, *corev1.OperatingSystemInventory]{
+		itemType:               "OperatingSystem",
+		config:                 m.config,
+		internalFindIDs:        operatingSystemFindIDs,
+		internalFindByIDs:      operatingSystemFindByIDs,
+		internalPagedInventory: operatingSystemPagedInventory,
+	}
+
+	return inventoryImpl.CollectAndPublishInventory(ctx, &logger)
+}
+
+func operatingSystemFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*corev1.OperatingSystemId, error) {
+	result, err := grpcClient.GrpcServiceClient().FindOperatingSystemIds(ctx, &corev1.OperatingSystemSearchFilter{})
+	if err != nil {
+		return nil, err
+	}
+	return result.GetIds(), nil
+}
+
+func operatingSystemFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*corev1.OperatingSystemId) ([]*corev1.OperatingSystem, error) {
+	result, err := grpcClient.GrpcServiceClient().FindOperatingSystemsByIds(ctx, &corev1.OperatingSystemsByIdsRequest{
+		Ids: ids,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.GetOperatingSystems(), nil
+}
+
+func operatingSystemPagedInventory(allItemIDs []*corev1.OperatingSystemId, pagedItems []*corev1.OperatingSystem, input *pagedInventoryInput) *corev1.OperatingSystemInventory {
+	itemIDs := []string{}
+	for _, id := range allItemIDs {
+		itemIDs = append(itemIDs, id.GetValue())
+	}
+
+	inventory := &corev1.OperatingSystemInventory{
+		OperatingSystems: pagedItems,
+		Timestamp: &timestamppb.Timestamp{
+			Seconds: time.Now().Unix(),
+		},
+		InventoryStatus: input.status,
+		StatusMsg:       input.statusMessage,
+		InventoryPage:   input.buildPage(),
+	}
+	if inventory.InventoryPage != nil {
+		inventory.InventoryPage.ItemIds = itemIDs
+	}
+	return inventory
+}

@@ -88,7 +88,7 @@ fn find_scout_script_in(
 
     if !root.is_dir() {
         bail!(
-            "Scout firmware script root is not a directory: {}",
+            "scout firmware script root is not a directory: {}",
             root.display()
         );
     }
@@ -102,12 +102,12 @@ fn find_scout_script_in(
     }
 
     if !script_path.is_file() {
-        bail!("missing Scout firmware script {}", script_path.display());
+        bail!("missing scout firmware script {}", script_path.display());
     }
 
     if !metadata_path.is_file() {
         bail!(
-            "missing Scout firmware script metadata {}",
+            "missing scout firmware script metadata {}",
             metadata_path.display()
         );
     }
@@ -116,13 +116,13 @@ fn find_scout_script_in(
 
     let script = fs::read(&script_path).wrap_err_with(|| {
         format!(
-            "failed to read Scout firmware script {}",
+            "failed to read scout firmware script {}",
             script_path.display()
         )
     })?;
 
     if script.is_empty() {
-        bail!("Scout firmware script is empty: {}", script_path.display());
+        bail!("scout firmware script is empty: {}", script_path.display());
     }
 
     Ok(Some(ScoutFirmwareScript {
@@ -249,14 +249,14 @@ fn script_url(pxe_public_base_url: &str, relative_path: &str) -> String {
 fn read_metadata(path: &Path) -> eyre::Result<ScoutFirmwareScriptMetadata> {
     let metadata = fs::read_to_string(path).wrap_err_with(|| {
         format!(
-            "failed to read Scout firmware script metadata {}",
+            "failed to read scout firmware script metadata {}",
             path.display()
         )
     })?;
 
     toml::from_str(&metadata).wrap_err_with(|| {
         format!(
-            "failed to parse Scout firmware script metadata {}",
+            "failed to parse scout firmware script metadata {}",
             path.display()
         )
     })
@@ -433,7 +433,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("missing Scout firmware script metadata")
+                .contains("missing scout firmware script metadata")
         );
     }
 
@@ -461,7 +461,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("failed to parse Scout firmware script metadata")
+                .contains("failed to parse scout firmware script metadata")
         );
     }
 }

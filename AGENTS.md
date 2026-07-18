@@ -5,10 +5,10 @@ This file provides guidance for AI coding agents working in the
 
 ## Project Overview
 
-**NCX Infra Controller (NICo)** is an API-based microservice written in Rust
-that provides site-local, zero-trust, bare-metal lifecycle management with
-DPU-enforced isolation. It automates the complexity of the bare-metal lifecycle
-to fast-track building next-generation AI Cloud offerings.
+**NVIDIA Infra Controller (NICo)** is an API-based microservice written in Rust
+and Golang that provides site-local, zero-trust, bare-metal lifecycle
+management with DPU-enforced isolation. It automates the complexity of the
+bare-metal lifecycle to fast-track building next-generation AI Cloud offerings.
 
 > **Status:** Experimental/Preview. APIs, configurations, and features may
 > change without notice between releases.
@@ -45,6 +45,7 @@ infra-controller/
 ├── lints/               # Custom Clippy lints (carbide-lints crate)
 ├── include/             # Shared Makefile fragments
 ├── .github/             # GitHub Actions workflows and templates
+├── rest-api/            # Golang-based REST API
 ├── Cargo.toml           # Workspace dependency management
 ├── Makefile.toml        # Primary build/task automation
 ├── Makefile-build.toml  # Build-specific tasks
@@ -53,6 +54,7 @@ infra-controller/
 
 ## Technology Stack
 
+### gRPC API and components:
 - **Language:** Rust (edition 2024, toolchain pinned in `rust-toolchain.toml`)
 - **Async runtime:** Tokio
 - **gRPC framework:** Tonic (with TLS via Rustls/aws_lc_rs)
@@ -61,6 +63,9 @@ infra-controller/
 - **Observability:** OpenTelemetry, Tracing (structured logfmt logging)
 - **Build tool:** `cargo-make` (TOML task runner)
 - **API definitions:** Protocol Buffers (protobuf)
+
+### REST API and components
+- **Language (REST API):** Golang 1.26.x
 
 ## Build, Test, and Lint Commands
 
@@ -115,6 +120,7 @@ cargo make pre-commit-verify-workspace
 cargo make clippy              # Clippy linter (warnings = errors)
 cargo make carbide-lints       # Custom lints (requires nightly setup)
 cargo make check-format-nightly # Check rustfmt formatting
+cargo make check-event-names    # Validate production Event identity uniqueness
 cargo make check-workspace-deps # Validate dependency declarations in Cargo.toml
 cargo make check-licenses      # Validate no restricted licenses introduced
 cargo make check-bans          # Check for banned dependencies
@@ -150,6 +156,10 @@ make rest-kind-reset     # spin up the local kind dev cluster (~10 min)
 make rest-api/<target>   # pass any target through to rest-api/Makefile
 ```
 
+Published container artifacts must pin external base images by immutable
+digest. When architecture-specific targets share a base image, define one
+overridable variable so their versions cannot drift independently.
+
 ## Coding Conventions
 
 Follow the shared [Engineering Guidelines](CONTRIBUTING.md#engineering-guidelines)
@@ -158,17 +168,6 @@ verification expectations.
 
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
-
-### Avoid stringly-typed values
-
-When a value has a known, finite set of possibilities, model it with an enum (or
-a struct of enums) and derive its string form via `Display`/`FromStr` — do not
-pass it around as a bare `String` or `&str` literal. Stringly-typed values are
-easy to misspell (`NICO-` vs `NICOO-`), silently break log filters and alerts,
-and can't be exhaustively checked by the compiler. See
-[`ErrorCode`](crates/api-model/src/errors.rs) for the pattern: typed
-`ErrorSystem`/`ErrorSubsystem` parts plus a `code`, rendered to the wire string
-in one place. Reserve raw strings for genuinely open-ended values.
 
 ### Instrumentation: logs and metrics
 
@@ -183,7 +182,8 @@ The decision rule:
 
   ```rust
   #[derive(carbide_instrument::Event)]
-  #[event(name = "carbide_power_control_total", component = "component_manager",
+  #[event(event_name = "power_control_failed",
+          metric_name = "carbide_power_control_total", component = "component_manager",
           log = warn, metric = counter, message = "power control failed")]
   struct PowerControlFailed {
       #[label]   backend: Backend,  // bounded via LabelValue — enums, usually
@@ -202,10 +202,16 @@ The decision rule:
   existing observable-gauge / `SharedMetricsHolder` pattern — the framework models
   occurrences, not state.
 
+Every Event declares a unique, flat `lower_snake_case` `event_name`. It identifies
+the reusable event category, not one occurrence, and appears on Event-generated
+logs. A metric-backed Event also declares `metric_name`; when that Event logs,
+both names are present so operators can pivot directly between the metric and its
+diagnostic records. Plain `tracing::` calls do not invent an `event_name`.
+
 New metric names are validated at compile time (`carbide_` prefix, `_total`
-counters, unit-suffixed histograms) and the name in the attribute is the
-exposed name, verbatim. Existing metric names never change. The full standard
-lives in [`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
+counters, unit-suffixed histograms) and `metric_name` is the exposed name,
+verbatim. Existing metric names never change. The full standard lives in
+[`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
 
 ## Further Reading
 

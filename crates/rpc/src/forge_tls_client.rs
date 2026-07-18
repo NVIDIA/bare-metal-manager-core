@@ -89,6 +89,8 @@ pub struct ForgeClientConfig {
     pub root_ca_path: String,
     pub client_cert: Option<ClientCert>,
     pub enforce_tls: bool,
+    #[cfg(feature = "test-support")]
+    pub suppress_insecure_tls_warning: bool,
     pub use_mgmt_vrf: bool,
     pub max_decoding_message_size: Option<usize>,
     pub socks_proxy: Option<String>,
@@ -110,6 +112,8 @@ impl ForgeClientConfig {
             root_ca_path,
             client_cert,
             enforce_tls: !disabled,
+            #[cfg(feature = "test-support")]
+            suppress_insecure_tls_warning: false,
             use_mgmt_vrf: false,
             max_decoding_message_size,
             socks_proxy: None,
@@ -214,7 +218,7 @@ impl ForgeClientConfig {
                     });
 
                 if !errors.is_empty() {
-                    tracing::warn!( certs = ?errors, "Found error parsing one or more certificates");
+                    tracing::warn!(error = ?errors, "Found error parsing one or more certificates");
                 }
 
                 valid_certificates
@@ -383,9 +387,9 @@ impl<'a> ForgeTlsClient<'a> {
                     .await
                     .inspect_err(|err| {
                         tracing::error!(
-                            "error connecting client to forge api (url: {}), will retry: {}",
-                            api_config.url,
-                            format_error_chain(err)
+                            url = %api_config.url,
+                            error = %format_error_chain(err),
+                            "Failed to connect client to Forge API; retrying",
                         );
                     })
                     .map_err(|e| ForgeTlsClientError::Connection(format_error_chain(&e)))?;
@@ -397,10 +401,10 @@ impl<'a> ForgeTlsClient<'a> {
             .await
             .inspect_err(|err| {
                 tracing::error!(
-                    "error connecting client to forge api (url: {}, attempts: {}): {}",
-                    api_config.url,
-                    api_config.retry_config.retries,
-                    err
+                    url = %api_config.url,
+                    retries = api_config.retry_config.retries,
+                    error = %err,
+                    "Failed to connect client to Forge API after retries",
                 );
             });
 
@@ -524,11 +528,17 @@ impl<'a> ForgeTlsClient<'a> {
                 if self.forge_client_config.enforce_tls {
                     base_config_builder().with_root_certificates(roots)
                 } else {
+                    #[cfg(feature = "test-support")]
+                    let verifier = if self.forge_client_config.suppress_insecure_tls_warning {
+                        DummyTlsVerifier::new_for_tests()
+                    } else {
+                        DummyTlsVerifier::new_for_prod()
+                    };
+                    #[cfg(not(feature = "test-support"))]
+                    let verifier = DummyTlsVerifier::new_for_prod();
                     base_config_builder()
                         .dangerous()
-                        .with_custom_certificate_verifier(
-                            Arc::new(DummyTlsVerifier::new_for_prod()),
-                        )
+                        .with_custom_certificate_verifier(Arc::new(verifier))
                 }
             };
 
@@ -688,9 +698,9 @@ impl<'a> ForgeTlsClient<'a> {
                     .await
                     .inspect_err(|err| {
                         tracing::error!(
-                            "error connecting client to forge api (url: {}), will retry: {}",
-                            api_config.url,
-                            format_error_chain(err)
+                            url = %api_config.url,
+                            error = %format_error_chain(err),
+                            "Failed to connect client to NMX-C API; retrying",
                         );
                     })
                     .map_err(|e| ForgeTlsClientError::Connection(format_error_chain(&e)))?;
@@ -702,10 +712,10 @@ impl<'a> ForgeTlsClient<'a> {
             .await
             .inspect_err(|err| {
                 tracing::error!(
-                    "error connecting client to nmx-c api (url: {}, attempts: {}): {}",
-                    api_config.url,
-                    api_config.retry_config.retries,
-                    err
+                    url = %api_config.url,
+                    retries = api_config.retry_config.retries,
+                    error = %err,
+                    "Failed to connect client to NMX-C API after retries",
                 );
             });
 
@@ -721,22 +731,22 @@ impl<'a> ForgeTlsClient<'a> {
 pub enum ForgeTlsClientError {
     #[error("ConnectError error: {0}")]
     Connection(String),
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     Configuration(#[from] ConfigurationError),
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConfigurationError {
-    #[error("Invalid URI {uri_string}: {error}")]
+    #[error("invalid URI {uri_string}: {error}")]
     InvalidUri {
         uri_string: String,
         error: hyper::http::uri::InvalidUri,
     },
-    #[error("Could not read Root CA cert at {path}: {error}")]
+    #[error("could not read root CA cert at {path}: {error}")]
     CouldNotReadRootCa { path: String, error: io::Error },
-    #[error("Invalid client cert: {0}")]
+    #[error("invalid client cert: {0}")]
     InvalidClientCert(rustls::Error),
-    #[error("Error configuring resolver: {0}")]
+    #[error("error configuring resolver: {0}")]
     Resolver(#[from] ResolverError),
 }
 
@@ -866,7 +876,7 @@ mod tests {
         struct Inner;
 
         #[derive(thiserror::Error, Debug)]
-        #[error("client error (Connect)")]
+        #[error("client error (connect)")]
         struct Outer(#[from] Inner);
 
         #[derive(thiserror::Error, Debug)]
@@ -878,7 +888,7 @@ mod tests {
         value_scenarios!(
             run = |err| format_error_chain(err.as_ref());
             "walks source chain to the root cause" {
-                Box::new(Outer::from(Inner)) as Box<dyn std::error::Error> => "client error (Connect): invalid peer certificate: UnknownIssuer"
+                Box::new(Outer::from(Inner)) as Box<dyn std::error::Error> => "client error (connect): invalid peer certificate: UnknownIssuer"
                 .to_string(),
             }
 

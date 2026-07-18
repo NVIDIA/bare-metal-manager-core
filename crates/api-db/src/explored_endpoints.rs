@@ -322,20 +322,34 @@ pub async fn find_all_by_ip(
         .map_err(|e| DatabaseError::new("explored_endpoints find_all_by_ip", e))
 }
 
-pub async fn lookup_vendor_by_ip(
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ExploredBmcMetadata {
+    pub vendor: Option<String>,
+    pub ipmi_port: Option<u16>,
+}
+
+pub async fn lookup_bmc_metadata_by_ip(
     address: IpAddr,
     db_reader: impl DbReader<'_>,
-) -> Result<Option<String>, DatabaseError> {
-    let query = "SELECT exploration_report ->> 'Vendor' AS vendor FROM explored_endpoints WHERE address = $1";
+) -> Result<ExploredBmcMetadata, DatabaseError> {
+    let query = "SELECT exploration_report ->> 'Vendor' AS vendor, \
+                 exploration_report #>> '{Managers,0,IpmiPort}' AS ipmi_port \
+                 FROM explored_endpoints WHERE address = $1";
 
-    // exploration_report is JSONB and technically the Vendor field can be set to NULL, so we need 2 levels of Option<T>
-    let vendor: Option<Option<String>> = sqlx::query_scalar(query)
+    let metadata: Option<(Option<String>, Option<String>)> = sqlx::query_as(query)
         .bind(address)
         .fetch_optional(db_reader)
         .await
-        .map_err(|e| DatabaseError::new("explored_endpoints lookup_vendor_by_ip", e))?;
+        .map_err(|e| DatabaseError::new("explored_endpoints lookup_bmc_metadata_by_ip", e))?;
 
-    Ok(vendor.flatten())
+    Ok(
+        metadata.map_or_else(ExploredBmcMetadata::default, |(vendor, ipmi_port)| {
+            ExploredBmcMetadata {
+                vendor,
+                ipmi_port: ipmi_port.and_then(|port| port.parse().ok()),
+            }
+        }),
+    )
 }
 
 /// Updates the explored information about a node
@@ -401,28 +415,34 @@ WHERE address=$4 AND version=$5";
     Ok(query_result.rows_affected() > 0)
 }
 
-/// Clears `LastExplorationError` on the endpoint's report and sets
-/// `waiting_for_explorer_refresh = true` so preingestion waits for a fresh probe.
+/// Clears the last known error in `explored_endpoints` for the BMC identified by IP.
 ///
-/// Intentionally does NOT bump `version`: clearing an operator-visible error
-/// does not freshen the underlying Redfish data, so the report's age (used by
-/// the UI "Last updated" bubble and by the periodic loop's oldest-first
-/// rotation) must keep tracking the last real probe. Leaves `exploration_requested`
-/// untouched so a previously queued priority probe is not cancelled.
+/// Lock the endpoint while reading its report so a concurrent exploration
+/// update either commits first and is preserved, or loses its optimistic update
+/// after this clear commits.
 pub async fn clear_last_known_error(
     address: IpAddr,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let query = "
-UPDATE explored_endpoints
-SET exploration_report = jsonb_set(exploration_report, '{LastExplorationError}', 'null'::jsonb),
-    waiting_for_explorer_refresh = true
-WHERE address = $1";
-    sqlx::query(query)
+    let query = "SELECT * FROM explored_endpoints WHERE address = $1 FOR UPDATE";
+    let Some(row) = sqlx::query_as::<_, DbExploredEndpoint>(query)
         .bind(address)
-        .execute(txn)
+        .fetch_optional(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?
+    else {
+        return Ok(());
+    };
+
+    let mut report = row.report;
+    report.last_exploration_error = None;
+    if !try_update(address, row.report_version, &report, true, txn).await? {
+        return Err(DatabaseError::ConcurrentModificationError(
+            "ExploredEndpoint",
+            row.report_version.version_string(),
+        ));
+    }
+
     Ok(())
 }
 

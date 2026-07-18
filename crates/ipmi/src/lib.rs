@@ -25,6 +25,7 @@ use carbide_utils::HostPortPair;
 use carbide_uuid::machine::MachineId;
 
 mod bmc_mock;
+mod metrics;
 mod test_support;
 mod tool;
 

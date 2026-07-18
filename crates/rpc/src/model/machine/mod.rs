@@ -418,7 +418,7 @@ pub fn get_action_for_dpu_state(
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
                         machine_type = "DPU",
-                        %state,
+                        agent_control_state = %state,
                         "forge agent control",
                     );
                     fac::Action::noop()
@@ -440,7 +440,7 @@ pub fn get_action_for_dpu_state(
                     tracing::info!(
                         dpu_machine_id = %dpu_machine_id,
                         machine_type = "DPU",
-                        %state,
+                        agent_control_state = %state,
                         "forge agent control",
                     );
                     fac::Action::noop()
@@ -452,7 +452,7 @@ pub fn get_action_for_dpu_state(
             tracing::info!(
                 dpu_machine_id = %dpu_machine_id,
                 machine_type = "DPU",
-                %state,
+                agent_control_state = %state,
                 "forge agent control",
             );
             fac::Action::noop()

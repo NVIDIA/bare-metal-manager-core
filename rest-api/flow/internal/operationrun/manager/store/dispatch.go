@@ -73,15 +73,17 @@ func (s *PostgresStore) LockRunnable(
 	return dao.OperationRunFrom(rows[0]), nil
 }
 
-// LockOperationRunTargets locks all materialized targets for one run.
+// LockOperationRunTargets locks materialized targets for one run and phase.
 func (s *PostgresStore) LockOperationRunTargets(
 	ctx context.Context,
 	runID uuid.UUID,
+	phaseIndex int32,
 ) ([]*operationrun.OperationRunTarget, error) {
 	var rows []dbmodel.OperationRunTarget
 	err := s.idb(ctx).NewSelect().
 		Model(&rows).
 		Where("ort.operation_run_id = ?", runID).
+		Where("ort.phase_index = ?", phaseIndex).
 		OrderExpr("ort.phase_index ASC, ort.sequence_index ASC").
 		For("UPDATE").
 		Scan(ctx)
@@ -94,6 +96,70 @@ func (s *PostgresStore) LockOperationRunTargets(
 		targets[idx] = dao.OperationRunTargetFrom(&rows[idx])
 	}
 	return targets, nil
+}
+
+// GetTargetPhaseAggregate returns aggregate target facts for phase decisions.
+func (s *PostgresStore) GetTargetPhaseAggregate(
+	ctx context.Context,
+	runID uuid.UUID,
+	currentPhaseIndex int32,
+) (operationrun.TargetPhaseAggregate, error) {
+	type aggregateRow struct {
+		TotalPhases         int32 `bun:"total_phases"`
+		CompletedTargets    int   `bun:"completed_targets"`
+		CompletedCompleted  int   `bun:"completed_completed"`
+		CompletedFailed     int   `bun:"completed_failed"`
+		CompletedTerminated int   `bun:"completed_terminated"`
+		CompletedSkipped    int   `bun:"completed_skipped"`
+	}
+
+	var row aggregateRow
+	err := s.idb(ctx).NewSelect().
+		TableExpr("operation_run_target AS ort").
+		ColumnExpr("COALESCE(MAX(ort.phase_index) + 1, 0) AS total_phases").
+		ColumnExpr(
+			"COUNT(*) FILTER (WHERE ort.phase_index < ?) AS completed_targets",
+			currentPhaseIndex,
+		).
+		ColumnExpr(
+			"COUNT(*) FILTER (WHERE ort.phase_index < ? AND ort.status = ?) AS completed_completed",
+			currentPhaseIndex,
+			operationrun.OperationRunTargetStatusCompleted,
+		).
+		ColumnExpr(
+			"COUNT(*) FILTER (WHERE ort.phase_index < ? AND ort.status = ?) AS completed_failed",
+			currentPhaseIndex,
+			operationrun.OperationRunTargetStatusFailed,
+		).
+		ColumnExpr(
+			"COUNT(*) FILTER (WHERE ort.phase_index < ? AND ort.status = ?) AS completed_terminated",
+			currentPhaseIndex,
+			operationrun.OperationRunTargetStatusTerminated,
+		).
+		ColumnExpr(
+			"COUNT(*) FILTER (WHERE ort.phase_index < ? AND ort.status = ?) AS completed_skipped",
+			currentPhaseIndex,
+			operationrun.OperationRunTargetStatusSkipped,
+		).
+		Where("ort.operation_run_id = ?", runID).
+		Scan(ctx, &row)
+	if err != nil {
+		return operationrun.TargetPhaseAggregate{}, err
+	}
+
+	return operationrun.TargetPhaseAggregate{
+		TotalPhases: row.TotalPhases,
+		CompletedPhaseStats: operationrun.PhaseStats{
+			PhaseIndex:      max(currentPhaseIndex-1, 0),
+			SelectedTargets: row.CompletedTargets,
+			StatusCounts: operationrun.TargetStatusCounts{
+				Completed:  row.CompletedCompleted,
+				Failed:     row.CompletedFailed,
+				Terminated: row.CompletedTerminated,
+				Skipped:    row.CompletedSkipped,
+			},
+		},
+	}, nil
 }
 
 // UpdateRunState persists dispatcher-owned lifecycle fields.
@@ -110,6 +176,7 @@ func (s *PostgresStore) UpdateRunState(
 		Set("status = ?", run.Status).
 		Set("status_reason = ?", run.StatusReason).
 		Set("status_message = ?", run.StatusMessage).
+		Set("current_phase_index = ?", run.CurrentPhaseIndex).
 		Set("started_at = ?", run.StartedAt).
 		Set("finished_at = ?", run.FinishedAt).
 		Where("id = ?", run.ID).

@@ -49,7 +49,7 @@ impl InstrumentationSingleton {
             .without_scope_info()
             .without_target_info()
             .build()
-            .context("Could not build Prometheus exporter")?;
+            .context("could not build prometheus exporter")?;
 
         // This defines attributes that are set on the exported logs **and** metrics
         let resource_attributes = opentelemetry_sdk::Resource::builder()
@@ -63,12 +63,12 @@ impl InstrumentationSingleton {
             .with_reader(exporter)
             .with_resource(resource_attributes)
             .with_view(
-                create_retry_histogram_view().context("Couldn't create retry histogram View")?,
+                create_retry_histogram_view().context("couldn't create retry histogram view")?,
             )
             .with_view(
-                create_network_latency_view().context("Couldn't create network latency View")?,
+                create_network_latency_view().context("couldn't create network latency view")?,
             )
-            .with_view(create_network_loss_view().context("Couldn't create network loss View")?)
+            .with_view(create_network_loss_view().context("couldn't create network loss view")?)
             .build();
 
         let dpu_agent_meter = meter_provider.meter("forge-dpu-agent");

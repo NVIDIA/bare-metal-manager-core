@@ -721,15 +721,15 @@ impl HealthAlertClassification {
 
 /// A health report could not be converted from an external format
 #[derive(thiserror::Error, Debug, Clone)]
-#[error("Can not convert Health Report")]
+#[error("can not convert health report")]
 pub enum HealthReportConversionError {
-    #[error("Could not parse timestamp")]
+    #[error("could not parse timestamp")]
     TimestampParseError,
-    #[error("Missing source field")]
+    #[error("missing source field")]
     MissingSource,
-    #[error("Missing alert or success id field")]
+    #[error("missing alert or success id field")]
     MissingId,
-    #[error("Empty classification")]
+    #[error("empty classification")]
     MissingClassification,
 }
 

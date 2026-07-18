@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::num::TryFromIntError;
 use std::str::FromStr;
 
 use carbide_network::{deserialize_input_mac_to_address, is_locally_administered_mac};
@@ -32,6 +33,17 @@ use nv_redfish::{Bmc, Resource};
 
 use crate::Error;
 
+fn enabled_ipmi_port(
+    protocol_enabled: Option<Option<bool>>,
+    port: Option<Option<i64>>,
+) -> Result<Option<u16>, TryFromIntError> {
+    if protocol_enabled != Some(Some(true)) {
+        return Ok(None);
+    }
+
+    port.flatten().map(u16::try_from).transpose()
+}
+
 #[derive(Default)]
 pub struct Config {
     pub need_host_interfaces: bool,
@@ -45,6 +57,7 @@ pub struct Config {
 pub struct ExploredManager<B: Bmc> {
     pub manager: Manager<B>,
     pub eth_interfaces: Vec<EthernetInterface<B>>,
+    pub ipmi_port: Option<u16>,
     pub host_interfaces: Option<Vec<HostInterface<B>>>,
     pub oem_dell_attributes: Option<DellAttributes<B>>,
     pub oem_lenovo_security_service: Option<LenovoSecurityService<B>>,
@@ -136,9 +149,33 @@ impl<B: Bmc> ExploredManager<B> {
             None
         };
 
+        let ipmi_port = manager
+            .network_protocol()
+            .await
+            .map_err(Error::nv_redfish("manager network protocol"))?
+            .and_then(|network_protocol| {
+                let raw = network_protocol.raw();
+                raw.ipmi.as_ref().and_then(|ipmi| {
+                    let reported_port = ipmi.port.flatten();
+                    match enabled_ipmi_port(ipmi.protocol_enabled, ipmi.port) {
+                        Ok(port) => port,
+                        Err(error) => {
+                            tracing::warn!(
+                                manager_id = %manager.id(),
+                                ipmi_port = ?reported_port,
+                                error = %error,
+                                "Ignoring invalid IPMI port reported by Redfish",
+                            );
+                            None
+                        }
+                    }
+                })
+            });
+
         Ok(Self {
             manager,
             eth_interfaces,
+            ipmi_port,
             host_interfaces,
             oem_dell_attributes,
             oem_lenovo_security_service,
@@ -149,65 +186,111 @@ impl<B: Bmc> ExploredManager<B> {
     }
 
     pub fn to_model(&self) -> Result<ModelManager, Error<B>> {
-        let ethernet_interfaces = self.eth_interfaces.iter().map(|iface| {
-            let mac_address = iface
-                .mac_address()
-                .map(|addr| {
-                    deserialize_input_mac_to_address(addr.as_str())
-                        .map_err(|e| Error::InvalidValue(format!("MAC address not valid: {addr} (err: {e})")))
+        let ethernet_interfaces = self
+            .eth_interfaces
+            .iter()
+            .map(|iface| {
+                let mac_address = iface
+                    .mac_address()
+                    .map(|addr| {
+                        deserialize_input_mac_to_address(addr.as_str()).map_err(|e| {
+                            Error::InvalidValue(format!("MAC address not valid: {addr} (err: {e})"))
+                        })
+                    })
+                    .transpose()
+                    .or_else(|err| {
+                        if iface
+                            .interface_enabled()
+                            .is_some_and(|is_enabled| !is_enabled)
+                        {
+                            // disabled interfaces sometimes populate the MAC address with junk,
+                            // ignore this error and create the interface with an empty mac address
+                            // in the exploration report
+                            tracing::debug!(
+                                interface_id = %iface.id(),
+                                link_status = ?iface.link_status(),
+                                error = %err,
+                                "could not parse MAC address for a disabled interface"
+                            );
+                            Ok(None)
+                        } else {
+                            Err(err)
+                        }
+                    })?;
+
+                // Warn if the manager eth0 MAC is locally-administered: a real BMC MAC is
+                // globally unique, so this signals transient pre-sync data (seen briefly
+                // after a BMC reboot) that would poison anything keyed on the BMC MAC.
+                if iface.id().inner().eq_ignore_ascii_case("eth0")
+                    && let Some(mac) = mac_address
+                    && is_locally_administered_mac(mac)
+                {
+                    tracing::warn!(
+                        target: "carbide_diagnostics::locally_administered_mac",
+                        manager_id = %self.manager.id().inner(),
+                        eth0_mac_address = %mac,
+                        "manager eth0 MAC is locally-administered (transient pre-sync data?)",
+                    );
+                }
+
+                let uefi_device_path = iface
+                    .uefi_device_path()
+                    .map(|v| v.into_inner())
+                    .map(UefiDevicePath::from_str)
+                    .transpose()
+                    .map_err(|err| Error::InvalidValue(format!("UefiDevicePath: {err}")))?;
+
+                Ok(ModelEthernetInterface {
+                    description: iface.description().map(|v| v.to_string()),
+                    id: Some(iface.id().to_string()),
+                    interface_enabled: iface.interface_enabled(),
+                    mac_address,
+                    link_status: iface.link_status().map(|s| format!("{s:?}")),
+                    uefi_device_path,
                 })
-                .transpose()
-                .or_else(|err| {
-                    if iface
-                        .interface_enabled().is_some_and(|is_enabled| !is_enabled)
-                    {
-                        // disabled interfaces sometimes populate the MAC address with junk,
-                        // ignore this error and create the interface with an empty mac address
-                        // in the exploration report
-                        tracing::debug!(
-                            "could not parse MAC address for a disabled interface {} (link_status: {:#?}): {err}",
-                            iface.id(), iface.link_status()
-                        );
-                        Ok(None)
-                    } else {
-                        Err(err)
-                    }
-                })?;
-
-            // Warn if the manager eth0 MAC is locally-administered: a real BMC MAC is
-            // globally unique, so this signals transient pre-sync data (seen briefly
-            // after a BMC reboot) that would poison anything keyed on the BMC MAC.
-            if iface.id().inner().eq_ignore_ascii_case("eth0")
-                && let Some(mac) = mac_address
-                && is_locally_administered_mac(mac)
-            {
-                tracing::warn!(
-                    manager_id = %self.manager.id().inner(),
-                    eth0_mac = %mac,
-                    "manager eth0 MAC is locally-administered (transient pre-sync data?)",
-                );
-            }
-
-            let uefi_device_path = iface
-                .uefi_device_path()
-                .map(|v| v.into_inner())
-                .map(UefiDevicePath::from_str)
-                .transpose()
-                .map_err(|err| Error::InvalidValue(format!("UefiDevicePath: {err}")))?;
-
-            Ok(ModelEthernetInterface {
-                description: iface.description().map(|v| v.to_string()),
-                id: Some(iface.id().to_string()),
-                interface_enabled: iface.interface_enabled(),
-                mac_address,
-                link_status: iface.link_status().map(|s| format!("{s:?}")),
-                uefi_device_path,
             })
-        }).collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(ModelManager {
             id: self.manager.id().inner().to_string(),
             ethernet_interfaces,
+            ipmi_port: self.ipmi_port,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::enabled_ipmi_port;
+
+    #[test]
+    fn extracts_only_enabled_valid_ipmi_ports() {
+        let cases = [
+            (
+                "enabled",
+                Some(Some(true)),
+                Some(Some(1623)),
+                Ok(Some(1623)),
+            ),
+            ("disabled", Some(Some(false)), Some(Some(1623)), Ok(None)),
+            ("enabled state absent", None, Some(Some(1623)), Ok(None)),
+            ("port absent", Some(Some(true)), None, Ok(None)),
+            ("port null", Some(Some(true)), Some(None), Ok(None)),
+            ("negative port", Some(Some(true)), Some(Some(-1)), Err(())),
+            (
+                "port above u16 range",
+                Some(Some(true)),
+                Some(Some(65_536)),
+                Err(()),
+            ),
+        ];
+
+        for (name, protocol_enabled, port, expected) in cases {
+            assert_eq!(
+                enabled_ipmi_port(protocol_enabled, port).map_err(drop),
+                expected,
+                "{name}",
+            );
+        }
     }
 }

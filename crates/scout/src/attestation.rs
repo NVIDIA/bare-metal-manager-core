@@ -159,10 +159,7 @@ pub(crate) fn activate_credential(
 
     let digest = ctx.activate_credential(*ak_handle, *ek_handle, cred_blob, encr_secret)?;
 
-    tracing::debug!(
-        "Activated credential with session key value of {:?} ",
-        digest.value()
-    );
+    tracing::debug!("Activated credential");
 
     ctx.flush_context(SessionHandle::from(ak_auth_session).into())?;
     ctx.flush_context(SessionHandle::from(ek_auth_session).into())?;
@@ -175,14 +172,20 @@ fn detect_pcr_hash_algo(ctx: &mut Context) -> Result<HashingAlgorithm, Box<dyn s
     let is_sha256 = match probe_sample_pcr_value(ctx, HashingAlgorithm::Sha256) {
         Ok(val) => val,
         Err(err) => {
-            tracing::error!("Error probing hash SHA256, setting to FALSE: {}", err);
+            tracing::error!(
+                error = %err,
+                "Error probing hash SHA256; setting to false",
+            );
             false
         }
     };
     let is_sha384 = match probe_sample_pcr_value(ctx, HashingAlgorithm::Sha384) {
         Ok(val) => val,
         Err(err) => {
-            tracing::error!("Error probing hash SHA384, setting to FALSE: {}", err);
+            tracing::error!(
+                error = %err,
+                "Error probing hash SHA384; setting to false",
+            );
             false
         }
     };
@@ -221,7 +224,7 @@ pub(crate) fn get_pcr_quote(
     // it used to be that PCR values would only be in SHA256, this can now
     // be in SHA384 also. We figure out which ones those are by probing them.
     let pcr_hash_algo = detect_pcr_hash_algo(ctx)?;
-    tracing::info!("Using PCR HASH {:?}", pcr_hash_algo);
+    tracing::info!(?pcr_hash_algo, "Using PCR hash");
 
     let ak_auth_session_option = ctx.start_auth_session(
         None,
@@ -279,8 +282,8 @@ pub(crate) fn get_pcr_quote(
         selection_list.clone(),
     )?;
 
-    tracing::debug!("Obtained attestation {:?}", attest);
-    tracing::debug!("Obtained signature {:?}", signature);
+    tracing::debug!(?attest, "Obtained attestation");
+    tracing::debug!(?signature, "Obtained signature");
 
     //verify_signature(ctx, &attest, &signature, &ak_handle);
 
@@ -311,7 +314,7 @@ pub(crate) fn get_pcr_quote(
         );
     }
 
-    tracing::debug!("Obtained pcr digests {:?}", digest_vec);
+    tracing::debug!(pcr_digests = ?digest_vec, "Obtained PCR digests");
 
     Ok((attest, signature, digest_vec))
 }
@@ -348,15 +351,16 @@ pub(crate) fn get_tpm_eventlog() -> Option<Vec<u8>> {
     let output = match output_res {
         Ok(output) => output,
         Err(e) => {
-            tracing::error!("Could not retrieve TPM Event Log {0}", e.to_string());
+            tracing::error!(error = %e, "Could not retrieve TPM event log");
             return None;
         }
     };
 
     if !output.status.success() {
         tracing::error!(
-            "Error retrieving TPM Event Log: {0}",
-            String::from_utf8(output.stderr).unwrap_or("<could not parse stderr log>".to_string())
+            stderr = %String::from_utf8(output.stderr)
+                .unwrap_or("<could not parse stderr log>".to_string()),
+            "Error retrieving TPM event log",
         );
         None
     } else {
@@ -368,7 +372,10 @@ pub fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
     let (capabilities, _more) = match ctx.get_capability(CapabilityType::TpmProperties, 0, 80) {
         Ok(tuple) => tuple,
         Err(e) => {
-            tracing::error!("GetTpmDescription: Could not get TPM capability data: {e}");
+            tracing::error!(
+                error = %e,
+                "GetTpmDescription: Could not get TPM capability data",
+            );
             return None;
         }
     };
@@ -423,14 +430,14 @@ pub fn get_tpm_description(ctx: &mut Context) -> Option<TpmDescription> {
         }
     }
 
-    tracing::debug!("family_indicator is {0}", spec_version);
+    tracing::debug!(family_indicator = %spec_version, "Read TPM family indicator");
 
     let vendor = vendor_1.clone() + vendor_2.as_str();
-    tracing::debug!("vendor is {0}", vendor);
+    tracing::debug!(%vendor, "Read TPM vendor");
 
     let firmware_version = format!("0x{firmware_version_1:x}.0x{firmware_version_2:x}");
 
-    tracing::debug!("firmware version is {0}", firmware_version);
+    tracing::debug!(%firmware_version, "Read TPM firmware version");
 
     if firmware_version_1 == 0
         && firmware_version_2 == 0

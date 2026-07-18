@@ -1,0 +1,131 @@
+{{- if .Values.bmcServices.enabled }}
+{{- $root := . }}
+{{- $namespace := include "nico-machine-a-tron.namespace" . }}
+{{- $baseName := include "nico-machine-a-tron.name" . }}
+{{- $servicePort := .Values.bmcServices.servicePort | default 443 }}
+{{- $targetPort := .Values.service.bmcMock.port | default 1266 }}
+
+{{/*
+Count pods that have CIDR configured (for naming and selector logic)
+*/}}
+{{- $podsWithCIDR := 0 }}
+{{- range $podName, $podConfig := .Values.pods }}
+{{- if $podConfig.cidr }}
+{{- $podsWithCIDR = add $podsWithCIDR 1 }}
+{{- end }}
+{{- end }}
+
+{{- range $podName, $podConfig := .Values.pods }}
+{{/*
+Skip pods without CIDR (e.g., the default pod when custom pods are defined)
+*/}}
+{{- if not $podConfig.cidr }}
+{{- continue }}
+{{- end }}
+
+{{- $name := $baseName }}
+{{- if gt $podsWithCIDR 1 }}
+{{- $name = printf "%s-%s" $baseName $podName }}
+{{- end }}
+
+{{/*
+Parse CIDR and calculate available IPs
+*/}}
+{{- $cidrParts := split "/" $podConfig.cidr }}
+{{- $networkIP := $cidrParts._0 }}
+{{- $prefixLen := $cidrParts._1 | int }}
+{{- $ipParts := split "." $networkIP }}
+{{- $octet1 := $ipParts._0 | int }}
+{{- $octet2 := $ipParts._1 | int }}
+{{- $octet3 := $ipParts._2 | int }}
+{{- $octet4 := $ipParts._3 | int }}
+
+{{/*
+Calculate total IPs and usable IPs: 2^(32-prefix) - 3 (network, gateway, broadcast)
+*/}}
+{{- $hostBits := sub 32 $prefixLen }}
+{{- $totalIPs := 1 }}
+{{- range $i := until (int $hostBits) }}
+{{- $totalIPs = mul $totalIPs 2 }}
+{{- end }}
+{{- $usableIPs := sub $totalIPs 3 }}
+
+{{/*
+Calculate total BMCs needed for this pod
+*/}}
+{{- $totalBMCs := 0 }}
+{{- range $sectionName, $section := $podConfig.machines }}
+{{- if $section }}
+{{- $hostCount := $section.hostCount | default 1 }}
+{{- $dpuCount := $section.dpuPerHostCount | default 0 }}
+{{- $sectionBMCs := add $hostCount (mul $hostCount $dpuCount) }}
+{{- $totalBMCs = add $totalBMCs $sectionBMCs }}
+{{- end }}
+{{- end }}
+
+{{/*
+Validate we have enough IPs
+*/}}
+{{- if gt (int $totalBMCs) (int $usableIPs) }}
+{{- fail (printf "INSUFFICIENT IP CAPACITY for pod '%s': %d BMCs requested but CIDR %s only has %d usable IPs" $podName $totalBMCs $podConfig.cidr $usableIPs) }}
+{{- end }}
+
+{{/*
+Generate ClusterIP services for each BMC
+Services start at .2 (skipping .0 network and .1 gateway)
+*/}}
+{{- $startOctet4 := add $octet4 2 }}
+{{- range $bmcIndex := until (int $totalBMCs) }}
+{{- $offset := $bmcIndex }}
+{{- $o4 := add $startOctet4 $offset }}
+{{- $o3 := $octet3 }}
+{{- $o2 := $octet2 }}
+{{- $o1 := $octet1 }}
+
+{{/* Handle octet overflows */}}
+{{- if gt $o4 255 }}
+{{- $o3 = add $o3 (div $o4 256) }}
+{{- $o4 = mod $o4 256 }}
+{{- end }}
+{{- if gt $o3 255 }}
+{{- $o2 = add $o2 (div $o3 256) }}
+{{- $o3 = mod $o3 256 }}
+{{- end }}
+{{- if gt $o2 255 }}
+{{- $o1 = add $o1 (div $o2 256) }}
+{{- $o2 = mod $o2 256 }}
+{{- end }}
+
+{{- $currentIP := printf "%d.%d.%d.%d" (int $o1) (int $o2) (int $o3) (int $o4) }}
+{{- $safeName := $currentIP | replace "." "-" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $baseName }}-bmc-{{ $safeName }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: bmc-service
+    nvidia-infra-controller/bmc-ip: "{{ $currentIP }}"
+    nvidia-infra-controller/bmc-index: "{{ $bmcIndex }}"
+    nvidia-infra-controller/pod-name: {{ $podName | quote }}
+  annotations:
+    nvidia-infra-controller/purpose: "ClusterIP service for simulated BMC"
+    nvidia-infra-controller/pod-cidr: "{{ $podConfig.cidr }}"
+spec:
+  type: ClusterIP
+  clusterIP: {{ $currentIP }}
+  selector:
+    {{- include "nico-machine-a-tron.selectorLabels" $root | nindent 4 }}
+    {{- if gt $podsWithCIDR 1 }}
+    nvidia-infra-controller/pod-name: {{ $podName | quote }}
+    {{- end }}
+  ports:
+    - name: https
+      port: {{ $servicePort }}
+      targetPort: {{ $targetPort }}
+      protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}

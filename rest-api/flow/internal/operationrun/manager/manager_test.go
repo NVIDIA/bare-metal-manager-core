@@ -325,7 +325,7 @@ func TestAdvancePhaseChecksExpectedPhase(t *testing.T) {
 
 	require.Nil(t, got)
 	require.ErrorIs(t, err, ErrOperationRunInvalidState)
-	require.ErrorContains(t, err, "expected phase 2, current phase is 1")
+	require.ErrorContains(t, err, "expected phase 2, next phase is 1")
 	require.Zero(t, store.updateRunCalls)
 }
 
@@ -343,8 +343,9 @@ func TestAdvancePhaseCompletesAllTerminalRun(t *testing.T) {
 			testOperationRunTarget(runID, 1, operationrun.OperationRunTargetStatusCompleted),
 		},
 	}
+	store.lockRun.CurrentPhaseIndex = 1
 	manager := newTestManager(t, store, planner.New(&mockTargetLookup{}, planner.Config{}))
-	expectedPhase := int32(1)
+	expectedPhase := int32(2)
 
 	got, err := manager.AdvancePhase(context.Background(), runID, &expectedPhase)
 
@@ -376,7 +377,7 @@ func TestAdvancePhaseRejectsInitialPhase(t *testing.T) {
 
 	require.Nil(t, got)
 	require.ErrorIs(t, err, ErrOperationRunInvalidState)
-	require.ErrorContains(t, err, "phase 0 is the initial phase")
+	require.ErrorContains(t, err, "phase 0 is not complete")
 	require.Zero(t, store.updateRunCalls)
 }
 
@@ -705,10 +706,39 @@ func (m *mockStore) ListTargets(
 func (m *mockStore) LockOperationRunTargets(
 	ctx context.Context,
 	runID uuid.UUID,
+	phaseIndex int32,
 ) ([]*operationrun.OperationRunTarget, error) {
 	m.events = append(m.events, "lock_targets")
 	m.lockTargetsCalls++
-	return m.lockedTargets, nil
+	targets := make([]*operationrun.OperationRunTarget, 0)
+	for _, target := range m.lockedTargets {
+		if target.PhaseIndex == phaseIndex {
+			targets = append(targets, target)
+		}
+	}
+	return targets, nil
+}
+
+func (m *mockStore) GetTargetPhaseAggregate(
+	ctx context.Context,
+	runID uuid.UUID,
+	currentPhaseIndex int32,
+) (operationrun.TargetPhaseAggregate, error) {
+	var totalPhases int32
+	completedStats := operationrun.PhaseStats{PhaseIndex: max(currentPhaseIndex-1, 0)}
+	for _, target := range m.lockedTargets {
+		if target.PhaseIndex+1 > totalPhases {
+			totalPhases = target.PhaseIndex + 1
+		}
+		if target.PhaseIndex < currentPhaseIndex {
+			completedStats.AddTarget(target)
+		}
+	}
+
+	return operationrun.TargetPhaseAggregate{
+		TotalPhases:         totalPhases,
+		CompletedPhaseStats: completedStats,
+	}, nil
 }
 
 func (m *mockStore) UpdateRunState(

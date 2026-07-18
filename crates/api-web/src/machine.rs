@@ -189,7 +189,7 @@ pub async fn show_hosts_json(AxumState(state): AxumState<Arc<Api>>) -> Response 
     let machines = match fetch_machines(state, false, true).await {
         Ok(r) => r,
         Err(err) => {
-            tracing::error!(%err, "fetch_machines");
+            tracing::error!(error = %err, "fetch_machines");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();
         }
     };
@@ -208,7 +208,7 @@ pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let mut machines = match fetch_machines(state, true, true).await {
         Ok(r) => r,
         Err(err) => {
-            tracing::error!(%err, "fetch_machines");
+            tracing::error!(error = %err, "fetch_machines");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();
         }
     };
@@ -231,7 +231,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let machines = match fetch_machines(state, true, true).await {
         Ok(r) => r,
         Err(err) => {
-            tracing::error!(%err, "fetch_machines");
+            tracing::error!(error = %err, "fetch_machines");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading machines").into_response();
         }
     };
@@ -248,7 +248,7 @@ async fn show(
     let all_machines = match fetch_machines(state.clone(), include_dpus, false).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "find_machines");
+            tracing::error!(error = %err, "find_machines");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
         }
     };
@@ -345,7 +345,7 @@ pub async fn fetch_machine(
             return Err(super::not_found_response(machine_id.to_string()));
         }
         Err(err) => {
-            tracing::error!(%err, %machine_id, "find_machines_by_ids");
+            tracing::error!(error = %err, %machine_id, "find_machines_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -372,7 +372,7 @@ pub async fn fetch_instance_type_names(
         .find_instance_types_by_ids(request)
         .await
         .map_err(|err| {
-            tracing::error!(%err, "find_instance_types_by_ids");
+            tracing::error!(error = %err, "find_instance_types_by_ids");
             (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response()
         })?
         .into_inner()
@@ -819,7 +819,7 @@ pub async fn detail(
                 }
             }
             Err(err) => {
-                tracing::warn!(%err, %machine_id, "find_instance_by_machine_id failed");
+                tracing::warn!(error = %err, %machine_id, "find_instance_by_machine_id failed");
             }
         }
     }
@@ -847,7 +847,7 @@ pub async fn detail(
                 display.available_skus = sku_ids.ids;
             }
             Err(err) => {
-                tracing::warn!(%err, %machine_id, "get_all_sku_ids failed");
+                tracing::warn!(error = %err, %machine_id, "get_all_sku_ids failed");
             }
         }
     }
@@ -881,7 +881,7 @@ pub async fn detail(
             })
             .collect(),
         Err(err) => {
-            tracing::warn!(%err, %machine_id, "get_machine_validation_runs failed");
+            tracing::warn!(error = %err, %machine_id, "get_machine_validation_runs failed");
             Vec::new() // Empty validation results on error
         }
     };
@@ -957,7 +957,7 @@ pub async fn maintenance(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, %machine_id, "set_maintenance");
+        tracing::error!(error = %err, %machine_id, "set_maintenance");
         return Redirect::to(&view_url).into_response();
     }
 
@@ -1008,7 +1008,7 @@ pub async fn quarantine(
             .await
             .map(|_| ()),
         unknown => {
-            tracing::error!("Expected action to be 'enable' or 'disable' but got {unknown}");
+            tracing::error!(action = unknown, "Unexpected quarantine action",);
             return Redirect::to(&view_url).into_response();
         }
     };
@@ -1072,7 +1072,7 @@ pub async fn sku(
             .await
             .map(|_| "SKU association removed successfully".to_string()),
         unknown => {
-            tracing::error!("Expected SKU action to be 'assign' or 'remove' but got {unknown}");
+            tracing::error!(action = unknown, "Unexpected SKU action",);
             return Redirect::to(&view_url).into_response();
         }
     };
@@ -1085,7 +1085,7 @@ pub async fn sku(
         }
         .update_redirect_url(&view_url),
         Err(err) => {
-            tracing::error!(%err, %machine_id, "sku action failed");
+            tracing::error!(error = %err, %machine_id, "sku action failed");
             ActionStatus {
                 action: action_status::Type::Sku,
                 class: action_status::Class::Error,
@@ -1131,7 +1131,7 @@ pub async fn set_dpu_first_boot_order(
         }
         .update_redirect_url(&view_url),
         Err(err) => {
-            tracing::error!(%err, "set_dpu_first_boot_order failed");
+            tracing::error!(error = %err, "set_dpu_first_boot_order failed");
             ActionStatus {
                 action: action_status::Type::SetDpuFirstBootOrder,
                 class: action_status::Class::Error,

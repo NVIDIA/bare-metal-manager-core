@@ -133,7 +133,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
     let err = response.expect_err("Expected DiscoverMachine request to fail");
     assert!(
         err.to_string()
-            .contains("Ignoring DiscoverMachine request for non-tpm enabled host")
+            .contains("ignoring DiscoverMachine request for non-tpm enabled host")
     );
 
     // We shouldn't have created any machine

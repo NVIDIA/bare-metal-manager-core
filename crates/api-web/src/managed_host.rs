@@ -417,7 +417,7 @@ pub async fn show_html(
     {
         Ok(hosts) => hosts,
         Err(err) => {
-            tracing::error!(%err, "fetch_managed_hosts");
+            tracing::error!(error = %err, "fetch_managed_hosts");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading managed hosts",
@@ -502,7 +502,10 @@ pub async fn show_html(
         }
         if active_gpu_filter != "all" {
             let Ok(gf) = active_gpu_filter.parse::<usize>() else {
-                tracing::warn!("Invalid GPU filter: '{active_gpu_filter}'");
+                tracing::warn!(
+                    active_gpu_filter = %active_gpu_filter,
+                    "Invalid GPU filter",
+                );
                 continue;
             };
             if gf != m.num_gpus {
@@ -511,7 +514,10 @@ pub async fn show_html(
         }
         if active_ib_filter != "all" {
             let Ok(ibf) = active_ib_filter.parse::<usize>() else {
-                tracing::warn!("Invalid IB IFs filter: '{active_ib_filter}'");
+                tracing::warn!(
+                    active_ib_filter = %active_ib_filter,
+                    "Invalid IB IFs filter",
+                );
                 continue;
             };
             if ibf != m.num_ib_ifs {
@@ -694,7 +700,7 @@ pub async fn show_all_json(state: AxumState<Arc<Api>>) -> Response {
     let mut managed_hosts = match fetch_managed_hosts_with_metadata(state, true).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_managed_hosts");
+            tracing::error!(error = %err, "fetch_managed_hosts");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading managed hosts",
@@ -817,7 +823,7 @@ fn mem_to_size(mem: &str) -> isize {
         .collect_tuple()
         .map(|(size, unit)| (size.parse::<f64>(), unit))
     else {
-        tracing::warn!("Invalid memory format: '{mem}'");
+        tracing::warn!(mem, "Invalid memory format",);
         return 0;
     };
 
@@ -825,7 +831,7 @@ fn mem_to_size(mem: &str) -> isize {
         "GiB" => size,
         "TiB" => size * 1024.0,
         _ => {
-            tracing::warn!("Invalid unit '{}' in mem string '{mem}'", unit);
+            tracing::warn!(unit, mem, "Invalid unit in mem string",);
             return 0;
         }
     }) as isize

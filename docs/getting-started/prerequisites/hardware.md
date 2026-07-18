@@ -22,14 +22,27 @@ The site controller runs the NICo control plane on a Kubernetes cluster. A minim
 
 **Storage layout**: Total local NVMe capacity should be 4 TiB or greater. Mount 1.7 TiB on `/` (root) on the NVMe OS disk (ext4 or xfs) — typical usage is 200–500 GiB. Mount `/var/lib/containerd` and `/var/lib/kubelet` on a separate NVMe data disk (1+ TiB, ext4/xfs, `noatime`). Consider a dedicated `/var/log` if there is heavy logging. Persistent app storage (SAN/NAS, Rook-Ceph) is not required for NICo itself.
 
-### DPUs on Site Controller (Required)
+### DPUs on Site Controller
 
-Site-controller nodes must have Bluefield-3 DPUs. Ensure the following requirements are met:
+DPUs are generally preferred in nodes hosting the NICo control plane components, but not strictly required. DPUs in these nodes are, however, the configuration that NICo QA regularly tests. If your site controller nodes are equipped with Bluefield-3 DPUs, ensure the following requirements are met:
+
 - You have the correct DPU power cable from the server vendor.
-- The Bluefield-3's operating mode is DPU mode. NIC mode is not supported.
+- The Bluefield-3's operating mode is DPU mode.
 - For BF3 DPUs, verify link speed and optics: BF3 runs at 200 Gb, so match ports to 200 Gb-capable optics, fiber, or DACs.
 - Verify that the DPU can connect to the outside world (curl -I https://www.nvidia.com)
-- The DPUs are at the latest supported firmware version: DOCA 2.9.3 and HBN 2.4.3
+- The DPUs are at the latest tested firmware version: DOCA 3.2.2 and HBN 3.2.2
+
+### NICo Pod Network Reachability
+
+NICo's control plane pods (DHCP, DNS, API, PXE, SSH console, and others) must be externally reachable from the networks they serve. Regardless of whether site controller nodes have DPUs, these pods must be routable to and from:
+
+- DPU BMCs and Host BMCs of managed machines
+- The admin network
+- Tenant VPCs
+
+The reference architecture is MetalLB advertising L3 LoadBalancer VIPs to the site controller's DPU uplinks (if DPUs are present) or directly to the ToR switches (if site controller nodes have no DPUs).
+
+For better traffic isolation and routing, configure the LoadBalancer endpoints for NICo pods as route-tagged prefixes and import them into the admin and VPC routing profiles. See [VPC Routing Profiles](../../manuals/vpc/vpc_routing_profiles.md).
 
 ## Compute Systems (Managed Hosts)
 

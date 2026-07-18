@@ -145,7 +145,11 @@ impl ConsoleLogger {
                     }
                     Err(broadcast::error::RecvError::Lagged(count)) => {
                         let msg = format!("console logger is lagged by {count} messages (typically bytes). Data may be missing from log");
-                        tracing::warn!(machine_id=%self.machine_id,"{msg}");
+                        tracing::warn!(
+                            machine_id = %self.machine_id,
+                            lagged_message_count = count,
+                            "console logger lagged; data may be missing from log"
+                        );
                         log_file.write_all(format!("\n--- {msg} ---\n").as_bytes()).await.ok();
                     }
                 },
@@ -197,7 +201,7 @@ impl RotatableLogFile {
                     self.file = Self::open_log_file(&self.path).await?;
                 }
                 // If we couldn't rotate, just keep writing to this file.
-                Err(error) => tracing::error!("error rotating logs: {error}"),
+                Err(error) => tracing::error!(%error, "error rotating logs"),
             }
         }
 
@@ -209,7 +213,7 @@ impl RotatableLogFile {
     }
 
     async fn rotate_logs(&mut self) -> Result<(), LogRotationError> {
-        tracing::info!("rotating logs for {}", self.path.display());
+        tracing::info!(path = %self.path.display(), "rotating logs");
         let log_path_as_str = self
             .path
             .to_str()
@@ -231,12 +235,12 @@ impl RotatableLogFile {
             };
 
             if !src_path.exists() {
-                tracing::debug!("no log file at {}", src_path.display());
+                tracing::debug!(path = %src_path.display(), "no log file found");
                 continue;
             }
 
             let dst_path = if dst_num >= self.max_rotated_files {
-                tracing::debug!("deleting oldest log file at {}", src_path.display());
+                tracing::debug!(path = %src_path.display(), "deleting oldest log file");
                 // Oldest log, more than max allowed rotated file count, delete it and continue
                 tokio::fs::remove_file(src_path.as_path())
                     .await
@@ -251,7 +255,11 @@ impl RotatableLogFile {
                     .expect("BUG: known-good log path didn't parse")
             };
 
-            tracing::debug!("renaming {} to {}", src_path.display(), dst_path.display());
+            tracing::debug!(
+                source_path = %src_path.display(),
+                destination_path = %dst_path.display(),
+                "renaming log file"
+            );
 
             tokio::fs::rename(src_path.as_path(), dst_path.as_path())
                 .await
@@ -279,7 +287,7 @@ impl RotatableLogFile {
 
 #[derive(thiserror::Error, Debug)]
 enum LogRotationError {
-    #[error("Invalid log file path: {path}")]
+    #[error("invalid log file path: {path}")]
     InvalidPath { path: PathBuf },
     #[error("error rotating logs: {context}: {error}")]
     Io { context: String, error: io::Error },

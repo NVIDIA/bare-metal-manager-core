@@ -124,12 +124,12 @@ impl InstanceMetadataRouterState for InstanceMetadataRouterStateImpl {
 
         let mut client = create_forge_client(&self.forge_api, &self.forge_client_config).await?;
 
-        let timestamp = phone_home(&mut client, &self.machine_id).await?.to_string() + "\n";
+        let timestamp = phone_home(&mut client, &self.machine_id).await?;
 
         tracing::info!(
-            "Successfully phoned home for Machine {} at {}",
-            self.machine_id,
-            timestamp
+            machine_id = %self.machine_id,
+            %timestamp,
+            "Successfully phoned home"
         );
 
         Ok(())

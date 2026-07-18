@@ -56,7 +56,7 @@ pub struct DhcpConfig {
 pub enum DhcpDataError {
     #[error("DhcpDataError: AddressParseError: {0}")]
     AddressParseError(#[from] std::net::AddrParseError),
-    #[error("DhcpDataError: Missing: {0}")]
+    #[error("DhcpDataError: missing: {0}")]
     ParameterMissing(&'static str),
     #[error("DhcpDataError: IpNetworkError: {0}")]
     IpNetworkError(#[from] ipnetwork::IpNetworkError),

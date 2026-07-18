@@ -208,12 +208,12 @@ pub(crate) async fn forge_agent_control(
                     },
             } => {
                 tracing::info!(
-                    " context : {} id: {} is_enabled: {}, completed {}, total {}",
-                    context,
-                    id,
-                    is_enabled,
-                    completed,
-                    total,
+                    context = %context,
+                    machine_validation_id = %id,
+                    is_enabled = *is_enabled,
+                    completed_validation_count = *completed,
+                    total_validation_count = *total,
+                    "Machine validation progress reported by scout",
                 );
                 if *is_enabled {
                     db::machine_validation::update_status(
@@ -289,9 +289,9 @@ pub(crate) async fn forge_agent_control(
                 let last_cleanup_time = host_machine.last_cleanup_time;
                 let state_version = host_machine.state.version;
                 tracing::info!(
-                    "last_cleanup_time: {:?}, state_version: {:?}",
-                    last_cleanup_time,
-                    state_version
+                    last_cleanup_time = ?last_cleanup_time,
+                    machine_state_version = ?state_version,
+                    "Checking whether machine cleanup is current",
                 );
                 // Check scout has already cleaned up the machine
                 if last_cleanup_time.unwrap_or_default() > state_version.timestamp() {
@@ -305,9 +305,9 @@ pub(crate) async fn forge_agent_control(
                 bom_validating_state: BomValidating::UpdatingInventory(_),
             } => {
                 tracing::info!(
-                    "Request Discovery {} < {}",
-                    machine.last_discovery_time.unwrap_or_default(),
-                    machine.current_version().timestamp()
+                    last_discovery_time = %machine.last_discovery_time.unwrap_or_default(),
+                    current_version_time = %machine.current_version().timestamp(),
+                    "Checking whether machine discovery is stale",
                 );
                 if machine.last_discovery_time.unwrap_or_default()
                     < machine.current_version().timestamp()
@@ -325,7 +325,11 @@ pub(crate) async fn forge_agent_control(
                 match crate::handlers::svpc::process_scout_req(api, machine_id).await {
                     Ok(action) => (action, None),
                     Err(e) => {
-                        tracing::error!("Error returned from process_scout_req: {e}");
+                        tracing::error!(
+                            machine_id = %machine_id,
+                            error = %e,
+                            "Failed to process Scout request",
+                        );
                         (Action::noop(), None)
                     }
                 }
@@ -349,7 +353,8 @@ pub(crate) async fn forge_agent_control(
                     Ok(task) => Action::FirmwareUpgrade(fac::FirmwareUpgrade { task: Some(task) }),
                     Err(e) => {
                         tracing::warn!(
-                            "Could not deserialize firmware upgrade task, sending no-op action to scout: {e}"
+                            error = %e,
+                            "Could not deserialize firmware upgrade task, sending no-op action to scout",
                         );
                         Action::noop()
                     }
@@ -362,7 +367,7 @@ pub(crate) async fn forge_agent_control(
                 tracing::info!(
                     machine_id = %machine.id,
                     machine_type = "Host",
-                    %state,
+                    agent_control_state = %state,
                     "forge agent control",
                 );
                 (Action::noop(), Some(txn))

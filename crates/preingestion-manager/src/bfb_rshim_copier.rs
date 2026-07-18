@@ -29,11 +29,11 @@ const PREINGESTION_BFB_PATH: &str = "/forge-boot-artifacts/blobs/internal/aarch6
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BfbRshimCopyError {
-    #[error("Missing credential {key}: {cause}")]
+    #[error("missing credential {key}: {cause}")]
     MissingCredentials { key: String, cause: String },
-    #[error("Secrets engine error occurred: {cause}")]
+    #[error("secrets engine error occurred: {cause}")]
     SecretsEngineError { cause: String },
-    #[error("Error: {details}")]
+    #[error("error: {details}")]
     Other { details: String },
 }
 
@@ -135,7 +135,7 @@ impl BfbRshimCopier {
                 .is_rshim_enabled(bmc_ip_address, credentials.clone())
                 .await?
             {
-                tracing::warn!("RSHIM is not enabled on {bmc_ip_address}");
+                tracing::warn!(%bmc_ip_address, "RSHIM is not enabled");
                 self.enable_rshim(bmc_ip_address, credentials.clone())
                     .await?;
 
@@ -160,7 +160,10 @@ impl BfbRshimCopier {
         let _lock = self.bfb_file_lock.lock().await;
 
         if fs::metadata(UNIFIED_PREINGESTION_BFB_PATH).await.is_err() {
-            tracing::info!("Writing {UNIFIED_PREINGESTION_BFB_PATH}");
+            tracing::info!(
+                path = UNIFIED_PREINGESTION_BFB_PATH,
+                "Writing unified preingestion BFB"
+            );
             let bf_cfg_contents = format!(
                 "BMC_USER=\"{username}\"\nBMC_PASSWORD=\"{password}\"\nBMC_REBOOT=\"yes\"\nCEC_REBOOT=\"yes\"\n"
             );
@@ -180,7 +183,7 @@ impl BfbRshimCopier {
 
             let mut buffer = vec![0; 1024 * 1024].into_boxed_slice(); // 1 MB buffer
 
-            tracing::info!("Writing BFB to {UNIFIED_PREINGESTION_BFB_PATH}");
+            tracing::info!(path = UNIFIED_PREINGESTION_BFB_PATH, "Writing BFB payload");
             loop {
                 let n = preingestion_bfb.read(&mut buffer).await.map_err(|err| {
                     BfbRshimCopyError::Other {
@@ -201,7 +204,10 @@ impl BfbRshimCopier {
                 })?;
             }
 
-            tracing::info!("Writing bf.cfg to {UNIFIED_PREINGESTION_BFB_PATH}");
+            tracing::info!(
+                path = UNIFIED_PREINGESTION_BFB_PATH,
+                "Writing bf.cfg payload"
+            );
 
             unified_bfb
                 .write_all(bf_cfg_contents.as_bytes())

@@ -1,0 +1,55 @@
+{{- if .Values.bmcServices.enabled }}
+{{- if .Values.bmcServices.serviceCIDR.create }}
+{{- $root := . }}
+{{- $baseName := include "nico-machine-a-tron.name" . }}
+
+{{/*
+Determine the ServiceCIDR to use:
+1. If explicitly set in bmcServices.serviceCIDR.cidr, use that
+2. Otherwise, use the CIDR from the first pod (single-pod case)
+3. For multi-pod with different CIDRs, user must set serviceCIDR.cidr explicitly
+*/}}
+{{- $serviceCIDR := "" }}
+{{- if .Values.bmcServices.serviceCIDR.cidr }}
+{{- $serviceCIDR = .Values.bmcServices.serviceCIDR.cidr }}
+{{- else }}
+{{/* Collect all pod CIDRs */}}
+{{- $cidrs := list }}
+{{- range $podName, $podConfig := .Values.pods }}
+{{- if $podConfig.cidr }}
+{{- $cidrs = append $cidrs $podConfig.cidr }}
+{{- end }}
+{{- end }}
+{{- if eq (len $cidrs) 1 }}
+{{- $serviceCIDR = index $cidrs 0 }}
+{{- else if gt (len $cidrs) 1 }}
+{{- fail "Multiple pods with different CIDRs detected. Set bmcServices.serviceCIDR.cidr to a CIDR that covers all pod CIDRs." }}
+{{- end }}
+{{- end }}
+
+{{- if $serviceCIDR }}
+---
+## ServiceCIDR reserves a dedicated IP range for BMC services.
+## This prevents Kubernetes from allocating these IPs to other services.
+## Requires Kubernetes 1.29+ (beta in 1.31+).
+##
+## The ServiceCIDR is cluster-scoped and persists independently of this release.
+## Deleting the helm release will NOT delete the ServiceCIDR to prevent
+## disruption to other releases using the same CIDR.
+apiVersion: networking.k8s.io/v1beta1
+kind: ServiceCIDR
+metadata:
+  name: {{ .Values.bmcServices.serviceCIDR.name | default (printf "%s-bmc-cidr" $baseName) }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bmc-service-cidr
+  annotations:
+    helm.sh/resource-policy: keep
+    nvidia-infra-controller/purpose: "Reserved IP range for machine-a-tron BMC services"
+    nvidia-infra-controller/cidr: "{{ $serviceCIDR }}"
+spec:
+  cidrs:
+    - {{ $serviceCIDR }}
+{{- end }}
+{{- end }}
+{{- end }}

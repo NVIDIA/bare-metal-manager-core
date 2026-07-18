@@ -83,7 +83,7 @@ impl BootOrderReporter for TracingBootOrderReporter {
         let boot_orders = BootOrderDisplayProxy { systems };
 
         tracing::info!(
-            %bmc_ip,
+            bmc_ip_address = %bmc_ip,
             machine_id = ?machine_id,
             ?boot_orders,
             reason = %reason,

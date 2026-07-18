@@ -64,16 +64,34 @@ pub async fn instrumented<T, E: Display>(
     let started = Instant::now();
     let result = call.await;
     let outcome = if result.is_ok() { "ok" } else { "error" };
-    histogram().record(
+    record(
+        backend,
+        operation,
+        outcome,
         started.elapsed().as_secs_f64() * 1_000.0,
+    );
+    if let Err(error) = &result {
+        tracing::warn!(backend, operation, error = %error, "external call failed");
+    }
+    result
+}
+
+/// Records one completed outbound call on the shared RED histogram. This is
+/// the low-level half of [`instrumented`] for callers whose backend needs its
+/// own outcome vocabulary or logging policy (a refusal that is an answer, not
+/// a failure); `outcome` is a label value and must be a compile-time literal.
+pub fn record(
+    backend: &'static str,
+    operation: &'static str,
+    outcome: &'static str,
+    elapsed_ms: f64,
+) {
+    histogram().record(
+        elapsed_ms,
         &[
             KeyValue::new("backend", backend),
             KeyValue::new("operation", operation),
             KeyValue::new("outcome", outcome),
         ],
     );
-    if let Err(error) = &result {
-        tracing::warn!(backend, operation, error = %error, "external call failed");
-    }
-    result
 }

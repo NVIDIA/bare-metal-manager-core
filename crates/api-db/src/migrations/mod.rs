@@ -241,24 +241,19 @@ mod tests {
 
     #[crate::sqlx_test]
     async fn fully_migrated_legacy_database_skips_squash(pool: PgPool) {
-        sqlx::query("DELETE FROM _sqlx_migrations")
+        // The test template is built by the fresh-install path, so its schema already
+        // contains every post-squash migration. Rewinding only the _sqlx_migrations
+        // markers would leave those columns in place, and migrate() would fail
+        // re-applying the post-squash migrations against them. Instead rebuild a
+        // faithful pre-squash database: drop the schema and apply only the legacy
+        // migrations, so both the schema and the recorded history match a database
+        // that predates the snapshot.
+        sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
             .execute(&pool)
             .await
             .unwrap();
 
-        for migration in MIGRATION_LAYOUT.legacy.iter() {
-            sqlx::query(
-                "INSERT INTO _sqlx_migrations \
-                 (version, description, success, checksum, execution_time) \
-                 VALUES ($1, $2, true, $3, 0)",
-            )
-            .bind(migration.version)
-            .bind(&*migration.description)
-            .bind(&*migration.checksum)
-            .execute(&pool)
-            .await
-            .unwrap();
-        }
+        MIGRATION_LAYOUT.legacy.run(&pool).await.unwrap();
 
         migrate(&pool).await.unwrap();
 

@@ -18,6 +18,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
+use carbide_instrument::red;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Method, Response, Url};
 pub use serde_json::Value as JsonValue;
@@ -75,31 +76,38 @@ impl NvueClient {
         Ok(builder)
     }
 
-    async fn execute(&self, request: reqwest::Request) -> Result<Response, NvueClientError> {
+    async fn execute(
+        &self,
+        operation: &'static str,
+        request: reqwest::Request,
+    ) -> Result<Response, NvueClientError> {
         let method = request.method().clone();
         let url = request.url().clone();
         let body = request
             .body()
             .and_then(|b| b.as_bytes())
             .map(|b| String::from_utf8_lossy(b).into_owned());
-        self.client
-            .execute(request)
-            .await
-            .and_then(|response| response.error_for_status())
-            .map_err(|source| {
-                NvueClientError::RequestFailed(Box::new(RequestFailed {
-                    method,
-                    url,
-                    body,
-                    source,
-                }))
-            })
+        red::instrumented("nvue", operation, async move {
+            self.client
+                .execute(request)
+                .await
+                .and_then(|response| response.error_for_status())
+        })
+        .await
+        .map_err(|source| {
+            NvueClientError::RequestFailed(Box::new(RequestFailed {
+                method,
+                url,
+                body,
+                source,
+            }))
+        })
     }
 
     pub async fn get_api(&self) -> Result<Response, NvueClientError> {
         const PATH: &str = "/nvue_v1/system/api?rev=applied";
         let request = self.request(Method::GET, PATH)?.build()?;
-        self.execute(request).await
+        self.execute("get_api", request).await
     }
 
     /// Return the config that is tagged as "applied" (in other words, the one
@@ -107,7 +115,7 @@ impl NvueClient {
     pub async fn get_applied_config(&self) -> Result<NvueConfigWithHeader, NvueClientError> {
         const PATH: &str = "/nvue_v1/?rev=applied&filled=false";
         let request = self.request(Method::GET, PATH)?.build()?;
-        let response = self.execute(request).await?;
+        let response = self.execute("get_applied_config", request).await?;
         let nvue_config = response.json().await?;
         Ok(nvue_config)
     }
@@ -116,7 +124,7 @@ impl NvueClient {
     pub async fn create_config_revision(&self) -> Result<String, NvueClientError> {
         const PATH: &str = "/nvue_v1/revision";
         let request = self.request(Method::POST, PATH)?.build()?;
-        let response = self.execute(request).await?;
+        let response = self.execute("create_config_revision", request).await?;
         let revision: NvueRevision = response.json().await?;
         let revision_id = revision
             .get_revision_id()
@@ -138,12 +146,12 @@ impl NvueClient {
         let empty_config: HashMap<String, String> = HashMap::new();
         let builder = builder.json(&empty_config);
         let request = builder.build()?;
-        let _response = self.execute(request).await?;
+        let _response = self.execute("replace_config.delete", request).await?;
 
         let builder = self.request(Method::PATCH, &revision_path)?;
         let builder = builder.json(&config);
         let request = builder.build()?;
-        let _response = self.execute(request).await?;
+        let _response = self.execute("replace_config.patch", request).await?;
         Ok(())
     }
 
@@ -153,7 +161,7 @@ impl NvueClient {
         let body = NvueApplyData::force_apply();
         let builder = builder.json(&body);
         let request = builder.build()?;
-        let _response = self.execute(request).await?;
+        let _response = self.execute("apply_config_revision", request).await?;
 
         // FIXME: we should poll on the revision path until it reaches an
         // "applied" state
@@ -178,7 +186,7 @@ impl NvueClient {
         let path = "/nvue_v1/system";
         let builder = self.request(Method::GET, path)?;
         let request = builder.build()?;
-        let response = self.execute(request).await?;
+        let response = self.execute("system_info", request).await?;
         let resonse_body = response.json().await?;
         Ok(resonse_body)
     }
@@ -216,7 +224,7 @@ impl NvueClient {
         let path = format!("/nvue_v1/bridge/domain/{bridge_domain}/mac-table");
         let builder = self.request(Method::GET, &path)?;
         let request = builder.build()?;
-        let response = self.execute(request).await?;
+        let response = self.execute("bridge_mac_table", request).await?;
         let resonse_body: BTreeMap<String, _> = response.json().await?;
         let response = resonse_body.into_values().collect();
         Ok(response)
@@ -322,16 +330,16 @@ impl std::fmt::Debug for NvueAuth {
 
 #[derive(thiserror::Error, Debug)]
 pub enum NvueClientError {
-    #[error("Reqwest client error: {0}")]
+    #[error("reqwest client error: {0}")]
     ReqwestError(#[from] reqwest::Error),
 
     #[error(transparent)]
     RequestFailed(Box<RequestFailed>),
 
-    #[error("Environment variable error ({0}): {1}")]
+    #[error("environment variable error ({0}): {1}")]
     EnvVarError(&'static str, std::env::VarError),
 
-    #[error("Schema mismatch between NVUE client and server: {0}")]
+    #[error("schema mismatch between NVUE client and server: {0}")]
     SchemaMismatch(&'static str),
 }
 

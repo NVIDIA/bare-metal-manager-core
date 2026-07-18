@@ -22,6 +22,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+carbide-observability-schema = { path = "../observability-schema" }
 toml_edit = { workspace = true }
 walkdir = { workspace = true }
 eyre = { workspace = true }
@@ -29,6 +30,8 @@ clap = { workspace = true }
 cargo_metadata = { workspace = true }
 similar = { workspace = true }
 version-compare = { workspace = true }
+syn = { workspace = true, features = ["full", "visit", "parsing", "extra-traits", "clone-impls", "printing"] }
+proc-macro2 = { workspace = true, features = ["proc-macro", "span-locations"] }
 
 chrono = { workspace = true }
 tracing = { workspace = true }

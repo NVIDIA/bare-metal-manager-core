@@ -59,7 +59,10 @@ async fn test_dns(pool: sqlx::PgPool) {
     let fqdn2 = interface2.fqdn;
     let ip2 = interface2.address;
 
-    tracing::info!("FQDN1: {}", fqdn1);
+    tracing::info!(
+        fqdn1 = %fqdn1,
+        "FQDN1",
+    );
     let dns_record = api
         .lookup_record(tonic::Request::new(
             rpc::protos::dns::DnsResourceRecordLookupRequest {
@@ -74,8 +77,14 @@ async fn test_dns(pool: sqlx::PgPool) {
         .await
         .unwrap()
         .into_inner();
-    tracing::info!("DNS Record: {:?}", dns_record);
-    tracing::info!("IP: {}", ip1);
+    tracing::info!(
+        dns_record = ?dns_record,
+        "DNS Record",
+    );
+    tracing::info!(
+        ip1 = %ip1,
+        "IP",
+    );
     assert_eq!(
         ip1.split('/').collect::<Vec<&str>>()[0],
         &*dns_record.records[0].content
@@ -227,7 +236,10 @@ async fn test_dns(pool: sqlx::PgPool) {
             .unwrap()
             .into_inner();
 
-        tracing::info!("Status: {:?}", status);
+        tracing::info!(
+            dns_lookup_response = ?status,
+            "Status",
+        );
         assert_eq!(status.records.len(), 0);
     }
 }

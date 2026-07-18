@@ -23,11 +23,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SetupError {
-    #[error("Error configuring logging from environment variables: {0}")]
+    #[error("error configuring logging from environment variables: {0}")]
     EnvFilter(#[from] tracing_subscriber::filter::FromEnvError),
-    #[error("Error initializing tracing subscriber: {0}")]
+    #[error("error initializing tracing subscriber: {0}")]
     TracingSubscriberInit(#[from] tracing_subscriber::util::TryInitError),
-    #[error("Error setting up metrics: {0}")]
+    #[error("error setting up metrics: {0}")]
     Metrics(String),
 }
 
@@ -61,7 +61,7 @@ pub fn setup_logging(debug: bool) -> SetupResult<()> {
         )
         .try_init()?;
 
-    tracing::info!("current log level: {}", LevelFilter::current());
+    tracing::info!(configured_log_level = %LevelFilter::current(), "current log level");
     Ok(())
 }
 

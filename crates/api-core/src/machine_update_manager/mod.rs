@@ -27,9 +27,10 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use carbide_machine_controller::dpf::DpfOperations;
+use carbide_utils::managed_loop::{self, LoopManager};
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
-use db::work_lock_manager::WorkLockManagerHandle;
+use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use db::{DatabaseError, ObjectFilter, Transaction};
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::MachineUpdateModule;
@@ -43,8 +44,8 @@ use tokio_util::sync::CancellationToken;
 
 use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
-use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
+use crate::{CarbideError, CarbideResult};
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:
@@ -145,9 +146,8 @@ impl MachineUpdateManager {
         let timer = PeriodicTimer::new(self.run_interval);
         loop {
             let tick = timer.tick();
-            if let Err(e) = self.run_single_iteration().await {
-                tracing::warn!("MachineUpdateManager error: {}", e);
-            }
+            let result = self.run_single_iteration().await;
+            managed_loop::record_iteration(LoopManager::MachineUpdateManager, &result);
 
             tokio::select! {
                 _ = tick.sleep() => {},
@@ -193,11 +193,17 @@ impl MachineUpdateManager {
             .await
         {
             Ok(lock) => lock,
-            Err(e) => {
+            Err(e @ AcquireLockError::WorkAlreadyLocked(_)) => {
                 tracing::warn!(
-                    "MachineUpdateManager failed to acquire work lock: Another instance of carbide running? {e}"
+                    error = %e,
+                    "MachineUpdateManager failed to acquire work lock: Another instance of carbide running?"
                 );
                 return Ok(());
+            }
+            Err(e) => {
+                return Err(CarbideError::internal(format!(
+                    "failed to acquire machine update work lock: {e}"
+                )));
             }
         };
 
@@ -239,7 +245,10 @@ impl MachineUpdateManager {
             if (current_updating_machines.len() as i32) >= max_concurrent_updates {
                 break;
             }
-            tracing::debug!("in progress: {:?}", current_updating_machines);
+            tracing::debug!(
+                current_updating_machines = ?current_updating_machines,
+                "Machine updates in progress",
+            );
             let available_updates = max_concurrent_updates - current_updating_machines.len() as i32;
 
             let updates_started = update_module
@@ -250,7 +259,10 @@ impl MachineUpdateManager {
                     &snapshots,
                 )
                 .await?;
-            tracing::debug!("started: {:?}", updates_started);
+            tracing::debug!(
+                updates_started = ?updates_started,
+                "Machine updates started",
+            );
 
             updates_started_count += updates_started.len();
 

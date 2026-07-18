@@ -817,7 +817,7 @@ pub mod test_support {
                 })?;
             if config.id.is_empty() {
                 return Err(RackManagerError::ApiInvocationError(
-                    tonic::Status::invalid_argument("config_json must contain non-empty Id"),
+                    tonic::Status::invalid_argument("config_json must contain non-empty id"),
                 ));
             }
             let id = config.id;

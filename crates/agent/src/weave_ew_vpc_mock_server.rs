@@ -71,7 +71,7 @@ impl NetworkIsolationService for DummyNetworkIsolationService {
         request: Request<proto::DeleteVirtualNetworkRequest>,
     ) -> Result<Response<proto::DeleteVirtualNetworkResponse>, Status> {
         let req = request.into_inner();
-        tracing::info!(id = %req.id, "Deleting virtual network");
+        tracing::info!(virtual_network_id = %req.id, "Deleting virtual network");
         Ok(Response::new(proto::DeleteVirtualNetworkResponse {}))
     }
 
@@ -80,7 +80,7 @@ impl NetworkIsolationService for DummyNetworkIsolationService {
         request: Request<proto::GetVirtualNetworkRequest>,
     ) -> Result<Response<proto::GetVirtualNetworkResponse>, Status> {
         let req = request.into_inner();
-        tracing::info!(id = %req.id, "Getting virtual network");
+        tracing::info!(virtual_network_id = %req.id, "Getting virtual network");
 
         let vn = proto::VirtualNetwork {
             metadata: Some(proto::ObjectMetadata {
@@ -188,7 +188,10 @@ impl NetworkIsolationService for DummyNetworkIsolationService {
         request: Request<proto::DeleteVirtualNetworkAttachmentRequest>,
     ) -> Result<Response<proto::DeleteVirtualNetworkAttachmentResponse>, Status> {
         let req = request.into_inner();
-        tracing::info!(id = %req.id, "Deleting virtual network attachment");
+        tracing::info!(
+            virtual_network_attachment_id = %req.id,
+            "Deleting virtual network attachment"
+        );
         Ok(Response::new(
             proto::DeleteVirtualNetworkAttachmentResponse {},
         ))
@@ -199,7 +202,10 @@ impl NetworkIsolationService for DummyNetworkIsolationService {
         request: Request<proto::GetVirtualNetworkAttachmentRequest>,
     ) -> Result<Response<proto::GetVirtualNetworkAttachmentResponse>, Status> {
         let req = request.into_inner();
-        tracing::info!(id = %req.id, "Getting virtual network attachment");
+        tracing::info!(
+            virtual_network_attachment_id = %req.id,
+            "Getting virtual network attachment"
+        );
 
         let vna = proto::VirtualNetworkAttachment {
             metadata: Some(proto::ObjectMetadata {
@@ -300,7 +306,7 @@ pub async fn serve(socket_path: &Path) -> eyre::Result<()> {
         ))
         .serve_with_incoming(stream)
         .await
-        .map_err(|e| eyre::eyre!("Weave EW VPC mock server error: {e}"))?;
+        .map_err(|e| eyre::eyre!("weave EW VPC mock server error: {e}"))?;
 
     Ok(())
 }

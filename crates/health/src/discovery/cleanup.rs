@@ -20,20 +20,36 @@ use std::collections::HashSet;
 
 use super::context::{CollectorKind, DiscoveryLoopContext};
 
+#[derive(Clone, Copy)]
+enum CollectorStopReason {
+    EndpointRemoved,
+    SwitchEndpointNoLongerEligible,
+}
+
+impl std::fmt::Display for CollectorStopReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::EndpointRemoved => "endpoint removed",
+            Self::SwitchEndpointNoLongerEligible => "switch endpoint is no longer eligible",
+        })
+    }
+}
+
 fn stop_collectors_for_keys(
     ctx: &mut DiscoveryLoopContext,
     kind: CollectorKind,
     removed_keys: &HashSet<Cow<'static, str>>,
-    stop_message: &'static str,
+    stop_reason: CollectorStopReason,
 ) {
     let collectors = ctx.collectors.map_mut(kind);
     for key in removed_keys {
         if let Some(collector) = collectors.remove(key) {
             tracing::info!(
                 endpoint_key = %key,
-                remaining_collectors = collectors.len(),
-                "{}",
-                stop_message
+                collector_kind = ?kind,
+                %stop_reason,
+                remaining_collector_count = collectors.len(),
+                "Stopping collector"
             );
             tokio::spawn(async move {
                 collector.stop().await;
@@ -49,7 +65,12 @@ pub(super) fn stop_removed_bmc_collectors(
     let removed_keys = ctx.collectors.removed_keys(active_endpoints);
 
     for kind in CollectorKind::ALL {
-        stop_collectors_for_keys(ctx, kind, &removed_keys, kind.stop_message());
+        stop_collectors_for_keys(
+            ctx,
+            kind,
+            &removed_keys,
+            CollectorStopReason::EndpointRemoved,
+        );
     }
 
     for key in &removed_keys {
@@ -58,14 +79,15 @@ pub(super) fn stop_removed_bmc_collectors(
 
     if !removed_keys.is_empty() {
         tracing::info!(
-            removed_count = removed_keys.len(),
-            remaining_sensors = ctx.collectors.len(CollectorKind::Sensor),
-            remaining_collectors = ctx.collectors.len(CollectorKind::Logs),
-            remaining_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),
-            remaining_leak_detector_collectors = ctx.collectors.len(CollectorKind::LeakDetector),
-            remaining_nmxt_collectors = ctx.collectors.len(CollectorKind::Nmxt),
-            remaining_nmxc_collectors = ctx.collectors.len(CollectorKind::Nmxc),
-            remaining_nvue_rest_collectors = ctx.collectors.len(CollectorKind::NvueRest),
+            removed_endpoint_count = removed_keys.len(),
+            remaining_sensor_collector_count = ctx.collectors.len(CollectorKind::Sensor),
+            remaining_log_collector_count = ctx.collectors.len(CollectorKind::Logs),
+            remaining_firmware_collector_count = ctx.collectors.len(CollectorKind::Firmware),
+            remaining_leak_detector_collector_count =
+                ctx.collectors.len(CollectorKind::LeakDetector),
+            remaining_nmxt_collector_count = ctx.collectors.len(CollectorKind::Nmxt),
+            remaining_nmxc_collector_count = ctx.collectors.len(CollectorKind::Nmxc),
+            remaining_nvue_rest_collector_count = ctx.collectors.len(CollectorKind::NvueRest),
             "Cleaned up removed endpoints"
         );
     }
@@ -92,13 +114,13 @@ pub(super) fn stop_ineligible_nmxc_collectors(
         ctx,
         CollectorKind::Nmxc,
         &ineligible_keys,
-        "Stopping NMX-C streaming collector for ineligible switch endpoint",
+        CollectorStopReason::SwitchEndpointNoLongerEligible,
     );
 
     if !ineligible_keys.is_empty() {
         tracing::info!(
-            ineligible_count = ineligible_keys.len(),
-            remaining_nmxc_collectors = ctx.collectors.len(CollectorKind::Nmxc),
+            ineligible_endpoint_count = ineligible_keys.len(),
+            remaining_nmxc_collector_count = ctx.collectors.len(CollectorKind::Nmxc),
             "Cleaned up ineligible NMX-C endpoints"
         );
     }

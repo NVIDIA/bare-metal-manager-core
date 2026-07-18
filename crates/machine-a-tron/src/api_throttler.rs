@@ -56,7 +56,10 @@ pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
                                     chunk.iter().map(|id| **id).collect(),
                                 )
                                 .await
-                                .inspect_err(|e| tracing::error!("API failure getting machines: {e}")).unwrap_or_default();
+                                .inspect_err(|e| tracing::error!(
+                                    error = %e,
+                                    "API failure getting machines",
+                                )).unwrap_or_default();
 
                                 // Index the result by ID
                                 for m in machines {
@@ -83,7 +86,10 @@ pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
                             get_machine_callers = HashMap::new()
                         }
                     }
-                    Some(cmd) = control_rx.recv() => {
+                    cmd = control_rx.recv() => {
+                        let Some(cmd) = cmd else {
+                            return;
+                        };
                         match cmd {
                             ApiCommand::GetMachine(machine_id, reply) => get_machine_callers.entry(machine_id).or_default().push(reply),
                         };

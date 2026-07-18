@@ -158,7 +158,8 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                             == Some(ErrorClass::NotFound)
                     {
                         tracing::warn!(
-                            "received 404 on system's ethernet collection fetch. Retrying. {retries_remaining} tries left"
+                            retries_remaining,
+                            "received 404 while fetching the system ethernet collection; retrying"
                         );
                         retries_remaining -= 1;
                         tokio::time::sleep(config.explore.retry_timeout).await;
@@ -196,7 +197,11 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     v.inner()
                         .parse()
                         .inspect_err(|err| {
-                            tracing::warn!("Failed to parse BaseMAC: {err} (mac: {v})");
+                            tracing::warn!(
+                                error = %err,
+                                mac_address = %v,
+                                "failed to parse BaseMAC"
+                            );
                         })
                         .ok()
                 });
@@ -319,7 +324,30 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         &self,
         boot_interface_mac: MacAddress,
     ) -> Option<MachineSetupDiff> {
-        let expected = self
+        let expected = self.boot_option_by_uefi_prefix(boot_interface_mac);
+
+        // Find actual option that is first in boot_order.
+        let actual = self.boot_order_first_option();
+        compare_boot_options(expected, actual)
+    }
+
+    pub fn check_boot_option_enabled_by_uefi_prefix(
+        &self,
+        boot_interface_mac: MacAddress,
+    ) -> Option<MachineSetupDiff> {
+        let option = self.boot_option_by_uefi_prefix(boot_interface_mac)?;
+        (option.enabled() != Some(true)).then(|| MachineSetupDiff {
+            key: "boot_option_enabled".to_string(),
+            expected: "true".to_string(),
+            actual: option
+                .enabled()
+                .map(|enabled| enabled.to_string())
+                .unwrap_or_else(|| "Not provided".to_string()),
+        })
+    }
+
+    fn boot_option_by_uefi_prefix(&self, boot_interface_mac: MacAddress) -> Option<&BootOption<B>> {
+        self
             // Find UEFI device path of the ethernet interface
             // that has boot_interface_mac MAC address.
             .ethernet_interfaces
@@ -343,36 +371,38 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                             && path.inner().contains("/IPv4(")
                     })
                 })
-            });
-
-        // Find actual option that is first in boot_order.
-        let actual = self.boot_order_first_option();
-        compare_boot_options(expected, actual)
+            })
     }
 
     fn ethernet_interfaces(
         &self,
         hw_type: Option<hw::HwType>,
     ) -> Result<Vec<ModelEthernetInterface>, Error<B>> {
-        let mut result = self.ethernet_interfaces.iter()
+        let mut result = self
+            .ethernet_interfaces
+            .iter()
             .map(|iface| {
                 let mac_address = iface
                     .mac_address()
                     .map(|addr| {
-                        deserialize_input_mac_to_address(addr.as_str())
-                            .map_err(|e| Error::InvalidValue(format!("MAC address not valid: {addr} (err: {e})")))
+                        deserialize_input_mac_to_address(addr.as_str()).map_err(|e| {
+                            Error::InvalidValue(format!("MAC address not valid: {addr} (err: {e})"))
+                        })
                     })
                     .transpose()
                     .or_else(|err| {
                         if iface
-                            .interface_enabled().is_some_and(|is_enabled| !is_enabled)
+                            .interface_enabled()
+                            .is_some_and(|is_enabled| !is_enabled)
                         {
                             // disabled interfaces sometimes populate the MAC address with junk,
                             // ignore this error and create the interface with an empty mac address
                             // in the exploration report
                             tracing::debug!(
-                                "could not parse MAC address for a disabled interface {} (link_status: {:#?}): {err}",
-                                iface.id(), iface.link_status()
+                                interface_id = %iface.id(),
+                                link_status = ?iface.link_status(),
+                                error = %err,
+                                "could not parse MAC address for a disabled interface"
                             );
                             Ok(None)
                         } else {
@@ -395,7 +425,8 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     link_status: iface.link_status().map(|s| format!("{s:?}")),
                     uefi_device_path,
                 })
-            }).collect::<Result<Vec<_>, _>>()?;
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         if hw_type.is_some_and(|v| v == hw::HwType::Bluefield)
             && !result.iter().any(|iface| {

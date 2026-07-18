@@ -141,6 +141,8 @@ navigation:
           path: configuration/machine_identity.md
         - page: Host Naming
           path: configuration/host-naming.md
+        - page: Component Manager RMS Backends
+          path: configuration/component-manager-rms.md
 
     - section: Operations (Day 2)
       contents:
@@ -293,6 +295,8 @@ navigation:
               path: development/new_hardware_support.md
             - page: Build Guide
               path: development/build-guide.md
+            - page: Machine-a-tron Deployment
+              path: development/machine-a-tron-deployment.md
         - page: Glossary
           path: glossary.md
 

@@ -97,14 +97,14 @@ pub enum BmcSessionError {
 
     /// Failure interacting with the BMC via nv-redfish (connect, create,
     /// or delete failed for a reason other than auth).
-    #[error("Redfish error talking to BMC at {bmc_addr}: {detail}")]
+    #[error("redfish error talking to BMC at {bmc_addr}: {detail}")]
     Redfish {
         bmc_addr: SocketAddr,
         detail: String,
     },
 
     /// Failure reading the BMC root credentials from the credential store.
-    #[error("Credential store error: {0}")]
+    #[error("credential store error: {0}")]
     CredentialStore(String),
 
     /// Failure persisting or reading session metadata from the
@@ -113,7 +113,7 @@ pub enum BmcSessionError {
     Store(String),
 
     /// The BMC's Redfish ServiceRoot does not expose a `SessionService`.
-    #[error("BMC at {bmc_addr} does not expose Redfish SessionService")]
+    #[error("BMC at {bmc_addr} does not expose redfish SessionService")]
     NoSessionService { bmc_addr: SocketAddr },
 
     /// The lockout-avoidance circuit breaker is tripped for this BMC and
@@ -346,7 +346,7 @@ impl BmcSessionManager {
                         if let Err(err) = prior_session.delete().await {
                             tracing::warn!(
                                 error = ?err,
-                                %bmc_mac,
+                                bmc_mac_address = %bmc_mac,
                                 spiffe_service_id,
                                 session = %prior_id,
                                 "failed to revoke prior BMC session; \
@@ -355,7 +355,7 @@ impl BmcSessionManager {
                         }
                     } else {
                         tracing::info!(
-                            %bmc_mac,
+                            bmc_mac_address = %bmc_mac,
                             spiffe_service_id,
                             session = %prior_id,
                             "prior BMC session no longer present in Sessions collection; \
@@ -366,7 +366,7 @@ impl BmcSessionManager {
                 Err(err) => {
                     tracing::warn!(
                         error = ?err,
-                        %bmc_mac,
+                        bmc_mac_address = %bmc_mac,
                         spiffe_service_id,
                         "failed to list BMC sessions for prior-session revoke; continuing"
                     );
@@ -406,7 +406,7 @@ impl BmcSessionManager {
             if let Err(revoke_err) = created.delete().await {
                 tracing::warn!(
                     error = ?revoke_err,
-                    %bmc_mac,
+                    bmc_mac_address = %bmc_mac,
                     spiffe_service_id,
                     session = %location,
                     "failed to revoke just-created session after store upsert failed; \
@@ -449,8 +449,8 @@ impl BmcSessionManager {
                 let newly_cached = self.no_session_service.lock().await.insert(bmc_mac);
                 if newly_cached {
                     tracing::info!(
-                        %bmc_mac,
-                        %bmc_addr,
+                        bmc_mac_address = %bmc_mac,
+                        bmc_address = %bmc_addr,
                         "BMC does not expose Redfish SessionService; serving basic-auth credentials for the remainder of this process lifetime"
                     );
                 }
@@ -483,7 +483,7 @@ impl BmcSessionManager {
         if let Err(err) = self.store.delete_by_mac(bmc_mac).await {
             tracing::warn!(
                 error = %err,
-                %bmc_mac,
+                bmc_mac_address = %bmc_mac,
                 "failed to delete BMC session rows during flush_mac; continuing"
             );
         }
@@ -500,7 +500,7 @@ impl BmcSessionManager {
     async fn clear_no_session_service(&self, bmc_mac: MacAddress) {
         if self.no_session_service.lock().await.remove(&bmc_mac) {
             tracing::info!(
-                %bmc_mac,
+                bmc_mac_address = %bmc_mac,
                 "BmcSessionManager: forgetting cached `no SessionService` decision; \
                  next issue_credentials will re-probe"
             );
@@ -538,10 +538,10 @@ impl BmcSessionManager {
         if entry.consecutive_unauthorized >= self.lockout_threshold && entry.tripped_at.is_none() {
             entry.tripped_at = Some(Instant::now());
             tracing::warn!(
-                %bmc_mac,
-                status,
-                consecutive_unauthorized = entry.consecutive_unauthorized,
-                threshold = self.lockout_threshold,
+                bmc_mac_address = %bmc_mac,
+                http_status = status,
+                consecutive_unauthorized_count = entry.consecutive_unauthorized,
+                lockout_threshold_count = self.lockout_threshold,
                 "BmcSessionManager: lockout-avoidance breaker tripped"
             );
             return Some(BmcSessionError::AvoidLockout {
@@ -555,7 +555,10 @@ impl BmcSessionManager {
 
     async fn clear_lockout(&self, bmc_mac: MacAddress) {
         if self.lockouts.lock().await.remove(&bmc_mac).is_some() {
-            tracing::info!(%bmc_mac, "BmcSessionManager: lockout-avoidance breaker cleared");
+            tracing::info!(
+                bmc_mac_address = %bmc_mac,
+                "BmcSessionManager: lockout-avoidance breaker cleared"
+            );
         }
     }
 

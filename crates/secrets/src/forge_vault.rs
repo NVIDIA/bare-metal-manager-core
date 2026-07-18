@@ -91,16 +91,17 @@ fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Rep
         Ok(env_path) if Path::new(&env_path).exists() => Ok(env_path),
         Ok(env_path) => {
             tracing::error!(
-                "VAULT_CACERT={env_path} does not exist. Refusing to connect without TLS verification."
+                %env_path,
+                "VAULT_CACERT does not exist. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
         Err(_) => {
             tracing::error!(
-                "Vault root CA not found at {}. Refusing to connect without TLS verification.",
-                configured_path
+                configured_path,
+                "Vault root CA not found. Refusing to connect without TLS verification.",
             );
-            Err(eyre!("Vault root CA not found"))
+            Err(eyre!("vault root CA not found"))
         }
     }
 }
@@ -182,11 +183,12 @@ impl LabelValue for VaultFailureStatusCode {
 /// logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_attempted_total",
+    event_name = "vault_request_attempted",
+    metric_name = "carbide_api_vault_requests_attempted_total",
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "The amount of tls connections that were attempted"
+    describe = "Number of attempted Vault requests"
 )]
 struct VaultRequestAttempted {
     #[label]
@@ -196,11 +198,12 @@ struct VaultRequestAttempted {
 /// A Vault request succeeded. Metric-only (`log = off`): counted, never logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_succeeded_total",
+    event_name = "vault_request_succeeded",
+    metric_name = "carbide_api_vault_requests_succeeded_total",
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "The amount of tls connections that were successful"
+    describe = "Number of successful Vault requests"
 )]
 struct VaultRequestSucceeded {
     #[label]
@@ -213,11 +216,12 @@ struct VaultRequestSucceeded {
 /// client error carried one, and empty otherwise.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_requests_failed_total",
+    event_name = "vault_request_failed",
+    metric_name = "carbide_api_vault_requests_failed_total",
     component = "nico-api",
     log = off,
     metric = counter,
-    describe = "The amount of tcp connections that were failures"
+    describe = "Number of failed Vault requests"
 )]
 struct VaultRequestFailed {
     #[label]
@@ -230,11 +234,12 @@ struct VaultRequestFailed {
 /// milliseconds. Metric-only (`log = off`).
 #[derive(Event)]
 #[event(
-    name = "carbide_api_vault_request_duration_milliseconds",
+    event_name = "vault_request_duration",
+    metric_name = "carbide_api_vault_request_duration_milliseconds",
     component = "nico-api",
     log = off,
     metric = histogram,
-    describe = "the duration of outbound vault requests, in milliseconds"
+    describe = "Duration of outbound Vault requests, in milliseconds"
 )]
 struct VaultRequestDuration {
     #[label]
@@ -329,7 +334,7 @@ async fn vault_token_refresh(
                 .inspect_err(|err| {
                     record_vault_client_error(err, VaultRequestType::ServiceAccountLogin);
                 })
-                .wrap_err("Failed to execute kubernetes service account login request")?;
+                .wrap_err("failed to execute kubernetes service account login request")?;
 
             emit(VaultRequestSucceeded {
                 request_type: VaultRequestType::ServiceAccountLogin,
@@ -340,7 +345,10 @@ async fn vault_token_refresh(
         }
     };
 
-    tracing::info!("successfully refreshed vault token, with lifetime: {vault_token_expiry_secs}");
+    tracing::info!(
+        vault_token_expiry_seconds = vault_token_expiry_secs,
+        "successfully refreshed vault token"
+    );
 
     let vault_client_settings = create_vault_client_settings(vault_token, vault_client_config)?;
     let vault_client = VaultClient::new(vault_client_settings)?;
@@ -504,34 +512,35 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
             duration_ms: elapsed_request_duration,
         });
 
-        let credentials = match vault_response {
-            Ok(creds) => Ok(Some(creds)),
+        match vault_response {
+            Ok(creds) => {
+                emit(VaultRequestSucceeded {
+                    request_type: VaultRequestType::GetCredentials,
+                });
+                Ok(Some(creds))
+            }
             Err(ce) => {
                 let status_code = record_vault_client_error(&ce, VaultRequestType::GetCredentials);
                 match status_code {
                     Some(404) => {
                         // Not found errors are common and of no concern
                         tracing::debug!(
-                            "Credentials not found for key ({})",
-                            self.key.to_key_str().as_ref()
+                            credential_key = %self.key.to_key_str(),
+                            "Credentials not found",
                         );
                         Ok(None)
                     }
                     _ => {
                         tracing::error!(
-                            "Error getting credentials ({}). Error: {ce:?}",
-                            self.key.to_key_str().as_ref()
+                            credential_key = %self.key.to_key_str(),
+                            error = ?ce,
+                            "Error getting credentials",
                         );
                         Err(SecretsError::GenericError(ce.into()))
                     }
                 }
             }
-        };
-
-        emit(VaultRequestSucceeded {
-            request_type: VaultRequestType::GetCredentials,
-        });
-        credentials
+        }
     }
 }
 
@@ -601,7 +610,7 @@ impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
 
         let _secret_version_metadata = vault_response.map_err(|err| {
             record_vault_client_error(&err, VaultRequestType::SetCredentials);
-            tracing::error!("Error setting credentials. Error: {err:?}");
+            tracing::error!(error = ?err, "Error setting credentials");
             err
         })?;
 
@@ -640,7 +649,7 @@ impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
 
         let _secret_version_metadata = vault_response.map_err(|err| {
             record_vault_client_error(&err, VaultRequestType::DeleteCredentials);
-            tracing::error!("Error deleting credentials. Error: {err:?}");
+            tracing::error!(error = ?err, "Error deleting credentials");
             err
         })?;
 
@@ -834,7 +843,10 @@ impl ForgeVaultClient {
         let paths = self
             .list_secrets_for_path("", EnumerationMode::BestEffort)
             .await?;
-        tracing::info!(count = paths.len(), "listed all vault secret paths");
+        tracing::info!(
+            secret_path_count = paths.len(),
+            "listed all vault secret paths"
+        );
         Ok(paths)
     }
 
@@ -849,7 +861,7 @@ impl ForgeVaultClient {
             .await?;
         tracing::info!(
             prefix = prefix.as_str(),
-            count = paths.len(),
+            secret_path_count = paths.len(),
             "listed vault secret paths for prefix"
         );
         Ok(paths)
@@ -1092,7 +1104,7 @@ pub fn create_vault_client(
     let vault_token_time_remaining_until_refresh_gauge = meter
         .f64_gauge("carbide-api.vault.token_time_until_refresh")
         .with_description(
-            "The amount of time, in seconds, until the vault token is required to be refreshed",
+            "The amount of time, in seconds, until the Vault token is required to be refreshed",
         )
         .with_unit("s")
         .build();
@@ -1312,5 +1324,142 @@ mod tests {
             ],
             |status| status.label_value().to_string(),
         );
+    }
+
+    /// Builds a `VaultClient` pointed at a plaintext `mockito` server, so the
+    /// get-credentials helper's real `kv2::read` round-trips through a response
+    /// we control. An `http://` address skips TLS, so no CA wiring is needed.
+    fn mock_backed_vault_client(
+        server: &mockito::ServerGuard,
+    ) -> std::sync::Arc<vaultrs::client::VaultClient> {
+        use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+
+        let settings = VaultClientSettingsBuilder::default()
+            .address(server.url())
+            .token("test-token")
+            .verify(false)
+            .build()
+            .expect("vault client settings for mock server");
+        std::sync::Arc::new(VaultClient::new(settings).expect("vault client for mock server"))
+    }
+
+    /// A failed `get_credentials` read counts the attempt, times it once, and
+    /// moves ONLY the failed counter (carrying the HTTP status code) -- never
+    /// the succeeded counter -- while a successful read moves the succeeded
+    /// counter and leaves the failed one alone. Regression: the helper used to
+    /// emit `VaultRequestSucceeded` unconditionally after the response match, so
+    /// a failed read double-counted as both failed and succeeded, corrupting the
+    /// success/error split for `request_type="get_credentials"`.
+    #[tokio::test]
+    async fn get_credentials_failed_read_counts_failed_not_succeeded() {
+        use carbide_instrument::testing::MetricsCapture;
+
+        use super::{GetCredentialsHelper, VaultTask};
+        use crate::credentials::CredentialKey;
+
+        let mount = "secret".to_string();
+        let key = CredentialKey::UfmAuth {
+            fabric: "regression".to_string(),
+        };
+        let get = &[("request_type", "get_credentials")][..];
+        let failed_403 = &[
+            ("request_type", "get_credentials"),
+            ("http_response_status_code", "403"),
+        ][..];
+
+        // A non-404 error (here 403) must surface as an error and move the
+        // failed counter with its status code -- and must NOT move succeeded.
+        {
+            let mut server = mockito::Server::new_async().await;
+            let _mock = server
+                .mock("GET", mockito::Matcher::Any)
+                .with_status(403)
+                .with_header("content-type", "application/json")
+                .with_body(r#"{"errors":["permission denied"]}"#)
+                .create_async()
+                .await;
+
+            let helper = GetCredentialsHelper {
+                kv_mount_location: &mount,
+                key: &key,
+            };
+
+            let metrics = MetricsCapture::start();
+            let result = helper.execute(mock_backed_vault_client(&server)).await;
+
+            assert!(result.is_err(), "a 403 read must surface as an error");
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_failed_total", failed_403),
+                1.0,
+                "a failed read must move the failed counter once with its status code; exposition:\n{}",
+                metrics.render()
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_succeeded_total", get),
+                0.0,
+                "a failed read must not move the succeeded counter",
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_attempted_total", get),
+                1.0,
+                "every read counts exactly one attempt",
+            );
+            assert_eq!(
+                metrics
+                    .histogram_count_delta("carbide_api_vault_request_duration_milliseconds", get),
+                1,
+                "every read records exactly one duration observation",
+            );
+        }
+
+        // A successful read moves the succeeded counter and leaves the failed
+        // series untouched.
+        {
+            let mut server = mockito::Server::new_async().await;
+            let _mock = server
+                .mock("GET", mockito::Matcher::Any)
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    r#"{"request_id":"test","lease_id":"","lease_duration":0,"renewable":false,"data":{"data":{"UsernamePassword":{"username":"u","password":"p"}},"metadata":{"created_time":"2024-01-01T00:00:00Z","deletion_time":"","custom_metadata":null,"destroyed":false,"version":1}}}"#,
+                )
+                .create_async()
+                .await;
+
+            let helper = GetCredentialsHelper {
+                kv_mount_location: &mount,
+                key: &key,
+            };
+
+            let metrics = MetricsCapture::start();
+            let result = helper.execute(mock_backed_vault_client(&server)).await;
+
+            assert!(
+                matches!(&result, Ok(Some(_))),
+                "a 200 read with a valid body must succeed, got {result:?}"
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_succeeded_total", get),
+                1.0,
+                "a successful read must move the succeeded counter once; exposition:\n{}",
+                metrics.render()
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_failed_total", failed_403),
+                0.0,
+                "a successful read must not move the failed counter",
+            );
+            assert_eq!(
+                metrics.counter_delta("carbide_api_vault_requests_attempted_total", get),
+                1.0,
+                "every read counts exactly one attempt",
+            );
+            assert_eq!(
+                metrics
+                    .histogram_count_delta("carbide_api_vault_request_duration_milliseconds", get),
+                1,
+                "every read records exactly one duration observation",
+            );
+        }
     }
 }

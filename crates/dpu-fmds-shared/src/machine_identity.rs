@@ -281,7 +281,7 @@ pub async fn sign_machine_identity_with_forge(
     .await
     .map_err(|_| {
         tonic::Status::deadline_exceeded(
-            "timed out calling Forge for machine identity (machine-identity.sign-timeout-secs)",
+            "timed out calling forge for machine identity (machine-identity.sign-timeout-secs)",
         )
     })?
 }
@@ -377,8 +377,8 @@ pub fn map_machine_identity_signing_error_to_http(status: &tonic::Status) -> (St
         Code::ResourceExhausted => (StatusCode::TOO_MANY_REQUESTS, status.message().to_string()),
         code => {
             tracing::warn!(
-                ?code,
-                message = %status.message(),
+                grpc_status_code = ?code,
+                error = %status.message(),
                 "machine-identity: upstream signing failed"
             );
             (

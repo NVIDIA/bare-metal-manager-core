@@ -136,7 +136,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_instances(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_instances");
+            tracing::error!(error = %err, "fetch_instances");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading instances").into_response();
         }
     };
@@ -150,7 +150,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_instances(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_instances");
+            tracing::error!(error = %err, "fetch_instances");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading instances").into_response();
         }
     };
@@ -620,7 +620,7 @@ pub async fn detail(
             return super::not_found_response(instance_id_string);
         }
         Err(err) => {
-            tracing::error!(%err, %instance_id, "find_instances");
+            tracing::error!(error = %err, %instance_id, "find_instances");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading instances").into_response();
         }
     };

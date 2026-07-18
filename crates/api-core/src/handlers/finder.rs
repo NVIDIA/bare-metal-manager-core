@@ -108,7 +108,7 @@ pub(crate) async fn identify_mac(
     };
     let Ok(mac) = mac_address::MacAddress::from_str(&req.mac_address) else {
         return Err(
-            CarbideError::InvalidArgument("Could not parse MAC address".to_string()).into(),
+            CarbideError::InvalidArgument("could not parse MAC address".to_string()).into(),
         );
     };
     match by_mac(api, mac).await {
@@ -143,7 +143,7 @@ pub(crate) async fn identify_serial(
 
     if machine_ids.len() > 1 {
         tracing::warn!(
-            matches = machine_ids.len(),
+            matching_machine_count = machine_ids.len(),
             serial_number = req.serial_number,
             "identify_serial: More than one match"
         );
@@ -242,8 +242,8 @@ async fn search(
                 1 => vec_out.remove(0),
                 _ => {
                     tracing::warn!(
-                        ip,
-                        matched_pools = vec_out.len(),
+                        ip_address = ip,
+                        matching_resource_pool_count = vec_out.len(),
                         "Multiple resource pools match this IP. This seems like a mistake. Using only first.",
                     );
                     vec_out.remove(0)
@@ -515,12 +515,17 @@ async fn by_mac(
         }
         Ok(interfaces) => {
             tracing::error!(
-                "Found {} MachineInterface entries for MAC address {mac}. Should be impossible",
-                interfaces.len()
+                interface_count = interfaces.len(),
+                mac_address = %mac,
+                "Found machine interface entries; should be impossible",
             );
         }
         Err(err) => {
-            tracing::error!(%err, %mac, "DB error db::machine_interface::find_by_mac_address");
+            tracing::error!(
+                error = %err,
+                mac_address = %mac,
+                "DB error db::machine_interface::find_by_mac_address"
+            );
         }
     }
 
@@ -545,11 +550,16 @@ async fn by_mac(
             [iface] => return Ok(Some((iface.id.to_string(), rpc::MacOwner::DpaInterface))),
             [] => {} // expected, continue to search other object types
             _ => tracing::error!(
-                "Found {} DpaInterfaces entries for MAC address {mac}. Should be impossible",
-                ifs.len()
+                dpa_interface_count = ifs.len(),
+                mac_address = %mac,
+                "Found DPA interface entries; should be impossible",
             ),
         },
-        Err(e) => tracing::error!("by_mac - Error from find_by_mac_addr for DPA: {e}"),
+        Err(e) => tracing::error!(
+            mac_address = %mac,
+            error = %e,
+            "Failed to find DPA interface",
+        ),
     };
 
     // Any other MAC addresses to search?

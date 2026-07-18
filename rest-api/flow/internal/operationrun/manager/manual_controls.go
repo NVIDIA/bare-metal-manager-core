@@ -299,11 +299,12 @@ func (m *ManagerImpl) continueOperationRun(
 			case expectedPhaseIndex == resumeExpectedPhaseIndex:
 				run.Start(now, "operation run resumed")
 			case expectedPhaseIndex >= advanceWithoutExpectedPhaseIndex:
+				run.CurrentPhaseIndex++
 				run.Start(
 					now,
 					fmt.Sprintf(
 						"advanced to phase %d",
-						summary.CurrentPhaseIndex,
+						run.CurrentPhaseIndex,
 					),
 				)
 			default:
@@ -380,17 +381,28 @@ func ensurePhaseCanAdvance(
 	summary operationrun.TargetPhaseSummary,
 	expectedPhaseIndex int32,
 ) error {
-	if err := summary.CheckExpectedNextPhase(expectedPhaseIndex); err != nil {
-		return invalidStateError("%w", err)
-	}
-
-	if !summary.CurrentPhaseNotStarted() {
+	if !summary.CurrentPhaseTerminal() {
 		return invalidStateError(
-			"phase %d has already started",
-			summary.CurrentPhaseIndex,
+			"phase %d is not complete",
+			summary.CurrentPhaseStats.PhaseIndex,
 		)
 	}
 
+	if !summary.HasNextPhase() {
+		return invalidStateError(
+			"phase %d is the final phase",
+			summary.CurrentPhaseStats.PhaseIndex,
+		)
+	}
+
+	nextPhaseIndex := summary.CurrentPhaseStats.PhaseIndex + 1
+	if expectedPhaseIndex > 0 && expectedPhaseIndex != nextPhaseIndex {
+		return invalidStateError(
+			"expected phase %d, next phase is %d",
+			expectedPhaseIndex,
+			nextPhaseIndex,
+		)
+	}
 	return nil
 }
 
@@ -401,12 +413,29 @@ func (m *ManagerImpl) targetPhaseSummaryForContinue(
 ) (operationrun.TargetPhaseSummary, error) {
 	emptySummary := operationrun.TargetPhaseSummary{}
 
-	targets, err := m.store.LockOperationRunTargets(ctx, run.ID)
+	targets, err := m.store.LockOperationRunTargets(
+		ctx,
+		run.ID,
+		run.CurrentPhaseIndex,
+	)
 	if err != nil {
 		return emptySummary, err
 	}
 
-	summary := operationrun.NewTargetPhaseSummary(targets)
+	aggregate, err := m.store.GetTargetPhaseAggregate(
+		ctx,
+		run.ID,
+		run.CurrentPhaseIndex,
+	)
+	if err != nil {
+		return emptySummary, err
+	}
+
+	summary := operationrun.NewTargetPhaseSummary(
+		run.CurrentPhaseIndex,
+		aggregate,
+		targets,
+	)
 	if _, ok := summary.TerminalRunStatus(); ok {
 		return summary, nil
 	}

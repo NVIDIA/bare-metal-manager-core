@@ -35,13 +35,13 @@ use common::api_fixtures::{
     TestEnv, TestManagedHost, create_managed_host_with_hardware_info_template,
     insert_nvlink_nmxc_endpoint_from_managed_host,
 };
-use db::switch as db_switch;
+use db::{ObjectColumnFilter, rack as db_rack, switch as db_switch};
 use ipnetwork::IpNetwork;
 use libnmxc::nmxc_model::{GetGpuInfoListRequest, GetPartitionInfoListRequest, GpuAttr};
-use librms::protos::rack_manager as rms;
 use model::expected_switch::ExpectedSwitch;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::metadata::Metadata;
+use model::rack::{MaintenanceActivity, RackState};
 use model::switch::{
     CONTROL_PLANE_STATE_CONFIGURED, FabricManagerState, FabricManagerStatus, NewSwitch,
     SwitchConfig, SwitchControllerState,
@@ -2640,24 +2640,27 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
         .persist(&mut txn)
         .await
         .expect("create rack");
+    let rack = db_rack::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .expect("load rack")
+    .pop()
+    .expect("rack");
+    let updated = db_rack::try_update_controller_state(
+        txn.as_mut(),
+        &rack_id,
+        rack.controller_state.version,
+        rack.controller_state.version.increment(),
+        &RackState::Ready,
+    )
+    .await
+    .expect("set rack ready");
+    assert!(updated, "rack should transition to Ready for rotation");
     txn.commit().await.expect("commit rack");
 
     let switch_id = create_rack_switch_for_nmxc_simulator(&env, &rack_id).await;
-
-    if expected_fingerprint_mismatches > 0 {
-        env.rms_sim
-            .queue_configure_switch_certificate_response(Ok(
-                rms::ConfigureSwitchCertificateResponse {
-                    response: Some(rms::NodeBatchResponse {
-                        status: rms::ReturnCode::Success as i32,
-                        job_id: "test-switch-cert-job".to_string(),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-            ))
-            .await;
-    }
 
     let result = env.run_switch_cert_monitor_iteration().await;
     assert_eq!(result.observed_endpoints, 1);
@@ -2672,92 +2675,56 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     assert_eq!(result.pending_updates, expected_fingerprint_mismatches);
     assert_eq!(result.apply_errors, 0);
 
+    let mut txn = pool.begin().await.expect("begin txn");
+    let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+        .await
+        .expect("load switch")
+        .expect("switch");
+    let rack = db_rack::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .expect("load rack")
+    .pop()
+    .expect("rack");
+    txn.commit().await.expect("commit txn");
+
+    if expected_fingerprint_mismatches > 0 {
+        assert!(
+            switch.switch_maintenance_requested.is_none(),
+            "certificate rotation should not request per-switch maintenance"
+        );
+        let scope = rack
+            .config
+            .maintenance_requested
+            .as_ref()
+            .expect("rack NMX cluster maintenance request");
+        assert!(scope.is_full_rack());
+        assert_eq!(
+            scope.activities,
+            vec![MaintenanceActivity::ConfigureNmxCluster]
+        );
+    } else {
+        assert!(
+            switch.switch_maintenance_requested.is_none(),
+            "matching certificate should not request switch certificate maintenance"
+        );
+        assert!(
+            rack.config.maintenance_requested.is_none(),
+            "matching certificate should not request rack maintenance"
+        );
+    }
+
     let rms_requests = env
         .rms_sim
         .submitted_configure_switch_certificate_requests()
         .await;
-    assert_eq!(rms_requests.len(), expected_fingerprint_mismatches);
-    if expected_fingerprint_mismatches > 0 {
-        let request = rms_requests.first().expect("RMS request");
-        assert_eq!(
-            request.services,
-            vec![rms::SwitchService::ScaleUpFabricManager as i32]
-        );
-        assert!(request.test_hello);
-        assert_eq!(request.domain.as_deref(), Some(rack_id.as_ref()));
-        let node = request
-            .nodes
-            .as_ref()
-            .expect("RMS request node set")
-            .nodes
-            .first()
-            .expect("RMS request node");
-        assert_eq!(node.node_id, switch_id.to_string());
-        assert_eq!(node.rack_id, rack_id.to_string());
-
-        env.rms_sim
-            .queue_get_configure_switch_certificate_job_status_response(Ok(
-                rms::GetConfigureSwitchCertificateJobStatusResponse {
-                    status: rms::ReturnCode::Success as i32,
-                    job_id: "test-switch-cert-job".to_string(),
-                    state: "running".to_string(),
-                    ..Default::default()
-                },
-            ))
-            .await;
-        let result = env.run_switch_cert_monitor_iteration().await;
-        assert_eq!(result.observed_endpoints, 1);
-        assert_eq!(result.successful_probes, 1);
-        assert_eq!(
-            result.fingerprint_mismatches,
-            expected_fingerprint_mismatches
-        );
-        assert_eq!(result.applied_updates, 0);
-        assert_eq!(result.pending_updates, expected_fingerprint_mismatches);
-        assert_eq!(result.apply_errors, 0);
-        assert_eq!(
-            env.rms_sim
-                .submitted_configure_switch_certificate_requests()
-                .await
-                .len(),
-            1
-        );
-
-        let job_status_requests = env
-            .rms_sim
-            .submitted_get_configure_switch_certificate_job_status_requests()
-            .await;
-        assert_eq!(job_status_requests.len(), 1);
-        assert_eq!(job_status_requests[0].job_id, "test-switch-cert-job");
-
-        env.rms_sim
-            .queue_get_configure_switch_certificate_job_status_response(Ok(
-                rms::GetConfigureSwitchCertificateJobStatusResponse {
-                    status: rms::ReturnCode::Success as i32,
-                    job_id: "test-switch-cert-job".to_string(),
-                    state: "completed".to_string(),
-                    ..Default::default()
-                },
-            ))
-            .await;
-        let result = env.run_switch_cert_monitor_iteration().await;
-        assert_eq!(result.observed_endpoints, 1);
-        assert_eq!(result.successful_probes, 1);
-        assert_eq!(
-            result.fingerprint_mismatches,
-            expected_fingerprint_mismatches
-        );
-        assert_eq!(result.applied_updates, expected_fingerprint_mismatches);
-        assert_eq!(result.pending_updates, 0);
-        assert_eq!(result.apply_errors, 0);
-        assert_eq!(
-            env.rms_sim
-                .submitted_configure_switch_certificate_requests()
-                .await
-                .len(),
-            1
-        );
-    }
+    assert_eq!(
+        rms_requests.len(),
+        0,
+        "switch cert monitor should queue the rack state machine instead of calling RMS directly"
+    );
 }
 
 #[crate::sqlx_test]

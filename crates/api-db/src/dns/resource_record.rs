@@ -102,7 +102,7 @@ pub async fn find_record(
      COALESCE(q_type, CASE WHEN family(resource_record) = 6 THEN 'AAAA' ELSE 'A' END) as q_type
      from dns_records WHERE q_name=$1"#;
 
-    tracing::info!("Looking up record using query_name: {}", query_name);
+    tracing::info!(query_name, "Looking up DNS record",);
     let result = sqlx::query_as::<_, DbResourceRecord>(query)
         .bind(query_name)
         .fetch_all(txn)

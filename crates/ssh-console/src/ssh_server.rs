@@ -75,7 +75,7 @@ pub async fn spawn(
             addr: listen_address,
             error,
         })?;
-    tracing::info!("listening on {}", listen_address);
+    tracing::info!(%listen_address, "SSH server listening");
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let join_handle = tokio::spawn(server.run(listener, shutdown_rx));
@@ -88,12 +88,12 @@ pub async fn spawn(
 
 #[derive(thiserror::Error, Debug)]
 pub enum SpawnError {
-    #[error("Error reading host key file at {path}: {error}")]
+    #[error("error reading host key file at {path}: {error}")]
     ReadingHostKeyFile {
         path: String,
         error: russh::keys::ssh_key::Error,
     },
-    #[error("Error listening on {addr}: {error}")]
+    #[error("error listening on {addr}: {error}")]
     Listening {
         addr: SocketAddr,
         error: std::io::Error,
@@ -208,11 +208,11 @@ impl ServerMetrics {
         Self {
             total_clients: meter
                 .i64_up_down_counter("ssh_console_total_clients")
-                .with_description("The number of SSH clients currently connected to the service")
+                .with_description("Number of SSH clients currently connected to the service")
                 .build(),
             client_auth_failures_total: meter
                 .u64_counter("ssh_console_client_auth_failures")
-                .with_description("The number of SSH clients authentication attempts denied")
+                .with_description("Number of SSH client authentication attempts denied")
                 .build(),
             _auth_enforced: meter
                 .u64_observable_gauge("ssh_console_auth_enforced")

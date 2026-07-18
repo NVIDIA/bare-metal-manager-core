@@ -28,6 +28,7 @@ name = "nvue_client"
 [features]
 
 [dependencies]
+carbide-instrument = { path = "../instrument" }
 reqwest = { features = ["rustls", "json"], workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }

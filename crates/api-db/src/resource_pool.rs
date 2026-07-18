@@ -398,13 +398,13 @@ pub enum DefineResourcePoolError {
     #[error("{0}")]
     InvalidArgument(String),
 
-    #[error("Resource pool error: {0}")]
+    #[error("resource pool error: {0}")]
     ResourcePoolError(#[from] model::resource_pool::ResourcePoolError),
 
-    #[error("Max pool size exceeded. {0} > {1}")]
+    #[error("max pool size exceeded. {0} > {1}")]
     TooBig(usize, usize),
 
-    #[error("Database error: {0}")]
+    #[error("database error: {0}")]
     DatabaseError(#[from] DatabaseError),
 }
 
@@ -581,7 +581,7 @@ async fn define_by_prefix(
             tracing::debug!(
                 pool_name = name,
                 prefix,
-                num_values,
+                value_count = num_values,
                 "Populated IPv4 resource pool from prefix"
             );
         }
@@ -596,7 +596,7 @@ async fn define_by_prefix(
             tracing::debug!(
                 pool_name = name,
                 prefix,
-                num_values,
+                value_count = num_values,
                 "Populated IPv6 resource pool from prefix"
             );
         }
@@ -616,8 +616,8 @@ async fn define_by_prefix(
             tracing::debug!(
                 pool_name = name,
                 prefix,
-                delegate_len,
-                num_values,
+                delegation_prefix_length = delegate_len,
+                value_count = num_values,
                 "Populated IPv6 prefix delegation pool"
             );
         }
@@ -656,7 +656,7 @@ async fn define_by_range(
                 pool_name = name,
                 range_start,
                 range_end,
-                num_values,
+                value_count = num_values,
                 "Populated IPv4 resource pool from range"
             );
         }
@@ -672,7 +672,7 @@ async fn define_by_range(
                 pool_name = name,
                 range_start,
                 range_end,
-                num_values,
+                value_count = num_values,
                 "Populated IPv6 resource pool from range"
             );
         }
@@ -688,7 +688,7 @@ async fn define_by_range(
                 pool_name = name,
                 range_start,
                 range_end,
-                num_values,
+                value_count = num_values,
                 "Populated IPv6 prefix pool from range"
             );
         }
@@ -704,7 +704,11 @@ async fn define_by_range(
                 model::resource_pool::ValueType::Integer,
             );
             populate(&pool, txn, values, auto_assign).await?;
-            tracing::debug!(pool_name = name, num_values, "Populated int resource pool");
+            tracing::debug!(
+                pool_name = name,
+                value_count = num_values,
+                "Populated int resource pool"
+            );
         }
     }
     Ok(())
@@ -716,7 +720,7 @@ fn expand_ip_prefix(network: &str) -> Result<Vec<Ipv4Addr>, eyre::Report> {
     let (start_addr, end_addr) = match (n.network(), n.broadcast()) {
         (IpAddr::V4(start), IpAddr::V4(end)) => (start, end),
         _ => {
-            eyre::bail!("Invalid IPv4 network: {network}");
+            eyre::bail!("invalid IPv4 network: {network}");
         }
     };
     let start: u32 = start_addr.into();
@@ -987,7 +991,7 @@ pub async fn create_common_pools(
     // We can't run if any of the mandatory pools are missing
     for name in &pool_names {
         if stats(&db, name).await?.free == 0 {
-            eyre::bail!("Resource pool '{name}' missing or full. Edit config file and restart.");
+            eyre::bail!("resource pool '{name}' missing or full. edit config file and restart");
         }
     }
 

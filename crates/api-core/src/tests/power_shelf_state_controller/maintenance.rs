@@ -58,9 +58,14 @@ use model::expected_power_shelf::ExpectedPowerShelf;
 use model::metadata::Metadata;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation};
 use model::rack::RackConfig;
+use rpc::common::SystemPowerControl;
+use rpc::forge::component_power_control_request::Target;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{ComponentPowerControlRequest, PowerShelfIdList};
 use sqlx::PgConnection;
 use state_controller::db_write_batch::DbWriteBatch;
 use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
+use tonic::Request;
 
 use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
 use crate::tests::common::api_fixtures::{
@@ -68,6 +73,30 @@ use crate::tests::common::api_fixtures::{
     get_config_with_rack_profiles,
 };
 use crate::tests::power_shelf_state_controller::fixtures::power_shelf::set_power_shelf_controller_state;
+
+fn cm_power_action(operation: PowerShelfMaintenanceOperation) -> SystemPowerControl {
+    match operation {
+        PowerShelfMaintenanceOperation::PowerOn => SystemPowerControl::On,
+        PowerShelfMaintenanceOperation::PowerOff => SystemPowerControl::ForceOff,
+    }
+}
+
+async fn request_power_shelf_maintenance_via_cm(
+    env: &TestEnv,
+    power_shelf_id: &PowerShelfId,
+    operation: PowerShelfMaintenanceOperation,
+) {
+    env.api
+        .component_power_control(Request::new(ComponentPowerControlRequest {
+            target: Some(Target::PowerShelfIds(PowerShelfIdList {
+                ids: vec![*power_shelf_id],
+            })),
+            action: cm_power_action(operation) as i32,
+            bypass_state_controller: false,
+        }))
+        .await
+        .expect("component_power_control should succeed");
+}
 
 const TEST_BMC_USER: &str = "root";
 const TEST_BMC_PASSWORD: &str = "password";
@@ -130,6 +159,7 @@ async fn build_test_component_manager(
             PowerShelfBackend::Mock
         },
         compute_tray_backend: ComputeBackend::Mock,
+        power_shelf_use_state_controller: true,
         ..Default::default()
     };
     let component_manager = component_manager::component_manager::build_component_manager(
@@ -272,6 +302,51 @@ fn assert_error_with_substring(state: &PowerShelfControllerState, expected_subst
 }
 
 // ── PowerOn ─────────────────────────────────────────────────────────────────
+
+#[crate::sqlx_test]
+async fn ready_transitions_to_maintenance_when_request_is_set_via_component_power_control(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_power_shelf_test_env(pool.clone()).await;
+    let power_shelf_id =
+        new_power_shelf(&env, Some("CM power-off".into()), None, None, None).await?;
+
+    request_power_shelf_maintenance_via_cm(
+        &env,
+        &power_shelf_id,
+        PowerShelfMaintenanceOperation::PowerOff,
+    )
+    .await;
+
+    {
+        let mut txn = pool.acquire().await?;
+        set_power_shelf_controller_state(
+            txn.as_mut(),
+            &power_shelf_id,
+            PowerShelfControllerState::Ready,
+        )
+        .await?;
+    }
+
+    let mut shelf = load_power_shelf(&pool, &power_shelf_id).await;
+    let mut services = services_with_component_manager(
+        &env,
+        build_test_component_manager(&env, env.rms_sim.as_rms_client()).await,
+    );
+    let outcome = run_handler(&mut services, &mut shelf).await;
+
+    assert!(matches!(
+        outcome,
+        StateHandlerOutcome::Transition {
+            next_state: PowerShelfControllerState::Maintenance {
+                operation: PowerShelfMaintenanceOperation::PowerOff,
+            },
+            ..
+        }
+    ));
+
+    Ok(())
+}
 
 /// PowerOn with a fully wired-up power shelf still fails because the
 /// underlay machine_interface is not provisioned in this layer's fixtures.

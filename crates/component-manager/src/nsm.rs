@@ -125,13 +125,13 @@ async fn register_and_map(
         .into_inner();
 
         let Some(reg_resp) = response.responses.into_iter().next() else {
-            tracing::warn!(bmc_mac = %ep.bmc_mac, "NSM returned empty response for switch");
+            tracing::warn!(bmc_mac_address = %ep.bmc_mac, "NSM returned empty response for switch");
             continue;
         };
 
         if reg_resp.status != nsm::StatusCode::Success as i32 {
             tracing::warn!(
-                bmc_mac = %ep.bmc_mac,
+                bmc_mac_address = %ep.bmc_mac,
                 error = %reg_resp.error,
                 "NSM registration failed for switch"
             );
@@ -392,7 +392,7 @@ impl NvSwitchManager for NsmSwitchBackend {
         services: Option<&[i32]>,
     ) -> Result<String, ComponentManagerError> {
         tracing::warn!(
-            bmc_mac = %endpoint.bmc_mac,
+            bmc_mac_address = %endpoint.bmc_mac,
             ?domain_name,
             ?services,
             "switch certificate configuration is not supported by NSM backend, passthrough"

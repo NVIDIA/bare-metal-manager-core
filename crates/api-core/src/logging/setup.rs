@@ -208,7 +208,10 @@ pub fn setup_logging(
             LevelFilter::current()
         ))
     } else {
-        tracing::info!("current log level: {}", LevelFilter::current());
+        tracing::info!(
+            configured_log_level = %LevelFilter::current(),
+            "current log level",
+        );
         Ok(Logging {
             filter: ActiveLevel::new(
                 initial_log_filter,

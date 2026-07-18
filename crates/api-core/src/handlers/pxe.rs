@@ -95,7 +95,7 @@ pub(crate) async fn get_cloud_init_instructions(
     let ip_str = &request.into_inner().ip;
     let ip: IpAddr = ip_str
         .parse()
-        .map_err(|e| CarbideError::InvalidArgument(format!("Failed parsing IP '{ip_str}': {e}")))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("failed parsing IP '{ip_str}': {e}")))?;
 
     // Note that this code path supports IPv6 at the *API layer*, but won't be
     // able to be exercised until DHCPv6 is working, which is a whole other thing
@@ -105,7 +105,7 @@ pub(crate) async fn get_cloud_init_instructions(
     // dual stacking interfaces, none of that means much until DHCPv6 is working
     // to actually hand those addresses out.
     let mut conn = api.database_connection.acquire().await.map_err(|e| {
-        CarbideError::internal(format!("Failed to acquire database connection: {e}"))
+        CarbideError::internal(format!("failed to acquire database connection: {e}"))
     })?;
     let instructions = resolve_cloud_init_instructions(api, &mut conn, ip).await?;
 
