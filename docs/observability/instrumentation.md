@@ -139,6 +139,24 @@ impl DynamicLog for CallFinished {
 }
 ```
 
+When the per-case *wording* matters, not just the level, declare `message = dynamic`
+and implement `DynamicMessage`; the derive routes `Event::message()` through it:
+
+```rust
+impl DynamicMessage for CallFinished {
+    fn message(&self) -> &'static str {
+        match self.outcome {
+            Outcome::Error => "outbound call failed",
+            Outcome::Ok => "outbound call finished",
+        }
+    }
+}
+```
+
+The level and the message are independent: an event can pair a dynamic level with a static
+message, or the reverse. Prefer a static `message` plus a `#[label]` where the label already
+names the case. Use `message = dynamic` only when the wording says something the label does not.
+
 ## Outbound calls
 
 Every generated gRPC client method is already wrapped: it records
