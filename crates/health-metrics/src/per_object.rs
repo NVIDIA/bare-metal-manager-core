@@ -40,7 +40,6 @@
 //! [`clear`]: PerObjectGauge::clear
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
@@ -76,54 +75,50 @@ type ValueSeries = Vec<(f64, Vec<String>)>;
 /// schema'd store and carries caller-supplied labels.
 type LabeledSeries = Vec<(f64, Vec<KeyValue>)>;
 
-/// The payload one object currently exposes on one store. All per-entry
-/// state is interior-mutable — the payload behind its own mutex (per-object,
-/// so effectively uncontended), the eviction deadline as an atomic — so every
-/// record/keep-alive/snapshot path runs under the map's *read* lock,
-/// concurrently with everything else. `updated_at_ms` is milliseconds since
-/// the store was created.
+/// The payload one object currently exposes on one store, together with its
+/// last refresh time, under one per-object (so effectively uncontended)
+/// mutex — a reader can never observe a fresh payload with a stale deadline
+/// or vice versa. Every record/keep-alive/snapshot path runs under the map's
+/// *read* lock, concurrently with everything else.
 #[derive(Debug)]
 struct StoreEntry<S> {
-    payload: Mutex<Arc<S>>,
-    updated_at_ms: AtomicU64,
+    inner: Mutex<(Arc<S>, Instant)>,
 }
 
 impl<S: PartialEq> StoreEntry<S> {
-    fn new(payload: S, now_ms: u64) -> Self {
+    fn new(payload: S) -> Self {
         Self {
-            payload: Mutex::new(Arc::new(payload)),
-            updated_at_ms: AtomicU64::new(now_ms),
+            inner: Mutex::new((Arc::new(payload), Instant::now())),
         }
     }
 
+    fn lock(&self) -> std::sync::MutexGuard<'_, (Arc<S>, Instant)> {
+        self.inner.lock().expect("per-object entry mutex poisoned")
+    }
+
     fn payload(&self) -> Arc<S> {
-        self.payload
-            .lock()
-            .expect("per-object entry mutex poisoned")
-            .clone()
+        self.lock().0.clone()
     }
 
     /// Replaces the payload unless unchanged (the common case: controllers
     /// re-record every iteration), and extends the eviction deadline.
-    fn record(&self, payload: S, now_ms: u64) {
-        let mut current = self
-            .payload
-            .lock()
-            .expect("per-object entry mutex poisoned");
-        if **current != payload {
-            *current = Arc::new(payload);
+    fn record(&self, payload: S) {
+        let mut inner = self.lock();
+        if *inner.0 != payload {
+            inner.0 = Arc::new(payload);
         }
-        drop(current);
-        self.touch(now_ms);
+        inner.1 = Instant::now();
     }
 
-    fn touch(&self, now_ms: u64) {
-        self.updated_at_ms.store(now_ms, Ordering::Release);
+    fn touch(&self) {
+        self.lock().1 = Instant::now();
     }
 
-    fn is_fresh(&self, now_ms: u64, hold_period: Duration) -> bool {
-        now_ms.saturating_sub(self.updated_at_ms.load(Ordering::Acquire))
-            <= hold_period.as_millis() as u64
+    /// Returns the payload while the entry is within `hold_period` of its
+    /// last refresh (relative to `now`), `None` once stale.
+    fn payload_if_fresh(&self, now: Instant, hold_period: Duration) -> Option<Arc<S>> {
+        let inner = self.lock();
+        (now.saturating_duration_since(inner.1) <= hold_period).then(|| inner.0.clone())
     }
 }
 
@@ -133,8 +128,6 @@ impl<S: PartialEq> StoreEntry<S> {
 #[derive(Debug)]
 struct PerObjectStore<S> {
     hold_period: Duration,
-    /// Instant zero for the entries' atomic `updated_at_ms` timestamps.
-    created: Instant,
     /// Read-locked by every recording, keep-alive, and scrape-snapshot path
     /// (per-entry state is interior-mutable), so they all run concurrently;
     /// the write lock is taken only when the object *set* changes (insert,
@@ -146,13 +139,8 @@ impl<S: PartialEq> PerObjectStore<S> {
     fn new(hold_period: Duration) -> Self {
         Self {
             hold_period,
-            created: Instant::now(),
             entries: RwLock::new(HashMap::new()),
         }
-    }
-
-    fn now_ms(&self) -> u64 {
-        self.created.elapsed().as_millis() as u64
     }
 
     fn read_entries(&self) -> std::sync::RwLockReadGuard<'_, HashMap<ObjectKey, StoreEntry<S>>> {
@@ -171,18 +159,17 @@ impl<S: PartialEq> PerObjectStore<S> {
     /// serialize with each other or with scrape snapshots; the write lock is
     /// taken only to admit an object seen for the first time.
     fn record(&self, key: ObjectKey, payload: S) {
-        let now_ms = self.now_ms();
         if let Some(entry) = self.read_entries().get(&key) {
-            entry.record(payload, now_ms);
+            entry.record(payload);
             return;
         }
         let mut entries = self.write_entries();
         // Re-check under the write lock: another writer may have inserted the
         // entry between the read and write acquisitions.
         if let Some(entry) = entries.get(&key) {
-            entry.record(payload, now_ms);
+            entry.record(payload);
         } else {
-            entries.insert(key, StoreEntry::new(payload, now_ms));
+            entries.insert(key, StoreEntry::new(payload));
         }
     }
 
@@ -200,9 +187,8 @@ impl<S: PartialEq> PerObjectStore<S> {
     /// Refreshes the entry's eviction deadline without changing its payload;
     /// a no-op if absent.
     fn touch(&self, key: &ObjectKey) {
-        let now_ms = self.now_ms();
         if let Some(entry) = self.read_entries().get(key) {
-            entry.touch(now_ms);
+            entry.touch();
         }
     }
 
@@ -211,11 +197,10 @@ impl<S: PartialEq> PerObjectStore<S> {
     /// longer describes the object's current state, so keeping it alive would
     /// publish contradictory labels.
     fn touch_if(&self, key: &ObjectKey, still_current: impl Fn(&S) -> bool) {
-        let now_ms = self.now_ms();
         match self.read_entries().get(key) {
             None => return,
             Some(entry) if still_current(&entry.payload()) => {
-                entry.touch(now_ms);
+                entry.touch();
                 return;
             }
             Some(_) => {}
@@ -225,7 +210,7 @@ impl<S: PartialEq> PerObjectStore<S> {
         let mut entries = self.write_entries();
         if let Some(entry) = entries.get(key) {
             if still_current(&entry.payload()) {
-                entry.touch(now_ms);
+                entry.touch();
             } else {
                 entries.remove(key);
             }
@@ -238,16 +223,15 @@ impl<S: PartialEq> PerObjectStore<S> {
     /// and evicted afterwards (the only write-lock the scrape path ever
     /// takes, and only when something actually expired).
     fn snapshot_live(&self) -> Vec<Arc<S>> {
-        let now_ms = self.now_ms();
+        let now = Instant::now();
         let mut stale = Vec::new();
         let snapshot: Vec<Arc<S>> = {
             let entries = self.read_entries();
             let mut snapshot = Vec::with_capacity(entries.len());
             for (key, entry) in entries.iter() {
-                if entry.is_fresh(now_ms, self.hold_period) {
-                    snapshot.push(entry.payload());
-                } else {
-                    stale.push(key.clone());
+                match entry.payload_if_fresh(now, self.hold_period) {
+                    Some(payload) => snapshot.push(payload),
+                    None => stale.push(key.clone()),
                 }
             }
             snapshot
@@ -256,10 +240,12 @@ impl<S: PartialEq> PerObjectStore<S> {
             let mut entries = self.write_entries();
             for key in stale {
                 // Re-check: the entry may have been refreshed or replaced
-                // since the read-locked pass.
-                if let Some(entry) = entries.get(&key)
-                    && !entry.is_fresh(now_ms, self.hold_period)
-                {
+                // since the read-locked pass (a refresh after `now` reads as
+                // fresh via the saturating comparison).
+                let still_stale = entries
+                    .get(&key)
+                    .is_some_and(|entry| entry.payload_if_fresh(now, self.hold_period).is_none());
+                if still_stale {
                     entries.remove(&key);
                 }
             }
@@ -272,10 +258,10 @@ impl<S: PartialEq> PerObjectStore<S> {
     /// work runs under the lock.
     #[cfg(test)]
     fn for_each_live(&self, mut visit: impl FnMut(&ObjectKey, &S)) {
-        let now_ms = self.now_ms();
+        let now = Instant::now();
         for (key, entry) in self.read_entries().iter() {
-            if entry.is_fresh(now_ms, self.hold_period) {
-                visit(key, &entry.payload());
+            if let Some(payload) = entry.payload_if_fresh(now, self.hold_period) {
+                visit(key, &payload);
             }
         }
     }
@@ -343,41 +329,17 @@ impl PerObjectGauge {
         self.0.store.remove(&ObjectKey::new(object_type, object_id));
     }
 
-    /// Refreshes the entry's eviction deadline, but only while every series
-    /// still carries all of the `required` `(label name, value)` pairs;
-    /// otherwise the entry is removed — the recorded fact no longer describes
-    /// the object's current state, so keeping it alive would publish
-    /// contradictory labels. Required names must exist in the gauge's schema.
-    pub fn touch_if_labels(
-        &self,
-        object_type: &'static str,
-        object_id: &str,
-        required: &[(&str, &str)],
-    ) {
-        let indexed: Vec<(usize, &str)> = required
-            .iter()
-            .map(|(name, value)| {
-                let index = self
-                    .0
-                    .label_names
-                    .iter()
-                    .position(|label| label == name)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "required label {name:?} is not in the gauge schema {:?}",
-                            self.0.label_names
-                        )
-                    });
-                (index, *value)
-            })
-            .collect();
+    /// Refreshes the entry's eviction deadline, but only while every series'
+    /// leading label values still match `prefix` (in schema order, like
+    /// [`Self::set`]); otherwise the entry is removed — the recorded fact no
+    /// longer describes the object's current state, so keeping it alive would
+    /// publish contradictory labels.
+    pub fn touch_if_values(&self, object_type: &'static str, object_id: &str, prefix: &[String]) {
         let key = ObjectKey::new(object_type, object_id);
         self.0.store.touch_if(&key, |series| {
-            series.iter().all(|(_, label_values)| {
-                indexed
-                    .iter()
-                    .all(|(index, value)| label_values[*index] == *value)
-            })
+            series
+                .iter()
+                .all(|(_, label_values)| label_values.starts_with(prefix))
         });
     }
 }
@@ -917,17 +879,18 @@ mod tests {
     }
 
     #[test]
-    fn touch_if_labels_clears_series_with_stale_labels() {
-        let gauge = PerObjectGauge::new(&["state"], Duration::from_secs(60));
-        gauge.set("machine", "machine-a", 1.0, values(&["failed"]));
+    fn touch_if_values_clears_series_with_stale_values() {
+        let gauge = PerObjectGauge::new(&["state", "reason"], Duration::from_secs(60));
+        gauge.set("machine", "machine-a", 1.0, values(&["failed", "hardware"]));
 
-        // The fact still matches the object's state: kept alive.
-        gauge.touch_if_labels("machine", "machine-a", &[("state", "failed")]);
+        // The fact still matches the object's state (prefix compare, so the
+        // trailing reason label is not required): kept alive.
+        gauge.touch_if_values("machine", "machine-a", &values(&["failed"]));
         assert_eq!(gauge_snapshot(&gauge).len(), 1);
 
         // The object's state moved on: the stale fact is removed rather than
         // kept publishing contradictory labels.
-        gauge.touch_if_labels("machine", "machine-a", &[("state", "provisioning")]);
+        gauge.touch_if_values("machine", "machine-a", &values(&["provisioning"]));
         assert!(gauge_snapshot(&gauge).is_empty());
     }
 

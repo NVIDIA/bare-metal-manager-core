@@ -163,15 +163,10 @@ impl PerObjectStateRecorder {
             // Keep the series alive only while it still describes the state
             // the object is in — after an out-of-band state change the kept
             // fact would contradict the entered/sla series just recorded.
-            ManualIntervention::Unknown => self.metrics.manual_intervention.touch_if_labels(
+            ManualIntervention::Unknown => self.metrics.manual_intervention.touch_if_values(
                 object_type,
                 object_id,
-                &[
-                    ("object_type", object_type),
-                    ("object_id", object_id),
-                    ("state", state),
-                    ("substate", substate),
-                ],
+                &label_values(),
             ),
         }
     }
