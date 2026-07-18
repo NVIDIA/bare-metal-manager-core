@@ -139,6 +139,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.InstanceInterfaceVpcSelection",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.InstanceIBInterfaceConfig",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
@@ -227,6 +231,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.MachineSpxAttachmentStatusObservation", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.InstanceInterfaceStatus",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.InstanceInterfaceResolvedVpcPrefixes",
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(

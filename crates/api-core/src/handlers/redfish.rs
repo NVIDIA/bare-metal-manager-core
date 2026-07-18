@@ -50,7 +50,7 @@ pub async fn redfish_browse(
     let uri: http::Uri = match request.uri.clone().parse() {
         Ok(uri) => uri,
         Err(err) => {
-            return Err(CarbideError::internal(format!("Parsing uri failed: {err}")).into());
+            return Err(CarbideError::internal(format!("parsing uri failed: {err}")).into());
         }
     };
 
@@ -71,7 +71,7 @@ pub async fn redfish_browse(
     {
         Ok(response) => response,
         Err(e) => {
-            return Err(CarbideError::internal(format!("Http request failed: {e:?}")).into());
+            return Err(CarbideError::internal(format!("http request failed: {e:?}")).into());
         }
     };
 
@@ -89,7 +89,7 @@ pub async fn redfish_browse(
     let status = response.status();
     let text = response.text().await.map_err(|e| {
         CarbideError::internal(format!(
-            "Error reading response body: {e}, Status: {status}"
+            "error reading response body: {e}, status: {status}"
         ))
     })?;
 
@@ -464,7 +464,7 @@ pub(crate) async fn create_client(
             Err(err) => {
                 tracing::error!(error = %err, "build_http_client");
                 return Err(CarbideError::internal(format!(
-                    "Http building failed: {err}"
+                    "http building failed: {err}"
                 )));
             }
         };

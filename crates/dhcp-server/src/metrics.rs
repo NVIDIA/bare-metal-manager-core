@@ -119,7 +119,8 @@ impl From<&DhcpError> for DropReason {
 /// A DHCP packet was decoded from the wire, whatever becomes of it next.
 #[derive(Event)]
 #[event(
-    name = "carbide_dhcp_requests_total",
+    event_name = "dhcp_server_request_received",
+    metric_name = "carbide_dhcp_requests_total",
     component = "nico-dhcp",
     log = off,
     metric = counter,
@@ -135,7 +136,8 @@ pub struct DhcpRequestReceived {
 /// packet processing to the final send.
 #[derive(Event)]
 #[event(
-    name = "carbide_dhcp_dropped_requests_total",
+    event_name = "dhcp_server_packet_dropped",
+    metric_name = "carbide_dhcp_dropped_requests_total",
     component = "nico-dhcp",
     message = "Dropped a DHCP packet",
     log = error,
@@ -155,7 +157,8 @@ pub struct DhcpPacketDropped {
 /// a proposed lease, an `ack` a committed one, a `nak` a refusal.
 #[derive(Event)]
 #[event(
-    name = "carbide_dhcp_replies_sent_total",
+    event_name = "dhcp_server_reply_sent",
+    metric_name = "carbide_dhcp_replies_sent_total",
     component = "nico-dhcp",
     log = off,
     metric = counter,

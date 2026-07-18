@@ -101,7 +101,8 @@ pub(crate) enum OutcomeReason {
 /// failure paths stay as they are, and the rate is the signal.
 #[derive(Event)]
 #[event(
-    name = "carbide_pxe_boot_outcomes_total",
+    event_name = "pxe_boot_outcome",
+    metric_name = "carbide_pxe_boot_outcomes_total",
     component = "carbide-pxe",
     log = off,
     metric = counter,

@@ -68,7 +68,7 @@ pub async fn assert_connection_works_with_retries_and_timeout(
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 } else {
                     return Err(error).context(format!(
-                        "Could not connect to {} after {} retries",
+                        "could not connect to {} after {} retries",
                         connection_config.connection_name, retry_count,
                     ));
                 }
@@ -76,7 +76,7 @@ pub async fn assert_connection_works_with_retries_and_timeout(
             // Timed out
             Err(elapsed) => {
                 return Err(elapsed).context(format!(
-                    "Timed out asserting working connection to {}",
+                    "timed out asserting working connection to {}",
                     connection_config.connection_name
                 ));
             }
@@ -235,7 +235,7 @@ pub async fn assert_connection_works(
 
     if result.is_ok() && matches!(test_state, ConnectionTestState::WaitingForPrompt) {
         return Err(eyre::format_err!(format!(
-            "Did not detect a prompt after connecting to {connection_name}"
+            "did not detect a prompt after connecting to {connection_name}"
         )));
     }
 

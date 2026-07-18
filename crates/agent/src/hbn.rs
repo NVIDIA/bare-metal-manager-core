@@ -98,7 +98,7 @@ pub async fn run_in_container_shell(cmd: &str) -> Result<(), eyre::Report> {
     run_in_container(&container_id, &["bash", "-c", cmd], check_result)
         .await
         .wrap_err_with(|| {
-            format!("Failed executing '{cmd}' in container. Check logs in /var/log/doca/hbn/")
+            format!("failed executing '{cmd}' in container. check logs in /var/log/doca/hbn/")
         })?;
     Ok(())
 }

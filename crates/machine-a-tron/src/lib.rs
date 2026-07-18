@@ -20,6 +20,7 @@ mod bmc_mock_wrapper;
 mod config;
 mod control_router;
 mod dhcp_wrapper;
+mod discovery_info;
 mod dpu_machine;
 mod host_machine;
 mod machine_a_tron;

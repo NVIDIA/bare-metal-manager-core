@@ -28,7 +28,7 @@ fn with_reboot_context<T>(
     instance_id: InstanceId,
 ) -> CarbideCliResult<T> {
     result
-        .wrap_err_with(|| format!("Failed to request reboot for instance {instance_id}"))
+        .wrap_err_with(|| format!("failed to request reboot for instance {instance_id}"))
         .map_err(CarbideCliError::from)
 }
 
@@ -73,7 +73,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            format!("Failed to request reboot for instance {instance_id}")
+            format!("failed to request reboot for instance {instance_id}")
         );
         let CarbideCliError::EyreReport(report) = error else {
             panic!("expected an EyreReport");

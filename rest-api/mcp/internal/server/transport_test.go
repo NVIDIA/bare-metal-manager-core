@@ -228,6 +228,194 @@ func TestHandler_ToolsCall_TokenArgWins(t *testing.T) {
 	require.Equal(t, "Bearer explicit-tool-arg-token", recordedAuth.Load())
 }
 
+func TestHandler_ToolsCall_RejectsUnapprovedCredentialDestination(t *testing.T) {
+	tests := []struct {
+		name          string
+		opts          Options
+		authorization string
+		wantError     string
+	}{
+		{
+			name:          "configured_base_url_with_inbound_bearer",
+			opts:          Options{BaseURL: "https://configured.example.com", Org: "tester"},
+			authorization: "Bearer inbound-bearer",
+			wantError:     "does not match the configured server base URL",
+		},
+		{
+			name:      "configured_base_url_with_default_token",
+			opts:      Options{BaseURL: "https://configured.example.com", Org: "tester", Token: "default-token"},
+			wantError: "does not match the configured server base URL",
+		},
+		{
+			name:          "dynamic_base_url_with_inbound_bearer",
+			opts:          Options{Org: "tester"},
+			authorization: "Bearer inbound-bearer",
+			wantError:     "refusing to forward inherited credentials",
+		},
+		{
+			name:      "dynamic_base_url_with_default_token",
+			opts:      Options{Org: "tester", Token: "default-token"},
+			wantError: "refusing to forward inherited credentials",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var requests atomic.Int64
+			capture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`[]`))
+			}))
+			defer capture.Close()
+
+			server, err := BuildServer([]byte(synthSpec), tt.opts)
+			require.NoError(t, err)
+			ts := httptest.NewServer(NewHandler(server))
+			defer ts.Close()
+
+			resp := mcpPost(t, ts.URL, tt.authorization, jsonrpcRequest(4, "tools/call", map[string]any{
+				"name": "nico_get_all_foo",
+				"arguments": map[string]any{
+					"base_url": capture.URL,
+				},
+			}))
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			result := decodeToolCallResult(t, body)
+			require.True(t, result.IsError, "tool call should be rejected: %s", body)
+			require.Contains(t, firstText(result), tt.wantError)
+			require.Zero(t, requests.Load(), "unapproved destination received an outbound request")
+		})
+	}
+}
+
+func TestHandler_ToolsCall_DynamicDestinationUsesExplicitToken(t *testing.T) {
+	var recordedAuth atomic.Value
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recordedAuth.Store(r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer upstream.Close()
+
+	server, err := BuildServer([]byte(synthSpec), Options{Org: "tester", Token: "default-token"})
+	require.NoError(t, err)
+	ts := httptest.NewServer(NewHandler(server))
+	defer ts.Close()
+
+	resp := mcpPost(t, ts.URL, "Bearer inbound-bearer", jsonrpcRequest(5, "tools/call", map[string]any{
+		"name": "nico_get_all_foo",
+		"arguments": map[string]any{
+			"base_url": upstream.URL,
+			"token":    "explicit-tool-arg-token",
+		},
+	}))
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	result := decodeToolCallResult(t, body)
+	require.False(t, result.IsError, "tool call should succeed: %s", body)
+	require.Equal(t, "Bearer explicit-tool-arg-token", recordedAuth.Load())
+}
+
+func TestHandler_ToolsCall_CrossOriginRedirectRejected(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		authorization string
+	}{
+		{name: "authenticated", authorization: "Bearer caller-jwt"},
+		{name: "unauthenticated"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var (
+				captureRequests atomic.Int64
+				captureAuth     atomic.Value
+				sourceAuth      atomic.Value
+			)
+			captureAuth.Store("")
+			sourceAuth.Store("")
+			capture := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				captureRequests.Add(1)
+				captureAuth.Store(r.Header.Get("Authorization"))
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`[]`))
+			}))
+			defer capture.Close()
+
+			source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sourceAuth.Store(r.Header.Get("Authorization"))
+				http.Redirect(w, r, capture.URL, http.StatusTemporaryRedirect)
+			}))
+			defer source.Close()
+
+			server, err := BuildServer([]byte(synthSpec), Options{BaseURL: source.URL, Org: "tester"})
+			require.NoError(t, err)
+			ts := httptest.NewServer(NewHandler(server))
+			defer ts.Close()
+
+			resp := mcpPost(t, ts.URL, tt.authorization, jsonrpcRequest(6, "tools/call", map[string]any{
+				"name":      "nico_get_all_foo",
+				"arguments": map[string]any{},
+			}))
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			result := decodeToolCallResult(t, body)
+			require.True(t, result.IsError, "tool call should be rejected: %s", body)
+			require.Contains(t, firstText(result), "refusing cross-origin redirect")
+			require.Equal(t, tt.authorization, sourceAuth.Load())
+			require.Zero(t, captureRequests.Load(), "cross-origin redirect destination received a request")
+			require.Empty(t, captureAuth.Load(), "cross-origin redirect destination received Authorization")
+		})
+	}
+}
+
+func TestHandler_ToolsCall_SameOriginRedirectAllowed(t *testing.T) {
+	var (
+		requests       atomic.Int64
+		redirectedAuth atomic.Value
+	)
+	redirectedAuth.Store("")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.URL.Path != "/redirected" {
+			http.Redirect(w, r, "/redirected", http.StatusTemporaryRedirect)
+			return
+		}
+		redirectedAuth.Store(r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer upstream.Close()
+
+	server, err := BuildServer([]byte(synthSpec), Options{BaseURL: upstream.URL, Org: "tester", Token: "default-token"})
+	require.NoError(t, err)
+	ts := httptest.NewServer(NewHandler(server))
+	defer ts.Close()
+
+	resp := mcpPost(t, ts.URL, "", jsonrpcRequest(7, "tools/call", map[string]any{
+		"name":      "nico_get_all_foo",
+		"arguments": map[string]any{},
+	}))
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	result := decodeToolCallResult(t, body)
+	require.False(t, result.IsError, "tool call should succeed: %s", body)
+	require.Equal(t, int64(2), requests.Load())
+	require.Equal(t, "Bearer default-token", redirectedAuth.Load())
+}
+
 // TestHandler_ConcurrentCallersDoNotBleedTokens proves the
 // statelessness invariant: two callers hitting the same handler with
 // different bearers each get their own bearer forwarded to NICo REST.

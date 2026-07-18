@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
+use bmc_mock::injection::InjectionStore;
 use bmc_mock::ipmi_sim::{IpmiSimConfig, IpmiSimHandle};
 use bmc_mock::{
     BmcState, Callbacks, CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo,
@@ -53,9 +54,15 @@ impl BmcMockWrapper {
         callbacks: Arc<dyn Callbacks>,
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
+        injection: Arc<InjectionStore>,
     ) -> Self {
-        let (bmc_mock_router, bmc_mock_state) =
-            bmc_mock::machine_router(machine_info, callbacks, host_id.to_string(), true);
+        let (bmc_mock_router, bmc_mock_state) = bmc_mock::machine_router_with_injection_store(
+            machine_info,
+            callbacks,
+            host_id.to_string(),
+            true,
+            injection,
+        );
 
         BmcMockWrapper {
             ssh_prompt_behavior: match machine_info {

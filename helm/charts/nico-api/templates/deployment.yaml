@@ -31,7 +31,7 @@ spec:
       initContainers:
         {{- range .Values.bootArtifactContainers }}
         - name: {{ .name }}
-          image: {{ .image }}
+          image: {{ if and .repository .tag }}{{ .repository }}:{{ .tag }}{{ else }}{{ .image }}{{ end }}
           {{- with .command }}
           command:
             {{- toYaml . | nindent 12 }}

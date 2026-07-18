@@ -337,7 +337,7 @@ pub async fn admin_network(
     let host_machine_id = snapshot.host_snapshot.id;
     let Some(interface) = interface else {
         return Err(CarbideError::InvalidArgument(format!(
-            "No admin interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
+            "no admin interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
         ))
         .into());
     };
@@ -355,7 +355,7 @@ pub async fn admin_network(
         })
         .ok_or_else(|| {
             CarbideError::InvalidArgument(format!(
-                "No primary admin interface found on host: {host_machine_id}"
+                "no primary admin interface found on host: {host_machine_id}"
             ))
         })?;
 
@@ -365,7 +365,7 @@ pub async fn admin_network(
 
     let Some(admin_segment) = admin_segment else {
         return Err(CarbideError::internal(format!(
-            "Unknown primary admin segment `{}` attached on host: {host_machine_id}",
+            "unknown primary admin segment `{}` attached on host: {host_machine_id}",
             active_interface.segment_id
         ))
         .into());
@@ -405,7 +405,7 @@ pub async fn admin_network(
         .find(|address| address.is_ipv4())
         .ok_or_else(|| {
             CarbideError::InvalidArgument(format!(
-                "No IPv4 address found on primary host admin interface {}",
+                "no IPv4 address found on primary host admin interface {}",
                 active_interface.id
             ))
         })?;
@@ -466,7 +466,7 @@ pub async fn admin_network(
                     None => {
                         // if FNN is enabled, VPC must be created and updated in admin_segment.
                         return Err(CarbideError::internal(format!(
-                            "Admin VPC is not found with id: {vpc_id}."
+                            "admin VPC is not found with id: {vpc_id}"
                         ))
                         .into());
                     }

@@ -45,6 +45,7 @@ nv-redfish = { workspace = true, features = [
   "computer-systems",
   "ethernet-interfaces",
   "host-interfaces",
+  "manager-network-protocol",
   "network-adapters",
   "network-device-functions",
   "managers",

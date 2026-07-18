@@ -51,7 +51,7 @@ pub(crate) async fn modify_dpf_state(
 
     if !request.dpf_enabled && machine_snapshot.host_snapshot.dpf.used_for_ingestion {
         return Err(CarbideError::FailedPrecondition(format!(
-            "Cannot disable DPF for host {}: machine was ingested via DPF.",
+            "cannot disable DPF for host {}: machine was ingested via DPF",
             machine_id
         ))
         .into());
@@ -133,7 +133,7 @@ pub(crate) async fn get_dpf_host_snapshot(
 
     let host_dpf_id = machine.dpf_id().ok_or_else(|| {
         CarbideError::InvalidArgument(format!(
-            "Host {machine_id} has no BMC MAC; cannot derive DPF node name"
+            "host {machine_id} has no BMC MAC; cannot derive DPF node name"
         ))
     })?;
     let node_name = dpu_node_cr_name(&host_dpf_id);
@@ -144,7 +144,7 @@ pub(crate) async fn get_dpf_host_snapshot(
         .map_err(CarbideError::DpfError)?;
 
     let json_payload = serde_json::to_string_pretty(&snapshot).map_err(|e| {
-        CarbideError::internal(format!("Failed to serialize DPF host snapshot: {e}"))
+        CarbideError::internal(format!("failed to serialize DPF host snapshot: {e}"))
     })?;
 
     Ok(Response::new(rpc::DpfHostSnapshotResponse { json_payload }))

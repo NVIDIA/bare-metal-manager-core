@@ -49,7 +49,8 @@ pub(crate) enum WakeupTrigger {
 /// of these is a leading "machine stuck" signal.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_state_handler_wakeup_failures_total",
+    event_name = "state_handler_wakeup_failed",
+    metric_name = "carbide_state_handler_wakeup_failures_total",
     component = "nico-api",
     log = warn,
     metric = counter,

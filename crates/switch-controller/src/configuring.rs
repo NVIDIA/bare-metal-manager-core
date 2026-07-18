@@ -82,43 +82,22 @@ async fn handle_rotate_os_password(
     let outcome = StateHandlerOutcome::transition(SwitchControllerState::FetchInfo);
 
     // REQ-6 (set NVOS from factory) is not implemented yet, so this is gated off.
-    // Today NICo does not change the NVOS password from the factory default: it
-    // only copies the operator-provided credential into Vault (the `else` branch)
-    // so the rest of NICo can authenticate, and records no rotation convergence
-    // (the backfill skips `nvos` for the same reason). When REQ-6 lands, flip
-    // `update_device_password` to `true`: that branch rotates the password on the
-    // switch, stores the resulting NICo-owned credential, and records `nvos`
-    // convergence (keyed by BMC MAC) committed atomically with the transition.
-    //
-    // IMPORTANT: before flipping this on, REQ-6 must also seed a
-    // `sitewide_credential_rotation` row for `nvos` (via the backfill migration
-    // or at runtime). `record_device_converged` now requires the site-wide
-    // target to exist and returns `MissingSitewideRotationTarget` otherwise --
-    // unlike the other credential types, nvos has no backfilled row today, so
-    // ungating without seeding it would make every switch fail here.
+    // Today NICo only stores the operator-provided credential so the rest of
+    // NICo can authenticate. The first NVOS rotation target is published only
+    // after its credential has been stored and verified; password mutation and
+    // convergence recording remain disabled until that path is activated.
     let update_device_password = false;
+
     if update_device_password {
-        let mut txn = ctx.services.db_pool.begin().await?;
-
-        // TODO(REQ-6): rotate the NVOS password on the switch here (factory ->
-        // NICo-owned) and store the resulting credential in Vault before recording
-        // convergence below. Only once the password is actually changed on the
-        // device has the switch converged to the current nvos target.
-        db::credential_rotation::record_device_converged(
-            &mut txn,
-            bmc_mac_address,
-            db::credential_rotation::CredentialRotationType::Nvos,
-        )
-        .await
-        .map_err(|e| {
-            StateHandlerError::GenericError(eyre::eyre!(
-                "switch {:?}: failed to record nvos rotation convergence: {}",
-                switch_id,
-                e
-            ))
-        })?;
-
-        Ok(outcome.with_txn(txn))
+        // Activation must stage an exact target before dispatch, then persist
+        // and read back the per-device credential before promoting the matching
+        // target, attempt, and backend job. Fail closed until that complete
+        // sequence is implemented.
+        Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Error {
+                cause: "NVOS password rotation is not implemented".to_string(),
+            },
+        ))
     } else {
         // Copy the operator-provided NVOS admin credential from the expected
         // switch into Vault. This does not touch the switch, so no convergence is

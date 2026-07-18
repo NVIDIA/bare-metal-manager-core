@@ -889,10 +889,13 @@ fn machine_setup_status<B: Bmc>(
                     .iter()
                     .flat_map(|expected| explored_system.verify_bios_attr(expected)),
             );
-            if let Some(mac) = boot_interface_mac
-                && let Some(diff) = explored_system.check_boot_by_uefi_prefix(mac)
-            {
-                diffs.push(diff)
+            if let Some(mac) = boot_interface_mac {
+                if let Some(diff) = explored_system.check_boot_by_uefi_prefix(mac) {
+                    diffs.push(diff);
+                }
+                if let Some(diff) = explored_system.check_boot_option_enabled_by_uefi_prefix(mac) {
+                    diffs.push(diff);
+                }
             }
         }
 

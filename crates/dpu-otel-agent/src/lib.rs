@@ -34,7 +34,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // development overrides
         Some(config_path) => (
             AgentConfig::load_from(&config_path).wrap_err(format!(
-                "Error loading agent configuration from {}",
+                "error loading agent configuration from {}",
                 config_path.display()
             ))?,
             config_path.display().to_string(),

@@ -102,7 +102,8 @@ where
 /// An MQTT message reached a subscription handler, before any queueing.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_received_total",
+    event_name = "dsx_exchange_message_received",
+    metric_name = "carbide_dsx_exchange_consumer_messages_received_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -114,7 +115,8 @@ pub struct MessageReceived;
 /// applied (or its alert cleared).
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_processed_total",
+    event_name = "dsx_exchange_message_processed",
+    metric_name = "carbide_dsx_exchange_consumer_messages_processed_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -128,7 +130,8 @@ pub struct MessageProcessed;
 /// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_dropped_total",
+    event_name = "dsx_exchange_message_dropped",
+    metric_name = "carbide_dsx_exchange_consumer_messages_dropped_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -143,7 +146,8 @@ pub struct MessageDropped;
 /// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_dedup_skipped_total",
+    event_name = "dsx_exchange_message_deduplicated",
+    metric_name = "carbide_dsx_exchange_consumer_dedup_skipped_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -158,7 +162,8 @@ pub struct MessageDeduplicated;
 /// framework records the `Duration` observation in seconds.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_message_age_seconds",
+    event_name = "dsx_exchange_message_age_sampled",
+    metric_name = "carbide_dsx_exchange_consumer_message_age_seconds",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = histogram,
@@ -167,6 +172,34 @@ pub struct MessageDeduplicated;
 pub struct MessageAge {
     #[observation]
     pub age: std::time::Duration,
+}
+
+/// A rack health report could not be persisted to the Carbide API -- either a
+/// coolant-leak override insert or its clearing removal failed. The value
+/// re-arrives on the next message, so processing still retries, but a rising
+/// rate is safety-relevant: leak state is not reaching the API. Logs the
+/// failure and moves the counter from one `emit`.
+///
+/// Unlike the grandfathered counters above, this is a new metric, so it uses
+/// the standard checked name: the exporter appends the single `_total` that
+/// `/metrics` shows.
+#[derive(Event)]
+#[event(
+    event_name = "dsx_exchange_health_report_persist_failed",
+    metric_name = "carbide_dsx_exchange_consumer_health_report_persist_failures_total",
+    component = "nico-dsx-exchange-consumer",
+    log = warn,
+    metric = counter,
+    message = "Failed to persist rack health report",
+    describe = "Number of rack health report persist failures against the Carbide API"
+)]
+pub struct HealthReportPersistFailed {
+    /// The rack whose health report could not be persisted.
+    #[context]
+    pub rack_id: String,
+    /// The API error that prevented the persist.
+    #[context]
+    pub error: String,
 }
 
 /// Consumer metrics that remain hand-rolled OpenTelemetry counters.

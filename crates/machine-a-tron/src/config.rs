@@ -44,19 +44,19 @@ use crate::machine_state_machine::OsImage;
 pub struct MachineATronArgs {
     #[clap(long, env = "FORGE_ROOT_CA_PATH")]
     #[clap(
-        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub forge_root_ca_path: Option<String>,
 
     #[clap(long, env = "CLIENT_CERT_PATH")]
     #[clap(
-        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_CERT_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_cert_path: Option<String>,
 
     #[clap(long, env = "CLIENT_KEY_PATH")]
     #[clap(
-        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to CLIENT_KEY_PATH environment variable or $HOME/.config/nico_api_cli.json file."
     )]
     pub client_key_path: Option<String>,
 

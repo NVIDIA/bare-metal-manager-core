@@ -377,7 +377,7 @@ pub(crate) async fn refresh_endpoint_report(
         Some(guard) => guard,
         None => {
             return Err(CarbideError::AlreadyInProgress(format!(
-                "Endpoint refresh already in progress for {bmc_ip}"
+                "endpoint refresh already in progress for {bmc_ip}"
             ))
             .into());
         }
@@ -455,7 +455,7 @@ pub(crate) async fn refresh_endpoint_report(
 
         let ep = endpoints.into_iter().next().ok_or_else(|| {
             tonic::Status::from(CarbideError::internal(format!(
-                "Endpoint {bmc_ip} not found after update"
+                "endpoint {bmc_ip} not found after update"
             )))
         })?;
 
@@ -500,7 +500,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
     if in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot pause/resume remediation for endpoint {bmc_ip} because a machine exists for it"
+            "cannot pause/resume remediation for endpoint {bmc_ip} because a machine exists for it"
         ))
         .into());
     }
@@ -527,7 +527,7 @@ pub(crate) async fn is_bmc_in_managed_host(
     let mut addrs = lookup_host(address).await?;
     let Some(bmc_addr) = addrs.next() else {
         return Err(CarbideError::InvalidArgument(format!(
-            "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
+            "could not resolve {}. must be hostname[:port] or IPv4[:port]",
             req.ip_address
         ))
         .into());
@@ -572,7 +572,7 @@ pub(crate) async fn delete_explored_endpoint(
 
     if in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot delete endpoint {bmc_ip} because a machine exists for it. Did you mean to force-delete the machine?"
+            "cannot delete endpoint {bmc_ip} because a machine exists for it. did you mean to force-delete the machine?"
         ))
         .into());
     }

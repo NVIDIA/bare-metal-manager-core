@@ -178,6 +178,8 @@ impl TryFrom<rpc::machine_discovery::LldpSwitchData> for LldpSwitchData {
     type Error = RpcDataConversionError;
 
     fn try_from(data: rpc::machine_discovery::LldpSwitchData) -> Result<Self, Self::Error> {
+        // Reads the legacy combined `id`/`remote_port` proto fields (deprecated).
+        #[allow(deprecated)]
         Ok(Self {
             name: data.name,
             id: data.id,
@@ -200,6 +202,9 @@ impl TryFrom<LldpSwitchData> for rpc::machine_discovery::LldpSwitchData {
     type Error = RpcDataConversionError;
 
     fn try_from(data: LldpSwitchData) -> Result<Self, Self::Error> {
+        // The api-model type carries only the legacy combined `id`/`remote_port`;
+        // the split *_type/*_value proto fields default to empty on this path.
+        #[allow(deprecated)]
         Ok(Self {
             name: data.name,
             id: data.id,
@@ -211,6 +216,7 @@ impl TryFrom<LldpSwitchData> for rpc::machine_discovery::LldpSwitchData {
                 .map(|ip| ip.to_string())
                 .collect(),
             remote_port: data.remote_port,
+            ..Default::default()
         })
     }
 }

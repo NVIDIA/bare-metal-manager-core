@@ -117,7 +117,7 @@ pub(crate) async fn update_power_option(
     let desired_power_state = desired_power_state.into();
     if desired_power_state == current_power_options.desired_power_state {
         return Err(CarbideError::InvalidArgument(format!(
-            "Power State is already set as {desired_power_state:?}. No change is performed."
+            "power state is already set as {desired_power_state:?}. no change is performed"
         ))
         .into());
     }

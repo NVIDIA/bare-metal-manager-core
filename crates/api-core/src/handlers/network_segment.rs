@@ -141,7 +141,7 @@ pub(crate) async fn create(
 
         let vpc = vpcs
             .first()
-            .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found.")))?;
+            .ok_or_else(|| CarbideError::internal(format!("VPC ID: {vpc_id} not found")))?;
 
         let virtualization_type = vpc.config.network_virtualization_type;
 
@@ -208,7 +208,7 @@ pub(crate) async fn attach_to_vpc(
 
     if segment.config.segment_type != NetworkSegmentType::HostInband {
         return Err(CarbideError::InvalidArgument(format!(
-            "Only host_inband network segments can be attached to a VPC with this API, got {}",
+            "only host_inband network segments can be attached to a VPC with this API, got {}",
             segment.config.segment_type
         ))
         .into());
@@ -223,7 +223,7 @@ pub(crate) async fn attach_to_vpc(
         Some(current_vpc_id) if current_vpc_id == vpc_id => segment,
         Some(current_vpc_id) if !allow_replace => {
             return Err(CarbideError::FailedPrecondition(format!(
-                "Network segment {} is already attached to VPC {}",
+                "network segment {} is already attached to VPC {}",
                 segment.id, current_vpc_id
             ))
             .into());

@@ -34,7 +34,8 @@ use crate::auth::{AuthContext, CasbinAuthorizer, Predicate};
 /// needs a real method registry to bucket against.)
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_auth_denied_total",
+    event_name = "authorization_denied",
+    metric_name = "carbide_auth_denied_total",
     component = "nico-api",
     log = info,
     metric = counter,

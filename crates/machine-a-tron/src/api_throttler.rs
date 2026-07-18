@@ -86,7 +86,10 @@ pub fn run(mut interval: Interval, api_client: ApiClient) -> ApiThrottler {
                             get_machine_callers = HashMap::new()
                         }
                     }
-                    Some(cmd) = control_rx.recv() => {
+                    cmd = control_rx.recv() => {
+                        let Some(cmd) = cmd else {
+                            return;
+                        };
                         match cmd {
                             ApiCommand::GetMachine(machine_id, reply) => get_machine_callers.entry(machine_id).or_default().push(reply),
                         };

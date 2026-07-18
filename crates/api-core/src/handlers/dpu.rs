@@ -120,7 +120,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         Some(ip) => ip,
         None => {
             return Err(CarbideError::FailedPrecondition(format!(
-                "DPU {dpu_machine_id} needs discovery. Does not have a loopback IP yet."
+                "DPU {dpu_machine_id} needs discovery. does not have a loopback IP yet"
             ))
             .into());
         }
@@ -138,7 +138,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .is_none()
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "DPU {dpu_machine_id} needs discovery. Does not have a secondary VTEP IP yet."
+            "DPU {dpu_machine_id} needs discovery. does not have a secondary VTEP IP yet"
         ))
         .into());
     };
@@ -947,7 +947,7 @@ pub(crate) async fn record_dpu_network_status(
             &mut txn,
             *host_interface_id,
             Some(timestamp.parse().map_err(|e| {
-                CarbideError::InvalidArgument(format!("Failed parsing dhcp timestamp: {e}"))
+                CarbideError::InvalidArgument(format!("failed parsing dhcp timestamp: {e}"))
             })?),
         )
         .await?;
@@ -1224,7 +1224,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .contains(&health_report::HealthAlertClassification::prevent_allocations())
     }) {
         return Err(CarbideError::InvalidArgument(format!(
-            "Machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. Set this precondition with: `machine health-override add --template host-update <id>`.",
+            "machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. set this precondition with: `machine health-override add --template host-update <id>`",
         )).into());
     }
 
@@ -1305,7 +1305,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
             if ids.is_empty() {
                 return Err(CarbideError::InvalidArgument(
-                    format!("No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs."),
+                    format!("no DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. use `set` to begin reprovisioning DPUs"),
                 )
                     .into());
             }

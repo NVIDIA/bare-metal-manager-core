@@ -47,6 +47,7 @@ pub use machine_info::{
 };
 pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
+    machine_router_with_injection_store,
 };
 
 pub const DUMMY_FACTORY_USERNAME: &str = "root";

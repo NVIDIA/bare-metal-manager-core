@@ -49,7 +49,7 @@ pub mod tests {
         match get_ek_cert_by_machine_id(&mut txn, &host_id).await {
             Err(e) => assert_eq!(
                 e.to_string(),
-                "internal error: Machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found."
+                "internal error: machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found"
             ),
             _ => panic!("Failed: should have returned an error"),
         }
@@ -174,7 +174,7 @@ pub mod tests {
         match extract_ca_fields(random_bytes) {
             Err(e) => assert_eq!(
                 e.to_string(),
-                "argument is invalid: Could not parse CA cert: Parsing Error: NomError(Eof)"
+                "argument is invalid: could not parse CA cert: Parsing Error: NomError(Eof)"
             ),
             _ => panic!("Failed: expected an error to be returned!"),
         }
@@ -206,7 +206,7 @@ pub mod tests {
         match match_insert_new_ek_cert_status_against_ca(&mut txn, &ek_cert, &host_id).await {
             Err(e) => assert_eq!(
                 e.to_string(),
-                "argument is invalid: Could not parse EK cert: Parsing Error: NomError(Eof)"
+                "argument is invalid: could not parse EK cert: Parsing Error: NomError(Eof)"
             ),
             _ => panic!("Failed: should have rertuned an error"),
         }
@@ -230,7 +230,7 @@ pub mod tests {
         match match_insert_new_ek_cert_status_against_ca(&mut txn, &ek_cert, &host_id).await {
             Err(e) => assert_eq!(
                 e.to_string(),
-                "argument is invalid: Could not parse CA cert: Parsing Error: NomError(Eof)"
+                "argument is invalid: could not parse CA cert: Parsing Error: NomError(Eof)"
             ),
             _ => panic!("Failed: should have rertuned an error"),
         }
@@ -336,7 +336,7 @@ pub mod tests {
             Ok(_) => panic!("Failed: should have returned an error!"),
             Err(e) => assert_eq!(
                 e.to_string(),
-                "internal error: Machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found."
+                "internal error: machine with id fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530 not found"
             ),
         }
 
@@ -376,7 +376,7 @@ pub mod tests {
             Ok(_) => panic!("Failed: should have returned an error!"),
             Err(e) => assert_eq!(
                 e.to_string(),
-                "internal error: Could not parse EK cert: Parsing Error: NomError(Eof)"
+                "internal error: could not parse EK cert: Parsing Error: NomError(Eof)"
             ),
         }
 
@@ -417,7 +417,7 @@ pub mod tests {
             Ok(_) => panic!("Failed: should have returned an error!"),
             Err(e) => assert_eq!(
                 e.to_string(),
-                "internal error: Could not parse CA cert: Parsing Error: Der(UnexpectedTag { expected: Some(Tag(16)), actual: Tag(29) })"
+                "internal error: could not parse CA cert: Parsing Error: Der(UnexpectedTag { expected: Some(Tag(16)), actual: Tag(29) })"
             ),
         }
 

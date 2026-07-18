@@ -1,0 +1,98 @@
+# =============================================================================
+# machine-a-tron-scale.yaml — LARGE-SCALE site values (MetalLB/nginx BMC mode)
+#
+# For scale testing NICo ingestion with hundreds to thousands of simulated
+# hosts. Used by: MAT_MODE=scale setup-machine-a-tron.sh
+# See docs/development/machine-a-tron-deployment.md and the chart README's
+# "METALLB MODE" section.
+#
+# How this differs from Override Mode (values/machine-a-tron.yaml):
+#   - nginxBmcProxy.enabled: true — every simulated BMC gets its own
+#     LoadBalancer IP (one Service per BMC, chart cap 16384). nginx routes to
+#     the right mock via "Forwarded: host=<service IP>".
+#   - machineATron.useSingleBmcMock: false — the mock registers one router per
+#     BMC keyed by its DHCP'd IP instead of one combined server.
+#   - site_explorer.bmc_proxy MUST BE UNSET in nico-core — site-explorer dials
+#     each BMC's dedicated IP directly (setup script removes it in scale mode).
+#   - Requires the simulated-oob / simulated-admin networks in the nico-core
+#     site config (added by the setup script's scale mode):
+#       [networks.simulated-oob]   prefix 10.100.0.0/17  gateway 10.100.0.1
+#       [networks.simulated-admin] prefix 10.102.0.0/18  gateway 10.102.0.1
+#     The MetalLB ipRange below MUST sit inside the simulated-oob prefix so
+#     NICo-allocated BMC IPs match the MetalLB Service IPs (allocation is
+#     sequential on both sides).
+# =============================================================================
+
+## Registry-agnostic (like the NICo REST values): setup-machine-a-tron.sh
+## injects image.repository = ${NICO_IMAGE_REGISTRY}/machine-a-tron and
+## image.tag = ${MAT_IMAGE_TAG} at install time. Set them here only for
+## direct helm installs without the script.
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+global:
+  imagePullSecrets:
+    - name: machine-a-tron-pull
+
+# Same SPIFFE identity requirement as Override Mode (see machine-a-tron.yaml).
+certificate:
+  uris:
+    - "spiffe://nico.local/nico-system/sa/machine-a-tron"
+
+machineATron:
+  nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  # Scale mode: no bmc_proxy anywhere — leave unset.
+  configureBmcProxyHost: ""
+  registerExpectedMachines: true
+  # true = SHARED REGISTRY mode (crates/machine-a-tron/src/main.rs): one
+  # server on bmc_mock_port routes to per-BMC mock routers via the
+  # "Forwarded: host=<ip>" header nginx injects. This is REQUIRED in K8s.
+  # false would make each mock bind its real BMC IP on the pod netns (bare-
+  # metal style) — nothing listens on 1266 and the pod crash-loops on probes.
+  useSingleBmcMock: true
+
+# Larger resources: one tokio task per host + per DPU; at thousands of
+# machines the FSM/API chatter is CPU-bound.
+resources:
+  limits:
+    cpu: "8"
+    memory: 8Gi
+  requests:
+    cpu: "2"
+    memory: 2Gi
+
+pods:
+  default:
+    machines:
+      # disable the chart-default example group (deep-merge would keep it)
+      rack-machines: null
+      dell-hosts:
+        hwType: dell_poweredge_r750
+        # STAGE 1 default: 100 hosts × 2 DPUs = 300 BMC endpoints / LB Services.
+        # Raise per stage (1000 → 4500). Chart caps total BMCs at 16384.
+        # Override per run: HOST_COUNT / DPU_PER_HOST env to the setup script.
+        hostCount: 100
+        dpuPerHostCount: 2
+        vpcCount: 0
+        subnetsPerVpc: 0
+        dpuRebootDelay: 1
+        hostRebootDelay: 1
+        # Slower cadences than the dev profile — at thousands of machines the
+        # aggregate API/CPU load scales linearly with these.
+        scoutRunInterval: "300s"
+        runIntervalWorking: "5s"
+        runIntervalIdle: "60s"
+        networkStatusRunInterval: "120s"
+        templateDir: "/opt/machine-a-tron/templates"
+        # Gateways of the SIMULATED networks (added to nico-core by scale mode).
+        oobDhcpRelayAddress: "10.100.0.1"
+        adminDhcpRelayAddress: "10.102.0.1"
+        networkVirtualizationType: ""
+        dpusInNicMode: false
+
+extraEnv:
+  - name: RUST_LOG
+    value: "info"
+

@@ -45,7 +45,7 @@ pub(crate) async fn find_interfaces(
                 Some(interface) => vec![interface.into()],
                 None => {
                     return Err(CarbideError::internal(format!(
-                        "No machine interface with IP {ip} was found"
+                        "no machine interface with IP {ip} was found"
                     ))
                     .into());
                 }
@@ -90,12 +90,12 @@ pub(crate) async fn delete_interface(
     if let Some(machine_id) = interface.machine_id {
         if interface.interface_type == InterfaceType::Bmc {
             return Err(CarbideError::InvalidArgument(format!(
-                "This looks like a BMC interface and attached with machine: {machine_id}. Delete that first."
+                "this looks like a BMC interface and attached with machine: {machine_id}. delete that first"
             ))
             .into());
         }
         return Err(CarbideError::InvalidArgument(format!(
-            "Already a machine {machine_id} is attached to this interface. Delete that first."
+            "already a machine {machine_id} is attached to this interface. delete that first"
         ))
         .into());
     }
@@ -108,7 +108,7 @@ pub(crate) async fn delete_interface(
 
         if let Some(machine_id) = machine_id {
             return Err(CarbideError::InvalidArgument(format!(
-                "This looks like a BMC interface and attached with machine: {machine_id}. Delete that first."
+                "this looks like a BMC interface and attached with machine: {machine_id}. delete that first"
             ))
             .into());
         }
@@ -134,7 +134,7 @@ pub(crate) async fn find_mac_address_by_bmc_ip(
         &api.database_connection,
         bmc_ip
             .parse()
-            .map_err(|e| CarbideError::InvalidArgument(format!("Invalid IP address: {e}")))?,
+            .map_err(|e| CarbideError::InvalidArgument(format!("invalid IP address: {e}")))?,
     )
     .await?
     .ok_or_else(|| CarbideError::NotFoundError {
@@ -163,7 +163,7 @@ pub(crate) async fn find_bmc_ips(
             db::machine_interface::lookup_bmc_ip_by_mac_address(
                 &api.database_connection,
                 mac_address.parse().map_err(|e| {
-                    CarbideError::InvalidArgument(format!("Invalid MAC address: {e}"))
+                    CarbideError::InvalidArgument(format!("invalid MAC address: {e}"))
                 })?,
             )
             .await?

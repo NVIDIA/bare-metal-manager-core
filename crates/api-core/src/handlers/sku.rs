@@ -56,7 +56,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
 
     let Some(sku) = skus.pop() else {
         return Err(CarbideError::InvalidArgument(format!(
-            "The SKU {} does not exist",
+            "the SKU {} does not exist",
             sku_id_list
                 .first()
                 .map(|id| id.to_string())
@@ -76,7 +76,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
         .unwrap_or(0);
     if machines_using_sku > 0 {
         return Err(CarbideError::InvalidArgument(format!(
-            "The SKU is in use by {machines_using_sku} machines"
+            "the SKU is in use by {machines_using_sku} machines"
         ))
         .into());
     }
@@ -121,7 +121,7 @@ pub(crate) async fn assign_to_machine(
     if !sku_machine_pair.force {
         if let Some(assigned_sku) = machine.hw_sku {
             return Err(CarbideError::FailedPrecondition(format!(
-                "The specified machine already has a SKU assigned ({assigned_sku})"
+                "the specified machine already has a SKU assigned ({assigned_sku})"
             ))
             .into());
         }
@@ -155,7 +155,7 @@ pub(crate) async fn assign_to_machine(
 
     if !skus.is_empty() {
         return Err(CarbideError::internal(format!(
-            "Unexpected additional SKUs found for ID: {}",
+            "unexpected additional SKUs found for ID: {}",
             sku_machine_pair.sku_id.clone()
         ))
         .into());

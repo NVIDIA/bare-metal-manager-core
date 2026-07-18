@@ -69,7 +69,7 @@ An NSG is a tenant-owned object with the following shape:
 
 | Field | Purpose |
 |---|---|
-| `id` | NSG identifier, returned at creation |
+| `id` | NSG identifier, optionally supplied by the caller as a UUID at creation. If omitted, NICo generates one. Either way, it is returned on the created NSG. A supplied `id` that collides with an existing NSG is rejected with `409 Conflict`. |
 | `tenant_organization_id` | The owning tenant |
 | `stateful_egress` | When `true`, return traffic for egress flows is permitted automatically. Requires the site-level `stateful_acls_enabled` flag (see below) |
 | `rules` | Ordered list of `NetworkSecurityGroupRule` entries, evaluated by priority |
@@ -367,7 +367,10 @@ All tenant steps use the REST API or `nicocli`; none require TOML or
 `nico-admin-cli`.
 
 1. `nicocli network-security-group create` (REST `POST …/nico/network-security-group`)
-   with the desired rule set. The response includes the NSG `id` and `version`.
+   with the desired rule set. An `id` (UUID) may optionally be supplied to assign
+   a specific identifier; if omitted, NICo generates one. The response includes
+   the NSG `id` and `version`. Supplying an `id` that already exists returns
+   `409 Conflict`.
 2. Attach the NSG at VPC scope (`nicocli vpc update`) or instance scope
    (`nicocli instance update`).
 3. Wait for the NSG **propagation status** on the VPC / instance to reach
@@ -413,6 +416,7 @@ For a given tenant configuration, confirm:
 | Symptom | Likely cause |
 |---|---|
 | `network-security-group create` fails with size-limit error | Expanded rule count exceeds `max_network_security_group_size` |
+| `network-security-group create` fails with a conflict (`409`) on `id` | A caller-supplied NSG `id` collides with an existing NSG; omit the `id` to auto-generate one, or choose a different UUID |
 | Stateful return traffic is being dropped | `stateful_acls_enabled = false` site-wide, or `stateful_egress = false` on the NSG, or DPU on HBN earlier than 2.3 |
 | Tenant rule that "should permit" a flow has no effect | An operator `policy_overrides` rule denies the same flow at higher (earlier-evaluated) priority |
 | Two instances in the same VPC cannot reach each other on a permitted port | NSG attached only to one side, or the NSG attached at instance scope overrides the VPC-scope NSG |

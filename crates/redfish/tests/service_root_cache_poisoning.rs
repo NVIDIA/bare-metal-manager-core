@@ -2,15 +2,16 @@
 // ServiceRoot is cached only when the caller's predicate accepts it.
 //
 // Some BMCs transiently serve a service root with
-// navigation properties missing while resetting or booting. The pool cache has
-// no TTL, so caching such a root would poison every later exploration until
-// process restart. The mock BMC here serves a `Chassis`-less root first
+// navigation properties missing while resetting or booting. Even with a
+// finite TTL, rejecting an incomplete root avoids poisoning explorations until
+// that TTL elapses. The mock BMC here serves a `Chassis`-less root first
 // (rejected by the predicate, not cached), then a full root (re-fetched,
 // accepted, and served from cache afterwards).
 
 use std::net::{SocketAddr, TcpListener};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use axum::Router;
@@ -95,24 +96,16 @@ async fn chassis_collection() -> impl IntoResponse {
     )
 }
 
-#[tokio::test]
-async fn poisoned_service_root_cache_recovers_after_bmc_heals() {
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .ok();
-
-    let root_hits = Arc::new(AtomicUsize::new(0));
+fn spawn_mock_bmc(root_hits: Arc<AtomicUsize>) -> SocketAddr {
     let app = Router::new()
         .route("/redfish/v1", get(service_root))
         .route("/redfish/v1/", get(service_root))
         .route("/redfish/v1/Chassis", get(chassis_collection))
-        .with_state(AppState {
-            root_hits: root_hits.clone(),
-        });
+        .with_state(AppState { root_hits });
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
-    let addr: SocketAddr = listener.local_addr().unwrap();
+    let addr = listener.local_addr().unwrap();
 
     let tls = bmc_mock::tls::server_config(None::<&str>).unwrap();
     let config = RustlsConfig::from_config(Arc::new(tls));
@@ -123,6 +116,18 @@ async fn poisoned_service_root_cache_recovers_after_bmc_heals() {
             .await
             .unwrap();
     });
+
+    addr
+}
+
+#[tokio::test]
+async fn poisoned_service_root_cache_recovers_after_bmc_heals() {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .ok();
+
+    let root_hits = Arc::new(AtomicUsize::new(0));
+    let addr = spawn_mock_bmc(root_hits.clone());
 
     let pool = NvRedfishClientPool::new(Arc::new(ArcSwap::new(Arc::new(None))));
     let creds = || Credentials::UsernamePassword {
@@ -176,4 +181,35 @@ async fn poisoned_service_root_cache_recovers_after_bmc_heals() {
         .unwrap();
     assert_eq!(root_hits.load(Ordering::SeqCst), 2);
     assert!(third.chassis_links().await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn expired_service_root_is_refetched_without_invalidating_existing_holders() {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .ok();
+
+    // Start at one so the mock serves a complete root on every request.
+    let root_hits = Arc::new(AtomicUsize::new(1));
+    let addr = spawn_mock_bmc(root_hits.clone());
+    let pool =
+        NvRedfishClientPool::with_cache_ttl(Arc::new(ArcSwap::new(Arc::new(None))), Duration::ZERO);
+    let creds = || Credentials::UsernamePassword {
+        username: "root".to_string(),
+        password: "placeholder".to_string(),
+    };
+
+    let first = pool.service_root(addr, creds()).await.unwrap();
+    let second = pool.service_root(addr, creds()).await.unwrap();
+
+    assert_eq!(
+        root_hits.load(Ordering::SeqCst),
+        3,
+        "an expired service root should be fetched again",
+    );
+    assert!(!Arc::ptr_eq(&first, &second));
+    assert!(
+        first.chassis_links().await.unwrap().is_some(),
+        "eviction must not invalidate callers that still hold the old root",
+    );
 }

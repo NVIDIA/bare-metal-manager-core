@@ -1,4 +1,7 @@
 nico-api:
+  # Disable legacy forge-system namespace alias for local dev
+  legacyAlias:
+    enabled: false
   resources:
     limits:
       cpu: "16"
@@ -91,7 +94,7 @@ nico-api:
       enabled = true
       create_machines = true
       allow_changing_bmc_proxy = true
-      bmc_proxy = "machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
+      bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
       run_interval = "10s"
       machines_created_per_run = 1000
       explorations_per_run = 1000
@@ -113,7 +116,7 @@ nico-bmc-proxy:
       metrics_endpoint = "[::]:1080"
       database_url = "postgres://replaced-by-env-var"
       allowed_principals = ["trusted-certificate"]
-      bmc_proxy = "machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
+      bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
 
       [tls]
       identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
@@ -139,6 +142,25 @@ nico-bmc-proxy:
       client_cert = "/var/run/secrets/spiffe.io/tls.crt"
       client_key = "/var/run/secrets/spiffe.io/tls.key"
 
+nico-machine-a-tron:
+  enabled: true
+  # Deploy to nico-system (same namespace as nico-api) for simpler dev setup
+  # No need to copy secrets or configure cross-namespace access
+  machineATron:
+    nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  # SPIFFE URI must match nico-api's allowed service_base_paths
+  certificate:
+    uris:
+      - "spiffe://nico.local/nico-system/sa/machine-a-tron"
+  pods:
+    default:
+      machines:
+        rack-machines:
+          hwType: wiwynn_gb200_nvl
+          hostCount: 2
+          dpuPerHostCount: 2
+          oobDhcpRelayAddress: "192.168.192.1"
+          adminDhcpRelayAddress: "192.168.176.1"
 nico-dhcp:
   enabled: false
 nico-dns:

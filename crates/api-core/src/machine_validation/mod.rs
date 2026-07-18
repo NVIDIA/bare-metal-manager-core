@@ -85,7 +85,8 @@ impl MachineValidationFailureCause {
 /// `outcome = Skipped` variant slots in beside `Passed`/`Failed`.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_machine_validation_outcomes_total",
+    event_name = "machine_validation_completed",
+    metric_name = "carbide_machine_validation_outcomes_total",
     component = "nico-api",
     log = dynamic,
     metric = counter,

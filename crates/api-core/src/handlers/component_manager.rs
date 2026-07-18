@@ -29,7 +29,7 @@ use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
-use component_manager::component_manager::ComponentManager;
+use component_manager::component_manager::{ComponentManager, SwitchMaintenanceRequestResult};
 use component_manager::compute_tray_manager::{ComputeTrayEndpoint, ComputeTrayVendor};
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
@@ -45,6 +45,7 @@ use model::component_manager::{
 use model::firmware::FirmwareComponentType;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::power_shelf::PowerShelfMaintenanceOperation;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use model::switch::SwitchMaintenanceOperation;
 use tonic::{Code, Request, Response, Status};
@@ -68,7 +69,7 @@ fn unsupported_from_json_firmware_versions(target: &str) -> Status {
     ))
 }
 
-fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
+pub(crate) fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
     match err {
         ComponentManagerError::Unavailable(msg) => Status::unavailable(msg),
         ComponentManagerError::NotFound(msg) => Status::not_found(msg),
@@ -306,59 +307,119 @@ fn map_switch_maintenance_operation(action: PowerAction) -> SwitchMaintenanceOpe
     }
 }
 
+fn map_power_shelf_maintenance_operation(
+    action: PowerAction,
+) -> Result<PowerShelfMaintenanceOperation, &'static str> {
+    match action {
+        PowerAction::On => Ok(PowerShelfMaintenanceOperation::PowerOn),
+        PowerAction::GracefulShutdown | PowerAction::ForceOff => {
+            Ok(PowerShelfMaintenanceOperation::PowerOff)
+        }
+        PowerAction::GracefulRestart | PowerAction::ForceRestart | PowerAction::AcPowercycle => {
+            Err("power shelf state controller supports PowerOn and PowerOff only")
+        }
+    }
+}
+
 async fn queue_switch_power_control_via_state_controller(
     api: &Api,
+    cm: &ComponentManager,
     switch_ids: &[SwitchId],
     action: PowerAction,
 ) -> Result<Vec<rpc::ComponentResult>, Status> {
     let operation = map_switch_maintenance_operation(action);
-    queue_switch_maintenance_via_state_controller(api, switch_ids, operation).await
+    queue_switch_maintenance_via_state_controller(api, cm, switch_ids, operation).await
 }
 
 async fn queue_switch_maintenance_via_state_controller(
     api: &Api,
+    cm: &ComponentManager,
     switch_ids: &[SwitchId],
     operation: SwitchMaintenanceOperation,
 ) -> Result<Vec<rpc::ComponentResult>, Status> {
+    let results = cm
+        .request_switch_maintenance_via_state_controller(
+            &api.database_connection,
+            switch_ids,
+            operation,
+            "component-manager",
+        )
+        .await
+        .map_err(component_manager_error_to_status)?;
+
+    Ok(results
+        .iter()
+        .map(switch_maintenance_request_result_to_component_result)
+        .collect())
+}
+
+fn switch_maintenance_request_result_to_component_result(
+    result: &SwitchMaintenanceRequestResult,
+) -> rpc::ComponentResult {
+    match &result.error {
+        Some(error) => error_result(&result.switch_id.to_string(), error.clone()),
+        None => success_result(&result.switch_id.to_string()),
+    }
+}
+
+async fn queue_power_shelf_power_control_via_state_controller(
+    api: &Api,
+    power_shelf_ids: &[PowerShelfId],
+    action: PowerAction,
+) -> Result<Vec<rpc::ComponentResult>, Status> {
+    let operation = match map_power_shelf_maintenance_operation(action) {
+        Ok(operation) => operation,
+        Err(reason) => {
+            return Ok(power_shelf_ids
+                .iter()
+                .map(|id| error_result(&id.to_string(), reason.to_string()))
+                .collect());
+        }
+    };
+    queue_power_shelf_maintenance_via_state_controller(api, power_shelf_ids, operation).await
+}
+
+async fn queue_power_shelf_maintenance_via_state_controller(
+    api: &Api,
+    power_shelf_ids: &[PowerShelfId],
+    operation: PowerShelfMaintenanceOperation,
+) -> Result<Vec<rpc::ComponentResult>, Status> {
     let mut txn = api.txn_begin().await?;
-    let existing = db::switch::find_by(
+    let existing = db::power_shelf::find_by(
         &mut txn,
-        db::ObjectColumnFilter::List(db::switch::IdColumn, switch_ids),
+        db::ObjectColumnFilter::List(db::power_shelf::IdColumn, power_shelf_ids),
     )
     .await
     .map_err(CarbideError::from)?;
 
-    let by_id: HashMap<SwitchId, model::switch::Switch> =
-        existing.into_iter().map(|sw| (sw.id, sw)).collect();
-    let mut results = Vec::with_capacity(switch_ids.len());
+    let by_id: HashMap<PowerShelfId, model::power_shelf::PowerShelf> =
+        existing.into_iter().map(|ps| (ps.id, ps)).collect();
+    let mut results = Vec::with_capacity(power_shelf_ids.len());
 
-    for switch_id in switch_ids {
-        let Some(switch) = by_id.get(switch_id) else {
-            results.push(error_result(
-                &switch_id.to_string(),
-                format!("switch {switch_id} not found"),
-            ));
+    for power_shelf_id in power_shelf_ids {
+        let Some(power_shelf) = by_id.get(power_shelf_id) else {
+            results.push(not_found_result(&power_shelf_id.to_string()));
             continue;
         };
 
-        if switch.is_marked_as_deleted() {
+        if power_shelf.is_marked_as_deleted() {
             results.push(error_result(
-                &switch_id.to_string(),
-                format!("switch {switch_id} is marked for deletion"),
+                &power_shelf_id.to_string(),
+                format!("power shelf {power_shelf_id} is marked for deletion"),
             ));
             continue;
         }
 
-        db::switch::set_switch_maintenance_requested(
+        db::power_shelf::set_power_shelf_maintenance_requested(
             &mut txn,
-            *switch_id,
+            *power_shelf_id,
             "component-manager",
             operation,
         )
         .await
         .map_err(CarbideError::from)?;
 
-        results.push(success_result(&switch_id.to_string()));
+        results.push(success_result(&power_shelf_id.to_string()));
     }
 
     txn.commit().await?;
@@ -418,7 +479,7 @@ fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Statu
             Ok(rpc::NvSwitchComponent::Bios) => Ok(NvSwitchComponent::Bios),
             Ok(rpc::NvSwitchComponent::Nvos) => Ok(NvSwitchComponent::Nvos),
             _ => Err(Status::invalid_argument(format!(
-                "unknown NV-Switch component: {v}"
+                "unknown NV-switch component: {v}"
             ))),
         })
         .collect()
@@ -1430,7 +1491,8 @@ pub(crate) async fn component_power_control(
         rpc::component_power_control_request::Target::SwitchIds(list) => {
             if cm.nv_switch_use_state_controller && !bypass_state_controller {
                 let results =
-                    queue_switch_power_control_via_state_controller(api, &list.ids, action).await?;
+                    queue_switch_power_control_via_state_controller(api, cm, &list.ids, action)
+                        .await?;
                 (results, Vec::new())
             } else {
                 let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
@@ -1473,47 +1535,48 @@ pub(crate) async fn component_power_control(
         }
         rpc::component_power_control_request::Target::PowerShelfIds(list) => {
             if cm.power_shelf_use_state_controller && !bypass_state_controller {
-                // TODO: implement state controller path for power shelf power control
-                return Err(Status::unimplemented(
-                    "power shelf power control through the state controller is not yet supported",
-                ));
+                let results =
+                    queue_power_shelf_power_control_via_state_controller(api, &list.ids, action)
+                        .await?;
+                (results, Vec::new())
+            } else {
+                let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
+
+                let mut results: Vec<_> = endpoints
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
+
+                tracing::info!(
+                    backend = cm.power_shelf.name(),
+                    power_shelf_count = endpoints.resolved.endpoints.len(),
+                    ?action,
+                    "power control for power shelves"
+                );
+                let backend_results = cm
+                    .power_shelf
+                    .power_control(&endpoints.resolved.endpoints, action)
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+                results.extend(backend_results.into_iter().map(|r| {
+                    let id = ps_mac_to_id_str(&r.pmc_mac, &endpoints.resolved.mac_to_id);
+                    if r.success {
+                        success_result(&id)
+                    } else {
+                        error_result(&id, r.error.unwrap_or_default())
+                    }
+                }));
+
+                let ips: Vec<IpAddr> = endpoints
+                    .resolved
+                    .endpoints
+                    .iter()
+                    .map(|ep| ep.pmc_ip)
+                    .collect();
+
+                (results, ips)
             }
-            let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
-
-            let mut results: Vec<_> = endpoints
-                .unresolved
-                .iter()
-                .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                .collect();
-
-            tracing::info!(
-                backend = cm.power_shelf.name(),
-                power_shelf_count = endpoints.resolved.endpoints.len(),
-                ?action,
-                "power control for power shelves"
-            );
-            let backend_results = cm
-                .power_shelf
-                .power_control(&endpoints.resolved.endpoints, action)
-                .await
-                .map_err(component_manager_error_to_status)?;
-            results.extend(backend_results.into_iter().map(|r| {
-                let id = ps_mac_to_id_str(&r.pmc_mac, &endpoints.resolved.mac_to_id);
-                if r.success {
-                    success_result(&id)
-                } else {
-                    error_result(&id, r.error.unwrap_or_default())
-                }
-            }));
-
-            let ips: Vec<IpAddr> = endpoints
-                .resolved
-                .endpoints
-                .iter()
-                .map(|ep| ep.pmc_ip)
-                .collect();
-
-            (results, ips)
         }
         rpc::component_power_control_request::Target::MachineIds(list) => {
             if cm.compute_tray_use_state_controller && !bypass_state_controller {
@@ -1647,6 +1710,7 @@ pub(crate) async fn component_configure_switch_certificate(
     if cm.nv_switch_use_state_controller && !bypass_state_controller {
         let results = queue_switch_maintenance_via_state_controller(
             api,
+            cm,
             &switch_ids.ids,
             SwitchMaintenanceOperation::ReconfigureCertificate,
         )
@@ -3239,6 +3303,28 @@ mod tests {
             map_switch_maintenance_operation(PowerAction::ForceRestart),
             SwitchMaintenanceOperation::Reset,
         );
+    }
+
+    #[test]
+    fn map_power_shelf_maintenance_operation_variants() {
+        use model::power_shelf::PowerShelfMaintenanceOperation;
+
+        use super::map_power_shelf_maintenance_operation;
+
+        assert_eq!(
+            map_power_shelf_maintenance_operation(PowerAction::On).unwrap(),
+            PowerShelfMaintenanceOperation::PowerOn,
+        );
+        assert_eq!(
+            map_power_shelf_maintenance_operation(PowerAction::ForceOff).unwrap(),
+            PowerShelfMaintenanceOperation::PowerOff,
+        );
+        assert_eq!(
+            map_power_shelf_maintenance_operation(PowerAction::GracefulShutdown).unwrap(),
+            PowerShelfMaintenanceOperation::PowerOff,
+        );
+        assert!(map_power_shelf_maintenance_operation(PowerAction::ForceRestart).is_err());
+        assert!(map_power_shelf_maintenance_operation(PowerAction::AcPowercycle).is_err());
     }
 
     #[test]

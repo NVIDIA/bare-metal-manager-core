@@ -1,0 +1,105 @@
+# =============================================================================
+# machine-a-tron.yaml — site values template
+#
+# Copy this file and fill in site-specific values before deploying, OR let
+# setup-machine-a-tron.sh consume it directly (it fills the site-specific
+# fields from the running nico-core site config).
+# See docs/development/machine-a-tron-deployment.md for the full guide.
+#
+# Deployment mode: Override Mode (nginxBmcProxy.enabled: false)
+#   site-explorer's Redfish calls are redirected to machine-a-tron's mock BMC.
+#   Not compatible with real hardware — use only on simulation-only clusters.
+#
+# IMPORTANT — the redirect is driven by nico-core, not this chart. nico-core's
+# site_explorer config must contain (note the CROSS-NAMESPACE FQDN):
+#   [site_explorer]
+#   bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local:1266"
+# (Field is `bmc_proxy`, a single "host:port" string. The older
+#  override_target_ip/override_target_port fields are DEPRECATED, and
+#  override_target_host was never a valid field. setup-machine-a-tron.sh sets
+#  bmc_proxy for you.)  The FQDN is REQUIRED: site-explorer runs in nico-system
+#  and cannot resolve the bare service name (which resolves against its own
+#  namespace) — a bare name yields a Redfish "connection refused". Setting
+#  bmc_proxy at launch also makes allow_changing_bmc_proxy default to true,
+#  which is what lets configureBmcProxyHost (below) work at runtime.
+# =============================================================================
+
+## Registry-agnostic (like the NICo REST values): setup-machine-a-tron.sh
+## injects image.repository = ${NICO_IMAGE_REGISTRY}/machine-a-tron and
+## image.tag = ${MAT_IMAGE_TAG} at install time. Set them here only for
+## direct helm installs without the script.
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+global:
+  imagePullSecrets:
+    - name: machine-a-tron-pull
+
+# Override the SPIFFE URI so nico-api can authorize machine-a-tron calls.
+# nico-api recognizes paths under /nico-system/sa/ and the RBAC rule for
+# Machineatron expects SpiffeServiceIdentifier("machine-a-tron").  Without
+# this override the cert-manager-issued cert uses the deployment namespace
+# (/nico-mat/sa/nico-machine-a-tron) which is not in nico-api's trusted
+# service_base_paths list and results in a 403 on every API call.
+certificate:
+  uris:
+    - "spiffe://nico.local/nico-system/sa/machine-a-tron"
+
+machineATron:
+  nicoApiUrl: "https://nico-api.nico-system.svc.cluster.local:1079"
+  # When set, machine-a-tron calls nico-api set_dynamic_config to point
+  # site_explorer.bmc_proxy at "<host>:<service.bmcMock.port>" at runtime.
+  # This ONLY succeeds if nico-core has allow_changing_bmc_proxy=true (which is
+  # the default once nico-core launches with bmc_proxy set). It is a
+  # belt-and-suspenders companion to the nico-core bmc_proxy setting — harmless
+  # when both are set to the same target.
+  # MUST be the cross-namespace FQDN (site-explorer is in nico-system and cannot
+  # resolve the bare name). Update the ".nico-mat." segment if you deploy to a
+  # different namespace.
+  configureBmcProxyHost: "nico-machine-a-tron-bmc-mock.nico-mat.svc.cluster.local"
+  # Auto-register each mock host as an expected_machine (matched by BMC MAC).
+  # REQUIRED for end-to-end: site-explorer's MachineCreator refuses to create a
+  # managed host when no expected_machines row matches the discovered BMC MAC
+  # ("Refusing to create managed host, expected machines entry not found").
+  registerExpectedMachines: true
+
+pods:
+  default:
+    machines:
+      # disable the chart-default example group (deep-merge would keep it)
+      rack-machines: null
+      dell-hosts:
+        hwType: dell_poweredge_r750
+        # SIZING: machine-a-tron allocates one OOB DHCP IP per BMC interface —
+        # 1 per host + 1 per DPU. Total = hostCount + hostCount*dpuPerHostCount.
+        # This MUST fit the usable addresses in the OOB/underlay DHCP pool of your
+        # nico-core site config, or discovery reports "No IP addresses left in
+        # prefix ..." and machines never register.
+        #   e.g. a /28 pool with a gateway and a few reserved addresses yields
+        #   ~10 usable → hostCount:3 * dpuPerHostCount:2 = 9 fits; 5*2=15 does not.
+        # setup-machine-a-tron.sh estimates the pool size and warns if you overflow.
+        hostCount: 3
+        dpuPerHostCount: 2
+        vpcCount: 0
+        subnetsPerVpc: 0
+        dpuRebootDelay: 1
+        hostRebootDelay: 1
+        scoutRunInterval: "60s"
+        runIntervalWorking: "1s"
+        runIntervalIdle: "10s"
+        networkStatusRunInterval: "20s"
+        templateDir: "/opt/machine-a-tron/templates"
+        # Set to the gateway of the OOB/underlay network in nico-core site config.
+        # (setup-machine-a-tron.sh fills this from the running nico-core config.)
+        oobDhcpRelayAddress: "FILL_IN"
+        # Set to the gateway of the admin network in nico-core site config.
+        adminDhcpRelayAddress: "FILL_IN"
+        networkVirtualizationType: ""
+        dpusInNicMode: false
+
+extraEnv:
+  - name: RUST_LOG
+    value: "info"
+

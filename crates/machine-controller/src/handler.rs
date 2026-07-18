@@ -59,7 +59,7 @@ use model::dpa_interface::DpaInterfaceControllerState;
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::instance::InstanceNetworkSyncStatus;
 use model::instance::config::network::{
-    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId, NetworkDetails,
+    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId,
 };
 use model::instance::snapshot::InstanceSnapshot;
 use model::instance::status::SyncState;
@@ -157,7 +157,8 @@ pub const MAX_NEW_FIRMWARE_REPORTED_RESET_RETRIES: u32 = 2; // Faster for tests
 /// `carbide_exhausted_reprovision_retry_count` gauge instead.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_host_reprovision_retries_total",
+    event_name = "host_firmware_upgrade_retried",
+    metric_name = "carbide_host_reprovision_retries_total",
     component = "machine-controller",
     log = info,
     metric = counter,
@@ -6229,13 +6230,10 @@ impl StateHandler for InstanceStateHandler {
                         .network
                         .interfaces
                         .iter()
-                        .filter_map(|x| match x.network_details {
-                            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-                            _ => None,
-                        })
+                        .filter_map(InstanceInterfaceConfig::generated_network_segment_id)
                         .collect_vec();
 
-                    // No network segment is configured with vpc_prefix_id.
+                    // No generated VPC-prefix segment needs readiness tracking.
                     if network_segment_ids_with_vpc.is_empty() {
                         return Ok(StateHandlerOutcome::transition(next_state));
                     }
@@ -7360,13 +7358,10 @@ async fn handle_instance_network_config_update_request(
                 .new_config
                 .interfaces
                 .iter()
-                .filter_map(|x| match x.network_details {
-                    Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-                    _ => None,
-                })
+                .filter_map(InstanceInterfaceConfig::generated_network_segment_id)
                 .collect_vec();
 
-            // No network segment is configured with vpc_prefix_id.
+            // Generated VPC-prefix segments must be ready before promotion.
             if !network_segment_ids_with_vpc.is_empty() {
                 let network_segments_are_ready = db::network_segment::are_network_segments_ready(
                     &mut ctx.services.db_reader,
@@ -7727,13 +7722,10 @@ async fn release_network_segments_with_vpc_prefix(
 ) -> Result<(), StateHandlerError> {
     let network_segment_ids_with_vpc = interfaces
         .iter()
-        .filter_map(|x| match x.network_details {
-            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-            _ => None,
-        })
+        .filter_map(InstanceInterfaceConfig::generated_network_segment_id)
         .collect_vec();
 
-    // Mark all network ready for delete which were created for vpc_prefixes.
+    // Mark generated VPC-prefix segments ready for deletion.
     if !network_segment_ids_with_vpc.is_empty() {
         db::network_segment::mark_as_deleted_no_validation(txn, &network_segment_ids_with_vpc)
             .await
