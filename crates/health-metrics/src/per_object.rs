@@ -35,7 +35,8 @@
 //! [`clear`]: PerObjectGauge::clear
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use health_report::HealthAlertClassification;
@@ -66,19 +67,52 @@ impl ObjectKey {
 /// `Arc` so scrape snapshots are pointer clones.
 type SharedSeries = Arc<Vec<(f64, Vec<KeyValue>)>>;
 
-/// Lazily built Prometheus encoding of a [`SharedSeries`], filled outside the
-/// gauge lock on first collection (the series are immutable after insert) so
-/// scrapes clone instead of re-encode.
-type EncodedSeries = Arc<OnceLock<Vec<proto::Metric>>>;
-
-/// The series one object currently exposes on one gauge. The series set is
-/// shared via `Arc` so scrape callbacks can snapshot it and observe outside
-/// the gauge lock.
+/// The series one object currently exposes on one gauge. All per-entry state
+/// is interior-mutable — the series behind its own mutex (per-object, so
+/// effectively uncontended and cheaper than lock-free alternatives), the
+/// eviction deadline as an atomic — so every record/keep-alive/snapshot path
+/// runs under the map's *read* lock, concurrently with everything else.
+/// `updated_at_ms` is milliseconds since the gauge was created.
 #[derive(Debug)]
 struct SeriesEntry {
-    series: SharedSeries,
-    prometheus_metrics: EncodedSeries,
-    updated_at: Instant,
+    series: Mutex<SharedSeries>,
+    updated_at_ms: AtomicU64,
+}
+
+impl SeriesEntry {
+    fn new(series: Vec<(f64, Vec<KeyValue>)>, now_ms: u64) -> Self {
+        Self {
+            series: Mutex::new(Arc::new(series)),
+            updated_at_ms: AtomicU64::new(now_ms),
+        }
+    }
+
+    fn series(&self) -> SharedSeries {
+        self.series
+            .lock()
+            .expect("per-object entry mutex poisoned")
+            .clone()
+    }
+
+    /// Replaces the series unless unchanged (the common case: controllers
+    /// re-record every iteration), and extends the eviction deadline.
+    fn record(&self, series: Vec<(f64, Vec<KeyValue>)>, now_ms: u64) {
+        let mut current = self.series.lock().expect("per-object entry mutex poisoned");
+        if **current != series {
+            *current = Arc::new(series);
+        }
+        drop(current);
+        self.touch(now_ms);
+    }
+
+    fn touch(&self, now_ms: u64) {
+        self.updated_at_ms.store(now_ms, Ordering::Release);
+    }
+
+    fn is_fresh(&self, now_ms: u64, hold_period: Duration) -> bool {
+        now_ms.saturating_sub(self.updated_at_ms.load(Ordering::Acquire))
+            <= hold_period.as_millis() as u64
+    }
 }
 
 /// Writer handle for one per-object gauge. Cheap to clone; all clones share
@@ -91,14 +125,27 @@ pub struct PerObjectGauge(Arc<GaugeState>);
 #[derive(Debug)]
 struct GaugeState {
     hold_period: Duration,
-    entries: Mutex<HashMap<ObjectKey, SeriesEntry>>,
+    /// Instant zero for the entries' atomic `updated_at_ms` timestamps.
+    created: Instant,
+    /// Read-locked by every recording, keep-alive, and scrape-snapshot path
+    /// (per-entry state is interior-mutable), so they all run concurrently;
+    /// the write lock is taken only when the object *set* changes (insert,
+    /// remove, eviction).
+    entries: RwLock<HashMap<ObjectKey, SeriesEntry>>,
+}
+
+impl GaugeState {
+    fn now_ms(&self) -> u64 {
+        self.created.elapsed().as_millis() as u64
+    }
 }
 
 impl PerObjectGauge {
     fn new(hold_period: Duration) -> Self {
         Self(Arc::new(GaugeState {
             hold_period,
-            entries: Mutex::new(HashMap::new()),
+            created: Instant::now(),
+            entries: RwLock::new(HashMap::new()),
         }))
     }
 
@@ -122,31 +169,42 @@ impl PerObjectGauge {
         series: Vec<(f64, Vec<KeyValue>)>,
     ) {
         let key = ObjectKey::new(object_type, object_id);
-        let mut entries = self
-            .0
-            .entries
-            .lock()
-            .expect("per-object gauge mutex poisoned");
+        let now_ms = self.0.now_ms();
         if series.is_empty() {
-            entries.remove(&key);
-        } else if let Some(entry) = entries
-            .get_mut(&key)
-            .filter(|entry| *entry.series == series)
-        {
-            // Unchanged series (the common case: controllers re-record every
-            // iteration): keep the entry — and its cached Prometheus encoding
-            // — and only extend the eviction deadline.
-            entry.updated_at = Instant::now();
-        } else {
-            entries.insert(
-                key,
-                SeriesEntry {
-                    series: Arc::new(series),
-                    prometheus_metrics: Arc::new(OnceLock::new()),
-                    updated_at: Instant::now(),
-                },
-            );
+            self.clear_key(&key);
+            return;
         }
+        // Recording into an existing entry — unchanged or replaced — needs
+        // only the read lock plus the entry's own (per-object, uncontended)
+        // mutex, so writers never serialize with each other or with scrape
+        // snapshots; the write lock is taken only to admit an object seen
+        // for the first time.
+        if let Some(entry) = self.read_entries().get(&key) {
+            entry.record(series, now_ms);
+            return;
+        }
+        let mut entries = self.write_entries();
+        // Re-check under the write lock: another writer may have inserted the
+        // entry between the read and write acquisitions.
+        if let Some(entry) = entries.get(&key) {
+            entry.record(series, now_ms);
+        } else {
+            entries.insert(key, SeriesEntry::new(series, now_ms));
+        }
+    }
+
+    fn read_entries(&self) -> std::sync::RwLockReadGuard<'_, HashMap<ObjectKey, SeriesEntry>> {
+        self.0
+            .entries
+            .read()
+            .expect("per-object gauge lock poisoned")
+    }
+
+    fn write_entries(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<ObjectKey, SeriesEntry>> {
+        self.0
+            .entries
+            .write()
+            .expect("per-object gauge lock poisoned")
     }
 
     /// Removes all of the object's series on this gauge.
@@ -161,23 +219,21 @@ impl PerObjectGauge {
     /// [`PerObjectMetricsRegistry::touch_object`] or [`Self::touch_if_labels`],
     /// which cannot keep a series whose labels went stale.
     fn touch_key(&self, key: &ObjectKey) {
-        let mut entries = self
-            .0
-            .entries
-            .lock()
-            .expect("per-object gauge mutex poisoned");
-        if let Some(entry) = entries.get_mut(key) {
-            entry.updated_at = Instant::now();
+        let now_ms = self.0.now_ms();
+        if let Some(entry) = self.read_entries().get(key) {
+            entry.touch(now_ms);
         }
     }
 
     /// Removes the entry without the caller re-allocating an [`ObjectKey`].
+    /// Checks existence under the read lock first: clearing an absent entry
+    /// is a steady-state no-op for optional facts (e.g. a machine without an
+    /// instance clears every iteration) and must not take the write lock.
     fn clear_key(&self, key: &ObjectKey) {
-        self.0
-            .entries
-            .lock()
-            .expect("per-object gauge mutex poisoned")
-            .remove(key);
+        if !self.read_entries().contains_key(key) {
+            return;
+        }
+        self.write_entries().remove(key);
     }
 
     /// Refreshes the entry's eviction deadline, but only while every series
@@ -191,19 +247,30 @@ impl PerObjectGauge {
         required_labels: &[KeyValue],
     ) {
         let key = ObjectKey::new(object_type, object_id);
-        let mut entries = self
-            .0
-            .entries
-            .lock()
-            .expect("per-object gauge mutex poisoned");
-        if let Some(entry) = entries.get_mut(&key) {
-            let still_current = entry.series.iter().all(|(_, labels)| {
+        let now_ms = self.0.now_ms();
+        let still_current = |entry: &SeriesEntry| {
+            entry.series().iter().all(|(_, labels)| {
                 required_labels
                     .iter()
                     .all(|required| labels.contains(required))
-            });
-            if still_current {
-                entry.updated_at = Instant::now();
+            })
+        };
+        match self.read_entries().get(&key) {
+            None => return,
+            Some(entry) if still_current(entry) => {
+                entry.touch(now_ms);
+                return;
+            }
+            Some(_) => {}
+        }
+        // The recorded fact no longer describes the object's current state:
+        // remove it rather than keep publishing contradictory labels.
+        // Re-check under the write lock — a writer may have replaced the
+        // series with a current one in between.
+        let mut entries = self.write_entries();
+        if let Some(entry) = entries.get(&key) {
+            if still_current(entry) {
+                entry.touch(now_ms);
             } else {
                 entries.remove(&key);
             }
@@ -221,7 +288,7 @@ impl PerObjectGauge {
             .with_callback(move |observer| {
                 // Snapshot under the lock (one exact-size Vec of Arc clones),
                 // observe outside it, so a large scrape doesn't stall writers.
-                for (series, _) in state.snapshot_live() {
+                for series in state.snapshot_live() {
                     for (value, labels) in series.iter() {
                         observer.observe(*value as u64, labels);
                     }
@@ -230,37 +297,51 @@ impl PerObjectGauge {
             .build();
     }
 
-    /// Locks the gauge and evicts stale entries, returning the guard.
-    fn lock_and_evict(&self) -> std::sync::MutexGuard<'_, HashMap<ObjectKey, SeriesEntry>> {
-        let now = Instant::now();
-        let mut entries = self
-            .0
-            .entries
-            .lock()
-            .expect("per-object gauge mutex poisoned");
-        entries.retain(|_, entry| {
-            now.saturating_duration_since(entry.updated_at) <= self.0.hold_period
-        });
-        entries
+    /// Snapshots the live entries' series as one collection of `Arc` clones
+    /// under the read lock — concurrent with writers — so encoding and
+    /// observation happen outside any lock. Stale entries are skipped, and
+    /// evicted afterwards (the only write-lock the scrape path ever takes,
+    /// and only when something actually expired).
+    fn snapshot_live(&self) -> Vec<SharedSeries> {
+        let now_ms = self.0.now_ms();
+        let mut stale = Vec::new();
+        let snapshot: Vec<SharedSeries> = {
+            let entries = self.read_entries();
+            let mut snapshot = Vec::with_capacity(entries.len());
+            for (key, entry) in entries.iter() {
+                if entry.is_fresh(now_ms, self.0.hold_period) {
+                    snapshot.push(entry.series());
+                } else {
+                    stale.push(key.clone());
+                }
+            }
+            snapshot
+        };
+        if !stale.is_empty() {
+            let mut entries = self.write_entries();
+            for key in stale {
+                // Re-check: the entry may have been refreshed or replaced
+                // since the read-locked pass.
+                if let Some(entry) = entries.get(&key)
+                    && !entry.is_fresh(now_ms, self.0.hold_period)
+                {
+                    entries.remove(&key);
+                }
+            }
+        }
+        snapshot
     }
 
-    /// Evicts stale entries and snapshots the survivors' series (plus their
-    /// encoding cells) as one exact-size collection of `Arc` clones, so the
-    /// lock is released before any encoding or observation happens.
-    fn snapshot_live(&self) -> Vec<(SharedSeries, EncodedSeries)> {
-        self.lock_and_evict()
-            .values()
-            .map(|entry| (entry.series.clone(), entry.prometheus_metrics.clone()))
-            .collect()
-    }
-
-    /// Locks the gauge, evicts stale entries, and visits the survivors.
-    /// Test-only introspection; production readers go through
-    /// [`Self::snapshot_live`] so no per-entry work runs under the lock.
+    /// Visits the live entries under the read lock. Test-only introspection;
+    /// production readers go through [`Self::snapshot_live`] so no per-entry
+    /// work runs under the lock.
     #[cfg(test)]
-    fn for_each_live(&self, mut visit: impl FnMut(&ObjectKey, &SeriesEntry)) {
-        for (key, entry) in self.lock_and_evict().iter() {
-            visit(key, entry);
+    fn for_each_live(&self, mut visit: impl FnMut(&ObjectKey, &SharedSeries)) {
+        let now_ms = self.0.now_ms();
+        for (key, entry) in self.read_entries().iter() {
+            if entry.is_fresh(now_ms, self.0.hold_period) {
+                visit(key, &entry.series());
+            }
         }
     }
 }
@@ -297,20 +378,14 @@ impl Collector for GaugeCollector {
     }
 
     fn collect(&self) -> Vec<proto::MetricFamily> {
-        // Snapshot under the gauge lock (one exact-size Vec of Arc clones),
-        // then encode outside it so a large scrape doesn't stall writers. The
-        // encoding is cached per entry, and unchanged re-records keep the
-        // entry, so steady-state scrapes only clone.
+        // Snapshot under the gauge read lock (one exact-size Vec of Arc
+        // clones), then encode just-in-time outside it so a large scrape
+        // never stalls writers.
         let metrics: Vec<proto::Metric> = self
             .gauge
             .snapshot_live()
             .iter()
-            .flat_map(|(series, encoded)| {
-                encoded
-                    .get_or_init(|| series.iter().map(prometheus_metric).collect())
-                    .iter()
-                    .cloned()
-            })
+            .flat_map(|series| series.iter().map(prometheus_metric))
             .collect();
         if metrics.is_empty() {
             return Vec::new();
@@ -355,7 +430,8 @@ pub struct PerObjectMetricsRegistry {
     /// excludes the classification gauge: deletion clears it too (explicitly,
     /// in `clear_object`), but a keep-alive touch must not extend the
     /// pre-existing main-endpoint metric's eviction beyond its own hold.
-    gauges: Mutex<Vec<PerObjectGauge>>,
+    /// Write-locked only by [`Self::gauge`] (setup time); sweeps read-lock.
+    gauges: RwLock<Vec<PerObjectGauge>>,
 }
 
 impl PerObjectMetricsRegistry {
@@ -371,7 +447,7 @@ impl PerObjectMetricsRegistry {
         Arc::new(Self {
             emit_for_classifications: emit_for_classifications.into_iter().collect(),
             classification: PerObjectGauge::new(hold_period),
-            gauges: Mutex::new(Vec::new()),
+            gauges: RwLock::new(Vec::new()),
         })
     }
 
@@ -398,8 +474,8 @@ impl PerObjectMetricsRegistry {
             label_names,
         )?))?;
         self.gauges
-            .lock()
-            .expect("per-object registry mutex poisoned")
+            .write()
+            .expect("per-object registry lock poisoned")
             .push(gauge.clone());
         Ok(gauge)
     }
@@ -412,8 +488,8 @@ impl PerObjectMetricsRegistry {
         self.classification.clear_key(&key);
         for gauge in self
             .gauges
-            .lock()
-            .expect("per-object registry mutex poisoned")
+            .read()
+            .expect("per-object registry lock poisoned")
             .iter()
         {
             gauge.clear_key(&key);
@@ -431,8 +507,8 @@ impl PerObjectMetricsRegistry {
         let key = ObjectKey::new(object_type, object_id);
         for gauge in self
             .gauges
-            .lock()
-            .expect("per-object registry mutex poisoned")
+            .read()
+            .expect("per-object registry lock poisoned")
             .iter()
         {
             gauge.touch_key(&key);
@@ -509,9 +585,8 @@ mod tests {
 
     fn gauge_snapshot(gauge: &PerObjectGauge) -> Vec<GaugeRow> {
         let mut rows = Vec::new();
-        gauge.for_each_live(|key, entry| {
-            let mut series: Vec<(f64, Vec<(String, String)>)> = entry
-                .series
+        gauge.for_each_live(|key, series| {
+            let mut series: Vec<(f64, Vec<(String, String)>)> = series
                 .iter()
                 .map(|(value, labels)| {
                     let mut labels: Vec<(String, String)> = labels
@@ -534,10 +609,10 @@ mod tests {
 
     fn snapshot(registry: &PerObjectMetricsRegistry) -> Vec<SnapshotRow> {
         let mut rows = Vec::new();
-        registry.classification.for_each_live(|key, entry| {
+        registry.classification.for_each_live(|key, series| {
             let mut classifications = Vec::new();
             let mut labels = Vec::new();
-            for (value, series_labels) in entry.series.iter() {
+            for (value, series_labels) in series.iter() {
                 assert!((*value - 1.0).abs() < f64::EPSILON);
                 for kv in series_labels {
                     match kv.key.as_str() {
