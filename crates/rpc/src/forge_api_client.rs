@@ -27,6 +27,95 @@ use crate::forge_tls_client::{
 };
 pub use crate::protos::forge_api_client::ForgeApiClient;
 
+pub const EXPECTED_SWITCH_UPDATE_MASK_HEADER: &str = "x-nico-expected-switch-update-mask";
+
+pub mod expected_switch_update_field {
+    pub const BMC_USERNAME: &str = "bmc_username";
+    pub const BMC_PASSWORD: &str = "bmc_password";
+    pub const SWITCH_SERIAL_NUMBER: &str = "switch_serial_number";
+    pub const NVOS_MAC_ADDRESSES: &str = "nvos_mac_addresses";
+    pub const NVOS_USERNAME: &str = "nvos_username";
+    pub const NVOS_PASSWORD: &str = "nvos_password";
+    pub const METADATA_NAME: &str = "metadata.name";
+    pub const METADATA_DESCRIPTION: &str = "metadata.description";
+    pub const METADATA_LABELS: &str = "metadata.labels";
+    pub const RACK_ID: &str = "rack_id";
+    pub const BMC_IP_ADDRESS: &str = "bmc_ip_address";
+    pub const NVOS_IP_ADDRESS: &str = "nvos_ip_address";
+    pub const BMC_RETAIN_CREDENTIALS: &str = "bmc_retain_credentials";
+
+    pub const ALL: &[&str] = &[
+        BMC_USERNAME,
+        BMC_PASSWORD,
+        SWITCH_SERIAL_NUMBER,
+        NVOS_MAC_ADDRESSES,
+        NVOS_USERNAME,
+        NVOS_PASSWORD,
+        METADATA_NAME,
+        METADATA_DESCRIPTION,
+        METADATA_LABELS,
+        RACK_ID,
+        BMC_IP_ADDRESS,
+        NVOS_IP_ADDRESS,
+        BMC_RETAIN_CREDENTIALS,
+    ];
+}
+
+/// Builds the sparse-update field mask represented by `switch`.
+pub fn expected_switch_update_mask(switch: &crate::protos::forge::ExpectedSwitch) -> String {
+    use expected_switch_update_field as field;
+
+    let mut fields = Vec::new();
+
+    if !switch.bmc_username.is_empty() || !switch.bmc_password.is_empty() {
+        fields.extend([field::BMC_USERNAME, field::BMC_PASSWORD]);
+    }
+
+    if !switch.switch_serial_number.is_empty() {
+        fields.push(field::SWITCH_SERIAL_NUMBER);
+    }
+
+    if !switch.nvos_mac_addresses.is_empty() {
+        fields.push(field::NVOS_MAC_ADDRESSES);
+    }
+
+    if switch.nvos_username.is_some() || switch.nvos_password.is_some() {
+        fields.extend([field::NVOS_USERNAME, field::NVOS_PASSWORD]);
+    }
+
+    if let Some(metadata) = &switch.metadata {
+        if !metadata.name.is_empty() {
+            fields.push(field::METADATA_NAME);
+        }
+
+        if !metadata.description.is_empty() {
+            fields.push(field::METADATA_DESCRIPTION);
+        }
+
+        if !metadata.labels.is_empty() {
+            fields.push(field::METADATA_LABELS);
+        }
+    }
+
+    if switch.rack_id.is_some() {
+        fields.push(field::RACK_ID);
+    }
+
+    if !switch.bmc_ip_address.is_empty() {
+        fields.push(field::BMC_IP_ADDRESS);
+    }
+
+    if switch.nvos_ip_address.is_some() {
+        fields.push(field::NVOS_IP_ADDRESS);
+    }
+
+    if switch.bmc_retain_credentials.is_some() {
+        fields.push(field::BMC_RETAIN_CREDENTIALS);
+    }
+
+    fields.join(",")
+}
+
 impl ForgeApiClient {
     pub fn new(api_config: &ApiConfig<'_>) -> Self {
         Self::build(ForgeTlsConnectionProvider {
@@ -55,6 +144,29 @@ impl ForgeApiClient {
             last_connection_index: 0.into(),
             fail_over_on,
         })
+    }
+
+    /// Applies the named `ExpectedSwitch` fields without replacing omitted fields.
+    pub async fn patch_expected_switch(
+        &self,
+        switch: crate::protos::forge::ExpectedSwitch,
+        update_mask: &str,
+    ) -> Result<(), Status> {
+        let update_mask = update_mask
+            .parse()
+            .map_err(|error| Status::invalid_argument(format!("invalid update mask: {error}")))?;
+
+        let mut request = tonic::Request::new(switch);
+        request
+            .metadata_mut()
+            .insert(EXPECTED_SWITCH_UPDATE_MASK_HEADER, update_mask);
+
+        self.connection()
+            .await?
+            .update_expected_switch(request)
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -185,5 +297,50 @@ impl tonic_client_wrapper::ConnectionProvider<ForgeClientT> for ForgeTlsConnecti
 
     fn connection_url(&self) -> &str {
         self.current_endpoint_url()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+    use crate::protos::forge::ExpectedSwitch;
+
+    #[test]
+    fn expected_switch_update_mask_contains_only_provided_fields() {
+        check_values(
+            [
+                Check {
+                    scenario: "empty patch",
+                    input: ExpectedSwitch::default(),
+                    expect: String::new(),
+                },
+                Check {
+                    scenario: "paired credentials",
+                    input: ExpectedSwitch {
+                        bmc_username: "bmc-admin".to_string(),
+                        bmc_password: "bmc-password".to_string(),
+                        nvos_username: Some("nvos-admin".to_string()),
+                        nvos_password: Some("nvos-password".to_string()),
+                        ..Default::default()
+                    },
+                    expect: "bmc_username,bmc_password,nvos_username,nvos_password".to_string(),
+                },
+                Check {
+                    scenario: "switch endpoint fields",
+                    input: ExpectedSwitch {
+                        switch_serial_number: "serial".to_string(),
+                        nvos_mac_addresses: vec!["00:11:22:33:44:55".to_string()],
+                        bmc_ip_address: "192.0.2.1".to_string(),
+                        nvos_ip_address: Some("192.0.2.2".to_string()),
+                        bmc_retain_credentials: Some(true),
+                        ..Default::default()
+                    },
+                    expect: "switch_serial_number,nvos_mac_addresses,bmc_ip_address,nvos_ip_address,bmc_retain_credentials".to_string(),
+                },
+            ],
+            |switch| expected_switch_update_mask(&switch),
+        );
     }
 }
