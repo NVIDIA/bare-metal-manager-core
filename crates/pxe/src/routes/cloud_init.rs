@@ -327,18 +327,34 @@ fn extract_network_config(custom_cloud_init: &str) -> Option<String> {
     serde_yaml::to_string(value.get("network")?).ok()
 }
 
+/// Default network-config served when a tenant hasn't provided a custom
+/// `network:` key in their cloud-init userdata. cloud-init's own default
+/// behavior (no network-config at all) only DHCPs the first network
+/// interface it finds; this instead DHCPs every matching interface, under
+/// both the predictable ("en*") and legacy ("eth*") naming conventions,
+/// so multi-NIC hosts come up with working networking on every port.
+const DEFAULT_NETWORK_CONFIG: &str = "version: 2\nethernets:\n  predictable-names:\n    match:\n      name: \"en*\"\n    dhcp4: true\n    dhcp6: true\n  legacy-names:\n    match:\n      name: \"eth*\"\n    dhcp4: true\n    dhcp6: true\n";
+
 /// Serves NoCloud's `network-config` document for a tenant's assigned
 /// machine, extracted from any `network:` key present in their custom
 /// cloud-init userdata. Renders empty when no such key is present, which
 /// cloud-init treats as "no custom network config" and falls back to
 /// its default DHCP behavior.
-pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
-    let network_config_yaml = machine
-        .instructions
-        .custom_cloud_init
-        .as_deref()
+fn resolve_network_config(custom_cloud_init: Option<&str>) -> String {
+    custom_cloud_init
         .and_then(extract_network_config)
-        .unwrap_or_default();
+        .unwrap_or_else(|| DEFAULT_NETWORK_CONFIG.to_string())
+}
+
+/// Serves NoCloud's `network-config` document for a tenant's assigned
+/// machine, extracted from any `network:` key present in their custom
+/// cloud-init userdata. When no such key is present, serves
+/// DEFAULT_NETWORK_CONFIG instead of an empty document, so hosts get
+/// DHCP on every interface by default rather than cloud-init's own
+/// first-interface-only behavior.
+pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+    let network_config_yaml =
+        resolve_network_config(machine.instructions.custom_cloud_init.as_deref());
 
     let mut template_data: HashMap<String, String> = HashMap::new();
     template_data.insert("network_config".to_string(), network_config_yaml);
@@ -816,6 +832,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn resolve_network_config_uses_default_when_no_custom_key() {
+        let result = resolve_network_config(Some("#cloud-config\nwrite_files: []\n"));
+        assert_eq!(result, DEFAULT_NETWORK_CONFIG);
+    }
+
+    #[test]
+    fn resolve_network_config_uses_custom_key_when_present() {
+        let custom = "#cloud-config\nnetwork:\n  version: 2\n  ethernets:\n    eth0:\n      addresses:\n        - 10.10.10.50/24\n";
+        let result = resolve_network_config(Some(custom));
+        assert_ne!(result, DEFAULT_NETWORK_CONFIG);
+        assert!(result.contains("10.10.10.50"));
+    }
+
+    #[test]
+    fn resolve_network_config_uses_default_when_no_custom_cloud_init_at_all() {
+        let result = resolve_network_config(None);
+        assert_eq!(result, DEFAULT_NETWORK_CONFIG);
     }
 
     /// A meta-data request with no metadata lands in the generic-error
