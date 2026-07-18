@@ -12,9 +12,8 @@
 
 [global]
 # List of rules to disable
-# disable = ["MD013", "MD014", "MD033", "MD036"]
+# disable = ["MD014", "MD033", "MD036"]
 disable = [
-  "line-length",
   "commands-show-output",
   "no-inline-html",
   "no-emphasis-as-heading",
@@ -90,11 +89,12 @@ strict = false
 # no-hard-tabs
 spaces-per-tab = 4  # Number of spaces to replace each tab with (default: 4)
 
-# [MD013]
-# line-length = 100  # Line length
-# code-blocks = false  # Exclude code blocks from line length check
-# tables = false  # Exclude tables from line length check
-# headings = true  # Include headings in line length check
+[MD013]
+# line-length
+line-length = 100000      # make sure paragraph-length lines are allowed
+# line-length = 100
+reflow = true
+reflow-mode = "normalize"
 
 [MD024]
 # no-duplicate-heading
