@@ -9,13 +9,9 @@ The preferred operator workflow uses the REST API and `nicocli`. Follow [Ingesti
 Ensure you have the following prerequisites met before ingesting machines:
 
 1. You have `nicocli` installed and configured for the target REST API. See the [Quick Start Guide](../getting-started/quick-start.md).
-
 2. For the remaining REST parity gaps, you have `nico-admin-cli` and direct access to the NICo site. See the next section for details.
-
 3. The NICo API service is running at IP address `NICo_API_EXTERNAL`. It is recommended that you add this IP address to your trusted list.
-   
 4. DHCP requests from all managed host IPMI networks have been forwarded to the NICo service running at IP address `NICo_DHCP_EXTERNAL`.
-
 5. You have the following information for all hosts that need to be ingested:
 
     - The MAC address of the host BMC
@@ -136,6 +132,7 @@ nicocli uefi-credential create \
 ```
 
 Run this command to store the desired DPU UEFI password:
+
 ```bash
 nicocli uefi-credential create \
   --site-id <site-uuid> \

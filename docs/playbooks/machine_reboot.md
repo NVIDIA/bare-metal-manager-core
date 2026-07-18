@@ -13,13 +13,13 @@ instance lifecycle.**
 
 ## Reboot Steps
 
-The following steps can be used to reboot a machine:
+<Steps toc={true}>
 
-### 1. Obtain access to `nicocli`
+### Obtain access to `nicocli`
 
 Configure `nicocli` for the target REST API. The caller's organization must have an Infrastructure Provider that owns the Site containing the Machine, and the caller must have the `PROVIDER_ADMIN` role.
 
-### 2. Execute the Machine power control operation
+### Execute the Machine power control operation
 
 Use `GracefulRestart` when the operating system can shut down cleanly. Use `ForceRestart` only when a graceful restart is not possible.
 
@@ -39,3 +39,5 @@ nicocli machine power-control-machine machine-power-control-machine \
 ```
 
 A successful request returns HTTP 202. Retrieve the Machine afterward with `nicocli machine get <machine-id>` and confirm that it returns to the expected lifecycle state.
+
+</Steps>
