@@ -446,6 +446,17 @@ pub trait DynamicLog {
     fn log_at(&self) -> LogAt;
 }
 
+/// Per-instance message selection for `message = dynamic` events: implement
+/// this and the derive routes `Event::message` through it, choosing the log
+/// message from the event's own fields. Return a distinct `&'static str` per
+/// case, e.g. by matching on a `#[label]` enum. Reach for it only when the
+/// wording says something a label doesn't: where the label already names the
+/// case, a static `message` plus that label is the leaner choice.
+pub trait DynamicMessage {
+    /// The message for this instance's log line.
+    fn message(&self) -> &'static str;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,6 +536,62 @@ mod tests {
         assert_eq!(
             carbide_instrument::Event::log_at(&event),
             carbide_instrument::LogAt::Off
+        );
+    }
+
+    #[derive(carbide_instrument::Event)]
+    #[event(
+        event_name = "dynamic_message_test",
+        component = "instrument_test",
+        log = dynamic,
+        message = dynamic,
+    )]
+    struct DynamicMessageTest {
+        #[label]
+        outcome: carbide_instrument::Outcome,
+    }
+
+    impl carbide_instrument::DynamicLog for DynamicMessageTest {
+        fn log_at(&self) -> carbide_instrument::LogAt {
+            match self.outcome {
+                carbide_instrument::Outcome::Error => {
+                    carbide_instrument::LogAt::Level(tracing::Level::WARN)
+                }
+                carbide_instrument::Outcome::Ok => carbide_instrument::LogAt::Off,
+            }
+        }
+    }
+
+    impl carbide_instrument::DynamicMessage for DynamicMessageTest {
+        fn message(&self) -> &'static str {
+            match self.outcome {
+                carbide_instrument::Outcome::Error => "call failed",
+                carbide_instrument::Outcome::Ok => "call finished",
+            }
+        }
+    }
+
+    #[test]
+    fn dynamic_message_selects_wording_per_variant() {
+        let ok = DynamicMessageTest {
+            outcome: carbide_instrument::Outcome::Ok,
+        };
+        let err = DynamicMessageTest {
+            outcome: carbide_instrument::Outcome::Error,
+        };
+
+        // `message = dynamic` routes `Event::message` through `DynamicMessage`.
+        assert_eq!(carbide_instrument::Event::message(&ok), "call finished");
+        assert_eq!(carbide_instrument::Event::message(&err), "call failed");
+
+        // The message axis is independent of the level axis (`DynamicLog`).
+        assert_eq!(
+            carbide_instrument::Event::log_at(&ok),
+            carbide_instrument::LogAt::Off
+        );
+        assert_eq!(
+            carbide_instrument::Event::log_at(&err),
+            carbide_instrument::LogAt::Level(tracing::Level::WARN)
         );
     }
 }
