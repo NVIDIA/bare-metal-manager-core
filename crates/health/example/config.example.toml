@@ -32,7 +32,7 @@ endpoint_discovery_interval = "5m"
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 
 [[endpoint_sources.static_bmc_endpoints]]
 ip = "10.0.0.1"
@@ -156,7 +156,7 @@ include_alert_details = false
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 8
 skip_empty_reports = true
 
@@ -164,7 +164,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
@@ -172,7 +172,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
@@ -180,7 +180,7 @@ skip_empty_reports = true
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
-api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
+api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
 workers = 2
 skip_empty_reports = true
 
