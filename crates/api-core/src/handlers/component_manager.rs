@@ -78,7 +78,8 @@ pub(crate) fn component_manager_error_to_status(err: ComponentManagerError) -> S
         ComponentManagerError::NotFound(msg) => Status::not_found(msg),
         ComponentManagerError::InvalidArgument(msg) => Status::invalid_argument(msg),
         ComponentManagerError::Unsupported(msg) => Status::unimplemented(msg),
-        ComponentManagerError::OperationOutcomeUnknown(msg) => Status::failed_precondition(msg),
+        ComponentManagerError::RejectedBeforeDispatch(msg) => Status::failed_precondition(msg),
+        ComponentManagerError::OperationOutcomeUnknown(msg) => Status::unavailable(msg),
         ComponentManagerError::Internal(msg) => Status::internal(msg),
         ComponentManagerError::Transport(e) => Status::unavailable(format!("transport error: {e}")),
         ComponentManagerError::Status(s) => s,
@@ -2844,9 +2845,15 @@ mod tests {
                 message_contains: Some("not implemented"),
             },
             ErrorToStatusCase {
+                scenario: "operation rejected before dispatch",
+                error: ComponentManagerError::RejectedBeforeDispatch("request rejected".into()),
+                expected_code: Code::FailedPrecondition,
+                message_contains: Some("request rejected"),
+            },
+            ErrorToStatusCase {
                 scenario: "operation outcome unknown",
                 error: ComponentManagerError::OperationOutcomeUnknown("lost job id".into()),
-                expected_code: Code::FailedPrecondition,
+                expected_code: Code::Unavailable,
                 message_contains: Some("lost job id"),
             },
             ErrorToStatusCase {
