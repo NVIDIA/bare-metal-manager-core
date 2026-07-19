@@ -25,7 +25,8 @@
 //!
 //! #[derive(Event)]
 //! #[event(event_name = "doc_demo", metric_name = "carbide_doc_demo_total", component = "demo",
-//!         log = warn, metric = counter, message = "demo fired")]
+//!         log = warn, metric = counter, message = "demo fired",
+//!         describe = "Number of demo events fired")]
 //! struct Demo {}
 //!
 //! let metrics = MetricsCapture::start();

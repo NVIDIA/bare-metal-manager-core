@@ -1155,7 +1155,7 @@ pub async fn create_test_env(db_pool: sqlx::PgPool) -> TestEnv {
 
 /// `create_test_env` with the fixture admin + host-inband site prefixes
 /// routable and the host-inband network segment created -- the standard
-/// setup for zero-DPU / NicMode ingestion tests.
+/// setup for zero-DPU / `Nic`-policy ingestion tests.
 pub async fn create_test_env_with_host_inband(db_pool: sqlx::PgPool) -> TestEnv {
     let env = create_test_env_with_overrides(
         db_pool,
@@ -1731,7 +1731,7 @@ pub async fn create_test_env_with_overrides(
             create_switches: Arc::new(true.into()),
             switches_created_per_run: 1,
             rotate_switch_nvos_credentials: Arc::new(false.into()),
-            dpu_mode: None,
+            dpu_policy: None,
             // Tests use MockEndpointExplorer. So this doesn't affect anything.
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },

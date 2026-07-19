@@ -31,7 +31,7 @@ cargo_metadata = { workspace = true }
 similar = { workspace = true }
 version-compare = { workspace = true }
 syn = { workspace = true, features = ["full", "visit", "parsing", "extra-traits", "clone-impls", "printing"] }
-proc-macro2 = { workspace = true, features = ["span-locations"] }
+proc-macro2 = { workspace = true, features = ["proc-macro", "span-locations"] }
 
 chrono = { workspace = true }
 tracing = { workspace = true }

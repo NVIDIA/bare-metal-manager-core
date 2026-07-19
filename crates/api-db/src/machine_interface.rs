@@ -193,7 +193,7 @@ pub async fn set_primary_interface(
 ///
 /// Used when a new interface takes over as the machine's sole primary -- e.g. a
 /// declared integrated host NIC promoted ahead of the DPU admin link it replaces
-/// on a DpuMode host -- so the incoming primary never collides with the outgoing
+/// on a managed-DPU host -- so the incoming primary never collides with the outgoing
 /// one on the `one_primary_interface_per_machine` index.
 pub async fn demote_primary_interfaces_for_machine(
     machine_id: &MachineId,
@@ -212,7 +212,7 @@ pub async fn demote_primary_interfaces_for_machine(
 ///
 /// Lets admin-address reconciliation distinguish a genuinely broken host (no
 /// primary at all) from one that legitimately boots from a non-admin primary --
-/// a HostInband integrated NIC on a DpuMode host -- whose DPU admin links are
+/// a HostInband integrated NIC on a managed-DPU host -- whose DPU admin links are
 /// then all dormant.
 pub async fn machine_has_primary_interface(
     machine_id: &MachineId,
@@ -2168,7 +2168,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     }
 
     // A primary prediction takes over as the host's sole primary: demote any
-    // current primary (e.g. the DPU admin link on a DpuMode host that boots from
+    // current primary (e.g. the DPU admin link on a managed-DPU host that boots from
     // a declared integrated NIC) before this row joins the machine, so the two
     // never collide on `one_primary_interface_per_machine`.
     if predicted_machine_interface.primary_interface {
@@ -2357,7 +2357,7 @@ pub async fn reconcile_admin_addresses_for_host(
 
     // The active primary admin interface to repair, paired with its segment --
     // present only when the host boots from a DPU admin link. A host that boots
-    // from a non-admin primary (a HostInband integrated NIC on a DpuMode host)
+    // from a non-admin primary (a HostInband integrated NIC on a managed-DPU host)
     // has no primary in the admin set, which is valid, not broken: every DPU
     // admin link is then dormant and only gets cleaned up below. A host with no
     // primary interface at all is the genuine error.

@@ -31,7 +31,7 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
 use model::machine_boot_interface::MachineBootInterface;
 use model::predicted_machine_interface::PredictedMachineInterface;
-use model::site_explorer::{NicMode, PreingestionState};
+use model::site_explorer::{BlueFieldOperatingMode, PreingestionState};
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
@@ -789,10 +789,11 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     // BFB preingestion flow will work its way through the states, and then
     // wait for the ARM OS to come up, which it never will. Waiting will
     // eventually, time out (SLA), and then the host will mark as failed.
-    if dpu_endpoint.report.nic_mode() == Some(NicMode::Nic) {
+    if dpu_endpoint.report.bluefield_operating_mode() == Some(BlueFieldOperatingMode::Nic) {
         return Err(CarbideError::InvalidArgument(format!(
             "cannot trigger BFB recovery: DPU {dpu_ip} is in NIC mode. \
-             update the host's `ExpectedMachine.dpu_mode` to `DpuMode` \
+             ensure the host's resolved DPU policy is `manage` \
+             (update it with `--dpu-policy manage` and adjust the site policy as needed) \
              and wait for site-explorer to reconcile the DPU back to \
              DPU mode before retrying",
         ))

@@ -70,8 +70,9 @@ use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
-use figment::Figment;
 use figment::providers::{Env, Format, Toml};
+use figment::value::{Dict, Map, Value};
+use figment::{Figment, Metadata, Profile, Provider};
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
 use model::attestation::spdm::VerifierImpl;
@@ -136,16 +137,57 @@ fn all_configuration_files(carbide_config: &CarbideConfig) -> Vec<&Path> {
         .collect::<Vec<&Path>>()
 }
 
+/// Normalizes the legacy site-explorer DPU-policy key within one configuration
+/// provider, before Figment applies provider precedence.
+///
+/// Keeping this at the provider boundary makes global < site < environment win
+/// regardless of whether a source uses `dpu_policy` or legacy `dpu_mode`.
+/// Within one source, the canonical key wins when both are present.
+struct NormalizeLegacyDpuPolicy<P>(P);
+
+impl<P: Provider> Provider for NormalizeLegacyDpuPolicy<P> {
+    fn metadata(&self) -> Metadata {
+        self.0.metadata()
+    }
+
+    fn data(&self) -> Result<Map<Profile, Dict>, figment::Error> {
+        let mut data = self.0.data()?;
+        for profile in data.values_mut() {
+            let Some(Value::Dict(_, site_explorer)) = profile.get_mut("site_explorer") else {
+                continue;
+            };
+
+            let legacy = site_explorer.remove("dpu_mode");
+            let canonical_is_set = site_explorer
+                .get("dpu_policy")
+                .is_some_and(|value| !matches!(value, Value::Empty(..)));
+            if !canonical_is_set && let Some(value) = legacy {
+                site_explorer.insert("dpu_policy".to_string(), value);
+            }
+        }
+
+        Ok(data)
+    }
+
+    fn profile(&self) -> Option<Profile> {
+        self.0.profile()
+    }
+}
+
+fn merged_carbide_config_figment(config_path: &Path, site_config_path: Option<&Path>) -> Figment {
+    let mut figment = Figment::new().merge(NormalizeLegacyDpuPolicy(Toml::file(config_path)));
+    if let Some(site_config_path) = site_config_path {
+        figment = figment.merge(NormalizeLegacyDpuPolicy(Toml::file(site_config_path)));
+    }
+
+    figment.merge(NormalizeLegacyDpuPolicy(Env::prefixed("CARBIDE_API_")))
+}
+
 pub fn parse_carbide_config(
     config_str: &Path,
     site_config_str: Option<&Path>,
 ) -> eyre::Result<Arc<CarbideConfig>> {
-    let mut figment = Figment::new().merge(Toml::file(config_str));
-    if let Some(site_config_str) = site_config_str {
-        figment = figment.merge(Toml::file(site_config_str));
-    }
-
-    let merged_config = figment.merge(Env::prefixed("CARBIDE_API_"));
+    let merged_config = merged_carbide_config_figment(config_str, site_config_str);
     let mut config: CarbideConfig = merged_config
         .extract()
         .wrap_err("failed to load configuration files")?;
@@ -1706,10 +1748,14 @@ fn nmxc_tls_config_from_nvlink(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::path::Path;
 
     use carbide_network::virtualization::VpcVirtualizationType;
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::scenarios;
     use figment::Figment;
     use figment::providers::{Format, Toml};
+    use model::expected_machine::HostDpuPolicy;
     use model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
     use model::resource_pool::ResourcePoolType;
     use model::resource_pool::define::ResourcePoolDef;
@@ -1717,6 +1763,91 @@ mod tests {
     use super::*;
     use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
+
+    #[derive(Clone, Copy)]
+    struct PolicyLayers {
+        global_setting: &'static str,
+        site_setting: &'static str,
+        environment_value: Option<&'static str>,
+    }
+
+    #[allow(clippy::result_large_err)] // Figment controls the error representation.
+    fn load_layered_dpu_policy(
+        layers: PolicyLayers,
+    ) -> Result<Option<HostDpuPolicy>, figment::Error> {
+        let mut policy = None;
+        figment::Jail::try_with(|jail| {
+            jail.clear_env();
+            if let Some(environment_value) = layers.environment_value {
+                jail.set_env("CARBIDE_API_SITE_EXPLORER", environment_value);
+            }
+
+            let global_config = format!(
+                "{}\n[site_explorer]\n{}\n",
+                include_str!("cfg/test_data/min_config.toml"),
+                layers.global_setting,
+            );
+            let site_config = format!("[site_explorer]\n{}\n", layers.site_setting);
+            jail.create_file("global.toml", &global_config)?;
+            jail.create_file("site.toml", &site_config)?;
+
+            policy = Some(
+                merged_carbide_config_figment(
+                    Path::new("global.toml"),
+                    Some(Path::new("site.toml")),
+                )
+                .extract::<CarbideConfig>()?
+                .site_explorer
+                .dpu_policy,
+            );
+            Ok(())
+        })?;
+
+        Ok(policy.expect("Jail must run the configuration extraction"))
+    }
+
+    #[test]
+    fn site_explorer_dpu_policy_respects_provider_precedence_across_legacy_key() {
+        scenarios!(
+            run = load_layered_dpu_policy;
+            "site config overrides global config regardless of key spelling" {
+                PolicyLayers {
+                    global_setting: "dpu_policy = \"nic\"",
+                    site_setting: "dpu_mode = \"no_dpu\"",
+                    environment_value: None,
+                } => Yields(Some(HostDpuPolicy::Ignore)),
+                PolicyLayers {
+                    global_setting: "dpu_mode = \"no_dpu\"",
+                    site_setting: "dpu_policy = \"manage\"",
+                    environment_value: None,
+                } => Yields(Some(HostDpuPolicy::Manage)),
+            }
+
+            "environment overrides site config regardless of key spelling" {
+                PolicyLayers {
+                    global_setting: "",
+                    site_setting: "dpu_policy = \"nic\"",
+                    environment_value: Some("{dpu_mode=no_dpu}"),
+                } => Yields(Some(HostDpuPolicy::Ignore)),
+                PolicyLayers {
+                    global_setting: "",
+                    site_setting: "dpu_mode = \"no_dpu\"",
+                    environment_value: Some("{dpu_policy=manage}"),
+                } => Yields(Some(HostDpuPolicy::Manage)),
+            }
+
+            "canonical key wins within one provider" {
+                PolicyLayers {
+                    global_setting: concat!(
+                        "dpu_policy = \"nic\"\n",
+                        "dpu_mode = \"no_dpu\"",
+                    ),
+                    site_setting: "",
+                    environment_value: None,
+                } => Yields(Some(HostDpuPolicy::Nic)),
+            }
+        );
+    }
 
     fn carbide_with_networks(
         networks: Option<HashMap<String, NetworkDefinition>>,

@@ -17,12 +17,13 @@
 
 use model::errors::{OperatorError, OperatorErrorSchema};
 use model::site_explorer::{
-    BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
-    EndpointExplorationReport, EthernetInterface, ExploredDpu, ExploredEndpoint,
-    ExploredEndpointSearchFilter, ExploredManagedHost, ExploredManagedHostSearchFilter,
-    ExploredMlxDevice, InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff,
-    MachineSetupStatus, Manager, MlxDeviceKind, NetworkAdapter, NicMode, PCIeDevice, PowerState,
-    SecureBootStatus, Service, SiteExplorationReport, SiteExplorerLastRun, SystemStatus,
+    BlueFieldOperatingMode, BootOption, BootOrder, Chassis, ComputerSystem,
+    ComputerSystemAttributes, EndpointExplorationReport, EthernetInterface, ExploredDpu,
+    ExploredEndpoint, ExploredEndpointSearchFilter, ExploredManagedHost,
+    ExploredManagedHostSearchFilter, ExploredMlxDevice, InternalLockdownStatus, Inventory,
+    LockdownStatus, MachineSetupDiff, MachineSetupStatus, Manager, MlxDeviceKind, NetworkAdapter,
+    PCIeDevice, PowerState, SecureBootStatus, Service, SiteExplorationReport, SiteExplorerLastRun,
+    SystemStatus,
 };
 
 use crate as rpc;
@@ -165,6 +166,15 @@ impl From<MlxDeviceKind> for rpc::site_explorer::MlxDeviceKind {
     }
 }
 
+impl From<BlueFieldOperatingMode> for rpc::site_explorer::BlueFieldOperatingMode {
+    fn from(mode: BlueFieldOperatingMode) -> Self {
+        match mode {
+            BlueFieldOperatingMode::Dpu => Self::Dpu,
+            BlueFieldOperatingMode::Nic => Self::Nic,
+        }
+    }
+}
+
 impl From<ExploredMlxDevice> for rpc::site_explorer::ExploredMlxDevice {
     fn from(device: ExploredMlxDevice) -> Self {
         rpc::site_explorer::ExploredMlxDevice {
@@ -177,10 +187,9 @@ impl From<ExploredMlxDevice> for rpc::site_explorer::ExploredMlxDevice {
             firmware_version: device.firmware_version,
             description: device.description,
             dpu_bmc_ip: device.dpu_bmc_ip.map(|ip| ip.to_string()),
-            nic_mode: device.nic_mode.map(|m| match m {
-                NicMode::Nic => rpc::site_explorer::NicMode::Nic as i32,
-                NicMode::Dpu => rpc::site_explorer::NicMode::Dpu as i32,
-            }),
+            nic_mode: device
+                .nic_mode
+                .map(|mode| rpc::site_explorer::BlueFieldOperatingMode::from(mode) as i32),
         }
     }
 }
@@ -188,10 +197,9 @@ impl From<ExploredMlxDevice> for rpc::site_explorer::ExploredMlxDevice {
 impl From<ComputerSystemAttributes> for rpc::site_explorer::ComputerSystemAttributes {
     fn from(attributes: ComputerSystemAttributes) -> Self {
         rpc::site_explorer::ComputerSystemAttributes {
-            nic_mode: attributes.nic_mode.map(|a| match a {
-                NicMode::Nic => rpc::site_explorer::NicMode::Nic.into(),
-                NicMode::Dpu => rpc::site_explorer::NicMode::Dpu.into(),
-            }),
+            nic_mode: attributes
+                .nic_mode
+                .map(|mode| rpc::site_explorer::BlueFieldOperatingMode::from(mode).into()),
         }
     }
 }
@@ -420,7 +428,9 @@ impl From<OperatorErrorSchema> for rpc::site_explorer::OperatorErrorSchema {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
     use model::site_explorer::EndpointExplorationError;
+    use prost::Message;
 
     use super::*;
 
@@ -445,5 +455,62 @@ mod tests {
         assert_eq!(actual_schema.text, expected_schema.text);
         assert_eq!(actual_schema.mitigation, expected_schema.mitigation);
         assert!(report.last_exploration_error.is_some());
+    }
+
+    /// Reflection-backed and generated clients retain the legacy protobuf type
+    /// while new Rust callers use the observed-state alias.
+    #[test]
+    fn bluefield_operating_mode_preserves_legacy_protojson_descriptor() {
+        let descriptor_set =
+            prost_types::FileDescriptorSet::decode(rpc::REFLECTION_API_SERVICE_DESCRIPTOR).unwrap();
+        let site_explorer = descriptor_set
+            .file
+            .iter()
+            .find(|file| file.package.as_deref() == Some("site_explorer"))
+            .unwrap();
+
+        let operating_mode = site_explorer
+            .enum_type
+            .iter()
+            .find(|enumeration| enumeration.name.as_deref() == Some("NicMode"))
+            .unwrap();
+        let names_and_numbers = operating_mode
+            .value
+            .iter()
+            .map(|value| (value.name.as_deref().unwrap(), value.number.unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(names_and_numbers, [("DPU", 0), ("NIC", 1)]);
+
+        let explored_device = site_explorer
+            .message_type
+            .iter()
+            .find(|message| message.name.as_deref() == Some("ExploredMlxDevice"))
+            .unwrap();
+        let mode_field = explored_device
+            .field
+            .iter()
+            .find(|field| field.number == Some(10))
+            .unwrap();
+        assert_eq!(mode_field.name.as_deref(), Some("nic_mode"));
+        assert_eq!(mode_field.json_name.as_deref(), Some("nicMode"));
+        assert_eq!(
+            mode_field.type_name.as_deref(),
+            Some(".site_explorer.NicMode")
+        );
+
+        assert_eq!(
+            rpc::site_explorer::BlueFieldOperatingMode::Nic.as_str_name(),
+            "NIC"
+        );
+        value_scenarios!(
+            run = rpc::site_explorer::BlueFieldOperatingMode::from;
+            "DPU mode" {
+                BlueFieldOperatingMode::Dpu => rpc::site_explorer::BlueFieldOperatingMode::Dpu,
+            }
+
+            "NIC mode" {
+                BlueFieldOperatingMode::Nic => rpc::site_explorer::BlueFieldOperatingMode::Nic,
+            }
+        );
     }
 }

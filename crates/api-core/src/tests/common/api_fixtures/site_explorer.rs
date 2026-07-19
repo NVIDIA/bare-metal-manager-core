@@ -1502,10 +1502,10 @@ pub async fn register_expected_machine(
         data.dpf_enabled = default_dpf_enabled;
     }
     // For fixtures that intentionally create zero-DPU hosts (no DpuConfigs),
-    // declare them as `NoDpu` so site-explorer accepts them. Tests that
-    // explicitly set `dpu_mode` via `expected_machine_data` are left alone.
-    if config.dpus.is_empty() && data.dpu_mode == model::expected_machine::DpuMode::DpuMode {
-        data.dpu_mode = model::expected_machine::DpuMode::NoDpu;
+    // declare them as `Ignore` so site-explorer accepts them. Explicit
+    // non-`Manage` policies in `expected_machine_data` are left alone.
+    if config.dpus.is_empty() && data.dpu_policy == model::expected_machine::HostDpuPolicy::Manage {
+        data.dpu_policy = model::expected_machine::HostDpuPolicy::Ignore;
     }
 
     let em = ExpectedMachine {
