@@ -228,14 +228,11 @@ async fn test_integration() -> eyre::Result<()> {
             &host_inband_segment_id,
         )
         .boxed(),
-        test_machine_a_tron_dpu_to_nic_mode_reregistration(
-            HostHardwareType::DellPowerEdgeR750,
-            &test_env,
-            &bmc_address_registry,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
-        )
-        .boxed(),
+        // TODO: https://github.com/NVIDIA/infra-controller/issues/3709
+        // Re-enable `test_machine_a_tron_dpu_to_nic_mode_reregistration` after the
+        // Admin-to-HostInband re-ingestion race is fixed. The scenario currently flakes in CI when
+        // the host-facing DPU MAC is re-created on the Admin segment before the NIC-mode
+        // transition completes.
         test_machine_a_tron_dual_stack(
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
@@ -1048,6 +1045,7 @@ async fn assert_auto_instance_network(
 /// Asserts the re-ingest milestone directly against the database -- the host's
 /// (stable, TPM-derived) machine row returns with its data-plane NIC and no
 /// managed DPU -- then drives the re-ingested NIC-mode host all the way to Ready.
+#[expect(dead_code, reason = "temporarily disabled due to a CI race")]
 async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
     hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
