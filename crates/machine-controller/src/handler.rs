@@ -59,7 +59,7 @@ use model::dpa_interface::DpaInterfaceControllerState;
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::instance::InstanceNetworkSyncStatus;
 use model::instance::config::network::{
-    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId, NetworkDetails,
+    DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId,
 };
 use model::instance::snapshot::InstanceSnapshot;
 use model::instance::status::SyncState;
@@ -790,8 +790,8 @@ impl MachineStateHandler {
                     // the host in the first place; `associated_dpu_machine_ids`
                     // is empty, and the outer branch above already transitions
                     // to HostInit before we ever reach this. What's nice is, this
-                    // also allows NicMode hosts to get actively reconfigured to
-                    // NIC mode via `set_nic_mode` during site-explorer ingestion,
+                    // also allows `Nic` hosts to get actively reconfigured
+                    // to NIC mode via `set_nic_mode` during site-explorer ingestion,
                     // which is something we do, but `force_dpu_nic_mode` never did.
                     let mut state_handler_outcome = StateHandlerOutcome::do_nothing();
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
@@ -5967,7 +5967,7 @@ impl StateHandler for HostMachineStateHandler {
                             if !mh_snapshot.has_managed_dpus() {
                                 // No DPU to wait for going down/up -- skip
                                 // straight to BomValidating. Covers
-                                // NicMode/NoDpu hosts and anything else
+                                // `Nic`/`Ignore` hosts and anything else
                                 // with no DPU snapshots; otherwise we'd
                                 // wait `dpu_wait_time` for a DPU that's
                                 // never going to come up.
@@ -6230,13 +6230,10 @@ impl StateHandler for InstanceStateHandler {
                         .network
                         .interfaces
                         .iter()
-                        .filter_map(|x| match x.network_details {
-                            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-                            _ => None,
-                        })
+                        .filter_map(InstanceInterfaceConfig::generated_network_segment_id)
                         .collect_vec();
 
-                    // No network segment is configured with vpc_prefix_id.
+                    // No generated VPC-prefix segment needs readiness tracking.
                     if network_segment_ids_with_vpc.is_empty() {
                         return Ok(StateHandlerOutcome::transition(next_state));
                     }
@@ -7361,13 +7358,10 @@ async fn handle_instance_network_config_update_request(
                 .new_config
                 .interfaces
                 .iter()
-                .filter_map(|x| match x.network_details {
-                    Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-                    _ => None,
-                })
+                .filter_map(InstanceInterfaceConfig::generated_network_segment_id)
                 .collect_vec();
 
-            // No network segment is configured with vpc_prefix_id.
+            // Generated VPC-prefix segments must be ready before promotion.
             if !network_segment_ids_with_vpc.is_empty() {
                 let network_segments_are_ready = db::network_segment::are_network_segments_ready(
                     &mut ctx.services.db_reader,
@@ -7728,13 +7722,10 @@ async fn release_network_segments_with_vpc_prefix(
 ) -> Result<(), StateHandlerError> {
     let network_segment_ids_with_vpc = interfaces
         .iter()
-        .filter_map(|x| match x.network_details {
-            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-            _ => None,
-        })
+        .filter_map(InstanceInterfaceConfig::generated_network_segment_id)
         .collect_vec();
 
-    // Mark all network ready for delete which were created for vpc_prefixes.
+    // Mark generated VPC-prefix segments ready for deletion.
     if !network_segment_ids_with_vpc.is_empty() {
         db::network_segment::mark_as_deleted_no_validation(txn, &network_segment_ids_with_vpc)
             .await
@@ -10727,11 +10718,11 @@ async fn set_boot_order_dpu_first_and_handle_no_dpu_error(
 
 /// Treat `Err(RedfishError::NoDpu)` as `Ok(None)` *only* when the host is
 /// declared zero-DPU (`expected_dpu_count == 0`). Other error variants and
-/// successful results pass through untouched. The `dpu_mode` gate in
+/// successful results pass through untouched. The host DPU policy gate in
 /// site-explorer is what guarantees `expected_dpu_count == 0` actually
-/// means the host carries no managed DPU -- either `NoDpu` (no DPU hardware)
-/// or `NicMode` (a DPU intentionally running as a plain NIC). Neither has a
-/// DPU to answer Redfish, so a `NoDpu` error is expected, not a fault.
+/// means the host carries no managed DPU -- either `Ignore` or `Nic`.
+/// Neither has a DPU to answer Redfish, so a `NoDpu` error is expected, not a
+/// fault.
 fn handle_no_dpu_error(
     result: Result<Option<String>, RedfishError>,
     expected_dpu_count: usize,

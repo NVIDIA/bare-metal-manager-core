@@ -237,6 +237,7 @@ async fn test_integration() -> eyre::Result<()> {
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
+            tenant_org_id,
             &v4_vpc_prefix_id,
             &v6_vpc_prefix_id,
             // Relay IP in admin net
@@ -345,7 +346,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
         &mut docs,
         "This file contains a list of metrics exported by NVIDIA Infra Controller (NICo). \
         The list is auto-generated from an integration test (`test_integration`). \
-        Metrics for workflows which are not exercised by the test are missing. \
+        Metrics no test exercises are added with `cargo xtask check-metric-docs --fix`. \
         NVLink partition monitor's metrics are documented in the manual: \
         [NVLink Partitioning](../manuals/nvlink_partitioning.md#metrics)."
     )
@@ -1081,9 +1082,10 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                 );
 
                 // 2. Flip the ExpectedMachine to NIC mode. Get the current record,
-                //    set `dpu_mode`, and round-trip the full message back through
-                //    UpdateExpectedMachine (the same get-mutate-update the admin CLI
-                //    `patch_expected_machine` uses, so we preserve every other field).
+                //    set the stable Forge `dpu_mode` field (translated to
+                //    HostDpuPolicy internally), and round-trip the full message
+                //    back through UpdateExpectedMachine. This is the same
+                //    get-mutate-update flow the admin CLI uses.
                 let get_req = serde_json::json!({ "bmc_mac_address": bmc_mac });
                 let expected_machine_json =
                     api_test_helper::grpcurl::grpcurl(carbide_api_addrs, "GetExpectedMachine", Some(&get_req))
@@ -1276,6 +1278,7 @@ async fn test_machine_a_tron_dual_stack(
     hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
+    tenant_organization_id: &str,
     v4_vpc_prefix_id: &str,
     v6_vpc_prefix_id: &str,
     admin_dhcp_relay_address: Ipv4Addr,
@@ -1292,6 +1295,7 @@ async fn test_machine_a_tron_dual_stack(
         |machine_handle| {
             let v4_prefix_id = v4_vpc_prefix_id.to_string();
             let v6_prefix_id = v6_vpc_prefix_id.to_string();
+            let tenant_organization_id = tenant_organization_id.to_string();
             let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
                 machine_handle
@@ -1307,6 +1311,7 @@ async fn test_machine_a_tron_dual_stack(
                 let instance_id = instance::create_with_vpc_prefixes(
                     carbide_api_addrs,
                     &machine_id,
+                    &tenant_organization_id,
                     &[&v4_prefix_id, &v6_prefix_id],
                 )
                 .await?;

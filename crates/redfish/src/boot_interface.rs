@@ -90,8 +90,8 @@ impl BootInterfaceTarget {
 /// and the id is the canonical Redfish-standard resolver
 /// (`Systems/{}/EthernetInterfaces/{id}`), so it is also the attempt most likely
 /// to succeed. In particular it covers the case where the MAC has dropped out of
-/// Redfish entirely (e.g. after a DPU `DpuMode` -> `NicMode` flip), where the
-/// MAC-keyed calls can no longer locate the interface.
+/// Redfish entirely (e.g. after a BlueField operating-mode flip from DPU to NIC),
+/// where the MAC-keyed calls can no longer locate the interface.
 pub async fn with_boot_interface_fallback<'a, T, F, Fut>(
     mac_address: MacAddress,
     interface_id: &'a str,

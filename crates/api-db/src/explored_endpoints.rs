@@ -322,20 +322,34 @@ pub async fn find_all_by_ip(
         .map_err(|e| DatabaseError::new("explored_endpoints find_all_by_ip", e))
 }
 
-pub async fn lookup_vendor_by_ip(
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ExploredBmcMetadata {
+    pub vendor: Option<String>,
+    pub ipmi_port: Option<u16>,
+}
+
+pub async fn lookup_bmc_metadata_by_ip(
     address: IpAddr,
     db_reader: impl DbReader<'_>,
-) -> Result<Option<String>, DatabaseError> {
-    let query = "SELECT exploration_report ->> 'Vendor' AS vendor FROM explored_endpoints WHERE address = $1";
+) -> Result<ExploredBmcMetadata, DatabaseError> {
+    let query = "SELECT exploration_report ->> 'Vendor' AS vendor, \
+                 exploration_report #>> '{Managers,0,IpmiPort}' AS ipmi_port \
+                 FROM explored_endpoints WHERE address = $1";
 
-    // exploration_report is JSONB and technically the Vendor field can be set to NULL, so we need 2 levels of Option<T>
-    let vendor: Option<Option<String>> = sqlx::query_scalar(query)
+    let metadata: Option<(Option<String>, Option<String>)> = sqlx::query_as(query)
         .bind(address)
         .fetch_optional(db_reader)
         .await
-        .map_err(|e| DatabaseError::new("explored_endpoints lookup_vendor_by_ip", e))?;
+        .map_err(|e| DatabaseError::new("explored_endpoints lookup_bmc_metadata_by_ip", e))?;
 
-    Ok(vendor.flatten())
+    Ok(
+        metadata.map_or_else(ExploredBmcMetadata::default, |(vendor, ipmi_port)| {
+            ExploredBmcMetadata {
+                vendor,
+                ipmi_port: ipmi_port.and_then(|port| port.parse().ok()),
+            }
+        }),
+    )
 }
 
 /// Updates the explored information about a node

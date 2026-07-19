@@ -17,6 +17,7 @@
 mod error_message_case;
 mod event_names;
 mod isolated_package_builds;
+mod metric_docs;
 mod squash_migrations;
 mod workspace_deps;
 
@@ -41,6 +42,11 @@ enum Xtask {
     )]
     IsolatedPackageBuilds,
     #[clap(
+        name = "check-metric-docs",
+        about = "Check that every #[derive(Event)] counter/histogram has a row in docs/observability/core_metrics.md"
+    )]
+    CheckMetricDocs(CheckMetricDocs),
+    #[clap(
         name = "squash-migrations",
         about = "Create a single squashed migration from all existing migrations in crates/api-db/migrations"
     )]
@@ -63,6 +69,16 @@ struct LintErrorMessages {
 }
 
 #[derive(Parser, Debug)]
+struct CheckMetricDocs {
+    #[clap(
+        short,
+        long,
+        help = "Add any missing rows to docs/observability/core_metrics.md instead of just reporting them"
+    )]
+    fix: bool,
+}
+
+#[derive(Parser, Debug)]
 struct CheckWorkspaceDeps {
     #[clap(
         short,
@@ -80,6 +96,7 @@ async fn main() -> eyre::Result<()> {
             workspace_deps::check(fix)?.report_and_exit()
         }
         Xtask::IsolatedPackageBuilds => isolated_package_builds::check()?,
+        Xtask::CheckMetricDocs(CheckMetricDocs { fix }) => metric_docs::check(fix)?,
         Xtask::SquashMigrations(args) => squash_migrations::run(args).await?,
         Xtask::LintErrorMessages(LintErrorMessages { fix }) => {
             error_message_case::check(fix)?.report_and_exit()

@@ -49,8 +49,8 @@ use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
-    ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase, NicMode, PowerDrainState,
-    PreingestionState, TimeSyncResetPhase,
+    BlueFieldOperatingMode, ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase,
+    PowerDrainState, PreingestionState, TimeSyncResetPhase,
 };
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
@@ -334,7 +334,7 @@ async fn one_endpoint(
         _ => None,
     };
     if let Some(host_bmc_ip) = endpoint_host_bmc_ip
-        && endpoint.report.nic_mode() == Some(NicMode::Nic)
+        && endpoint.report.bluefield_operating_mode() == Some(BlueFieldOperatingMode::Nic)
     {
         tracing::info!(
             bmc_ip_address = %endpoint.address,

@@ -18,10 +18,15 @@
 use std::collections::HashMap;
 
 use carbide_uuid::network::NetworkSegmentId;
-use common::api_fixtures::instance::{default_tenant_config, single_interface_network_config};
+use carbide_uuid::vpc::{VpcId, VpcPrefixId};
+use common::api_fixtures::instance::{
+    TestInstance, default_os_config, default_tenant_config, single_interface_network_config,
+};
+use common::api_fixtures::tenant::create_fixture_tenant;
 use common::api_fixtures::{
-    TestEnvOverrides, create_managed_host, create_managed_host_with_config, create_test_env,
-    create_test_env_with_host_inband, create_test_env_with_overrides,
+    TestEnv, TestEnvOverrides, TestManagedHost, create_managed_host,
+    create_managed_host_with_config, create_test_env, create_test_env_with_host_inband,
+    create_test_env_with_overrides,
 };
 use config_version::ConfigVersion;
 use model::test_support::ManagedHostConfig;
@@ -32,6 +37,7 @@ use tonic::Request;
 
 use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
 use crate::test_support::fixture_config::ManagedHostConfigExt as _;
+use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 use crate::tests::common::api_fixtures::instance::advance_created_instance_into_ready_state;
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, get_vpc_fixture_id};
 use crate::tests::common::rpc_builder::{
@@ -39,6 +45,15 @@ use crate::tests::common::rpc_builder::{
     VpcCreationRequest,
 };
 use crate::tests::common::{self};
+
+/// Returns tenant config matching the shared VPC fixture so update tests reach
+/// prefix behavior rather than fail ownership validation.
+fn fixture_tenant_config() -> rpc::TenantConfig {
+    rpc::TenantConfig {
+        tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        ..default_tenant_config()
+    }
+}
 
 /// Compares an expected instance configuration with the actual instance configuration
 ///
@@ -1000,7 +1015,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         x.network_details = response.id.map(NetworkDetails::VpcPrefixId);
     });
     let initial_config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
+        tenant: Some(fixture_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
@@ -1081,6 +1096,749 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     );
 }
 
+/// Pairs an eligible FNN VPC with its prefix so selector intent can be compared
+/// with the expected resolved allocation.
+#[derive(Clone, Copy)]
+struct VpcPrefixFixture {
+    vpc_id: VpcId,
+    vpc_prefix_id: VpcPrefixId,
+}
+
+/// Active resources expected to survive replacing explicit-prefix intent with
+/// equivalent automatic VPC intent.
+struct ActiveVpcResources {
+    network_segment_id: NetworkSegmentId,
+    addresses: Vec<String>,
+    internal_interface: model::instance::config::network::InstanceInterfaceConfig,
+}
+
+/// Creates an FNN VPC with IPv4 capacity so update scenarios reach automatic
+/// selection rather than fail its eligibility check.
+async fn create_fnn_vpc_prefix_fixture(
+    env: &TestEnv,
+    tenant_organization_id: &str,
+    vpc_name: &str,
+    vpc_prefix_name: &str,
+    prefix: &str,
+) -> VpcPrefixFixture {
+    // Automatic selection accepts only FNN VPCs.
+    let vpc_id = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(tenant_organization_id)
+                .metadata(rpc::Metadata {
+                    name: vpc_name.to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+
+    // Attach the requested IPv4 candidate capacity to that VPC.
+    let vpc_prefix_id = env
+        .api
+        .create_vpc_prefix(Request::new(rpc::forge::VpcPrefixCreationRequest {
+            id: None,
+            prefix: String::new(),
+            vpc_id: Some(vpc_id),
+            config: Some(rpc::forge::VpcPrefixConfig {
+                prefix: prefix.to_string(),
+            }),
+            metadata: Some(rpc::Metadata {
+                name: vpc_prefix_name.to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+
+    VpcPrefixFixture {
+        vpc_id,
+        vpc_prefix_id,
+    }
+}
+
+/// Builds one physical interface so update scenarios can vary only the caller's
+/// VPC or prefix intent.
+fn single_vpc_interface_network(network_details: NetworkDetails) -> rpc::InstanceNetworkConfig {
+    rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: None,
+            network_details: Some(network_details),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: None,
+            ip_address: None,
+            ipv6_interface_config: None,
+            routing_profile: None,
+        }],
+        #[allow(deprecated)]
+        auto: false,
+        auto_config: None,
+    }
+}
+
+/// Builds automatic IPv4 intent with an optional VF so cleanup covers both PF
+/// replacement and removal of a Carbide-assigned VF.
+fn automatic_vpc_network(
+    vpc_id: VpcId,
+    include_virtual_function: bool,
+) -> rpc::InstanceNetworkConfig {
+    let selection = NetworkDetails::Vpc(rpc::forge::InstanceInterfaceVpcSelection {
+        vpc_id: Some(vpc_id),
+        family_mode: rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32,
+    });
+    let mut network = single_vpc_interface_network(selection);
+
+    if include_virtual_function {
+        // Clone the PF selector while leaving the VF ID unset so Carbide allocates the VF.
+        let mut virtual_interface = network.interfaces[0].clone();
+        virtual_interface.function_type = rpc::InterfaceFunctionType::Virtual as i32;
+        network.interfaces.push(virtual_interface);
+    }
+
+    network
+}
+
+/// Captures the explicit allocation baseline so later stages can prove an
+/// intent-only update does not churn its segment or addresses.
+async fn observe_active_vpc_resources(
+    env: &TestEnv,
+    tinstance: &TestInstance<'_, '_>,
+    fixture: VpcPrefixFixture,
+) -> ActiveVpcResources {
+    // Verify the public projection exposes explicit intent and its resolved prefix.
+    let initial = tinstance.rpc_instance().await;
+    let initial_interface = &initial.config().network().interfaces[0];
+    let network_segment_id = initial_interface.network_segment_id.unwrap();
+    assert_eq!(
+        initial_interface.network_details,
+        Some(NetworkDetails::VpcPrefixId(fixture.vpc_prefix_id)),
+    );
+    let initial_status_interface = &initial.status().network().interfaces[0];
+    assert_eq!(
+        initial_status_interface
+            .resolved_vpc_prefixes
+            .as_ref()
+            .unwrap()
+            .ipv4_vpc_prefix_id,
+        Some(fixture.vpc_prefix_id),
+    );
+    let addresses = initial_status_interface.addresses.clone();
+    assert!(!addresses.is_empty());
+
+    // Preserve internal allocation state that is not fully exposed through RPC.
+    let mut txn = env.pool.begin().await.unwrap();
+    let initial_snapshot = tinstance.db_instance(&mut txn).await;
+    let internal_interface = initial_snapshot.config.network.interfaces[0].clone();
+    txn.rollback().await.unwrap();
+
+    ActiveVpcResources {
+        network_segment_id,
+        addresses,
+        internal_interface,
+    }
+}
+
+/// Stages automatic intent while retaining the explicit RPC projection because
+/// pending intent must not become publicly active before controller promotion.
+async fn stage_automatic_vpc_update(
+    env: &TestEnv,
+    tinstance: &TestInstance<'_, '_>,
+    config: &rpc::InstanceConfig,
+    metadata: &rpc::Metadata,
+    fixture: VpcPrefixFixture,
+    active: &ActiveVpcResources,
+) {
+    // Submit the complete replacement configuration with automatic intent.
+    let response = env
+        .api
+        .update_instance_config(
+            InstanceConfigUpdateRequest::builder()
+                .instance_id(tinstance.id)
+                .config(config.clone())
+                .metadata(metadata.clone())
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Until controller promotion, the response continues exposing active resources.
+    let response_interface = &response
+        .config
+        .as_ref()
+        .unwrap()
+        .network
+        .as_ref()
+        .unwrap()
+        .interfaces[0];
+    assert_eq!(
+        response_interface.network_details,
+        Some(NetworkDetails::VpcPrefixId(fixture.vpc_prefix_id)),
+    );
+    assert_eq!(
+        response_interface.network_segment_id,
+        Some(active.network_segment_id),
+    );
+    let response_status_interface = &response
+        .status
+        .as_ref()
+        .unwrap()
+        .network
+        .as_ref()
+        .unwrap()
+        .interfaces[0];
+    assert_eq!(
+        response_status_interface
+            .resolved_vpc_prefixes
+            .as_ref()
+            .unwrap()
+            .ipv4_vpc_prefix_id,
+        Some(fixture.vpc_prefix_id),
+    );
+}
+
+/// Verifies a pending re-read retains active allocation identity but withholds
+/// addresses because staged networking remains unsynchronized.
+async fn assert_pending_inventory_reuses_active_resources(
+    tinstance: &TestInstance<'_, '_>,
+    fixture: VpcPrefixFixture,
+    active: &ActiveVpcResources,
+) {
+    // Re-read before controller promotion, while automatic intent remains staged.
+    let pending = tinstance.rpc_instance().await;
+    let pending_interface = &pending.config().network().interfaces[0];
+    assert_eq!(
+        pending_interface.network_details,
+        Some(NetworkDetails::VpcPrefixId(fixture.vpc_prefix_id)),
+    );
+    assert_eq!(
+        pending_interface.network_segment_id,
+        Some(active.network_segment_id),
+    );
+    assert_eq!(
+        pending.status().network().interfaces[0]
+            .resolved_vpc_prefixes
+            .as_ref()
+            .unwrap()
+            .ipv4_vpc_prefix_id,
+        Some(fixture.vpc_prefix_id),
+    );
+
+    // Pending status reports unsynchronized networking and withholds addresses.
+    let pending_status = pending.status().network();
+    assert_eq!(pending_status.configs_synced(), rpc::SyncState::Pending);
+    assert!(pending_status.interfaces[0].addresses.is_empty());
+}
+
+/// Verifies the staged request carries automatic intent while reusing active
+/// allocations because the explicit prefix already satisfies the same VPC selector.
+async fn assert_staged_automatic_vpc_request(
+    env: &TestEnv,
+    tinstance: &TestInstance<'_, '_>,
+    fixture: VpcPrefixFixture,
+    active: &ActiveVpcResources,
+) {
+    // Pending automatic intent is hidden from RPC until promotion, so inspect it internally.
+    let mut txn = env.pool.begin().await.unwrap();
+    let pending_snapshot = tinstance.db_instance(&mut txn).await;
+    let pending_request = pending_snapshot
+        .update_network_config_request
+        .as_ref()
+        .unwrap();
+
+    // The staged selector must retain every active network allocation.
+    let staged_interface = &pending_request.new_config.interfaces[0];
+    let staged_selection = staged_interface.vpc_selection.as_ref().unwrap();
+    assert_eq!(staged_selection.vpc_id, fixture.vpc_id);
+    assert_eq!(
+        staged_selection.family_mode,
+        model::instance::config::network::InstanceInterfaceIpFamilyMode::Ipv4Only,
+    );
+    assert_eq!(
+        staged_interface.generated_network_segment_id(),
+        Some(active.network_segment_id),
+    );
+    assert_eq!(
+        staged_interface
+            .resolved_vpc_prefixes()
+            .unwrap()
+            .ipv4_vpc_prefix_id,
+        Some(fixture.vpc_prefix_id),
+    );
+    assert_eq!(
+        staged_interface.ip_addrs,
+        active.internal_interface.ip_addrs,
+    );
+    txn.rollback().await.unwrap();
+}
+
+/// Promotes the selector without allocation churn because the active explicit
+/// prefix already satisfies the automatic VPC intent.
+async fn promote_automatic_vpc_request(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    tinstance: &TestInstance<'_, '_>,
+    fixture: VpcPrefixFixture,
+    active: &ActiveVpcResources,
+) -> ConfigVersion {
+    // The generated segment is reused, so no network segment controller iteration is required.
+    env.run_machine_state_controller_iteration_network_config_return_to_ready(mh, false)
+        .await;
+
+    // After DPU synchronization returns the instance to Ready, RPC exposes the selector.
+    let promoted = tinstance.rpc_instance().await;
+    let promoted_network_version = promoted.network_config_version();
+    let promoted_interface = &promoted.config().network().interfaces[0];
+    let promoted_selection = match promoted_interface.network_details.as_ref() {
+        Some(NetworkDetails::Vpc(selection)) => selection,
+        other => panic!("expected automatic VPC intent after promotion, got {other:?}"),
+    };
+    assert_eq!(promoted_selection.vpc_id, Some(fixture.vpc_id));
+    assert_eq!(
+        promoted_selection.family_mode,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32,
+    );
+    assert_eq!(
+        promoted_interface.network_segment_id,
+        Some(active.network_segment_id),
+    );
+    let promoted_status_interface = &promoted.status().network().interfaces[0];
+    assert_eq!(promoted_status_interface.addresses, active.addresses);
+    assert_eq!(
+        promoted_status_interface
+            .resolved_vpc_prefixes
+            .as_ref()
+            .unwrap()
+            .ipv4_vpc_prefix_id,
+        Some(fixture.vpc_prefix_id),
+    );
+
+    promoted_network_version
+}
+
+/// Resubmits the selector without changing version or segment because the
+/// complete network configuration is already active.
+async fn repeat_automatic_vpc_update(
+    env: &TestEnv,
+    tinstance: &TestInstance<'_, '_>,
+    config: &rpc::InstanceConfig,
+    metadata: &rpc::Metadata,
+    active: &ActiveVpcResources,
+    promoted_network_version: &ConfigVersion,
+) {
+    // Submit the same complete configuration after promotion.
+    let repeated = env
+        .api
+        .update_instance_config(
+            InstanceConfigUpdateRequest::builder()
+                .instance_id(tinstance.id)
+                .config(config.clone())
+                .metadata(metadata.clone())
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+
+    // A network no-op preserves the network version and generated segment.
+    assert_eq!(
+        repeated.network_config_version,
+        promoted_network_version.to_string(),
+    );
+    let repeated_interface = &repeated
+        .config
+        .as_ref()
+        .unwrap()
+        .network
+        .as_ref()
+        .unwrap()
+        .interfaces[0];
+    assert_eq!(
+        repeated_interface.network_segment_id,
+        Some(active.network_segment_id),
+    );
+}
+
+/// Confirms replay creates no staged work or allocation churn because the
+/// identical selector and resolved resources are already active.
+async fn assert_repeated_update_reuses_active_resources(
+    env: &TestEnv,
+    tinstance: &TestInstance<'_, '_>,
+    fixture: VpcPrefixFixture,
+    active: &ActiveVpcResources,
+    promoted_network_version: &ConfigVersion,
+) {
+    // An identical update must leave no controller work or allocation changes.
+    let mut txn = env.pool.begin().await.unwrap();
+    let repeated_snapshot = tinstance.db_instance(&mut txn).await;
+    assert!(repeated_snapshot.update_network_config_request.is_none());
+    assert_eq!(
+        &repeated_snapshot.network_config_version,
+        promoted_network_version,
+    );
+    let repeated_interface = &repeated_snapshot.config.network.interfaces[0];
+    assert_eq!(
+        repeated_interface.generated_network_segment_id(),
+        Some(active.network_segment_id),
+    );
+    assert_eq!(
+        repeated_interface
+            .resolved_vpc_prefixes()
+            .unwrap()
+            .ipv4_vpc_prefix_id,
+        Some(fixture.vpc_prefix_id),
+    );
+    assert_eq!(
+        repeated_interface.ip_addrs,
+        active.internal_interface.ip_addrs,
+    );
+
+    // The reused segment must remain active and bound to the original prefix.
+    let reused_segments = db::network_segment::find_by(
+        txn.as_mut(),
+        db::ObjectColumnFilter::One(db::network_segment::IdColumn, &active.network_segment_id),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    let [reused_segment] = reused_segments.as_slice() else {
+        panic!("expected the reused generated network segment to remain present");
+    };
+    assert!(!reused_segment.is_marked_as_deleted());
+    assert_eq!(reused_segment.prefixes.len(), 1);
+    assert_eq!(
+        reused_segment.prefixes[0].vpc_prefix_id,
+        Some(fixture.vpc_prefix_id),
+    );
+    txn.rollback().await.unwrap();
+}
+
+/// Verifies equivalent explicit-to-automatic intent promotes without
+/// reallocation, then confirms replay remains a network no-op.
+#[crate::sqlx_test]
+async fn test_update_explicit_vpc_prefix_to_automatic_vpc_reuses_active_resources(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    // Create one eligible FNN VPC and allocate a ready instance from its explicit prefix.
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let tenant = default_tenant_config();
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    create_fixture_tenant(&env, tenant.tenant_organization_id.clone())
+        .await
+        .unwrap();
+    let fixture = create_fnn_vpc_prefix_fixture(
+        &env,
+        tenant.tenant_organization_id.as_str(),
+        "explicit-to-automatic-vpc",
+        "explicit-to-automatic-prefix",
+        "192.1.4.0/25",
+    )
+    .await;
+    let mh = create_managed_host(&env).await;
+    let metadata = rpc::Metadata {
+        name: "explicit-to-automatic-instance".to_string(),
+        description: "tests/instance_config_update".to_string(),
+        labels: Vec::new(),
+    };
+    let initial_network =
+        single_vpc_interface_network(NetworkDetails::VpcPrefixId(fixture.vpc_prefix_id));
+    let initial_config = rpc::InstanceConfig {
+        tenant: Some(tenant),
+        os: Some(default_os_config()),
+        network: Some(initial_network),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+        nvlink: None,
+        spxconfig: None,
+    };
+    let tinstance = mh
+        .instance_builer(&env)
+        .config(initial_config.clone())
+        .metadata(metadata.clone())
+        .build()
+        .await;
+
+    // Capture the active segment and addresses that the selector transition must reuse.
+    let active = observe_active_vpc_resources(&env, &tinstance, fixture).await;
+
+    // Change only caller intent to automatic selection of the same VPC.
+    let automatic_network = single_vpc_interface_network(NetworkDetails::Vpc(
+        rpc::forge::InstanceInterfaceVpcSelection {
+            vpc_id: Some(fixture.vpc_id),
+            family_mode: rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32,
+        },
+    ));
+    let mut automatic_config = initial_config;
+    automatic_config.network = Some(automatic_network);
+
+    // Verify the selector is staged while RPC still exposes the active explicit allocation.
+    stage_automatic_vpc_update(
+        &env,
+        &tinstance,
+        &automatic_config,
+        &metadata,
+        fixture,
+        &active,
+    )
+    .await;
+    assert_pending_inventory_reuses_active_resources(&tinstance, fixture, &active).await;
+    assert_staged_automatic_vpc_request(&env, &tinstance, fixture, &active).await;
+
+    // Promote the selector, then repeat the complete update to verify network no-op reuse.
+    let promoted_network_version =
+        promote_automatic_vpc_request(&env, &mh, &tinstance, fixture, &active).await;
+    repeat_automatic_vpc_update(
+        &env,
+        &tinstance,
+        &automatic_config,
+        &metadata,
+        &active,
+        &promoted_network_version,
+    )
+    .await;
+    assert_repeated_update_reuses_active_resources(
+        &env,
+        &tinstance,
+        fixture,
+        &active,
+        &promoted_network_version,
+    )
+    .await;
+}
+
+/// Verifies VPC replacement, VF removal, and instance deletion release generated
+/// resources so allocations cannot leak across lifecycle changes.
+#[crate::sqlx_test]
+async fn test_automatic_vpc_update_and_interface_removal_cleanup(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    // Create two eligible FNN VPCs so moving from VPC A to VPC B cannot reuse resources.
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let tenant = default_tenant_config();
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    create_fixture_tenant(&env, tenant.tenant_organization_id.clone())
+        .await
+        .unwrap();
+    let first_vpc = create_fnn_vpc_prefix_fixture(
+        &env,
+        tenant.tenant_organization_id.as_str(),
+        "automatic-cleanup-vpc-a",
+        "automatic-cleanup-prefix-a",
+        "192.1.4.0/25",
+    )
+    .await;
+    let second_vpc = create_fnn_vpc_prefix_fixture(
+        &env,
+        tenant.tenant_organization_id.as_str(),
+        "automatic-cleanup-vpc-b",
+        "automatic-cleanup-prefix-b",
+        "192.0.5.0/25",
+    )
+    .await;
+    let mh = create_managed_host(&env).await;
+    let metadata = rpc::Metadata {
+        name: "automatic-vpc-cleanup-instance".to_string(),
+        description: "tests/instance_config_update".to_string(),
+        labels: Vec::new(),
+    };
+    let initial_config = rpc::InstanceConfig {
+        tenant: Some(tenant),
+        os: Some(default_os_config()),
+        network: Some(automatic_vpc_network(first_vpc.vpc_id, true)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+        nvlink: None,
+        spxconfig: None,
+    };
+
+    // Allocate a PF and VF from VPC A, then capture their active generated resources.
+    let tinstance = mh
+        .instance_builer(&env)
+        .config(initial_config.clone())
+        .metadata(metadata.clone())
+        .build()
+        .await;
+    let active = tinstance.rpc_instance().await;
+    let active_config = active.config();
+    let active_interfaces = &active_config.network().interfaces;
+    assert_eq!(active_interfaces.len(), 2);
+    let old_segment_ids = active_interfaces
+        .iter()
+        .map(|interface| interface.network_segment_id.unwrap())
+        .collect::<Vec<_>>();
+    assert_ne!(old_segment_ids[0], old_segment_ids[1]);
+    assert!(active_interfaces.iter().all(|interface| {
+        matches!(
+            interface.network_details.as_ref(),
+            Some(NetworkDetails::Vpc(selection)) if selection.vpc_id == Some(first_vpc.vpc_id)
+        )
+    }));
+    let active_status_interfaces = &active.status().network().interfaces;
+    assert_eq!(active_status_interfaces.len(), 2);
+    assert!(active_status_interfaces.iter().all(|interface| {
+        interface
+            .resolved_vpc_prefixes
+            .as_ref()
+            .is_some_and(|resolved| {
+                resolved.ipv4_vpc_prefix_id == Some(first_vpc.vpc_prefix_id)
+                    && resolved.ipv6_vpc_prefix_id.is_none()
+            })
+    }));
+
+    // Confirm each original generated segment initially owns one persisted address.
+    let mut txn = env.db_txn().await;
+    for segment_id in &old_segment_ids {
+        assert_eq!(
+            db::instance_address::find_by_segment_id(txn.as_mut(), segment_id)
+                .await
+                .unwrap()
+                .len(),
+            1,
+        );
+    }
+    txn.rollback().await.unwrap();
+
+    // Stage VPC B for the PF and omit the VF so both VPC A interfaces become obsolete.
+    let mut updated_config = initial_config;
+    updated_config.network = Some(automatic_vpc_network(second_vpc.vpc_id, false));
+    env.api
+        .update_instance_config(
+            InstanceConfigUpdateRequest::builder()
+                .instance_id(tinstance.id)
+                .config(updated_config)
+                .metadata(metadata)
+                .tonic_request(),
+        )
+        .await
+        .unwrap();
+
+    // Ready the replacement segment, synchronize the DPU, and release VPC A resources.
+    env.run_machine_state_controller_iteration_network_config_return_to_ready(&mh, true)
+        .await;
+
+    // Once the instance returns to Ready, inventory must expose only the VPC B PF.
+    let promoted = tinstance.rpc_instance().await;
+    let promoted_config = promoted.config();
+    let [promoted_interface] = promoted_config.network().interfaces.as_slice() else {
+        panic!("expected exactly one promoted automatic interface");
+    };
+    let Some(NetworkDetails::Vpc(promoted_selection)) = promoted_interface.network_details.as_ref()
+    else {
+        panic!("expected promoted automatic VPC intent");
+    };
+    assert_eq!(promoted_selection.vpc_id, Some(second_vpc.vpc_id));
+    assert_eq!(
+        promoted_interface.function_type,
+        rpc::InterfaceFunctionType::Physical as i32,
+    );
+    let new_segment_id = promoted_interface.network_segment_id.unwrap();
+    assert!(!old_segment_ids.contains(&new_segment_id));
+    let promoted_instance_status = promoted.status();
+    let [promoted_status] = promoted_instance_status.network().interfaces.as_slice() else {
+        panic!("expected exactly one promoted automatic interface status");
+    };
+    assert_eq!(promoted_status.addresses.len(), 1);
+    assert_eq!(
+        promoted_status
+            .resolved_vpc_prefixes
+            .as_ref()
+            .unwrap()
+            .ipv4_vpc_prefix_id,
+        Some(second_vpc.vpc_prefix_id),
+    );
+
+    // Cleanup must soft-delete both VPC A segments and free their addresses while B remains active.
+    let mut txn = env.db_txn().await;
+    let promoted_snapshot = tinstance.db_instance(&mut txn).await;
+    assert!(promoted_snapshot.update_network_config_request.is_none());
+    let old_segments = db::network_segment::find_by(
+        txn.as_mut(),
+        db::ObjectColumnFilter::List(db::network_segment::IdColumn, &old_segment_ids),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(old_segments.len(), 2);
+    assert!(
+        old_segments
+            .iter()
+            .all(|segment| segment.is_marked_as_deleted())
+    );
+    for segment_id in &old_segment_ids {
+        assert!(
+            db::instance_address::find_by_segment_id(txn.as_mut(), segment_id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    let new_segments = db::network_segment::find_by(
+        txn.as_mut(),
+        db::ObjectColumnFilter::One(db::network_segment::IdColumn, &new_segment_id),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    let [new_segment] = new_segments.as_slice() else {
+        panic!("expected the promoted VPC B segment to remain present");
+    };
+    assert!(!new_segment.is_marked_as_deleted());
+    assert_eq!(
+        new_segment.prefixes[0].vpc_prefix_id,
+        Some(second_vpc.vpc_prefix_id)
+    );
+    assert_eq!(
+        db::instance_address::find_by_segment_id(txn.as_mut(), &new_segment_id)
+            .await
+            .unwrap()
+            .len(),
+        1,
+    );
+    txn.rollback().await.unwrap();
+
+    // Normal deletion must purge all three generated segments and leave no addresses.
+    tinstance.delete().await;
+    let mut generated_segment_ids = old_segment_ids;
+    generated_segment_ids.push(new_segment_id);
+    let mut txn = env.db_txn().await;
+    let remaining_segments = db::network_segment::find_by(
+        txn.as_mut(),
+        db::ObjectColumnFilter::List(db::network_segment::IdColumn, &generated_segment_ids),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert!(remaining_segments.is_empty());
+    for segment_id in &generated_segment_ids {
+        assert!(
+            db::instance_address::find_by_segment_id(txn.as_mut(), segment_id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    txn.rollback().await.unwrap();
+}
+
 #[crate::sqlx_test]
 async fn test_update_instance_config_vpc_prefix_network_update(
     _: PgPoolOptions,
@@ -1145,7 +1903,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
     };
 
     let initial_config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
+        tenant: Some(fixture_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
@@ -1359,7 +2117,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
     };
 
     let initial_config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
+        tenant: Some(fixture_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
@@ -1521,7 +2279,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
     };
 
     let initial_config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
+        tenant: Some(fixture_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
@@ -1720,7 +2478,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
     };
 
     let initial_config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
+        tenant: Some(fixture_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
@@ -1885,7 +2643,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
                 .config(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
+                    tenant: Some(fixture_tenant_config()),
                     os: Some(initial_os.clone()),
                     network: Some(rpc::InstanceNetworkConfig {
                         interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -1927,7 +2685,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
                 .config(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
+                    tenant: Some(fixture_tenant_config()),
                     os: Some(initial_os.clone()),
                     network: Some(rpc::InstanceNetworkConfig {
                         interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -1971,7 +2729,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
                 .config(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
+                    tenant: Some(fixture_tenant_config()),
                     os: Some(initial_os.clone()),
                     network: Some(rpc::InstanceNetworkConfig {
                         interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -2096,7 +2854,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
             InstanceConfigUpdateRequest::builder()
                 .instance_id(instance_id)
                 .config(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
+                    tenant: Some(fixture_tenant_config()),
                     os: Some(initial_os.clone()),
                     network: Some(rpc::InstanceNetworkConfig {
                         interfaces: vec![
@@ -2118,7 +2876,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device: Some("DPU1".to_string()),
                                 device_instance: 1,
                                 virtual_function_id: None,
-                                ip_address: Some("6.6.6.6".to_string()),
+                                ip_address: Some("6.6.6.7".to_string()),
                                 ipv6_interface_config: None,
                                 routing_profile: None,
                             },
@@ -2156,7 +2914,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
             InstanceConfigUpdateRequest::builder()
                 .instance_id(instance_id)
                 .config(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
+                    tenant: Some(fixture_tenant_config()),
                     os: Some(initial_os.clone()),
                     network: Some(rpc::InstanceNetworkConfig {
                         interfaces: vec![
@@ -2216,7 +2974,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
             InstanceConfigUpdateRequest::builder()
                 .instance_id(instance_id)
                 .config(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
+                    tenant: Some(fixture_tenant_config()),
                     os: Some(initial_os.clone()),
                     network: Some(rpc::InstanceNetworkConfig {
                         interfaces: vec![

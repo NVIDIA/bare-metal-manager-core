@@ -19,7 +19,9 @@ use bmc_vendor::BMCVendor;
 use model::attestation::spdm::{CaCertificate, Evidence};
 use model::firmware::FirmwareComponentType;
 use model::machine::{MachineLastRebootRequestedMode, PowerState as MachinePowerState};
-use model::site_explorer::{BootOption, NicMode, PCIeDevice, PowerState, SystemStatus};
+use model::site_explorer::{
+    BlueFieldOperatingMode, BootOption, PCIeDevice, PowerState, SystemStatus,
+};
 
 pub trait IntoLibredfish<T> {
     fn into_libredfish(self) -> T;
@@ -113,16 +115,16 @@ impl IntoModel<BootOption> for libredfish::model::BootOption {
     }
 }
 
-impl IntoModel<NicMode> for libredfish::model::oem::nvidia_dpu::NicMode {
-    fn into_model(self) -> NicMode {
+impl IntoModel<BlueFieldOperatingMode> for libredfish::model::oem::nvidia_dpu::NicMode {
+    fn into_model(self) -> BlueFieldOperatingMode {
         match self {
-            Self::Dpu => NicMode::Dpu,
-            Self::Nic => NicMode::Nic,
+            Self::Dpu => BlueFieldOperatingMode::Dpu,
+            Self::Nic => BlueFieldOperatingMode::Nic,
         }
     }
 }
 
-impl IntoLibredfish<libredfish::model::oem::nvidia_dpu::NicMode> for NicMode {
+impl IntoLibredfish<libredfish::model::oem::nvidia_dpu::NicMode> for BlueFieldOperatingMode {
     fn into_libredfish(self) -> libredfish::model::oem::nvidia_dpu::NicMode {
         match self {
             Self::Dpu => libredfish::model::oem::nvidia_dpu::NicMode::Dpu,

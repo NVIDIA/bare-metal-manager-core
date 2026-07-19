@@ -106,13 +106,13 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
     for interface in args.interfaces {
         let config_ = config__.clone();
         let args_mode = args.mode.clone();
+        let listen_address = args.listen_addr;
         let dhcp_timestamps_ = dhcp_timestamps.clone();
         let rate_limiter = rate_limiter_.clone();
         let cancel = cancel_token.clone();
 
         let handle = tokio::spawn(async move {
             let handler: Arc<Box<dyn DhcpMode>> = Arc::new(get_mode(&args_mode));
-            let listen_address = SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), 67);
 
             let socket = get_socket(listen_address, interface.clone()).await;
             tracing::info!(
@@ -557,6 +557,7 @@ fn get_mode(args_mode: &ServerMode) -> Box<dyn DhcpMode> {
 pub struct Config {
     dhcp_config: DhcpConfig,
     host_config: Option<HostConfig>, // Valid only for Dpu mode.
+    relay_response_port: u16,
 }
 
 async fn init(args: Args) -> Result<Config, DhcpError> {
@@ -573,6 +574,7 @@ async fn init(args: Args) -> Result<Config, DhcpError> {
     Ok(Config {
         dhcp_config,
         host_config,
+        relay_response_port: args.relay_response_port,
     })
 }
 
@@ -736,6 +738,8 @@ mod test {
     fn make_reload_args(td: &TempDir, interfaces: Vec<String>) -> Args {
         Args {
             interfaces,
+            listen_addr: "0.0.0.0:67".parse().unwrap(),
+            relay_response_port: 67,
             dhcp_config: td.path().join("dhcp.yaml").display().to_string(),
             host_config: Some(td.path().join("host.yaml").display().to_string()),
             mode: ServerMode::Dpu,
@@ -901,6 +905,8 @@ mod test {
 
         Args {
             interfaces: vec!["eth0".to_string()],
+            listen_addr: "0.0.0.0:67".parse().unwrap(),
+            relay_response_port: 67,
             dhcp_config: base_path.join("conf/conf.yaml").display().to_string(),
             host_config: Some(
                 base_path
@@ -973,7 +979,9 @@ mod test {
             MessageType::Request,
         );
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
-        let config = init(get_test_args()).await.unwrap();
+        let mut args = get_test_args();
+        args.relay_response_port = 6768;
+        let config = init(args).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
             std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
         )));
@@ -989,7 +997,7 @@ mod test {
 
         assert_eq!(
             packet.dst_address(),
-            SocketAddrV4::new(Ipv4Addr::from([0x0a, 0xd9, 0x05, 0x29]), 67)
+            SocketAddrV4::new(Ipv4Addr::from([0x0a, 0xd9, 0x05, 0x29]), 6768)
         );
         let packet = Message::decode(&mut dhcproto::Decoder::new(packet.encoded_packet())).unwrap();
 
@@ -1178,6 +1186,11 @@ mod test {
         )
         .await
         .unwrap();
+
+        assert_eq!(
+            encoded_packet.dst_address(),
+            SocketAddrV4::new(Ipv4Addr::BROADCAST, 68)
+        );
 
         // The reply type the send path counts lease grants under matches the
         // encoded reply.

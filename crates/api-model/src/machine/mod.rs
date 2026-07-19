@@ -355,11 +355,11 @@ impl ManagedHostStateSnapshot {
     /// Returns `true` if this managed host has at least one DPU snapshot
     /// attached -- i.e. a DPU we actively manage as a `Machine`.
     ///
-    /// A `false` return ("no managed DPUs") covers two cases that are intended
-    /// to be treated the same: actual zero-DPU hosts (`DpuMode::NoDpu`), and
-    /// `DpuMode::NicMode` hosts. The latter may acutally have DPUs, but
-    /// site-explorer puts them into NIC mode at ingestion, so no DPU snapshot
-    /// is ever attached.
+    /// A `false` return ("no managed DPUs") covers the two effective policies
+    /// that intentionally attach no DPU snapshots: `HostDpuPolicy::Ignore` and
+    /// `HostDpuPolicy::Nic`. A `Nic` host may have DPU hardware, but
+    /// site-explorer puts it into NIC mode at ingestion, so no DPU snapshot is
+    /// ever attached.
     ///
     /// Some callers combine this w/ `associated_dpu_machine_ids().is_empty()`
     /// to distinguish between truly no managed DPUs vs. DPU expected per
