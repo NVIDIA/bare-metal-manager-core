@@ -154,6 +154,8 @@ pub(crate) async fn rotate_credential(
             )
             .into());
         }
+
+        require_nvos_credential_sources(api).await?;
     }
 
     // Resolve the rotate-TO password: an operator-supplied password is validated
@@ -278,6 +280,61 @@ pub(crate) async fn rotate_credential(
         })?,
         started_at: Some(staged.started_at.into()),
     }))
+}
+
+/// Rejects target publication when a live switch currently has no credential source.
+///
+/// Reconciliation remains authoritative if a credential source changes after
+/// this point-in-time check.
+async fn require_nvos_credential_sources(api: &Api) -> Result<(), CarbideError> {
+    let mut txn = api.txn_begin().await?;
+    let gaps = db::credential_rotation::nvos_credential_source_gaps(&mut txn).await?;
+
+    txn.commit().await?;
+
+    let mut missing = Vec::new();
+
+    for (switch_id, bmc_mac_address, malformed_expected_credentials) in gaps {
+        let Some(bmc_mac_address) = bmc_mac_address else {
+            missing.push(format!("{switch_id} (BMC MAC unavailable)"));
+            continue;
+        };
+
+        if malformed_expected_credentials {
+            missing.push(format!(
+                "{bmc_mac_address} (expected-switch NVOS credentials are partial or empty)"
+            ));
+            continue;
+        }
+
+        let credentials = api
+            .credential_manager
+            .get_credentials(&CredentialKey::SwitchNvosAdmin { bmc_mac_address })
+            .await
+            .map_err(|error| {
+                CarbideError::internal(format!(
+                    "failed to check current NVOS credential for {bmc_mac_address}: {error}"
+                ))
+            })?;
+
+        if !matches!(
+            credentials,
+            Some(Credentials::UsernamePassword { username, password })
+                if !username.is_empty() && !password.is_empty()
+        ) {
+            missing.push(bmc_mac_address.to_string());
+        }
+    }
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(CarbideError::FailedPrecondition(format!(
+            "NVOS rotation requires current credentials for all live switches; missing \
+             credential source for {}",
+            missing.join(", ")
+        )))
+    }
 }
 
 /// Wakes live switches after publishing a new NVOS target.

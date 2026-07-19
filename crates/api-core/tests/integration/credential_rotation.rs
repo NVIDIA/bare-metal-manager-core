@@ -24,6 +24,7 @@ use carbide_secrets::credentials::{
 use carbide_test_harness::prelude::*;
 use component_manager::component_manager::ComponentManager;
 use component_manager::mock::{MockComputeTrayManager, MockNvSwitchManager, MockPowerShelfManager};
+use mac_address::MacAddress;
 use rpc::forge::{
     CredentialRotationStatusRequest, RotateCredentialRequest, RotationCredentialType,
 };
@@ -75,6 +76,42 @@ fn site_creds(password: &str) -> Credentials {
         username: String::new(),
         password: password.to_string(),
     }
+}
+
+async fn add_live_nvos_switch(
+    env: &TestHarness,
+    index: i32,
+    bmc_mac: &str,
+    nvos_username: Option<&str>,
+    nvos_password: Option<&str>,
+) -> MacAddress {
+    let switch = env.create_switch(index, index).await;
+    let mut txn = env.db_txn().await;
+
+    sqlx::query(
+        "INSERT INTO expected_switches \
+             (serial_number, bmc_mac_address, bmc_username, bmc_password, \
+              nvos_username, nvos_password) \
+         VALUES ($1, $2::macaddr, 'admin', 'password', $3, $4)",
+    )
+    .bind(format!("nvos-preflight-{index}"))
+    .bind(bmc_mac)
+    .bind(nvos_username)
+    .bind(nvos_password)
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+
+    sqlx::query("UPDATE switches SET bmc_mac_address = $1::macaddr WHERE id = $2")
+        .bind(bmc_mac)
+        .bind(switch.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+
+    txn.commit().await.unwrap();
+
+    bmc_mac.parse().unwrap()
 }
 
 #[sqlx_test]
@@ -277,6 +314,91 @@ async fn first_nvos_rotation_publishes_verified_version_zero_target(pool: sqlx::
     assert_eq!(status.pending, 0);
     assert_eq!(status.quarantined, 0);
     assert!(status.complete);
+}
+
+#[sqlx_test]
+async fn nvos_rotation_rejects_malformed_expected_credentials(pool: sqlx::PgPool) {
+    let env = init_with_nvos_rotation(pool).await;
+    let bmc_mac = "02:00:00:00:00:51";
+
+    let stored_mac = add_live_nvos_switch(&env, 1, bmc_mac, Some("admin"), None).await;
+    env.api()
+        .credential_manager()
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin {
+                bmc_mac_address: stored_mac,
+            },
+            &Credentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "stored-password".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let error = env
+        .api()
+        .rotate_credential(tonic::Request::new(RotateCredentialRequest {
+            credential_type: RotationCredentialType::RotationNvos.into(),
+            password: Some("Nvos-Site-Target-0!".to_string()),
+            reason: None,
+        }))
+        .await
+        .expect_err("malformed expected credentials must block target publication");
+
+    assert_eq!(error.code(), Code::FailedPrecondition);
+    assert!(error.message().contains(bmc_mac));
+
+    assert!(
+        stored_password(
+            env.api().credential_manager(),
+            &CredentialKey::switch_nvos_site_admin(0),
+        )
+        .await
+        .is_none()
+    );
+}
+
+#[sqlx_test]
+async fn nvos_rotation_accepts_expected_or_stored_current_credentials(pool: sqlx::PgPool) {
+    let env = init_with_nvos_rotation(pool).await;
+
+    add_live_nvos_switch(
+        &env,
+        1,
+        "02:00:00:00:00:52",
+        Some("admin"),
+        Some("expected-password"),
+    )
+    .await;
+
+    let stored_mac = add_live_nvos_switch(&env, 2, "02:00:00:00:00:53", None, None).await;
+    env.api()
+        .credential_manager()
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin {
+                bmc_mac_address: stored_mac,
+            },
+            &Credentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "stored-password".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let result = env
+        .api()
+        .rotate_credential(tonic::Request::new(RotateCredentialRequest {
+            credential_type: RotationCredentialType::RotationNvos.into(),
+            password: Some("Nvos-Site-Target-0!".to_string()),
+            reason: None,
+        }))
+        .await
+        .expect("either current credential source should allow rotation")
+        .into_inner();
+
+    assert_eq!(result.target_version, 0);
 }
 
 #[sqlx_test]

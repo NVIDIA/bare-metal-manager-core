@@ -64,6 +64,7 @@
 //! join `device_credential_rotation` to the live device tables when selecting
 //! work so a row orphaned by device deletion is never acted on.
 
+use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Duration, Utc};
 use mac_address::MacAddress;
 use sqlx::PgConnection;
@@ -671,6 +672,27 @@ struct RotationCounts {
     pending: i64,
     quarantined: i64,
     started_at: DateTime<Utc>,
+}
+
+/// Live switches that cannot bootstrap from complete expected-switch credentials.
+pub async fn nvos_credential_source_gaps(
+    conn: impl DbReader<'_>,
+) -> Result<Vec<(SwitchId, Option<MacAddress>, bool)>, DatabaseError> {
+    let query = "SELECT s.id AS switch_id, s.bmc_mac_address, \
+                        es.nvos_username IS NOT NULL \
+                            OR es.nvos_password IS NOT NULL AS malformed_expected_credentials \
+                 FROM switches s \
+                 LEFT JOIN expected_switches es \
+                   ON es.bmc_mac_address = s.bmc_mac_address \
+                 WHERE s.deleted IS NULL \
+                   AND (NULLIF(es.nvos_username, '') IS NULL \
+                        OR NULLIF(es.nvos_password, '') IS NULL) \
+                 ORDER BY s.id";
+
+    sqlx::query_as::<_, (SwitchId, Option<MacAddress>, bool)>(query)
+        .fetch_all(conn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))
 }
 
 /// Convergence status for `credential_type`'s current site-wide target.
