@@ -753,6 +753,7 @@ pub mod test_support {
                         node_id: node.node_id.clone(),
                         rack_id: node.rack_id.clone(),
                         r#type: node.r#type.unwrap_or(0),
+                        node_descriptor: node.node_descriptor.clone(),
                         ..Default::default()
                     });
                 }
@@ -1003,12 +1004,7 @@ pub mod test_support {
         ) -> Result<rms::PushSwitchFirmwareResponse, RackManagerError> {
             Ok(rms::PushSwitchFirmwareResponse::default())
         }
-        async fn upgrade_switch_firmware(
-            &self,
-            _cmd: rms::UpgradeSwitchFirmwareRequest,
-        ) -> Result<rms::UpgradeSwitchFirmwareResponse, RackManagerError> {
-            Ok(rms::UpgradeSwitchFirmwareResponse::default())
-        }
+
         async fn configure_scale_up_fabric_manager(
             &self,
             cmd: rms::ConfigureScaleUpFabricManagerRequest,
@@ -1124,12 +1120,7 @@ pub mod test_support {
         async fn get_version(&self) -> Result<rms::GetVersionResponse, RackManagerError> {
             Ok(rms::GetVersionResponse::default())
         }
-        async fn poll_switch_firmware_job_status(
-            &self,
-            _cmd: rms::PollSwitchFirmwareJobStatusRequest,
-        ) -> Result<rms::PollSwitchFirmwareJobStatusResponse, RackManagerError> {
-            Ok(rms::PollSwitchFirmwareJobStatusResponse::default())
-        }
+
         async fn update_firmware(
             &self,
             _cmd: rms::UpdateFirmwareRequest,

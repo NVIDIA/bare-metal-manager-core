@@ -2795,7 +2795,7 @@ impl<'r> FromRow<'r, PgRow> for _HealthReportWrapper {
 }
 
 /// RMS identity for a compute tray machine, including rack profile context for
-/// node type resolution.
+/// node descriptor construction.
 #[derive(Debug, sqlx::FromRow)]
 pub struct MachineRmsIdentity {
     pub id: String,

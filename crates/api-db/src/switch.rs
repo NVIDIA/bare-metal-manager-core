@@ -784,8 +784,8 @@ pub async fn find_ids_by_bmc_macs(
         .map_err(|err| DatabaseError::new("switch::find_ids_by_bmc_macs", err))
 }
 
-/// RMS identity for a switch, including rack profile context for node type
-/// resolution.
+/// RMS identity for a switch, including rack profile context for node descriptor
+/// construction.
 #[derive(Debug, sqlx::FromRow)]
 pub struct SwitchRmsIdentity {
     pub id: String,

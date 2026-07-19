@@ -38,9 +38,12 @@ NICo Flow contains software-defined states for managing a site, such as those fo
 
 * **Backend**: Previously, NICo Core accessed machines directly via BMC. With rack-scale systems, we now have more types of component HW (compute, switch, and powershelf), as well as more ways to access these components (BMC and NVUE). The complexity of these HW access and management operations are now moved out of NICo Core into the backend for NICo. NICo backend is an extensible interface for different types of hardware to be plugged into and managed by NICo.
 
-Today there is a NVSwitch Manager (NSM) backend and a Powershelf Manager (PSM) backend, providing access to switch and powershelf trays in racks, called from NICo Core.
-
-In the near future, NVIDIA Rack Manager Service (RMS) will be shipped as a backend for NICo to provide unified compute, switch, and powershelf trays access and management, as well as optimized default HW sequencing for rack power control and firmware update.
+NICo Core supports NVSwitch Manager (NSM) and PowerShelf Manager (PSM)
+backends for switch and power-shelf access. NVIDIA Rack Manager Service (RMS)
+can serve compute, switch, and power-shelf roles and provides rack-level power
+and firmware operations. See
+[Component Manager RMS Backends](../configuration/component-manager-rms.md)
+for RMS configuration requirements.
 
 ## Rack-Level Operations
 
@@ -148,5 +151,4 @@ Currently, NICo only supports GB200 NVL72 racks, where a rack and a NVL domain o
 - [PATCH /v2/org/{org}/carbide/tray/{id}/power](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/power-control-tray): Control the power of the specified tray. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
 - [PATCH /v2/org/{org}/carbide/tray/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/firmware-update-trays): Update the firmware on all or selected trays in the site.  
 - [PATCH /v2/org/{org}/carbide/tray/{id}/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/firmware-update-tray): Update the firmware on the specified tray.
-
 
