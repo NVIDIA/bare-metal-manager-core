@@ -1761,6 +1761,10 @@ impl SiteExplorer {
             metrics.exploration_identified_managed_hosts += 1;
         }
 
+        // Any transaction touching multiple explored_endpoints needs to sort them the same way to
+        // avoid deadlocks: sort by IP.
+        boot_interfaces.sort_by_key(|(address, _)| *address);
+
         let mut txn = self.txn_begin().await?;
 
         db::explored_managed_host::update(
@@ -2415,13 +2419,19 @@ impl SiteExplorer {
         // even thought the next controller iteration already started.
         // Therefore we drain the `task_set` here completely and record all errors
         // before returning.
-        let exploration_results = task_set
+        let mut exploration_results = task_set
             .collect::<Vec<_>>()
             .await
             .into_iter()
-            .collect::<SiteExplorerResult<Vec<_>>>()?;
+            .collect::<SiteExplorerResult<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        // Any transaction touching multiple explored_endpoints needs to sort them the same way to
+        // avoid deadlocks: sort by IP.
+        exploration_results.sort_by_key(|result| result.endpoint.address);
         metrics.record_phase_latency("update_explored_endpoints_probe", probe_start.elapsed());
-        for EndpointExplorationTaskResult { steps, .. } in exploration_results.iter().flatten() {
+        for EndpointExplorationTaskResult { steps, .. } in &exploration_results {
             metrics
                 .record_endpoint_exploration_step_latency("redfish_explore", steps.redfish_explore);
             if let Some(duration) = steps.failure_context_load {
@@ -2452,7 +2462,7 @@ impl SiteExplorer {
             result,
             exploration_duration,
             ..
-        } in exploration_results.into_iter().flatten()
+        } in exploration_results
         {
             let address = endpoint.address;
             let mut redfish_error = None;

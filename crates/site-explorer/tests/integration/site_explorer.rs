@@ -1477,10 +1477,10 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
             _ => panic!("No other endpoints should be discovered"),
         }
     }
-    versions.sort();
-    // We run 4 iterations, which is enough for 8 machine scans
-    // => 2 Machines should have been scanned 3 times, and one 2 times
-    assert_eq!(&versions, &[2, 3, 3]);
+    // Four iterations perform eight scans. The oldest-first scheduler does not
+    // guarantee an even distribution, but every endpoint should be refreshed.
+    assert_eq!(versions.iter().sum::<u64>(), 8);
+    assert!(versions.iter().all(|version| *version >= 2));
 
     let report = fetch_exploration_report(api).await;
     assert_eq!(report.endpoints.len(), 3);

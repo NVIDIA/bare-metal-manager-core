@@ -643,30 +643,30 @@ pub(crate) async fn admin_force_delete_machine(
     if let Some(machine) = &host_machine
         && let Some(addr) = machine.bmc_info.ip
     {
+        // If this delete waited out a concurrent exploration rewrite, its
+        // statement snapshot can miss the row that rewrite re-inserted; the
+        // leftover clears on the next exploration pass, which rebuilds the
+        // table from the (now deleted) explored endpoints.
+        db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
+    }
+
+    let mut machines_by_bmc_ip = host_machine
+        .iter()
+        .chain(dpu_machines.iter())
+        .filter_map(|machine| machine.bmc_info.ip.map(|address| (address, machine)))
+        .collect::<Vec<_>>();
+    // Any transaction touching multiple explored_endpoints needs to sort them the same way to avoid
+    // deadlocks: sort by IP.
+    machines_by_bmc_ip.sort_by_key(|(address, _)| *address);
+
+    for (addr, machine) in machines_by_bmc_ip {
         tracing::info!(
             bmc_ip_address = %addr,
             machine_id = %machine.id,
             "Cleaning up explored endpoint",
         );
 
-        // If this delete waited out a concurrent exploration rewrite, its
-        // statement snapshot can miss the row that rewrite re-inserted; the
-        // leftover clears on the next exploration pass, which rebuilds the
-        // table from the (now deleted) explored endpoints.
-        db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
-
         db::explored_endpoints::delete(&mut txn, addr).await?;
-    }
-    for dpu_machine in dpu_machines.iter() {
-        if let Some(addr) = dpu_machine.bmc_info.ip {
-            tracing::info!(
-                bmc_ip_address = %addr,
-                machine_id = %dpu_machine.id,
-                "Cleaning up explored endpoint",
-            );
-
-            db::explored_endpoints::delete(&mut txn, addr).await?;
-        }
     }
 
     if let Some(machine) = &host_machine {

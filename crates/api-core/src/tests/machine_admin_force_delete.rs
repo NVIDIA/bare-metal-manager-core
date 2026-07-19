@@ -352,6 +352,93 @@ async fn test_admin_force_delete_orders_locks_against_exploration(pool: sqlx::Pg
     validate_machine_deletion(&env, &host.dpu_ids[0], None).await;
 }
 
+/// Multi-endpoint exploration persistence and force-delete must acquire
+/// `explored_endpoints` rows in the same ascending address order. The fixture
+/// allocates DPU BMC addresses before the host BMC address, so the old
+/// host-first force-delete order formed an inverse-order cycle here.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_orders_endpoint_locks_by_address(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let managed_host = create_managed_host_multi_dpu(&env, 2).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &managed_host.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let dpu_machines = db::machine::find_dpus_by_host_machine_id(txn.as_mut(), &managed_host.id)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let host_address = host_machine
+        .bmc_info
+        .ip
+        .expect("managed host fixture has a BMC ip");
+    let mut endpoint_addresses = dpu_machines
+        .iter()
+        .filter_map(|machine| machine.bmc_info.ip)
+        .chain(std::iter::once(host_address))
+        .collect::<Vec<_>>();
+    endpoint_addresses.sort_unstable();
+    assert_eq!(endpoint_addresses.len(), 3);
+    assert_ne!(
+        endpoint_addresses[0], host_address,
+        "fixture must put a DPU endpoint below the host endpoint"
+    );
+
+    // Simulate site-explorer taking the lowest endpoint row first.
+    let mut exploration_txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE explored_endpoints SET address = address WHERE address = $1")
+        .bind(endpoint_addresses[0])
+        .execute(exploration_txn.as_mut())
+        .await
+        .unwrap();
+
+    let api = managed_host.api.clone();
+    let host_id = managed_host.id;
+    let force_delete_task = tokio::spawn(async move {
+        api.admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+    });
+    wait_until_blocked_on(&env.pool, "explored_endpoints").await;
+
+    // Continue site-explorer's updates in canonical order. Force-delete must
+    // be waiting on the first row without holding any higher-address endpoint.
+    for address in endpoint_addresses.iter().skip(1) {
+        sqlx::query("UPDATE explored_endpoints SET address = address WHERE address = $1")
+            .bind(address)
+            .execute(exploration_txn.as_mut())
+            .await
+            .expect("ascending endpoint update must not deadlock against force-delete");
+    }
+    exploration_txn.commit().await.unwrap();
+
+    let response = force_delete_task
+        .await
+        .unwrap()
+        .expect("force delete completes once exploration commits")
+        .into_inner();
+    assert!(response.all_done);
+    for machine_id in managed_host
+        .dpu_ids
+        .iter()
+        .chain(std::iter::once(&managed_host.id))
+    {
+        validate_machine_deletion(&env, machine_id, None).await;
+    }
+}
+
 /// Polls `pg_stat_activity` until some backend in this test's database sits
 /// in a lock wait on a query that names `relation`. The `datname` filter
 /// keeps parallel per-test databases on the shared server out of the match,
