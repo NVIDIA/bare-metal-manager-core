@@ -162,6 +162,8 @@ navigation:
               path: dpu-management/dpu-operations.md
         - page: Firmware Updates
           path: operations/firmware-updates.md
+        - page: NVOS Password Rotation
+          path: operations/nvos-password-rotation.md
         - page: Monitoring and Health
           path: operations/monitoring-health.md
         - page: NICo MCP Server
