@@ -329,7 +329,7 @@ async fn reconcile_admin_addresses_errors_without_any_primary_admin_interface(
     Ok(())
 }
 
-/// A DpuMode host that boots from an integrated NIC has a HostInband primary and
+/// A managed-DPU host that boots from an integrated NIC has a HostInband primary and
 /// no primary *admin* interface -- its DPU admin links are present but dormant.
 /// Reconcile must treat that as valid (clean up the dormant links), not as the
 /// "no primary admin interface" error.

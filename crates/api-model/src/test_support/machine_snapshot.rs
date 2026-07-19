@@ -51,7 +51,7 @@ use crate::machine::{
 };
 use crate::machine_interface::InterfaceType;
 use crate::network_segment::NetworkSegmentType;
-use crate::site_explorer::NicMode;
+use crate::site_explorer::BlueFieldOperatingMode;
 use crate::state_history::StateHistoryRecord;
 use crate::test_support::dpu::DPU_BF3_INFO_JSON;
 use crate::test_support::{DpuConfig, HardwareInfoTemplate};
@@ -231,7 +231,7 @@ pub fn dpu_hardware_info(index: u8) -> HardwareInfo {
         last_exploration_error: None,
         override_hosts_uefi_device_path: None,
         hardware_info_template: HardwareInfoTemplate::Custom(DPU_BF3_INFO_JSON),
-        nic_mode: Some(NicMode::Dpu),
+        nic_mode: Some(BlueFieldOperatingMode::Dpu),
     };
     HardwareInfo::from(&config)
 }

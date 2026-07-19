@@ -815,6 +815,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     device: None,
                     device_instance: 0u32,
                     vpc_id: None,
+                    resolved_vpc_prefixes: None,
                 }],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),

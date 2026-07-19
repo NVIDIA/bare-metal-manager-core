@@ -37,6 +37,15 @@ use crate::tests::common::api_fixtures::{
 const REFERENCED_VPC_PREFIX: &str = "192.0.4.0/24";
 const UNREFERENCED_VPC_PREFIX: &str = "192.1.4.0/27";
 
+/// Returns tenant config matching the shared VPC fixture so lifecycle tests
+/// exercise prefix behavior rather than fail ownership validation.
+fn fixture_tenant_config() -> rpc::TenantConfig {
+    rpc::TenantConfig {
+        tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        ..default_tenant_config()
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct LifecycleStateJson {
     state: String,
@@ -516,7 +525,7 @@ async fn test_deleted_vpc_prefix_cannot_allocate_new_instance_interface(
             machine_id: Some(managed_host.host().id),
             instance_type_id: None,
             config: Some(rpc::forge::InstanceConfig {
-                tenant: Some(default_tenant_config()),
+                tenant: Some(fixture_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config_with_vpc_prefix(id)),
                 infiniband: None,
@@ -565,6 +574,7 @@ async fn test_vpc_prefix_final_delete_after_generated_segment_cleanup(
     let managed_host = create_managed_host(&env).await;
     let (instance, rpc_instance) = managed_host
         .instance_builer(&env)
+        .tenant_org(FIXTURE_TENANT_ORG_ID)
         .network(single_interface_network_config_with_vpc_prefix(id))
         .build_and_return()
         .await;

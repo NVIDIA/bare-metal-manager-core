@@ -33,13 +33,14 @@ use db::ObjectFilter;
 use db::sku::CURRENT_SKU_VERSION;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
+use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
 use model::metadata::Metadata;
 use model::site_explorer::{
-    Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
-    ExploredDpu, ExploredManagedHost, NetworkAdapter, NicMode, PreingestionState, UefiDevicePath,
+    BlueFieldOperatingMode, Chassis, ComputerSystem, EndpointExplorationError,
+    EndpointExplorationReport, EndpointType, ExploredDpu, ExploredManagedHost, NetworkAdapter,
+    PreingestionState, UefiDevicePath,
 };
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::GetSiteExplorationRequest;
@@ -392,10 +393,10 @@ async fn test_handle_redfish_error_powers_on_machine(
     Ok(())
 }
 
-/// Strict ingestion gate: a host whose BMC reports no DPU PCIe devices
-/// and whose `ExpectedMachine` does not declare `NoDpu` is skipped (with
-/// a warning + a `NoDpuReportedByHost` pairing-blocker metric) rather
-/// than ingested. Operators must explicitly opt in to zero-DPU.
+/// Strict ingestion gate: a host whose BMC reports no DPU PCIe devices and
+/// whose effective `HostDpuPolicy` resolves to `Manage` is skipped (with a
+/// warning + a `NoDpuReportedByHost` pairing-blocker metric) rather than
+/// ingested. Operators opt in to zero-DPU through `Nic` or `Ignore`.
 #[sqlx_test]
 async fn test_site_explorer_skips_unexpected_zero_dpu_host(
     pool: PgPool,
@@ -405,8 +406,8 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
     let mut machine = env.new_machine("AA:AB:AC:AD:AA:11", "Vendor1");
     machine.discover_dhcp(env.api()).await?;
 
-    // expected_machine WITHOUT a NoDpu declaration -- the host is
-    // "expected to have DPUs" by default.
+    // ExpectedMachine with the default `Manage` policy -- the host is expected
+    // to have DPUs.
     let mut txn = env.pool.begin().await?;
     db::expected_machine::create(
         &mut txn,
@@ -461,7 +462,7 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
     let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
     assert!(
         explored_managed_hosts.is_empty(),
-        "strict gate should refuse to ingest a zero-DPU host without a `NoDpu` declaration, got {:?}",
+        "strict gate should refuse to ingest a zero-DPU host whose policy resolves to `Manage`, got {:?}",
         explored_managed_hosts,
     );
 
@@ -485,11 +486,11 @@ async fn test_site_explorer_skips_unexpected_zero_dpu_host(
 }
 
 /// Companion to `test_site_explorer_skips_unexpected_zero_dpu_host`: when
-/// the operator explicitly declares `dpu_mode = "nic_mode"`, a host whose
-/// BMC reports zero usable DPU PCIe devices (because anything that is a
+/// the operator selects `HostDpuPolicy::Nic`, a host whose BMC reports
+/// zero usable DPU PCIe devices (because anything that is a
 /// BlueField has been stripped as "DPU in NIC mode") should be ingested as
 /// a zero-DPU managed host -- the operator has already opted into "treat
-/// as zero-DPU" semantics by declaring NicMode.
+/// as zero-DPU" semantics through the resolved policy.
 #[sqlx_test]
 async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
     pool: PgPool,
@@ -507,7 +508,7 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
             bmc_mac_address: machine.mac,
             data: ExpectedMachineData {
                 serial_number: "host-nic-mode-no-observed-dpus".to_string(),
-                dpu_mode: model::expected_machine::DpuMode::NicMode,
+                dpu_policy: model::expected_machine::HostDpuPolicy::Nic,
                 ..Default::default()
             },
         },
@@ -549,20 +550,20 @@ async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
     assert_eq!(
         explored_managed_hosts.len(),
         1,
-        "NicMode declaration should let the host through the strict gate even with zero observed DPUs",
+        "Nic policy should let the host through the strict gate even with zero observed DPUs",
     );
     assert!(
         explored_managed_hosts[0].dpus.is_empty(),
-        "NicMode hosts ingest with an empty `dpus` vector",
+        "Nic-policy hosts ingest with an empty `dpus` vector",
     );
 
     Ok(())
 }
 
-/// Third member of the zero-DPU triad (alongside the `DpuMode::DpuMode`
-/// skip test and the `DpuMode::NicMode` ingest test): a host explicitly
-/// declared `dpu_mode = "no_dpu"` ingests as a zero-DPU managed host. The
-/// `NoDpu` fast-path in `identify_managed_hosts` short-circuits before any
+/// Third member of the zero-DPU triad (alongside the `Manage`-policy skip
+/// test and the `Nic`-policy ingest test): a host with
+/// `HostDpuPolicy::Ignore` ingests as a zero-DPU managed host. The `Ignore`
+/// fast-path in `identify_managed_hosts` short-circuits before any
 /// DPU PCIe enumeration, so this holds regardless of what the BMC reports.
 #[sqlx_test]
 async fn test_site_explorer_ingests_no_dpu_host(
@@ -581,7 +582,7 @@ async fn test_site_explorer_ingests_no_dpu_host(
             bmc_mac_address: machine.mac,
             data: ExpectedMachineData {
                 serial_number: "host-no-dpu-declared".to_string(),
-                dpu_mode: model::expected_machine::DpuMode::NoDpu,
+                dpu_policy: model::expected_machine::HostDpuPolicy::Ignore,
                 ..Default::default()
             },
         },
@@ -623,11 +624,11 @@ async fn test_site_explorer_ingests_no_dpu_host(
     assert_eq!(
         explored_managed_hosts.len(),
         1,
-        "NoDpu declaration should ingest the host as zero-DPU",
+        "Ignore policy should ingest the host as zero-DPU",
     );
     assert!(
         explored_managed_hosts[0].dpus.is_empty(),
-        "NoDpu hosts ingest with an empty `dpus` vector",
+        "Ignore hosts ingest with an empty `dpus` vector",
     );
 
     Ok(())
@@ -787,7 +788,7 @@ async fn test_expected_machine_device_type_metrics(
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
+                dpu_policy: Default::default(),
                 bmc_ip_allocation: Default::default(),
                 host_lifecycle_profile: Default::default(),
             },
@@ -813,7 +814,7 @@ async fn test_expected_machine_device_type_metrics(
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
+                dpu_policy: Default::default(),
                 bmc_ip_allocation: Default::default(),
                 host_lifecycle_profile: Default::default(),
             },
@@ -839,7 +840,7 @@ async fn test_expected_machine_device_type_metrics(
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
+                dpu_policy: Default::default(),
                 bmc_ip_allocation: Default::default(),
                 host_lifecycle_profile: Default::default(),
             },
@@ -1009,7 +1010,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
                 bmc_username: "ADMIN".into(),
                 bmc_password: "Pwd2023x0x0x0x0x7".into(),
                 serial_number: "VVG121GL".into(),
-                dpu_mode: model::expected_machine::DpuMode::NoDpu,
+                dpu_policy: model::expected_machine::HostDpuPolicy::Ignore,
                 default_pause_ingestion_and_poweron: Some(true),
                 ..Default::default()
             },
@@ -1195,8 +1196,8 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
     txn.commit().await.unwrap();
 
     // Register `expected_machines` so site-explorer accepts these hosts: the
-    // host with a DPU pair takes the default `DpuMode`, and the zero-DPU host
-    // declares `NoDpu` to pass the strict ingestion gate.
+    // host with a DPU pair resolves to `HostDpuPolicy::Manage`, and the zero-DPU
+    // host resolves to `HostDpuPolicy::Ignore` to pass the strict ingestion gate.
     let mut txn = pool.begin().await?;
     db::expected_machine::create(
         &mut txn,
@@ -1217,7 +1218,7 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
             bmc_mac_address: machines[2].mac,
             data: ExpectedMachineData {
                 serial_number: "host-with-no-dpu".to_string(),
-                dpu_mode: model::expected_machine::DpuMode::NoDpu,
+                dpu_policy: model::expected_machine::HostDpuPolicy::Ignore,
                 ..Default::default()
             },
         },
@@ -1642,7 +1643,7 @@ async fn test_site_explorer_audit_exploration_results(
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
         rotate_switch_nvos_credentials: Arc::new(false.into()),
-        dpu_mode: None,
+        dpu_policy: None,
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         explore_mode: SiteExplorerExploreMode::NvRedfish,
     };
@@ -2359,7 +2360,7 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
+                dpu_policy: Default::default(),
                 bmc_ip_allocation: Default::default(),
                 host_lifecycle_profile: Default::default(),
             },
@@ -2411,7 +2412,7 @@ async fn test_fallback_dpu_serial(pool: PgPool) -> Result<(), Box<dyn std::error
         dpf_enabled: Some(true),
         bmc_ip_address: None,
         bmc_retain_credentials: None,
-        dpu_mode: Default::default(),
+        dpu_policy: Default::default(),
         bmc_ip_allocation: Default::default(),
         host_lifecycle_profile: Default::default(),
     };
@@ -2664,7 +2665,7 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
+                dpu_policy: Default::default(),
                 bmc_ip_allocation: Default::default(),
                 host_lifecycle_profile: Default::default(),
             },
@@ -2716,37 +2717,37 @@ async fn test_machine_creation_with_sku(pool: PgPool) -> Result<(), Box<dyn std:
 }
 
 /// Integration regression guard for the auto-correct path: when an
-/// `ExpectedMachine` declares `DpuMode::NicMode` but the discovered DPU
-/// hardware is reporting `nic_mode: Dpu`, site-explorer should call
+/// `ExpectedMachine` resolves to `HostDpuPolicy::Nic` but the discovered
+/// DPU hardware is reporting `BlueFieldOperatingMode::Dpu`, site-explorer should call
 /// `set_nic_mode(Nic)` on the DPU during its per-host matching loop.
 ///
-/// This exercises the full wire (site-explorer iteration → per-host mode
+/// This exercises the full wire (site-explorer iteration → per-host policy
 /// resolution → `check_and_configure_dpu_mode` → mock Redfish
 /// `set_nic_mode`) that the unit tests only cover in pieces.
 #[sqlx_test]
 async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
-    use model::site_explorer::NicMode;
+    use model::expected_machine::{ExpectedMachine, ExpectedMachineData, HostDpuPolicy};
+    use model::site_explorer::BlueFieldOperatingMode;
 
     let env = Env::new(pool).await;
 
     // DPU hardware reports DPU mode (so it looks like a "properly
-    // configured" DPU to the BF3-DPU heuristic) -- the operator-declared
-    // override is what forces the correction to NIC mode.
+    // configured" DPU to the BF3-DPU heuristic) -- the selected
+    // `HostDpuPolicy::Nic` is what forces the correction to NIC mode.
     let dpu_config = DpuConfig {
-        nic_mode: Some(NicMode::Dpu),
+        nic_mode: Some(BlueFieldOperatingMode::Dpu),
         ..DpuConfig::default()
     };
     let mock_host =
         model::test_support::ManagedHostConfig::default().with_dpus(vec![dpu_config.clone()]);
     let host_bmc_mac = mock_host.bmc_mac_address;
 
-    // Seed an ExpectedMachine with `dpu_mode: NicMode` that matches the
-    // mock host's BMC MAC. Site-explorer's per-host resolution will look
-    // this up by IP via the expected-endpoint index after DHCP assigns
-    // the host its BMC IP.
+    // Seed an ExpectedMachine whose policy resolves to
+    // `HostDpuPolicy::Nic` and matches the mock host's BMC MAC.
+    // Site-explorer's per-host resolution will look this up by IP via the
+    // expected-endpoint index after DHCP assigns the host its BMC IP.
     let mut txn = env.pool.begin().await?;
     db::expected_machine::create(
         &mut txn,
@@ -2758,7 +2759,7 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
                 bmc_password: "PASS".to_string(),
                 serial_number: "EM-866-NIC-OVERRIDE".to_string(),
                 metadata: model::metadata::Metadata::new_with_default_name(),
-                dpu_mode: DpuMode::NicMode,
+                dpu_policy: HostDpuPolicy::Nic,
                 ..Default::default()
             },
         },
@@ -2802,8 +2803,10 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
         .lock()
         .unwrap();
     assert!(
-        calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
-        "expected at least one set_nic_mode(Nic) call triggered by the operator's NicMode declaration; calls so far: {calls:?}"
+        calls
+            .iter()
+            .any(|(_, mode)| *mode == BlueFieldOperatingMode::Nic),
+        "expected at least one set_nic_mode(Nic) call triggered by the operator's Nic policy; calls so far: {calls:?}"
     );
 
     Ok(())
@@ -2822,10 +2825,10 @@ async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
 
-    // DPU hardware reports DPU mode; the operator-declared NicMode override
-    // is what forces the correction (and therefore the power cycle).
+    // DPU hardware reports DPU mode; the operator's `Nic` policy is what
+    // forces the correction (and therefore the power cycle).
     let dpu_config = DpuConfig {
-        nic_mode: Some(NicMode::Dpu),
+        nic_mode: Some(BlueFieldOperatingMode::Dpu),
         ..DpuConfig::default()
     };
     let mock_host = ManagedHostConfig {
@@ -2846,7 +2849,7 @@ async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
                 bmc_password: "PASS".to_string(),
                 serial_number: "EM-866-NIC-POWERCYCLE".to_string(),
                 metadata: Metadata::new_with_default_name(),
-                dpu_mode: DpuMode::NicMode,
+                dpu_policy: model::expected_machine::HostDpuPolicy::Nic,
                 ..Default::default()
             },
         },
@@ -2894,7 +2897,9 @@ async fn test_site_explorer_power_cycles_non_dell_host_to_apply_nic_mode(
         .lock()
         .unwrap();
     assert!(
-        nic_mode_calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
+        nic_mode_calls
+            .iter()
+            .any(|(_, mode)| *mode == BlueFieldOperatingMode::Nic),
         "expected set_nic_mode(Nic) before the power cycle; calls so far: {nic_mode_calls:?}"
     );
 
@@ -2923,10 +2928,10 @@ async fn test_site_explorer_falls_back_to_ac_powercycle_when_powercycle_refused(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
 
-    // DPU reports DPU mode; the operator-declared NicMode override forces the
+    // DPU reports DPU mode; the operator's `Nic` policy forces the
     // correction (and therefore the reset).
     let dpu_config = DpuConfig {
-        nic_mode: Some(NicMode::Dpu),
+        nic_mode: Some(BlueFieldOperatingMode::Dpu),
         ..DpuConfig::default()
     };
     let mock_host = ManagedHostConfig {
@@ -2947,7 +2952,7 @@ async fn test_site_explorer_falls_back_to_ac_powercycle_when_powercycle_refused(
                 bmc_password: "PASS".to_string(),
                 serial_number: "EM-2635-AC-FALLBACK".to_string(),
                 metadata: Metadata::new_with_default_name(),
-                dpu_mode: DpuMode::NicMode,
+                dpu_policy: model::expected_machine::HostDpuPolicy::Nic,
                 ..Default::default()
             },
         },
@@ -3033,19 +3038,19 @@ async fn test_site_explorer_falls_back_to_ac_powercycle_when_powercycle_refused(
 /// as a host-reported one. The host BMC here enumerates no DPU over PCIe -- the
 /// usual reason the fallback exists (e.g. a GB200 that drops a DPU from its
 /// inventory) -- so the only link is the operator-listed serial, and the DPU is
-/// still reporting DPU mode against a `NicMode` host.
+/// still reporting DPU mode against a `HostDpuPolicy::Nic` host.
 ///
 /// Before the fix the fallback path trusted the match as already-configured: it
 /// attached the DPU without a mode check, then dropped it to zero-DPU, so the
-/// host registered as a NIC-mode host while the BlueField stayed in DPU mode and
+/// host registered under `Nic` while the BlueField stayed in DPU mode and
 /// `set_nic_mode` was never issued. Now the flip is issued, the host is
 /// power-cycled to apply it, and the host waits instead of settling this pass.
 #[sqlx_test]
 async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use model::expected_machine::{DpuMode, ExpectedMachine, ExpectedMachineData};
-    use model::site_explorer::NicMode;
+    use model::expected_machine::{ExpectedMachine, ExpectedMachineData, HostDpuPolicy};
+    use model::site_explorer::BlueFieldOperatingMode;
 
     let env = Env::new(pool).await;
 
@@ -3053,15 +3058,15 @@ async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
     // DPU reports DPU mode; the host report carries no DPU device, so the
     // serial is the only thing that can pair them.
     let dpu_config = DpuConfig {
-        nic_mode: Some(NicMode::Dpu),
+        nic_mode: Some(BlueFieldOperatingMode::Dpu),
         serial: FALLBACK_DPU_SERIAL.to_string(),
         ..DpuConfig::default()
     };
     let mock_host = ManagedHostConfig::default();
     let host_bmc_mac = mock_host.bmc_mac_address;
 
-    // Operator declares the host NIC mode and lists the DPU's serial as a
-    // pairing fallback.
+    // Operator selects `HostDpuPolicy::Nic` and lists the DPU's serial as
+    // a pairing fallback.
     let mut txn = env.pool.begin().await?;
     db::expected_machine::create(
         &mut txn,
@@ -3073,7 +3078,7 @@ async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
                 bmc_password: "PASS".to_string(),
                 serial_number: "EM-2631-FALLBACK-NIC".to_string(),
                 metadata: model::metadata::Metadata::new_with_default_name(),
-                dpu_mode: DpuMode::NicMode,
+                dpu_policy: HostDpuPolicy::Nic,
                 fallback_dpu_serial_numbers: vec![FALLBACK_DPU_SERIAL.to_string()],
                 ..Default::default()
             },
@@ -3110,7 +3115,7 @@ async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
     }
     txn.commit().await?;
     // Second iteration: per-host matching falls through to the fallback-serial
-    // path, which must enforce the declared NIC mode.
+    // path, which must enforce the resolved `Nic` policy.
     explorer.run_single_iteration().await.unwrap();
 
     {
@@ -3120,13 +3125,15 @@ async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
             .lock()
             .unwrap();
         assert!(
-            calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
-            "fallback-matched DPU on a NicMode host should get set_nic_mode(Nic); calls so far: {calls:?}"
+            calls
+                .iter()
+                .any(|(_, mode)| *mode == BlueFieldOperatingMode::Nic),
+            "fallback-matched DPU on a Nic-policy host should get set_nic_mode(Nic); calls so far: {calls:?}"
         );
     }
 
     // The host must not settle as a zero-DPU managed host until the flip has
-    // applied -- otherwise the database reads "NIC-mode host" while the
+    // applied -- otherwise the database records a `Nic` host while the
     // BlueField is still physically in DPU mode.
     let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
     assert!(
@@ -3160,16 +3167,16 @@ async fn test_site_explorer_enforces_nic_mode_on_fallback_serial_match(
 /// don't enumerate the DPU over PCIe at all. The host<->DPU serial match must
 /// therefore consider the chassis identity, not just `chassis.network_adapters[]`.
 ///
-/// Here the operator declares NO `fallback_dpu_serial_numbers` and the default
-/// `DpuMode`, so the only thing that can pair the host with its DPU is the
-/// chassis-reported serial. The host must pair (and not fall through to the
-/// zero-DPU path).
+/// Here the operator declares NO `fallback_dpu_serial_numbers` and the host
+/// resolves to `HostDpuPolicy::Manage`, so the only thing that can pair the
+/// host with its DPU is the chassis-reported serial. The host must pair (and
+/// not fall through to the zero-DPU path).
 #[sqlx_test]
 async fn test_site_explorer_pairs_dpu_from_chassis_serial(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
-    use model::site_explorer::NicMode;
+    use model::site_explorer::BlueFieldOperatingMode;
 
     let env = Env::new(pool).await;
 
@@ -3177,7 +3184,7 @@ async fn test_site_explorer_pairs_dpu_from_chassis_serial(
     // The DPU's BMC reports DPU mode; the host BMC carries no DPU PCIe device,
     // only the BlueField chassis below, so the chassis serial is the only link.
     let dpu_config = DpuConfig {
-        nic_mode: Some(NicMode::Dpu),
+        nic_mode: Some(BlueFieldOperatingMode::Dpu),
         serial: CHASSIS_DPU_SERIAL.to_string(),
         ..DpuConfig::default()
     };

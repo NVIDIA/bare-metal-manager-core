@@ -29,6 +29,7 @@ use carbide_test_support::scenarios;
 use clap::{CommandFactory, Parser};
 
 use super::*;
+use crate::expected_machines::common::HostDpuPolicy;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -471,12 +472,10 @@ fn validate_patch_all_fields() {
     }
 }
 
-// parse_add_without_dpu_mode ensures the flag is optional and defaults to
-// unset; downstream, unset is treated as "defer to the site-wide
-// `[site_explorer] dpu_mode` setting" (which itself falls back to
-// `DpuMode::DpuMode` when not set).
+// The DPU policy flag is optional. Downstream, unset defers to the site-wide
+// `[site_explorer] dpu_policy` setting and ultimately defaults to `Manage`.
 #[test]
-fn parse_add_without_dpu_mode() {
+fn parse_add_without_dpu_policy() {
     let cmd = Cmd::try_parse_from([
         "expected-machine",
         "add",
@@ -489,33 +488,99 @@ fn parse_add_without_dpu_mode() {
         "--chassis-serial-number",
         "SN12345",
     ])
-    .expect("should parse without --dpu-mode");
+    .expect("should parse without --dpu-policy");
 
     match cmd {
         Cmd::Add(args) => {
-            assert!(args.dpu_mode.is_none(), "--dpu-mode should be optional");
+            assert!(args.dpu_policy.is_none(), "--dpu-policy should be optional");
         }
         _ => panic!("expected Add variant"),
     }
 }
 
-// `--dpu-mode <value>` parses to the matching DpuMode variant on both `add`
-// (alongside the required credential/chassis args) and `patch` (where flipping
-// dpu_mode on a single host is the whole point). The closure pulls dpu_mode off
-// whichever variant parsed; each row pins the parsed `Some(variant)`.
+// Both the canonical `--dpu-policy` vocabulary and the legacy `--dpu-mode`
+// vocabulary parse to the matching policy on `add` and `patch`.
 #[test]
-fn parse_dpu_mode_to_its_variant() {
+fn parse_dpu_policy_to_its_variant() {
     scenarios!(
         run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
-                    Cmd::Add(args) => args.dpu_mode,
-                    Cmd::Patch(args) => args.dpu_mode,
+                    Cmd::Add(args) => args.dpu_policy,
+                    Cmd::Patch(args) => args.dpu_policy,
                     _ => panic!("expected Add or Patch variant"),
                 })
                 .map_err(drop)
         };
-        "add --dpu-mode nic-mode" {
+        "add --dpu-policy nic" {
+            &[
+                "expected-machine",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--dpu-policy",
+                "nic",
+            ][..] => Yields(Some(HostDpuPolicy::Nic)),
+        }
+
+        "previous add --dpu-policy use-as-nic value" {
+            &[
+                "expected-machine",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--dpu-policy",
+                "use-as-nic",
+            ][..] => Yields(Some(HostDpuPolicy::Nic)),
+        }
+
+        "add --dpu-policy ignore" {
+            &[
+                "expected-machine",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--dpu-policy",
+                "ignore",
+            ][..] => Yields(Some(HostDpuPolicy::Ignore)),
+        }
+
+        "add --dpu-policy manage" {
+            &[
+                "expected-machine",
+                "add",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--bmc-username",
+                "admin",
+                "--bmc-password",
+                "secret",
+                "--chassis-serial-number",
+                "SN12345",
+                "--dpu-policy",
+                "manage",
+            ][..] => Yields(Some(HostDpuPolicy::Manage)),
+        }
+
+        "legacy add --dpu-mode nic-mode" {
             &[
                 "expected-machine",
                 "add",
@@ -529,44 +594,10 @@ fn parse_dpu_mode_to_its_variant() {
                 "SN12345",
                 "--dpu-mode",
                 "nic-mode",
-            ][..] => Yields(Some(rpc::forge::DpuMode::NicMode)),
+            ][..] => Yields(Some(HostDpuPolicy::Nic)),
         }
 
-        "add --dpu-mode no-dpu" {
-            &[
-                "expected-machine",
-                "add",
-                "--bmc-mac-address",
-                "1a:2b:3c:4d:5e:6f",
-                "--bmc-username",
-                "admin",
-                "--bmc-password",
-                "secret",
-                "--chassis-serial-number",
-                "SN12345",
-                "--dpu-mode",
-                "no-dpu",
-            ][..] => Yields(Some(rpc::forge::DpuMode::NoDpu)),
-        }
-
-        "add --dpu-mode dpu-mode" {
-            &[
-                "expected-machine",
-                "add",
-                "--bmc-mac-address",
-                "1a:2b:3c:4d:5e:6f",
-                "--bmc-username",
-                "admin",
-                "--bmc-password",
-                "secret",
-                "--chassis-serial-number",
-                "SN12345",
-                "--dpu-mode",
-                "dpu-mode",
-            ][..] => Yields(Some(rpc::forge::DpuMode::DpuMode)),
-        }
-
-        "patch --dpu-mode nic-mode" {
+        "legacy patch --dpu-mode nic-mode" {
             &[
                 "expected-machine",
                 "patch",
@@ -574,10 +605,10 @@ fn parse_dpu_mode_to_its_variant() {
                 "1a:2b:3c:4d:5e:6f",
                 "--dpu-mode",
                 "nic-mode",
-            ][..] => Yields(Some(rpc::forge::DpuMode::NicMode)),
+            ][..] => Yields(Some(HostDpuPolicy::Nic)),
         }
 
-        "patch --dpu-mode no-dpu" {
+        "legacy patch --dpu-mode no-dpu" {
             &[
                 "expected-machine",
                 "patch",
@@ -585,10 +616,10 @@ fn parse_dpu_mode_to_its_variant() {
                 "1a:2b:3c:4d:5e:6f",
                 "--dpu-mode",
                 "no-dpu",
-            ][..] => Yields(Some(rpc::forge::DpuMode::NoDpu)),
+            ][..] => Yields(Some(HostDpuPolicy::Ignore)),
         }
 
-        "patch --dpu-mode dpu-mode" {
+        "legacy patch --dpu-mode dpu-mode" {
             &[
                 "expected-machine",
                 "patch",
@@ -596,15 +627,45 @@ fn parse_dpu_mode_to_its_variant() {
                 "1a:2b:3c:4d:5e:6f",
                 "--dpu-mode",
                 "dpu-mode",
-            ][..] => Yields(Some(rpc::forge::DpuMode::DpuMode)),
+            ][..] => Yields(Some(HostDpuPolicy::Manage)),
+        }
+
+        "legacy patch --dpu-mode unspecified" {
+            &[
+                "expected-machine",
+                "patch",
+                "--bmc-mac-address",
+                "1a:2b:3c:4d:5e:6f",
+                "--dpu-mode",
+                "unspecified",
+            ][..] => Yields(Some(HostDpuPolicy::Unspecified)),
         }
     );
 }
 
-// parse_add_rejects_invalid_dpu_mode ensures clap rejects values that
-// don't match the enum.
+// The protobuf sentinel remains accepted for backwards compatibility, but it
+// is not part of the canonical three-value policy vocabulary shown to users.
 #[test]
-fn parse_add_rejects_invalid_dpu_mode() {
+fn dpu_policy_help_only_lists_policy_values() {
+    let mut command = Cmd::command();
+    let add = command.find_subcommand_mut("add").unwrap();
+    let dpu_policy = add
+        .get_arguments()
+        .find(|argument| argument.get_id() == "dpu_policy")
+        .unwrap();
+    let visible_values = dpu_policy
+        .get_possible_values()
+        .into_iter()
+        .filter(|value| !value.is_hide_set())
+        .map(|value| value.get_name().to_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(visible_values, ["manage", "nic", "ignore"]);
+}
+
+// Clap rejects policy values that do not match the enum.
+#[test]
+fn parse_add_rejects_invalid_dpu_policy() {
     let result = Cmd::try_parse_from([
         "expected-machine",
         "add",
@@ -616,36 +677,35 @@ fn parse_add_rejects_invalid_dpu_mode() {
         "secret",
         "--chassis-serial-number",
         "SN12345",
-        "--dpu-mode",
+        "--dpu-policy",
         "garbage",
     ]);
     assert!(
         result.is_err(),
-        "clap should reject --dpu-mode with an invalid value"
+        "clap should reject --dpu-policy with an invalid value"
     );
 }
 
-// validate_patch_with_dpu_mode_only ensures `patch --dpu-mode nic-mode`
+// `patch --dpu-policy nic`
 // alone (no other patchable fields) satisfies clap's ArgGroup and the
-// `Args::validate()` "at least one field" check. The whole point of this
-// patch is "flip dpu_mode", so it must work without dummy companion args.
+// `Args::validate()` "at least one field" check.
 #[test]
-fn validate_patch_with_dpu_mode_only() {
+fn validate_patch_with_dpu_policy_only() {
     let cmd = Cmd::try_parse_from([
         "expected-machine",
         "patch",
         "--bmc-mac-address",
         "00:00:00:00:00:00",
-        "--dpu-mode",
-        "nic-mode",
+        "--dpu-policy",
+        "nic",
     ])
-    .expect("patch --dpu-mode alone should parse (ArgGroup)");
+    .expect("patch --dpu-policy alone should parse (ArgGroup)");
 
     match cmd {
         Cmd::Patch(args) => {
             assert!(
                 args.validate().is_ok(),
-                "patch --dpu-mode alone should validate"
+                "patch --dpu-policy alone should validate"
             );
         }
         _ => panic!("expected Patch variant"),

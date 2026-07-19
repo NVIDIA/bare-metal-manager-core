@@ -55,7 +55,8 @@ use model::dpu_machine_update::DpuMachineUpdate;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
-    DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
+    DeviceLocator, InstanceInterfaceIpFamilyMode, InstanceInterfaceVpcSelection,
+    InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
 };
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::config::spx::InstanceSpxConfig;
@@ -68,12 +69,18 @@ use model::machine::{
     SpdmMeasuringState, ValidationState,
 };
 use model::metadata::Metadata;
+use model::network_prefix::NewNetworkPrefix;
 use model::network_security_group::NetworkSecurityGroupStatusObservation;
-use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentSearchFilter};
+use model::network_segment::{
+    NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentSearchFilter,
+    NetworkSegmentType, NewNetworkSegment,
+};
+use model::tenant::TenantOrganizationId;
 use model::test_support::ManagedHostConfig;
 use model::vpc_prefix::VpcPrefixConfig;
 use rpc::forge::{
-    DpuExtensionService, Issue, IssueCategory, ManagedHostQuarantineMode, TpmCaCert, TpmCaCertId,
+    AdminForceDeleteMachineRequest, DpuExtensionService, Issue, IssueCategory,
+    ManagedHostQuarantineMode, TpmCaCert, TpmCaCertId,
 };
 use rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp};
 use sqlx::PgPool;
@@ -91,13 +98,22 @@ use crate::tests::common::api_fixtures::instance::{
 };
 use crate::tests::common::api_fixtures::rpc_instance::RpcInstance;
 use crate::tests::common::api_fixtures::{
-    TestEnv, create_managed_host_multi_dpu, create_managed_host_with_ek,
+    TestEnv, TestManagedHost, create_managed_host_multi_dpu, create_managed_host_with_ek,
     remove_health_report_entry, send_health_report_entry, update_time_params,
 };
 use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
 use crate::tests::common::rpc_builder::{
     InstanceAllocationRequest, InstanceConfig, InstanceConfigExt, VpcCreationRequest,
 };
+
+/// Returns tenant config matching the shared VPC fixture so ownership
+/// validation does not obscure the scenario under test.
+fn fixture_tenant_config() -> rpc::TenantConfig {
+    rpc::TenantConfig {
+        tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
+        ..default_tenant_config()
+    }
+}
 
 pub async fn find_instances_by_label(
     env: &TestEnv,
@@ -1585,6 +1601,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             device: None,
             device_instance: 0u32,
             vpc_id: Some(vpc_id),
+            resolved_vpc_prefixes: None,
         }]
     );
 
@@ -1621,6 +1638,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             device: None,
             device_instance: 0u32,
             vpc_id: Some(vpc_id),
+            resolved_vpc_prefixes: None,
         }]
     );
 
@@ -1663,6 +1681,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             device: None,
             device_instance: 0u32,
             vpc_id: Some(vpc_id),
+            resolved_vpc_prefixes: None,
         }]
     );
 
@@ -1716,6 +1735,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             device: None,
             device_instance: 0u32,
             vpc_id: Some(vpc_id),
+            resolved_vpc_prefixes: None,
         }]
     );
 
@@ -1754,6 +1774,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             device: None,
             device_instance: 0u32,
             vpc_id: Some(vpc_id),
+            resolved_vpc_prefixes: None,
         }]
     );
 
@@ -2458,7 +2479,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
 
     let config = rpc::InstanceConfig {
         tenant: Some(rpc::TenantConfig {
-            tenant_organization_id: "abc".to_string(),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
             hostname: Some("xyz".to_string()),
             tenant_keyset_ids: vec![],
         }),
@@ -2476,7 +2497,8 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     assert!(config.network.interfaces[0].network_segment_id.is_none());
 
     let mut txn = env.db_txn().await;
-    allocate_network(&mut config.network, &mut txn)
+    let tenant_organization_id = config.tenant.tenant_organization_id.clone();
+    allocate_network(&mut config.network, &tenant_organization_id, &mut txn)
         .await
         .unwrap();
 
@@ -2778,6 +2800,32 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     txn.commit().await.unwrap();
 }
 
+/// Selects or validates a linknet before creating its generated segment,
+/// mirroring production allocation order in focused allocator tests.
+async fn allocate_test_network_segment(
+    allocator: &PrefixAllocator,
+    txn: &mut sqlx::PgConnection,
+    vpc_id: VpcId,
+    requested_prefix: Option<IpNetwork>,
+) -> crate::CarbideResult<(NetworkSegmentId, IpNetwork)> {
+    // Validate an explicit request against the parent or select its next free linknet.
+    let prefix = if let Some(requested_prefix) = requested_prefix {
+        allocator
+            .validate_desired_prefix(&mut *txn, requested_prefix)
+            .await?;
+        requested_prefix
+    } else {
+        allocator.next_free_prefix(&mut *txn).await?
+    };
+
+    // Create the generated segment only after selection or validation succeeds.
+    allocator
+        .allocate_network_segment_for_prefix(&mut *txn, vpc_id, prefix)
+        .await
+}
+
+/// Verifies generated linknets remain non-overlapping while next-fit behavior,
+/// explicit requests, and capacity exhaustion preserve allocator semantics.
 #[crate::sqlx_test]
 async fn test_vpc_prefix_handling(pool: PgPool) {
     // This test requires there to be no default network segments created
@@ -2808,8 +2856,8 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc_id).await;
 
     let mut txn = env.db_txn().await;
+    // Use a /27 to provide sixteen /31 linknets for the allocator checks.
     let allocator = PrefixAllocator::new(
-        // 15 IPs
         vpc_prefix_id,
         IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
         None,
@@ -2817,8 +2865,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     )
     .unwrap();
 
-    let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, vpc_id, None)
+    let (ns_id, _prefix) = allocate_test_network_segment(&allocator, &mut txn, vpc_id, None)
         .await
         .unwrap();
 
@@ -2844,8 +2891,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     )
     .unwrap();
 
-    let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, vpc_id, None)
+    let (ns_id, _prefix) = allocate_test_network_segment(&allocator, &mut txn, vpc_id, None)
         .await
         .unwrap();
 
@@ -2870,8 +2916,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     )
     .unwrap();
 
-    let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, vpc_id, None)
+    let (ns_id, _prefix) = allocate_test_network_segment(&allocator, &mut txn, vpc_id, None)
         .await
         .unwrap();
 
@@ -2895,6 +2940,22 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     assert_ne!(address2, address3);
 
     let mut txn = env.db_txn().await;
+
+    // A cursor at the final linknet wraps to the first free prefix before it.
+    let wrapping_allocator = PrefixAllocator::new(
+        vpc_prefix_id,
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
+        Some(IpNetwork::V4(
+            Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 254), 31).unwrap(),
+        )),
+        31,
+    )
+    .unwrap();
+    assert_eq!(
+        wrapping_allocator.next_free_prefix(&mut txn).await.unwrap(),
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 230), 31).unwrap()),
+    );
+
     let allocator = PrefixAllocator::new(
         vpc_prefix_id,
         IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 5, 224), 27).unwrap()),
@@ -2905,8 +2966,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     )
     .unwrap();
 
-    let (ns_id, _prefix) = allocator
-        .allocate_network_segment(&mut txn, vpc_id, None)
+    let (ns_id, _prefix) = allocate_test_network_segment(&allocator, &mut txn, vpc_id, None)
         .await
         .unwrap();
 
@@ -2923,14 +2983,14 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     assert_eq!(IpAddr::from(Ipv4Addr::new(10, 217, 5, 236)), address4);
 
     // Try getting a segment with an explicit request for a good prefix
-    let (ns_id, _prefix) = allocator
-        .allocate_network_segment(
-            &mut txn,
-            vpc_id,
-            Some(IpNetwork::new("10.217.5.251".parse().unwrap(), 31).unwrap()),
-        )
-        .await
-        .unwrap();
+    let (ns_id, _prefix) = allocate_test_network_segment(
+        &allocator,
+        &mut txn,
+        vpc_id,
+        Some(IpNetwork::new("10.217.5.251".parse().unwrap(), 31).unwrap()),
+    )
+    .await
+    .unwrap();
 
     let ns4 = db::network_segment::find_by(
         txn.as_mut(),
@@ -2948,14 +3008,939 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
     let mut txn = env.db_txn().await;
 
     // Try getting a segment with an explicit request for a bad prefix
-    allocator
-        .allocate_network_segment(
-            &mut txn,
-            vpc_id,
-            Some(IpNetwork::new("100.217.5.250".parse().unwrap(), 31).unwrap()),
+    allocate_test_network_segment(
+        &allocator,
+        &mut txn,
+        vpc_id,
+        Some(IpNetwork::new("100.217.5.250".parse().unwrap(), 31).unwrap()),
+    )
+    .await
+    .unwrap_err();
+    txn.rollback().await.unwrap();
+
+    // A /30 contains exactly two /31 linknets, making exhaustion deterministic.
+    let exhaustible_prefix =
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 217, 6, 0), 30).unwrap());
+    let exhaustible_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        vpc_id,
+        "exhaustible vpc prefix",
+        exhaustible_prefix,
+    )
+    .await;
+    let allocator =
+        PrefixAllocator::new(exhaustible_prefix_id, exhaustible_prefix, None, 31).unwrap();
+    let mut txn = env.db_txn().await;
+    for _ in 0..2 {
+        allocate_test_network_segment(&allocator, &mut txn, vpc_id, None)
+            .await
+            .unwrap();
+    }
+
+    // Capacity exhaustion must remain distinguishable from allocator defects.
+    let error = allocate_test_network_segment(&allocator, &mut txn, vpc_id, None)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, crate::CarbideError::ResourceExhausted(_)));
+}
+
+/// Verifies automatic selection remains deterministic and tenant-scoped across
+/// persistence while gated IPv6 modes exercise the same resolver internally.
+#[crate::sqlx_test]
+async fn test_auto_vpc_prefix_selection_uses_static_first_fit(pool: PgPool) {
+    let fixture = create_auto_vpc_selection_fixture(pool).await;
+
+    // Consume the original IPv4 capacity while checking first-fit, ownership,
+    // persisted RPC projection, and final exhaustion.
+    assert_static_ipv4_first_fit(&fixture).await;
+    assert_explicit_prefix_tenant_ownership(&fixture).await;
+    let allocated_instance = allocate_and_assert_auto_vpc_instance(&fixture).await;
+    assert_ipv4_candidates_exhausted(&fixture).await;
+
+    // Add fresh family capacity and exercise the IPv6 internals that remain
+    // gated at the request layer.
+    let dual_stack_prefixes = add_dual_stack_prefix_capacity(&fixture).await;
+    assert_ipv6_only_resolution(
+        &fixture,
+        &allocated_instance,
+        dual_stack_prefixes.ipv6_prefix_id,
+    )
+    .await;
+    assert_dual_stack_resolution(&fixture, &allocated_instance, &dual_stack_prefixes).await;
+}
+
+/// Verifies a rare overlap from outside parent-prefix serialization retries
+/// instead of surfacing exclusion-constraint contention as allocation failure.
+#[crate::sqlx_test]
+async fn test_auto_vpc_prefix_selection_retries_concurrent_network_prefix_insert(pool: PgPool) {
+    let fixture = create_auto_vpc_selection_fixture(pool).await;
+    let conflicting_prefix = IpNetwork::new(fixture.lower_ipv4_prefix.network(), 31).unwrap();
+
+    // Keep a conflicting child prefix uncommitted so allocation cannot observe
+    // it before choosing the same linknet and waiting on the exclusion constraint.
+    let mut blocker = fixture.env.pool.begin().await.unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(blocker.as_mut())
+        .await
+        .unwrap();
+    db::network_segment::persist(
+        NewNetworkSegment {
+            id: NetworkSegmentId::new(),
+            name: "overlap-race-blocker".to_string(),
+            subdomain_id: None,
+            vpc_id: Some(fixture.vpc_id),
+            mtu: 9000,
+            prefixes: vec![NewNetworkPrefix {
+                prefix: conflicting_prefix,
+                gateway: Some(conflicting_prefix.network()),
+                dhcpv6_link_address: None,
+                num_reserved: 0,
+            }],
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::Tenant,
+            can_stretch: Some(false),
+            allocation_strategy: Default::default(),
+        },
+        blocker.as_mut(),
+        NetworkSegmentControllerState::Ready,
+    )
+    .await
+    .unwrap();
+
+    // Start allocation on another connection and prove its prefix insert is
+    // blocked by this exact transaction before allowing the conflict to resolve.
+    let allocation_task = tokio::spawn(allocate_automatic_ipv4_network(
+        fixture.env.pool.clone(),
+        fixture.vpc_id,
+        fixture.tenant_organization_id.clone(),
+    ));
+    wait_until_prefix_allocator_blocked_by(
+        &fixture.env.pool,
+        blocker_pid,
+        "INSERT INTO network_prefixes",
+    )
+    .await;
+    blocker.commit().await.unwrap();
+
+    // The single retry must stay on the same parent but choose the other free /31.
+    let allocated = allocation_task.await.unwrap().unwrap();
+    let interface = &allocated.interfaces[0];
+    assert_eq!(
+        interface.network_details,
+        Some(NetworkDetails::VpcPrefixId(fixture.lower_ipv4_prefix_id)),
+    );
+    let mut txn = fixture.env.db_txn().await;
+    let generated_segment = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(IdColumn, &interface.network_segment_id.unwrap()),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(generated_segment.len(), 1);
+    assert_ne!(generated_segment[0].prefixes[0].prefix, conflicting_prefix);
+    assert!(
+        fixture
+            .lower_ipv4_prefix
+            .contains(generated_segment[0].prefixes[0].prefix.network())
+    );
+    txn.commit().await.unwrap();
+}
+
+/// Verifies a deleted candidate is rejected by its locking re-read so allocation
+/// cannot proceed from stale discovery state.
+#[crate::sqlx_test]
+async fn test_auto_vpc_prefix_selection_rechecks_concurrent_candidate_deletion(pool: PgPool) {
+    let fixture = create_auto_vpc_selection_fixture(pool).await;
+
+    // Hold the lower candidate's soft-delete uncommitted. Candidate discovery
+    // still sees the prior active row, while its selected-row lock must wait.
+    let mut blocker = fixture.env.pool.begin().await.unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(blocker.as_mut())
+        .await
+        .unwrap();
+    let _: VpcPrefixId = sqlx::query_scalar(
+        r#"
+            UPDATE network_vpc_prefixes
+            SET deleted = NOW()
+            WHERE id = $1
+              AND deleted IS NULL
+            -- Hold the candidate row until allocation reaches its locking re-read.
+            RETURNING id
+        "#,
+    )
+    .bind(fixture.lower_ipv4_prefix_id)
+    .fetch_one(blocker.as_mut())
+    .await
+    .unwrap();
+
+    // Commit only after the allocator is waiting on the deleted candidate.
+    let allocation_task = tokio::spawn(allocate_automatic_ipv4_network(
+        fixture.env.pool.clone(),
+        fixture.vpc_id,
+        fixture.tenant_organization_id.clone(),
+    ));
+    wait_until_prefix_allocator_blocked_by(&fixture.env.pool, blocker_pid, "FOR NO KEY UPDATE")
+        .await;
+    blocker.commit().await.unwrap();
+
+    // The locking re-read must reject the deleted row and fall through.
+    let allocated = allocation_task.await.unwrap().unwrap();
+    assert_eq!(
+        allocated.interfaces[0].network_details,
+        Some(NetworkDetails::VpcPrefixId(fixture.higher_ipv4_prefix_id)),
+    );
+}
+
+/// Verifies a request retains its discovery-time candidate set so concurrent
+/// capacity changes cannot disturb canonical allocation ordering.
+#[crate::sqlx_test]
+async fn test_auto_vpc_prefix_selection_freezes_concurrent_candidate_insert(pool: PgPool) {
+    let fixture = create_auto_vpc_selection_fixture(pool).await;
+
+    // Exhaust both existing candidates before arranging the discovery boundary.
+    assert_static_ipv4_first_fit(&fixture).await;
+    let final_original_allocation = allocate_automatic_ipv4_network(
+        fixture.env.pool.clone(),
+        fixture.vpc_id,
+        fixture.tenant_organization_id.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        final_original_allocation.interfaces[0].network_details,
+        Some(NetworkDetails::VpcPrefixId(fixture.higher_ipv4_prefix_id)),
+    );
+
+    // Hold the first candidate so a blocked selected-row lock proves the
+    // allocation transaction already froze its candidate query result.
+    let mut blocker = fixture.env.pool.begin().await.unwrap();
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(blocker.as_mut())
+        .await
+        .unwrap();
+    let _: VpcPrefixId = sqlx::query_scalar(
+        r#"
+            SELECT id
+            FROM network_vpc_prefixes
+            WHERE id = $1
+            -- Keep discovery unlocked but block the selected candidate re-read.
+            FOR UPDATE
+        "#,
+    )
+    .bind(fixture.lower_ipv4_prefix_id)
+    .fetch_one(blocker.as_mut())
+    .await
+    .unwrap();
+    let allocation_task = tokio::spawn(allocate_automatic_ipv4_network(
+        fixture.env.pool.clone(),
+        fixture.vpc_id,
+        fixture.tenant_organization_id.clone(),
+    ));
+    wait_until_prefix_allocator_blocked_by(&fixture.env.pool, blocker_pid, "FOR NO KEY UPDATE")
+        .await;
+
+    // Add usable capacity only after discovery, then let the frozen request continue.
+    let inserted_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &fixture.env,
+        fixture.vpc_id,
+        "concurrently-inserted-candidate",
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 218, 0, 8), 30).unwrap()),
+    )
+    .await;
+    blocker.rollback().await.unwrap();
+
+    // The in-flight request proves only its original candidates exhausted; a
+    // fresh request discovers and allocates from the newly committed candidate.
+    let error = allocation_task.await.unwrap().unwrap_err();
+    assert!(matches!(error, crate::CarbideError::ResourceExhausted(_)));
+    let retried = allocate_automatic_ipv4_network(
+        fixture.env.pool.clone(),
+        fixture.vpc_id,
+        fixture.tenant_organization_id.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        retried.interfaces[0].network_details,
+        Some(NetworkDetails::VpcPrefixId(inserted_prefix_id)),
+    );
+}
+
+/// Verifies a VPC-only selector cannot bypass tenant ownership checks at the
+/// public RPC boundary.
+#[crate::sqlx_test]
+async fn test_auto_vpc_prefix_selection_rejects_cross_tenant_rpc_request(pool: PgPool) {
+    const OTHER_TENANT: &str = "auto-prefix-selection-other-tenant";
+
+    // Create a valid second tenant and an allocatable host so only VPC ownership fails.
+    let fixture = create_auto_vpc_selection_fixture(pool).await;
+    create_fixture_tenant(&fixture.env, OTHER_TENANT)
+        .await
+        .unwrap();
+    let managed_host = create_managed_host(&fixture.env).await;
+
+    // Request the owning tenant's VPC from a different valid tenant through AllocateInstance.
+    let error = fixture
+        .env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(managed_host.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .tenant(rpc::TenantConfig {
+                            tenant_organization_id: OTHER_TENANT.to_string(),
+                            ..default_tenant_config()
+                        })
+                        .network(automatic_ipv4_rpc_network_config(fixture.vpc_id)),
+                )
+                .tonic_request(),
         )
         .await
         .unwrap_err();
+
+    // Ownership failure must retain its precise public status and diagnostic.
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        error.message(),
+        format!(
+            "VPC `{}` is not owned by tenant `{OTHER_TENANT}`",
+            fixture.vpc_id
+        ),
+    );
+}
+
+/// Verifies force deletion recognizes automatic-selector resources so generated
+/// segments and addresses cannot leak.
+#[crate::sqlx_test]
+async fn test_auto_vpc_prefix_selection_force_delete_marks_generated_segment_deleted(pool: PgPool) {
+    let fixture = create_auto_vpc_selection_fixture(pool).await;
+    let managed_host = create_managed_host(&fixture.env).await;
+
+    // Allocate through the public selector and synchronize networking so the
+    // address being released is known to have become active.
+    let tinstance = managed_host
+        .instance_builer(&fixture.env)
+        .tenant_org(FIXTURE_TENANT_ORG_ID)
+        .network(automatic_ipv4_rpc_network_config(fixture.vpc_id))
+        .build()
+        .await;
+    let instance_id = tinstance.id;
+    let persisted = tinstance.rpc_instance().await;
+    assert_ipv4_auto_rpc_resolution(
+        persisted.inner(),
+        fixture.vpc_id,
+        fixture.lower_ipv4_prefix_id,
+    );
+    assert!(
+        !persisted.status().network().interfaces[0]
+            .addresses
+            .is_empty()
+    );
+    let generated_segment_id = persisted.config().network().interfaces[0]
+        .network_segment_id
+        .unwrap();
+
+    // Force delete must route automatic intent through generated-resource cleanup.
+    let response = fixture
+        .env
+        .api
+        .admin_force_delete_machine(Request::new(AdminForceDeleteMachineRequest {
+            host_query: managed_host.id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(response.all_done);
+    assert_eq!(response.instance_id, instance_id.to_string());
+    assert!(
+        fixture
+            .env
+            .find_instances(vec![instance_id])
+            .await
+            .instances
+            .is_empty()
+    );
+
+    // The generated segment is queued for lifecycle deletion and its instance address is freed.
+    let mut txn = fixture.env.db_txn().await;
+    let generated_segments = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(IdColumn, &generated_segment_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+    let [generated_segment] = generated_segments.as_slice() else {
+        panic!("expected one force-deleted generated segment");
+    };
+    assert!(generated_segment.is_marked_as_deleted());
+    assert_eq!(
+        db::instance_address::count_by_segment_id(&mut txn, &generated_segment_id)
+            .await
+            .unwrap(),
+        0,
+    );
+    txn.commit().await.unwrap();
+}
+
+/// Holds one tenant-owned FNN VPC and ordered candidates so every scenario
+/// shares the same deterministic first-fit baseline.
+struct AutoVpcSelectionFixture {
+    env: TestEnv,
+    vpc_id: VpcId,
+    // Candidate labels follow VPC prefix ID order, which drives static first-fit.
+    lower_ipv4_prefix_id: VpcPrefixId,
+    lower_ipv4_prefix: IpNetwork,
+    higher_ipv4_prefix_id: VpcPrefixId,
+    tenant_organization_id: TenantOrganizationId,
+}
+
+/// Retains persisted instance and host identity because internal IPv6-only and
+/// dual-stack address allocation requires both.
+struct AutoVpcAllocatedInstance {
+    managed_host: TestManagedHost,
+    instance_id: InstanceId,
+}
+
+/// Holds fresh per-family candidates added after IPv4 exhaustion so future
+/// family-mode checks cannot perturb the initial first-fit coverage.
+struct AutoVpcDualStackPrefixes {
+    ipv4_prefix_id: VpcPrefixId,
+    ipv6_prefix_id: VpcPrefixId,
+}
+
+/// Creates an FNN VPC and derives candidate roles from prefix ID order so
+/// static first-fit assertions remain deterministic.
+async fn create_auto_vpc_selection_fixture(pool: PgPool) -> AutoVpcSelectionFixture {
+    // Build the shared environment without site-level FNN configuration and
+    // register the tenant used by every scenario.
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    create_fixture_tenant(&env, FIXTURE_TENANT_ORG_ID)
+        .await
+        .unwrap();
+
+    // Automatic prefix selection is restricted to FNN VPCs.
+    let vpc_id = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder(FIXTURE_TENANT_ORG_ID)
+                .metadata(Metadata {
+                    name: "auto-prefix-selection-vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+
+    // Two non-overlapping /30 candidates provide two /31 linknets each. Their
+    // CIDRs also avoid the default fixture networks used by the real instance.
+    let first_prefix = IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 218, 0, 0), 30).unwrap());
+    let first_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        vpc_id,
+        "auto-prefix-candidate-one",
+        first_prefix,
+    )
+    .await;
+    let second_prefix = IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 218, 0, 4), 30).unwrap());
+    let second_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &env,
+        vpc_id,
+        "auto-prefix-candidate-two",
+        second_prefix,
+    )
+    .await;
+
+    // First-fit order is based on prefix ID rather than creation order, so
+    // derive stable lower/higher roles from the generated IDs.
+    let (lower_prefix_id, lower_prefix, higher_prefix_id) = if first_prefix_id < second_prefix_id {
+        (first_prefix_id, first_prefix, second_prefix_id)
+    } else {
+        (second_prefix_id, second_prefix, first_prefix_id)
+    };
+
+    AutoVpcSelectionFixture {
+        env,
+        vpc_id,
+        lower_ipv4_prefix_id: lower_prefix_id,
+        lower_ipv4_prefix: lower_prefix,
+        higher_ipv4_prefix_id: higher_prefix_id,
+        tenant_organization_id: FIXTURE_TENANT_ORG_ID.parse().unwrap(),
+    }
+}
+
+/// Verifies prefix ID order determines first fit and each candidate is
+/// exhausted before allocation falls through to the next one.
+async fn assert_static_ipv4_first_fit(fixture: &AutoVpcSelectionFixture) {
+    // Two /31 allocations fill the lower-ID /30; the third must fall through.
+    for expected_prefix_id in [
+        fixture.lower_ipv4_prefix_id,
+        fixture.lower_ipv4_prefix_id,
+        fixture.higher_ipv4_prefix_id,
+    ] {
+        let mut network_config =
+            automatic_network_config(fixture.vpc_id, InstanceInterfaceIpFamilyMode::Ipv4Only);
+        let mut txn = fixture.env.db_txn().await;
+        allocate_network(
+            &mut network_config,
+            &fixture.tenant_organization_id,
+            &mut txn,
+        )
+        .await
+        .unwrap();
+
+        // Resolution uses the rolling-compatible explicit fields internally.
+        let interface = &network_config.interfaces[0];
+        assert_eq!(
+            interface.network_details,
+            Some(NetworkDetails::VpcPrefixId(expected_prefix_id)),
+        );
+        assert!(interface.network_segment_id.is_some());
+        txn.commit().await.unwrap();
+    }
+}
+
+/// Verifies shared allocation logic does not weaken tenant ownership for
+/// explicit-prefix requests.
+async fn assert_explicit_prefix_tenant_ownership(fixture: &AutoVpcSelectionFixture) {
+    // Request an existing explicit prefix under a different tenant identity.
+    let mut explicit_config = InstanceNetworkConfig::for_vpc_prefix_id(
+        fixture.higher_ipv4_prefix_id,
+        Some(fixture.vpc_id),
+    );
+    let wrong_tenant_organization_id = "another-tenant".parse().unwrap();
+    let mut txn = fixture.env.db_txn().await;
+    let error = allocate_network(
+        &mut explicit_config,
+        &wrong_tenant_organization_id,
+        &mut txn,
+    )
+    .await
+    .unwrap_err();
+
+    // The failure must identify ownership rather than allocation capacity.
+    assert!(matches!(
+        error,
+        crate::CarbideError::FailedPrecondition(message)
+            if message.contains("is not owned by tenant")
+    ));
+    txn.rollback().await.unwrap();
+}
+
+/// Allocates and re-reads through the public boundary so intent and resolution
+/// are proven to persist beyond the allocation response.
+async fn allocate_and_assert_auto_vpc_instance(
+    fixture: &AutoVpcSelectionFixture,
+) -> AutoVpcAllocatedInstance {
+    // Allocate the final original IPv4 linknet through the public selector and
+    // verify its immediate projection.
+    let managed_host = create_managed_host(&fixture.env).await;
+    let instance = fixture
+        .env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(managed_host.id)
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .tenant(fixture_tenant_config())
+                        .network(automatic_ipv4_rpc_network_config(fixture.vpc_id)),
+                )
+                .metadata(rpc::Metadata {
+                    name: "automatic-vpc-prefix-selection".to_string(),
+                    description: "tests/instance".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner();
+    assert_ipv4_auto_rpc_resolution(&instance, fixture.vpc_id, fixture.higher_ipv4_prefix_id);
+
+    // Re-read through FindInstancesByIds to verify persisted intent and resolution.
+    let instance_id = instance.id.unwrap();
+    let persisted = fixture.env.one_instance(instance_id).await;
+    assert_ipv4_auto_rpc_resolution(
+        persisted.inner(),
+        fixture.vpc_id,
+        fixture.higher_ipv4_prefix_id,
+    );
+
+    AutoVpcAllocatedInstance {
+        managed_host,
+        instance_id,
+    }
+}
+
+/// Confirms original IPv4 capacity is exhausted so later family-mode checks
+/// can resolve only from freshly added prefixes.
+async fn assert_ipv4_candidates_exhausted(fixture: &AutoVpcSelectionFixture) {
+    // Four earlier allocations consumed both /31 linknets in both original /30 candidates.
+    let mut exhausted_config =
+        automatic_network_config(fixture.vpc_id, InstanceInterfaceIpFamilyMode::Ipv4Only);
+    let mut txn = fixture.env.db_txn().await;
+    let error = allocate_network(
+        &mut exhausted_config,
+        &fixture.tenant_organization_id,
+        &mut txn,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(error, crate::CarbideError::ResourceExhausted(_)));
+    txn.rollback().await.unwrap();
+}
+
+/// Adds per-family capacity after first-fit checks so it cannot affect their
+/// candidate ordering or exhaustion assertions.
+async fn add_dual_stack_prefix_capacity(
+    fixture: &AutoVpcSelectionFixture,
+) -> AutoVpcDualStackPrefixes {
+    // Add capacity only after exhaustion so it cannot affect earlier first-fit checks.
+    // The IPv6 /126 supplies one /127 to IPv6-only and another to dual stack.
+    let dual_ipv4_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &fixture.env,
+        fixture.vpc_id,
+        "dual-stack-ipv4-candidate",
+        IpNetwork::V4(Ipv4Network::new(Ipv4Addr::new(10, 218, 0, 8), 30).unwrap()),
+    )
+    .await;
+    let ipv6_prefix =
+        IpNetwork::V6(Ipv6Network::new("fd42:218::".parse::<Ipv6Addr>().unwrap(), 126).unwrap());
+    let ipv6_prefix_id = create_tenant_overlay_prefix_with_prefix(
+        &fixture.env,
+        fixture.vpc_id,
+        "automatic-ipv6-candidate",
+        ipv6_prefix,
+    )
+    .await;
+
+    AutoVpcDualStackPrefixes {
+        ipv4_prefix_id: dual_ipv4_prefix_id,
+        ipv6_prefix_id,
+    }
+}
+
+/// Exercises IPv6-only resolution and odd-address assignment internally while
+/// its public path remains gated pending end-to-end IPv6 support.
+async fn assert_ipv6_only_resolution(
+    fixture: &AutoVpcSelectionFixture,
+    allocated_instance: &AutoVpcAllocatedInstance,
+    ipv6_prefix_id: VpcPrefixId,
+) {
+    // Exercise IPv6-only allocation directly (the request layer still rejects
+    // this mode) and keep its selected prefix in the legacy primary arm.
+    let mut ipv6_only_config =
+        automatic_network_config(fixture.vpc_id, InstanceInterfaceIpFamilyMode::Ipv6Only);
+    let mut txn = fixture.env.db_txn().await;
+    allocate_network(
+        &mut ipv6_only_config,
+        &fixture.tenant_organization_id,
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    let ipv6_only_interface = &ipv6_only_config.interfaces[0];
+    assert_eq!(
+        ipv6_only_interface.network_details,
+        Some(NetworkDetails::VpcPrefixId(ipv6_prefix_id)),
+    );
+    assert!(ipv6_only_interface.ipv6_interface_config.is_none());
+
+    // The generated segment must contain exactly the selected IPv6 linknet.
+    let ipv6_only_segment_id = ipv6_only_interface.network_segment_id.unwrap();
+    let ipv6_only_segment = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(IdColumn, &ipv6_only_segment_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(ipv6_only_segment[0].prefixes.len(), 1);
+    assert!(ipv6_only_segment[0].prefixes[0].prefix.is_ipv6());
+
+    // Reuse the persisted instance and host to exercise internal address assignment.
+    let host = allocated_instance
+        .managed_host
+        .host()
+        .db_machine(&mut txn)
+        .await;
+    ipv6_only_config = db::instance_network_config::with_allocated_ips(
+        ipv6_only_config,
+        txn.as_mut(),
+        allocated_instance.instance_id,
+        &host,
+    )
+    .await
+    .unwrap();
+    let ipv6_only_addresses =
+        db::instance_address::find_by_segment_id(txn.as_mut(), &ipv6_only_segment_id)
+            .await
+            .unwrap();
+
+    // Config and persistence must each contain one address, with an odd IPv6 host persisted.
+    assert_eq!(ipv6_only_config.interfaces[0].ip_addrs.len(), 1);
+    assert_eq!(ipv6_only_addresses.len(), 1);
+    assert!(matches!(
+        ipv6_only_addresses[0].address,
+        IpAddr::V6(address) if address.to_bits() & 1 == 1
+    ));
+    txn.commit().await.unwrap();
+}
+
+/// Exercises dual-stack resolution and per-family address assignment internally
+/// while its public path remains gated pending end-to-end IPv6 support.
+async fn assert_dual_stack_resolution(
+    fixture: &AutoVpcSelectionFixture,
+    allocated_instance: &AutoVpcAllocatedInstance,
+    prefixes: &AutoVpcDualStackPrefixes,
+) {
+    // IPv6-only consumed the first /127. Resolve dual stack internally with IPv4
+    // as primary and the remaining IPv6 /127 augmenting its generated segment.
+    let mut dual_stack_config =
+        automatic_network_config(fixture.vpc_id, InstanceInterfaceIpFamilyMode::DualStack);
+    let mut txn = fixture.env.db_txn().await;
+    allocate_network(
+        &mut dual_stack_config,
+        &fixture.tenant_organization_id,
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    let dual_stack_interface = &dual_stack_config.interfaces[0];
+    assert_eq!(
+        dual_stack_interface.network_details,
+        Some(NetworkDetails::VpcPrefixId(prefixes.ipv4_prefix_id)),
+    );
+    assert_eq!(
+        dual_stack_interface
+            .ipv6_interface_config
+            .as_ref()
+            .map(|config| config.vpc_prefix_id),
+        Some(prefixes.ipv6_prefix_id),
+    );
+
+    // Both selected family linknets must share one generated segment.
+    let dual_stack_segment_id = dual_stack_interface.network_segment_id.unwrap();
+    let dual_stack_segment = db::network_segment::find_by(
+        txn.as_mut(),
+        ObjectColumnFilter::One(IdColumn, &dual_stack_segment_id),
+        NetworkSegmentSearchConfig::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(dual_stack_segment[0].prefixes.len(), 2);
+    assert_eq!(
+        dual_stack_segment[0]
+            .prefixes
+            .iter()
+            .filter(|prefix| prefix.prefix.is_ipv4())
+            .count(),
+        1,
+    );
+    assert_eq!(
+        dual_stack_segment[0]
+            .prefixes
+            .iter()
+            .filter(|prefix| prefix.prefix.is_ipv6())
+            .count(),
+        1,
+    );
+
+    // Reuse the persisted instance and host to exercise internal address assignment.
+    let host = allocated_instance
+        .managed_host
+        .host()
+        .db_machine(&mut txn)
+        .await;
+    dual_stack_config = db::instance_network_config::with_allocated_ips(
+        dual_stack_config,
+        txn.as_mut(),
+        allocated_instance.instance_id,
+        &host,
+    )
+    .await
+    .unwrap();
+    let dual_stack_addresses =
+        db::instance_address::find_by_segment_id(txn.as_mut(), &dual_stack_segment_id)
+            .await
+            .unwrap();
+
+    // Config must expose two addresses; persistence must contain one per family.
+    assert_eq!(dual_stack_config.interfaces[0].ip_addrs.len(), 2);
+    assert_eq!(dual_stack_addresses.len(), 2);
+    assert_eq!(
+        dual_stack_addresses
+            .iter()
+            .filter(|address| address.address.is_ipv4())
+            .count(),
+        1,
+    );
+    assert!(dual_stack_addresses.iter().any(|address| matches!(
+        address.address,
+        IpAddr::V6(address) if address.to_bits() & 1 == 1
+    )));
+    txn.commit().await.unwrap();
+}
+
+/// Builds unresolved selector intent so allocator internals (including gated
+/// IPv6 modes) can be exercised without RPC orchestration.
+fn automatic_network_config(
+    vpc_id: VpcId,
+    family_mode: InstanceInterfaceIpFamilyMode,
+) -> InstanceNetworkConfig {
+    // Seed the interface shape with the explicit-prefix constructor, then replace
+    // its dummy prefix with unresolved automatic intent.
+    let mut config = InstanceNetworkConfig::for_vpc_prefix_id(VpcPrefixId::new(), Some(vpc_id));
+    let interface = &mut config.interfaces[0];
+    interface.network_details = None;
+    interface.vpc_selection = Some(InstanceInterfaceVpcSelection {
+        vpc_id,
+        family_mode,
+    });
+    config
+}
+
+/// Allocates one automatic IPv4 config in its own transaction for concurrency tests.
+async fn allocate_automatic_ipv4_network(
+    pool: PgPool,
+    vpc_id: VpcId,
+    tenant_organization_id: TenantOrganizationId,
+) -> Result<InstanceNetworkConfig, crate::CarbideError> {
+    let mut config = automatic_network_config(vpc_id, InstanceInterfaceIpFamilyMode::Ipv4Only);
+    let mut txn = pool.begin().await.unwrap();
+    let result = allocate_network(&mut config, &tenant_organization_id, txn.as_mut()).await;
+
+    // Commit successful generated resources; failed attempts must leave no outer effects.
+    match result {
+        Ok(()) => {
+            txn.commit().await.unwrap();
+            Ok(config)
+        }
+        Err(error) => {
+            txn.rollback().await.unwrap();
+            Err(error)
+        }
+    }
+}
+
+/// Waits for the allocator to reach the expected lock boundary so concurrency
+/// tests release blockers deterministically rather than by timing.
+async fn wait_until_prefix_allocator_blocked_by(
+    pool: &PgPool,
+    blocker_pid: i32,
+    query_fragment: &str,
+) {
+    // Poll for up to 30 seconds to let the spawned allocator reach the held lock.
+    for _ in 0..300 {
+        let blocked: bool = sqlx::query_scalar(
+            r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_stat_activity AS activity
+                    WHERE activity.datname = current_database()
+                      AND activity.wait_event_type = 'Lock'
+                      -- Match only allocator work blocked by this test's transaction.
+                      AND $1 = ANY(pg_blocking_pids(activity.pid))
+                      AND activity.query ILIKE '%' || $2 || '%'
+                )
+            "#,
+        )
+        .bind(blocker_pid)
+        .bind(query_fragment)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if blocked {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    panic!("prefix allocator never blocked on {query_fragment}");
+}
+
+/// Builds unresolved external selector intent so public-boundary tests do not
+/// pre-resolve a prefix themselves.
+fn automatic_ipv4_rpc_network_config(vpc_id: VpcId) -> rpc::InstanceNetworkConfig {
+    rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: None,
+            network_details: Some(rpc::forge::instance_interface_config::NetworkDetails::Vpc(
+                rpc::forge::InstanceInterfaceVpcSelection {
+                    vpc_id: Some(vpc_id),
+                    family_mode: rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32,
+                },
+            )),
+            device: None,
+            device_instance: 0,
+            virtual_function_id: None,
+            ip_address: None,
+            ipv6_interface_config: None,
+            routing_profile: None,
+        }],
+        #[allow(deprecated)]
+        auto: false,
+        auto_config: None,
+    }
+}
+
+/// Verifies config retains caller VPC intent while status exposes its resolved
+/// prefix, protecting the distinction between intent and active allocation.
+fn assert_ipv4_auto_rpc_resolution(
+    instance: &rpc::Instance,
+    vpc_id: VpcId,
+    vpc_prefix_id: VpcPrefixId,
+) {
+    // Config retains VPC-level caller intent while carrying the generated segment.
+    let interface = &instance
+        .config
+        .as_ref()
+        .unwrap()
+        .network
+        .as_ref()
+        .unwrap()
+        .interfaces[0];
+    let selection = match interface.network_details.as_ref() {
+        Some(rpc::forge::instance_interface_config::NetworkDetails::Vpc(selection)) => selection,
+        other => panic!("expected automatic VPC selection, got {other:?}"),
+    };
+    assert_eq!(selection.vpc_id, Some(vpc_id));
+    assert_eq!(
+        selection.family_mode,
+        rpc::forge::InstanceInterfaceIpFamilyMode::Ipv4Only as i32,
+    );
+    assert!(interface.network_segment_id.is_some());
+
+    // Status publishes the active family-keyed prefix separately.
+    let status_interface = &instance
+        .status
+        .as_ref()
+        .unwrap()
+        .network
+        .as_ref()
+        .unwrap()
+        .interfaces[0];
+    assert_eq!(status_interface.vpc_id, Some(vpc_id));
+    let resolved = status_interface.resolved_vpc_prefixes.as_ref().unwrap();
+    assert_eq!(resolved.ipv4_vpc_prefix_id, Some(vpc_prefix_id));
+    assert_eq!(resolved.ipv6_vpc_prefix_id, None);
 }
 
 async fn create_tenant_overlay_prefix(env: &TestEnv, vpc_id: VpcId) -> VpcPrefixId {
@@ -3583,7 +4568,7 @@ async fn test_network_details_migration(
         .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
             machine_id: mh_with_vpc_prefix.host_snapshot.id.into(),
             config: Some(rpc::InstanceConfig {
-                tenant: Some(default_tenant_config()),
+                tenant: Some(fixture_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(rpc::InstanceNetworkConfig {
                     interfaces: vec![rpc::InstanceInterfaceConfig {
@@ -4158,7 +5143,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     };
 
     let initial_config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
+        tenant: Some(fixture_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
@@ -4537,7 +5522,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     };
 
     let initial_config = rpc::InstanceConfig {
-        tenant: Some(default_tenant_config()),
+        tenant: Some(fixture_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
         infiniband: None,
@@ -4761,7 +5746,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
 
     let config = rpc::InstanceConfig {
         tenant: Some(rpc::TenantConfig {
-            tenant_organization_id: "abc".to_string(),
+            tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
             hostname: Some("xyz".to_string()),
             tenant_keyset_ids: vec![],
         }),
@@ -4785,7 +5770,8 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
     );
 
     let mut txn = env.db_txn().await;
-    allocate_network(&mut config.network, &mut txn)
+    let tenant_organization_id = config.tenant.tenant_organization_id.clone();
+    allocate_network(&mut config.network, &tenant_organization_id, &mut txn)
         .await
         .unwrap();
 
@@ -4887,12 +5873,14 @@ async fn test_allocate_instance_with_multiple_fnn_vpc_prefixes(
         .allocate_instance(
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
-                .config(InstanceConfig::default_tenant_and_os().network(
-                    dual_physical_network_config_with_vpc_prefixes(
-                        first_prefix_id,
-                        second_prefix_id,
-                    ),
-                ))
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .tenant(fixture_tenant_config())
+                        .network(dual_physical_network_config_with_vpc_prefixes(
+                            first_prefix_id,
+                            second_prefix_id,
+                        )),
+                )
                 .metadata(rpc::Metadata {
                     name: "multi-fnn-vpc".to_string(),
                     description: "tests/instance".to_string(),
@@ -5322,9 +6310,11 @@ async fn test_allocate_instance_rejects_dual_stack_prefixes_from_different_vpcs(
         .allocate_instance(
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
-                .config(InstanceConfig::default_tenant_and_os().network(
-                    rpc::InstanceNetworkConfig {
-                        interfaces: vec![rpc::InstanceInterfaceConfig {
+                .config(
+                    InstanceConfig::default_tenant_and_os()
+                        .tenant(fixture_tenant_config())
+                        .network(rpc::InstanceNetworkConfig {
+                            interfaces: vec![rpc::InstanceInterfaceConfig {
                             function_type: rpc::InterfaceFunctionType::Physical as i32,
                             network_segment_id: None,
                             network_details: Some(
@@ -5342,11 +6332,11 @@ async fn test_allocate_instance_rejects_dual_stack_prefixes_from_different_vpcs(
                             }),
                             routing_profile: None,
                         }],
-                        #[allow(deprecated)]
-                        auto: false,
-                        auto_config: None,
-                    },
-                ))
+                            #[allow(deprecated)]
+                            auto: false,
+                            auto_config: None,
+                        }),
+                )
                 .tonic_request(),
         )
         .await

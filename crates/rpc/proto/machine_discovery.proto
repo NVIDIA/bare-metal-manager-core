@@ -136,11 +136,30 @@ message PciDeviceProperties{
 
 message LldpSwitchData {
   string name = 1;
-  string id = 2;
+  // Deprecated: chassis id rendered as "<id_type>=<id_value>". Use id_type/id_value.
+  string id = 2 [deprecated = true];
   string description = 3;
   string local_port = 4;
   repeated string ip_address = 5;
-  string remote_port = 6;
+  // Deprecated: remote port rendered as "<remote_port_type>=<remote_port_value>".
+  // Use remote_port_type/remote_port_value.
+  string remote_port = 6 [deprecated = true];
+  // Chassis id split into its LLDP subtype (e.g. "mac", "local") and value.
+  string id_type = 7;
+  string id_value = 8;
+  // Remote port id split into its LLDP subtype (e.g. "ifname") and value.
+  string remote_port_type = 9;
+  string remote_port_value = 10;
+  // LLDP-MED inventory, present only when the neighbor advertises it.
+  optional LldpMedInventory med_inventory = 11;
+}
+
+// LLDP-MED inventory advertised by some neighbors (e.g. BlueField DPUs).
+// Every field is optional.
+message LldpMedInventory {
+  optional string serial = 1;
+  optional string manufacturer = 2;
+  optional string model = 3;
 }
 
 message DpuData {

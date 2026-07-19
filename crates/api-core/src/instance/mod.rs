@@ -16,7 +16,8 @@
  */
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
@@ -25,6 +26,7 @@ use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use config_version::ConfigVersion;
@@ -42,7 +44,8 @@ use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
-    InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
+    InstanceInterfaceIpFamilyMode, InstanceNetworkConfig, InterfaceFunctionId, Ipv6InterfaceConfig,
+    NetworkDetails,
 };
 use model::instance::config::spx::{InstanceSpxConfig, SpxAttachmentType};
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -229,198 +232,976 @@ impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
     }
 }
 
-/// Allocate network segment and update network segment id with it.
-pub async fn allocate_network(
-    network_config: &mut InstanceNetworkConfig,
-    txn: &mut PgConnection,
-) -> CarbideResult<()> {
-    // Take ROW LEVEL lock on all the vpc_prefix taken.
-    // This is needed so that last_used_prefix is not modified by multiple clients at same time.
-    // Keep values in mut Hashmap and update last_used_prefix in the end of this function.
-    // Also Validate:
-    // 1. vpc_prefix_ids can span VPCs only when every VPC is FNN.
-    // 2. Pointed vpc'organization id must be same as instance's tenant_org.
-    // 3. If no vpc_prefix_id is mentioned, return.
+/// The initial candidate attempt plus one retry after an overlap conflict.
+const PREFIX_ALLOCATION_TOTAL_ATTEMPTS: usize = 2;
+const NETWORK_PREFIX_OVERLAP_CONSTRAINT: &str = "network_prefixes_prefix_excl";
 
-    // Collect all VPC prefix IDs across all interfaces (supports both single and dual-stack).
-    let vpc_prefix_ids: Vec<VpcPrefixId> = network_config
-        .interfaces
-        .iter()
-        .flat_map(|x| {
-            let mut ids = Vec::new();
-            if let Some(NetworkDetails::VpcPrefixId(id)) = x.network_details {
-                ids.push(id);
-            }
-            if let Some(ref v6) = x.ipv6_interface_config {
-                ids.push(v6.vpc_prefix_id);
-            }
-            ids
-        })
-        .collect_vec();
+/// Address-family component of a canonical allocation group.
+///
+/// Declaration order keeps IPv4 before IPv6 within each VPC, satisfying the
+/// dual-stack create-before-attach dependency and cross-transaction group order.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum AllocationAddressFamily {
+    Ipv4,
+    Ipv6,
+}
 
-    if vpc_prefix_ids.is_empty() {
-        return Ok(());
+impl AllocationAddressFamily {
+    /// Derives the family key from a network prefix.
+    fn from_network(prefix: IpNetwork) -> Self {
+        if prefix.is_ipv4() {
+            Self::Ipv4
+        } else {
+            Self::Ipv6
+        }
     }
 
-    let mut vpc_prefixes: HashMap<VpcPrefixId, VpcPrefix> =
-        db::vpc_prefix::get_by_id_with_row_lock(txn, &vpc_prefix_ids)
-            .await?
-            .iter()
-            .map(|x| (x.id, x.clone()))
-            .collect::<HashMap<VpcPrefixId, VpcPrefix>>();
+    /// Derives the family key from an individual address.
+    fn from_address(address: std::net::IpAddr) -> Self {
+        if address.is_ipv4() {
+            Self::Ipv4
+        } else {
+            Self::Ipv6
+        }
+    }
 
-    // This can be empty also if vpc_prefix_id is not configured at carbide.
-    // In this case error 'Unknown VPC prefix id' will be thrown.
-    let vpc_ids = vpc_prefixes
-        .values()
-        .map(|x| x.vpc_id)
-        .collect::<HashSet<_>>();
-    if vpc_ids.len() > 1 {
-        let vpc_ids = vpc_ids.into_iter().collect_vec();
-        let vpcs = db::vpc::find_by(
-            &mut *txn,
-            ObjectColumnFilter::List(db::vpc::IdColumn, &vpc_ids),
+    /// Returns the point-to-point linknet length used for this family.
+    fn linknet_prefix(self) -> u8 {
+        match self {
+            Self::Ipv4 => 31,
+            Self::Ipv6 => 127,
+        }
+    }
+
+    /// Returns the family name used in operator-facing errors.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Ipv4 => "IPv4",
+            Self::Ipv6 => "IPv6",
+        }
+    }
+}
+
+/// Selects the database operation and interface fields for a family allocation.
+///
+/// `Primary` creates a segment and may use either family. Dual stack plans IPv4
+/// as `Primary` and attaches IPv6 through `SecondaryIpv6`.
+#[derive(Clone, Copy, Debug)]
+enum PrefixAllocationSlot {
+    Primary,
+    SecondaryIpv6,
+}
+
+/// Database mutation selected from the allocation slot.
+#[derive(Clone, Copy, Debug)]
+enum PrefixAllocationOperation {
+    /// Creates a generated segment for the primary family and returns its ID.
+    Create,
+    /// Attaches the selected IPv6 linknet to an existing dual-stack segment.
+    Attach(NetworkSegmentId),
+}
+
+/// One unresolved interface-family allocation and its frozen candidate sequence.
+#[derive(Clone, Debug)]
+struct PrefixAllocationWork {
+    // Stable coordinates into `targets`, used for dependency lookup and resolution.
+    target_index: usize,
+    interface_index: usize,
+
+    // Canonical execution-group and candidate-revalidation identity.
+    vpc_id: VpcId,
+    family: AllocationAddressFamily,
+
+    // Frozen ascending candidate IDs and their monotonically advancing cursor.
+    // Candidate row state is re-read under lock during execution.
+    candidates: Arc<[VpcPrefixId]>,
+    candidate_index: usize,
+
+    // Selects create-versus-attach; explicit work may pin the exact /31 or /127.
+    slot: PrefixAllocationSlot,
+    requested_prefix: Option<IpNetwork>,
+
+    // Only automatic intent may advance past a candidate deleted after planning.
+    automatic: bool,
+}
+
+/// Per-request mutable network config and tenant organization used for VPC
+/// ownership checks.
+struct NetworkAllocationTarget<'a> {
+    network_config: &'a mut InstanceNetworkConfig,
+    tenant_organization_id: &'a TenantOrganizationId,
+}
+
+/// Owned discovery results used by synchronous allocation planning.
+///
+/// Candidate IDs are frozen before planning. Planning uses discovery-time VPC
+/// and explicit-prefix values; execution re-reads each selected prefix under
+/// lock before allocating from it.
+struct PrefixAllocationContext {
+    // Explicit selections verified to exist and be active at discovery time.
+    explicit_prefixes: HashMap<VpcPrefixId, VpcPrefix>,
+    // Active-at-discovery candidates frozen by VPC/family in ascending ID order.
+    automatic_candidates: BTreeMap<(VpcId, AllocationAddressFamily), Arc<[VpcPrefixId]>>,
+    // Referenced VPCs verified to exist for ownership and capability checks.
+    vpcs: HashMap<VpcId, model::vpc::Vpc>,
+}
+
+/// Result of allocating from one candidate.
+#[derive(Clone, Copy, Debug)]
+enum CandidateAllocationOutcome {
+    Allocated {
+        /// Present for segment creation and absent for attachment.
+        network_segment_id: Option<NetworkSegmentId>,
+    },
+    /// The candidate has no unoccupied linknet for this family.
+    Exhausted,
+    /// The locking re-read found that the candidate is no longer active.
+    Deleted,
+}
+
+/// Candidate-wide result cached while draining work queued on the same prefix.
+#[derive(Clone, Copy, Debug)]
+enum CandidateUnavailable {
+    /// Candidate capacity was conclusively exhausted.
+    Exhausted,
+    /// The candidate became inactive after discovery.
+    Deleted,
+}
+
+/// Expands a caller's family mode in canonical IPv4-before-IPv6 order.
+fn requested_families(mode: &InstanceInterfaceIpFamilyMode) -> &'static [AllocationAddressFamily] {
+    match mode {
+        InstanceInterfaceIpFamilyMode::Ipv4Only => &[AllocationAddressFamily::Ipv4],
+        InstanceInterfaceIpFamilyMode::Ipv6Only => &[AllocationAddressFamily::Ipv6],
+        InstanceInterfaceIpFamilyMode::DualStack => {
+            &[AllocationAddressFamily::Ipv4, AllocationAddressFamily::Ipv6]
+        }
+    }
+}
+
+/// Returns whether an interface still needs generated prefix-backed resources.
+fn interface_needs_prefix_allocation(
+    interface: &model::instance::config::network::InstanceInterfaceConfig,
+) -> bool {
+    // Preserve the existing update contract: allocated addresses identify a
+    // reused interface, while an unallocated prefix-backed interface must be
+    // resolved even if a caller supplied a stale network_segment_id value.
+    interface.ip_addrs.is_empty()
+}
+
+/// Checks the owning VPC's declared support for an address family.
+fn vpc_supports_family(
+    virtualization_type: VpcVirtualizationType,
+    family: AllocationAddressFamily,
+) -> bool {
+    match family {
+        AllocationAddressFamily::Ipv4 => virtualization_type.supports_ipv4_prefix(),
+        AllocationAddressFamily::Ipv6 => virtualization_type.supports_ipv6_prefix(),
+    }
+}
+
+/// Identifies the network-prefix overlap exclusion conflict that is safe to retry.
+fn is_network_prefix_overlap_conflict(error: &CarbideError) -> bool {
+    matches!(
+        error,
+        CarbideError::DBError(db::AnnotatedSqlxError {
+            source: sqlx::Error::Database(database_error),
+            ..
+        }) if database_error.constraint() == Some(NETWORK_PREFIX_OVERLAP_CONSTRAINT)
+    )
+}
+
+/// Performs one candidate allocation after the caller has established a savepoint.
+async fn allocate_prefix_candidate_once(
+    txn: &mut PgConnection,
+    vpc_id: VpcId,
+    family: AllocationAddressFamily,
+    vpc_prefix_id: VpcPrefixId,
+    operation: PrefixAllocationOperation,
+    requested_prefix: Option<IpNetwork>,
+) -> CarbideResult<CandidateAllocationOutcome> {
+    // Re-read under the candidate lock so deletion and cursor changes after
+    // discovery are observed before allocation.
+    let Some(vpc_prefix) = db::vpc_prefix::lock_for_allocation(txn, vpc_prefix_id).await? else {
+        return Ok(CandidateAllocationOutcome::Deleted);
+    };
+
+    if vpc_prefix.vpc_id != vpc_id
+        || AllocationAddressFamily::from_network(vpc_prefix.config.prefix) != family
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "VPC prefix `{vpc_prefix_id}` no longer belongs to the requested {} allocation group in VPC `{vpc_id}`",
+            family.name(),
+        )));
+    }
+
+    // Use a caller-pinned linknet when present; otherwise select the next free one.
+    let allocator = PrefixAllocator::new(
+        vpc_prefix.id,
+        vpc_prefix.config.prefix,
+        vpc_prefix.status.last_used_prefix,
+        family.linknet_prefix(),
+    )?;
+    let allocated_prefix = if let Some(requested_prefix) = requested_prefix {
+        allocator
+            .validate_desired_prefix(&mut *txn, requested_prefix)
+            .await?;
+        requested_prefix
+    } else {
+        match allocator.next_free_prefix(&mut *txn).await {
+            Ok(prefix) => prefix,
+            Err(CarbideError::ResourceExhausted(_)) => {
+                return Ok(CandidateAllocationOutcome::Exhausted);
+            }
+            Err(error) => return Err(error),
+        }
+    };
+    // Execute the operation selected from the preplanned slot. For dual stack,
+    // planning assigns IPv4 `Create` and IPv6 `Attach`.
+    let (network_segment_id, allocated_prefix) = match operation {
+        PrefixAllocationOperation::Create => {
+            let (network_segment_id, prefix) = allocator
+                .allocate_network_segment_for_prefix(&mut *txn, vpc_id, allocated_prefix)
+                .await?;
+            (Some(network_segment_id), prefix)
+        }
+        PrefixAllocationOperation::Attach(network_segment_id) => {
+            let prefix = allocator
+                .allocate_linknet_for_segment_with_prefix(
+                    &mut *txn,
+                    network_segment_id,
+                    allocated_prefix,
+                )
+                .await?;
+            (None, prefix)
+        }
+    };
+
+    // Persist the selected linknet as the next-fit cursor atomically with the
+    // generated resource.
+    db::vpc_prefix::update_last_used_prefix(&mut *txn, &vpc_prefix.id, allocated_prefix).await?;
+
+    Ok(CandidateAllocationOutcome::Allocated { network_segment_id })
+}
+
+/// Attempts one candidate under a savepoint and retries one overlap race.
+///
+/// Every unsuccessful attempt explicitly rolls back its savepoint before the
+/// caller advances or retries, releasing any lock acquired only by that attempt.
+async fn attempt_prefix_candidate(
+    txn: &mut PgConnection,
+    vpc_id: VpcId,
+    family: AllocationAddressFamily,
+    vpc_prefix_id: VpcPrefixId,
+    operation: PrefixAllocationOperation,
+    requested_prefix: Option<IpNetwork>,
+) -> CarbideResult<CandidateAllocationOutcome> {
+    for _ in 0..PREFIX_ALLOCATION_TOTAL_ATTEMPTS {
+        let mut savepoint = db::Transaction::begin_inner(txn).await?;
+        let allocation_result = allocate_prefix_candidate_once(
+            savepoint.as_pgconn(),
+            vpc_id,
+            family,
+            vpc_prefix_id,
+            operation,
+            requested_prefix,
         )
-        .await?;
+        .await;
 
-        if vpcs.len() != vpc_ids.len()
-            || vpcs
-                .iter()
-                .any(|x| x.config.network_virtualization_type != VpcVirtualizationType::Fnn)
+        match allocation_result {
+            Ok(outcome @ CandidateAllocationOutcome::Allocated { .. }) => {
+                // Release the savepoint so its writes and locks remain in the
+                // outer transaction.
+                savepoint.commit().await?;
+                return Ok(outcome);
+            }
+            Ok(CandidateAllocationOutcome::Deleted) => {
+                savepoint.rollback().await?;
+                return Ok(CandidateAllocationOutcome::Deleted);
+            }
+            Ok(CandidateAllocationOutcome::Exhausted) => {
+                savepoint.rollback().await?;
+                return Ok(CandidateAllocationOutcome::Exhausted);
+            }
+            Err(error) => {
+                let overlap_conflict = is_network_prefix_overlap_conflict(&error);
+                savepoint.rollback().await?;
+
+                if overlap_conflict {
+                    // Defensive path: ordinary allocations from this VPC prefix
+                    // serialize on its row lock. A rare writer outside that
+                    // protocol may insert an overlapping CIDR after our read;
+                    // only that exclusion race is retryable.
+                    continue;
+                }
+                return Err(error);
+            }
+        }
+    }
+
+    // A second overlap race leaves capacity unproven; let the caller retry
+    // rather than carrying speculative state through the batch scheduler.
+    Err(CarbideError::UnavailableError(format!(
+        "allocation from {} VPC prefix `{vpc_prefix_id}` repeatedly raced with \
+         an overlapping network-prefix write; retry the request",
+        family.name(),
+    )))
+}
+
+/// Advances one work item monotonically or returns its final classified error.
+fn advance_prefix_work(
+    work_index: usize,
+    current_candidate: VpcPrefixId,
+    unavailable: CandidateUnavailable,
+    works: &mut [PrefixAllocationWork],
+    pending: &mut BTreeMap<VpcPrefixId, VecDeque<usize>>,
+) -> CarbideResult<()> {
+    let work = works.get_mut(work_index).ok_or_else(|| {
+        CarbideError::internal(format!(
+            "prefix allocation work index {work_index} is out of bounds",
+        ))
+    })?;
+
+    // Explicit intent has no fallback candidate; only automatic intent may
+    // advance after deletion.
+    if matches!(unavailable, CandidateUnavailable::Deleted) && !work.automatic {
+        return Err(CarbideError::InvalidArgument(format!(
+            "VPC prefix `{current_candidate}` is marked for deletion and cannot be used for allocation",
+        )));
+    }
+
+    work.candidate_index += 1;
+    let Some(next_candidate) = work.candidates.get(work.candidate_index).copied() else {
+        let message = format!(
+            "no eligible {} VPC prefix in VPC `{}` could allocate an interface linknet",
+            work.family.name(),
+            work.vpc_id,
+        );
+        return Err(CarbideError::ResourceExhausted(message));
+    };
+
+    // Candidate IDs must increase strictly to preserve canonical row-lock progression.
+    if next_candidate <= current_candidate {
+        return Err(CarbideError::internal(format!(
+            "VPC prefix candidate order moved backward from `{current_candidate}` to `{next_candidate}`",
+        )));
+    }
+    pending
+        .entry(next_candidate)
+        .or_default()
+        .push_back(work_index);
+    Ok(())
+}
+
+/// Persists a selected candidate into the interface's rolling-compatible fields.
+fn apply_prefix_resolution(
+    targets: &mut [NetworkAllocationTarget<'_>],
+    work: &PrefixAllocationWork,
+    vpc_prefix_id: VpcPrefixId,
+    network_segment_id: Option<NetworkSegmentId>,
+) -> CarbideResult<()> {
+    let target = targets.get_mut(work.target_index).ok_or_else(|| {
+        CarbideError::internal(format!(
+            "network allocation target index {} is out of bounds",
+            work.target_index,
+        ))
+    })?;
+    let interface = target
+        .network_config
+        .interfaces
+        .get_mut(work.interface_index)
+        .ok_or_else(|| {
+            CarbideError::internal(format!(
+                "network interface index {} is out of bounds for allocation target {}",
+                work.interface_index, work.target_index,
+            ))
+        })?;
+
+    match work.slot {
+        PrefixAllocationSlot::Primary => {
+            let network_segment_id = network_segment_id.ok_or_else(|| {
+                CarbideError::internal(
+                    "primary VPC-prefix allocation did not create a network segment".to_string(),
+                )
+            })?;
+            interface.network_segment_id = Some(network_segment_id);
+            interface.network_details = Some(NetworkDetails::VpcPrefixId(vpc_prefix_id));
+            interface.vpc_id = Some(work.vpc_id);
+        }
+        PrefixAllocationSlot::SecondaryIpv6 => {
+            // Primary already recorded the shared VPC and segment, and allocation
+            // already attached this linknet. Record its prefix while retaining
+            // any explicit requested-address intent.
+            let requested_ip_addr = interface
+                .ipv6_interface_config
+                .as_ref()
+                .and_then(|config| config.requested_ip_addr);
+            interface.ipv6_interface_config = Some(Ipv6InterfaceConfig {
+                vpc_prefix_id,
+                requested_ip_addr,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Loads the database-backed inputs needed to plan prefix allocations.
+async fn load_prefix_allocation_context(
+    targets: &[NetworkAllocationTarget<'_>],
+    txn: &mut PgConnection,
+) -> CarbideResult<Option<PrefixAllocationContext>> {
+    // Discover explicit prefix IDs and automatic VPC intent before issuing reads.
+    let mut explicit_prefix_ids = BTreeSet::new();
+    let mut automatic_vpc_ids = BTreeSet::new();
+    let mut automatic_candidate_vpc_ids = BTreeSet::new();
+
+    for target in targets.iter() {
+        for interface in &target.network_config.interfaces {
+            if let Some(selection) = &interface.vpc_selection {
+                automatic_vpc_ids.insert(selection.vpc_id);
+                if interface_needs_prefix_allocation(interface) {
+                    automatic_candidate_vpc_ids.insert(selection.vpc_id);
+                }
+                continue;
+            }
+
+            if let Some(NetworkDetails::VpcPrefixId(vpc_prefix_id)) =
+                interface.network_details.as_ref()
+            {
+                explicit_prefix_ids.insert(*vpc_prefix_id);
+            }
+            if let Some(ipv6) = &interface.ipv6_interface_config {
+                explicit_prefix_ids.insert(ipv6.vpc_prefix_id);
+            }
+        }
+    }
+
+    // Segment-backed and empty configs have no VPC-prefix intent to validate
+    // or allocate.
+    if explicit_prefix_ids.is_empty() && automatic_vpc_ids.is_empty() {
+        return Ok(None);
+    }
+
+    // Validate explicit selections without locks; execution later acquires
+    // candidate locks in canonical order.
+    let explicit_prefix_ids = explicit_prefix_ids.into_iter().collect_vec();
+    let explicit_prefixes = if explicit_prefix_ids.is_empty() {
+        Vec::new()
+    } else {
+        db::vpc_prefix::get_for_allocation_by_ids(txn, &explicit_prefix_ids).await?
+    };
+    let explicit_prefixes: HashMap<VpcPrefixId, VpcPrefix> = explicit_prefixes
+        .into_iter()
+        .map(|prefix| (prefix.id, prefix))
+        .collect();
+
+    for vpc_prefix_id in &explicit_prefix_ids {
+        let Some(vpc_prefix) = explicit_prefixes.get(vpc_prefix_id) else {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "VPC prefix `{vpc_prefix_id}` does not exist",
+            )));
+        };
+        if vpc_prefix.is_marked_as_deleted() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "VPC prefix `{vpc_prefix_id}` is marked for deletion and cannot be used for allocation",
+            )));
+        }
+    }
+
+    // Freeze active automatic candidates for the lifetime of this request.
+    let automatic_candidate_vpc_ids = automatic_candidate_vpc_ids.into_iter().collect_vec();
+    let automatic_prefixes = if automatic_candidate_vpc_ids.is_empty() {
+        Vec::new()
+    } else {
+        db::vpc_prefix::find_allocation_candidates(txn, &automatic_candidate_vpc_ids).await?
+    };
+    let mut automatic_candidates: BTreeMap<(VpcId, AllocationAddressFamily), Vec<VpcPrefixId>> =
+        BTreeMap::new();
+    for prefix in automatic_prefixes {
+        automatic_candidates
+            .entry((
+                prefix.vpc_id,
+                AllocationAddressFamily::from_network(prefix.config.prefix),
+            ))
+            .or_default()
+            .push(prefix.id);
+    }
+    let automatic_candidates: BTreeMap<_, Arc<[VpcPrefixId]>> = automatic_candidates
+        .into_iter()
+        .map(|(group, candidates)| (group, Arc::from(candidates)))
+        .collect();
+
+    // Load every referenced VPC once for ownership and capability validation.
+    let mut referenced_vpc_ids = automatic_vpc_ids.clone();
+    referenced_vpc_ids.extend(explicit_prefixes.values().map(|prefix| prefix.vpc_id));
+    let referenced_vpc_ids = referenced_vpc_ids.into_iter().collect_vec();
+    let vpcs = db::vpc::find_by(
+        &mut *txn,
+        ObjectColumnFilter::List(db::vpc::IdColumn, &referenced_vpc_ids),
+    )
+    .await?;
+    let vpcs: HashMap<VpcId, model::vpc::Vpc> = vpcs.into_iter().map(|vpc| (vpc.id, vpc)).collect();
+
+    // Distinguish caller-supplied automatic intent from persisted prefix-parent state.
+    for vpc_id in &automatic_vpc_ids {
+        if !vpcs.contains_key(vpc_id) {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "VPC `{vpc_id}` selected for automatic VPC-prefix allocation \
+                 does not exist or is deleted",
+            )));
+        }
+    }
+    for prefix in explicit_prefixes.values() {
+        if !vpcs.contains_key(&prefix.vpc_id) {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "VPC prefix `{}` references VPC `{}`, which does not exist or is deleted",
+                prefix.id, prefix.vpc_id,
+            )));
+        }
+    }
+
+    Ok(Some(PrefixAllocationContext {
+        explicit_prefixes,
+        automatic_candidates,
+        vpcs,
+    }))
+}
+
+/// Validates allocation intent and flattens it into canonical work items.
+fn plan_prefix_allocations(
+    targets: &[NetworkAllocationTarget<'_>],
+    context: &PrefixAllocationContext,
+) -> CarbideResult<Vec<PrefixAllocationWork>> {
+    let PrefixAllocationContext {
+        explicit_prefixes,
+        automatic_candidates,
+        vpcs,
+    } = context;
+
+    let mut works = Vec::new();
+    // Preserve stable target/interface coordinates while flattening family work.
+    for (target_index, target) in targets.iter().enumerate() {
+        let mut target_vpc_ids = BTreeSet::new();
+
+        for (interface_index, interface) in target.network_config.interfaces.iter().enumerate() {
+            // Automatic intent validates VPC policy before emitting one work
+            // item for each requested family.
+            if let Some(selection) = &interface.vpc_selection {
+                let vpc = vpcs.get(&selection.vpc_id).ok_or_else(|| {
+                    CarbideError::internal(format!(
+                        "prefix-allocation context is missing automatically selected VPC `{}`",
+                        selection.vpc_id,
+                    ))
+                })?;
+                target_vpc_ids.insert(vpc.id);
+
+                if vpc.config.tenant_organization_id != target.tenant_organization_id.to_string() {
+                    return Err(CarbideError::FailedPrecondition(format!(
+                        "VPC `{}` is not owned by tenant `{}`",
+                        vpc.id, target.tenant_organization_id,
+                    )));
+                }
+                if vpc.config.network_virtualization_type != VpcVirtualizationType::Fnn {
+                    return Err(CarbideError::FailedPrecondition(format!(
+                        "automatic VPC-prefix selection requires an FNN VPC; VPC `{}` uses {}",
+                        vpc.id, vpc.config.network_virtualization_type,
+                    )));
+                }
+
+                let families = requested_families(&selection.family_mode);
+                for family in families {
+                    if !vpc_supports_family(vpc.config.network_virtualization_type, *family) {
+                        return Err(CarbideError::FailedPrecondition(format!(
+                            "VPC `{}` does not support {} prefixes",
+                            vpc.id,
+                            family.name(),
+                        )));
+                    }
+                }
+
+                // Resolved dual-stack intent legitimately retains an IPv6
+                // sidecar for rolling compatibility, but automatic mode never
+                // accepts caller-selected addresses or an unrelated segment.
+                if interface.requested_ip_addr.is_some()
+                    || interface
+                        .ipv6_interface_config
+                        .as_ref()
+                        .is_some_and(|ipv6| ipv6.requested_ip_addr.is_some())
+                    || (interface.network_details.is_none()
+                        && interface.ipv6_interface_config.is_some())
+                    || (selection.family_mode != InstanceInterfaceIpFamilyMode::DualStack
+                        && interface.ipv6_interface_config.is_some())
+                    || matches!(
+                        interface.network_details.as_ref(),
+                        Some(NetworkDetails::NetworkSegment(_))
+                    )
+                {
+                    return Err(CarbideError::InvalidArgument(
+                        "explicit IP requests, incompatible IPv6 configuration, and explicit network segments are invalid with automatic VPC-prefix selection"
+                            .to_string(),
+                    ));
+                }
+                if !interface_needs_prefix_allocation(interface) {
+                    continue;
+                }
+
+                for family in families {
+                    let candidates = automatic_candidates
+                        .get(&(selection.vpc_id, *family))
+                        .cloned()
+                        .unwrap_or_else(|| Arc::from(Vec::<VpcPrefixId>::new()));
+                    if candidates.is_empty() {
+                        return Err(CarbideError::ResourceExhausted(format!(
+                            "VPC `{}` has no eligible {} VPC prefix",
+                            selection.vpc_id,
+                            family.name(),
+                        )));
+                    }
+                    works.push(PrefixAllocationWork {
+                        target_index,
+                        interface_index,
+                        vpc_id: selection.vpc_id,
+                        family: *family,
+                        candidates,
+                        candidate_index: 0,
+                        // IPv4 creates a dual-stack segment before IPv6 attaches.
+                        slot: if families.len() == 2 && *family == AllocationAddressFamily::Ipv6 {
+                            PrefixAllocationSlot::SecondaryIpv6
+                        } else {
+                            PrefixAllocationSlot::Primary
+                        },
+                        requested_prefix: None,
+                        automatic: true,
+                    });
+                }
+                continue;
+            }
+
+            // Automatic intent was handled above. Continue only for explicit VPC-prefix
+            // selection; segment-backed interfaces require no prefix work.
+            let Some(NetworkDetails::VpcPrefixId(primary_prefix_id)) =
+                interface.network_details.as_ref()
+            else {
+                continue;
+            };
+            let primary_prefix = explicit_prefixes.get(primary_prefix_id).ok_or_else(|| {
+                CarbideError::FailedPrecondition(format!(
+                    "VPC prefix `{primary_prefix_id}` does not exist",
+                ))
+            })?;
+            let primary_vpc = vpcs.get(&primary_prefix.vpc_id).ok_or_else(|| {
+                CarbideError::internal(format!(
+                    "prefix-allocation context is missing VPC `{}` referenced by \
+                     VPC prefix `{primary_prefix_id}`",
+                    primary_prefix.vpc_id
+                ))
+            })?;
+            target_vpc_ids.insert(primary_vpc.id);
+            if primary_vpc.config.tenant_organization_id
+                != target.tenant_organization_id.to_string()
+            {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "VPC prefix `{primary_prefix_id}` belongs to VPC `{}`, which is not owned by tenant `{}`",
+                    primary_vpc.id, target.tenant_organization_id,
+                )));
+            }
+
+            let primary_family =
+                AllocationAddressFamily::from_network(primary_prefix.config.prefix);
+            if let Some(requested_ip_addr) = interface.requested_ip_addr
+                && AllocationAddressFamily::from_address(requested_ip_addr) != primary_family
+            {
+                return Err(CarbideError::InvalidArgument(format!(
+                    "requested IP address `{requested_ip_addr}` does not match VPC prefix `{primary_prefix_id}`",
+                )));
+            }
+
+            let secondary_prefix = if let Some(ipv6) = &interface.ipv6_interface_config {
+                if primary_family != AllocationAddressFamily::Ipv4 {
+                    return Err(CarbideError::InvalidConfiguration(
+                        ConfigValidationError::InvalidValue(
+                            "vpc_prefix_id points to an IPv6 prefix but ipv6_interface_config is also set -- use one or the other for IPv6"
+                                .to_string(),
+                        ),
+                    ));
+                }
+                let prefix = explicit_prefixes.get(&ipv6.vpc_prefix_id).ok_or_else(|| {
+                    CarbideError::FailedPrecondition(format!(
+                        "VPC prefix `{}` does not exist",
+                        ipv6.vpc_prefix_id,
+                    ))
+                })?;
+                if !prefix.config.prefix.is_ipv6() {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "ipv6_interface_config VPC prefix `{}` is not IPv6",
+                        ipv6.vpc_prefix_id,
+                    )));
+                }
+                if prefix.vpc_id != primary_prefix.vpc_id {
+                    return Err(CarbideError::InvalidConfiguration(
+                        ConfigValidationError::InvalidValue(format!(
+                            "dual-stack VPC prefixes must belong to the same VPC: primary_vpc_prefix_id={primary_prefix_id}, primary_vpc_id={}, ipv6_vpc_prefix_id={}, ipv6_vpc_id={}",
+                            primary_prefix.vpc_id, ipv6.vpc_prefix_id, prefix.vpc_id,
+                        )),
+                    ));
+                }
+                Some(prefix)
+            } else {
+                None
+            };
+
+            if !interface_needs_prefix_allocation(interface) {
+                continue;
+            }
+
+            works.push(PrefixAllocationWork {
+                target_index,
+                interface_index,
+                vpc_id: primary_prefix.vpc_id,
+                family: primary_family,
+                candidates: Arc::from(vec![*primary_prefix_id]),
+                candidate_index: 0,
+                slot: PrefixAllocationSlot::Primary,
+                requested_prefix: interface
+                    .requested_ip_addr
+                    .map(|address| {
+                        build_requested_linknet_prefix(address, primary_family.linknet_prefix())
+                    })
+                    .transpose()?,
+                automatic: false,
+            });
+
+            if let Some(secondary_prefix) = secondary_prefix {
+                let ipv6 = interface.ipv6_interface_config.as_ref().ok_or_else(|| {
+                    CarbideError::internal(
+                        "validated IPv6 allocation lost its interface configuration".to_string(),
+                    )
+                })?;
+                works.push(PrefixAllocationWork {
+                    target_index,
+                    interface_index,
+                    vpc_id: secondary_prefix.vpc_id,
+                    family: AllocationAddressFamily::Ipv6,
+                    candidates: Arc::from(vec![secondary_prefix.id]),
+                    candidate_index: 0,
+                    slot: PrefixAllocationSlot::SecondaryIpv6,
+                    requested_prefix: ipv6
+                        .requested_ip_addr
+                        .map(|address| {
+                            build_requested_linknet_prefix(
+                                std::net::IpAddr::V6(address),
+                                AllocationAddressFamily::Ipv6.linknet_prefix(),
+                            )
+                        })
+                        .transpose()?,
+                    automatic: false,
+                });
+            }
+        }
+
+        // Multiple VPCs on one instance are safe only when every attachment
+        // uses FNN.
+        if target_vpc_ids.len() > 1
+            && target_vpc_ids.iter().any(|vpc_id| {
+                vpcs.get(vpc_id).is_none_or(|vpc| {
+                    vpc.config.network_virtualization_type != VpcVirtualizationType::Fnn
+                })
+            })
         {
             return Err(CarbideError::InvalidConfiguration(
                 ConfigValidationError::InvalidValue(format!(
-                    "Interface config contains interfaces from multiple VPCs, which is only supported when all VPCs use FNN: prefixes={:?}, vpcs={:?}.",
-                    vpc_prefixes
-                        .values()
-                        .map(|x| (x.id, x.vpc_id))
+                    "interface config contains prefix-backed interfaces from multiple VPCs, which is only supported when all VPCs use FNN: {:?}",
+                    target_vpc_ids
+                        .iter()
+                        .filter_map(|vpc_id| {
+                            vpcs.get(vpc_id)
+                                .map(|vpc| (*vpc_id, vpc.config.network_virtualization_type))
+                        })
                         .collect_vec(),
-                    vpcs.iter()
-                        .map(|x| (x.id, x.config.network_virtualization_type))
-                        .collect_vec()
                 )),
             ));
         }
     }
 
-    // Allocate linknet prefixes for each interface's VPC prefix(es).
-    for interface in &mut network_config.interfaces {
-        // If IP address is already allocated, ignore.
-        // This is the case of updating network config when some
-        // interfaces already exist (adding/removing a VF).
-        if !interface.ip_addrs.is_empty() {
-            continue;
+    Ok(works)
+}
+
+/// Executes planned work in the canonical prefix-lock order.
+async fn execute_prefix_allocations(
+    targets: &mut [NetworkAllocationTarget<'_>],
+    txn: &mut PgConnection,
+    mut works: Vec<PrefixAllocationWork>,
+) -> CarbideResult<()> {
+    // IMPORTANT: Candidate order is part of the locking protocol.
+    //
+    // Prefix-backed batch work is grouped by VPC and address family, then
+    // candidate VPC prefixes are acquired in ascending VpcPrefixId order.
+    // Successful row locks live until the outer transaction commits. Changing
+    // this to caller order, utilization order, or re-ranking during allocation
+    // can invert locks between concurrent batches and introduce deadlocks.
+    //
+    // For automatic allocation, static first-fit fills the lowest-ID parent
+    // prefix before advancing. RESOURCE_EXHAUSTED means the frozen list ended
+    // after every candidate was exhausted or became ineligible. Repeated
+    // overlap races abort with UNAVAILABLE because capacity remains unproven;
+    // later candidate insertions are deferred to the caller's next request.
+    //
+    // A future throughput-oriented policy could instead rank by utilization and
+    // use SKIP LOCKED, selecting the most-used currently unlocked prefix without
+    // candidate-lock wait cycles. That policy would spread allocations under
+    // contention and must return UNAVAILABLE, not RESOURCE_EXHAUSTED, whenever a
+    // skipped candidate leaves capacity unproven. Do not make that trade-off
+    // implicitly. Do not refresh or re-sort this transaction's candidate list.
+    let mut groups: BTreeMap<(VpcId, AllocationAddressFamily), Vec<usize>> = BTreeMap::new();
+    for (work_index, work) in works.iter().enumerate() {
+        groups
+            .entry((work.vpc_id, work.family))
+            .or_default()
+            .push(work_index);
+    }
+
+    for (_, work_indices) in groups {
+        let mut pending: BTreeMap<VpcPrefixId, VecDeque<usize>> = BTreeMap::new();
+        for work_index in work_indices {
+            let work = works.get(work_index).ok_or_else(|| {
+                CarbideError::internal(format!(
+                    "prefix allocation work index {work_index} is out of bounds",
+                ))
+            })?;
+            let candidate = work.candidates.first().copied().ok_or_else(|| {
+                CarbideError::internal(format!(
+                    "prefix allocation work {work_index} has no candidates",
+                ))
+            })?;
+            pending.entry(candidate).or_default().push_back(work_index);
         }
 
-        let Some(network_details) = &interface.network_details else {
-            continue;
-        };
-
-        match network_details {
-            NetworkDetails::NetworkSegment(_) => {}
-            NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
-                let vpc_prefix_id = &VpcPrefixId::from(*vpc_prefix_id);
-                let (vpc_id, vpc_prefix, last_used_prefix) = {
-                    vpc_prefixes
-                        .get(vpc_prefix_id)
-                        .map(|vpc| (vpc.vpc_id, vpc.config.prefix, vpc.status.last_used_prefix))
-                        .ok_or_else(|| {
-                            CarbideError::internal(format!(
-                                "unknown VPC prefix id: {vpc_prefix_id}"
-                            ))
-                        })?
-                };
-
-                // Prevent dual-v6: if the primary VPC prefix is IPv6 and
-                // ipv6_interface_config is also set, we'd create two v6 linknets
-                // on the same segment.
-                if vpc_prefix.is_ipv6() && interface.ipv6_interface_config.is_some() {
-                    return Err(CarbideError::InvalidConfiguration(
-                        ConfigValidationError::InvalidValue(
-                            "vpc_prefix_id points to an IPv6 prefix but ipv6_interface_config is also set -- use one or the other for IPv6".to_string(),
-                        ),
-                    ));
+        while let Some((candidate, mut candidate_work)) = pending.pop_first() {
+            let mut candidate_unavailable = None;
+            while let Some(work_index) = candidate_work.pop_front() {
+                if let Some(unavailable) = candidate_unavailable {
+                    // Each queued index identifies a distinct `PrefixAllocationWork` for one
+                    // interface/address family. A prior work item proved this VPC prefix unavailable
+                    // and moved to its next candidate prefix, so move this work to its next candidate
+                    // prefix as well without retrying the prefix already known to be unavailable.
+                    advance_prefix_work(
+                        work_index,
+                        candidate,
+                        unavailable,
+                        &mut works,
+                        &mut pending,
+                    )?;
+                    continue;
                 }
 
-                let linknet_prefix = if vpc_prefix.is_ipv4() { 31 } else { 127 };
-
-                let requested_prefix = interface
-                    .requested_ip_addr
-                    .map(|ip| build_requested_linknet_prefix(ip, linknet_prefix))
-                    .transpose()?;
-
-                let allocator = PrefixAllocator::new(
-                    *vpc_prefix_id,
-                    vpc_prefix,
-                    last_used_prefix,
-                    linknet_prefix,
-                )?;
-                let (ns_id, prefix) = allocator
-                    .allocate_network_segment(txn, vpc_id, requested_prefix)
-                    .await?;
-                interface.network_segment_id = Some(ns_id);
-                vpc_prefixes.entry(*vpc_prefix_id).and_modify(|x| {
-                    x.status.last_used_prefix = Some(prefix);
-                });
-
-                // Dual-stack: if IPv6 config is set, add a v6 linknet to the same segment.
-                if let Some(ref v6_config) = interface.ipv6_interface_config {
-                    let v6_prefix_id = &v6_config.vpc_prefix_id;
-                    let (v6_vpc_id, v6_vpc_prefix, v6_last_used) = {
-                        vpc_prefixes
-                            .get(v6_prefix_id)
-                            .map(|vpc| (vpc.vpc_id, vpc.config.prefix, vpc.status.last_used_prefix))
+                let work = works.get(work_index).cloned().ok_or_else(|| {
+                    CarbideError::internal(format!(
+                        "prefix allocation work index {work_index} is out of bounds",
+                    ))
+                })?;
+                let operation = match work.slot {
+                    PrefixAllocationSlot::Primary => PrefixAllocationOperation::Create,
+                    PrefixAllocationSlot::SecondaryIpv6 => {
+                        // Canonical grouping runs IPv4 before IPv6 within a VPC,
+                        // so the primary must already have created this segment.
+                        let target = targets.get(work.target_index).ok_or_else(|| {
+                            CarbideError::internal(format!(
+                                "network allocation target index {} is out of bounds",
+                                work.target_index,
+                            ))
+                        })?;
+                        let interface = target
+                            .network_config
+                            .interfaces
+                            .get(work.interface_index)
                             .ok_or_else(|| {
                                 CarbideError::internal(format!(
-                                    "unknown VPC prefix id: {v6_prefix_id}"
+                                    "network interface index {} is out of bounds for allocation target {}",
+                                    work.interface_index, work.target_index,
                                 ))
-                            })?
-                    };
-
-                    if v6_vpc_id != vpc_id {
-                        return Err(CarbideError::InvalidConfiguration(
-                            ConfigValidationError::InvalidValue(format!(
-                                "dual-stack VPC prefixes must belong to the same VPC: primary_vpc_prefix_id={vpc_prefix_id}, primary_vpc_id={vpc_id}, ipv6_vpc_prefix_id={v6_prefix_id}, ipv6_vpc_id={v6_vpc_id}",
-                            )),
-                        ));
-                    }
-
-                    let v6_linknet_prefix = 127;
-                    let v6_requested_prefix = v6_config
-                        .requested_ip_addr
-                        .map(|ipv6addr| {
-                            build_requested_linknet_prefix(
-                                std::net::IpAddr::V6(ipv6addr),
-                                v6_linknet_prefix,
+                            })?;
+                        let network_segment_id = interface.network_segment_id.ok_or_else(|| {
+                            CarbideError::internal(
+                                "IPv6 allocation ran before its primary segment was created"
+                                    .to_string(),
                             )
-                        })
-                        .transpose()?;
-                    let v6_allocator = PrefixAllocator::new(
-                        *v6_prefix_id,
-                        v6_vpc_prefix,
-                        v6_last_used,
-                        v6_linknet_prefix,
-                    )?;
-                    let v6_prefix = v6_allocator
-                        .allocate_linknet_for_segment(txn, ns_id, v6_requested_prefix)
-                        .await?;
-                    vpc_prefixes.entry(*v6_prefix_id).and_modify(|x| {
-                        x.status.last_used_prefix = Some(v6_prefix);
-                    });
+                        })?;
+                        PrefixAllocationOperation::Attach(network_segment_id)
+                    }
+                };
+
+                let outcome = attempt_prefix_candidate(
+                    txn,
+                    work.vpc_id,
+                    work.family,
+                    candidate,
+                    operation,
+                    work.requested_prefix,
+                )
+                .await?;
+                match outcome {
+                    CandidateAllocationOutcome::Allocated { network_segment_id } => {
+                        apply_prefix_resolution(targets, &work, candidate, network_segment_id)?
+                    }
+                    CandidateAllocationOutcome::Exhausted => {
+                        candidate_unavailable = Some(CandidateUnavailable::Exhausted);
+                        advance_prefix_work(
+                            work_index,
+                            candidate,
+                            CandidateUnavailable::Exhausted,
+                            &mut works,
+                            &mut pending,
+                        )?;
+                    }
+                    CandidateAllocationOutcome::Deleted => {
+                        candidate_unavailable = Some(CandidateUnavailable::Deleted);
+                        advance_prefix_work(
+                            work_index,
+                            candidate,
+                            CandidateUnavailable::Deleted,
+                            &mut works,
+                            &mut pending,
+                        )?;
+                    }
                 }
             }
         }
     }
 
-    // Update last used prefixes here.
-    for vpc_prefix in vpc_prefixes.values() {
-        let Some(last_used_prefix) = vpc_prefix.status.last_used_prefix else {
-            continue;
-        };
-        db::vpc_prefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix).await?;
-    }
-
     Ok(())
+}
+
+/// Validates and allocates every prefix-backed target in one canonical lock order.
+///
+/// The function flattens batch work before any generated resource is created so
+/// caller order cannot influence the order in which prefix rows are locked.
+async fn allocate_networks(
+    targets: &mut [NetworkAllocationTarget<'_>],
+    txn: &mut PgConnection,
+) -> CarbideResult<()> {
+    let works = {
+        let Some(context) = load_prefix_allocation_context(targets, txn).await? else {
+            return Ok(());
+        };
+        plan_prefix_allocations(targets, &context)?
+    };
+    execute_prefix_allocations(targets, txn, works).await
+}
+
+/// Allocates generated network resources for one instance network config.
+pub async fn allocate_network(
+    network_config: &mut InstanceNetworkConfig,
+    tenant_organization_id: &TenantOrganizationId,
+    txn: &mut PgConnection,
+) -> CarbideResult<()> {
+    allocate_networks(
+        &mut [NetworkAllocationTarget {
+            network_config,
+            tenant_organization_id,
+        }],
+        txn,
+    )
+    .await
 }
 
 pub fn allocate_ib_port_guid(
@@ -554,7 +1335,7 @@ pub async fn allocate_instance(
 /// 6. Load final instances, assemble snapshots, commit
 pub async fn batch_allocate_instances(
     api: &Api,
-    requests: Vec<InstanceAllocationRequest>,
+    mut requests: Vec<InstanceAllocationRequest>,
     host_health_config: HostHealthConfig,
 ) -> Result<Vec<ManagedHostStateSnapshot>, CarbideError> {
     if requests.is_empty() {
@@ -923,11 +1704,29 @@ pub async fn batch_allocate_instances(
         )
         .await?;
 
-    // ==== Phase 5: Network allocation (sequential due to vpc_prefix tracking) ====
+    // Resolve every prefix-backed interface in canonical prefix-lock order while
+    // preserving caller order for the remaining per-instance processing.
+    {
+        let mut network_allocation_targets = requests
+            .iter_mut()
+            .map(|request| {
+                let InstanceConfig {
+                    network, tenant, ..
+                } = &mut request.config;
+                NetworkAllocationTarget {
+                    network_config: network,
+                    tenant_organization_id: &tenant.tenant_organization_id,
+                }
+            })
+            .collect_vec();
+        allocate_networks(&mut network_allocation_targets, &mut txn).await?;
+    }
+
+    // ==== Phase 5: Network validation and per-instance processing ====
     let mut processed_requests: Vec<(InstanceAllocationRequest, ManagedHostStateSnapshot)> =
         Vec::with_capacity(request_count);
 
-    for mut request in requests {
+    for request in requests {
         let machine_id = request.machine_id;
         let mh_snapshot = snapshot_map
             .remove(&machine_id)
@@ -935,9 +1734,6 @@ pub async fn batch_allocate_instances(
                 kind: "machine",
                 id: machine_id.to_string(),
             })?;
-
-        // Allocate network
-        allocate_network(&mut request.config.network, &mut txn).await?;
 
         // Validate config (after network allocation sets network_segment_id)
         request.config.validate(
