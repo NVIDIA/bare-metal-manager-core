@@ -36,12 +36,31 @@ const START_ATTEMPTS: usize = 5;
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PASSWORD_UPDATE_TIMEOUT: Duration = Duration::from_secs(10);
+pub const STANDARD_IPMI_PORT: u16 = 623;
 
 #[derive(Debug, Clone)]
 pub struct IpmiSimConfig {
     pub bind_ip: IpAddr,
+    /// Client-facing port advertised through Redfish. When absent, clients connect directly to
+    /// the dynamically allocated simulator port.
+    pub reachable_port: Option<u16>,
     pub stable_id: String,
     pub console_prompt: String,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct IpmiEndpoint {
+    pub reachable_port: u16,
+    pub listen_port: u16,
+}
+
+impl IpmiEndpoint {
+    fn new(listen_port: u16, reachable_port: Option<u16>) -> Self {
+        Self {
+            reachable_port: reachable_port.unwrap_or(listen_port),
+            listen_port,
+        }
+    }
 }
 
 pub struct IpmiSimHandle {
@@ -50,14 +69,14 @@ pub struct IpmiSimHandle {
     _console: MockConsole,
     manager: Arc<ManagerState>,
     _password_updater: Arc<dyn PasswordUpdater>,
-    pub ipmi_sim_lan_port: u16,
+    pub endpoint: IpmiEndpoint,
 }
 
 impl std::fmt::Debug for IpmiSimHandle {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("IpmiSimHandle")
-            .field("ipmi_sim_lan_port", &self.ipmi_sim_lan_port)
+            .field("endpoint", &self.endpoint)
             .finish_non_exhaustive()
     }
 }
@@ -167,6 +186,7 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
         .await
         {
             Ok(()) => {
+                let endpoint = IpmiEndpoint::new(ipmi_sim_lan_port, config.reachable_port);
                 let connect_ip = if config.bind_ip.is_unspecified() {
                     IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
                 } else {
@@ -179,14 +199,16 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
                 state
                     .account_service_state
                     .set_password_updater(&password_updater);
-                state.manager.set_ipmi_endpoint(Some(ipmi_sim_lan_port));
+                state
+                    .manager
+                    .set_ipmi_endpoint(Some(endpoint.reachable_port));
                 return Ok(IpmiSimHandle {
                     child,
                     _temp_dir: temp_dir,
                     _console: console,
                     manager: state.manager.clone(),
                     _password_updater: password_updater,
-                    ipmi_sim_lan_port,
+                    endpoint,
                 });
             }
             Err(error) => {
@@ -438,7 +460,37 @@ async fn serve_console(mut stream: TcpStream, prompt: &str) -> Result<(), std::i
 
 #[cfg(test)]
 mod tests {
-    use super::{Error, MockConsole, stable_guid, validate_credential};
+    use super::{Error, IpmiEndpoint, MockConsole, stable_guid, validate_credential};
+
+    #[test]
+    fn endpoint_uses_configured_reachable_port_or_listen_port() {
+        for (name, listen_port, reachable_port, expected) in [
+            (
+                "direct",
+                16_020,
+                None,
+                IpmiEndpoint {
+                    reachable_port: 16_020,
+                    listen_port: 16_020,
+                },
+            ),
+            (
+                "forwarded",
+                16_020,
+                Some(623),
+                IpmiEndpoint {
+                    reachable_port: 623,
+                    listen_port: 16_020,
+                },
+            ),
+        ] {
+            assert_eq!(
+                IpmiEndpoint::new(listen_port, reachable_port),
+                expected,
+                "{name}",
+            );
+        }
+    }
 
     #[test]
     fn stable_guid_is_stable_and_has_ipmi_length() {

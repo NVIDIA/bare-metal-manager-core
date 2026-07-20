@@ -183,6 +183,7 @@ pub async fn run(prompt: String) -> eyre::Result<IpmiSimHandle> {
         &bmc.state,
         bmc_mock::ipmi_sim::IpmiSimConfig {
             bind_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            reachable_port: None,
             stable_id: prompt.clone(),
             console_prompt: prompt,
         },

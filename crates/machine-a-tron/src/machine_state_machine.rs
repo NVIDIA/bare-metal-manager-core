@@ -22,6 +22,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::injection::InjectionStore;
+use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::{
     BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostnameQuerying,
     MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
@@ -158,6 +159,7 @@ pub struct LiveState {
     pub observed_machine_id: Option<MachineId>,
     pub machine_ip: Option<Ipv4Addr>,
     pub bmc_ip: Option<Ipv4Addr>,
+    pub ipmi_endpoint: Option<IpmiEndpoint>,
     pub booted_os: MaybeOsImage,
     pub next_boot_kind: Option<BootOptionKind>,
     pub installed_os: OsImage,
@@ -180,6 +182,7 @@ impl Default for LiveState {
             observed_machine_id: None,
             machine_ip: None,
             bmc_ip: None,
+            ipmi_endpoint: None,
             booted_os: Default::default(),
             next_boot_kind: None,
             installed_os: Default::default(),
@@ -819,6 +822,10 @@ impl MachineStateMachine {
         live_state.is_up = self.fsm.is_up();
         live_state.machine_ip = self.machine_ip();
         live_state.bmc_ip = self.bmc_ip();
+        live_state.ipmi_endpoint = self
+            .bmc_mock
+            .as_ref()
+            .and_then(|bmc_mock| bmc_mock.ipmi_endpoint());
         live_state.installed_os = self.installed_os;
         if let Some(machine_id) = self.machine_id()
             && live_state.observed_machine_id != Some(machine_id)
