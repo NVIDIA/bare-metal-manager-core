@@ -976,6 +976,48 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteTaskRuleHandler(dbSession, tc, scp, cfg),
 		},
+		// Campaign endpoints (Flow). A campaign is Flow's operation run: a
+		// phased, policy-gated rollout of one operation across many racks.
+		{
+			Path:    apiPathPrefix + "/campaign",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateCampaignHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/campaign",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewListCampaignsHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/campaign/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetCampaignHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/campaign/:id/target",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewListCampaignTargetsHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/campaign/:id/pause",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewPauseCampaignHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/campaign/:id/resume",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewResumeCampaignHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/campaign/:id/advance",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewAdvanceCampaignPhaseHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/campaign/:id/cancel",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCancelCampaignHandler(dbSession, tc, scp, cfg),
+		},
 		{
 			Path:    apiPathPrefix + "/rack",
 			Method:  http.MethodGet,
