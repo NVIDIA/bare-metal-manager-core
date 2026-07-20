@@ -59,6 +59,8 @@ type APIClient struct {
 
 	BMCResetAPI *BMCResetAPIService
 
+	CampaignAPI *CampaignAPIService
+
 	DPUExtensionServiceAPI *DPUExtensionServiceAPIService
 
 	DPUReprovisionAPI *DPUReprovisionAPIService
@@ -152,6 +154,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.AuditAPI = (*AuditAPIService)(&c.common)
 	c.BMCCredentialAPI = (*BMCCredentialAPIService)(&c.common)
 	c.BMCResetAPI = (*BMCResetAPIService)(&c.common)
+	c.CampaignAPI = (*CampaignAPIService)(&c.common)
 	c.DPUExtensionServiceAPI = (*DPUExtensionServiceAPIService)(&c.common)
 	c.DPUReprovisionAPI = (*DPUReprovisionAPIService)(&c.common)
 	c.ExpectedMachineAPI = (*ExpectedMachineAPIService)(&c.common)
