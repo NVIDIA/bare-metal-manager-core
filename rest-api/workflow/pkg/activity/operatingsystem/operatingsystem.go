@@ -87,9 +87,19 @@ func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUI
 		return nil, err
 	}
 
-	// Construct a map ID of Operating System Site Association to Operating System
+	// Construct a map ID of Operating System Site Association to Operating System.
+	//
+	// iPXE and Templated iPXE OS associations share the operating_system_site_association
+	// table but are reconciled exclusively by the OperatingSystem inventory path
+	// (UpdateOperatingSystemsInDB). They never appear in the OS Image inventory, so
+	// including them here would repeatedly (and wrongly) flag them as "missing on Site"
+	// and flip their status to Error every cycle. Restrict this reconcile to image-based
+	// OS associations.
 	existingOsImageMap := make(map[string]*cdbm.OperatingSystemSiteAssociation)
 	for _, ossa := range existingOssas {
+		if ossa.OperatingSystem != nil && cdbm.IsIPXEType(ossa.OperatingSystem.Type) {
+			continue
+		}
 		curossa := ossa
 		existingOsImageMap[ossa.OperatingSystemID.String()] = &curossa
 	}
@@ -536,6 +546,12 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 		// when present the OS is tenant-owned (org + resolved tenant id); when absent
 		// it is provider-owned (the reporting Site's org + infrastructure provider).
 		// These values feed both the create path and the single-site update/backfill.
+		//
+		// Strict attribution: if tenant_organization_id is set but does not resolve to
+		// a known REST tenant, ownership cannot be attributed, so the OS is neither
+		// imported nor updated this cycle (rather than being stored orphaned and thus
+		// invisible to every caller). It is retried on the next inventory cycle once
+		// the tenant exists.
 		ownerOrg := site.Org
 		ownerProviderID := &site.InfrastructureProviderID
 		var ownerTenantID *uuid.UUID
@@ -549,9 +565,9 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				switch {
 				case terr != nil:
-					slogger.Error().Err(terr).Str("TenantOrg", tenantOrg).Msg("Failed to resolve tenant for Operating System; storing org without tenant id")
+					slogger.Error().Err(terr).Str("TenantOrg", tenantOrg).Msg("Failed to resolve tenant for Operating System; skipping this cycle")
 				case len(tenants) == 0:
-					slogger.Warn().Str("TenantOrg", tenantOrg).Msg("No tenant found for Operating System org; storing org without tenant id")
+					slogger.Error().Str("TenantOrg", tenantOrg).Msg("No REST tenant matches Operating System's tenant_organization_id; skipping OS (cannot attribute ownership)")
 				default:
 					if len(tenants) > 1 {
 						slogger.Warn().Str("TenantOrg", tenantOrg).Msg("Multiple tenants found for Operating System org; using first")
@@ -559,6 +575,11 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 					tenantID = cutil.GetPtr(tenants[0].ID)
 				}
 				tenantOrgToID[tenantOrg] = tenantID
+			}
+			if tenantID == nil {
+				// tenant_organization_id is set but unknown to REST: skip rather than
+				// create/update an unattributable (orphaned) Operating System.
+				continue
 			}
 			ownerTenantID = tenantID
 		}

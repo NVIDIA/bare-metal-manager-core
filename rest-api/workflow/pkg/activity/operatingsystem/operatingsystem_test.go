@@ -326,6 +326,81 @@ func TestManageOsImage_UpdateOsImageInDB(t *testing.T) {
 	}
 }
 
+// TestManageOsImage_UpdateOsImageInDB_IgnoresIpxeAssociations guards against a
+// cross-reconciler collision: iPXE / Templated iPXE OS associations share the
+// operating_system_site_association table but are owned by the OperatingSystem
+// inventory path (UpdateOperatingSystemsInDB), never appearing in the OS Image
+// inventory. The OS Image reconcile must leave them untouched; otherwise it
+// repeatedly flags them "missing on Site" and flips their status to Error every
+// cycle (fighting the OperatingSystem reconcile that resets them to Synced).
+func TestManageOsImage_UpdateOsImageInDB_IgnoresIpxeAssociations(t *testing.T) {
+	dbSession := util.TestInitDB(t)
+	defer dbSession.Close()
+
+	util.TestSetupSchema(t, dbSession)
+
+	ipOrg := "test-provider-org"
+	ipu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg}, []string{"FORGE_PROVIDER_ADMIN"})
+	ip := util.TestBuildInfrastructureProvider(t, dbSession, "test-provider", ipOrg, ipu)
+
+	tnOrg := "test-tenant-org"
+	tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{"FORGE_TENANT_ADMIN"})
+	tn := util.TestBuildTenant(t, dbSession, "test-tenant", tnOrg, nil, tnu)
+	require.NotNil(t, tn)
+
+	site := util.TestBuildSite(t, dbSession, ip, "test-site", cdbm.SiteStatusRegistered, nil, ipu)
+	require.NotNil(t, site)
+
+	// An image OS whose association will legitimately be flagged missing.
+	imgOS := util.TestBuildImageOperatingSystem(t, dbSession, &ip.ID, &tn.ID, "test-image-os", tnOrg, nil, cdbm.OperatingSystemStatusReady)
+	imgOssa := util.TestBuildImageOperatingSystemSiteAssociation(t, dbSession, imgOS.ID, site.ID, cdbm.OperatingSystemSiteAssociationStatusSynced, "img-v1", false)
+
+	// An iPXE OS owned by the OperatingSystem reconcile; it must be ignored here.
+	ipxeOS := &cdbm.OperatingSystem{
+		ID:                       uuid.New(),
+		Name:                     "test-ipxe-os",
+		Org:                      ipOrg,
+		InfrastructureProviderID: &ip.ID,
+		Type:                     cdbm.OperatingSystemTypeIPXE,
+		IpxeScript:               cutil.GetPtr("#!ipxe\nboot"),
+		Status:                   cdbm.OperatingSystemStatusReady,
+		CreatedBy:                uuid.New(),
+	}
+	_, err := dbSession.DB.NewInsert().Model(ipxeOS).Exec(context.Background())
+	require.NoError(t, err)
+	ipxeOssa := util.TestBuildImageOperatingSystemSiteAssociation(t, dbSession, ipxeOS.ID, site.ID, cdbm.OperatingSystemSiteAssociationStatusSynced, "ipxe-v1", false)
+
+	// Backdate both associations past the inventory-receipt grace window so the
+	// missing-on-Site path is reachable.
+	past := time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval * 2))
+	_, err = dbSession.DB.Exec("UPDATE operating_system_site_association SET created = ? WHERE id IN (?, ?)", past, imgOssa.ID.String(), ipxeOssa.ID.String())
+	require.NoError(t, err)
+
+	mv := ManageOsImage{dbSession: dbSession, siteClientPool: util.TestTemporalSiteClientPool(t)}
+
+	// Empty OS Image inventory: no image OS is reported for this Site.
+	_, err = mv.UpdateOsImagesInDB(context.Background(), site.ID, &corev1.OsImageInventory{
+		OsImages:      []*corev1.OsImage{},
+		Timestamp:     timestamppb.Now(),
+		InventoryPage: &corev1.InventoryPage{CurrentPage: 1, TotalPages: 0, PageSize: 25, TotalItems: 0, ItemIds: []string{}},
+	})
+	require.NoError(t, err)
+
+	ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
+
+	// The image association is flagged missing and moved to Error.
+	gotImg, err := ossaDAO.GetByID(context.Background(), nil, imgOssa.ID, nil)
+	require.NoError(t, err)
+	assert.Equal(t, cdbm.OperatingSystemSiteAssociationStatusError, gotImg.Status)
+	assert.True(t, gotImg.IsMissingOnSite)
+
+	// The iPXE association is untouched: still Synced and not missing.
+	gotIpxe, err := ossaDAO.GetByID(context.Background(), nil, ipxeOssa.ID, nil)
+	require.NoError(t, err)
+	assert.Equal(t, cdbm.OperatingSystemSiteAssociationStatusSynced, gotIpxe.Status)
+	assert.False(t, gotIpxe.IsMissingOnSite)
+}
+
 func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 	dbSession := util.TestInitDB(t)
 	defer dbSession.Close()
@@ -885,6 +960,51 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		assert.Equal(t, tn.ID, *created.TenantID)
 		assert.Equal(t, tnOrg, created.Org)
 		assert.Nil(t, created.InfrastructureProviderID, "a tenant-owned OS is not provider-owned")
+	})
+
+	t.Run("does not import an OS reported with an unknown tenant_organization_id", func(t *testing.T) {
+		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-unknown-org", "provider-unknown-org-org", ipu)
+		st := util.TestBuildSite(t, dbSession, ip, "site-unknown-org", cdbm.SiteStatusRegistered, nil, ipu)
+
+		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
+			ID: uuid.New(), Name: "tmpl-unknown-org", Template: "#!ipxe\n", Visibility: "Public",
+		})
+		require.NoError(t, err)
+		_, err = itsaDAO.Create(ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{IpxeTemplateID: tmpl.ID, SiteID: st.ID})
+		require.NoError(t, err)
+
+		osID := uuid.New()
+		inventory := &corev1.OperatingSystemInventory{
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{
+				{
+					Id:                   &corev1.OperatingSystemId{Value: osID.String()},
+					Name:                 "reported-unknown-org-os",
+					Type:                 corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
+					Status:               corev1.TenantState_READY,
+					IsActive:             true,
+					IpxeTemplateId:       &corev1.IpxeTemplateId{Value: tmpl.ID.String()},
+					TenantOrganizationId: cutil.GetPtr("org-with-no-matching-tenant"),
+					Updated:              time.Now().Format(time.RFC3339),
+				},
+			},
+			Timestamp: timestamppb.Now(),
+		}
+
+		// The reconcile cycle must not fail wholesale on an unattributable OS.
+		require.NoError(t, newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, inventory))
+
+		// The OS is neither created nor associated with the Site: an OS whose
+		// tenant_organization_id matches no REST Tenant cannot be attributed and is
+		// skipped rather than stored orphaned (invisible to every caller).
+		_, gerr := osDAO.GetByID(ctx, nil, osID, nil)
+		require.ErrorIs(t, gerr, cdb.ErrDoesNotExist, "an OS with an unknown tenant_organization_id must not be imported")
+
+		ossas, _, oerr := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{
+			OperatingSystemIDs: []uuid.UUID{osID},
+		}, paginator.PageInput{}, nil)
+		require.NoError(t, oerr)
+		assert.Empty(t, ossas, "no Site association is created for a skipped OS")
 	})
 
 	t.Run("does not overwrite a multi-site OS reported by a Site", func(t *testing.T) {
