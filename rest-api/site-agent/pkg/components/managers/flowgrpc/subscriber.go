@@ -166,6 +166,58 @@ func (flowgrpc *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
 	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered DeleteTaskRuleOnFlow activity")
 
+	// Register Campaign (operation-run) workflows
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.CreateCampaign)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CreateCampaign workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetCampaign)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetCampaign workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetAllCampaigns)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetAllCampaigns workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetCampaignTargets)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetCampaignTargets workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.PauseCampaign)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered PauseCampaign workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.ResumeCampaign)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered ResumeCampaign workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.AdvanceCampaignPhase)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered AdvanceCampaignPhase workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.CancelCampaign)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CancelCampaign workflow")
+
+	// Register Campaign (operation-run) activities
+	campaignManager := swa.NewManageCampaign(ManagerAccess.Data.EB.Managers.FlowGrpc.Client)
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(campaignManager.CreateCampaignOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CreateCampaignOnFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(campaignManager.GetCampaignFromFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetCampaignFromFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(campaignManager.GetAllCampaignsFromFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetAllCampaignsFromFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(campaignManager.GetCampaignTargetsFromFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetCampaignTargetsFromFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(campaignManager.PauseCampaignOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered PauseCampaignOnFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(campaignManager.ResumeCampaignOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered ResumeCampaignOnFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(campaignManager.AdvanceCampaignPhaseOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered AdvanceCampaignPhaseOnFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(campaignManager.CancelCampaignOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CancelCampaignOnFlow activity")
+
 	// Register the tray subscribers here
 	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Registering tray workflows")
 
