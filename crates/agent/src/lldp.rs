@@ -16,6 +16,7 @@
  */
 use std::fmt::Write;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::Duration;
@@ -31,6 +32,7 @@ const LLDP_INTERFACES_CONFIG: &str = "/etc/lldpd.d/lldp-interfaces.conf";
 const DISABLED_LLDP_INTERFACES_CONFIG: &str = "/etc/lldpd.d/lldp-interfaces.conf.disabled";
 const LLDPD_DEFAULT_CONFIG: &str = "/etc/default/lldpd";
 const LLDPD_DAEMON_ARGS: &str = "DAEMON_ARGS=\"-M 1\"";
+const MAX_LLDPD_DEFAULT_CONFIG_SIZE: u64 = 1024 * 1024;
 const LLDPD_RESTART_ATTEMPTS: u8 = 3;
 const LLDP_MED_CONFIGURATION_CHECK_ATTEMPTS: u8 = 3;
 const LLDPCLI_TIMEOUT: Duration = Duration::from_secs(10);
@@ -76,8 +78,17 @@ fn disable_interfaces_config() -> eyre::Result<bool> {
 }
 
 fn ensure_lldpd_daemon_args() -> eyre::Result<bool> {
-    let current_contents =
-        fs::read_to_string(LLDPD_DEFAULT_CONFIG).wrap_err("couldn't read lldpd default config")?;
+    let mut current_contents = String::new();
+    fs::File::open(LLDPD_DEFAULT_CONFIG)
+        .wrap_err("couldn't open lldpd default config")?
+        .take(MAX_LLDPD_DEFAULT_CONFIG_SIZE + 1)
+        .read_to_string(&mut current_contents)
+        .wrap_err("couldn't read lldpd default config")?;
+    eyre::ensure!(
+        current_contents.len() as u64 <= MAX_LLDPD_DEFAULT_CONFIG_SIZE,
+        "lldpd default config exceeds {MAX_LLDPD_DEFAULT_CONFIG_SIZE} bytes"
+    );
+
     let desired_contents = rewrite_lldpd_daemon_args(&current_contents);
 
     let mut config_file =
