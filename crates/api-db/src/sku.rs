@@ -88,7 +88,7 @@ fn validate_storage_pci_patterns(sku: &Sku) -> Result<(), DatabaseError> {
         for pattern in &storage.pci_patterns {
             regex::Regex::new(pattern).map_err(|err| {
                 DatabaseError::InvalidArgument(format!(
-                    "Invalid storage PCI pattern \"{pattern}\": {err}"
+                    "invalid storage PCI pattern \"{pattern}\": {err}"
                 ))
             })?;
         }

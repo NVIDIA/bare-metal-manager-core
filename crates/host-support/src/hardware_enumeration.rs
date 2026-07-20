@@ -237,6 +237,13 @@ fn get_nvme_size_mb(context: &libudev::Context, controller: &Device) -> Option<u
     let total_sectors: u64 = enumerator
         .scan_devices()
         .ok()?
+        .filter(|ns| {
+            // Only whole-namespace disks. `match_parent` walks the full block
+            // subtree, so without this a partitioned drive would have its
+            // partition sizes summed on top of the namespace size, inflating
+            // the reported capacity.
+            ns.property_value("DEVTYPE").and_then(|v| v.to_str()) == Some("disk")
+        })
         .filter_map(|ns| {
             ns.attribute_value("size")
                 .and_then(|v| v.to_str())
