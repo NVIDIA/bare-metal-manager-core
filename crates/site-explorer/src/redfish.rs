@@ -722,6 +722,7 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     Ok(Manager {
         ethernet_interfaces,
         id: manager.id,
+        ipmi_port: None,
     })
 }
 

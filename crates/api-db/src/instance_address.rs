@@ -26,9 +26,7 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
 use model::address_selection_strategy::AddressSelectionStrategy;
-use model::instance::config::network::{
-    InstanceInterfaceConfig, InstanceNetworkConfig, NetworkDetails,
-};
+use model::instance::config::network::{InstanceInterfaceConfig, InstanceNetworkConfig};
 use model::instance_address::InstanceAddress;
 use model::machine::Machine;
 use model::network_prefix::NetworkPrefix;
@@ -316,13 +314,7 @@ pub async fn allocate(
     let segment_ids_using_vpc_prefix = updated_config
         .interfaces
         .iter()
-        .filter_map(|x| {
-            if let Some(NetworkDetails::VpcPrefixId(_)) = x.network_details {
-                x.network_segment_id
-            } else {
-                None
-            }
-        })
+        .filter_map(InstanceInterfaceConfig::generated_network_segment_id)
         .collect_vec();
 
     if segment_ids.len() != updated_config.interfaces.len() {
@@ -809,6 +801,7 @@ mod tests {
                             network_segment_id,
                         ),
                     ),
+                    vpc_selection: None,
                     ip_addrs: HashMap::default(),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,

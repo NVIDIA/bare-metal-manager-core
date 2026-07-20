@@ -36,6 +36,7 @@ impl Run for Args {
         let file_content = std::fs::read_to_string(json_file_path)?;
         let expected_machine: ExpectedMachineJson = serde_json::from_str(&file_content)?;
 
+        let dpu_policy = expected_machine.dpu_policy();
         let metadata = expected_machine.metadata.unwrap_or_default();
 
         // Patch merges with the server record; we pass all fields from JSON so the result matches the file.
@@ -68,7 +69,7 @@ impl Run for Args {
                 expected_machine.dpf_enabled,
                 expected_machine.bmc_ip_address,
                 expected_machine.bmc_retain_credentials,
-                expected_machine.dpu_mode,
+                dpu_policy,
                 expected_machine.bmc_ip_allocation,
                 expected_machine.host_lifecycle_profile.map(|hlp| {
                     ::rpc::forge::HostLifecycleProfile {

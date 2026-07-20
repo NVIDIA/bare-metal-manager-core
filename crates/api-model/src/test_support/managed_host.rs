@@ -285,6 +285,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
             vendor: value.vendor,
             managers: vec![Manager {
                 id: "iDRAC.Embedded.1".to_string(),
+                ipmi_port: None,
                 ethernet_interfaces: vec![EthernetInterface {
                     id: Some("NIC.1".to_string()),
                     description: Some("Management Network Interface".to_string()),

@@ -2709,12 +2709,7 @@ async fn test_declared_primary_survives_dhcp_arrival_order(
     Ok(())
 }
 
-/// Simple test to have some round-trip coverage for `ExpectedMachine.dpu_mode`
-/// to make sure a `NicMode` setting makes it from the API to the DB and back
-/// correctly. Verifies:
-/// - The RPC carrying `Some(DpuMode::NicMode)` persists.
-/// - The re-read RPC response replies `dpu_mode = Some(NicMode)` back
-/// - Other `dpu_mode` values do the same.
+/// The stable Forge DPU policy field round-trips through the database.
 #[crate::sqlx_test]
 async fn test_dpu_mode_round_trip_for_non_default_values(
     pool: sqlx::PgPool,
@@ -2751,17 +2746,15 @@ async fn test_dpu_mode_round_trip_for_non_default_values(
         assert_eq!(
             retrieved.dpu_mode,
             Some(*mode as i32),
-            "DPU mode {mode:?} should survive DB round-trip unchanged"
+            "DPU policy mode {mode:?} should survive DB round-trip unchanged"
         );
     }
 
     Ok(())
 }
 
-/// Also have some "round trip" coverage for the dpu_mode default case,
-/// when the operator didn't set `dpu_mode` on the wire. In this case,
-/// we should persist the Postgrs default (`DpuMode::DpuMode`) and return
-/// `None` on the wire (so old clients see the same thing they sent).
+/// The default host DPU policy is omitted on the wire, preserving existing
+/// clients' absent-field behavior.
 #[crate::sqlx_test]
 async fn test_dpu_mode_default_value_omitted_on_wire(
     pool: sqlx::PgPool,
@@ -2775,7 +2768,6 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DPU-DEFAULT".into(),
-            dpu_mode: None,
             ..Default::default()
         }))
         .await?;
@@ -2791,14 +2783,13 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
 
     assert_eq!(
         retrieved.dpu_mode, None,
-        "default DpuMode should not be emitted on the wire for stable round-trips"
+        "default HostDpuPolicy should not be emitted on the Forge compatibility field"
     );
 
     Ok(())
 }
 
-/// Verify the update RPC (for update/patch flows) actually flips
-/// `dpu_mode` as expected.
+/// Verify the update RPC (for update/patch flows) changes the DPU policy.
 #[crate::sqlx_test]
 async fn test_update_changes_dpu_mode(
     pool: sqlx::PgPool,
@@ -2840,7 +2831,7 @@ async fn test_update_changes_dpu_mode(
             .await?
             .into_inner();
 
-        // DpuMode is the column default and the wire-default; the model
+        // Manage is the column default and the wire-default; the model
         // collapses it to `None` on the way out (see `From<ExpectedMachine>
         // for rpc::forge::ExpectedMachine`), so compare accordingly.
         let expected_wire = match mode {

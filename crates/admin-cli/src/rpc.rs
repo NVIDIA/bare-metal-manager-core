@@ -49,7 +49,7 @@ use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
 use crate::errors::{CarbideCliError, CarbideCliResult};
-use crate::expected_machines::common::ExpectedMachineJson;
+use crate::expected_machines::common::{ExpectedMachineJson, HostDpuPolicy};
 use crate::instance::AllocateInstance;
 use crate::machine::MachineAutoupdate;
 
@@ -830,7 +830,7 @@ impl ApiClient {
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
-        dpu_mode: Option<::rpc::forge::DpuMode>,
+        dpu_policy: Option<HostDpuPolicy>,
         bmc_ip_allocation: Option<::rpc::forge::BmcIpAllocationType>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
         host_nics: Option<String>,
@@ -917,7 +917,9 @@ impl ApiClient {
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
-            dpu_mode: dpu_mode.map(|m| m as i32).or(expected_machine.dpu_mode),
+            dpu_mode: dpu_policy
+                .map(|policy| ::rpc::forge::DpuMode::from(policy) as i32)
+                .or(expected_machine.dpu_mode),
             // Use the flag value if given, else preserve the stored per-host
             // value (patch semantics).
             bmc_ip_allocation: bmc_ip_allocation
@@ -940,6 +942,9 @@ impl ApiClient {
             expected_machines: expected_machine_list
                 .into_iter()
                 .map(|machine| rpc::ExpectedMachine {
+                    dpu_mode: machine
+                        .dpu_policy()
+                        .map(|policy| ::rpc::forge::DpuMode::from(policy) as i32),
                     id: machine.id.map(|s| ::rpc::common::Uuid { value: s }),
                     bmc_mac_address: machine.bmc_mac_address.to_string(),
                     bmc_username: machine.bmc_username,
@@ -959,7 +964,6 @@ impl ApiClient {
                     is_dpf_enabled: machine.dpf_enabled,
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
-                    dpu_mode: machine.dpu_mode.map(|m| m as i32),
                     bmc_ip_allocation: machine.bmc_ip_allocation.map(|m| m as i32),
                     host_lifecycle_profile: machine.host_lifecycle_profile.map(|hlp| {
                         ::rpc::forge::HostLifecycleProfile {

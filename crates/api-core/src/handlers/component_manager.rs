@@ -43,8 +43,8 @@ use model::component_manager::{
     PowerShelfComponent,
 };
 use model::firmware::FirmwareComponentType;
-use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{Machine, MachineMaintenanceOperation};
 use model::power_shelf::PowerShelfMaintenanceOperation;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use model::switch::SwitchMaintenanceOperation;
@@ -307,6 +307,18 @@ fn map_switch_maintenance_operation(action: PowerAction) -> SwitchMaintenanceOpe
     }
 }
 
+fn map_machine_maintenance_operation(action: PowerAction) -> MachineMaintenanceOperation {
+    match action {
+        PowerAction::On => MachineMaintenanceOperation::PowerOn,
+        PowerAction::GracefulShutdown | PowerAction::ForceOff => {
+            MachineMaintenanceOperation::PowerOff
+        }
+        PowerAction::GracefulRestart | PowerAction::ForceRestart | PowerAction::AcPowercycle => {
+            MachineMaintenanceOperation::Reset
+        }
+    }
+}
+
 fn map_power_shelf_maintenance_operation(
     action: PowerAction,
 ) -> Result<PowerShelfMaintenanceOperation, &'static str> {
@@ -359,6 +371,47 @@ fn switch_maintenance_request_result_to_component_result(
     match &result.error {
         Some(error) => error_result(&result.switch_id.to_string(), error.clone()),
         None => success_result(&result.switch_id.to_string()),
+    }
+}
+
+async fn queue_machine_power_control_via_state_controller(
+    api: &Api,
+    cm: &ComponentManager,
+    machine_ids: &[carbide_uuid::machine::MachineId],
+    action: PowerAction,
+) -> Result<Vec<rpc::ComponentResult>, Status> {
+    let operation = map_machine_maintenance_operation(action);
+    queue_machine_maintenance_via_state_controller(api, cm, machine_ids, operation).await
+}
+
+async fn queue_machine_maintenance_via_state_controller(
+    api: &Api,
+    cm: &ComponentManager,
+    machine_ids: &[carbide_uuid::machine::MachineId],
+    operation: MachineMaintenanceOperation,
+) -> Result<Vec<rpc::ComponentResult>, Status> {
+    let results = cm
+        .request_machine_maintenance_via_state_controller(
+            &api.database_connection,
+            machine_ids,
+            operation,
+            "component-manager",
+        )
+        .await
+        .map_err(component_manager_error_to_status)?;
+
+    Ok(results
+        .iter()
+        .map(machine_maintenance_request_result_to_component_result)
+        .collect())
+}
+
+fn machine_maintenance_request_result_to_component_result(
+    result: &component_manager::component_manager::MachineMaintenanceRequestResult,
+) -> rpc::ComponentResult {
+    match &result.error {
+        Some(error) => error_result(&result.machine_id.to_string(), error.clone()),
+        None => success_result(&result.machine_id.to_string()),
     }
 }
 
@@ -1580,10 +1633,15 @@ pub(crate) async fn component_power_control(
         }
         rpc::component_power_control_request::Target::MachineIds(list) => {
             if cm.compute_tray_use_state_controller && !bypass_state_controller {
-                // TODO: implement state controller path for compute tray power control
-                return Err(Status::unimplemented(
-                    "compute tray power control through the state controller is not yet supported",
-                ));
+                let results = queue_machine_power_control_via_state_controller(
+                    api,
+                    cm,
+                    &list.machine_ids,
+                    action,
+                )
+                .await?;
+                let ips = Vec::new();
+                (results, ips)
             } else {
                 let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
 
@@ -3302,6 +3360,30 @@ mod tests {
         assert_eq!(
             map_switch_maintenance_operation(PowerAction::ForceRestart),
             SwitchMaintenanceOperation::Reset,
+        );
+    }
+
+    #[test]
+    fn map_machine_maintenance_operation_variants() {
+        use model::machine::MachineMaintenanceOperation;
+
+        use super::map_machine_maintenance_operation;
+
+        assert_eq!(
+            map_machine_maintenance_operation(PowerAction::On),
+            MachineMaintenanceOperation::PowerOn,
+        );
+        assert_eq!(
+            map_machine_maintenance_operation(PowerAction::ForceOff),
+            MachineMaintenanceOperation::PowerOff,
+        );
+        assert_eq!(
+            map_machine_maintenance_operation(PowerAction::GracefulShutdown),
+            MachineMaintenanceOperation::PowerOff,
+        );
+        assert_eq!(
+            map_machine_maintenance_operation(PowerAction::ForceRestart),
+            MachineMaintenanceOperation::Reset,
         );
     }
 

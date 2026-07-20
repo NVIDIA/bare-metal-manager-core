@@ -270,7 +270,7 @@ enum ConnectionFailReason {
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
-    describe = "Number of failed inbound TCP connections"
+    describe = "Number of failed inbound connections, by failure reason"
 )]
 struct TlsConnectionFailed {
     #[label]

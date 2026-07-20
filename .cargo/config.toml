@@ -38,3 +38,4 @@ RUST_TEST_THREADS = "8"
 
 [alias]
 xtask = "run --package xtask --"
+check-metric-docs = "run --package xtask -- check-metric-docs"
