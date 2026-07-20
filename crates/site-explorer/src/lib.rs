@@ -100,7 +100,10 @@ use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
-use self::metrics::{DpuMigrationSignal, PairingBlockerReason, exploration_error_to_metric_label};
+use self::metrics::{
+    DpuMigrationSignal, PairingBlockerReason, SiteExplorerIterationFinished,
+    exploration_error_to_metric_label,
+};
 use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 
@@ -548,6 +551,16 @@ impl SiteExplorer {
         metrics.run_failure_category = result.as_ref().err().map(Self::run_failure_category);
     }
 
+    fn emit_iteration_finished(
+        metrics: &SiteExplorationMetrics,
+        error: Option<&SiteExplorerError>,
+    ) {
+        carbide_instrument::emit(SiteExplorerIterationFinished {
+            latency: metrics.recording_started_at.elapsed(),
+            error: error.map(|error| format!("{error:?}")).unwrap_or_default(),
+        });
+    }
+
     async fn record_last_run(&self, last_run: &SiteExplorerLastRun) -> SiteExplorerResult<()> {
         let mut txn = self.txn_begin().await?;
         db::site_explorer_run_status::upsert(&mut txn, last_run).await?;
@@ -584,6 +597,11 @@ impl SiteExplorer {
                 Self::record_run_status_metric(&mut metrics, &result);
                 self.record_last_run_result(started_at, &metrics, &result)
                     .await;
+                // `run` already records this returned error at `WARN`. Passing
+                // `None` keeps `SiteExplorerIterationFinished` metric-only, so
+                // expected replica contention does not also produce an
+                // `ERROR`.
+                Self::emit_iteration_finished(&metrics, None);
                 self.metric_holder.update_metrics(metrics);
                 return result;
             }
@@ -645,7 +663,6 @@ impl SiteExplorer {
                 explore_site_span.record("otel.status_code", "ok");
             }
             Err(e) => {
-                tracing::error!(error = ?e, "SiteExplorer run failed");
                 explore_site_span.record("otel.status_code", "error");
                 // Writing this field will set the span status to error
                 // Therefore we only write it on errors
@@ -656,6 +673,7 @@ impl SiteExplorer {
         Self::record_run_status_metric(&mut metrics, &res);
         self.record_last_run_result(started_at, &metrics, &res)
             .await;
+        Self::emit_iteration_finished(&metrics, res.as_ref().err());
 
         // Cache all other metrics that have been captured in this iteration.
         // Those will be queried by OTEL on demand

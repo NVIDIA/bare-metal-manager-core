@@ -20,6 +20,7 @@ use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
+use carbide_instrument::{DynamicLog, Event, LogAt};
 use carbide_metrics_utils::OtelView;
 use carbide_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
@@ -353,11 +354,44 @@ pub fn site_explorer_latency_histogram_view(
     )
 }
 
+/// `SiteExplorerIterationFinished` closes one Site Explorer attempt. Every
+/// emission records its duration in the existing label-free histogram; a
+/// non-empty `error` also retains the `ERROR` record.
+#[derive(Event)]
+#[event(
+    event_name = "site_explorer_iteration_finished",
+    metric_name = "carbide_site_explorer_iteration_latency_milliseconds",
+    component = "site-explorer",
+    log = dynamic,
+    metric = histogram,
+    message = "SiteExplorer run failed",
+    describe = "The time it took to perform one site explorer iteration"
+)]
+pub(crate) struct SiteExplorerIterationFinished {
+    #[observation]
+    pub latency: Duration,
+    /// `error` carries a failed result's `Debug` rendering when
+    /// `SiteExplorerIterationFinished` owns the diagnostic record. An empty
+    /// value turns off logging without skipping latency; successes and
+    /// lock-acquisition failures both use it.
+    #[context]
+    pub error: String,
+}
+
+impl DynamicLog for SiteExplorerIterationFinished {
+    fn log_at(&self) -> LogAt {
+        if self.error.is_empty() {
+            LogAt::Off
+        } else {
+            LogAt::Level(tracing::Level::ERROR)
+        }
+    }
+}
+
 /// Instruments that are used by the Site Explorer
 pub struct SiteExplorerInstruments {
     pub endpoint_exploration_duration: Histogram<f64>,
     pub endpoint_exploration_step_latency: Histogram<f64>,
-    pub site_explorer_iteration_latency: Histogram<f64>,
     pub site_explorer_phase_latency: Histogram<f64>,
     pub site_explorer_create_machines_latency: Histogram<f64>,
     pub site_explorer_create_power_shelves_latency: Histogram<f64>,
@@ -603,12 +637,6 @@ impl SiteExplorerInstruments {
             .with_unit("ms")
             .build();
 
-        let site_explorer_iteration_latency = meter
-            .f64_histogram("carbide_site_explorer_iteration_latency")
-            .with_description("The time it took to perform one site explorer iteration")
-            .with_unit("ms")
-            .build();
-
         let site_explorer_phase_latency = meter
             .f64_histogram("carbide_site_explorer_phase_latency")
             .with_description("The time it took to perform one site explorer iteration phase")
@@ -849,7 +877,6 @@ impl SiteExplorerInstruments {
         SiteExplorerInstruments {
             endpoint_exploration_duration,
             endpoint_exploration_step_latency,
-            site_explorer_iteration_latency,
             site_explorer_phase_latency,
             site_explorer_create_machines_latency,
             site_explorer_create_power_shelves_latency,
@@ -861,11 +888,6 @@ impl SiteExplorerInstruments {
     /// iteration. Those are emitted immediately as histograms, whereas the
     /// amount of objects in states is emitted as gauges.
     pub fn emit_latency_metrics(&self, metrics: &SiteExplorationMetrics) {
-        self.site_explorer_iteration_latency.record(
-            1000.0 * metrics.recording_started_at.elapsed().as_secs_f64(),
-            &[],
-        );
-
         if let Some(latency) = metrics.create_machines_latency {
             self.site_explorer_create_machines_latency
                 .record(1000.0 * latency.as_secs_f64(), &[]);
@@ -972,8 +994,10 @@ impl MetricHolder {
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{scenarios, value_scenarios};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_sdk::metrics::SdkMeterProvider;
     use prometheus::{Encoder, TextEncoder};
@@ -1033,6 +1057,141 @@ mod tests {
                     "registered_zero_dpu_for_nic_mode".to_string(),
             }
         );
+    }
+
+    /// One `SiteExplorerIterationFinished` emission always moves the
+    /// label-free histogram. A non-empty `error` also emits the existing
+    /// `ERROR` record; an empty value stays silent.
+    #[test]
+    fn site_explorer_iteration_outcomes_pair_latency_with_failure_log() {
+        const EXPOSED_METRIC: &str = "carbide_site_explorer_iteration_latency_milliseconds";
+
+        struct IterationCase {
+            latency: Duration,
+            error: &'static str,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct LogObservation {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            error: Option<String>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            log: Option<LogObservation>,
+            histogram_count_delta: u64,
+            histogram_sum_delta: f64,
+        }
+
+        let failure = r#"Internal { message: "simulated iteration failure" }"#;
+        check_values(
+            [
+                Check {
+                    scenario: "successful iteration",
+                    input: IterationCase {
+                        latency: Duration::from_millis(125),
+                        error: "",
+                    },
+                    expect: Observation {
+                        log_count: 0,
+                        log: None,
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 125.0,
+                    },
+                },
+                Check {
+                    scenario: "failed iteration",
+                    input: IterationCase {
+                        latency: Duration::from_millis(375),
+                        error: failure,
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: Some(LogObservation {
+                            level: tracing::Level::ERROR,
+                            metadata_name: "site_explorer_iteration_finished".to_string(),
+                            message: "SiteExplorer run failed".to_string(),
+                            event_name: Some("site_explorer_iteration_finished".to_string()),
+                            metric_name: Some(EXPOSED_METRIC.to_string()),
+                            error: Some(failure.to_string()),
+                        }),
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 375.0,
+                    },
+                },
+            ],
+            |IterationCase { latency, error }| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit(SiteExplorerIterationFinished {
+                        latency,
+                        error: error.to_string(),
+                    });
+                });
+                let log = logs.first().map(|log| LogObservation {
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                });
+
+                Observation {
+                    log_count: logs.len(),
+                    log,
+                    histogram_count_delta: metrics.histogram_count_delta(EXPOSED_METRIC, &[]),
+                    histogram_sum_delta: metrics.histogram_sum_delta(EXPOSED_METRIC, &[]),
+                }
+            },
+        );
+    }
+
+    /// Replacing the manual iteration histogram must not change its exposed
+    /// contract. This test pins the family name, description, unit suffix, and
+    /// label-free series shape.
+    #[test]
+    fn site_explorer_iteration_histogram_exposition_stays_stable() {
+        const EXPOSED_METRIC: &str = "carbide_site_explorer_iteration_latency_milliseconds";
+
+        let metrics = MetricsCapture::start();
+        emit(SiteExplorerIterationFinished {
+            latency: Duration::from_millis(125),
+            error: String::new(),
+        });
+
+        let encoded = metrics.render();
+        assert!(
+            encoded.contains(&format!(
+                "# HELP {EXPOSED_METRIC} The time it took to perform one site explorer iteration\n"
+            )),
+            "description or exposed family changed:\n{encoded}"
+        );
+        assert!(
+            encoded.contains(&format!("# TYPE {EXPOSED_METRIC} histogram\n")),
+            "expected the millisecond family to remain a histogram:\n{encoded}"
+        );
+        assert!(
+            !encoded.contains("carbide_site_explorer_iteration_latency_milliseconds_milliseconds"),
+            "the unit suffix must be applied exactly once:\n{encoded}"
+        );
+        for suffix in ["count", "sum"] {
+            let prefix = format!("{EXPOSED_METRIC}_{suffix} ");
+            let sample = encoded
+                .lines()
+                .find(|line| line.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("missing {prefix} sample:\n{encoded}"));
+            assert!(
+                !sample.contains('{'),
+                "iteration latency must remain label-free: {sample}"
+            );
+        }
     }
 
     #[test]
