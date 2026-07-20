@@ -46,9 +46,11 @@ func testBatchBuildMachineWithNVLinkDomain(t *testing.T, dbSession *cdb.Session,
 	mc := testInstanceBuildMachine(t, dbSession, ip, site, cutil.GetPtr(false), nil)
 	mc.Metadata = &cdbm.SiteControllerMachine{
 		Machine: &corev1.Machine{
-			NvlinkInfo: &corev1.MachineNVLinkInfo{
-				DomainUuid: &corev1.NVLinkDomainId{
-					Value: nvlinkDomainID,
+			Status: &corev1.MachineStatus{
+				NvlinkInfo: &corev1.MachineNVLinkInfo{
+					DomainUuid: &corev1.NVLinkDomainId{
+						Value: nvlinkDomainID,
+					},
 				},
 			},
 		},

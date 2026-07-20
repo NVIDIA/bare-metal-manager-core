@@ -29,29 +29,53 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 			Id: &corev1.MachineId{
 				Id: "test-machine-id",
 			},
-			DpuAgentVersion: cutil.GetPtr("1.0.0"),
-			BmcInfo: &corev1.BmcInfo{
-				Ip: cutil.GetPtr("10.0.0.1"),
-			},
-			DiscoveryInfo: &corev1.DiscoveryInfo{
-				DmiData: &corev1.DmiData{
-					BoardName:     "test-board-name",
-					BoardSerial:   "test-board-serial",
-					BoardVersion:  "test-board-version",
-					BiosDate:      "test-bios-date",
-					BiosVersion:   "test-bios-version",
-					ProductSerial: "test-product-serial",
-					ChassisSerial: "test-chassis-serial",
-					ProductName:   "test-product-name",
-					SysVendor:     "test-sys-vendor",
-				},
-			},
-			Interfaces: []*corev1.MachineInterface{
-				{
-					Id: &corev1.MachineInterfaceId{
-						Value: "test-interface-id",
+			Status: &corev1.MachineStatus{
+				DpuAgentVersion: cutil.GetPtr("1.0.0"),
+				DiscoveryInfo: &corev1.DiscoveryInfo{
+					DmiData: &corev1.DmiData{
+						BoardName:     "test-board-name",
+						BoardSerial:   "test-board-serial",
+						BoardVersion:  "test-board-version",
+						BiosDate:      "test-bios-date",
+						BiosVersion:   "test-bios-version",
+						ProductSerial: "test-product-serial",
+						ChassisSerial: "test-chassis-serial",
+						ProductName:   "test-product-name",
+						SysVendor:     "test-sys-vendor",
 					},
 				},
+				Interfaces: []*corev1.MachineInterface{
+					{
+						Id: &corev1.MachineInterfaceId{
+							Value: "test-interface-id",
+						},
+					},
+				},
+				Health: &corev1.HealthReport{
+					Source:     "test-health-source",
+					ObservedAt: timestamppb.New(time.Now()),
+					Successes: []*corev1.HealthProbeSuccess{
+						{
+							Id:     "test-success-id",
+							Target: cutil.GetPtr("test-success-target"),
+						},
+					},
+					Alerts: []*corev1.HealthProbeAlert{
+						{
+							Id:           "test-alert-id",
+							Target:       cutil.GetPtr("test-alert-target"),
+							InAlertSince: nil,
+							Classifications: []string{
+								"test-alert-classification",
+							},
+							Message:       "test-alert-message",
+							TenantMessage: nil,
+						},
+					},
+				},
+			},
+			BmcInfo: &corev1.BmcInfo{
+				Ip: cutil.GetPtr("10.0.0.1"),
 			},
 			Inventory: &corev1.MachineComponentInventory{
 				Components: []*corev1.MachineInventorySoftwareComponent{
@@ -59,28 +83,6 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 						Name:    "test-software-component",
 						Version: "test-software-component-version",
 						Url:     "test-software-component-url",
-					},
-				},
-			},
-			Health: &corev1.HealthReport{
-				Source:     "test-health-source",
-				ObservedAt: timestamppb.New(time.Now()),
-				Successes: []*corev1.HealthProbeSuccess{
-					{
-						Id:     "test-success-id",
-						Target: cutil.GetPtr("test-success-target"),
-					},
-				},
-				Alerts: []*corev1.HealthProbeAlert{
-					{
-						Id:           "test-alert-id",
-						Target:       cutil.GetPtr("test-alert-target"),
-						InAlertSince: nil,
-						Classifications: []string{
-							"test-alert-classification",
-						},
-						Message:       "test-alert-message",
-						TenantMessage: nil,
 					},
 				},
 			},
