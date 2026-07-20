@@ -81,26 +81,21 @@ impl ApiClient {
     pub async fn discover_dhcp(
         &self,
         mac_address: MacAddress,
-        template_dir: String,
         relay_address: String,
         circuit_id: Option<String>,
+        vendor_class: Option<&str>,
     ) -> ClientApiResult<rpc::forge::DhcpRecord> {
-        let json_path = format!("{}/{}", &template_dir, "dhcp_discovery.json");
-        let dhcp_string = std::fs::read_to_string(&json_path).map_err(|e| {
-            ClientApiError::ConfigError(format!("Unable to read {json_path}: {e}",))
-        })?;
-        let default_data: rpc::forge::DhcpDiscovery =
-            serde_json::from_str(&dhcp_string).map_err(|e| {
-                ClientApiError::ConfigError(format!(
-                    "{template_dir}/dhcp_discovery.json does not have correct format: {e}"
-                ))
-            })?;
-
         let dhcp_discovery = rpc::forge::DhcpDiscovery {
             mac_address: mac_address.to_string(),
-            circuit_id,
             relay_address,
-            ..default_data
+            vendor_string: vendor_class.map(str::to_owned),
+            link_address: None,
+            circuit_id,
+            remote_id: None,
+            desired_address: None,
+            address_family: None,
+            message_kind: None,
+            duid: None,
         };
         let out = self
             .0

@@ -1509,12 +1509,6 @@ where
                 dpu_per_host_count,
                 dpu_reboot_delay: 1,
                 host_reboot_delay: 1,
-                template_dir: test_env
-                    .root_dir
-                    .join("crates/machine-a-tron/templates")
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
                 admin_dhcp_relay_address,
                 // Keep this distinct from the Admin relay so NIC-mode tests
                 // fail if machine-a-tron sends host DHCP through Admin.

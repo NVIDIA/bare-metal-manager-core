@@ -40,7 +40,7 @@ use crate::api_client::{ClientApiError, DpuNetworkStatusArgs, MockDiscoveryData}
 use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper, BmcMockWrapperHandle};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_wrapper::{
-    DhcpRelayError, DhcpRelayResult, DhcpRequestInfo, DhcpResponseInfo, DpuDhcpRelay,
+    DhcpRelayError, DhcpRelayResult, DhcpRequestInfo, DhcpRequester, DhcpResponseInfo, DpuDhcpRelay,
 };
 use crate::machine_fsm::{Action as FsmAction, DhcpType, Event, MachineFsm, Timer};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
@@ -523,7 +523,7 @@ impl MachineStateMachine {
             DhcpRequestInfo {
                 mac_address: self.machine_info.bmc_mac_address(),
                 relay_address: self.config.oob_dhcp_relay_address,
-                template_dir: self.config.template_dir.clone(),
+                vendor_class: dhcp_wrapper::vendor_class(&self.machine_info, DhcpRequester::Bmc),
             },
         )
         .await
@@ -601,7 +601,10 @@ impl MachineStateMachine {
                 DhcpRequestInfo {
                     mac_address: primary_mac,
                     relay_address: direct_relay_address,
-                    template_dir: self.config.template_dir.clone(),
+                    vendor_class: dhcp_wrapper::vendor_class(
+                        &self.machine_info,
+                        DhcpRequester::System,
+                    ),
                 },
             )
             .await

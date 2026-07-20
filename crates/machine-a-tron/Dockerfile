@@ -80,10 +80,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libudev1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/machine-a-tron/bin /opt/machine-a-tron/templates /tmp/machine-a-tron-data
+RUN mkdir -p /opt/machine-a-tron/bin /tmp/machine-a-tron-data
 
 COPY --from=builder /artifacts/machine-a-tron /opt/machine-a-tron/bin/machine-a-tron
-COPY crates/machine-a-tron/templates /opt/machine-a-tron/templates
 
 WORKDIR /opt/machine-a-tron
 ENTRYPOINT ["/opt/machine-a-tron/bin/machine-a-tron"]

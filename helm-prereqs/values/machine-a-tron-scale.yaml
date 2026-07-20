@@ -85,7 +85,6 @@ pods:
         runIntervalWorking: "5s"
         runIntervalIdle: "60s"
         networkStatusRunInterval: "120s"
-        templateDir: "/opt/machine-a-tron/templates"
         # Gateways of the SIMULATED networks (added to nico-core by scale mode).
         oobDhcpRelayAddress: "10.100.0.1"
         adminDhcpRelayAddress: "10.102.0.1"
@@ -95,4 +94,3 @@ pods:
 extraEnv:
   - name: RUST_LOG
     value: "info"
-
