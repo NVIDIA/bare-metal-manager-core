@@ -210,10 +210,9 @@ struct VaultRequestSucceeded {
     request_type: VaultRequestType,
 }
 
-/// A Vault request failed. Metric-only (`log = off`): the callers keep their
-/// own `tracing` error/debug lines unchanged; this event only moves the failure
-/// counter beside them. `http_response_status_code` is the HTTP status when the
-/// client error carried one, and empty otherwise.
+/// `VaultRequestFailed` counts service-account login and certificate failures
+/// without adding a log record. Both errors propagate out of this layer for
+/// their callers to diagnose.
 #[derive(Event)]
 #[event(
     event_name = "vault_request_failed",
@@ -228,6 +227,94 @@ struct VaultRequestFailed {
     request_type: VaultRequestType,
     #[label]
     http_response_status_code: VaultFailureStatusCode,
+}
+
+// Credential Events preserve each operation's log schema:
+// reads carry `credential_key`, while writes and deletes carry only `error`.
+// Separate types let all four paths share the failure counter without
+// changing those operator-facing fields.
+
+/// `VaultCredentialsNotFound` treats HTTP `404` as an expected absence: it
+/// moves the failure counter, retains the `DEBUG` record, and lets the caller
+/// return `None`.
+#[derive(Event)]
+#[event(
+    event_name = "vault_credentials_not_found",
+    metric_name = "carbide_api_vault_requests_failed_total",
+    component = "nico-api",
+    log = debug,
+    metric = counter,
+    message = "Credentials not found",
+    describe = "Number of failed Vault requests"
+)]
+struct VaultCredentialsNotFound {
+    #[label]
+    request_type: VaultRequestType,
+    #[label]
+    http_response_status_code: VaultFailureStatusCode,
+    #[context]
+    credential_key: String,
+}
+
+/// `VaultCredentialsGetFailed` pairs a non-`404` read failure with its
+/// existing `ERROR` record before the error returns to the caller.
+#[derive(Event)]
+#[event(
+    event_name = "vault_credentials_get_failed",
+    metric_name = "carbide_api_vault_requests_failed_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Error getting credentials",
+    describe = "Number of failed Vault requests"
+)]
+struct VaultCredentialsGetFailed {
+    #[label]
+    request_type: VaultRequestType,
+    #[label]
+    http_response_status_code: VaultFailureStatusCode,
+    #[context]
+    credential_key: String,
+    #[context]
+    error: String,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "vault_credentials_set_failed",
+    metric_name = "carbide_api_vault_requests_failed_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Error setting credentials",
+    describe = "Number of failed Vault requests"
+)]
+struct VaultCredentialsSetFailed {
+    #[label]
+    request_type: VaultRequestType,
+    #[label]
+    http_response_status_code: VaultFailureStatusCode,
+    #[context]
+    error: String,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "vault_credentials_delete_failed",
+    metric_name = "carbide_api_vault_requests_failed_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Error deleting credentials",
+    describe = "Number of failed Vault requests"
+)]
+struct VaultCredentialsDeleteFailed {
+    #[label]
+    request_type: VaultRequestType,
+    #[label]
+    http_response_status_code: VaultFailureStatusCode,
+    #[context]
+    error: String,
 }
 
 /// The wall-clock duration of an outbound Vault request, in whole
@@ -332,7 +419,7 @@ async fn vault_token_refresh(
             });
             let auth_info = vault_response
                 .inspect_err(|err| {
-                    record_vault_client_error(err, VaultRequestType::ServiceAccountLogin);
+                    record_vault_service_account_error(err);
                 })
                 .wrap_err("failed to execute kubernetes service account login request")?;
 
@@ -520,24 +607,13 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
                 Ok(Some(creds))
             }
             Err(ce) => {
-                let status_code = record_vault_client_error(&ce, VaultRequestType::GetCredentials);
+                let status_code = record_vault_credentials_get_error(&ce, self.key);
                 match status_code {
                     Some(404) => {
                         // Not found errors are common and of no concern
-                        tracing::debug!(
-                            credential_key = %self.key.to_key_str(),
-                            "Credentials not found",
-                        );
                         Ok(None)
                     }
-                    _ => {
-                        tracing::error!(
-                            credential_key = %self.key.to_key_str(),
-                            error = ?ce,
-                            "Error getting credentials",
-                        );
-                        Err(SecretsError::GenericError(ce.into()))
-                    }
+                    _ => Err(SecretsError::GenericError(ce.into())),
                 }
             }
         }
@@ -547,17 +623,73 @@ impl VaultTask<Option<Credentials>> for GetCredentialsHelper<'_, '_> {
 /// Tracks client errors if an invocation to a Vault server failed
 ///
 /// Returns the status code of the HTTP request if available
-fn record_vault_client_error(err: &ClientError, request_type: VaultRequestType) -> Option<u16> {
-    let status_code = match err {
-        ClientError::APIError { code, errors: _ } => Some(*code),
-        _ => None,
-    };
-
+fn record_vault_metric_only_error(
+    err: &ClientError,
+    request_type: VaultRequestType,
+) -> Option<u16> {
+    let status_code = vault_client_error_status(err);
     emit(VaultRequestFailed {
         request_type,
         http_response_status_code: VaultFailureStatusCode(status_code),
     });
+    status_code
+}
 
+fn record_vault_service_account_error(err: &ClientError) -> Option<u16> {
+    record_vault_metric_only_error(err, VaultRequestType::ServiceAccountLogin)
+}
+
+fn record_vault_certificate_error(err: &ClientError) -> Option<u16> {
+    record_vault_metric_only_error(err, VaultRequestType::GetCertificate)
+}
+
+fn vault_client_error_status(err: &ClientError) -> Option<u16> {
+    match err {
+        ClientError::APIError { code, errors: _ } => Some(*code),
+        _ => None,
+    }
+}
+
+fn record_vault_credentials_get_error(
+    err: &ClientError,
+    credential_key: &CredentialKey,
+) -> Option<u16> {
+    let status_code = vault_client_error_status(err);
+    let credential_key = credential_key.to_key_str().into_owned();
+    if status_code == Some(404) {
+        emit(VaultCredentialsNotFound {
+            request_type: VaultRequestType::GetCredentials,
+            http_response_status_code: VaultFailureStatusCode(status_code),
+            credential_key,
+        });
+    } else {
+        emit(VaultCredentialsGetFailed {
+            request_type: VaultRequestType::GetCredentials,
+            http_response_status_code: VaultFailureStatusCode(status_code),
+            credential_key,
+            error: format!("{err:?}"),
+        });
+    }
+    status_code
+}
+
+fn record_vault_credentials_set_error(err: &ClientError) -> Option<u16> {
+    let status_code = vault_client_error_status(err);
+    emit(VaultCredentialsSetFailed {
+        request_type: VaultRequestType::SetCredentials,
+        http_response_status_code: VaultFailureStatusCode(status_code),
+        error: format!("{err:?}"),
+    });
+    status_code
+}
+
+fn record_vault_credentials_delete_error(err: &ClientError) -> Option<u16> {
+    let status_code = vault_client_error_status(err);
+    emit(VaultCredentialsDeleteFailed {
+        request_type: VaultRequestType::DeleteCredentials,
+        http_response_status_code: VaultFailureStatusCode(status_code),
+        error: format!("{err:?}"),
+    });
     status_code
 }
 
@@ -608,10 +740,8 @@ impl VaultTask<()> for SetCredentialsHelper<'_, '_> {
             duration_ms: elapsed_request_duration,
         });
 
-        let _secret_version_metadata = vault_response.map_err(|err| {
-            record_vault_client_error(&err, VaultRequestType::SetCredentials);
-            tracing::error!(error = ?err, "Error setting credentials");
-            err
+        let _secret_version_metadata = vault_response.inspect_err(|err| {
+            record_vault_credentials_set_error(err);
         })?;
 
         emit(VaultRequestSucceeded {
@@ -647,10 +777,8 @@ impl VaultTask<()> for DeleteCredentialsHelper<'_, '_> {
             duration_ms: elapsed_request_duration,
         });
 
-        let _secret_version_metadata = vault_response.map_err(|err| {
-            record_vault_client_error(&err, VaultRequestType::DeleteCredentials);
-            tracing::error!(error = ?err, "Error deleting credentials");
-            err
+        let _secret_version_metadata = vault_response.inspect_err(|err| {
+            record_vault_credentials_delete_error(err);
         })?;
 
         emit(VaultRequestSucceeded {
@@ -785,7 +913,7 @@ impl VaultTask<Certificate> for GetCertificateHelper {
         });
 
         let generate_certificate_response = vault_response.inspect_err(|err| {
-            record_vault_client_error(err, VaultRequestType::GetCertificate);
+            record_vault_certificate_error(err);
         })?;
 
         emit(VaultRequestSucceeded {
@@ -1485,6 +1613,262 @@ mod tests {
                 },
             ],
             |status| status.label_value().to_string(),
+        );
+    }
+
+    /// Every Vault client failure moves the existing counter. This table pins
+    /// the operation split: credential helpers retain their log records, while
+    /// service-account and certificate failures remain metric-only here.
+    #[test]
+    fn vault_request_failures_count_and_log_by_request_type() {
+        use carbide_instrument::testing::{MetricsCapture, capture_logs};
+        use carbide_test_support::{Check, check_values};
+        use vaultrs::error::ClientError;
+
+        use super::{
+            VaultRequestType, record_vault_certificate_error,
+            record_vault_credentials_delete_error, record_vault_credentials_get_error,
+            record_vault_credentials_set_error, record_vault_service_account_error,
+        };
+        use crate::credentials::CredentialKey;
+
+        #[derive(Clone, Copy)]
+        struct FailureInput {
+            request_type: VaultRequestType,
+            request_type_label: &'static str,
+            status_code: u16,
+            error: &'static str,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct ObservedLog {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            request_type: Option<String>,
+            http_response_status_code: Option<String>,
+            credential_key: Option<String>,
+            error: Option<String>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct FailureObservation {
+            status_code: Option<u16>,
+            metric_delta: f64,
+            logs: Vec<ObservedLog>,
+        }
+
+        fn client_error_text(status_code: u16, error: &str) -> String {
+            format!(
+                "{:?}",
+                ClientError::APIError {
+                    code: status_code,
+                    errors: vec![error.to_string()],
+                }
+            )
+        }
+
+        fn expected_log(
+            level: tracing::Level,
+            metadata_name: &str,
+            message: &str,
+            request_type: &str,
+            status_code: u16,
+            credential_key: Option<String>,
+            error: Option<String>,
+        ) -> Vec<ObservedLog> {
+            vec![ObservedLog {
+                level,
+                metadata_name: metadata_name.to_string(),
+                message: message.to_string(),
+                event_name: Some(metadata_name.to_string()),
+                metric_name: Some("carbide_api_vault_requests_failed_total".to_string()),
+                request_type: Some(request_type.to_string()),
+                http_response_status_code: Some(status_code.to_string()),
+                credential_key,
+                error,
+            }]
+        }
+
+        let credential_key = CredentialKey::UfmAuth {
+            fabric: "vault-failure-test".to_string(),
+        };
+        let credential_key_string = credential_key.to_key_str().into_owned();
+
+        check_values(
+            [
+                Check {
+                    scenario: "credential not found",
+                    input: FailureInput {
+                        request_type: VaultRequestType::GetCredentials,
+                        request_type_label: "get_credentials",
+                        status_code: 404,
+                        error: "credential not found",
+                    },
+                    expect: FailureObservation {
+                        status_code: Some(404),
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            tracing::Level::DEBUG,
+                            "vault_credentials_not_found",
+                            "Credentials not found",
+                            "get_credentials",
+                            404,
+                            Some(credential_key_string.clone()),
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "credential read failed",
+                    input: FailureInput {
+                        request_type: VaultRequestType::GetCredentials,
+                        request_type_label: "get_credentials",
+                        status_code: 403,
+                        error: "credential read failed",
+                    },
+                    expect: FailureObservation {
+                        status_code: Some(403),
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            tracing::Level::ERROR,
+                            "vault_credentials_get_failed",
+                            "Error getting credentials",
+                            "get_credentials",
+                            403,
+                            Some(credential_key_string),
+                            Some(client_error_text(403, "credential read failed")),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "credential write failed",
+                    input: FailureInput {
+                        request_type: VaultRequestType::SetCredentials,
+                        request_type_label: "set_credentials",
+                        status_code: 500,
+                        error: "credential write failed",
+                    },
+                    expect: FailureObservation {
+                        status_code: Some(500),
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            tracing::Level::ERROR,
+                            "vault_credentials_set_failed",
+                            "Error setting credentials",
+                            "set_credentials",
+                            500,
+                            None,
+                            Some(client_error_text(500, "credential write failed")),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "credential delete failed",
+                    input: FailureInput {
+                        request_type: VaultRequestType::DeleteCredentials,
+                        request_type_label: "delete_credentials",
+                        status_code: 503,
+                        error: "credential delete failed",
+                    },
+                    expect: FailureObservation {
+                        status_code: Some(503),
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            tracing::Level::ERROR,
+                            "vault_credentials_delete_failed",
+                            "Error deleting credentials",
+                            "delete_credentials",
+                            503,
+                            None,
+                            Some(client_error_text(503, "credential delete failed")),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "service account login caller owns its log",
+                    input: FailureInput {
+                        request_type: VaultRequestType::ServiceAccountLogin,
+                        request_type_label: "service_account_login",
+                        status_code: 401,
+                        error: "service account login failed",
+                    },
+                    expect: FailureObservation {
+                        status_code: Some(401),
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "certificate caller owns its log",
+                    input: FailureInput {
+                        request_type: VaultRequestType::GetCertificate,
+                        request_type_label: "get_certificate",
+                        status_code: 502,
+                        error: "certificate request failed",
+                    },
+                    expect: FailureObservation {
+                        status_code: Some(502),
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+            ],
+            |input| {
+                let error = ClientError::APIError {
+                    code: input.status_code,
+                    errors: vec![input.error.to_string()],
+                };
+                let metrics = MetricsCapture::start();
+                let mut status_code = None;
+                let logs = capture_logs(|| {
+                    status_code = match input.request_type {
+                        VaultRequestType::ServiceAccountLogin => {
+                            record_vault_service_account_error(&error)
+                        }
+                        VaultRequestType::GetCertificate => record_vault_certificate_error(&error),
+                        VaultRequestType::GetCredentials => {
+                            record_vault_credentials_get_error(&error, &credential_key)
+                        }
+                        VaultRequestType::SetCredentials => {
+                            record_vault_credentials_set_error(&error)
+                        }
+                        VaultRequestType::DeleteCredentials => {
+                            record_vault_credentials_delete_error(&error)
+                        }
+                    };
+                });
+                let status_label = input.status_code.to_string();
+
+                FailureObservation {
+                    status_code,
+                    metric_delta: metrics.counter_delta(
+                        "carbide_api_vault_requests_failed_total",
+                        &[
+                            ("request_type", input.request_type_label),
+                            ("http_response_status_code", status_label.as_str()),
+                        ],
+                    ),
+                    logs: logs
+                        .iter()
+                        .map(|log| ObservedLog {
+                            level: log.level,
+                            metadata_name: log.metadata_name.clone(),
+                            message: log.message.clone(),
+                            event_name: log.field("event_name").map(str::to_string),
+                            metric_name: log.field("metric_name").map(str::to_string),
+                            request_type: log.field("request_type").map(str::to_string),
+                            http_response_status_code: log
+                                .field("http_response_status_code")
+                                .map(str::to_string),
+                            credential_key: log.field("credential_key").map(str::to_string),
+                            error: log.field("error").map(str::to_string),
+                        })
+                        .collect(),
+                }
+            },
         );
     }
 
