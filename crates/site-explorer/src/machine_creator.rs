@@ -231,7 +231,7 @@ impl MachineCreator {
 
             let host_machine_id = match existing_managed_host_ids.as_slice() {
                 [host_machine_id] => *host_machine_id,
-                host_machine_ids @ _ => {
+                host_machine_ids => {
                     let existing_dpu_ids = existing_dpu_ids.iter().join(", ");
                     let existing_host_ids = host_machine_ids.iter().join(", ");
                     let msg = "DPU's from exploration report exist but are members of different managed hosts. exploration results are inconsistent";
