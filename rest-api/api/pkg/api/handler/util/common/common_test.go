@@ -2987,18 +2987,25 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 	tests := []struct {
 		name     string
 		tenant   *cdbm.Tenant
+		scope    *TenantPrivilegeScope
 		expected bool
+		wantErr  bool
 	}{
-		{name: "nil tenant", tenant: nil, expected: false},
-		{name: "enabled via Ready TenantAccount", tenant: enabledTenant, expected: true},
-		{name: "disabled TenantAccount config", tenant: disabledTenant, expected: false},
-		{name: "enabled only on non-Ready TenantAccount", tenant: pendingTenant, expected: false},
+		{name: "nil tenant", tenant: nil, scope: nil, expected: false},
+		{name: "nil scope requires explicit scope", tenant: enabledTenant, scope: nil, expected: false, wantErr: true},
+		{name: "enabled via Ready TenantAccount", tenant: enabledTenant, scope: &TenantPrivilegeScope{InfrastructureProviderID: &ip.ID}, expected: true},
+		{name: "disabled TenantAccount config", tenant: disabledTenant, scope: &TenantPrivilegeScope{InfrastructureProviderID: &ip.ID}, expected: false},
+		{name: "enabled only on non-Ready TenantAccount", tenant: pendingTenant, scope: &TenantPrivilegeScope{InfrastructureProviderID: &ip.ID}, expected: false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tc.tenant, nil)
-			assert.Nil(t, gerr)
+			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tc.tenant, tc.scope)
+			if tc.wantErr {
+				assert.Error(t, gerr)
+			} else {
+				assert.Nil(t, gerr)
+			}
 			assert.Equal(t, tc.expected, got)
 		})
 	}
@@ -3037,14 +3044,14 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 		site     *cdbm.Site
 		expected bool
 	}{
-		{name: "global default when no override", site: site, expected: true},
+		{name: "TenantSite without explicit override is not privileged", site: site, expected: false},
 		{name: "limited override disables site", site: site2, expected: false},
 		{name: "global default when no tenant_site override", site: site3, expected: true},
 	}
 
 	for _, tc := range siteTests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, SiteScope(tc.site))
+			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, &TenantPrivilegeScope{SiteID: &tc.site.ID})
 			assert.Nil(t, gerr)
 			assert.Equal(t, tc.expected, got)
 		})
@@ -3057,8 +3064,9 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 	_ = ts2
 
 	// A Tenant whose Ready TenantAccount global default is disabled but which
-	// has a per-site override enabling the capability must pass the coarse
-	// (nil scope) ceiling used by the privileged-tenant precheck.
+	// has a per-site override enabling the capability must pass a Site-scoped
+	// check for that Site. Provider-scoped checks still follow the account
+	// global default and remain false.
 	overrideTenant, err := tnDAO.Create(ctx, nil, cdbm.TenantCreateInput{
 		Name:      "override-tenant",
 		Org:       effOrg + "-override-tenant",
@@ -3078,16 +3086,20 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 	})
 	assert.Nil(t, err)
 
-	// Coarse ceiling is false before any enabling override exists.
-	got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, overrideTenant, nil)
+	// Provider-scoped check is false before any enabling override exists.
+	got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, overrideTenant, &TenantPrivilegeScope{InfrastructureProviderID: &effIP.ID})
 	assert.Nil(t, gerr)
 	assert.False(t, got)
 
 	cdbm.TestBuildTenantSite(t, dbSession, overrideTenant, site, &cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)}, effUser)
 
-	got, gerr = TenantHasTargetedInstanceCreation(ctx, nil, dbSession, overrideTenant, nil)
+	got, gerr = TenantHasTargetedInstanceCreation(ctx, nil, dbSession, overrideTenant, &TenantPrivilegeScope{SiteID: &site.ID})
 	assert.Nil(t, gerr)
 	assert.True(t, got)
+
+	got, gerr = TenantHasTargetedInstanceCreation(ctx, nil, dbSession, overrideTenant, &TenantPrivilegeScope{InfrastructureProviderID: &effIP.ID})
+	assert.Nil(t, gerr)
+	assert.False(t, got)
 
 	// Provider-scoped ceiling: enabled on ip but not on ip2.
 	got, gerr = TenantHasTargetedInstanceCreation(ctx, nil, dbSession, enabledTenant, &TenantPrivilegeScope{InfrastructureProviderID: &ip.ID})

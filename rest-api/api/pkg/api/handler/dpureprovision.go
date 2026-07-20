@@ -101,8 +101,7 @@ func (h ReprovisionMachineDpuHandler) Handle(c echo.Context) error {
 	// Machine's Provider and Site so privilege is verified where the operation
 	// lands, not against some unrelated Site the Tenant happens to be privileged on.
 	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{
-		InfrastructureProviderID: &machine.InfrastructureProviderID,
-		SiteID:                   &machine.SiteID,
+		SiteID: &machine.SiteID,
 	})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)

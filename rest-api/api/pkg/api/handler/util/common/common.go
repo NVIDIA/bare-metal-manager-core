@@ -1523,34 +1523,18 @@ func IsTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session
 //
 // The scope pointer's presence is itself the "require privileged" signal for
 // the auth gates (IsTenant / IsProviderOrTenant): a nil *TenantPrivilegeScope
-// means no privilege is required. For TenantHasTargetedInstanceCreation the
-// fields select how the capability is resolved:
+// means no privilege is required. For TenantHasTargetedInstanceCreation a
+// non-nil scope is required and the fields select how the capability is
+// resolved:
 //
-//   - both fields nil (or a nil scope): the coarse ceiling — privileged if the
-//     capability is effective on any Site of any Provider the Tenant has a Ready
-//     TenantAccount with. Use only where no Provider/Site context exists yet;
-//     it can report privileged based on a different Provider than the one the
-//     request ultimately targets.
-//   - SiteID set (InfrastructureProviderID optional, but preferred when known):
-//     resolve the effective capability for that exact Site.
-//   - only InfrastructureProviderID set: privileged if the capability is
-//     effective on any Site under that Provider.
+//   - SiteID set: resolve the effective capability for that exact Site.
+//   - InfrastructureProviderID set: privileged if the Ready TenantAccount for
+//     that Provider has TargetedInstanceCreation enabled globally.
+//
+// SiteID and InfrastructureProviderID must not be set together.
 type TenantPrivilegeScope struct {
 	InfrastructureProviderID *uuid.UUID
 	SiteID                   *uuid.UUID
-}
-
-// SiteScope builds a TenantPrivilegeScope that resolves the effective
-// capability for the given Site. It returns nil for a nil Site so callers can
-// forward an optional Site directly.
-func SiteScope(site *cdbm.Site) *TenantPrivilegeScope {
-	if site == nil {
-		return nil
-	}
-	return &TenantPrivilegeScope{
-		InfrastructureProviderID: &site.InfrastructureProviderID,
-		SiteID:                   &site.ID,
-	}
 }
 
 // TenantHasTargetedInstanceCreation reports whether the Tenant has the

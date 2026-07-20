@@ -625,8 +625,7 @@ func (gmh GetMachineHandler) Handle(c echo.Context) error {
 		isProviderOrPrivilegedTenant = true
 	} else if tenant != nil {
 		enabledForSite, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, gmh.dbSession, tenant, &common.TenantPrivilegeScope{
-			SiteID:                   &machine.SiteID,
-			InfrastructureProviderID: &machine.InfrastructureProviderID,
+			SiteID: &machine.SiteID,
 		})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error checking effective targeted instance creation for Machine's Site")
@@ -770,8 +769,7 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 	if tenant != nil {
 		// Check if Tenant is privileged
 		enabledForSite, serr := common.TenantHasTargetedInstanceCreation(ctx, nil, umh.dbSession, tenant, &common.TenantPrivilegeScope{
-			SiteID:                   &machine.SiteID,
-			InfrastructureProviderID: &machine.InfrastructureProviderID,
+			SiteID: &machine.SiteID,
 		})
 		if serr != nil {
 			logger.Error().Err(serr).Msg("error checking effective targeted instance creation for Machine's Site")
@@ -2039,7 +2037,7 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 
 	// Validate role: Provider Admins, or privileged Tenant Admins. Scope DPU
 	// access to the Machine's Site so capability/ownership rules are enforced.
-	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gadmh.dbSession, org, dbUser, false, common.SiteScope(site))
+	provider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gadmh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
