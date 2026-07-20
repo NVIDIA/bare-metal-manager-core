@@ -28,8 +28,11 @@ use model::site_explorer::{
     NicMode,
 };
 
-/// EndpointExplorer which returns predefined data
-#[derive(Clone, Default, Debug)]
+/// EndpointExplorer which returns predefined data.
+///
+/// Exploration is served from injected reports. A real explorer can be attached with
+/// [`Self::with_redfish_backend`] so machine setup and boot-order calls still use `RedfishSim`.
+#[derive(Clone, Default)]
 pub struct MockEndpointExplorer {
     pub reports:
         Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
@@ -41,6 +44,7 @@ pub struct MockEndpointExplorer {
     pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
     /// Records IPs that `explore_endpoint` was called for.
     pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
+    redfish_backend: Option<Arc<dyn EndpointExplorer>>,
 }
 
 impl MockEndpointExplorer {
@@ -76,6 +80,11 @@ impl MockEndpointExplorer {
         for (address, result) in endpoints {
             guard.insert(address, result);
         }
+    }
+
+    pub fn with_redfish_backend(mut self, backend: Arc<dyn EndpointExplorer>) -> Self {
+        self.redfish_backend = Some(backend);
+        self
     }
 }
 
@@ -188,20 +197,34 @@ impl EndpointExplorer for MockEndpointExplorer {
 
     async fn machine_setup(
         &self,
-        _address: SocketAddr,
-        _interface: &MachineInterfaceSnapshot,
-        _boot_interface_mac: Option<&str>,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        boot_interface_mac: Option<&str>,
     ) -> Result<(), EndpointExplorationError> {
-        Ok(())
+        match &self.redfish_backend {
+            Some(backend) => {
+                backend
+                    .machine_setup(address, interface, boot_interface_mac)
+                    .await
+            }
+            None => Ok(()),
+        }
     }
 
     async fn set_boot_order_dpu_first(
         &self,
-        _address: SocketAddr,
-        _interface: &MachineInterfaceSnapshot,
-        _boot_interface_mac: &str,
+        address: SocketAddr,
+        interface: &MachineInterfaceSnapshot,
+        boot_interface_mac: &str,
     ) -> Result<(), EndpointExplorationError> {
-        Ok(())
+        match &self.redfish_backend {
+            Some(backend) => {
+                backend
+                    .set_boot_order_dpu_first(address, interface, boot_interface_mac)
+                    .await
+            }
+            None => Ok(()),
+        }
     }
 
     async fn set_nic_mode(

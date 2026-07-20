@@ -40,7 +40,7 @@ use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
-use carbide_site_explorer::SiteExplorer;
+use carbide_site_explorer::{EndpointExplorationLocks, SiteExplorer};
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -727,6 +727,10 @@ pub async fn start_api(
         None
     };
 
+    // Shared between the API's `RefreshEndpointReport` handler and the site-explorer loop so they
+    // never probe the same endpoint at once. In-process only; see `EndpointExplorationLocks`.
+    let endpoint_exploration_locks = EndpointExplorationLocks::default();
+
     let api_service = Arc::new(Api {
         certificate_provider,
         common_pools,
@@ -743,6 +747,7 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxc_client_pool: shared_nmxc_pool.clone(),
         work_lock_manager_handle,
+        endpoint_exploration_locks,
         dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
@@ -809,6 +814,7 @@ pub async fn initialize_and_start_controllers<'a>(
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
         work_lock_manager_handle,
+        endpoint_exploration_locks,
         rms_client,
         dpf_sdk,
         credential_manager,
@@ -1321,6 +1327,7 @@ pub async fn initialize_and_start_controllers<'a>(
         rms_client.clone(),
         credential_manager.clone(),
     )
+    .with_endpoint_exploration_locks(endpoint_exploration_locks.clone())
     .start(join_set, cancel_token.clone())?;
 
     MachineUpdateManager::new(

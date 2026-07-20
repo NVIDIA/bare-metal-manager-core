@@ -40,8 +40,8 @@ use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_nvlink_manager::nvlink::test_support::NmxcSimClient;
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
-use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use carbide_site_explorer::{EndpointExplorationLocks, EndpointExplorer, SiteExplorer};
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -1621,6 +1621,9 @@ pub async fn create_test_env_with_overrides(
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         SiteExplorerExploreMode::NvRedfish,
     );
+    let fake_endpoint_explorer = MockEndpointExplorer::default().with_redfish_backend(bmc_explorer);
+    let endpoint_explorer: Arc<dyn EndpointExplorer> = Arc::new(fake_endpoint_explorer.clone());
+    let endpoint_exploration_locks = EndpointExplorationLocks::default();
 
     let reachability_params = ReachabilityParams {
         dpu_wait_time: Duration::seconds(0),
@@ -1646,12 +1649,13 @@ pub async fn create_test_env_with_overrides(
         common_pools: common_pools.clone(),
         ib_fabric_manager: ib_fabric_manager.clone(),
         dynamic_settings: dyn_settings,
-        endpoint_explorer: bmc_explorer,
+        endpoint_explorer: endpoint_explorer.clone(),
         dpu_health_log_limiter: LogLimiter::default(),
         scout_stream_registry: scout_stream::ConnectionRegistry::new(),
         rms_client: rms_sim.as_rms_client(),
         nmxc_client_pool: nmxc_sim.clone(),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
+        endpoint_exploration_locks: endpoint_exploration_locks.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
         component_manager: None,
@@ -1853,14 +1857,6 @@ pub async fn create_test_env_with_overrides(
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build RackStateController");
 
-    let fake_endpoint_explorer = MockEndpointExplorer {
-        reports: Arc::new(std::sync::Mutex::new(Default::default())),
-        power_states: Arc::new(std::sync::Mutex::new(Default::default())),
-        redfish_power_control_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-        set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-        explore_endpoint_calls: Arc::new(std::sync::Mutex::new(Default::default())),
-    };
-
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one
     // on its own. TestEnv's site_explorer is a separate instance talking to the same database that
     // *is* enabled, so it gets a different config. The purpose is so that tests can manually run
@@ -1894,13 +1890,14 @@ pub async fn create_test_env_with_overrides(
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },
         test_meter.meter(),
-        Arc::new(fake_endpoint_explorer.clone()),
+        endpoint_explorer,
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_sim.as_rms_client(),
         credential_manager.clone(),
-    );
+    )
+    .with_endpoint_exploration_locks(endpoint_exploration_locks);
 
     // Create some instance types
     let mut txn = api.txn_begin().await.unwrap();
