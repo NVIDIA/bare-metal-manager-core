@@ -109,15 +109,42 @@ config/schemas/
 └── ...
 ```
 
-### Taplo configuration
+### Taplo — operator tooling
 
-`.taplo.toml` at the repo root associates schemas with the operator-facing config files in `deploy/`:
+[Taplo](https://taplo.tamasfe.dev/) is a TOML language server. With the Taplo VS Code extension or JetBrains TOML plugin installed, `.taplo.toml` at the repo root automatically associates schemas with config files in `deploy/`, giving operators real-time diagnostics, type checking, and autocomplete while editing.
 
 ```toml
+# .taplo.toml
 [[rule]]
 include = ["deploy/**/config-files/*.toml"]
 schema = { path = "config/schemas/" }
 ```
+
+`taplo check` can also be run from the command line or in CI to validate files against their associated schemas. Note: `taplo-common` (where Taplo's schema validation logic lives) is explicitly not intended for use as an external library — Taplo is a developer and operator tool only.
+
+### `jsonschema` — startup validation
+
+The `jsonschema` Rust crate validates `serde_json::Value` documents against JSON Schema. Since `FileConfigStoreBuilder::build()` already extracts the merged config as a `serde_json::Value`, schema validation is a natural additional step before returning the `ConfigStore`.
+
+Schema files are embedded at compile time with `include_str!`, so no schema file is required at runtime and a missing schema is a compile error:
+
+```rust
+const GENERAL_SCHEMA: &str = include_str!("../../../config/schemas/general.json");
+
+// Inside build():
+let schema: serde_json::Value = serde_json::from_str(GENERAL_SCHEMA).unwrap();
+let compiled = JSONSchema::compile(&schema).unwrap();
+if let Err(errors) = compiled.validate(&value) {
+    for error in errors {
+        tracing::error!(path = %error.instance_path, message = %error, "config validation error");
+    }
+    return Err(ConfigError::Parse { path: self.base });
+}
+```
+
+Validation errors include the field path (`instance_path`) and a human-readable message, so the operator knows exactly which field is wrong before the service exits.
+
+The two tools cover different moments in the workflow: Taplo catches errors while the operator is editing; `jsonschema` catches anything that slips through at service startup. Both validate against the same schema files.
 
 ### Schema requirements
 
