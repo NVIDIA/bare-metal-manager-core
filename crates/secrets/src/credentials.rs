@@ -278,7 +278,7 @@ impl<R: CredentialReader, W: CredentialWriter> CredentialManager
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum CredentialType {
-    DpuHardwareDefault,
+    DpuHardwareDefault { model: bmc_vendor::DpuModel },
     HostHardwareDefault { vendor: bmc_vendor::BMCVendor },
     SiteDefault,
 }
@@ -521,6 +521,17 @@ impl CredentialPrefix {
     }
 }
 
+/// Returns the vault path segment for a `DpuModel`. `Unknown` maps to `"root"` to
+/// preserve backward compatibility with the pre-per-model vault entry.
+fn dpu_model_vault_segment(model: bmc_vendor::DpuModel) -> &'static str {
+    match model {
+        bmc_vendor::DpuModel::BlueField2 => "bf2",
+        bmc_vendor::DpuModel::BlueField3 => "bf3",
+        bmc_vendor::DpuModel::BlueField4 => "bf4",
+        bmc_vendor::DpuModel::Unknown => "root",
+    }
+}
+
 impl CredentialKey {
     /// Resolve the site-wide host UEFI credential key for `version`, the
     /// table-driven "current site-wide host UEFI credential" lookup: a caller
@@ -595,8 +606,11 @@ impl CredentialKey {
                 Cow::from(format!("machines/{machine_id}/dpu-hbn"))
             }
             CredentialKey::DpuRedfish { credential_type } => match credential_type {
-                CredentialType::DpuHardwareDefault => {
-                    Cow::from("machines/all_dpus/factory_default/bmc-metadata-items/root")
+                CredentialType::DpuHardwareDefault { model } => {
+                    let segment = dpu_model_vault_segment(*model);
+                    Cow::from(format!(
+                        "machines/all_dpus/factory_default/bmc-metadata-items/{segment}"
+                    ))
                 }
                 CredentialType::SiteDefault => {
                     Cow::from("machines/all_dpus/site_default/bmc-metadata-items/root")
@@ -614,7 +628,7 @@ impl CredentialKey {
                 CredentialType::SiteDefault => {
                     Cow::from("machines/all_hosts/site_default/bmc-metadata-items/root")
                 }
-                CredentialType::DpuHardwareDefault => {
+                CredentialType::DpuHardwareDefault { .. } => {
                     unreachable!(
                         "HostRedfish / DpuHardwareDefault is an invalid credential combination"
                     );
@@ -622,7 +636,7 @@ impl CredentialKey {
             },
             CredentialKey::UfmAuth { fabric } => Cow::from(format!("ufm/{fabric}/auth")),
             CredentialKey::DpuUefi { credential_type } => match credential_type {
-                CredentialType::DpuHardwareDefault => {
+                CredentialType::DpuHardwareDefault { .. } => {
                     Cow::from("machines/all_dpus/factory_default/uefi-metadata-items/auth")
                 }
                 CredentialType::SiteDefault => {
@@ -971,10 +985,24 @@ mod tests {
                     expect: PathChecks::all_hold(),
                 },
                 Check {
-                    scenario: "dpu redfish hardware default",
+                    scenario: "dpu redfish hardware default (unknown/root)",
                     input: Row {
                         key: CredentialKey::DpuRedfish {
-                            credential_type: CredentialType::DpuHardwareDefault,
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::Unknown,
+                            },
+                        },
+                        expected_prefix: "machines/all_dpus/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "dpu redfish hardware default (bf3)",
+                    input: Row {
+                        key: CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::BlueField3,
+                            },
                         },
                         expected_prefix: "machines/all_dpus/",
                     },
@@ -1026,7 +1054,9 @@ mod tests {
                     scenario: "dpu uefi hardware default",
                     input: Row {
                         key: CredentialKey::DpuUefi {
-                            credential_type: CredentialType::DpuHardwareDefault,
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::Unknown,
+                            },
                         },
                         expected_prefix: "machines/all_dpus/",
                     },

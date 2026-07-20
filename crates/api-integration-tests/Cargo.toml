@@ -34,6 +34,7 @@ carbide-secrets = { path = "../secrets" }
 carbide-api-core = { path = "../api-core", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 bmc-mock = { path = "../bmc-mock" }
+bmc-vendor = { path = "../bmc-vendor" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized

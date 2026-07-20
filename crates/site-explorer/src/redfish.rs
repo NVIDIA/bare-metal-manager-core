@@ -156,6 +156,28 @@ impl RedfishClient {
         }
     }
 
+    /// Probe the DPU model from the unauthenticated Redfish service root `Product` field.
+    ///
+    /// BlueField BMCs populate `ServiceRoot.Product` with a human-readable model string
+    /// (e.g. `"BlueField-3 DPU"`). This makes a single anonymous `/redfish/v1` call and
+    /// parses that field. Returns `DpuModel::Unknown` on any error or unrecognized string
+    /// so callers can fall back to the catch-all factory credential.
+    pub async fn get_dpu_model_hint(&self, bmc_ip_address: SocketAddr) -> ::bmc_vendor::DpuModel {
+        let client = match self.create_anon_redfish_client(bmc_ip_address).await {
+            Ok(c) => c,
+            Err(_) => return ::bmc_vendor::DpuModel::Unknown,
+        };
+        let service_root = match client.get_service_root().await {
+            Ok(s) => s,
+            Err(_) => return ::bmc_vendor::DpuModel::Unknown,
+        };
+        service_root
+            .product
+            .as_deref()
+            .map(::bmc_vendor::DpuModel::from_service_root_product)
+            .unwrap_or_default()
+    }
+
     pub async fn validate_bmc_credentials(
         &self,
         bmc_ip_address: SocketAddr,

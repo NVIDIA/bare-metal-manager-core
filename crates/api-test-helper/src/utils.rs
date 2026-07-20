@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
+use bmc_vendor;
 use carbide_secrets::credentials::{
     CredentialKey, CredentialType, CredentialWriter, Credentials, NicLockdownIkm,
 };
@@ -330,7 +331,9 @@ pub async fn populate_initial_vault_secrets(
     credential_manager
         .set_credentials(
             &CredentialKey::DpuUefi {
-                credential_type: CredentialType::DpuHardwareDefault,
+                credential_type: CredentialType::DpuHardwareDefault {
+                    model: bmc_vendor::DpuModel::Unknown,
+                },
             },
             &Credentials::UsernamePassword {
                 username: "root".to_string(),

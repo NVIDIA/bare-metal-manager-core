@@ -69,6 +69,74 @@ impl From<&str> for BMCVendor {
     }
 }
 
+/// DPU generation / model identifier used to key per-model factory default credentials.
+///
+/// The `Display` impl produces the lowercase vault path segment ("bf3", "bf4", ...).
+/// `Unknown` maps to "unknown" for new vault paths; existing deployments keep their
+/// legacy entry at `machines/all_dpus/factory_default/bmc-metadata-items/root`, which
+/// the credential key encoding maps `Unknown` to for backward compatibility.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    Hash,
+    Eq,
+    PartialEq,
+    clap::ValueEnum,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub enum DpuModel {
+    BlueField2,
+    BlueField3,
+    BlueField4,
+    #[serde(other)]
+    #[default]
+    Unknown,
+}
+
+impl fmt::Display for DpuModel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            DpuModel::BlueField2 => "bf2",
+            DpuModel::BlueField3 => "bf3",
+            DpuModel::BlueField4 => "bf4",
+            DpuModel::Unknown => "unknown",
+        };
+        write!(f, "{s}")
+    }
+}
+
+impl From<&str> for DpuModel {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "bf2" => DpuModel::BlueField2,
+            "bf3" => DpuModel::BlueField3,
+            "bf4" => DpuModel::BlueField4,
+            _ => DpuModel::Unknown,
+        }
+    }
+}
+
+impl DpuModel {
+    /// Identify the DPU generation from the Redfish service root `Product` field,
+    /// which BlueField BMCs set to a human-readable model string (e.g. "BlueField-3 DPU").
+    /// Returns `Unknown` for unrecognized strings so callers can fall back gracefully.
+    pub fn from_service_root_product(product: &str) -> Self {
+        let lower = product.to_lowercase();
+        if lower.contains("bluefield-2") || lower.contains("bluefield 2") {
+            DpuModel::BlueField2
+        } else if lower.contains("bluefield-3") || lower.contains("bluefield 3") {
+            DpuModel::BlueField3
+        } else if lower.contains("bluefield-4") || lower.contains("bluefield 4") {
+            DpuModel::BlueField4
+        } else {
+            DpuModel::Unknown
+        }
+    }
+}
+
 impl BMCVendor {
     /// From the string libudev returns querying the dmi subsystem
     pub fn from_udev_dmi(s: &str) -> BMCVendor {

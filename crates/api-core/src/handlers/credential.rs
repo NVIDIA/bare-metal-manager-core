@@ -199,10 +199,15 @@ pub(crate) async fn create_credential(
             let Some(username) = req.username else {
                 return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             };
+            let model: bmc_vendor::DpuModel = req
+                .vendor
+                .as_deref()
+                .map(bmc_vendor::DpuModel::from)
+                .unwrap_or_default();
             api.credential_manager
                 .set_credentials(
                     &CredentialKey::DpuRedfish {
-                        credential_type: CredentialType::DpuHardwareDefault,
+                        credential_type: CredentialType::DpuHardwareDefault { model },
                     },
                     &Credentials::UsernamePassword { username, password },
                 )

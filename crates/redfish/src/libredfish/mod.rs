@@ -31,6 +31,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
+use bmc_vendor;
 use carbide_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use carbide_utils::HostPortPair;
 use carbide_utils::redfish::BmcAccessInfo;
@@ -196,7 +197,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             let credentials = self
                 .credential_reader()
                 .get_credentials(&CredentialKey::DpuUefi {
-                    credential_type: CredentialType::DpuHardwareDefault,
+                    credential_type: CredentialType::DpuHardwareDefault {
+                        model: bmc_vendor::DpuModel::Unknown,
+                    },
                 })
                 .await?
                 .unwrap_or(Credentials::UsernamePassword {

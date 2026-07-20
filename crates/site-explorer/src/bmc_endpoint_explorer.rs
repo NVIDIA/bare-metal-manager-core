@@ -176,9 +176,11 @@ impl BmcEndpointExplorer {
         })
     }
 
-    fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
+    async fn get_dpu_factory_default_credentials(&self, bmc_ip_address: SocketAddr) -> Credentials {
+        let model = self.redfish_client.get_dpu_model_hint(bmc_ip_address).await;
         self.credential_client
-            .get_default_hardware_dpu_bmc_root_credentials()
+            .get_dpu_factory_default_credentials(model)
+            .await
     }
 
     pub async fn get_bmc_root_credentials(
@@ -799,6 +801,19 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     "Site explorer could not find a BMC root credential entry in vault - this is expected if the BMC has never been seen before.",
                 );
 
+                // When no expected entity is present and the vendor is a DPU, look up the
+                // per-model factory default from vault (or fall back to the hardcoded default).
+                // Declared before `bmc_cred_data` so it outlives the borrow.
+                let dpu_factory_creds = if expected.is_none() && vendor == RedfishVendor::NvidiaDpu
+                {
+                    Some(
+                        self.get_dpu_factory_default_credentials(bmc_ip_address)
+                            .await,
+                    )
+                } else {
+                    None
+                };
+
                 let bmc_cred_data = match expected {
                     Some(v) => {
                         tracing::info!(
@@ -811,14 +826,19 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     }
                     None => {
                         tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
-                        // We dont know if this machine is a DPU at this point
-                        // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
                         match vendor {
                             RedfishVendor::NvidiaDpu => {
-                                // This machine is a DPU.
-                                // Try the DPU hardware default password to handle the DPU case
-                                // This password will not work for a Viking host and we will return an error
-                                self.get_default_hardware_dpu_bmc_root_credentials()
+                                // This machine is a DPU. Use the per-model factory default credential
+                                // (looked up above from vault, with hardcoded fallback).
+                                let Credentials::UsernamePassword {
+                                    ref username,
+                                    ref password,
+                                } = *dpu_factory_creds.as_ref().unwrap();
+                                BmcCredentialsData {
+                                    username,
+                                    password,
+                                    retain_credentials: false,
+                                }
                             }
                             _ => {
                                 return Err(EndpointExplorationError::MissingCredentials {
