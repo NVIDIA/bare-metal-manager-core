@@ -112,7 +112,7 @@ where
             crate::machine::lookup_host_machine_ids_by_dpu_ids(&mut *txn, &requested_dpu_ids)
                 .await?
                 .into_iter()
-                .map(|i| i.to_string())
+                .map(|(_dpu_id, host_id)| host_id.to_string())
                 .collect::<Vec<_>>(),
         ]
         .concat()

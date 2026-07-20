@@ -811,14 +811,14 @@ pub async fn find_host_by_dpu_machine_id(
 pub async fn lookup_host_machine_ids_by_dpu_ids(
     conn: impl DbReader<'_>,
     dpu_machine_ids: &[MachineId],
-) -> Result<Vec<MachineId>, DatabaseError> {
-    let query = r#"SELECT mi.machine_id
+) -> Result<HashMap<MachineId, MachineId>, DatabaseError> {
+    let query = r#"SELECT mi.attached_dpu_machine_id, mi.machine_id
         FROM machine_interfaces mi
         WHERE mi.attached_dpu_machine_id != mi.machine_id
         AND mi.interface_type != 'Bmc'
         AND mi.attached_dpu_machine_id = ANY($1)"#;
 
-    sqlx::query_as(query)
+    let dpu_id_host_id_pairs: Vec<(MachineId, MachineId)> = sqlx::query_as(query)
         .bind(
             dpu_machine_ids
                 .iter()
@@ -827,7 +827,9 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
         )
         .fetch_all(conn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(dpu_id_host_id_pairs.into_iter().collect())
 }
 
 /// Return the [`ManagedHostState`] for a machine given its id without returning the whole snapshot.

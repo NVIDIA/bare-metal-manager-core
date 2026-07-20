@@ -952,6 +952,117 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
 }
 
 #[sqlx_test]
+async fn test_all_dpu_interfaces_attach_if_created_after_multi_dpu_machine_creation(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const NUM_DPUS: usize = 2;
+
+    let env = Env::new(pool).await;
+    let creator = machine_creator(&env, machine_creator_config(false));
+    let mock_host = ManagedHostConfig::default().with_dpu_count(NUM_DPUS);
+    let mut fixture = explored_host_fixture(&env, &mock_host).await;
+
+    assert!(
+        creator
+            .create_managed_host(
+                &fixture.host,
+                &mut fixture.host_report,
+                Some(&expected_machine(&mock_host)),
+                &env.pool,
+            )
+            .await?
+    );
+
+    for dpu in &mock_host.dpus {
+        dhcp_discover_dpu_oob_iface(env.api(), env.underlay_segment, dpu.oob_mac_address).await;
+    }
+
+    assert!(
+        !creator
+            .create_managed_host(
+                &fixture.host,
+                &mut EndpointExplorationReport::default(),
+                Some(&expected_machine(&mock_host)),
+                &env.pool,
+            )
+            .await?
+    );
+
+    let mut txn = env.pool.begin().await?;
+    for (dpu_index, dpu) in mock_host.dpus.iter().enumerate() {
+        let dpu_index = dpu_index.try_into().expect("DPU index should fit into u8");
+        let interfaces =
+            db::machine_interface::find_by_mac_address(&mut *txn, dpu.oob_mac_address).await?;
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(
+            interfaces[0].machine_id,
+            Some(fixture.dpu_machine_ids[&dpu_index])
+        );
+        assert_eq!(
+            interfaces[0].attached_dpu_machine_id,
+            Some(fixture.dpu_machine_ids[&dpu_index])
+        );
+    }
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_machine_creator_rejects_partial_dpu_machine_set(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const NUM_DPUS: usize = 2;
+
+    let env = Env::new(pool).await;
+    let creator = machine_creator(&env, machine_creator_config(false));
+    let mock_host = ManagedHostConfig::default().with_dpu_count(NUM_DPUS);
+    let mut fixture = explored_host_fixture(&env, &mock_host).await;
+
+    // Ingest an earlier report containing only the first DPU so that both its machine and its
+    // host association exist. The complete report below should then be rejected as a partial set.
+    let partial_host = ExploredManagedHost {
+        host_bmc_ip: fixture.host.host_bmc_ip,
+        dpus: vec![fixture.host.dpus[0].clone()],
+    };
+    let mut partial_host_report = fixture.host_report.clone();
+    assert!(
+        creator
+            .create_managed_host(
+                &partial_host,
+                &mut partial_host_report,
+                Some(&expected_machine(&mock_host)),
+                &env.pool,
+            )
+            .await?
+    );
+
+    creator
+        .create_managed_host(
+            &fixture.host,
+            &mut fixture.host_report,
+            Some(&expected_machine(&mock_host)),
+            &env.pool,
+        )
+        .await
+        .expect_err("a partial DPU machine set should be rejected");
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::machine::find_one(
+            &mut *txn,
+            &fixture.dpu_machine_ids[&1],
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .is_none()
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
 async fn test_machine_creator_creates_managed_host_with_dpf_disabled(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

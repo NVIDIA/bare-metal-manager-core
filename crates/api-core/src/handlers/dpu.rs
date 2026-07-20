@@ -1043,11 +1043,11 @@ async fn wakeup_host_state_handler_by_dpu_id(
     api: &Api,
     dpu_machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
-    let host_machine =
+    let host_machines_by_dpu_ids =
         db::machine::lookup_host_machine_ids_by_dpu_ids(&mut api.db_reader(), &[*dpu_machine_id])
             .await?;
 
-    if let Some(host_machine_id) = host_machine.first()
+    if let Some(host_machine_id) = host_machines_by_dpu_ids.get(dpu_machine_id)
         && let Err(err) = api
             .machine_state_handler_enqueuer
             .enqueue_object(host_machine_id)

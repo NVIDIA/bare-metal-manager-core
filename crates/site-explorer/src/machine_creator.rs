@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 use std::sync::Arc;
 
 use carbide_rack::rms_node_type::compute_node_type_for_profile;
@@ -190,29 +189,80 @@ impl MachineCreator {
             // is valid.
             let dpu_machine_id = *dpu_report.machine_id_if_valid_report()?;
             dpu_ids.push(dpu_machine_id);
+        }
 
-            let Some(dpu_machine) = self.create_dpu(&mut txn, dpu_report).await? else {
-                // Site explorer has already created a machine for this DPU previously.
-                //
-                // If the DPU's machine is not attached to its machine interface, do so here.
-                // TODO (sp): is this defensive check really neccessary?
-                let configured_dpu_interface =
-                    self.configure_dpu_interface(&mut txn, dpu_report).await?;
-                let reconciled_host = if let Some(host_machine) =
-                    db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id).await?
-                {
-                    self.reconcile_host_admin_addresses(&mut txn, &host_machine.id)
-                        .await?;
-                    true
-                } else {
-                    false
-                };
+        let existing_hosts_by_dpu_id =
+            db::machine::lookup_host_machine_ids_by_dpu_ids(&mut txn, &dpu_ids).await?;
 
-                if configured_dpu_interface || reconciled_host {
-                    txn.commit().await?;
+        if !existing_hosts_by_dpu_id.is_empty() {
+            // TODO: We run this code for every endpoint on every site explorer run, and it is slow.
+            // The call to reconcile_host_admin_addresses below is particularly slow and locks all
+            // network segments. We need to find a good way to know when to skip reconciliation in
+            // the common case when nothing has changed.
+
+            // Steady state case: DPU's already exist, so site explorer must have already created
+            // this managed host (since only site explorer would have created them.) Ensure they're
+            // associated with this machine, then return early.
+
+            let existing_dpu_ids = existing_hosts_by_dpu_id
+                .keys()
+                .copied()
+                .sorted()
+                .dedup()
+                .collect::<Vec<_>>();
+            let existing_managed_host_ids = existing_hosts_by_dpu_id
+                .values()
+                .copied()
+                .sorted()
+                .dedup()
+                .collect::<Vec<_>>();
+
+            if existing_dpu_ids != dpu_ids.iter().copied().sorted().dedup().collect::<Vec<_>>() {
+                // This would only happen if somehow a host endpoint gains/loses a DPU from its endpoint report before we
+                // get a chance to create a managed host for it.
+                let msg = "explored endpoint has a a partial number of DPU's already created";
+                tracing::error!(
+                    dpu_ids = dpu_ids.iter().join(", "),
+                    existing_dpu_ids = existing_dpu_ids.iter().join(", "),
+                    "{msg}",
+                );
+                return Err(SiteExplorerError::internal(msg.to_string()));
+            }
+
+            let host_machine_id = match existing_managed_host_ids.as_slice() {
+                [host_machine_id] => *host_machine_id,
+                host_machine_ids @ _ => {
+                    let existing_dpu_ids = existing_dpu_ids.iter().join(", ");
+                    let existing_host_ids = host_machine_ids.iter().join(", ");
+                    let msg = "DPU's from exploration report exist but are members of different managed hosts. exploration results are inconsistent";
+                    tracing::error!(%existing_dpu_ids, %existing_host_ids, "BUG: {msg}");
+                    return Err(SiteExplorerError::internal(msg.to_string()));
                 }
-                return Ok(false);
             };
+
+            for dpu_report in managed_host.explored_host.dpus.iter() {
+                self.configure_dpu_interface(&mut txn, dpu_report).await?;
+            }
+
+            self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
+                .await?;
+
+            txn.commit().await?;
+            return Ok(false);
+        }
+
+        for (dpu_report, dpu_machine_id) in
+            managed_host.explored_host.dpus.iter().zip(dpu_ids.iter())
+        {
+            let dpu_machine = self
+                .create_dpu(&mut txn, dpu_report)
+                .await?
+                .ok_or_else(|| {
+                    SiteExplorerError::internal(format!(
+                        "BUG: DPU machine {} was already found, but we already verified that it did not exist?",
+                        dpu_machine_id,
+                    ))
+                })?;
 
             let host_machine_id = self
                 .attach_dpu_to_host(&mut txn, &managed_host, dpu_report, machine_data)
