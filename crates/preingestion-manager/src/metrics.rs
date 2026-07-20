@@ -19,7 +19,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{DynamicLog, Event, LabelValue, LogAt, Outcome, emit};
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, Outcome, emit};
 use libredfish::model::task::TaskState;
 use libredfish::{RedfishError, SystemPowerControl};
 use model::firmware::FirmwareComponentType;
@@ -171,18 +171,19 @@ pub(crate) enum FirmwareUploadMethod {
     HttpPush,
 }
 
-/// A preingestion firmware upload to a BMC finished. Metric-only: each upload
-/// site in `initiate_update` keeps its own log line untouched (their messages
-/// differ per route), and this counter is the shared rate beside them. A
-/// multipart attempt a BMC rejects as unsupported counts as a `multipart`
-/// error followed by the `http_push` fallback's own outcome.
+/// A preingestion firmware upload to a BMC finished. Every outcome updates the
+/// counter; failures also own the route-specific log line.
+/// A multipart attempt a BMC rejects as unsupported uses the sibling
+/// [`MultipartFirmwareUploadUnsupported`] Event so that its distinct fallback
+/// message retains the same `multipart,error` metric labels.
 #[derive(Event)]
 #[event(
     event_name = "preingestion_firmware_upload_finished",
     metric_name = "carbide_preingestion_firmware_upload_total",
     component = "preingestion-manager",
-    log = off,
+    log = dynamic,
     metric = counter,
+    message = dynamic,
     describe = "Number of preingestion firmware uploads to a BMC, by upload method and outcome."
 )]
 pub(crate) struct FirmwareUploadFinished {
@@ -190,6 +191,67 @@ pub(crate) struct FirmwareUploadFinished {
     pub method: FirmwareUploadMethod,
     #[label]
     pub outcome: Outcome,
+    #[context]
+    pub bmc_ip_address: IpAddr,
+    /// The Redfish upload failure; empty on success.
+    #[context]
+    pub error: String,
+}
+
+impl DynamicLog for FirmwareUploadFinished {
+    fn log_at(&self) -> LogAt {
+        match (self.method, self.outcome) {
+            (_, Outcome::Ok) => LogAt::Off,
+            (FirmwareUploadMethod::Multipart, Outcome::Error) => LogAt::Level(tracing::Level::WARN),
+            (
+                FirmwareUploadMethod::SimpleUpdate | FirmwareUploadMethod::HttpPush,
+                Outcome::Error,
+            ) => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
+
+impl DynamicMessage for FirmwareUploadFinished {
+    fn message(&self) -> &'static str {
+        match (self.method, self.outcome) {
+            (FirmwareUploadMethod::SimpleUpdate, Outcome::Error) => "Simple firmware update failed",
+            (FirmwareUploadMethod::Multipart, Outcome::Error) => {
+                "Failed to upload firmware via multipart update"
+            }
+            (FirmwareUploadMethod::HttpPush, Outcome::Error) => {
+                "Failed to upload firmware via HttpPushUri"
+            }
+            (_, Outcome::Ok) => "Firmware upload finished",
+        }
+    }
+}
+
+/// A multipart upload was rejected as unsupported and will fall back to
+/// HttpPushUri. It shares the existing upload counter with
+/// [`FirmwareUploadFinished`] while retaining the fallback-specific WARN
+/// message. Its metric description must remain identical to the sibling
+/// Event's because both register the same counter.
+#[derive(Event)]
+#[event(
+    event_name = "preingestion_firmware_upload_multipart_unsupported",
+    metric_name = "carbide_preingestion_firmware_upload_total",
+    component = "preingestion-manager",
+    log = warn,
+    metric = counter,
+    message = "Multipart firmware update is not supported; trying HttpPushUri",
+    describe = "Number of preingestion firmware uploads to a BMC, by upload method and outcome."
+)]
+pub(crate) struct MultipartFirmwareUploadUnsupported {
+    #[label]
+    pub method: FirmwareUploadMethod,
+    #[label]
+    pub outcome: Outcome,
+    /// The BMC whose multipart route rejected the upload.
+    #[context]
+    pub bmc_ip_address: IpAddr,
+    /// The Redfish unsupported-route error that triggered fallback.
+    #[context]
+    pub error: String,
 }
 
 /// `FirmwareComponentType` as a bounded metric label. The manual impl is the
@@ -620,45 +682,244 @@ mod tests {
         }
     }
 
-    /// Upload outcomes count per method without constructing any log line;
-    /// the `initiate_update` sites keep their own messages.
+    #[derive(Clone, Copy)]
+    enum FirmwareUploadEventKind {
+        Finished,
+        MultipartUnsupported,
+    }
+
+    struct FirmwareUploadCase {
+        name: &'static str,
+        kind: FirmwareUploadEventKind,
+        method: FirmwareUploadMethod,
+        method_label: &'static str,
+        outcome: Outcome,
+        outcome_label: &'static str,
+        error: &'static str,
+        expected_log: Option<ExpectedFirmwareUploadLog>,
+    }
+
+    struct ExpectedFirmwareUploadLog {
+        event_name: &'static str,
+        level: tracing::Level,
+        message: &'static str,
+    }
+
+    /// Every method/outcome pair moves exactly its existing series. Successes
+    /// stay silent; each failure owns the historical route-specific line and
+    /// keeps the BMC and error as log-only context.
     #[test]
-    fn firmware_upload_counts_by_method_without_logging() {
+    fn firmware_upload_outcomes_emit_their_metric_and_historical_log() {
+        let cases = [
+            FirmwareUploadCase {
+                name: "SimpleUpdate success",
+                kind: FirmwareUploadEventKind::Finished,
+                method: FirmwareUploadMethod::SimpleUpdate,
+                method_label: "simple_update",
+                outcome: Outcome::Ok,
+                outcome_label: "ok",
+                error: "",
+                expected_log: None,
+            },
+            FirmwareUploadCase {
+                name: "SimpleUpdate failure",
+                kind: FirmwareUploadEventKind::Finished,
+                method: FirmwareUploadMethod::SimpleUpdate,
+                method_label: "simple_update",
+                outcome: Outcome::Error,
+                outcome_label: "error",
+                error: "simple update failed",
+                expected_log: Some(ExpectedFirmwareUploadLog {
+                    event_name: "preingestion_firmware_upload_finished",
+                    level: tracing::Level::ERROR,
+                    message: "Simple firmware update failed",
+                }),
+            },
+            FirmwareUploadCase {
+                name: "multipart success",
+                kind: FirmwareUploadEventKind::Finished,
+                method: FirmwareUploadMethod::Multipart,
+                method_label: "multipart",
+                outcome: Outcome::Ok,
+                outcome_label: "ok",
+                error: "",
+                expected_log: None,
+            },
+            FirmwareUploadCase {
+                name: "multipart failure",
+                kind: FirmwareUploadEventKind::Finished,
+                method: FirmwareUploadMethod::Multipart,
+                method_label: "multipart",
+                outcome: Outcome::Error,
+                outcome_label: "error",
+                error: "multipart upload failed",
+                expected_log: Some(ExpectedFirmwareUploadLog {
+                    event_name: "preingestion_firmware_upload_finished",
+                    level: tracing::Level::WARN,
+                    message: "Failed to upload firmware via multipart update",
+                }),
+            },
+            FirmwareUploadCase {
+                name: "multipart unsupported",
+                kind: FirmwareUploadEventKind::MultipartUnsupported,
+                method: FirmwareUploadMethod::Multipart,
+                method_label: "multipart",
+                outcome: Outcome::Error,
+                outcome_label: "error",
+                error: "multipart is unsupported",
+                expected_log: Some(ExpectedFirmwareUploadLog {
+                    event_name: "preingestion_firmware_upload_multipart_unsupported",
+                    level: tracing::Level::WARN,
+                    message: "Multipart firmware update is not supported; trying HttpPushUri",
+                }),
+            },
+            FirmwareUploadCase {
+                name: "HttpPush success",
+                kind: FirmwareUploadEventKind::Finished,
+                method: FirmwareUploadMethod::HttpPush,
+                method_label: "http_push",
+                outcome: Outcome::Ok,
+                outcome_label: "ok",
+                error: "",
+                expected_log: None,
+            },
+            FirmwareUploadCase {
+                name: "HttpPush failure",
+                kind: FirmwareUploadEventKind::Finished,
+                method: FirmwareUploadMethod::HttpPush,
+                method_label: "http_push",
+                outcome: Outcome::Error,
+                outcome_label: "error",
+                error: "HTTP push failed",
+                expected_log: Some(ExpectedFirmwareUploadLog {
+                    event_name: "preingestion_firmware_upload_finished",
+                    level: tracing::Level::ERROR,
+                    message: "Failed to upload firmware via HttpPushUri",
+                }),
+            },
+        ];
+
+        for case in cases {
+            let metrics = MetricsCapture::start();
+            let bmc_ip_address = IpAddr::from([10, 0, 0, 5]);
+            let logs = capture_logs(|| match case.kind {
+                FirmwareUploadEventKind::Finished => emit(FirmwareUploadFinished {
+                    method: case.method,
+                    outcome: case.outcome,
+                    bmc_ip_address,
+                    error: case.error.to_string(),
+                }),
+                FirmwareUploadEventKind::MultipartUnsupported => {
+                    emit(MultipartFirmwareUploadUnsupported {
+                        method: case.method,
+                        outcome: case.outcome,
+                        bmc_ip_address,
+                        error: case.error.to_string(),
+                    });
+                }
+            });
+
+            assert_eq!(
+                metrics.counter_delta(
+                    "carbide_preingestion_firmware_upload_total",
+                    &[
+                        ("method", case.method_label),
+                        ("outcome", case.outcome_label),
+                    ],
+                ),
+                1.0,
+                "{}",
+                case.name,
+            );
+
+            match case.expected_log {
+                None => assert!(
+                    logs.is_empty(),
+                    "{}: success must remain metric-only: {logs:?}",
+                    case.name,
+                ),
+                Some(expected) => {
+                    assert_eq!(
+                        logs.len(),
+                        1,
+                        "{}: expected one failure line: {logs:?}",
+                        case.name,
+                    );
+                    let log = &logs[0];
+                    assert_eq!(log.level, expected.level, "{}", case.name);
+                    assert_eq!(log.metadata_name, expected.event_name, "{}", case.name);
+                    assert_eq!(log.message, expected.message, "{}", case.name);
+                    assert_eq!(
+                        log.field("event_name"),
+                        Some(expected.event_name),
+                        "{}",
+                        case.name,
+                    );
+                    assert_eq!(
+                        log.field("metric_name"),
+                        Some("carbide_preingestion_firmware_upload_total"),
+                        "{}",
+                        case.name,
+                    );
+                    assert_eq!(
+                        log.field("method"),
+                        Some(case.method_label),
+                        "{}",
+                        case.name,
+                    );
+                    assert_eq!(
+                        log.field("outcome"),
+                        Some(case.outcome_label),
+                        "{}",
+                        case.name,
+                    );
+                    assert_eq!(
+                        log.field("bmc_ip_address"),
+                        Some("10.0.0.5"),
+                        "{}",
+                        case.name,
+                    );
+                    assert_eq!(log.field("error"), Some(case.error), "{}", case.name);
+                }
+            }
+        }
+    }
+
+    /// Unsupported multipart still counts as its own error before the
+    /// HttpPush fallback records a second, independently successful attempt.
+    #[test]
+    fn unsupported_multipart_preserves_the_http_push_fallback_sequence() {
         let metrics = MetricsCapture::start();
         let logs = capture_logs(|| {
-            emit(FirmwareUploadFinished {
-                method: FirmwareUploadMethod::SimpleUpdate,
-                outcome: Outcome::Ok,
-            });
-            emit(FirmwareUploadFinished {
+            emit(MultipartFirmwareUploadUnsupported {
                 method: FirmwareUploadMethod::Multipart,
                 outcome: Outcome::Error,
+                bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
+                error: "multipart is unsupported".to_string(),
             });
             emit(FirmwareUploadFinished {
                 method: FirmwareUploadMethod::HttpPush,
                 outcome: Outcome::Ok,
+                bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
+                error: String::new(),
             });
         });
 
-        assert!(
-            logs.is_empty(),
-            "log = off must not construct any log line, got {logs:?}"
+        assert_eq!(logs.len(), 1, "only unsupported multipart logs: {logs:?}");
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_preingestion_firmware_upload_total",
+                &[("method", "multipart"), ("outcome", "error")],
+            ),
+            1.0,
         );
-        for (method, outcome, expect) in [
-            ("simple_update", "ok", 1.0),
-            ("multipart", "error", 1.0),
-            ("http_push", "ok", 1.0),
-            ("multipart", "ok", 0.0),
-        ] {
-            assert_eq!(
-                metrics.counter_delta(
-                    "carbide_preingestion_firmware_upload_total",
-                    &[("method", method), ("outcome", outcome)],
-                ),
-                expect,
-                "series method={method} outcome={outcome}",
-            );
-        }
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_preingestion_firmware_upload_total",
+                &[("method", "http_push"), ("outcome", "ok")],
+            ),
+            1.0,
+        );
     }
 
     /// Successes are counted silently; a failure owns the WARN line with the

@@ -64,8 +64,8 @@ use crate::bfb_rshim_copier::BfbRshimCopier;
 use crate::errors::{PreingestionManagerError, PreingestionManagerResult};
 use crate::metrics::{
     BfbCopyFinished, BfbCopyOutcome, FirmwareComponentLabel, FirmwareUpgradeTaskFinished,
-    FirmwareUploadFinished, FirmwareUploadMethod, PowerOperation, PreingestionMetrics,
-    UpgradeTaskFinalState, count_power_op,
+    FirmwareUploadFinished, FirmwareUploadMethod, MultipartFirmwareUploadUnsupported,
+    PowerOperation, PreingestionMetrics, UpgradeTaskFinalState, count_power_op,
 };
 
 const NOT_FOUND: u16 = 404;
@@ -3340,6 +3340,8 @@ impl PreingestionManagerStatic {
                     emit(FirmwareUploadFinished {
                         method: FirmwareUploadMethod::SimpleUpdate,
                         outcome: Outcome::Ok,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: String::new(),
                     });
                     task.id
                 }
@@ -3347,12 +3349,9 @@ impl PreingestionManagerStatic {
                     emit(FirmwareUploadFinished {
                         method: FirmwareUploadMethod::SimpleUpdate,
                         outcome: Outcome::Error,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: e.to_string(),
                     });
-                    tracing::error!(
-                        bmc_ip_address = %endpoint_clone.address,
-                        error = %e,
-                        "Simple firmware update failed"
-                    );
                     return Ok(false);
                 }
             }
@@ -3370,19 +3369,18 @@ impl PreingestionManagerStatic {
                     emit(FirmwareUploadFinished {
                         method: FirmwareUploadMethod::Multipart,
                         outcome: Outcome::Ok,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: String::new(),
                     });
                     task
                 }
                 Err(RedfishError::NotSupported(err)) => {
-                    emit(FirmwareUploadFinished {
+                    emit(MultipartFirmwareUploadUnsupported {
                         method: FirmwareUploadMethod::Multipart,
                         outcome: Outcome::Error,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: err,
                     });
-                    tracing::warn!(
-                        bmc_ip_address = %endpoint_clone.address,
-                        error = %err,
-                        "Multipart firmware update is not supported; trying HttpPushUri"
-                    );
                     let file = match File::open(artifact.local_path.as_path()).await {
                         Ok(f) => f,
                         Err(e) => {
@@ -3399,6 +3397,8 @@ impl PreingestionManagerStatic {
                             emit(FirmwareUploadFinished {
                                 method: FirmwareUploadMethod::HttpPush,
                                 outcome: Outcome::Ok,
+                                bmc_ip_address: endpoint_clone.address,
+                                error: String::new(),
                             });
                             task.id
                         }
@@ -3406,12 +3406,9 @@ impl PreingestionManagerStatic {
                             emit(FirmwareUploadFinished {
                                 method: FirmwareUploadMethod::HttpPush,
                                 outcome: Outcome::Error,
+                                bmc_ip_address: endpoint_clone.address,
+                                error: e.to_string(),
                             });
-                            tracing::error!(
-                                bmc_ip_address = %endpoint_clone.address,
-                                error = %e,
-                                "Failed to upload firmware via HttpPushUri"
-                            );
                             return Ok(false);
                         }
                     }
@@ -3420,12 +3417,9 @@ impl PreingestionManagerStatic {
                     emit(FirmwareUploadFinished {
                         method: FirmwareUploadMethod::Multipart,
                         outcome: Outcome::Error,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: e.to_string(),
                     });
-                    tracing::warn!(
-                        bmc_ip_address = %endpoint_clone.address,
-                        error = %e,
-                        "Failed to upload firmware via multipart update"
-                    );
                     return Ok(false);
                 }
             }
