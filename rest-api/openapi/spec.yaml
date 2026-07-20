@@ -224,6 +224,9 @@ tags:
   - name: Rule
     description: |-
       Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
+  - name: Campaign
+    description: |-
+      A Campaign is Flow's operation run: a phased, policy-gated rollout of one operation (currently firmware) across many Racks. A Campaign narrows a candidate set of Racks with an optional selector, divides the selected Racks into phases, and drives one execution target per Rack; each target in turn drives at most one Task. Safety gates pause the rollout when failures exceed a threshold, and phase gates hold each phase until an operator advances it. This tag exposes creation, retrieval, target listing, and the pause / resume / advance / cancel lifecycle actions; drill into per-Rack execution detail via the Task tag using each target's `taskId`.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -10966,6 +10969,478 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Rule
+  '/v2/org/{org}/nico/campaign':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create a Campaign
+      operationId: create-campaign
+      description: |-
+        Create a Campaign (operation run): a phased, policy-gated rollout of one
+        operation across many Racks. The configuration is validated server-side
+        by Flow; on validation failure no state changes.
+
+        A Campaign runs exactly one operation (currently firmware) over a
+        candidate set of Racks, narrowed by an optional `selector` and divided
+        into phases by an optional `options.phasePolicy`. The response echoes the
+        assigned `id`; the Campaign always starts in the `Pending` state. Poll
+        `GET /campaign/{id}` for progress.
+
+        Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCampaignRequest'
+      responses:
+        '201':
+          description: Campaign was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Campaign
+    get:
+      summary: List Campaigns
+      operationId: list-campaigns
+      description: |-
+        List Campaigns on a Site. Filters compose with AND; results are paginated
+        and the `X-Pagination` response header reports the total count over the
+        post-filter set.
+
+        Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Campaigns (Campaigns are site-scoped).
+        - schema:
+            type: string
+            enum:
+              - Pending
+              - Running
+              - Paused
+              - Completed
+              - Cancelled
+              - Failed
+              - CompletedWithFailures
+          name: status
+          in: query
+          required: false
+          description: Filter by Campaign status.
+        - schema:
+            type: string
+            enum:
+              - PowerControl
+              - FirmwareControl
+          name: operationType
+          in: query
+          required: false
+          description: Filter by operation type.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Campaign'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":2}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Campaign
+  '/v2/org/{org}/nico/campaign/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Campaign
+    get:
+      summary: Retrieve a Campaign
+      operationId: get-campaign
+      description: |-
+        Get a Campaign by UUID. Set `includeStats=true` for derived per-phase
+        outcome counts (current phase and cumulative run).
+
+        Campaigns are site-scoped; `siteId` must be the Site that owns the
+        Campaign. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Campaign (Campaigns are site-scoped).
+        - schema:
+            type: boolean
+            default: false
+          name: includeStats
+          in: query
+          required: false
+          description: Include derived per-phase outcome stats on the response.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Campaign
+  '/v2/org/{org}/nico/campaign/{id}/target':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Campaign
+    get:
+      summary: List Campaign targets
+      operationId: list-campaign-targets
+      description: |-
+        List a Campaign's materialized per-Rack execution targets. Each target
+        references the Task the Campaign submitted for that Rack via `taskId`
+        (null until the target is submitted); drill into execution detail via
+        `GET /task/{taskId}`.
+
+        Filters compose with AND. Results are paginated; the `X-Pagination`
+        response header reports the total count over the post-filter set.
+
+        Campaigns are site-scoped; `siteId` must be the Site that owns the
+        Campaign. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Campaign.
+        - schema:
+            type: string
+            enum:
+              - Pending
+              - Blocked
+              - Submitted
+              - Completed
+              - Failed
+              - Terminated
+              - Skipped
+              - Claimed
+          name: status
+          in: query
+          required: false
+          description: Filter by target status.
+        - schema:
+            type: string
+            enum:
+              - currentPhase
+              - completedPhases
+              - currentAndCompletedPhases
+            default: currentPhase
+          name: phaseScope
+          in: query
+          required: false
+          description: Restrict targets to the current phase, completed phases, or both.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CampaignTarget'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":6}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Campaign
+  '/v2/org/{org}/nico/campaign/{id}/pause':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Campaign
+    post:
+      summary: Pause a Campaign
+      operationId: pause-campaign
+      description: |-
+        Pause a running Campaign. In-flight target Tasks continue to completion;
+        no new targets are claimed until the Campaign is resumed. Pausing an
+        already-paused Campaign is idempotent.
+
+        Campaigns are site-scoped; `siteId` must be the Site that owns the
+        Campaign. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignSiteRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The pause request was accepted and the Campaign's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Campaign
+  '/v2/org/{org}/nico/campaign/{id}/resume':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Campaign
+    post:
+      summary: Resume a Campaign
+      operationId: resume-campaign
+      description: |-
+        Resume an operator-paused Campaign. A Campaign paused at a phase gate
+        (rather than by an operator) must be advanced with the advance endpoint
+        instead; resume applies only to operator pauses.
+
+        Campaigns are site-scoped; `siteId` must be the Site that owns the
+        Campaign. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignSiteRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The resume request was accepted and the Campaign's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Campaign
+  '/v2/org/{org}/nico/campaign/{id}/advance':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Campaign
+    post:
+      summary: Advance a Campaign to its next phase
+      operationId: advance-campaign
+      description: |-
+        Open the next phase of a Campaign that is paused at a phase gate.
+        Optionally guard the transition with `expectedPhaseIndex`: when set, the
+        phase that would be opened must match, otherwise Flow rejects the advance
+        so a stale client cannot open the wrong phase.
+
+        Campaigns are site-scoped; `siteId` must be the Site that owns the
+        Campaign. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdvanceCampaignRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The advance request was accepted and the Campaign's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Campaign
+  '/v2/org/{org}/nico/campaign/{id}/cancel':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Campaign
+    post:
+      summary: Cancel a Campaign
+      operationId: cancel-campaign
+      description: |-
+        Cancel a Campaign. Best-effort cancellation cascades to the current
+        phase's in-flight target Tasks; targets not yet claimed are not started.
+        Cancelling an already-terminal Campaign returns its last known state.
+
+        Campaigns are site-scoped; `siteId` must be the Site that owns the
+        Campaign. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelCampaignRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The cancellation request was accepted and the Campaign's
+            last known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Campaign
   '/v2/org/{org}/nico/rack/{id}/task':
     parameters:
       - schema:
@@ -19835,6 +20310,534 @@ components:
           description: New free-form description.
         ruleDefinition:
           $ref: '#/components/schemas/RuleDefinition'
+    Campaign:
+      title: Campaign
+      type: object
+      description: |-
+        A Campaign is Flow's operation run: a phased, policy-gated rollout of one
+        operation across many Racks. List responses populate the summary fields;
+        the single-Campaign `GET` additionally populates `stats` when
+        `includeStats=true`.
+      required:
+        - id
+        - name
+        - operationType
+        - status
+        - statusReason
+        - totalPhases
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the Campaign.
+        name:
+          type: string
+          description: Human-readable name of the Campaign.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Type of operation this Campaign runs. Currently always `FirmwareControl`.
+        operationCode:
+          type: string
+          description: Operation code within the operation type (e.g. `upgrade`).
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Pending
+            - Running
+            - Paused
+            - Completed
+            - Cancelled
+            - Failed
+            - CompletedWithFailures
+          description: Current lifecycle state of the Campaign.
+        statusReason:
+          type: string
+          enum:
+            - Unknown
+            - None
+            - OperatorPaused
+            - PhaseGate
+            - SafetyGate
+            - ConflictRetryTimeout
+          description: |-
+            Why the Campaign is paused or terminal (e.g. `PhaseGate`, `SafetyGate`).
+            `None` when there is no qualifying reason.
+        statusMessage:
+          type: string
+          description: Optional human-readable detail for the current status.
+        totalPhases:
+          type: integer
+          description: Total number of phases the selected targets were divided into.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the Campaign was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the Campaign was last updated.
+        started:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the Campaign started execution. Null before it starts.
+        finished:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the Campaign reached a terminal state. Null while active.
+        stats:
+          allOf:
+            - $ref: '#/components/schemas/CampaignStats'
+          description: |-
+            Derived per-phase outcome stats. Present only on the single-Campaign
+            `GET` when `includeStats=true`; omitted otherwise.
+    CampaignStats:
+      title: CampaignStats
+      type: object
+      description: Summarizes target outcomes for the active phase and cumulatively across all phases processed so far.
+      required:
+        - currentPhase
+        - cumulativePhase
+      properties:
+        currentPhase:
+          $ref: '#/components/schemas/CampaignPhaseStats'
+        cumulativePhase:
+          $ref: '#/components/schemas/CampaignPhaseStats'
+    CampaignPhaseStats:
+      title: CampaignPhaseStats
+      type: object
+      description: Summarizes target outcomes for one phase scope.
+      required:
+        - phaseIndex
+        - selectedTargets
+        - outcomeCounts
+      properties:
+        phaseIndex:
+          type: integer
+          description: Zero-based index of the phase this scope refers to.
+        selectedTargets:
+          type: integer
+          description: Number of targets selected within the scope.
+        outcomeCounts:
+          $ref: '#/components/schemas/CampaignOutcomeCounts'
+    CampaignOutcomeCounts:
+      title: CampaignOutcomeCounts
+      type: object
+      description: Counts terminal target outcomes within a phase scope.
+      required:
+        - completed
+        - failed
+        - terminated
+        - skipped
+      properties:
+        completed:
+          type: integer
+          description: Targets that completed successfully.
+        failed:
+          type: integer
+          description: Targets that failed.
+        terminated:
+          type: integer
+          description: Targets that were terminated (e.g. by cancellation).
+        skipped:
+          type: integer
+          description: Targets that were skipped.
+    CampaignTarget:
+      title: CampaignTarget
+      type: object
+      description: |-
+        One materialized per-Rack execution target of a Campaign. Each target
+        drives at most one Task; `taskId` references it (null until the target is
+        submitted).
+      required:
+        - id
+        - campaignId
+        - rackId
+        - sequenceIndex
+        - phaseIndex
+        - status
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the target.
+        campaignId:
+          type: string
+          format: uuid
+          description: ID of the Campaign that owns this target.
+        rackId:
+          type: string
+          format: uuid
+          description: ID of the Rack this target operates on.
+        sequenceIndex:
+          type: integer
+          description: Position of this target in the Campaign's overall processing order.
+        phaseIndex:
+          type: integer
+          description: Zero-based index of the phase this target belongs to.
+        taskId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            ID of the Task this target submitted. Null until the target is
+            submitted; drill into execution detail via `GET /task/{taskId}`.
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Pending
+            - Blocked
+            - Submitted
+            - Completed
+            - Failed
+            - Terminated
+            - Skipped
+            - Claimed
+          description: Current execution state of the target.
+        message:
+          type: string
+          description: Optional human-readable detail for the current target status.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the target was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the target was last updated.
+    CampaignSiteRequest:
+      title: CampaignSiteRequest
+      type: object
+      description: Shared request body for the pause and resume lifecycle actions.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Campaign (Campaigns are site-scoped).
+    AdvanceCampaignRequest:
+      title: AdvanceCampaignRequest
+      type: object
+      description: Request body for advancing a Campaign to its next phase.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Campaign.
+        expectedPhaseIndex:
+          type: integer
+          description: |-
+            Optional guard: when set, the phase that would be opened must match
+            this zero-based index, otherwise the advance is rejected.
+    CancelCampaignRequest:
+      title: CancelCampaignRequest
+      type: object
+      description: Request body for cancelling a Campaign.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Campaign.
+        reason:
+          type: string
+          description: Optional free-form reason recorded with the cancellation.
+    CreateCampaignRequest:
+      title: CreateCampaignRequest
+      type: object
+      description: |-
+        Request body for creating a Campaign. `operationType` is inferred from the
+        operation and is not accepted here. Flow performs semantic validation
+        (selector ranges, phase math, operation code membership) server-side.
+      required:
+        - siteId
+        - name
+        - options
+        - operation
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site to create the Campaign on.
+        name:
+          type: string
+          description: Human-readable name of the Campaign.
+        description:
+          type: string
+          description: Optional free-form description.
+        selector:
+          allOf:
+            - $ref: '#/components/schemas/CampaignSelector'
+          description: |-
+            Narrows the candidate Racks. Omit to target the full candidate scope
+            (100%).
+        options:
+          $ref: '#/components/schemas/CampaignOptions'
+        operation:
+          $ref: '#/components/schemas/CampaignOperation'
+    CampaignSelector:
+      title: CampaignSelector
+      type: object
+      description: Selects a subset of candidate Racks. Percentage is the only supported selector today.
+      properties:
+        percentage:
+          $ref: '#/components/schemas/CampaignPercentageSelector'
+    CampaignPercentageSelector:
+      title: CampaignPercentageSelector
+      type: object
+      description: |-
+        Selects a percentage of the candidate Racks. `seed` is optional; when
+        omitted Flow generates and stores one so the cohort is deterministic and
+        auditable.
+      required:
+        - percent
+      properties:
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Percentage of candidate Racks to select.
+        seed:
+          type: string
+          description: Optional seed for the deterministic selection.
+    CampaignOptions:
+      title: CampaignOptions
+      type: object
+      description: Execution policy for the rollout.
+      required:
+        - maxConcurrentTargets
+      properties:
+        maxConcurrentTargets:
+          type: integer
+          minimum: 1
+          description: |-
+            Caps how many targets may have active child Tasks at once. Must be
+            greater than zero.
+        safetyPolicy:
+          $ref: '#/components/schemas/CampaignSafetyPolicy'
+        conflictPolicy:
+          $ref: '#/components/schemas/CampaignConflictPolicy'
+        orderingPolicy:
+          $ref: '#/components/schemas/CampaignOrderingPolicy'
+        phasePolicy:
+          $ref: '#/components/schemas/CampaignPhasePolicy'
+    CampaignSafetyPolicy:
+      title: CampaignSafetyPolicy
+      type: object
+      description: A set of gates that pause the Campaign when any one of them trips (OR composition).
+      properties:
+        gates:
+          type: array
+          description: Safety gates evaluated after each target outcome.
+          items:
+            $ref: '#/components/schemas/CampaignSafetyGate'
+    CampaignSafetyGate:
+      title: CampaignSafetyGate
+      type: object
+      description: Exactly one of `failureRate` or `failureCount` must be set.
+      properties:
+        failureRate:
+          $ref: '#/components/schemas/CampaignFailureRateGate'
+        failureCount:
+          $ref: '#/components/schemas/CampaignFailureCountGate'
+    CampaignFailureRateGate:
+      title: CampaignFailureRateGate
+      type: object
+      description: Pauses when the failed/planned ratio reaches `thresholdPercent` for the scope.
+      required:
+        - thresholdPercent
+      properties:
+        scope:
+          type: string
+          enum:
+            - currentPhase
+            - cumulativeRun
+          default: currentPhase
+          description: Whether the ratio is evaluated over the current phase or the cumulative run.
+        thresholdPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Failure-rate percentage at which the gate trips.
+    CampaignFailureCountGate:
+      title: CampaignFailureCountGate
+      type: object
+      description: Pauses when the number of failed targets reaches `thresholdCount` for the scope.
+      required:
+        - thresholdCount
+      properties:
+        scope:
+          type: string
+          enum:
+            - currentPhase
+            - cumulativeRun
+          default: currentPhase
+          description: Whether the count is evaluated over the current phase or the cumulative run.
+        thresholdCount:
+          type: integer
+          minimum: 0
+          description: Number of failed targets at which the gate trips.
+    CampaignConflictPolicy:
+      title: CampaignConflictPolicy
+      type: object
+      description: Configures how blocked targets are retried. Retry is the only supported strategy today.
+      properties:
+        retry:
+          $ref: '#/components/schemas/CampaignConflictRetry'
+    CampaignConflictRetry:
+      title: CampaignConflictRetry
+      type: object
+      description: |-
+        Retry backoff for blocked targets. Durations are Go duration strings
+        (e.g. `30m`, `10s`); an empty value means "use the operation default".
+      properties:
+        retryTimeout:
+          type: string
+          description: Total time to keep retrying a blocked target before giving up.
+        initialRetryDelay:
+          type: string
+          description: Delay before the first retry.
+        maxRetryDelay:
+          type: string
+          description: Cap on the exponentially growing retry delay.
+    CampaignOrderingPolicy:
+      title: CampaignOrderingPolicy
+      type: object
+      description: Controls the order in which targets are processed. Random is the only supported ordering today.
+      properties:
+        random:
+          $ref: '#/components/schemas/CampaignRandomOrdering'
+    CampaignRandomOrdering:
+      title: CampaignRandomOrdering
+      type: object
+      description: Orders targets randomly. `seed` is optional; Flow generates and stores one when omitted.
+      properties:
+        seed:
+          type: string
+          description: Optional seed for the deterministic random ordering.
+    CampaignPhasePolicy:
+      title: CampaignPhasePolicy
+      type: object
+      description: |-
+        Divides the selected targets into phases. Set at most one of `equal`,
+        `percentage`, or `count`; omit the whole policy for a single phase
+        covering all targets.
+      properties:
+        equal:
+          $ref: '#/components/schemas/CampaignEqualPhases'
+        percentage:
+          $ref: '#/components/schemas/CampaignPercentagePhases'
+        count:
+          $ref: '#/components/schemas/CampaignCountPhases'
+        autoAdvance:
+          type: boolean
+          default: false
+          description: |-
+            When true, phases advance automatically as long as safety gates are
+            not tripped. When false (default) each completed phase pauses at a
+            phase gate until advanced explicitly.
+    CampaignEqualPhases:
+      title: CampaignEqualPhases
+      type: object
+      description: Splits targets into `phaseCount` roughly equal phases.
+      required:
+        - phaseCount
+      properties:
+        phaseCount:
+          type: integer
+          minimum: 1
+          description: Number of equally sized phases.
+    CampaignPercentagePhases:
+      title: CampaignPercentagePhases
+      type: object
+      description: Splits targets by percentage. Values must sum to 100.
+      required:
+        - phases
+      properties:
+        phases:
+          type: array
+          description: Per-phase percentages, in phase order; must sum to 100.
+          items:
+            type: integer
+            minimum: 0
+            maximum: 100
+    CampaignCountPhases:
+      title: CampaignCountPhases
+      type: object
+      description: Splits targets by explicit counts. A generated final phase covers any remaining targets.
+      required:
+        - phases
+      properties:
+        phases:
+          type: array
+          description: Per-phase target counts, in phase order.
+          items:
+            type: integer
+            minimum: 0
+    CampaignOperation:
+      title: CampaignOperation
+      type: object
+      description: The operation the Campaign runs. Firmware is the only supported operation today.
+      required:
+        - firmware
+      properties:
+        firmware:
+          $ref: '#/components/schemas/CampaignFirmwareOperation'
+        excludeCampaignIds:
+          type: array
+          description: |-
+            Excludes Racks materialized by prior Campaigns from this Campaign's
+            candidate scope.
+          items:
+            type: string
+            format: uuid
+    CampaignFirmwareOperation:
+      title: CampaignFirmwareOperation
+      type: object
+      description: Configures a firmware rollout.
+      required:
+        - version
+      properties:
+        version:
+          type: string
+          description: Target firmware version to roll out.
+        ruleId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            Operation Rule to pin for each target's firmware Task. Null to let
+            Flow's default rule resolution pick one.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: Skip the pre-flight readiness check when true.
+        subTargets:
+          type: array
+          description: Optional subset of firmware sub-targets to update.
+          items:
+            type: string
     TaskReportV1:
       title: TaskReportV1
       type: object
