@@ -36,6 +36,9 @@ use crate::state_history::StateHistoryRecord;
 
 mod slas;
 
+pub const MTU_MIN: i32 = 576;
+pub const MTU_MAX: i32 = 9000;
+
 #[derive(Clone, Debug, Default)]
 pub struct NetworkSegmentSearchFilter {
     pub name: Option<String>,
@@ -104,6 +107,18 @@ pub struct NetworkDefinition {
     /// the VPC is not defined. You probably want to add a vpc with a corresponding name to the
     /// config via `[vpcs.<name>]` for this to work when data is initially being seeded.
     pub vpc_name: Option<String>,
+}
+
+impl NetworkDefinition {
+    pub fn validate(&self, name: &str) -> Result<(), crate::ConfigValidationError> {
+        if self.mtu < MTU_MIN || self.mtu > MTU_MAX {
+            return Err(crate::ConfigValidationError::InvalidValue(format!(
+                "network \"{name}\": mtu {} is out of range ({MTU_MIN}-{MTU_MAX})",
+                self.mtu
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -895,6 +910,58 @@ mod tests {
             "timestamp means deleted" {
                 Some(stamp) => true,
             }
+        );
+    }
+
+    fn network_definition_with_mtu(mtu: i32) -> NetworkDefinition {
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::Admin,
+            prefix: "10.0.0.0/24".parse().unwrap(),
+            prefix_v6: None,
+            gateway: "10.0.0.1".parse().unwrap(),
+            dhcpv6_link_address: None,
+            mtu,
+            reserve_first: 0,
+            allocation_strategy: AllocationStrategy::default(),
+            vpc_name: None,
+        }
+    }
+
+    #[test]
+    fn network_definition_validate_rejects_out_of_range_mtu() {
+        value_scenarios!(
+            run = |mtu: i32| network_definition_with_mtu(mtu).validate("test-net").is_err();
+            "MTU below minimum is rejected" {
+                575 => true,
+            }
+            "MTU above maximum is rejected" {
+                9001 => true,
+            }
+            "minimum boundary MTU is accepted" {
+                576 => false,
+            }
+            "maximum boundary MTU is accepted" {
+                9000 => false,
+            }
+            "typical standard MTU is accepted" {
+                1500 => false,
+            }
+        );
+    }
+
+    #[test]
+    fn network_definition_validate_error_names_the_network_and_mtu() {
+        let err = network_definition_with_mtu(9214)
+            .validate("test-inband")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("test-inband"),
+            "error should name the network: {err}"
+        );
+        assert!(
+            err.contains("9214"),
+            "error should include the bad MTU value: {err}"
         );
     }
 }

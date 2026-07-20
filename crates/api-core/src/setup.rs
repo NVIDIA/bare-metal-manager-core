@@ -920,6 +920,11 @@ impl<'a> SeedData<'a> {
             carbide_config,
             false,
         )?;
+
+        for (name, defn) in initial_networks.iter() {
+            defn.validate(name).map_err(eyre::Report::from)?;
+        }
+
         let initial_vpcs = Self::merge_objects(
             initial_objects.and_then(|io| io.vpcs.as_ref()),
             carbide_config.vpcs.as_ref(),
@@ -1915,7 +1920,7 @@ mod tests {
             // Test helper placeholder; callers under test do not use this as a routable gateway.
             gateway: prefix.network(),
             dhcpv6_link_address: None,
-            mtu: 0,
+            mtu: 1500,
             reserve_first: 0,
             allocation_strategy: Default::default(),
             vpc_name: None,
