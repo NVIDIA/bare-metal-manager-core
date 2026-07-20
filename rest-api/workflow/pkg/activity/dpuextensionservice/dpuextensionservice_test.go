@@ -106,6 +106,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 	st2 := util.TestBuildSite(t, dbSession, ip, "test-site-2", cdbm.SiteStatusRegistered, nil, user)
 	st3 := util.TestBuildSite(t, dbSession, ip, "test-site-3", cdbm.SiteStatusRegistered, nil, user)
 	st4 := util.TestBuildSite(t, dbSession, ip, "test-site-4", cdbm.SiteStatusRegistered, nil, user)
+	st5 := util.TestBuildSite(t, dbSession, ip, "test-site-5", cdbm.SiteStatusRegistered, nil, user)
 
 	// Create DPU Extension Services with different statuses
 	version1 := fmt.Sprintf("V1-T%d", time.Now().Unix()*1000000)
@@ -139,6 +140,12 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 	dpuExtensionService4 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-4", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, nil, nil, []string{}, cdbm.DpuExtensionServiceStatusPending, user)
 	dpuExtensionService5 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-5", st, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, nil, nil, []string{}, cdbm.DpuExtensionServiceStatusDeleting, user)
 	dpuExtensionService6 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-6", st4, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cutil.GetPtr(version1), &cdbm.DpuExtensionServiceVersionInfo{
+		Version:        version1,
+		Data:           "test-data",
+		HasCredentials: false,
+		Created:        time.Now().UTC().Round(time.Microsecond),
+	}, []string{version1}, cdbm.DpuExtensionServiceStatusReady, user)
+	dpuExtensionService7 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-7", st5, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cutil.GetPtr(version1), &cdbm.DpuExtensionServiceVersionInfo{
 		Version:        version1,
 		Data:           "test-data",
 		HasCredentials: false,
@@ -309,11 +316,11 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st4.ID,
-				dpuExtensionServiceInventory: &cwssaws.DpuExtensionServiceInventory{
-					DpuExtensionServices: []*cwssaws.DpuExtensionService{
+				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
+					DpuExtensionServices: []*corev1.DpuExtensionService{
 						{
 							ServiceId: dpuExtensionService6.ID.String(),
-							LatestVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
+							LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
 								Version:       "V2",
 								Data:          "updated-test-data",
 								Created:       "invalid timestamp",
@@ -322,7 +329,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 							ActiveVersions: []string{"V2"},
 						},
 					},
-					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				},
 			},
 			updatedDpuExtensionServices: []*cdbm.DpuExtensionService{dpuExtensionService6},
@@ -330,6 +337,39 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 				dpuExtensionService6.ID: dpuExtensionService6.Updated,
 			},
 			expectTimestampParseError: true,
+			wantErr:                   false,
+		},
+		{
+			name: "test DPU Extension Service inventory processing uses fallback for empty version timestamp without logging error",
+			fields: fields{
+				dbSession:      dbSession,
+				siteClientPool: tSiteClientPool,
+				env:            env,
+			},
+			args: args{
+				ctx:    ctx,
+				siteID: st5.ID,
+				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
+					DpuExtensionServices: []*corev1.DpuExtensionService{
+						{
+							ServiceId: dpuExtensionService7.ID.String(),
+							LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
+								Version:       "V2",
+								Data:          "updated-test-data",
+								Created:       "",
+								HasCredential: false,
+							},
+							ActiveVersions: []string{"V2"},
+						},
+					},
+					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+				},
+			},
+			updatedDpuExtensionServices: []*cdbm.DpuExtensionService{dpuExtensionService7},
+			expectedCreated: map[uuid.UUID]time.Time{
+				dpuExtensionService7.ID: dpuExtensionService7.Updated,
+			},
+			expectTimestampParseError: false,
 			wantErr:                   false,
 		},
 		{
