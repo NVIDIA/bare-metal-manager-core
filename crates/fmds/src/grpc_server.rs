@@ -39,7 +39,8 @@ impl FmdsGrpcServer {
 /// WARN line (the success path keeps its own "Received config update" INFO log).
 #[derive(Event)]
 #[event(
-    name = "carbide_fmds_config_updates_total",
+    event_name = "fmds_config_update_ingested",
+    metric_name = "carbide_fmds_config_updates_total",
     component = "fmds",
     log = dynamic,
     metric = counter,

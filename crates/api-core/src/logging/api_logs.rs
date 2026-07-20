@@ -17,12 +17,16 @@
 
 //! A logging middleware for carbide API server requests
 
+use std::error::Error;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use model::errors::OperatorError;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 use tracing::Instrument;
+
+use crate::errors::CarbideErrorWithLocation;
 
 /// A tower Layer which creates a `LogService` for every request
 #[derive(Debug, Clone)]
@@ -165,6 +169,10 @@ where
                 sql_total_query_duration_us = 0,
                 user.id = tracing::field::Empty, // Populated by auth layer
                 tenant.organization_id = tracing::field::Empty,
+                nico.error = tracing::field::Empty,
+                nico.error_code = tracing::field::Empty,
+                nico.mitigation = tracing::field::Empty,
+                nico.error_location = tracing::field::Empty,
             );
 
             // Continue any distributed trace the caller started: make the inbound W3C trace
@@ -210,9 +218,10 @@ where
             let elapsed = start.elapsed();
 
             // Holds the overall outcome of the request as a single log message
-            let mut outcome: Result<(), String> = Ok(());
-            let mut http_code = None;
-            let mut grpc_status = None;
+            let outcome: Result<(), String>;
+            let http_code: Option<http::StatusCode>;
+            let grpc_status: Option<tonic::Code>;
+            let carbide_error: Option<&CarbideErrorWithLocation>;
 
             match &result {
                 Ok(result) => {
@@ -221,32 +230,18 @@ where
 
                     if result.status() == hyper::http::StatusCode::OK {
                         // In gRPC the actual message status is not in the http status code,
-                        // but actually in a header (and sometimes even a trailer - but we ignore this case here since
-                        // we don't do streaming).
-                        //
-                        // Unfortunately we have to reconstruct the status here, by parsing
-                        // those headers again
-                        let code = match result.headers().get("grpc-status") {
-                            Some(header) => tonic::Code::from_bytes(header.as_ref()),
-                            None => {
-                                // The header is not set in case of successful responses
-                                tonic::Code::Ok
-                            }
-                        };
+                        // but actually in a header/trailer. Tonic stores the tonic::Status
+                        // object in the HTTP response extensions, so we use that.
+                        let tonic_status = result.extensions().get::<tonic::Status>();
+                        carbide_error = tonic_status
+                            .and_then(|s| s.source())
+                            .and_then(|source| source.downcast_ref::<CarbideErrorWithLocation>());
+                        let code = tonic_status.map(|s| s.code()).unwrap_or(tonic::Code::Ok);
                         grpc_status = Some(code);
-                        let message = result
-                            .headers()
-                            .get("grpc-message")
-                            .map(|header| {
-                                // TODO: The header is percent encoded
-                                // We only do basic (space) decoding for now
-                                // percent_decode(header.as_bytes())
-                                //     .decode_utf8()
-                                //     .map(|cow| cow.to_string())
-                                std::str::from_utf8(header.as_bytes())
-                                    .unwrap_or("Invalid UTF8 Message")
-                                    .replace("%20", " ")
-                            })
+
+                        let message = tonic_status
+                            .as_ref()
+                            .map(|s| s.message().to_owned())
                             .unwrap_or_else(String::new);
 
                         request_span.record("rpc.grpc.status_code", code as u64);
@@ -254,20 +249,42 @@ where
                             "rpc.grpc.status_description",
                             format!("Code: {}, Message: {}", code.description(), message),
                         );
-                        if code != tonic::Code::Ok {
-                            outcome = Err(format!(
+
+                        outcome = if code == tonic::Code::Ok {
+                            Ok(())
+                        } else {
+                            Err(format!(
                                 "gRPC Error: {}. Message: {}",
                                 code.description(),
                                 message
-                            ));
+                            ))
                         }
                     } else {
                         outcome = Err(format!("HTTP status: {}", result.status()));
+                        grpc_status = None;
+                        carbide_error = None;
                     }
                 }
                 Err(_) => {
+                    http_code = None;
+                    grpc_status = None;
+                    carbide_error = None;
                     outcome = Err("HTTP execution error".to_string());
                 }
+            }
+
+            // If the tonic::Status came from a CarbideError, log interesting fields from it like
+            // the nico-internal error code and mitigation.
+            if let Some(CarbideErrorWithLocation { error, location }) = carbide_error {
+                let schema = error.operator_error_schema();
+                // Note: don't add schema.text here, it's always identical to what we already add to e.g. rpc.grpc.status_description
+                request_span.record("nico.error_code", schema.error_code.to_string());
+                if let Some(mitigation) = schema.mitigation {
+                    request_span.record("nico.mitigation", mitigation);
+                }
+
+                // This represents the source location where the error was converted to a tonic::Status.
+                request_span.record("nico.error_location", location.to_string());
             }
 
             request_span.record(

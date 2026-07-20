@@ -115,6 +115,7 @@ async fn fetch_bmc_credentials(pool: PgPool) {
 
         assert_eq!(metadata.ip, host_bmc_ip);
         assert_eq!(metadata.port, None);
+        assert_eq!(metadata.ipmi_port, None);
         assert_eq!(metadata.mac, host_bmc_mac.to_string());
         assert!(!metadata.password.is_empty());
         assert!(!metadata.user.is_empty());
@@ -129,6 +130,19 @@ async fn test_fetch_ipmi_metadata(pool: PgPool) {
     let bmc_info = host_machine.bmc_info.clone().unwrap();
     assert_eq!(bmc_info.mac, Some(host_bmc_mac.to_string()));
     let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
+
+    let mut txn = env.db_txn().await;
+    sqlx::query(
+        "UPDATE explored_endpoints SET exploration_report = \
+         jsonb_set(exploration_report, '{Managers,0,IpmiPort}', '1623'::jsonb, true) \
+         WHERE address = $1",
+    )
+    .bind(IpAddr::from_str(&host_bmc_ip).expect("invalid host IP"))
+    .execute(txn.as_mut())
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
     let metadata = env
         .api()
         .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
@@ -142,10 +156,53 @@ async fn test_fetch_ipmi_metadata(pool: PgPool) {
         .into_inner();
     assert_eq!(metadata.ip, host_bmc_ip);
     assert_eq!(metadata.port, None);
+    assert_eq!(metadata.ipmi_port, Some(1623));
     assert_eq!(metadata.mac, host_bmc_mac.to_string());
     assert!(!metadata.password.is_empty());
     assert!(!metadata.user.is_empty());
     assert!(metadata.vendor.is_some_and(|v| !v.is_empty()));
+}
+
+#[sqlx_test]
+async fn test_fetch_ipmi_metadata_ignores_invalid_ports(pool: PgPool) {
+    let (env, mh) = init(pool).await;
+    let host_machine = mh.host.rpc_machine().await;
+    let host_bmc_ip = host_machine
+        .bmc_info
+        .as_ref()
+        .and_then(|bmc_info| bmc_info.ip.clone())
+        .expect("Host BMC IP must be available");
+    let host_bmc_ip = IpAddr::from_str(&host_bmc_ip).expect("invalid host IP");
+
+    for invalid_port in [r#""not-a-port""#, "65536", "2147483648"] {
+        let mut txn = env.db_txn().await;
+        sqlx::query(
+            "UPDATE explored_endpoints SET exploration_report = \
+             jsonb_set(exploration_report, '{Managers,0,IpmiPort}', $2::jsonb, true) \
+             WHERE address = $1",
+        )
+        .bind(host_bmc_ip)
+        .bind(invalid_port)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+        txn.commit().await.unwrap();
+
+        let metadata = env
+            .api()
+            .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
+                machine_id: host_machine.id,
+                request_type: rpc::forge::BmcRequestType::Ipmi.into(),
+                role: rpc::forge::UserRoles::Administrator.into(),
+                bmc_endpoint_request: None,
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(metadata.ipmi_port, None, "stored port: {invalid_port}");
+        assert!(metadata.vendor.is_some_and(|vendor| !vendor.is_empty()));
+    }
 }
 
 #[sqlx_test]

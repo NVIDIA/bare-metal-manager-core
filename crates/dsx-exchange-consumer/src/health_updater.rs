@@ -30,7 +30,9 @@ use crate::ConsumerMetrics;
 use crate::api_client::{HEALTH_REPORT_SOURCE, RackHealthReportSink};
 use crate::config::CacheConfig;
 use crate::messages::{FaultValue, LeakMetadata, LeakPointType, ValueMessage};
-use crate::metrics::{MessageAge, MessageDeduplicated, MessageProcessed};
+use crate::metrics::{
+    HealthReportPersistFailed, MessageAge, MessageDeduplicated, MessageProcessed,
+};
 use crate::mqtt_consumer::MqttMessage;
 
 /// Health status updater that processes MQTT messages and updates the API.
@@ -221,8 +223,14 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
             Ok(_) => {
                 emit(MessageProcessed);
             }
-            Err(_) => {
-                // API call failed - will retry on next message
+            Err(e) => {
+                // Surface the persist failure and count it. The value re-arrives
+                // on the next message, so processing still retries -- but the
+                // drop is now visible instead of silently discarded.
+                emit(HealthReportPersistFailed {
+                    rack_id: metadata.rack_id.clone(),
+                    error: e.to_string(),
+                });
             }
         }
     }

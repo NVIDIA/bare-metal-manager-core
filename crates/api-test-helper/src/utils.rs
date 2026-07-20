@@ -21,7 +21,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
-use carbide_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
+use carbide_secrets::credentials::{
+    CredentialKey, CredentialType, CredentialWriter, Credentials, NicLockdownIkm,
+};
 use carbide_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
 use carbide_utils::HostPortPair;
 use eyre::Report;
@@ -315,12 +317,36 @@ pub async fn populate_initial_vault_secrets(
 
     credential_manager
         .set_credentials(
+            &CredentialKey::DpuUefi {
+                credential_type: CredentialType::DpuHardwareDefault,
+            },
+            &Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "password".to_string(),
+            },
+        )
+        .await?;
+
+    credential_manager
+        .set_credentials(
             &CredentialKey::HostUefi {
                 credential_type: CredentialType::SiteDefault,
             },
             &Credentials::UsernamePassword {
                 username: "root".to_string(),
                 password: "password".to_string(),
+            },
+        )
+        .await?;
+
+    credential_manager
+        .set_credentials(
+            &CredentialKey::NicLockdownIkm {
+                credential_type: NicLockdownIkm::SiteWide { version: 0 },
+            },
+            &Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "test-lockdown-ikm".to_string(),
             },
         )
         .await?;

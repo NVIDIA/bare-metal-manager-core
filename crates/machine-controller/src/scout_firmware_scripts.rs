@@ -116,7 +116,7 @@ fn find_scout_script_in(
 
     let script = fs::read(&script_path).wrap_err_with(|| {
         format!(
-            "failed to read Scout firmware script {}",
+            "failed to read scout firmware script {}",
             script_path.display()
         )
     })?;
@@ -249,14 +249,14 @@ fn script_url(pxe_public_base_url: &str, relative_path: &str) -> String {
 fn read_metadata(path: &Path) -> eyre::Result<ScoutFirmwareScriptMetadata> {
     let metadata = fs::read_to_string(path).wrap_err_with(|| {
         format!(
-            "failed to read Scout firmware script metadata {}",
+            "failed to read scout firmware script metadata {}",
             path.display()
         )
     })?;
 
     toml::from_str(&metadata).wrap_err_with(|| {
         format!(
-            "failed to parse Scout firmware script metadata {}",
+            "failed to parse scout firmware script metadata {}",
             path.display()
         )
     })
@@ -461,7 +461,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("failed to parse Scout firmware script metadata")
+                .contains("failed to parse scout firmware script metadata")
         );
     }
 }

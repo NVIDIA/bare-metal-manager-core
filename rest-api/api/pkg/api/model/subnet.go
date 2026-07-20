@@ -88,20 +88,27 @@ func (scr *APISubnetCreateRequest) Validate() error {
 // cannot see.
 func (scr *APISubnetCreateRequest) ToProto(subnet *cdbm.Subnet, vpc *cdbm.Vpc, reservedIPCount int32) *corev1.NetworkSegmentCreationRequest {
 	subnetProto := subnet.ToProto()
-	// `prefixes` aliases `subnetProto.Prefixes`; the slice + its `NetworkPrefix`
+	cfg := subnetProto.GetConfig()
+	// `prefixes` aliases `cfg.Prefixes`; the slice + its `NetworkPrefix`
 	// elements are freshly allocated by `subnet.ToProto()` on every call, so
 	// mutating `ReserveFirst` here is safe -- nothing else holds a reference
 	// to those values.
-	prefixes := subnetProto.Prefixes
+	prefixes := cfg.GetPrefixes()
 	for _, p := range prefixes {
 		p.ReserveFirst = reservedIPCount
 	}
+	var subdomainID *corev1.DomainId
+	var mtu *int32
+	if cfg != nil {
+		subdomainID = cfg.SubdomainId
+		mtu = cfg.Mtu
+	}
 	return &corev1.NetworkSegmentCreationRequest{
 		Id:          subnetProto.Id,
-		Name:        subnetProto.Name,
-		SubdomainId: subnetProto.SubdomainId,
+		Name:        subnetProto.GetMetadata().GetName(),
+		SubdomainId: subdomainID,
 		VpcId:       &corev1.VpcId{Value: vpc.GetSiteID().String()},
-		Mtu:         subnetProto.Mtu,
+		Mtu:         mtu,
 		Prefixes:    prefixes,
 	}
 }

@@ -64,7 +64,8 @@ rand = { workspace = true }
 russh = { workspace = true }
 
 # [local-dependencies]
-carbide-rpc = { path = "../rpc" }
+carbide-api-model = { path = "../api-model" }
+carbide-rpc = { path = "../rpc", features = ["model"] }
 bmc-mock = { path = "../bmc-mock" }
 carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }

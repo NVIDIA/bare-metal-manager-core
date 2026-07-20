@@ -23,7 +23,7 @@ use std::io::BufReader;
 use std::path::Path;
 
 pub use args::Args;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
@@ -37,7 +37,7 @@ impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         let json_file_path = Path::new(&self.filename);
         let reader = BufReader::new(File::open(json_file_path)?);
-        #[derive(Debug, Serialize, Deserialize)]
+        #[derive(Debug, Deserialize)]
         struct ExpectedMachineList {
             expected_machines: Vec<ExpectedMachineJson>,
             expected_machines_count: Option<usize>,

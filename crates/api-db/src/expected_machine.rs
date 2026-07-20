@@ -289,7 +289,7 @@ pub async fn create(
         .bind(machine.data.dpf_enabled.unwrap_or(true))
         .bind(machine.data.bmc_ip_address)
         .bind(machine.data.bmc_retain_credentials.unwrap_or(false))
-        .bind(machine.data.dpu_mode)
+        .bind(machine.data.dpu_policy)
         .bind(machine.data.bmc_ip_allocation)
         .bind(sqlx::types::Json(&machine.data.host_lifecycle_profile))
         .fetch_one(txn)
@@ -432,7 +432,7 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
         .bind(machine.data.dpf_enabled)
         .bind(machine.data.bmc_ip_address)
         .bind(machine.data.bmc_retain_credentials)
-        .bind(machine.data.dpu_mode)
+        .bind(machine.data.dpu_policy)
         .bind(machine.data.bmc_ip_allocation)
         .bind(
             (!machine.data.host_lifecycle_profile.is_empty())

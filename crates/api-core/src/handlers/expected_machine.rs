@@ -590,7 +590,8 @@ async fn process_batch_operations(
                     }
                 },
                 Err(e) => {
-                    let _ = txn.rollback().await;
+                    txn.rollback_or_log("expected-machine write after operation failure")
+                        .await;
                     results.push(build_failure_result(id, format!("Operation failed: {}", e)));
                 }
             }
@@ -624,7 +625,8 @@ async fn process_batch_operations(
         )
         .await
         {
-            let _ = txn.rollback().await;
+            txn.rollback_or_log("expected-machine write after operation failure")
+                .await;
             return Err(e);
         }
         results.push(build_success_result(machine_for_result));

@@ -21,6 +21,7 @@ carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 config-version = { path = "../config-version" }
+component-manager = { path = "../component-manager" }
 libnmxc = { path = "../libnmxc" }
 libnmxm = { path = "../libnmxm" }
 

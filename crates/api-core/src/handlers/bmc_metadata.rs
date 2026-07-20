@@ -98,7 +98,8 @@ pub(crate) async fn get_inner(
     let ip_address = bmc_endpoint_request.ip_address.parse().map_err(|_| {
         CarbideError::internal("internal error: stored IP address is invalid".to_string())
     })?;
-    let vendor = db::explored_endpoints::lookup_vendor_by_ip(ip_address, pool).await?;
+    let explored_metadata =
+        db::explored_endpoints::lookup_bmc_metadata_by_ip(ip_address, pool).await?;
 
     let (username, password) = match credentials {
         Credentials::UsernamePassword { username, password } => (username, password),
@@ -108,10 +109,10 @@ pub(crate) async fn get_inner(
         ip: bmc_endpoint_request.ip_address,
         port: None,
         ssh_port: None,
-        ipmi_port: None,
+        ipmi_port: explored_metadata.ipmi_port.map(u32::from),
         mac: bmc_mac_address.to_string(),
         user: username,
         password,
-        vendor,
+        vendor: explored_metadata.vendor,
     })
 }

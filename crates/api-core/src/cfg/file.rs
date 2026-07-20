@@ -579,7 +579,7 @@ pub struct CarbideConfig {
     /// (disconnected / air-gapped) infrastructure manager for racks of GB200/GB300/VR144.
     /// Only set this if using NICo site controller with Rack Manager to manage GB200/300/VR144.
     /// It will change site controller behavior significantly in the following ways, etc.:
-    /// 1. skip dpu management and use dpus in nic mode (set the site-wide `[site_explorer] dpu_mode = "nic_mode"`, or per-host `ExpectedMachine.dpu_mode`)
+    /// 1. skip DPU management and use DPUs as NICs (set the site-wide `[site_explorer] dpu_policy = "nic"`, or per-host `ExpectedMachine.dpu_policy`)
     ///    a. no dpu bfb upgrade and host power cycle
     ///    b. no firmware upgrade and host power cycle
     ///    c. no hbn deployment (no ecmp, etc)
@@ -3016,13 +3016,15 @@ mod tests {
     use carbide_authn::config::CertComponent;
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::scenarios;
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
     use health_report::HealthAlertClassification;
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
-    use model::expected_machine::DpuMode;
+    use model::expected_machine::HostDpuPolicy;
     use model::network_segment::NetworkDefinitionSegmentType;
     use model::resource_pool;
 
@@ -3468,7 +3470,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -3676,7 +3678,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -4019,7 +4021,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -4209,36 +4211,77 @@ mod tests {
         Ok(())
     }
 
-    /// Verifies the `[site_explorer] dpu_mode = ...` setting parses
-    /// correctly for every named variant. When unset (the default),
-    /// `site_explorer.dpu_mode` is `None` and hosts resolve to
-    /// `DpuMode::DpuMode`.
+    /// Verifies the canonical `[site_explorer] dpu_policy = ...` setting and
+    /// legacy `dpu_mode` spelling parse correctly. When unset, hosts ultimately
+    /// resolve to `HostDpuPolicy::Manage`.
     #[test]
-    fn site_explorer_dpu_mode_parses_and_defaults_to_none() {
+    fn site_explorer_dpu_policy_parses_and_defaults_to_none() {
         let config: CarbideConfig = Figment::new()
             .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
             .extract()
             .unwrap();
-        assert_eq!(config.site_explorer.dpu_mode, None);
+        assert_eq!(config.site_explorer.dpu_policy, None);
 
-        for (toml_value, expected) in [
-            ("dpu_mode", DpuMode::DpuMode),
-            ("nic_mode", DpuMode::NicMode),
-            ("no_dpu", DpuMode::NoDpu),
-        ] {
-            let config: CarbideConfig = Figment::new()
-                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
-                .merge(Toml::string(&format!(
-                    "[site_explorer]\ndpu_mode = \"{toml_value}\"\n"
-                )))
-                .extract()
-                .unwrap();
-            assert_eq!(
-                config.site_explorer.dpu_mode,
-                Some(expected),
-                "[site_explorer] dpu_mode = {toml_value:?} should parse to {expected:?}",
-            );
-        }
+        scenarios!(
+            run = |toml_setting| {
+                Figment::new()
+                    .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                    .merge(Toml::string(&format!(
+                        "[site_explorer]\n{toml_setting}\n"
+                    )))
+                    .extract::<CarbideConfig>()
+                    .map(|config| config.site_explorer.dpu_policy)
+                    .map_err(drop)
+            };
+            "canonical policy values" {
+                "dpu_policy = \"manage\"" => Yields(Some(HostDpuPolicy::Manage)),
+                "dpu_policy = \"nic\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_policy = \"ignore\"" => Yields(Some(HostDpuPolicy::Ignore)),
+            }
+
+            "compatibility values" {
+                "dpu_policy = \"use_as_nic\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_mode = \"dpu_mode\"" => Yields(Some(HostDpuPolicy::Manage)),
+                "dpu_mode = \"nic_mode\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_mode = \"no_dpu\"" => Yields(Some(HostDpuPolicy::Ignore)),
+            }
+        );
+    }
+
+    #[test]
+    fn site_explorer_dpu_policy_serializes_only_canonical_key() {
+        scenarios!(
+            run = |dpu_policy| {
+                let config = SiteExplorerConfig {
+                    dpu_policy,
+                    ..SiteExplorerConfig::default()
+                };
+
+                serde_json::to_value(config)
+                    .map(|serialized| {
+                        (
+                            serialized.get("dpu_policy").cloned(),
+                            serialized.get("dpu_mode").cloned(),
+                        )
+                    })
+                    .map_err(drop)
+            };
+            "canonical key only" {
+                None => Yields((Some(serde_json::Value::Null), None)),
+                Some(HostDpuPolicy::Manage) => Yields((
+                    Some(serde_json::Value::String("manage".to_string())),
+                    None,
+                )),
+                Some(HostDpuPolicy::Nic) => Yields((
+                    Some(serde_json::Value::String("nic".to_string())),
+                    None,
+                )),
+                Some(HostDpuPolicy::Ignore) => Yields((
+                    Some(serde_json::Value::String("ignore".to_string())),
+                    None,
+                )),
+            }
+        );
     }
 
     #[test]

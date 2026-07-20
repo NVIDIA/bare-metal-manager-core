@@ -45,6 +45,7 @@ carbide-redfish = { path = "../redfish", default-features = false }
 carbide-secrets = { path = "../secrets" }
 carbide-state-controller-common = { path = "../state-controller-common", default-features = false }
 carbide-uuid = { path = "../uuid", default-features = false }
+component-manager = { path = "../component-manager" }
 config-version = { path = "../config-version", default-features = false }
 state-controller = { path = "../state-controller" }
 
@@ -76,6 +77,7 @@ version-compare = { workspace = true }
 [dev-dependencies]
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
+carbide-secrets = { path = "../secrets", features = ["test-support"] }
 carbide-test-harness = { path = "../test-harness" }
 carbide-test-support = { path = "../test-support" }
 

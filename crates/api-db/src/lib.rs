@@ -691,6 +691,31 @@ impl<'a> Transaction<'a> {
         })
     }
 
+    // This function can just async when
+    // https://github.com/rust-lang/rust/issues/110011 will be
+    // implemented
+    /// Roll back the transaction, logging a warning tagged with `context` if
+    /// the rollback itself fails, rather than propagating -- for read-only or
+    /// cleanup paths where the caller can't act on a rollback error but must
+    /// not swallow it.
+    #[track_caller]
+    pub fn rollback_or_log(
+        self,
+        context: &'static str,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        let loc = Location::caller();
+        Box::pin(async move {
+            if let Err(e) = self
+                .inner
+                .rollback()
+                .await
+                .map_err(|e| DatabaseError::txn_rollback(e, loc))
+            {
+                tracing::warn!(error = %e, context, "Failed to roll back transaction");
+            }
+        })
+    }
+
     pub fn as_pgconn(&mut self) -> &mut sqlx::PgConnection {
         &mut self.inner
     }

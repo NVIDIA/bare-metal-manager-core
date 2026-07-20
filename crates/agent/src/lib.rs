@@ -230,6 +230,11 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             println!("{}", serde_json::to_string_pretty(&health_report)?);
         }
 
+        Some(AgentCommand::LldpNeighbors) => {
+            let neighbors = carbide_host_support::lldp_collector::collect_lldp_neighbors()?;
+            println!("{neighbors:#?}");
+        }
+
         // One-off network monitor check.
         // dumps JSON-formatted peer DPU network reachability and latency status
         Some(AgentCommand::Network(options)) => {

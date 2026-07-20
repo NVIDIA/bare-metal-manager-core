@@ -49,8 +49,8 @@ use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
-    ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase, NicMode, PowerDrainState,
-    PreingestionState, TimeSyncResetPhase,
+    BlueFieldOperatingMode, ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase,
+    PowerDrainState, PreingestionState, TimeSyncResetPhase,
 };
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
@@ -334,7 +334,7 @@ async fn one_endpoint(
         _ => None,
     };
     if let Some(host_bmc_ip) = endpoint_host_bmc_ip
-        && endpoint.report.nic_mode() == Some(NicMode::Nic)
+        && endpoint.report.bluefield_operating_mode() == Some(BlueFieldOperatingMode::Nic)
     {
         tracing::info!(
             bmc_ip_address = %endpoint.address,
@@ -2317,13 +2317,53 @@ impl PreingestionManagerStatic {
                 }
             };
 
+            /// Which capture setup failed, forcing the subprocess cleanup.
+            enum CaptureFailure {
+                Stdout,
+                Stderr,
+            }
+
+            impl std::fmt::Display for CaptureFailure {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str(match self {
+                        CaptureFailure::Stdout => "STDOUT capture failure",
+                        CaptureFailure::Stderr => "STDERR capture failure",
+                    })
+                }
+            }
+
+            // Kill then reap `child`, warning -- but not failing -- if either
+            // step errors. `context` names which capture setup failed, rendered
+            // via its `Display`.
+            async fn kill_and_reap(
+                child: &mut tokio::process::Child,
+                address: &str,
+                context: CaptureFailure,
+            ) {
+                if let Err(e) = child.kill().await {
+                    tracing::warn!(
+                        %address,
+                        %context,
+                        error = %e,
+                        "Upgrade script cleanup: failed to kill subprocess"
+                    );
+                }
+                if let Err(e) = child.wait().await {
+                    tracing::warn!(
+                        %address,
+                        %context,
+                        error = %e,
+                        "Upgrade script cleanup: failed to reap subprocess"
+                    );
+                }
+            }
+
             let Some(stdout) = cmd.stdout.take() else {
                 tracing::error!(
                     bmc_ip_address = address.as_str(),
                     "Upgrade script stdout creation failed"
                 );
-                let _ = cmd.kill().await;
-                let _ = cmd.wait().await;
+                kill_and_reap(&mut cmd, &address, CaptureFailure::Stdout).await;
                 upgrade_script_state.completed(address, false);
                 return;
             };
@@ -2334,8 +2374,7 @@ impl PreingestionManagerStatic {
                     bmc_ip_address = address.as_str(),
                     "Upgrade script stderr creation failed"
                 );
-                let _ = cmd.kill().await;
-                let _ = cmd.wait().await;
+                kill_and_reap(&mut cmd, &address, CaptureFailure::Stderr).await;
                 upgrade_script_state.completed(address, false);
                 return;
             };
@@ -2353,7 +2392,13 @@ impl PreingestionManagerStatic {
             while let Some(line) = lines.next_line().await.unwrap_or(None) {
                 tracing::info!("Upgrade script {address} {line}");
             }
-            let _ = tokio::join!(thread);
+            if let Err(e) = thread.await {
+                tracing::warn!(
+                    %address,
+                    error = %e,
+                    "Upgrade script STDERR logging task did not complete cleanly"
+                );
+            }
 
             match cmd.wait().await {
                 Err(e) => {

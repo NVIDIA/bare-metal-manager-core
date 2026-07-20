@@ -264,7 +264,7 @@ impl MachineCreator {
             }
         }
 
-        // Own a declared integrated boot NIC so a DpuMode host can boot from it
+        // Own a declared integrated boot NIC so a managed-DPU host can boot from it
         // while its DPUs stay managed: the NIC becomes the host's HostInband
         // primary and the DPU admin links go dormant in the reconcile below.
         // Only for hosts with explored DPUs -- a zero-DPU host's NICs (including
@@ -575,7 +575,7 @@ impl MachineCreator {
         Ok(Some(*machine_id))
     }
 
-    /// Owns a declared integrated (non-DPU) host NIC as a DpuMode host's
+    /// Owns a declared integrated (non-DPU) host NIC as a managed-DPU host's
     /// HostInband boot interface, so a host with managed DPUs can still boot from
     /// an integrated NIC. The NIC carries `primary` into `machine_interfaces` on
     /// its first DHCP; the DPUs stay explored and linked, and their admin links
@@ -583,7 +583,7 @@ impl MachineCreator {
     /// primary.
     ///
     /// Mirrors the host-NIC ownership in `create_zero_dpu_machine`, but for the
-    /// one declared NIC reached from the DpuMode path. No-op when nothing is
+    /// one declared NIC reached from the managed-DPU path. No-op when nothing is
     /// declared, or when the declared NIC is already owned (e.g. a declared DPU
     /// host-PF, which `attach_dpu_to_host` already owns).
     async fn own_declared_host_boot_nic(
@@ -632,7 +632,7 @@ impl MachineCreator {
             .await?;
             tracing::info!(
                 declared_mac_address = %declared_mac, %host_machine_id,
-                "Adopted declared integrated boot NIC as the DpuMode host's primary",
+                "Adopted declared integrated boot NIC as the managed-DPU host's primary",
             );
             return Ok(());
         }
@@ -672,7 +672,7 @@ impl MachineCreator {
         .await?;
         tracing::info!(
             declared_mac_address = %declared_mac, %host_machine_id,
-            "Minted HostInband boot-NIC prediction for DpuMode host's declared integrated primary",
+            "Minted HostInband boot-NIC prediction for managed-DPU host's declared integrated primary",
         );
         Ok(())
     }

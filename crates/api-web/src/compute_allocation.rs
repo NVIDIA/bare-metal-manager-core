@@ -134,10 +134,13 @@ pub async fn show(
         }
     };
 
-    let tmpl = ComputeAllocationShow {
-        allocations,
-        page: PageContext::from_page_count(current_page, limit, pages, path.path()),
+    // `limit == 0` is the "All" pagination option: everything on one page.
+    let page = if limit == 0 {
+        PageContext::all(allocations.len(), path.path())
+    } else {
+        PageContext::from_page_count(current_page, limit, pages, path.path())
     };
+    let tmpl = ComputeAllocationShow { allocations, page };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
@@ -161,28 +164,32 @@ async fn fetch_compute_allocations(
         .map(|response| response.into_inner())?
         .ids;
 
-    let limit = if limit == 0 {
-        DEFAULT_PAGE_RECORD_LIMIT
-    } else {
-        limit
-    };
-
     if all_ids.is_empty() {
         return Ok((0, vec![]));
     }
 
-    let pages = all_ids.len().div_ceil(limit);
-    let current_record_cnt_seen = current_page.saturating_mul(limit);
+    // `limit == 0` means "show all" on a single page.
+    let (pages, ids_for_page): (usize, Vec<_>) = if limit == 0 {
+        (1, all_ids)
+    } else {
+        let pages = all_ids.len().div_ceil(limit);
+        let current_record_cnt_seen = current_page.saturating_mul(limit);
 
-    if current_record_cnt_seen > all_ids.len() {
-        return Ok((pages, vec![]));
-    }
+        // `>=` (not `>`) so the first out-of-range page returns early instead of
+        // issuing a lookup with no IDs when the count is an exact multiple of limit.
+        if current_record_cnt_seen >= all_ids.len() {
+            return Ok((pages, vec![]));
+        }
 
-    let ids_for_page = all_ids
-        .into_iter()
-        .skip(current_record_cnt_seen)
-        .take(limit)
-        .collect();
+        (
+            pages,
+            all_ids
+                .into_iter()
+                .skip(current_record_cnt_seen)
+                .take(limit)
+                .collect(),
+        )
+    };
 
     let allocations = api
         .find_compute_allocations_by_ids(tonic::Request::new(

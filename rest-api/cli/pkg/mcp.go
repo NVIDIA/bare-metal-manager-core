@@ -40,17 +40,19 @@ Common flags (each also reads its NICO_* environment variable):
 
   --listen            address:port to listen on (default ":8080")
   --path              HTTP path the MCP handler is mounted at (default "/mcp")
-  --base-url          default NICo REST base URL
+  --base-url          trusted NICo REST base URL; per-call base_url must match
   --org               default org used in /v2/org/<org>/... paths
   --api-name          API path segment in /v2/org/<org>/<name>/... (default "nico")
-  --token             default bearer token
+  --token             default bearer token for the configured base URL
   --shutdown-timeout  graceful shutdown timeout (default 10s)
   --debug             enable debug logging
 
-The server is stateless: base_url, org, and token can be supplied per tool
-call (token also via an inbound Authorization header), with the flags above as
-defaults. Point your MCP client at http://<listen><path> (default
-http://localhost:8080/mcp). Run "nico-mcp --help" for the full flag list.
+The server is stateless. A configured base URL pins the destination and is the
+only destination that may receive an inbound or default bearer token. Without
+one, a per-call base_url may use an explicit per-call token or no token; the
+server rejects inherited credentials. Point your MCP client at
+http://<listen><path> (default http://localhost:8080/mcp). Run "nico-mcp
+--help" for the full flag list.
 `
 
 func printMCPInstructions(c *cli.Context) error {

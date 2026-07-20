@@ -61,7 +61,8 @@ impl From<&fac::Action> for ScoutAction {
 /// Scout finished handling one control-loop action, whatever the result.
 #[derive(Event)]
 #[event(
-    name = "carbide_scout_actions_total",
+    event_name = "scout_action_handled",
+    metric_name = "carbide_scout_actions_total",
     component = "nico-scout",
     log = off,
     metric = counter,
@@ -78,7 +79,8 @@ pub struct ScoutActionHandled {
 /// stream is established, `error` when the client could not be built.
 #[derive(Event)]
 #[event(
-    name = "carbide_scout_stream_connections_total",
+    event_name = "scout_stream_connection",
+    metric_name = "carbide_scout_stream_connections_total",
     component = "nico-scout",
     log = off,
     metric = counter,
@@ -93,7 +95,8 @@ pub struct ScoutStreamConnection {
 /// it after the reconnect delay.
 #[derive(Event)]
 #[event(
-    name = "carbide_scout_stream_reconnects_total",
+    event_name = "scout_stream_reconnect",
+    metric_name = "carbide_scout_stream_reconnects_total",
     component = "nico-scout",
     log = off,
     metric = counter,
