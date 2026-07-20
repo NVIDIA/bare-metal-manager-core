@@ -27,41 +27,309 @@ use tower::ServiceBuilder;
 use tracing::Span;
 
 pub mod config;
+use carbide_instrument::Outcome;
 use carbide_uuid::machine::MachineId;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
 
-/// One iteration of a DPU-agent report loop, recorded by `{report_loop,
-/// outcome}`. A pure counter: the failure detail stays on the existing
-/// call-site log, so this event never logs and carries no context of its own.
+/// `ReportLoop` labels one full agent reporting iteration rather than one
+/// outbound RPC. That boundary also counts pre-RPC build and conversion
+/// failures, plus the external FMDS push that generated-client RED metrics do
+/// not see.
 ///
-/// The loop's outbound Forge RPC is already RED-metered by the generated
-/// client, so this counter sits one level up -- it captures the whole
-/// iteration, including the pre-RPC build/connect failures and the raw FMDS
-/// push that the per-RPC metric never sees.
+/// The enum stays private so each Event constructor fixes the only valid
+/// `{report_loop, outcome}` pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+enum ReportLoop {
+    Inventory,
+    ConfigFetch,
+    FmdsPush,
+    NetworkStatus,
+}
+
+/// `InventoryReportSucceeded` records the inventory loop's successful
+/// completion and owns its DEBUG diagnostic. The other successful loops are
+/// metric-only.
 #[derive(carbide_instrument::Event)]
 #[event(
-    event_name = "dpu_agent_report_loop_completed",
+    event_name = "dpu_agent_inventory_report_succeeded",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = debug,
+    metric = counter,
+    message = "Successfully updated machine inventory",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct InventoryReportSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+impl InventoryReportSucceeded {
+    pub(crate) fn new() -> Self {
+        Self {
+            report_loop: ReportLoop::Inventory,
+            outcome: Outcome::Ok,
+        }
+    }
+}
+
+/// `InventoryReportFailed` counts an inventory error without logging it.
+/// `machine_inventory_updater::single_run` returns the same error to the
+/// main-loop scheduler, which owns the diagnostic.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_inventory_report_failed",
     metric_name = "carbide_dpu_agent_report_total",
     component = "forge-dpu-agent",
     log = off,
     metric = counter,
     describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
 )]
-pub struct ReportLoopCompleted {
+pub(crate) struct InventoryReportFailed {
     #[label]
-    pub report_loop: ReportLoop,
+    report_loop: ReportLoop,
     #[label]
-    pub outcome: carbide_instrument::Outcome,
+    outcome: Outcome,
 }
 
-/// The DPU-agent report loops that emit [`ReportLoopCompleted`]. The label
-/// field is named `report_loop` because `loop` is a keyword.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
-pub enum ReportLoop {
-    Inventory,
-    ConfigFetch,
-    FmdsPush,
-    NetworkStatus,
+impl InventoryReportFailed {
+    pub(crate) fn new() -> Self {
+        Self {
+            report_loop: ReportLoop::Inventory,
+            outcome: Outcome::Error,
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_config_fetch_succeeded",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct ConfigFetchSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+impl ConfigFetchSucceeded {
+    pub(crate) fn new() -> Self {
+        Self {
+            report_loop: ReportLoop::ConfigFetch,
+            outcome: Outcome::Ok,
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_config_fetch_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "Failed to fetch the latest configuration. Will retry",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct ConfigFetchFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    error: String,
+    #[context(value)]
+    retry_interval_seconds: f64,
+}
+
+impl ConfigFetchFailed {
+    pub(crate) fn new(error: String, retry_interval_seconds: f64) -> Self {
+        Self {
+            report_loop: ReportLoop::ConfigFetch,
+            outcome: Outcome::Error,
+            error,
+            retry_interval_seconds,
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_config_not_found",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = warn,
+    metric = counter,
+    message = "DPU not found",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct ConfigNotFound {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    machine_id: String,
+}
+
+impl ConfigNotFound {
+    pub(crate) fn new(machine_id: String) -> Self {
+        Self {
+            report_loop: ReportLoop::ConfigFetch,
+            outcome: Outcome::Error,
+            machine_id,
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_fmds_push_succeeded",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct FmdsPushSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+impl FmdsPushSucceeded {
+    pub(crate) fn new() -> Self {
+        Self {
+            report_loop: ReportLoop::FmdsPush,
+            outcome: Outcome::Ok,
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_fmds_push_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "Failed to send config update to external FMDS",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct FmdsPushFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    error: String,
+    #[context]
+    fmds_address: String,
+}
+
+impl FmdsPushFailed {
+    pub(crate) fn new(error: String, fmds_address: String) -> Self {
+        Self {
+            report_loop: ReportLoop::FmdsPush,
+            outcome: Outcome::Error,
+            error,
+            fmds_address,
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_network_status_succeeded",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct NetworkStatusSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+impl NetworkStatusSucceeded {
+    pub(crate) fn new() -> Self {
+        Self {
+            report_loop: ReportLoop::NetworkStatus,
+            outcome: Outcome::Ok,
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_network_status_connection_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "record_network_status: Could not connect to Forge API server. Will retry.",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct NetworkStatusConnectionFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    forge_api: String,
+    #[context]
+    error: String,
+}
+
+impl NetworkStatusConnectionFailed {
+    pub(crate) fn new(forge_api: String, error: String) -> Self {
+        Self {
+            report_loop: ReportLoop::NetworkStatus,
+            outcome: Outcome::Error,
+            forge_api,
+            error,
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_network_status_rpc_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "Error while executing the record_network_status gRPC call",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+pub(crate) struct NetworkStatusRpcFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    error: String,
+}
+
+impl NetworkStatusRpcFailed {
+    pub(crate) fn new(error: String) -> Self {
+        Self {
+            report_loop: ReportLoop::NetworkStatus,
+            outcome: Outcome::Error,
+            error,
+        }
+    }
 }
 
 pub struct AgentMetricsState {
@@ -319,5 +587,295 @@ impl WithTracingLayer for Router {
             );
 
         self.layer(ServiceBuilder::new().layer(layer))
+    }
+}
+
+#[cfg(test)]
+mod report_loop_tests {
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    const REPORT_METRIC: &str = "carbide_dpu_agent_report_total";
+
+    struct EventCase {
+        emit: fn(),
+        report_loop: &'static str,
+        outcome: &'static str,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct EventObservation {
+        metric_delta: f64,
+        logs: Vec<LogShape>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct LogShape {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        fields: Vec<(String, String)>,
+        retry_interval_kind: Option<CapturedFieldKind>,
+    }
+
+    fn expected_log(
+        metadata_name: &str,
+        level: tracing::Level,
+        message: &str,
+        report_loop: &str,
+        outcome: &str,
+        context: &[(&str, &str)],
+        retry_interval_kind: Option<CapturedFieldKind>,
+    ) -> Vec<LogShape> {
+        let mut fields = vec![
+            ("event_name".to_string(), metadata_name.to_string()),
+            ("metric_name".to_string(), REPORT_METRIC.to_string()),
+            ("report_loop".to_string(), report_loop.to_string()),
+            ("outcome".to_string(), outcome.to_string()),
+        ];
+        fields.extend(
+            context
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string())),
+        );
+
+        vec![LogShape {
+            metadata_name: metadata_name.to_string(),
+            level,
+            message: message.to_string(),
+            fields,
+            retry_interval_kind,
+        }]
+    }
+
+    fn observe_event(case: EventCase) -> EventObservation {
+        let EventCase {
+            emit,
+            report_loop,
+            outcome,
+        } = case;
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(emit)
+            .into_iter()
+            .map(|log| {
+                let retry_interval_kind = log.field_kind("retry_interval_seconds");
+                LogShape {
+                    metadata_name: log.metadata_name,
+                    level: log.level,
+                    message: log.message,
+                    fields: log.fields,
+                    retry_interval_kind,
+                }
+            })
+            .collect();
+
+        EventObservation {
+            metric_delta: metrics.counter_delta(
+                REPORT_METRIC,
+                &[("report_loop", report_loop), ("outcome", outcome)],
+            ),
+            logs,
+        }
+    }
+
+    #[test]
+    fn semantic_events_preserve_the_loop_outcome_matrix_and_log_shapes() {
+        const MACHINE_ID: &str = "fm100000000000000000000000000000000000000000000000000000000000";
+
+        check_values(
+            [
+                Check {
+                    scenario: "inventory success logs at debug",
+                    input: EventCase {
+                        emit: || emit(InventoryReportSucceeded::new()),
+                        report_loop: "inventory",
+                        outcome: "ok",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_inventory_report_succeeded",
+                            tracing::Level::DEBUG,
+                            "Successfully updated machine inventory",
+                            "inventory",
+                            "ok",
+                            &[],
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "inventory failure remains metric-only",
+                    input: EventCase {
+                        emit: || emit(InventoryReportFailed::new()),
+                        report_loop: "inventory",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "config fetch success remains metric-only",
+                    input: EventCase {
+                        emit: || emit(ConfigFetchSucceeded::new()),
+                        report_loop: "config_fetch",
+                        outcome: "ok",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "config fetch failure retains retry context",
+                    input: EventCase {
+                        emit: || emit(ConfigFetchFailed::new("config failed".to_string(), 30.5)),
+                        report_loop: "config_fetch",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_config_fetch_failed",
+                            tracing::Level::ERROR,
+                            "Failed to fetch the latest configuration. Will retry",
+                            "config_fetch",
+                            "error",
+                            &[
+                                ("error", "config failed"),
+                                ("retry_interval_seconds", "30.5"),
+                            ],
+                            Some(CapturedFieldKind::F64),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "FMDS success remains metric-only",
+                    input: EventCase {
+                        emit: || emit(FmdsPushSucceeded::new()),
+                        report_loop: "fmds_push",
+                        outcome: "ok",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "FMDS failure retains address context",
+                    input: EventCase {
+                        emit: || {
+                            emit(FmdsPushFailed::new(
+                                "FMDS failed".to_string(),
+                                "http://fmds:50051".to_string(),
+                            ))
+                        },
+                        report_loop: "fmds_push",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_fmds_push_failed",
+                            tracing::Level::ERROR,
+                            "Failed to send config update to external FMDS",
+                            "fmds_push",
+                            "error",
+                            &[
+                                ("error", "FMDS failed"),
+                                ("fmds_address", "http://fmds:50051"),
+                            ],
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "network status success remains metric-only",
+                    input: EventCase {
+                        emit: || emit(NetworkStatusSucceeded::new()),
+                        report_loop: "network_status",
+                        outcome: "ok",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "network status RPC failure retains error context",
+                    input: EventCase {
+                        emit: || emit(NetworkStatusRpcFailed::new("RPC failed".to_string())),
+                        report_loop: "network_status",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_network_status_rpc_failed",
+                            tracing::Level::ERROR,
+                            "Error while executing the record_network_status gRPC call",
+                            "network_status",
+                            "error",
+                            &[("error", "RPC failed")],
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "missing config retains machine context",
+                    input: EventCase {
+                        emit: || emit(ConfigNotFound::new(MACHINE_ID.to_string())),
+                        report_loop: "config_fetch",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_config_not_found",
+                            tracing::Level::WARN,
+                            "DPU not found",
+                            "config_fetch",
+                            "error",
+                            &[("machine_id", MACHINE_ID)],
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "network connection failure retains endpoint context",
+                    input: EventCase {
+                        emit: || {
+                            emit(NetworkStatusConnectionFailed::new(
+                                "https://forge:50051".to_string(),
+                                "connection refused".to_string(),
+                            ))
+                        },
+                        report_loop: "network_status",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_network_status_connection_failed",
+                            tracing::Level::ERROR,
+                            "record_network_status: Could not connect to Forge API server. Will retry.",
+                            "network_status",
+                            "error",
+                            &[
+                                ("forge_api", "https://forge:50051"),
+                                ("error", "connection refused"),
+                            ],
+                            None,
+                        ),
+                    },
+                },
+            ],
+            observe_event,
+        );
     }
 }

@@ -2203,6 +2203,7 @@ name = "carbide-instrument-macros"
 version = "0.0.0"
 dependencies = [
  "carbide-observability-schema",
+ "carbide-test-support",
  "proc-macro2",
  "quote",
  "syn 2.0.117",

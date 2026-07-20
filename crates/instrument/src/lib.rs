@@ -80,6 +80,23 @@
 //! }
 //! ```
 //!
+//! `#[context]` formats through `Display` by default. `#[context(value)]` is
+//! the opt-in for fields whose tracing type is part of the structured-log
+//! contract; it accepts `bool`, `i64`, `f64`, or `String`:
+//!
+//! ```
+//! #[derive(carbide_instrument::Event)]
+//! #[event(
+//!     event_name = "retry_scheduled",
+//!     component = "demo",
+//!     message = "retry scheduled"
+//! )]
+//! struct RetryScheduled {
+//!     #[context(value)]
+//!     retry_interval_seconds: f64,
+//! }
+//! ```
+//!
 //! The metric name is validated at compile time -- the `carbide_` prefix, the
 //! `_total` suffix for counters, a unit suffix for histograms:
 //!

@@ -20,8 +20,9 @@
 
 use std::time::Duration;
 
-use carbide_instrument::testing::{MetricsCapture, capture_logs};
+use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
 use carbide_instrument::{Event, LabelValue, LogAt, MetricKind, Outcome, emit};
+use carbide_test_support::value_scenarios;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
 enum Stage {
@@ -81,6 +82,53 @@ fn both_sides_from_one_emit() {
             &[("stage", "apply"), ("outcome", "error")],
         ),
         1.0
+    );
+}
+
+/// `#[context(value)]` retains each supported structured type instead of
+/// routing it through `Display` formatting.
+#[test]
+fn native_context_retains_its_type() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_native_context",
+        component = "matrix-test",
+        message = "native context"
+    )]
+    struct NativeContext {
+        #[context(value)]
+        ready: bool,
+        #[context(value)]
+        attempt: i64,
+        #[context(value)]
+        retry_interval_seconds: f64,
+        #[context(value)]
+        phase: String,
+    }
+
+    let logs = capture_logs(|| {
+        emit(NativeContext {
+            ready: true,
+            attempt: 3,
+            retry_interval_seconds: 30.5,
+            phase: "backoff".to_string(),
+        });
+    });
+
+    assert_eq!(logs.len(), 1);
+    value_scenarios!(run = |field| (
+        logs[0].field(field).map(str::to_string),
+        logs[0].field_kind(field),
+    );
+        "native context retains its rendered value and tracing type" {
+            "ready" => (Some("true".to_string()), Some(CapturedFieldKind::Bool)),
+            "attempt" => (Some("3".to_string()), Some(CapturedFieldKind::I64)),
+            "retry_interval_seconds" => (
+                Some("30.5".to_string()),
+                Some(CapturedFieldKind::F64),
+            ),
+            "phase" => (Some("backoff".to_string()), Some(CapturedFieldKind::String)),
+        }
     );
 }
 
