@@ -105,7 +105,7 @@ jobs:
       prod_image_registry: ${{ steps.registry.outputs.prod_registry }}
       helm_version: ${{ steps.version.outputs.helm_version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
-      major_minor_version: ${{ steps.version.outputs.major_minor_version }}
+      major_minor_version: ${{ steps.base-container-gate.outputs.major_minor_version }}
       extras_container_ref: ${{ steps.resolve-extras.outputs.extras_container_ref }}
       build_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
       build_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
@@ -212,7 +212,6 @@ jobs:
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "helm_version=${HELM_VERSION}" >> $GITHUB_OUTPUT
-          echo "major_minor_version=$(echo "${VERSION}" | cut -d. -f1,2)" >> $GITHUB_OUTPUT
           echo "Calculated VERSION: ${VERSION}"
           echo "Calculated HELM_VERSION: ${HELM_VERSION}"
 
@@ -423,10 +422,13 @@ jobs:
           echo "core_rpc_proto_files_changed=${core_rpc_proto_files_changed}" >> "$GITHUB_OUTPUT"
           echo "source_files_changed=${source_files_changed}" >> "$GITHUB_OUTPUT"
 
+          MAJOR_MINOR=$(echo "${VERSION}" | cut -d. -f1,2)
+          echo "major_minor_version=${MAJOR_MINOR}" >> "$GITHUB_OUTPUT"
+
           if [[ "$build_container_x86_64_run" == "true" ]]; then
             echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_container_x86_64_ref=${TARGET_REGISTRY}/build-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_container_x86_64_version_latest=${TARGET_REGISTRY}/build-container-x86_64:$(echo "${VERSION}" | cut -d. -f1,2)-latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_version_latest=${TARGET_REGISTRY}/build-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
             echo "build_container_x86_64_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
@@ -436,7 +438,7 @@ jobs:
           if [[ "$runtime_container_x86_64_run" == "true" ]]; then
             echo "runtime_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "runtime_container_x86_64_ref=${TARGET_REGISTRY}/runtime-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_x86_64_version_latest=${TARGET_REGISTRY}/runtime-container-x86_64:$(echo "${VERSION}" | cut -d. -f1,2)-latest" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_x86_64_version_latest=${TARGET_REGISTRY}/runtime-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
             echo "runtime_container_x86_64_ref=${SOURCE_REGISTRY}/runtime-container-x86_64:latest" >> "$GITHUB_OUTPUT"
@@ -446,7 +448,7 @@ jobs:
           if [[ "$build_container_aarch64_run" == "true" ]]; then
             echo "build_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_container_aarch64_ref=${TARGET_REGISTRY}/build-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_container_aarch64_version_latest=${TARGET_REGISTRY}/build-container-aarch64:$(echo "${VERSION}" | cut -d. -f1,2)-latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_version_latest=${TARGET_REGISTRY}/build-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
             echo "build_container_aarch64_ref=${SOURCE_REGISTRY}/build-container-aarch64:latest" >> "$GITHUB_OUTPUT"
@@ -456,7 +458,7 @@ jobs:
           if [[ "$runtime_container_aarch64_run" == "true" ]]; then
             echo "runtime_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "runtime_container_aarch64_ref=${TARGET_REGISTRY}/runtime-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "runtime_container_aarch64_version_latest=${TARGET_REGISTRY}/runtime-container-aarch64:$(echo "${VERSION}" | cut -d. -f1,2)-latest" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_aarch64_version_latest=${TARGET_REGISTRY}/runtime-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
             echo "runtime_container_aarch64_ref=${SOURCE_REGISTRY}/runtime-container-aarch64:latest" >> "$GITHUB_OUTPUT"
@@ -466,7 +468,7 @@ jobs:
           if [[ "$build_artifacts_container_x86_64_run" == "true" ]]; then
             echo "build_artifacts_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_artifacts_container_x86_64_ref=${TARGET_REGISTRY}/build-artifacts-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_x86_64_version_latest=${TARGET_REGISTRY}/build-artifacts-container-x86_64:$(echo "${VERSION}" | cut -d. -f1,2)-latest" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_x86_64_version_latest=${TARGET_REGISTRY}/build-artifacts-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "build_artifacts_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
             echo "build_artifacts_container_x86_64_ref=${SOURCE_REGISTRY}/build-artifacts-container-x86_64:latest" >> "$GITHUB_OUTPUT"
@@ -476,7 +478,7 @@ jobs:
           if [[ "$build_artifacts_container_aarch64_run" == "true" ]]; then
             echo "build_artifacts_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_artifacts_container_aarch64_ref=${TARGET_REGISTRY}/build-artifacts-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
-            echo "build_artifacts_container_aarch64_version_latest=${TARGET_REGISTRY}/build-artifacts-container-aarch64:$(echo "${VERSION}" | cut -d. -f1,2)-latest" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_aarch64_version_latest=${TARGET_REGISTRY}/build-artifacts-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "build_artifacts_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
             echo "build_artifacts_container_aarch64_ref=${SOURCE_REGISTRY}/build-artifacts-container-aarch64:latest" >> "$GITHUB_OUTPUT"
