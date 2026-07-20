@@ -31,11 +31,10 @@ The guide is organized into the following sections:
 3. **Post-Installation Configuration** — the cluster state and NICo configuration that must be in place after DPF is installed and before NICo starts.
 4. **Restart carbide-api** — what NICo creates on startup, and why a restart is required to apply DPF config changes.
 
-> **Note**:
->
-> 1. NICo expects DPF to be installed and configured on the same Kubernetes cluster where NICo (the controller) runs.
-> 2. DPF is the default provisioning strategy. If any host is not using it, a warning will be displayed.
->
+<Note title="Notes">
+1. NICo expects DPF to be installed and configured on the same Kubernetes cluster where NICo (the controller) runs.
+2. When `[dpf].enabled = true`, DPF is the default per-host provisioning strategy. A warning is displayed for hosts that are not configured to use DPF.
+</Note>
 ---
 
 ## 1. Prerequisites
@@ -740,10 +739,9 @@ same per-entry shape as `update`:
 nico-admin-cli expected-machine replace-all --filename em-all.json
 ```
 
-> **Important**: this is **not a merge**. Any expected-machine row that is
-> not present in the file is **deleted**. Each entry is then re-created via
-> the same path as `add`, so any entry whose `dpf_enabled` is omitted is
-> re-inserted with `dpf_enabled = true`.
+<Warning>
+This is not a merge. Any expected-machine row that is not present in the file is **deleted**. Each entry is then re-created using the same path as `add`, so any entry whose `dpf_enabled` is omitted is re-inserted with `dpf_enabled = true`.
+</Warning>
 
 #### 3.6.e. Quick reference
 
