@@ -17,6 +17,7 @@
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_secrets::credentials::{CredentialKey, Credentials};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
 use db::{WithTransaction, extension_service, instance};
@@ -65,7 +66,7 @@ pub(crate) async fn create(
     }
     let service_type: ExtensionServiceType =
         rpc::DpuExtensionServiceType::try_from(req.service_type)
-            .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?
+            .map_err(|_| CarbideError::InvalidArgument("invalid service_type".to_string()))?
             .into();
 
     let initial_version = ConfigVersion::initial();
@@ -141,9 +142,9 @@ pub(crate) async fn create(
                         .await
                 {
                     tracing::warn!(
-                        "Failed to delete credential for extension service {} after transaction failure: {}",
-                        service_id,
-                        delete_err
+                        extension_service_id = %service_id,
+                        error = %delete_err,
+                        "Failed to delete extension service credential after transaction failure",
                     );
                 }
             }
@@ -301,7 +302,7 @@ pub(crate) async fn update(
         )?;
         if !is_spec_changed {
             return Err(CarbideError::InvalidArgument(
-                "No changes to data or credential from latest version".to_string(),
+                "no changes to data or credential from latest version".to_string(),
             )
             .into());
         }
@@ -327,7 +328,7 @@ pub(crate) async fn update(
 
         let version_change =
             ConfigVersion::new(current_service.version_ctr.try_into().map_err(|e| {
-                CarbideError::internal(format!("Invalid version for extension service: {e}"))
+                CarbideError::internal(format!("invalid version for extension service: {e}"))
             })?)
             .incremental_change();
 
@@ -388,9 +389,9 @@ pub(crate) async fn update(
                             .await
                     {
                         tracing::warn!(
-                            "Failed to delete credential for extension service {} after transaction failure: {}",
-                            service_id,
-                            delete_err
+                            extension_service_id = %service_id,
+                            error = %delete_err,
+                            "Failed to delete extension service credential after transaction failure",
                         );
                     }
                 }
@@ -483,7 +484,7 @@ pub(crate) async fn delete(
     let is_in_use = extension_service::is_service_in_use(&mut txn, service_id, &versions).await?;
     if is_in_use {
         return Err(CarbideError::FailedPrecondition(
-            "One or more extension service version is in use by instances; detach before deleting"
+            "one or more extension service version is in use by instances; detach before deleting"
                 .into(),
         )
         .into());
@@ -522,10 +523,10 @@ pub(crate) async fn delete(
                 delete_extension_service_credential(&api.credential_manager, credential_key).await
             {
                 tracing::warn!(
-                    "Failed to delete credential for extension service {} version {}: {}",
-                    service_id,
-                    version,
-                    e
+                    extension_service_id = %service_id,
+                    version = %version,
+                    error = %e,
+                    "Failed to delete extension service credential",
                 );
             }
         }
@@ -563,7 +564,7 @@ pub(crate) async fn find_ids(
         None => None,
         Some(v) => {
             let service_type_rpc = rpc::DpuExtensionServiceType::try_from(v)
-                .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?;
+                .map_err(|_| CarbideError::InvalidArgument("invalid service_type".to_string()))?;
             Some(ExtensionServiceType::from(service_type_rpc))
         }
     };
@@ -635,22 +636,18 @@ pub(crate) async fn get_versions_info(
     let req = request.into_inner();
 
     // Parse versions from strings to ConfigVersions
-    let versions: Option<Vec<ConfigVersion>> = if !req.versions.is_empty() {
-        let versions = req
-            .versions
-            .iter()
-            .map(|v| v.parse::<config_version::ConfigVersion>())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
-                    "Failed to parse version: {}",
-                    e
-                )))
-            })?;
-        Some(versions)
-    } else {
-        None
-    };
+    let versions: Option<Vec<ConfigVersion>> = req
+        .versions
+        .iter()
+        .map(|v| v.parse::<config_version::ConfigVersion>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| {
+            CarbideError::from(RpcDataConversionError::InvalidConfigVersion(format!(
+                "Failed to parse version: {}",
+                e
+            )))
+        })?
+        .none_if_empty();
 
     let mut txn = api.txn_begin().await?;
 
@@ -779,13 +776,13 @@ pub(crate) async fn find_instances_by_extension_service(
 fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
     if data.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "Invalid empty data for KubernetesPod service, need a valid pod manifest".to_string(),
+            "invalid empty data for KubernetesPod service, need a valid pod manifest".to_string(),
         ));
     }
 
     let root = serde_yaml::from_str::<serde_yaml::Value>(data).map_err(|e| {
         CarbideError::InvalidArgument(format!(
-            "Invalid pod spec file for KubernetesPod service: {}",
+            "invalid pod spec file for KubernetesPod service: {}",
             e
         ))
     })?;
@@ -795,7 +792,7 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
             // Check for apiVersion field
             if !mapping.contains_key(serde_yaml::Value::String("apiVersion".to_string())) {
                 return Err(CarbideError::InvalidArgument(
-                    "Pod manifest missing required field: apiVersion".to_string(),
+                    "pod manifest missing required field: apiVersion".to_string(),
                 ));
             }
 
@@ -805,7 +802,8 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
                 .and_then(|v| v.as_str());
             if kind != Some("Pod") {
                 return Err(CarbideError::InvalidArgument(
-                    "Pod manifest must have kind: Pod".to_string(),
+                    // xtask:allow-error-case: `Pod` is a case-sensitive Kubernetes kind
+                    "pod manifest must have kind: Pod".to_string(),
                 ));
             }
 
@@ -817,13 +815,13 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
                 Some(meta_map) => {
                     if !meta_map.contains_key(serde_yaml::Value::String("name".to_string())) {
                         return Err(CarbideError::InvalidArgument(
-                            "Pod manifest missing required field: metadata.name".to_string(),
+                            "pod manifest missing required field: metadata.name".to_string(),
                         ));
                     }
                 }
                 None => {
                     return Err(CarbideError::InvalidArgument(
-                        "Pod manifest missing required field: metadata".to_string(),
+                        "pod manifest missing required field: metadata".to_string(),
                     ));
                 }
             }
@@ -842,27 +840,27 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
                         Some(container_list) => {
                             if container_list.is_empty() {
                                 return Err(CarbideError::InvalidArgument(
-                                    "Pod manifest must have at least one container in spec.containers".to_string(),
+                                    "pod manifest must have at least one container in spec.containers".to_string(),
                                 ));
                             }
                         }
                         None => {
                             return Err(CarbideError::InvalidArgument(
-                                "Pod manifest missing required field: spec.containers (must be an array)".to_string(),
+                                "pod manifest missing required field: spec.containers (must be an array)".to_string(),
                             ));
                         }
                     }
                 }
                 None => {
                     return Err(CarbideError::InvalidArgument(
-                        "Pod manifest missing required field: spec".to_string(),
+                        "pod manifest missing required field: spec".to_string(),
                     ));
                 }
             }
         }
         _ => {
             return Err(CarbideError::InvalidArgument(
-                "Pod manifest must be a valid mapping object that contains apiVersion, kind, metadata, and spec.containers".to_string(),
+                "pod manifest must be a valid mapping object that contains apiVersion, kind, metadata, and spec.containers".to_string(),
             ))
         }
     };
@@ -877,7 +875,7 @@ fn validate_extension_service_data(
 ) -> Result<(), CarbideError> {
     if data.len() > MAX_POD_SPEC_SIZE {
         return Err(CarbideError::InvalidArgument(format!(
-            "Extension service data exceeds the maximum size: {} bytes",
+            "extension service data exceeds the maximum size: {} bytes",
             MAX_POD_SPEC_SIZE
         )));
     }
@@ -901,18 +899,18 @@ fn validate_extension_service_credential(
             // @TODO(Felicity): Add more validation for username and password
             if up.username.is_empty() || up.username.len() > 255 {
                 return Err(CarbideError::InvalidArgument(
-                    "Invalid username".to_string(),
+                    "invalid username".to_string(),
                 ));
             }
             if up.password.is_empty() || up.password.len() > 255 {
                 return Err(CarbideError::InvalidArgument(
-                    "Invalid password".to_string(),
+                    "invalid password".to_string(),
                 ));
             }
         }
         _ => {
             return Err(CarbideError::InvalidArgument(
-                "Invalid credential type".to_string(),
+                "invalid credential type".to_string(),
             ));
         }
     };
@@ -924,7 +922,7 @@ fn validate_extension_service_credential(
             // kubelet will match all images under "nvcr.io/nvforge/*".
             if credential.registry_url.is_empty() || credential.registry_url.len() > 255 {
                 return Err(CarbideError::InvalidArgument(
-                    "Invalid credential registry URL".to_string(),
+                    "invalid credential registry URL".to_string(),
                 ));
             }
         }
@@ -946,14 +944,14 @@ fn detect_extension_service_spec_change(
             let old_data_yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(old_data).map_err(|e| {
                     CarbideError::internal(format!(
-                        "Found corrupted data for KubernetesPod service: {}",
+                        "found corrupted data for KubernetesPod service: {}",
                         e
                     ))
                 })?;
             let new_data_yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(new_data).map_err(|e| {
                     CarbideError::InvalidArgument(format!(
-                        "Invalid pod spec file for KubernetesPod service: {}",
+                        "invalid pod spec file for KubernetesPod service: {}",
                         e
                     ))
                 })?;
@@ -1011,12 +1009,12 @@ async fn create_extension_service_credential(
                         .await
                         .map_err(|e| {
                             CarbideError::internal(format!(
-                                "Error creating credential for extension service: {e}"
+                                "error creating credential for extension service: {e}"
                             ))
                         })
                 }
                 None => Err(CarbideError::InvalidArgument(
-                    "Missing credential".to_string(),
+                    "missing credential".to_string(),
                 )),
             }
         }

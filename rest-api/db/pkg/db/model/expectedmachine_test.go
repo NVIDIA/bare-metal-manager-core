@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -1243,6 +1244,16 @@ func TestExpectedMachineSQLDAO_Clear(t *testing.T) {
 	emsExp := testExpectedMachineSQLDAOCreateExpectedMachines(ctx, t, dbSession)
 	emsd := NewExpectedMachineDAO(dbSession)
 	assert.NotNil(t, emsd)
+	bmcEM, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
+		ExpectedMachineID:   uuid.New(),
+		SiteID:              emsExp[0].SiteID,
+		BmcMacAddress:       "00:1B:44:11:3A:CA",
+		ChassisSerialNumber: "CHASSIS-CLEAR-BMC-IP",
+		BmcIpAddress:        cutil.GetPtr("192.0.2.10"),
+		CreatedBy:           emsExp[0].CreatedBy,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, bmcEM)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -1267,6 +1278,14 @@ func TestExpectedMachineSQLDAO_Clear(t *testing.T) {
 			em:   emsExp[0],
 			input: ExpectedMachineClearInput{
 				Labels: true,
+			},
+			expectedUpdate: true,
+		},
+		{
+			desc: "can clear BmcIpAddress",
+			em:   *bmcEM,
+			input: ExpectedMachineClearInput{
+				BmcIpAddress: true,
 			},
 			expectedUpdate: true,
 		},
@@ -1297,6 +1316,9 @@ func TestExpectedMachineSQLDAO_Clear(t *testing.T) {
 			}
 			if tc.input.Labels {
 				assert.Nil(t, tmp.Labels)
+			}
+			if tc.input.BmcIpAddress {
+				assert.Nil(t, tmp.BmcIpAddress)
 			}
 
 			if tc.expectedUpdate {

@@ -83,12 +83,15 @@ impl FileCredentialsWatcher {
             move |res: notify::Result<notify::Event>| match res {
                 Ok(ref event) if event.kind.is_create() || event.kind.is_modify() => {
                     if let Err(err) = tx_clone.blocking_send(res) {
-                        tracing::warn!("failed to send static credential watch event: {err}");
+                        tracing::warn!(
+                            error = %err,
+                            "failed to send static credential watch event",
+                        );
                     }
                 }
                 Ok(_) => {}
                 Err(err) => {
-                    tracing::warn!("primary static credential watcher error: {err}");
+                    tracing::warn!(error = %err, "primary static credential watcher error");
                 }
             },
             notify::Config::default(),
@@ -102,7 +105,10 @@ impl FileCredentialsWatcher {
         let mut secondary = PollWatcher::new(
             move |res| {
                 if let Err(err) = tx.blocking_send(res) {
-                    tracing::warn!("failed to send static credential poll event: {err}");
+                    tracing::warn!(
+                        error = %err,
+                        "failed to send static credential poll event",
+                    );
                 }
             },
             notify::Config::default()
@@ -134,12 +140,18 @@ impl FileCredentialsWatcher {
                                 credentials_clone.store(Arc::new(updated));
                             }
                             Err(err) => {
-                                tracing::warn!("failed to reload credentials file: {err}");
+                                tracing::warn!(
+                                    error = %err,
+                                    "failed to reload credentials file",
+                                );
                             }
                         }
                     }
                     Err(err) => {
-                        tracing::warn!("credentials file watcher event error: {err}");
+                        tracing::warn!(
+                            error = %err,
+                            "credentials file watcher event error",
+                        );
                     }
                 }
             }

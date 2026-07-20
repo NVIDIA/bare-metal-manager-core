@@ -57,15 +57,11 @@ enum PublishStatus {
 /// A publish attempt against the DSX Exchange Event Bus, counted by publishing
 /// path and outcome.
 ///
-/// `name_unchecked` keeps the grandfathered exposed name byte-for-byte. The
-/// counter has always registered `carbide_dsx_event_bus_publish_count` -- a
-/// `_count` suffix, not the framework's conventional `_total` -- and the
-/// OpenTelemetry Prometheus exporter appends its own `_total`, so `/metrics`
-/// shows `carbide_dsx_event_bus_publish_count_total`. The framework strips a
-/// trailing `_total` before registering; this name has none, so it registers
-/// exactly the old instrument name and the exporter reproduces the exact
-/// exposed series. The convention check would otherwise reject a counter name
-/// that does not end in `_total`.
+/// The declared `metric_name` is the grandfathered exposed Prometheus series,
+/// byte-for-byte. The framework strips its trailing `_total` before registering
+/// `carbide_dsx_event_bus_publish_count`, and the OpenTelemetry Prometheus
+/// exporter appends `_total` again, reproducing the existing series without
+/// changing the underlying instrument name.
 ///
 /// Metric-only (`log = off`): every emit sits beside the `tracing` line it has
 /// always had, which is left untouched -- this event moves only the counter.
@@ -75,8 +71,8 @@ enum PublishStatus {
 /// is the per-path discriminator field below.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_event_bus_publish_count",
-    name_unchecked,
+    event_name = "dsx_event_bus_publish_attempted",
+    metric_name = "carbide_dsx_event_bus_publish_count_total",
     component = "nico-mqtt-common",
     log = off,
     metric = counter,
@@ -241,9 +237,7 @@ mod tests {
         );
     }
 
-    /// The exposed series is the metric's contract. Emitting the event moves the
-    /// grandfathered `carbide_dsx_event_bus_publish_count` counter, and the
-    /// Prometheus exporter's appended `_total` makes the exposed name
+    /// The exposed series is the metric's contract. Emitting the event moves
     /// `carbide_dsx_event_bus_publish_count_total` -- byte-for-byte what the
     /// hand-rolled counter exported before the framework conversion, under the
     /// same `component` and `status` labels.

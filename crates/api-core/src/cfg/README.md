@@ -117,6 +117,7 @@ applicable.
 | `tracing` | `TracingConfig` | *(default)* | `integrations` | OTLP trace export settings (see [TracingConfig](#tracingconfig)). |
 | `secrets` | `Option<SecretsConfig>` | — | `security` | Secrets backend configuration. When present, the credential reader chain and write target are operator-configured (see [SecretsConfig](#secretsconfig)). |
 | `dhcp_lease_expiry_handling` | `bool` | `false` | `networking` | Enables IP cleanup when a DHCP lease expires. |
+| `certificates` | `CertificatesConfig` | *(default)* | `security` | Certificate vending backend, selected independently of the credential store; the default shares the credential Vault (see [CertificatesConfig](#certificatesconfig)). |
 
 ---
 
@@ -310,7 +311,7 @@ flows.
 | `create_switches` | `bool` | `true` | Auto-create Switch state machines for explored switches with a matching `expected_switches` record. |
 | `switches_created_per_run` | `u64` | `9` | Max switches created per run. |
 | `explore_mode` | `SiteExplorerExploreMode` | `NvRedfish` | Redfish backend: `libredfish`, `nv-redfish`, or `compare-result`. |
-| `dpu_mode` | `Option<DpuMode>` | — | Site-wide DPU operating mode. When set, applies to every host that doesn't declare a per-host `ExpectedMachine.dpu_mode` override. |
+| `dpu_policy` | `Option<HostDpuPolicy>` | — (effective: `manage`) | Site-wide policy for DPU hardware: `manage`, `nic`, or `ignore`. Per-host `nic` and `ignore` override it; per-host `manage` inherits it for backward compatibility. When omitted, the site default is `manage`. The previous `use_as_nic` value and the legacy `dpu_mode` field with `dpu_mode` / `nic_mode` / `no_dpu` values remain accepted during deserialization. |
 
 ### `StateControllerConfig`
 
@@ -347,7 +348,7 @@ Extends `StateControllerConfig` with:
 | `dpu_up_threshold` | `Duration` | `5m`    | Max time without DPU health report before assuming it's down. |
 | `scout_reporting_timeout` | `Duration` | `5m`    | Duration without scout report before host is unhealthy. |
 | `uefi_boot_wait` | `Duration` | `5m`    | Wait time for UEFI boot completion after host reboot. |
-| `max_bios_config_retries` | `u32` | `3` | Max HandleBiosJobFailure recovery cycles during BIOS configuration. |
+| `max_bios_config_retries` | `u32` | `3` | Shared retry budget for automated host boot-configuration convergence across BIOS recovery and boot-order verification. |
 | `polling_bios_setup_stuck_threshold` | `Duration` | `15m` | Time in PollingBiosSetup with `is_bios_setup == false` before recovery escalation. |
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
 
@@ -651,6 +652,23 @@ events, so consumers handle them identically.
 |-------|------|---------|-------------|
 | `active` | `String` | **required** | The provider that wraps DEKs for new writes. |
 | `providers` | `HashMap<String, KmsProviderConfig>` | **required** | Named provider configurations. |
+
+### `CertificatesConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `backend` | `CertBackendKind` | `shared_vault` | Which backend issues certificates: `shared_vault` reuses the credential store's Vault client (one client, one token lease), `dedicated_vault` uses a separately-configured Vault. |
+| `dedicated_vault` | `Option<DedicatedVaultSettings>` | — | Connection settings for a dedicated certificate Vault (see [DedicatedVaultSettings](#dedicatedvaultsettings)). Required when `backend = "dedicated_vault"`, ignored otherwise. |
+
+### `DedicatedVaultSettings`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `address` | `String` | **required, non-empty** | Vault address, e.g. `https://vault-certs.example:8200`. |
+| `pki_mount_location` | `String` | **required, non-empty** | PKI secrets-engine mount path on the target Vault. |
+| `pki_role_name` | `String` | **required, non-empty** | PKI role used to sign leaf certificates. |
+| `token` | `Option<String>` | — | Token for root-token auth; required only when the pod has no Kubernetes service-account token. |
+| `vault_cacert` | `Option<String>` | — | CA bundle that signs the target Vault's TLS cert. Defaults to the site root / `VAULT_CACERT`. |
 
 ### `RackValidationConfig`
 

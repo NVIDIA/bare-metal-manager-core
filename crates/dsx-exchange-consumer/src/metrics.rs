@@ -23,6 +23,7 @@ use carbide_instrument::Event;
 use moka::future::Cache;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Meter};
+use tokio::sync::mpsc;
 
 pub static METRICS_PREFIX: &str = "carbide_dsx_exchange_consumer";
 
@@ -62,20 +63,47 @@ where
         .build();
 }
 
-// The four message counters are `carbide-instrument` events. Their exposed
-// names are grandfathered, and `name_unchecked` keeps them byte-identical:
-// the pre-framework counters registered names that already ended in `_total`,
-// and the OpenTelemetry Prometheus exporter appends its own `_total` to every
-// counter -- so `/metrics` has always shown a doubled `_total_total` suffix.
-// The framework strips one `_total` before registering and the exporter
-// re-appends it, reproducing the exact name every existing dashboard and alert
-// already selects on.
+/// Register a gauge for the number of messages queued in the processing
+/// channel, so backpressure is visible before the drop counter starts moving.
+///
+/// Takes the sender by value and keeps only a weak handle for the meter's
+/// (process) lifetime. A strong clone would pin the channel open and defeat
+/// the consumer's shutdown, which completes only when the last real sender
+/// drops and the receiver observes the close. The callback upgrades briefly to
+/// read the depth and reports nothing once the senders are gone.
+pub fn register_queue_pending_gauge<T>(meter: &Meter, tx: mpsc::Sender<T>)
+where
+    T: Send + 'static,
+{
+    let weak_tx = tx.downgrade();
+    meter
+        .u64_observable_gauge(format!("{METRICS_PREFIX}_queue_pending_messages"))
+        .with_description(
+            "Number of messages queued in the DSX exchange consumer's processing channel",
+        )
+        .with_callback(move |observer| {
+            // Upgrade only for the read; a strong handle held between scrapes
+            // would pin the channel open. Occupied slots = configured capacity
+            // minus the free slots the sender currently reports.
+            if let Some(tx) = weak_tx.upgrade() {
+                let pending = tx.max_capacity().saturating_sub(tx.capacity());
+                observer.observe(pending as u64, &[]);
+            }
+        })
+        .build();
+    // The moved-in strong sender drops here, leaving only `weak_tx`.
+}
+
+// The four message counters are `carbide-instrument` events. Each declares a
+// name ending in a single `_total`: the framework strips one `_total` before
+// registering the instrument and the OpenTelemetry Prometheus exporter appends
+// its own `_total`, so `/metrics` exposes the name exactly as declared here.
 
 /// An MQTT message reached a subscription handler, before any queueing.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_received_total_total",
-    name_unchecked,
+    event_name = "dsx_exchange_message_received",
+    metric_name = "carbide_dsx_exchange_consumer_messages_received_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -87,8 +115,8 @@ pub struct MessageReceived;
 /// applied (or its alert cleared).
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_processed_total_total",
-    name_unchecked,
+    event_name = "dsx_exchange_message_processed",
+    metric_name = "carbide_dsx_exchange_consumer_messages_processed_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -102,8 +130,8 @@ pub struct MessageProcessed;
 /// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_messages_dropped_total_total",
-    name_unchecked,
+    event_name = "dsx_exchange_message_dropped",
+    metric_name = "carbide_dsx_exchange_consumer_messages_dropped_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
@@ -118,14 +146,61 @@ pub struct MessageDropped;
 /// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dsx_exchange_consumer_dedup_skipped_total_total",
-    name_unchecked,
+    event_name = "dsx_exchange_message_deduplicated",
+    metric_name = "carbide_dsx_exchange_consumer_dedup_skipped_total",
     component = "nico-dsx-exchange-consumer",
     log = off,
     metric = counter,
     describe = "Number of messages skipped due to deduplication"
 )]
 pub struct MessageDeduplicated;
+
+/// How far behind the BMS event time we are when a value message reaches
+/// processing: end-to-end consumer lag (MQTT transit plus time spent queued).
+///
+/// Metric-only histogram. The `_seconds` suffix declares the unit, and the
+/// framework records the `Duration` observation in seconds.
+#[derive(Event)]
+#[event(
+    event_name = "dsx_exchange_message_age_sampled",
+    metric_name = "carbide_dsx_exchange_consumer_message_age_seconds",
+    component = "nico-dsx-exchange-consumer",
+    log = off,
+    metric = histogram,
+    describe = "Age of consumed BMS value messages at processing time (consumer lag), in seconds"
+)]
+pub struct MessageAge {
+    #[observation]
+    pub age: std::time::Duration,
+}
+
+/// A rack health report could not be persisted to the Carbide API -- either a
+/// coolant-leak override insert or its clearing removal failed. The value
+/// re-arrives on the next message, so processing still retries, but a rising
+/// rate is safety-relevant: leak state is not reaching the API. Logs the
+/// failure and moves the counter from one `emit`.
+///
+/// Unlike the grandfathered counters above, this is a new metric, so it uses
+/// the standard checked name: the exporter appends the single `_total` that
+/// `/metrics` shows.
+#[derive(Event)]
+#[event(
+    event_name = "dsx_exchange_health_report_persist_failed",
+    metric_name = "carbide_dsx_exchange_consumer_health_report_persist_failures_total",
+    component = "nico-dsx-exchange-consumer",
+    log = warn,
+    metric = counter,
+    message = "Failed to persist rack health report",
+    describe = "Number of rack health report persist failures against the Carbide API"
+)]
+pub struct HealthReportPersistFailed {
+    /// The rack whose health report could not be persisted.
+    #[context]
+    pub rack_id: String,
+    /// The API error that prevented the persist.
+    #[context]
+    pub error: String,
+}
 
 /// Consumer metrics that remain hand-rolled OpenTelemetry counters.
 ///
@@ -144,8 +219,11 @@ pub struct ConsumerMetrics {
 impl ConsumerMetrics {
     pub fn new(meter: &Meter) -> Self {
         Self {
+            // The Prometheus exporter appends `_total`, so the registered name
+            // omits it; that yields the single-`_total` exposed name, matching
+            // the framework counters above (not a doubled `_total_total`).
             alerts_detected: meter
-                .u64_counter(format!("{METRICS_PREFIX}_alerts_detected_total"))
+                .u64_counter(format!("{METRICS_PREFIX}_alerts_detected"))
                 .with_description("Number of leak alerts detected")
                 .build(),
         }

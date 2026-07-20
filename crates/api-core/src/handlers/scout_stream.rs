@@ -51,13 +51,16 @@ pub(crate) async fn scout_stream(
         }
         _ => {
             return Err(CarbideError::InvalidArgument(
-                "first ScoutStream client message must be an Init message".into(),
+                "first ScoutStream client message must be an init message".into(),
             )
             .into());
         }
     };
 
-    tracing::info!("scout agent connected for machine: {machine_id}");
+    tracing::info!(
+        machine_id = %machine_id,
+        "Scout agent connected",
+    );
 
     // Now we create channels for bidirectional communication. The API
     // will receive on one side, process whatever is packed into the oneof field
@@ -84,7 +87,10 @@ pub(crate) async fn scout_stream(
 
         // If/when the connection breaks, unregister the scout
         // agent connection from the connection registry.
-        tracing::info!("scout agent disconnected for machine: {machine_id}");
+        tracing::info!(
+            machine_id = %machine_id,
+            "Scout agent disconnected",
+        );
         registry_clone.unregister(machine_id).await;
     });
 

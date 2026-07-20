@@ -120,6 +120,14 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;
     let explored_inventories = ExploredInventories::explore(&root).await?;
 
+    // Delta power shelves do not expose a `/redfish/v1/Systems` collection (and
+    // report no vendor in the service root, so nv-redfish fabricates the path
+    // and gets a 404). Detect them from the chassis and synthesize the report
+    // from chassis + manager data instead of fetching a ComputerSystem.
+    if explored_chassis.is_delta_powershelf() {
+        return build_delta_powershelf_report(&root, explored_chassis, explored_inventories).await;
+    }
+
     if explored_chassis.is_bluefield2() {
         root = root.as_ref().clone().restrict_expand().into();
     }
@@ -162,6 +170,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
 
     let hw_type = hw_type(&root, &explored_system, &explored_chassis);
+    let is_mgx_c2 = explored_chassis.is_mgx_c2();
     let manager_explore_config = hw_type
         .map(|hw_type| match hw_type {
             hw::HwType::Ami => manager::Config {
@@ -186,7 +195,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
             },
             hw::HwType::Supermicro => manager::Config {
                 need_host_interfaces: true,
-                need_oem_supermicro_kcs_interface: true,
+                need_oem_supermicro_kcs_interface: !is_mgx_c2,
                 need_oem_supermicro_sys_lockdown: true,
                 ..Default::default()
             },
@@ -223,6 +232,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
                 hw::HwType::Bluefield
                 | hw::HwType::Gb200
                 | hw::HwType::LiteonPowerShelf
+                | hw::HwType::DeltaPowerShelf
                 | hw::HwType::NvSwitch,
             ) => false,
             None => false,
@@ -230,7 +240,14 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         .await?;
 
     let lockdown_status = hw_type
-        .map(|hw_type| lockdown_status(&hw_type, &explored_system, &explored_manager))
+        .map(|hw_type| {
+            lockdown_status(
+                &hw_type,
+                &explored_system,
+                &explored_manager,
+                &explored_chassis,
+            )
+        })
         .transpose()?
         .and_then(identity);
 
@@ -280,6 +297,62 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
         machine_setup_status: Some(machine_setup_status),
         secure_boot_status,
         lockdown_status,
+        physical_slot_number: None,
+        compute_tray_index: None,
+        topology_id: None,
+        revision_id: None,
+        remediation_error: None,
+    })
+}
+
+/// Builds an exploration report for a Delta power shelf.
+///
+/// Delta BMCs do not serve `/redfish/v1/Systems`, so the standard flow (which
+/// unconditionally fetches a `ComputerSystem`) fails with a 404. Here we skip
+/// that fetch and synthesize a `ComputerSystem` from the chassis, matching the
+/// behavior of the libredfish Delta power-shelf path.
+async fn build_delta_powershelf_report<B: Bmc>(
+    root: &ServiceRoot<B>,
+    explored_chassis: ExploredChassisCollection<B>,
+    explored_inventories: ExploredInventories<B>,
+) -> Result<EndpointExplorationReport, Error<B>> {
+    let hw_type = hw::HwType::DeltaPowerShelf;
+
+    let manager = root
+        .managers()
+        .await
+        .map_err(Error::nv_redfish("managers"))?
+        .ok_or_else(Error::bmc_not_provided("managers"))?
+        .members()
+        .await
+        .map_err(Error::nv_redfish("managers members"))?
+        .into_iter()
+        .next()
+        .ok_or_else(Error::bmc_not_provided("at least one manager"))?;
+    let explored_manager = ExploredManager::explore(manager, &manager::Config::default()).await?;
+
+    let system = explored_chassis.synthesized_powershelf_system();
+
+    Ok(EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: None,
+        last_exploration_latency: None,
+        machine_id: None,
+        managers: vec![explored_manager.to_model()?],
+        systems: vec![system],
+        chassis: explored_chassis.to_model(),
+        service: explored_inventories.to_model(Some(hw_type)),
+        vendor: hw_type.bmc_vendor(),
+        versions: HashMap::default(),
+        model: None,
+        power_shelf_id: None,
+        switch_id: None,
+        machine_setup_status: Some(MachineSetupStatus {
+            is_done: true,
+            diffs: vec![],
+        }),
+        secure_boot_status: None,
+        lockdown_status: None,
         physical_slot_number: None,
         compute_tray_index: None,
         topology_id: None,
@@ -350,12 +423,18 @@ pub(crate) fn hw_type<B: Bmc>(
                 .is_liteon_powershelf()
                 .then_some(hw::HwType::LiteonPowerShelf)
         })
+        .or_else(|| {
+            explored_chassis
+                .is_delta_powershelf()
+                .then_some(hw::HwType::DeltaPowerShelf)
+        })
 }
 
 fn lockdown_status<B: Bmc>(
     hw_type: &hw::HwType,
     explored_system: &ExploredComputerSystem<B>,
     explored_manager: &ExploredManager<B>,
+    explored_chassis: &ExploredChassisCollection<B>,
 ) -> Result<Option<LockdownStatus>, Error<B>> {
     let bios = &explored_system.bios;
     let system = &explored_system.system;
@@ -593,33 +672,42 @@ fn lockdown_status<B: Bmc>(
                 .as_ref()
                 .and_then(|lck| lck.sys_lockdown_enabled())
                 .ok_or_else(Error::bmc_not_provided("Supermicro lockdown status"))?;
+            let ipmi_host_interface_enabled = system
+                .raw()
+                .ipmi_host_interface
+                .as_ref()
+                .and_then(|interface| interface.service_enabled);
             let message = format!(
-                "SysLockdownEnabled={is_syslockdown}, kcs_privilege={kcs_privilege:#?}, host_interface_enabled={hi_enabled}"
+                "SysLockdownEnabled={is_syslockdown}, kcs_privilege={kcs_privilege:#?}, \
+                 host_interface_enabled={hi_enabled}, \
+                 ipmi_host_interface_enabled={ipmi_host_interface_enabled:?}"
             );
 
             let model = system.hardware_id().model.map(|v| v.into_inner());
-            if model == Some("ARS-121L-DNR") {
-                // Grace-Grace SMCs (ARS-121L-DNR):
-                // 1. Need host_interface enabled even with lockdown
-                // 2. Doesn't provide KCSInterface
-                match (hi_enabled, is_syslockdown) {
-                    (true, true) => Ok(InternalLockdownStatus::Enabled),
-                    (true, false) => Ok(InternalLockdownStatus::Disabled),
-                    _ => Ok(InternalLockdownStatus::Partial),
-                }
+            let is_ars_121l_dnr = model == Some("ARS-121L-DNR");
+            let (inband_locked, inband_unlocked) = if explored_chassis.is_mgx_c2() {
+                (
+                    ipmi_host_interface_enabled.is_none_or(|enabled| !enabled),
+                    ipmi_host_interface_enabled.is_none_or(identity),
+                )
             } else {
-                match (hi_enabled, kcs_privilege, is_syslockdown) {
-                    (false, Some(SupermicroPrivilege::Callback), true) => {
-                        Ok(InternalLockdownStatus::Enabled)
-                    }
-                    (true, Some(SupermicroPrivilege::Administrator), false) => {
-                        Ok(InternalLockdownStatus::Disabled)
-                    }
-                    (true, None, false) => Ok(InternalLockdownStatus::Disabled),
-                    _ => Ok(InternalLockdownStatus::Partial),
-                }
-            }
-            .map(|status| Some(LockdownStatus { status, message }))
+                (
+                    kcs_privilege == Some(SupermicroPrivilege::Callback),
+                    kcs_privilege.is_none()
+                        || kcs_privilege == Some(SupermicroPrivilege::Administrator),
+                )
+            };
+            // ARS-121L-DNR must keep HostInterface enabled to PXE boot.
+            let host_interface_locked = hi_enabled == is_ars_121l_dnr;
+
+            let status = if is_syslockdown && inband_locked && host_interface_locked {
+                InternalLockdownStatus::Enabled
+            } else if !is_syslockdown && inband_unlocked && hi_enabled {
+                InternalLockdownStatus::Disabled
+            } else {
+                InternalLockdownStatus::Partial
+            };
+            Ok(Some(LockdownStatus { status, message }))
         }
 
         hw::HwType::Hpe => {
@@ -670,6 +758,7 @@ fn machine_setup_status<B: Bmc>(
     }
     match hw_type {
         hw::HwType::LiteonPowerShelf => (),
+        hw::HwType::DeltaPowerShelf => (),
         hw::HwType::NvSwitch => (),
         hw::HwType::Viking => {
             diffs.extend(
@@ -818,10 +907,13 @@ fn machine_setup_status<B: Bmc>(
                     .iter()
                     .flat_map(|expected| explored_system.verify_bios_attr(expected)),
             );
-            if let Some(mac) = boot_interface_mac
-                && let Some(diff) = explored_system.check_boot_by_uefi_prefix(mac)
-            {
-                diffs.push(diff)
+            if let Some(mac) = boot_interface_mac {
+                if let Some(diff) = explored_system.check_boot_by_uefi_prefix(mac) {
+                    diffs.push(diff);
+                }
+                if let Some(diff) = explored_system.check_boot_option_enabled_by_uefi_prefix(mac) {
+                    diffs.push(diff);
+                }
             }
         }
 

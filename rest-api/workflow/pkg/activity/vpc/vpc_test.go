@@ -423,10 +423,12 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 					},
 					Vpcs: []*corev1.Vpc{
 						{
-							Id:                        &corev1.VpcId{Value: vpc1.ID.String()},
-							Name:                      vpc1.ID.String(),
-							NetworkVirtualizationType: &nwvt,
-							RoutingProfileType:        cutil.GetPtr("INTERNAL"),
+							Id:   &corev1.VpcId{Value: vpc1.ID.String()},
+							Name: vpc1.ID.String(),
+							Config: &corev1.VpcConfig{
+								NetworkVirtualizationType: &nwvt,
+								RoutingProfileType:        cutil.GetPtr("INTERNAL"),
+							},
 						},
 						{
 							Id:   &corev1.VpcId{Value: vpc2.ControllerVpcID.String()},
@@ -453,14 +455,18 @@ func TestManageVpc_UpdateVpcsInDB(t *testing.T) {
 							Name: vpc10.ID.String(),
 						},
 						{
-							Id:                        &corev1.VpcId{Value: vpc12.ControllerVpcID.String()},
-							Name:                      vpc12.ID.String(),
-							NetworkVirtualizationType: &evt,
+							Id:   &corev1.VpcId{Value: vpc12.ControllerVpcID.String()},
+							Name: vpc12.ID.String(),
+							Config: &corev1.VpcConfig{
+								NetworkVirtualizationType: &evt,
+							},
 						},
 						{
-							Id:                        &corev1.VpcId{Value: vpc13.ControllerVpcID.String()},
-							Name:                      vpc13.ID.String(),
-							NetworkVirtualizationType: &evt,
+							Id:   &corev1.VpcId{Value: vpc13.ControllerVpcID.String()},
+							Name: vpc13.ID.String(),
+							Config: &corev1.VpcConfig{
+								NetworkVirtualizationType: &evt,
+							},
 						},
 					},
 				},

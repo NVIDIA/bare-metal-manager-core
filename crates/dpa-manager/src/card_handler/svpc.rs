@@ -50,7 +50,10 @@ impl SvpcInterfaceHandler {
     fn at_most_one<I: Iterator>(mut iter: I, ctx: &str) -> DpaManagerResult<Option<I::Item>> {
         let first = iter.next();
         if first.is_some() && iter.next().is_some() {
-            tracing::error!("{ctx}: more than one match");
+            tracing::error!(
+                context = %ctx,
+                "Multiple matches found",
+            );
             return Err(DpaManagerError::InvalidArgument(format!(
                 "{ctx}: more than one match"
             )));
@@ -232,9 +235,10 @@ impl SvpcInterfaceHandler {
             || (observed_attachment.config_version != Some(nic_version));
 
         tracing::debug!(
-            "[{}] reconcile_ready_state: need_deletion {need_deletion}, need_heartbeat {}",
-            chrono::Utc::now(),
-            !need_deletion
+            timestamp = %chrono::Utc::now(),
+            need_deletion = need_deletion,
+            heartbeat_needed = !need_deletion,
+            "Reconciled ready-state action",
         );
 
         if need_deletion {
@@ -271,8 +275,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_provisioning idx out of bounds: {idx}, len: {}",
-                mh.dpa_interface_snapshots.len()
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_provisioning index out of bounds",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -289,7 +294,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         }
 
         let new_state = DpaInterfaceControllerState::Ready;
-        tracing::info!(state = ?new_state, "Dpa Interface state transition");
+        tracing::info!(next_state = ?new_state, "Dpa Interface state transition");
         Ok(HandlerResult {
             new_state: Some(new_state),
             txn: None,
@@ -305,8 +310,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_ready idx out of bounds: {idx}, len: {}",
-                mh.dpa_interface_snapshots.len()
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_ready index out of bounds",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -317,7 +323,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         let host_use_admin_network = dpa_interface.use_admin_network();
         if !host_use_admin_network {
             let new_state = DpaInterfaceControllerState::Unlocking;
-            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+            tracing::info!(next_state = ?new_state, "Dpa Interface state transition");
 
             return Ok(HandlerResult {
                 new_state: Some(new_state),
@@ -330,7 +336,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         let client = dpa_info
             .mqtt_client
             .clone()
-            .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
+            .ok_or_else(|| eyre::eyre!("missing mqtt_client"))?;
 
         let txn = Self::reconcile_ready_state(
             monitor,
@@ -359,8 +365,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_unlocking idx out of bounds: {idx}, len: {}",
-                mh.dpa_interface_snapshots.len()
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_unlocking index out of bounds",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -370,8 +377,8 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
 
         let Some(ref cs) = dpa_interface.card_state else {
             tracing::error!(
-                "Unexpected - card_state none for dpa: {:#?}",
-                dpa_interface.id
+                dpa_interface_id = %dpa_interface.id,
+                "DPA interface has no card state",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -381,7 +388,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
 
         if cs.lockmode == Some(Unlocked) {
             let new_state = DpaInterfaceControllerState::ApplyFirmware;
-            tracing::info!(state = ?new_state, "Interface unlocked. Transitioning to next state");
+            tracing::info!(next_state = ?new_state, "Interface unlocked. Transitioning to next state");
             return Ok(HandlerResult {
                 new_state: Some(new_state),
                 txn: None,
@@ -404,8 +411,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_apply_firmware idx out of bounds: {idx}, len: {}",
-                mh.dpa_interface_snapshots.len()
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_apply_firmware index out of bounds",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -415,8 +423,8 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
 
         let Some(ref card_state) = dpa_interface.card_state else {
             tracing::info!(
-                "no firmware report, because card_state none for dpa: {:#?}, waiting for retry",
-                dpa_interface.id
+                dpa_interface_id = %dpa_interface.id,
+                "DPA interface has no card state; waiting to retry firmware report",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -429,7 +437,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
             if firmware_report.flashed && reset_ok {
                 let new_state = DpaInterfaceControllerState::ApplyProfile;
                 tracing::info!(
-                    state = ?new_state,
+                    next_state = ?new_state,
                     observed_version = firmware_report.observed_version.as_deref().unwrap_or("none"),
                     "firmware report received and successfully applied, transitioning"
                 );
@@ -462,8 +470,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_apply_profile idx out of bounds: {idx}, len: {}",
-                mh.dpa_interface_snapshots.len()
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_apply_profile index out of bounds",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -483,8 +492,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_locking idx out of bounds: {idx}, len: {}",
-                mh.dpa_interface_snapshots.len()
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_locking index out of bounds",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -494,8 +504,8 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
 
         let Some(ref cs) = dpa_interface.card_state else {
             tracing::error!(
-                "Unexpected - card_state none for dpa: {:#?}",
-                dpa_interface.id
+                dpa_interface_id = %dpa_interface.id,
+                "DPA interface has no card state",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -529,7 +539,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
                 .await?;
 
             let new_state = DpaInterfaceControllerState::Assigned;
-            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+            tracing::info!(next_state = ?new_state, "Dpa Interface state transition");
             return Ok(HandlerResult {
                 new_state: Some(new_state),
                 txn: Some(txn),
@@ -551,8 +561,9 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
     ) -> DpaManagerResult<HandlerResult> {
         let Some(dpa_interface) = mh.dpa_interface_snapshots.get(idx) else {
             tracing::error!(
-                "handle_assigned idx out of bounds: {idx}, len: {}",
-                mh.dpa_interface_snapshots.len()
+                index = idx,
+                dpa_interface_snapshot_count = mh.dpa_interface_snapshots.len(),
+                "handle_assigned index out of bounds",
             );
             return Ok(HandlerResult {
                 new_state: None,
@@ -564,7 +575,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
 
         if host_use_admin_network {
             let new_state = DpaInterfaceControllerState::Ready;
-            tracing::info!(state = ?new_state, "Dpa Interface state transition");
+            tracing::info!(next_state = ?new_state, "Dpa Interface state transition");
             return Ok(HandlerResult {
                 new_state: Some(new_state),
                 txn: None,
@@ -575,7 +586,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         let client = dpa_info
             .mqtt_client
             .clone()
-            .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
+            .ok_or_else(|| eyre::eyre!("missing mqtt_client"))?;
 
         let instance = mh.instance.as_ref().ok_or_else(|| {
             tracing::error!("reconcile_assigned_state instance is missing");
@@ -602,8 +613,8 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
 fn apply_profile(state: &DpaInterface) -> DpaManagerResult<HandlerResult> {
     let Some(ref cs) = state.card_state else {
         tracing::info!(
-            "no profile report, because card_state none for dpa: {:#?}, waiting for retry",
-            state.id
+            dpa_interface_id = %state.id,
+            "DPA interface has no card state; waiting to retry profile report",
         );
         return Ok(HandlerResult {
             new_state: None,
@@ -613,7 +624,7 @@ fn apply_profile(state: &DpaInterface) -> DpaManagerResult<HandlerResult> {
     if cs.profile_synced == Some(true) {
         let new_state = DpaInterfaceControllerState::Locking;
         tracing::info!(
-            state = ?new_state,
+            next_state = ?new_state,
             profile = cs.profile.as_deref().unwrap_or("none"),
             "profile applied successfully, transitioning"
         );

@@ -23,12 +23,13 @@ use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use mac_address::MacAddress;
+use model::expected_machine::HostDpuPolicy;
 use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, ExpectedPowerShelf, ExpectedRack, ExpectedRackRequest,
-    ExpectedSwitch, InlineIpxe, InstanceOperatingSystemConfig, MachinesByIdsRequest,
-    SetDynamicConfigRequest, VpcVirtualizationType,
+    ConfigSetting, ExpectedHostNic, ExpectedMachine, ExpectedPowerShelf, ExpectedRack,
+    ExpectedRackRequest, ExpectedSwitch, InlineIpxe, InstanceOperatingSystemConfig,
+    MachinesByIdsRequest, SetDynamicConfigRequest, VpcVirtualizationType,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 
@@ -36,13 +37,13 @@ use crate::MachineConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientApiError {
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     ConfigError(String),
 
-    #[error("Unable to connect to carbide API: {0}")]
+    #[error("unable to connect to carbide API: {0}")]
     ConnectFailed(String),
 
-    #[error("The API call to the Forge API server returned {0}")]
+    #[error("the API call to the forge API server returned {0}")]
     InvocationError(#[from] tonic::Status),
 }
 
@@ -136,7 +137,7 @@ impl ApiClient {
             machine_interface_id,
             tpm_ek_certificate,
         } = discovery_data;
-        let mut machine_discovery_info = machine_info.discovery_info();
+        let mut machine_discovery_info = crate::discovery_info::for_machine(machine_info);
         if matches!(machine_info, MachineInfo::Host(_)) {
             machine_discovery_info.tpm_ek_certificate =
                 Some(BASE64_STANDARD.encode(tpm_ek_certificate.ok_or(
@@ -354,14 +355,14 @@ impl ApiClient {
             Ok(vpc_id_list) => {
                 match vpc_id_list.vpc_ids.len() {
                     0 => tracing::error!(
-                        "There are no VPC ids associated with {}. Should not have happened.",
-                        *vpc_name
+                        vpc_name = %*vpc_name,
+                        "No VPC IDs are associated with VPC name; this should not happen",
                     ),
                     1 => {}
                     _ => tracing::warn!(
-                        "There are {} VPC ids associated with {}. Should not have happened. Clean up DB and start over.",
-                        vpc_id_list.vpc_ids.len(),
-                        vpc_name
+                        vpc_id_count = vpc_id_list.vpc_ids.len(),
+                        vpc_name = %vpc_name,
+                        "Multiple VPC IDs are associated with VPC name; clean up the database and restart",
                     ),
                 }
 
@@ -493,14 +494,16 @@ impl ApiClient {
 
     /// Registers a mock expected machine. Static BMC (`bmc_ip_address`) is left unset here;
     /// real environments set it through the admin CLI / API when DHCP discovery is not used.
-    /// `dpu_mode` is the per-host operating mode -- pass `Some(NoDpu)` for zero-DPU mock hosts
-    /// or `Some(NicMode)` for DPU-in-NIC-mode mock hosts; `None` for normal DPU hosts.
+    /// `dpu_policy` is the per-host policy -- pass `Some(Ignore)` for zero-DPU
+    /// mock hosts or `Some(Nic)` for DPU-in-NIC-mode mock hosts; `None` for
+    /// normal DPU hosts.
     pub async fn add_expected_machine(
         &self,
         bmc_mac_address: String,
         chassis_serial_number: String,
         rack_id: Option<RackId>,
-        dpu_mode: Option<rpc::forge::DpuMode>,
+        dpu_policy: Option<HostDpuPolicy>,
+        host_nics: Vec<ExpectedHostNic>,
     ) -> ClientApiResult<()> {
         self.0
             .add_expected_machine(ExpectedMachine {
@@ -512,7 +515,7 @@ impl ApiClient {
                 metadata: None,
                 sku_id: None,
                 id: None,
-                host_nics: vec![],
+                host_nics,
                 rack_id,
                 default_pause_ingestion_and_poweron: None,
                 #[allow(deprecated)]
@@ -520,7 +523,7 @@ impl ApiClient {
                 is_dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: dpu_mode.map(|m| m as i32),
+                dpu_mode: dpu_policy.map(|policy| rpc::forge::DpuMode::from(policy) as i32),
                 bmc_ip_allocation: None,
                 host_lifecycle_profile: None,
             })

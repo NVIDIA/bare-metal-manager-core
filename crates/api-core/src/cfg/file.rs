@@ -40,6 +40,7 @@ use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_utils::config::{as_duration, as_option_duration, as_std_duration};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
@@ -578,7 +579,7 @@ pub struct CarbideConfig {
     /// (disconnected / air-gapped) infrastructure manager for racks of GB200/GB300/VR144.
     /// Only set this if using NICo site controller with Rack Manager to manage GB200/300/VR144.
     /// It will change site controller behavior significantly in the following ways, etc.:
-    /// 1. skip dpu management and use dpus in nic mode (set the site-wide `[site_explorer] dpu_mode = "nic_mode"`, or per-host `ExpectedMachine.dpu_mode`)
+    /// 1. skip DPU management and use DPUs as NICs (set the site-wide `[site_explorer] dpu_policy = "nic"`, or per-host `ExpectedMachine.dpu_policy`)
     ///    a. no dpu bfb upgrade and host power cycle
     ///    b. no firmware upgrade and host power cycle
     ///    c. no hbn deployment (no ecmp, etc)
@@ -774,6 +775,110 @@ pub struct CarbideConfig {
     /// IP cleanup on lease expiry
     #[serde(default)]
     pub dhcp_lease_expiry_handling: bool,
+
+    /// Certificate vending backend. Selected independently of the credential
+    /// store; absent means certs are issued from the credential Vault.
+    #[serde(default)]
+    pub certificates: CertificatesConfig,
+}
+
+/// `[certificates]` config section: selects the backend that vends machine and
+/// service certificates, independently of where credentials are stored.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CertificatesConfig {
+    /// Which backend issues certificates. Defaults to sharing the credential
+    /// Vault client (historical behavior).
+    #[serde(default)]
+    pub backend: CertBackendKind,
+
+    /// Connection settings for a dedicated certificate Vault. Required when
+    /// `backend = "dedicated_vault"`, ignored otherwise.
+    #[serde(default)]
+    pub dedicated_vault: Option<DedicatedVaultSettings>,
+}
+
+/// Tag selecting the certificate backend. The matching settings (if any) live
+/// in their own sub-table, so the choice is explicit rather than inferred.
+// The shared `Vault` suffix is intentional: both current backends are Vault
+// backends. The lint resolves once a non-Vault backend is added.
+#[allow(clippy::enum_variant_names)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CertBackendKind {
+    /// Reuse the credential store's Vault client — one client, one token lease.
+    #[default]
+    SharedVault,
+    /// Use a dedicated Vault configured under `[certificates.dedicated_vault]`.
+    DedicatedVault,
+}
+
+/// `[certificates.dedicated_vault]` settings.
+///
+/// The connection-identifying fields are required, so a partial section fails
+/// to parse rather than silently inheriting the credential Vault's process-wide
+/// `VAULT_*` environment configuration.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DedicatedVaultSettings {
+    /// Vault address, e.g. `https://vault-certs.example:8200`.
+    pub address: String,
+    /// PKI secrets-engine mount path on the target Vault.
+    pub pki_mount_location: String,
+    /// PKI role used to sign leaf certificates.
+    pub pki_role_name: String,
+    /// Token for root-token auth; required only when the pod has no Kubernetes
+    /// service-account token.
+    #[serde(default)]
+    pub token: Option<String>,
+    /// CA bundle that signs the target Vault's TLS cert. Defaults to the site
+    /// root / `VAULT_CACERT`.
+    #[serde(default)]
+    pub vault_cacert: Option<String>,
+}
+
+// Hand-rolled so the root `token` is never printed verbatim in logs or errors;
+// only its presence is shown. Serialization is handled separately by
+// `CarbideConfig::redacted()`, which clears the token before the config is
+// serialized for the admin API or config-dump paths.
+impl std::fmt::Debug for DedicatedVaultSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DedicatedVaultSettings")
+            .field("address", &self.address)
+            .field("pki_mount_location", &self.pki_mount_location)
+            .field("pki_role_name", &self.pki_role_name)
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .field("vault_cacert", &self.vault_cacert)
+            .finish()
+    }
+}
+
+impl CertificatesConfig {
+    /// Convert the parsed section into the runtime certificate config, failing
+    /// fast if a dedicated backend was selected without its settings.
+    pub fn to_certificate_config(&self) -> eyre::Result<carbide_secrets::CertificateConfig> {
+        let backend = match self.backend {
+            CertBackendKind::SharedVault => carbide_secrets::CertBackend::SharedVault,
+            CertBackendKind::DedicatedVault => {
+                let dedicated = self.dedicated_vault.as_ref().ok_or_else(|| {
+                    eyre::eyre!(
+                        "[certificates] backend = \"dedicated_vault\" requires a \
+                         [certificates.dedicated_vault] section"
+                    )
+                })?;
+                carbide_secrets::CertBackend::DedicatedVault(
+                    carbide_secrets::DedicatedVaultConfig {
+                        address: dedicated.address.clone(),
+                        pki_mount_location: dedicated.pki_mount_location.clone(),
+                        pki_role_name: dedicated.pki_role_name.clone(),
+                        token: dedicated.token.clone(),
+                        vault_cacert: dedicated.vault_cacert.clone(),
+                    },
+                )
+            }
+        };
+        Ok(carbide_secrets::CertificateConfig { backend })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1706,6 +1811,14 @@ impl CarbideConfig {
         if let Some(host_index) = config.database_url.find('@') {
             let host = config.database_url.split_at(host_index).1;
             config.database_url = format!("postgres://redacted{host}");
+        }
+        // The dedicated certificate Vault's root token is a secret; the
+        // redacted config is serialized to JSON for the admin API and config
+        // dumps, so drop it before it leaves the process.
+        if let Some(dedicated) = config.certificates.dedicated_vault.as_mut()
+            && dedicated.token.is_some()
+        {
+            dedicated.token = Some("redacted".to_string());
         }
         config
     }
@@ -2991,7 +3104,7 @@ impl TrafficInterceptBridging {
             .join(",");
 
         // An empty map, or one with only skipped entries, means no provisioning config.
-        (!config.is_empty()).then_some(config)
+        config.none_if_empty()
     }
 }
 
@@ -3015,13 +3128,15 @@ mod tests {
     use carbide_authn::config::CertComponent;
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::scenarios;
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
     use health_report::HealthAlertClassification;
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
-    use model::expected_machine::DpuMode;
+    use model::expected_machine::HostDpuPolicy;
     use model::network_segment::NetworkDefinitionSegmentType;
     use model::resource_pool;
 
@@ -3029,6 +3144,147 @@ mod tests {
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
+
+    /// Exercises the real `[certificates]` / `[certificates.dedicated_vault]`
+    /// TOML contract through Figment (the production config path), rather than
+    /// JSON serde. Each case parses a TOML fragment into `CertificatesConfig`
+    /// and asserts either the parse outcome or the `to_certificate_config`
+    /// mapping/error.
+    #[test]
+    fn certificates_toml_config_contract() {
+        use carbide_secrets::CertBackend;
+
+        enum Expect {
+            /// Figment/serde extraction fails (missing required field, unknown key).
+            ParseErr,
+            /// Extraction succeeds but `to_certificate_config` rejects it.
+            ConvertErr,
+            Shared,
+            Dedicated {
+                address: &'static str,
+                pki_mount_location: &'static str,
+                pki_role_name: &'static str,
+                token: Option<&'static str>,
+                vault_cacert: Option<&'static str>,
+            },
+        }
+
+        // The fragments extract into `CertificatesConfig` directly, so the root
+        // fields (`backend`, `[dedicated_vault]`) are the same ones that live
+        // under the `[certificates]` / `[certificates.dedicated_vault]` tables.
+        let cases: &[(&str, &str, Expect)] = &[
+            (
+                "absent section defaults to shared_vault",
+                "",
+                Expect::Shared,
+            ),
+            (
+                "explicit shared_vault",
+                r#"backend = "shared_vault""#,
+                Expect::Shared,
+            ),
+            (
+                "dedicated_vault maps all fields",
+                r#"
+                    backend = "dedicated_vault"
+                    [dedicated_vault]
+                    address = "https://vault-certs.example:8200"
+                    pki_mount_location = "pki"
+                    pki_role_name = "machine"
+                    token = "s.abc123"
+                    vault_cacert = "/etc/ssl/certs/vault-ca.pem"
+                "#,
+                Expect::Dedicated {
+                    address: "https://vault-certs.example:8200",
+                    pki_mount_location: "pki",
+                    pki_role_name: "machine",
+                    token: Some("s.abc123"),
+                    vault_cacert: Some("/etc/ssl/certs/vault-ca.pem"),
+                },
+            ),
+            (
+                "dedicated_vault selected without its section fails conversion",
+                r#"backend = "dedicated_vault""#,
+                Expect::ConvertErr,
+            ),
+            (
+                "dedicated_vault missing required address fails parse",
+                r#"
+                    backend = "dedicated_vault"
+                    [dedicated_vault]
+                    pki_mount_location = "pki"
+                    pki_role_name = "machine"
+                "#,
+                Expect::ParseErr,
+            ),
+            (
+                "unknown field rejected by deny_unknown_fields",
+                "backend = \"shared_vault\"\ntypo = true",
+                Expect::ParseErr,
+            ),
+        ];
+
+        for (name, toml, expect) in cases {
+            let parsed: Result<CertificatesConfig, _> =
+                Figment::new().merge(Toml::string(toml)).extract();
+
+            match expect {
+                Expect::ParseErr => {
+                    assert!(parsed.is_err(), "{name}: expected a parse error");
+                }
+                Expect::ConvertErr => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    let err = match cfg.to_certificate_config() {
+                        Ok(_) => panic!("{name}: expected conversion to fail"),
+                        Err(err) => err,
+                    };
+                    assert!(
+                        err.to_string().contains("dedicated_vault"),
+                        "{name}: unexpected error: {err}"
+                    );
+                }
+                Expect::Shared => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    assert!(
+                        matches!(
+                            cfg.to_certificate_config().unwrap().backend,
+                            CertBackend::SharedVault
+                        ),
+                        "{name}: expected SharedVault backend"
+                    );
+                }
+                Expect::Dedicated {
+                    address,
+                    pki_mount_location,
+                    pki_role_name,
+                    token,
+                    vault_cacert,
+                } => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    match cfg.to_certificate_config().unwrap().backend {
+                        CertBackend::DedicatedVault(d) => {
+                            assert_eq!(d.address, *address, "{name}: address");
+                            assert_eq!(
+                                d.pki_mount_location, *pki_mount_location,
+                                "{name}: pki_mount_location"
+                            );
+                            assert_eq!(d.pki_role_name, *pki_role_name, "{name}: pki_role_name");
+                            assert_eq!(d.token.as_deref(), *token, "{name}: token");
+                            assert_eq!(
+                                d.vault_cacert.as_deref(),
+                                *vault_cacert,
+                                "{name}: vault_cacert"
+                            );
+                        }
+                        other => panic!("{name}: expected dedicated vault backend, got {other:?}"),
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn deserialize_serialize_machine_controller_config() {
@@ -3298,6 +3554,24 @@ mod tests {
         config.database_url = "postgres://forge-system.carbide:very-very-long-password@forge-pg-cluster.postgres.svc.cluster.local:5432/forge_system_carbide".to_string();
         let redacted = config.redacted();
         assert_eq!(redacted.database_url, "postgres://redacted@forge-pg-cluster.postgres.svc.cluster.local:5432/forge_system_carbide".to_string());
+
+        // The dedicated certificate Vault's root token must not survive redaction.
+        config.certificates.dedicated_vault = Some(DedicatedVaultSettings {
+            address: "https://vault-certs.example:8200".to_string(),
+            pki_mount_location: "pki".to_string(),
+            pki_role_name: "leaf".to_string(),
+            token: Some("s.super-secret-root-token".to_string()),
+            vault_cacert: None,
+        });
+        let redacted = config.redacted();
+        assert_eq!(
+            redacted
+                .certificates
+                .dedicated_vault
+                .as_ref()
+                .and_then(|d| d.token.as_deref()),
+            Some("redacted")
+        );
     }
 
     #[test]
@@ -3467,7 +3741,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -3675,7 +3949,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -3906,6 +4180,17 @@ mod tests {
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
+
+        assert_eq!(config.certificates.backend, CertBackendKind::DedicatedVault);
+        let dedicated = config.certificates.dedicated_vault.as_ref().unwrap();
+        assert_eq!(dedicated.address, "https://vault-certs.example:8200");
+        assert_eq!(dedicated.pki_mount_location, "pki-machine");
+        assert_eq!(dedicated.pki_role_name, "machine");
+        assert_eq!(dedicated.token.as_deref(), Some("s.fulltest"));
+        assert_eq!(
+            dedicated.vault_cacert.as_deref(),
+            Some("/path/to/vault-ca.pem")
+        );
     }
 
     #[test]
@@ -4018,7 +4303,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -4208,36 +4493,77 @@ mod tests {
         Ok(())
     }
 
-    /// Verifies the `[site_explorer] dpu_mode = ...` setting parses
-    /// correctly for every named variant. When unset (the default),
-    /// `site_explorer.dpu_mode` is `None` and hosts resolve to
-    /// `DpuMode::DpuMode`.
+    /// Verifies the canonical `[site_explorer] dpu_policy = ...` setting and
+    /// legacy `dpu_mode` spelling parse correctly. When unset, hosts ultimately
+    /// resolve to `HostDpuPolicy::Manage`.
     #[test]
-    fn site_explorer_dpu_mode_parses_and_defaults_to_none() {
+    fn site_explorer_dpu_policy_parses_and_defaults_to_none() {
         let config: CarbideConfig = Figment::new()
             .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
             .extract()
             .unwrap();
-        assert_eq!(config.site_explorer.dpu_mode, None);
+        assert_eq!(config.site_explorer.dpu_policy, None);
 
-        for (toml_value, expected) in [
-            ("dpu_mode", DpuMode::DpuMode),
-            ("nic_mode", DpuMode::NicMode),
-            ("no_dpu", DpuMode::NoDpu),
-        ] {
-            let config: CarbideConfig = Figment::new()
-                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
-                .merge(Toml::string(&format!(
-                    "[site_explorer]\ndpu_mode = \"{toml_value}\"\n"
-                )))
-                .extract()
-                .unwrap();
-            assert_eq!(
-                config.site_explorer.dpu_mode,
-                Some(expected),
-                "[site_explorer] dpu_mode = {toml_value:?} should parse to {expected:?}",
-            );
-        }
+        scenarios!(
+            run = |toml_setting| {
+                Figment::new()
+                    .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                    .merge(Toml::string(&format!(
+                        "[site_explorer]\n{toml_setting}\n"
+                    )))
+                    .extract::<CarbideConfig>()
+                    .map(|config| config.site_explorer.dpu_policy)
+                    .map_err(drop)
+            };
+            "canonical policy values" {
+                "dpu_policy = \"manage\"" => Yields(Some(HostDpuPolicy::Manage)),
+                "dpu_policy = \"nic\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_policy = \"ignore\"" => Yields(Some(HostDpuPolicy::Ignore)),
+            }
+
+            "compatibility values" {
+                "dpu_policy = \"use_as_nic\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_mode = \"dpu_mode\"" => Yields(Some(HostDpuPolicy::Manage)),
+                "dpu_mode = \"nic_mode\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_mode = \"no_dpu\"" => Yields(Some(HostDpuPolicy::Ignore)),
+            }
+        );
+    }
+
+    #[test]
+    fn site_explorer_dpu_policy_serializes_only_canonical_key() {
+        scenarios!(
+            run = |dpu_policy| {
+                let config = SiteExplorerConfig {
+                    dpu_policy,
+                    ..SiteExplorerConfig::default()
+                };
+
+                serde_json::to_value(config)
+                    .map(|serialized| {
+                        (
+                            serialized.get("dpu_policy").cloned(),
+                            serialized.get("dpu_mode").cloned(),
+                        )
+                    })
+                    .map_err(drop)
+            };
+            "canonical key only" {
+                None => Yields((Some(serde_json::Value::Null), None)),
+                Some(HostDpuPolicy::Manage) => Yields((
+                    Some(serde_json::Value::String("manage".to_string())),
+                    None,
+                )),
+                Some(HostDpuPolicy::Nic) => Yields((
+                    Some(serde_json::Value::String("nic".to_string())),
+                    None,
+                )),
+                Some(HostDpuPolicy::Ignore) => Yields((
+                    Some(serde_json::Value::String("ignore".to_string())),
+                    None,
+                )),
+            }
+        );
     }
 
     #[test]

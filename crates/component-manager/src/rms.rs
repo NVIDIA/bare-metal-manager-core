@@ -45,7 +45,8 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     Backend as NvSwitchBackend, ConfigureSwitchCertificateJobStatus, NvSwitchManager,
-    SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus, SwitchPowerStateResult,
+    SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
+    SwitchPasswordRotationFailure, SwitchPasswordRotationState, SwitchPowerStateResult,
     SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
@@ -195,6 +196,7 @@ pub struct RmsBackend {
     rack_profiles: Arc<RackProfileConfig>,
     /// Tracks firmware update job IDs keyed by device MAC address.
     firmware_jobs: Mutex<HashMap<MacAddress, Vec<RmsTrackedFirmwareJob>>>,
+    nvos_password_rotation_enabled: bool,
 }
 
 #[async_trait::async_trait]
@@ -229,6 +231,7 @@ impl RmsBackend {
         switch_system_image_client: Option<Arc<dyn RmsSwitchSystemImageStatusApi>>,
         db: PgPool,
         rack_profiles: Arc<RackProfileConfig>,
+        nvos_password_rotation_enabled: bool,
     ) -> Self {
         Self {
             client,
@@ -236,6 +239,7 @@ impl RmsBackend {
             db,
             rack_profiles,
             firmware_jobs: Mutex::new(HashMap::new()),
+            nvos_password_rotation_enabled,
         }
     }
 
@@ -318,7 +322,7 @@ async fn resolve_power_shelf_identities(
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows {
         let Some(rack_id) = row.rack_id else {
-            tracing::warn!(bmc_mac = %row.bmc_mac_address, "power shelf has no rack_id, skipping");
+            tracing::warn!(bmc_mac_address = %row.bmc_mac_address, "power shelf has no rack_id, skipping");
             continue;
         };
         map.insert(
@@ -355,7 +359,7 @@ async fn resolve_compute_tray_identities(
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows {
         let Some(rack_id) = row.rack_id else {
-            tracing::warn!(bmc_ip = %row.bmc_ip, "compute tray has no rack_id, skipping");
+            tracing::warn!(bmc_ip_address = %row.bmc_ip, "compute tray has no rack_id, skipping");
             continue;
         };
         map.insert(
@@ -387,7 +391,7 @@ async fn resolve_switch_identities(
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows {
         let Some(rack_id) = row.rack_id else {
-            tracing::warn!(bmc_mac = %row.bmc_mac_address, "switch has no rack_id, skipping");
+            tracing::warn!(bmc_mac_address = %row.bmc_mac_address, "switch has no rack_id, skipping");
             continue;
         };
         map.insert(
@@ -561,7 +565,7 @@ impl PowerShelfManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        pmc_mac = %ep.pmc_mac,
+                        pmc_mac_address = %ep.pmc_mac,
                         error = %e,
                         "RMS power control failed for power shelf"
                     );
@@ -662,7 +666,7 @@ impl PowerShelfManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        pmc_mac = %ep.pmc_mac,
+                        pmc_mac_address = %ep.pmc_mac,
                         error = %e,
                         "RMS firmware update failed for power shelf"
                     );
@@ -748,7 +752,7 @@ impl PowerShelfManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        pmc_mac = %pmc_mac,
+                        pmc_mac_address = %pmc_mac,
                         job_id = %job_id,
                         error = %e,
                         "RMS firmware job status query failed"
@@ -821,7 +825,7 @@ impl PowerShelfManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        pmc_mac = %ep.pmc_mac,
+                        pmc_mac_address = %ep.pmc_mac,
                         error = %e,
                         "RMS firmware inventory query failed for power shelf"
                     );
@@ -921,10 +925,8 @@ fn credentials_to_rms(creds: &Credentials) -> rms::Credentials {
     }
 }
 
-/// Build the `rms::NodeInfo` describing a switch for inclusion in a
-/// `BatchSetPowerState` request. The caller-supplied variant of the
-/// RPC requires the BMC connection details inline rather than relying on
-/// RMS's inventory; the NVOS host endpoint is included for completeness.
+/// Builds the `rms::NodeInfo` used by switch operations that require endpoint
+/// details instead of RMS inventory.
 fn build_switch_node_info(
     ep: &SwitchEndpoint,
     identity: &RmsIdentity,
@@ -955,6 +957,24 @@ fn build_switch_node_info(
             credentials: Some(credentials_to_rms(&ep.nvos_credentials)),
             dangerously_accept_invalid_certs: true,
         }),
+    }
+}
+
+/// Builds the host-only endpoint description required for password rotation.
+///
+/// Rotation does not use BMC access, so excluding the BMC endpoint prevents
+/// its credentials from crossing this backend boundary.
+fn build_switch_password_rotation_node_info(
+    ep: &SwitchEndpoint,
+    identity: &RmsIdentity,
+    node_type: rms::NodeType,
+    nvos_host_name: Option<String>,
+) -> rms::NodeInfo {
+    let node = build_switch_node_info(ep, identity, node_type, nvos_host_name);
+
+    rms::NodeInfo {
+        bmc_endpoint: None,
+        ..node
     }
 }
 
@@ -1084,7 +1104,7 @@ async fn query_rms_power_state(
         }
         Err(error) => {
             tracing::warn!(
-                %device_mac,
+                device_mac_address = %device_mac,
                 error = %error,
                 device_kind,
                 "RMS get power state failed"
@@ -1412,6 +1432,10 @@ impl NvSwitchManager for RmsBackend {
         "rms"
     }
 
+    fn supports_password_rotation(&self) -> bool {
+        self.nvos_password_rotation_enabled
+    }
+
     fn supports_firmware_object_json(&self) -> bool {
         true
     }
@@ -1476,7 +1500,7 @@ impl NvSwitchManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_mac = %ep.bmc_mac,
+                        bmc_mac_address = %ep.bmc_mac,
                         error = %e,
                         "RMS power control failed for switch"
                     );
@@ -1573,14 +1597,14 @@ impl NvSwitchManager for RmsBackend {
                                 }
                             } else if job_id.is_some() {
                                 tracing::debug!(
-                                    bmc_mac = %ep.bmc_mac,
+                                    bmc_mac_address = %ep.bmc_mac,
                                     "RMS returned a firmware-object job id for a failed switch update; not tracking it"
                                 );
                             }
                         }
                         Err(e) => {
                             tracing::warn!(
-                                bmc_mac = %ep.bmc_mac,
+                                bmc_mac_address = %ep.bmc_mac,
                                 error = %e,
                                 "RMS firmware-object update failed for switch"
                             );
@@ -1635,14 +1659,14 @@ impl NvSwitchManager for RmsBackend {
                                 }
                             } else if job_id.is_some() {
                                 tracing::debug!(
-                                    bmc_mac = %ep.bmc_mac,
+                                    bmc_mac_address = %ep.bmc_mac,
                                     "RMS returned a switch system-image job id for a failed switch update; not tracking it"
                                 );
                             }
                         }
                         Err(e) => {
                             tracing::warn!(
-                                bmc_mac = %ep.bmc_mac,
+                                bmc_mac_address = %ep.bmc_mac,
                                 error = %e,
                                 "RMS switch system-image update failed for switch"
                             );
@@ -1875,7 +1899,7 @@ impl NvSwitchManager for RmsBackend {
                 }
                 Err(error) => {
                     tracing::warn!(
-                        bmc_mac = %ep.bmc_mac,
+                        bmc_mac_address = %ep.bmc_mac,
                         error = %error,
                         "RMS get slot and tray failed for switch"
                     );
@@ -1937,6 +1961,283 @@ impl NvSwitchManager for RmsBackend {
         job_id: &str,
     ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
         rms_get_configure_switch_certificate_job_status(self.client.as_ref(), job_id).await
+    }
+
+    #[instrument(skip(self, endpoint, next_password), fields(backend = "rms", bmc_mac = %endpoint.bmc_mac))]
+    async fn start_password_rotation(
+        &self,
+        endpoint: &SwitchEndpoint,
+        next_password: &str,
+    ) -> Result<String, ComponentManagerError> {
+        if !self.supports_password_rotation() {
+            return Err(ComponentManagerError::Unsupported(
+                "RMS switch password rotation is disabled; enable it only after every RMS server has been upgraded"
+                    .to_string(),
+            ));
+        }
+
+        let identities =
+            resolve_switch_identities(&self.db, std::slice::from_ref(&endpoint.bmc_mac)).await?;
+
+        let resolved = self
+            .resolve_switch_or_power_shelf_node(
+                &identities,
+                endpoint.bmc_mac,
+                SwitchOrPowerShelfRole::Switch,
+            )
+            .map_err(ComponentManagerError::Internal)?;
+
+        let hostnames =
+            resolve_switch_machine_interface_hostnames(&self.db, std::slice::from_ref(endpoint))
+                .await?;
+
+        let device = build_switch_password_rotation_node_info(
+            endpoint,
+            resolved.identity,
+            resolved.node_type,
+            hostnames.get(&endpoint.nvos_mac).cloned(),
+        );
+
+        rms_start_switch_password_rotation(
+            self.client.as_ref(),
+            device,
+            &endpoint.nvos_credentials,
+            next_password,
+        )
+        .await
+    }
+
+    #[instrument(skip(self), fields(backend = "rms", job_id))]
+    async fn get_password_rotation_job_status(
+        &self,
+        job_id: &str,
+    ) -> Result<SwitchPasswordRotationState, ComponentManagerError> {
+        rms_get_switch_password_rotation_job_status(self.client.as_ref(), job_id).await
+    }
+}
+
+/// Submits a password rotation and preserves ambiguous dispatch outcomes.
+///
+/// A returned job ID is the handle for later reconciliation. If submission may
+/// have reached the backend without one, this returns an unknown outcome rather
+/// than allowing a blind retry.
+async fn rms_start_switch_password_rotation(
+    client: &dyn RmsApi,
+    device: rms::NodeInfo,
+    current_credentials: &Credentials,
+    next_password: &str,
+) -> Result<String, ComponentManagerError> {
+    let Credentials::UsernamePassword {
+        username,
+        password: current_password,
+    } = current_credentials;
+
+    if username.is_empty() || current_password.is_empty() || next_password.is_empty() {
+        return Err(ComponentManagerError::InvalidArgument(
+            "switch password rotation requires non-empty username, current password, and next password"
+                .to_string(),
+        ));
+    }
+
+    let request = rms::UpdateSwitchSystemPasswordRequest {
+        nodes: Some(rms::NodeSet {
+            nodes: vec![device],
+        }),
+        username: username.clone(),
+        password: next_password.to_string(),
+    };
+
+    let response = red::instrumented(
+        "rms",
+        "update_switch_system_password",
+        client.update_switch_system_password(request),
+    )
+    .await
+    .map_err(|error| match error {
+        RackManagerError::ApiInvocationError(status)
+            if status.code() == tonic::Code::InvalidArgument =>
+        {
+            ComponentManagerError::InvalidArgument(
+                "RMS rejected the switch password rotation request".to_string(),
+            )
+        }
+        RackManagerError::ApiInvocationError(status)
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            ComponentManagerError::Unsupported(
+                "RMS does not support switch password rotation".to_string(),
+            )
+        }
+        _ => ComponentManagerError::OperationOutcomeUnknown(
+            "RMS switch password request returned no durable job ID".to_string(),
+        ),
+    })?;
+
+    let batch = response.response.ok_or_else(|| {
+        ComponentManagerError::OperationOutcomeUnknown(
+            "RMS switch password rotation returned no operation response or job ID".to_string(),
+        )
+    })?;
+
+    // A job ID is durable reconciliation evidence. Preserve it even when the
+    // aggregate admission status is pessimistic, then poll the exact job.
+    if !batch.job_id.is_empty() {
+        return Ok(batch.job_id);
+    }
+
+    Err(ComponentManagerError::OperationOutcomeUnknown(format!(
+        "RMS switch password rotation returned no job ID (status {}); reconcile credential state before retrying",
+        batch.status
+    )))
+}
+
+/// Maps a backend terminal failure code to the backend-neutral failure class.
+fn map_rms_password_rotation_failure(error: i32) -> SwitchPasswordRotationFailure {
+    match rms::JobError::try_from(error) {
+        Ok(rms::JobError::Unauthenticated) => SwitchPasswordRotationFailure::Unauthenticated,
+        Ok(rms::JobError::InvalidArgument) => SwitchPasswordRotationFailure::InvalidArgument,
+        Ok(rms::JobError::UpdateInProgress) => SwitchPasswordRotationFailure::UpdateInProgress,
+        Ok(rms::JobError::ClientError)
+        | Ok(rms::JobError::ServerError)
+        | Ok(rms::JobError::InvalidResponse) => SwitchPasswordRotationFailure::Communication,
+        Ok(rms::JobError::Timeout) => SwitchPasswordRotationFailure::TimedOut,
+        Ok(rms::JobError::TargetNotFound) => SwitchPasswordRotationFailure::TargetNotFound,
+        Ok(rms::JobError::Internal)
+        | Ok(rms::JobError::Other)
+        | Ok(rms::JobError::FileNotFound) => SwitchPasswordRotationFailure::Backend,
+        Ok(rms::JobError::Unspecified) | Err(_) => SwitchPasswordRotationFailure::Unknown,
+    }
+}
+
+/// Maps a backend job record to the backend-neutral rotation state.
+fn map_rms_password_rotation_state(job: &rms::JobStatus) -> SwitchPasswordRotationState {
+    match rms::JobExecutionState::try_from(job.execution_state) {
+        Ok(rms::JobExecutionState::Queued | rms::JobExecutionState::Running) => {
+            SwitchPasswordRotationState::Pending
+        }
+        Ok(rms::JobExecutionState::Completed) => SwitchPasswordRotationState::Completed,
+        Ok(rms::JobExecutionState::Failed) => {
+            SwitchPasswordRotationState::Failed(map_rms_password_rotation_failure(job.error_code))
+        }
+        Ok(rms::JobExecutionState::Unspecified) | Err(_) => SwitchPasswordRotationState::Unknown,
+    }
+}
+
+/// Summarizes parent and child job observations for one password rotation.
+///
+/// Child failures are preferred because they describe the individual switch,
+/// while an absent job remains an observation rather than proof of no mutation.
+fn summarize_password_rotation_jobs(
+    job_id: &str,
+    jobs: &[rms::JobStatus],
+) -> SwitchPasswordRotationState {
+    let related_jobs: Vec<&rms::JobStatus> = jobs
+        .iter()
+        .filter(|job| job.job_id == job_id || job.parent_job_id.as_deref() == Some(job_id))
+        .collect();
+
+    if related_jobs.is_empty() {
+        return SwitchPasswordRotationState::NotFound;
+    }
+
+    // A child carries the device-specific failure. Prefer it over the parent,
+    // whose error may only summarize the batch.
+    if let Some(failed) = related_jobs.iter().find(|job| {
+        job.parent_job_id.as_deref() == Some(job_id)
+            && matches!(
+                map_rms_password_rotation_state(job),
+                SwitchPasswordRotationState::Failed(_)
+            )
+    }) {
+        return map_rms_password_rotation_state(failed);
+    }
+
+    if let Some(failed) = related_jobs.iter().find(|job| {
+        job.job_id == job_id
+            && matches!(
+                map_rms_password_rotation_state(job),
+                SwitchPasswordRotationState::Failed(_)
+            )
+    }) {
+        return map_rms_password_rotation_state(failed);
+    }
+
+    let states: Vec<SwitchPasswordRotationState> = related_jobs
+        .iter()
+        .map(|job| map_rms_password_rotation_state(job))
+        .collect();
+
+    if states
+        .iter()
+        .all(|state| *state == SwitchPasswordRotationState::Completed)
+    {
+        SwitchPasswordRotationState::Completed
+    } else if states.contains(&SwitchPasswordRotationState::Pending) {
+        SwitchPasswordRotationState::Pending
+    } else {
+        SwitchPasswordRotationState::Unknown
+    }
+}
+
+/// Reads and classifies the latest password-rotation job observation.
+async fn rms_get_switch_password_rotation_job_status(
+    client: &dyn RmsApi,
+    job_id: &str,
+) -> Result<SwitchPasswordRotationState, ComponentManagerError> {
+    if job_id.is_empty() {
+        return Err(ComponentManagerError::InvalidArgument(
+            "switch password rotation job ID must be non-empty".to_string(),
+        ));
+    }
+
+    let request = rms::GetJobStatusRequest {
+        job_id: job_id.to_string(),
+        include_child_job_states: true,
+    };
+
+    match red::instrumented("rms", "get_job_status", client.get_job_status(request)).await {
+        Ok(response) => Ok(summarize_password_rotation_jobs(
+            job_id,
+            &response.job_states,
+        )),
+        Err(RackManagerError::ApiInvocationError(status))
+            if status.code() == tonic::Code::NotFound =>
+        {
+            Ok(SwitchPasswordRotationState::NotFound)
+        }
+        Err(RackManagerError::ApiInvocationError(status))
+            if status.code() == tonic::Code::InvalidArgument =>
+        {
+            Err(ComponentManagerError::InvalidArgument(
+                "RMS rejected the switch password-rotation job status request".to_string(),
+            ))
+        }
+        Err(RackManagerError::ApiInvocationError(status))
+            if status.code() == tonic::Code::Unimplemented =>
+        {
+            Err(ComponentManagerError::Unsupported(
+                "RMS does not support switch password-rotation job status".to_string(),
+            ))
+        }
+        Err(RackManagerError::ApiInvocationError(status))
+            if matches!(
+                status.code(),
+                tonic::Code::Unavailable
+                    | tonic::Code::DeadlineExceeded
+                    | tonic::Code::Cancelled
+                    | tonic::Code::ResourceExhausted
+            ) =>
+        {
+            Err(ComponentManagerError::Unavailable(
+                "RMS switch password-rotation job status is temporarily unavailable".to_string(),
+            ))
+        }
+        Err(RackManagerError::TlsError(_)) => Err(ComponentManagerError::Unavailable(
+            "RMS switch password-rotation job status is temporarily unavailable".to_string(),
+        )),
+        Err(_) => Err(ComponentManagerError::Internal(
+            "RMS switch password-rotation job status could not be read".to_string(),
+        )),
     }
 }
 
@@ -2137,7 +2438,7 @@ impl ComputeTrayManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_ip = %ep.bmc_ip,
+                        bmc_ip_address = %ep.bmc_ip,
                         error = %e,
                         "RMS power control failed for compute tray"
                     );
@@ -2247,7 +2548,7 @@ impl ComputeTrayManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_ip = %ep.bmc_ip,
+                        bmc_ip_address = %ep.bmc_ip,
                         error = %e,
                         "RMS firmware update failed for compute tray"
                     );
@@ -2338,7 +2639,7 @@ impl ComputeTrayManager for RmsBackend {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        bmc_ip = %bmc_ip,
+                        bmc_ip_address = %bmc_ip,
                         job_id = %job_id,
                         error = %e,
                         "RMS firmware job status query failed"
@@ -2472,6 +2773,138 @@ mod tests {
             map_rms_configure_switch_certificate_job_state("unknown"),
             ConfigureSwitchCertificateState::InProgress,
         );
+    }
+
+    #[test]
+    fn password_rotation_job_state_maps_each_rms_variant() {
+        value_scenarios!(run = |state: rms::JobExecutionState| map_rms_password_rotation_state(
+            &rms::JobStatus {
+                execution_state: state as i32,
+                ..Default::default()
+            }
+        );
+            "states" {
+                rms::JobExecutionState::Unspecified => SwitchPasswordRotationState::Unknown,
+                rms::JobExecutionState::Queued => SwitchPasswordRotationState::Pending,
+                rms::JobExecutionState::Running => SwitchPasswordRotationState::Pending,
+                rms::JobExecutionState::Completed => SwitchPasswordRotationState::Completed,
+                rms::JobExecutionState::Failed => SwitchPasswordRotationState::Failed(
+                    SwitchPasswordRotationFailure::Unknown,
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn password_rotation_failure_maps_each_rms_class() {
+        value_scenarios!(run = |error: rms::JobError| map_rms_password_rotation_failure(error as i32);
+            "failures" {
+                rms::JobError::Unauthenticated => SwitchPasswordRotationFailure::Unauthenticated,
+                rms::JobError::InvalidArgument => SwitchPasswordRotationFailure::InvalidArgument,
+                rms::JobError::UpdateInProgress => SwitchPasswordRotationFailure::UpdateInProgress,
+                rms::JobError::ClientError => SwitchPasswordRotationFailure::Communication,
+                rms::JobError::ServerError => SwitchPasswordRotationFailure::Communication,
+                rms::JobError::InvalidResponse => SwitchPasswordRotationFailure::Communication,
+                rms::JobError::Timeout => SwitchPasswordRotationFailure::TimedOut,
+                rms::JobError::TargetNotFound => SwitchPasswordRotationFailure::TargetNotFound,
+                rms::JobError::Internal => SwitchPasswordRotationFailure::Backend,
+                rms::JobError::Other => SwitchPasswordRotationFailure::Backend,
+                rms::JobError::FileNotFound => SwitchPasswordRotationFailure::Backend,
+                rms::JobError::Unspecified => SwitchPasswordRotationFailure::Unknown,
+            }
+        );
+
+        assert_eq!(
+            map_rms_password_rotation_failure(i32::MAX),
+            SwitchPasswordRotationFailure::Unknown,
+            "future protobuf value"
+        );
+    }
+
+    #[test]
+    fn password_rotation_job_summary_handles_eventual_visibility_and_child_failure() {
+        let job = |job_id: &str,
+                   parent_job_id: Option<&str>,
+                   execution_state: rms::JobExecutionState,
+                   error_code: rms::JobError| rms::JobStatus {
+            job_id: job_id.to_string(),
+            parent_job_id: parent_job_id.map(str::to_string),
+            execution_state: execution_state as i32,
+            error_code: error_code as i32,
+            ..Default::default()
+        };
+
+        let cases = [
+            (
+                "job not visible",
+                Vec::new(),
+                SwitchPasswordRotationState::NotFound,
+            ),
+            (
+                "queued parent",
+                vec![job(
+                    "password-job",
+                    None,
+                    rms::JobExecutionState::Queued,
+                    rms::JobError::Unspecified,
+                )],
+                SwitchPasswordRotationState::Pending,
+            ),
+            (
+                "completed child visible before parent",
+                vec![job(
+                    "child-1",
+                    Some("password-job"),
+                    rms::JobExecutionState::Completed,
+                    rms::JobError::Unspecified,
+                )],
+                SwitchPasswordRotationState::Completed,
+            ),
+            (
+                "running child",
+                vec![
+                    job(
+                        "password-job",
+                        None,
+                        rms::JobExecutionState::Queued,
+                        rms::JobError::Unspecified,
+                    ),
+                    job(
+                        "child-1",
+                        Some("password-job"),
+                        rms::JobExecutionState::Running,
+                        rms::JobError::Unspecified,
+                    ),
+                ],
+                SwitchPasswordRotationState::Pending,
+            ),
+            (
+                "specific child failure overrides generic parent",
+                vec![
+                    job(
+                        "password-job",
+                        None,
+                        rms::JobExecutionState::Failed,
+                        rms::JobError::Other,
+                    ),
+                    job(
+                        "child-1",
+                        Some("password-job"),
+                        rms::JobExecutionState::Failed,
+                        rms::JobError::Unauthenticated,
+                    ),
+                ],
+                SwitchPasswordRotationState::Failed(SwitchPasswordRotationFailure::Unauthenticated),
+            ),
+        ];
+
+        for (scenario, jobs, expected) in cases {
+            assert_eq!(
+                summarize_password_rotation_jobs("password-job", &jobs),
+                expected,
+                "{scenario}"
+            );
+        }
     }
 
     #[test]
@@ -2661,8 +3094,8 @@ mod tests {
                 password: "pass".to_string(),
             },
             nvos_credentials: Credentials::UsernamePassword {
-                username: "admin".to_string(),
-                password: "pass".to_string(),
+                username: "nvos-admin".to_string(),
+                password: "nvos-pass".to_string(),
             },
             nvos_host_name: None,
         }
@@ -2716,6 +3149,7 @@ mod tests {
             Some(mock.clone()),
             pool.clone(),
             Arc::new(rack_profile_config()),
+            true,
         );
         (mock, backend, rack_id, ps1, ps2, sw1, sw2)
     }
@@ -2745,6 +3179,7 @@ mod tests {
             Some(mock.clone()),
             pool.clone(),
             Arc::new(rack_profile_config()),
+            true,
         );
         (mock, backend, rack_id, ct1, ct2)
     }
@@ -2824,6 +3259,38 @@ mod tests {
             build_switch_node_info(&endpoint, &identity, rms::NodeType::SwitchGb300Nvidia, None);
 
         assert_eq!(node.r#type, Some(rms::NodeType::SwitchGb300Nvidia as i32));
+    }
+
+    #[test]
+    fn password_rotation_node_info_excludes_bmc_credentials() {
+        let endpoint = make_sw_endpoint(SW_MAC_1);
+
+        let identity = RmsIdentity {
+            node_id: "node-1".to_string(),
+            rack_id: "rack-1".to_string(),
+            rack_profile_id: None,
+        };
+
+        let node = build_switch_password_rotation_node_info(
+            &endpoint,
+            &identity,
+            rms::NodeType::SwitchGb300Nvidia,
+            None,
+        );
+
+        assert!(node.bmc_endpoint.is_none());
+
+        assert_eq!(
+            node.host_endpoint
+                .as_ref()
+                .and_then(|endpoint| endpoint.credentials.as_ref())
+                .and_then(|credentials| match credentials.auth.as_ref() {
+                    Some(rms::credentials::Auth::UserPass(credentials)) =>
+                        Some((credentials.username.as_str(), credentials.password.as_str(),)),
+                    _ => None,
+                }),
+            Some(("nvos-admin", "nvos-pass"))
+        );
     }
 
     #[test]
@@ -3445,6 +3912,308 @@ mod tests {
             .get_configure_switch_certificate_job_status_calls()
             .await;
         assert_eq!(calls[0].job_id, "cert-job-1");
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn sw_password_rotation_submits_current_and_next_passwords(pool: sqlx::PgPool) {
+        let (mock, backend, _, _, _, sw1, _) = make_backend(&pool).await;
+
+        mock.enqueue_update_switch_system_password(Ok(rms::UpdateSwitchSystemPasswordResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                job_id: "password-job-1".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await;
+
+        let endpoint = make_sw_endpoint(SW_MAC_1);
+
+        let job_id = NvSwitchManager::start_password_rotation(&backend, &endpoint, "next-password")
+            .await
+            .expect("password rotation should start");
+
+        assert_eq!(job_id, "password-job-1");
+
+        let calls = mock.update_switch_system_password_calls().await;
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].username, "nvos-admin");
+        assert_eq!(calls[0].password, "next-password");
+
+        let node = &calls[0]
+            .nodes
+            .as_ref()
+            .expect("password request should include its node")
+            .nodes[0];
+
+        assert_eq!(node.node_id, sw1.to_string());
+        assert!(node.bmc_endpoint.is_none());
+
+        assert_eq!(
+            node.host_endpoint
+                .as_ref()
+                .and_then(|endpoint| endpoint.credentials.as_ref())
+                .and_then(|credentials| match credentials.auth.as_ref() {
+                    Some(rms::credentials::Auth::UserPass(credentials)) => {
+                        Some(credentials.password.as_str())
+                    }
+                    _ => None,
+                }),
+            Some("nvos-pass"),
+            "endpoint must retain the current password until RMS accepts the job"
+        );
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_disabled_gate_sends_no_rms_request() {
+        let mock = Arc::new(MockRmsApi::new());
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/password-rotation-gate-test")
+            .expect("static test database URL should parse");
+
+        let backend = RmsBackend::new(
+            mock.clone(),
+            Some(mock.clone()),
+            pool,
+            Arc::new(rack_profile_config()),
+            false,
+        );
+
+        let endpoint = make_sw_endpoint(SW_MAC_1);
+
+        let result =
+            NvSwitchManager::start_password_rotation(&backend, &endpoint, "next-password").await;
+
+        assert!(!backend.supports_password_rotation());
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::Unsupported(message))
+                if message.contains("password rotation is disabled")
+        ));
+
+        assert!(mock.update_switch_system_password_calls().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_missing_parent_job_has_unknown_outcome() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_update_switch_system_password(Ok(rms::UpdateSwitchSystemPasswordResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                ..Default::default()
+            }),
+        }))
+        .await;
+
+        let credentials = Credentials::UsernamePassword {
+            username: "admin".to_string(),
+            password: "current-password".to_string(),
+        };
+
+        let result = rms_start_switch_password_rotation(
+            &mock,
+            rms::NodeInfo::default(),
+            &credentials,
+            "next-password",
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::OperationOutcomeUnknown(message))
+                if message.contains("returned no job ID")
+        ));
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_job_id_wins_over_admission_status() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_update_switch_system_password(Ok(rms::UpdateSwitchSystemPasswordResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Failure as i32,
+                job_id: "password-job-1".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await;
+
+        let credentials = Credentials::UsernamePassword {
+            username: "admin".to_string(),
+            password: "current-password".to_string(),
+        };
+
+        let job_id = rms_start_switch_password_rotation(
+            &mock,
+            rms::NodeInfo::default(),
+            &credentials,
+            "next-password",
+        )
+        .await
+        .expect("durable job ID should permit reconciliation");
+
+        assert_eq!(job_id, "password-job-1");
+
+        let calls = mock.update_switch_system_password_calls().await;
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].username, "admin");
+        assert_eq!(calls[0].password, "next-password");
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_rpc_failure_does_not_expose_rpc_error_text() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_update_switch_system_password(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::unavailable("current-password next-password"),
+        )))
+        .await;
+
+        let credentials = Credentials::UsernamePassword {
+            username: "admin".to_string(),
+            password: "current-password".to_string(),
+        };
+
+        let result = rms_start_switch_password_rotation(
+            &mock,
+            rms::NodeInfo::default(),
+            &credentials,
+            "next-password",
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::OperationOutcomeUnknown(message))
+                if message == "RMS switch password request returned no durable job ID"
+        ));
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_invalid_request_is_safe_to_retry() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_update_switch_system_password(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::invalid_argument("request rejected"),
+        )))
+        .await;
+
+        let credentials = Credentials::UsernamePassword {
+            username: "admin".to_string(),
+            password: "current-password".to_string(),
+        };
+
+        let result = rms_start_switch_password_rotation(
+            &mock,
+            rms::NodeInfo::default(),
+            &credentials,
+            "next-password",
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::InvalidArgument(message))
+                if message == "RMS rejected the switch password rotation request"
+        ));
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_poll_includes_child_jobs() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_get_job_status(Ok(rms::GetJobStatusResponse {
+            job_states: vec![rms::JobStatus {
+                job_id: "password-job-1".to_string(),
+                execution_state: rms::JobExecutionState::Completed as i32,
+                ..Default::default()
+            }],
+        }))
+        .await;
+
+        let status = rms_get_switch_password_rotation_job_status(&mock, "password-job-1")
+            .await
+            .expect("password job should be readable");
+
+        assert_eq!(status, SwitchPasswordRotationState::Completed);
+
+        let calls = mock.get_job_status_calls().await;
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].job_id, "password-job-1");
+        assert!(calls[0].include_child_job_states);
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_poll_not_found_is_an_observation() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_get_job_status(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::not_found("expired password-job-1"),
+        )))
+        .await;
+
+        let status = rms_get_switch_password_rotation_job_status(&mock, "password-job-1")
+            .await
+            .expect("missing jobs are observations, not polling errors");
+
+        assert_eq!(status, SwitchPasswordRotationState::NotFound);
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_poll_transport_failure_is_retryable() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_get_job_status(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::unavailable("transient failure"),
+        )))
+        .await;
+
+        let result = rms_get_switch_password_rotation_job_status(&mock, "password-job-1").await;
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::Unavailable(message))
+                if message == "RMS switch password-rotation job status is temporarily unavailable"
+        ));
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_poll_rejects_empty_job_id_without_rpc() {
+        let mock = MockRmsApi::new();
+
+        let result = rms_get_switch_password_rotation_job_status(&mock, "").await;
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::InvalidArgument(message))
+                if message == "switch password rotation job ID must be non-empty"
+        ));
+
+        assert!(mock.get_job_status_calls().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_poll_preserves_definitive_server_rejection() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_get_job_status(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::invalid_argument("malformed job ID"),
+        )))
+        .await;
+
+        let result = rms_get_switch_password_rotation_job_status(&mock, "password-job-1").await;
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::InvalidArgument(message))
+                if message == "RMS rejected the switch password-rotation job status request"
+        ));
     }
 
     #[carbide_macros::sqlx_test]

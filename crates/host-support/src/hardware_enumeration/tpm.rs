@@ -38,13 +38,13 @@ const TPM_EK_CERT_NV_INDICES: &[&str] = &[
 /// Enumerates errors for TPM related operations
 #[derive(Debug, thiserror::Error)]
 pub enum TpmError {
-    #[error("Unable to invoke subprocess {0}: {1}")]
+    #[error("unable to invoke subprocess {0}: {1}")]
     Subprocess(&'static str, std::io::Error),
-    #[error("Subprocess exited with exit code {0:?}. Stderr: {1}")]
+    #[error("subprocess exited with exit code {0:?}. stderr: {1}")]
     SubprocessStatusNotOk(Option<i32>, String),
     #[error("TPM EK certificate bytes from {0} were not parseable as DER X.509")]
     InvalidEkCertificate(&'static str),
-    #[error("Unable to read TPM EK certificate: {primary_error}; NV fallback errors: {nv_errors}")]
+    #[error("unable to read TPM EK certificate: {primary_error}; NV fallback errors: {nv_errors}")]
     EkCertificateNotFound {
         primary_error: Box<TpmError>,
         nv_errors: String,
@@ -97,14 +97,16 @@ fn get_ek_certificate_with_runner(runner: &impl CommandRunner) -> Result<Vec<u8>
         Ok(cert) => Ok(cert),
         Err(primary_error) => {
             tracing::warn!(
-                "Could not read TPM EK certificate using {TPM2_GET_EK_CERTIFICATE}: {primary_error:?}; probing known NV indices"
+                command = TPM2_GET_EK_CERTIFICATE,
+                error = ?primary_error,
+                "Could not read TPM EK certificate; probing known NV indices"
             );
             let mut certs = vec![];
             let mut nv_errors = vec![];
             for index in TPM_EK_CERT_NV_INDICES {
                 match get_ek_certificate_from_nv_index(runner, index) {
                     Ok(cert) => {
-                        tracing::info!("Read TPM EK certificate from NV index {index}");
+                        tracing::info!(index, "Read TPM EK certificate from NV index");
                         certs.extend_from_slice(&cert);
                     }
                     Err(e) => nv_errors.push(format!("{index}: {e}")),
@@ -514,7 +516,7 @@ mod tests {
                         TPM2_NV_READ,
                         io::Error::new(io::ErrorKind::NotFound, "x"),
                     ),
-                    &[TPM2_NV_READ, "Unable to invoke"][..],
+                    &[TPM2_NV_READ, "unable to invoke"][..],
                 ) => true,
             }
 

@@ -500,6 +500,79 @@ func TestNewAPIExpectedMachineWithNilFields(t *testing.T) {
 	assert.Nil(t, got.Labels)
 }
 
+func TestAPIExpectedMachineUpdateRequest_UnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name               string
+		body               string
+		wantPresent        bool
+		wantValue          *string
+		wantUnmarshalError bool
+		wantValidateError  bool
+	}{
+		{
+			name: "omitted",
+			body: `{}`,
+		},
+		{
+			name:        "explicit null",
+			body:        `{"bmcIpAddress":null}`,
+			wantPresent: true,
+		},
+		{
+			name:        "address",
+			body:        `{"bmcIpAddress":"192.0.2.10"}`,
+			wantPresent: true,
+			wantValue:   cutil.GetPtr("192.0.2.10"),
+		},
+		{
+			name:              "empty string",
+			body:              `{"bmcIpAddress":""}`,
+			wantPresent:       true,
+			wantValue:         cutil.GetPtr(""),
+			wantValidateError: true,
+		},
+		{
+			name:               "wrong JSON type",
+			body:               `{"bmcIpAddress":42}`,
+			wantUnmarshalError: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got APIExpectedMachineUpdateRequest
+			err := json.Unmarshal([]byte(tc.body), &got)
+			assert.Equal(t, tc.wantUnmarshalError, err != nil)
+			if err != nil {
+				return
+			}
+
+			assert.Equal(t, tc.wantPresent, got.HasBmcIpAddress())
+			assert.Equal(t, tc.wantValue, got.BmcIpAddress)
+			assert.Equal(t, tc.wantValidateError, got.Validate() != nil)
+		})
+	}
+
+	t.Run("reused request resets presence", func(t *testing.T) {
+		got := APIExpectedMachineUpdateRequest{BmcIpAddress: cutil.GetPtr("192.0.2.20")}
+		assert.NoError(t, json.Unmarshal([]byte(`{}`), &got))
+		assert.False(t, got.HasBmcIpAddress())
+		assert.Nil(t, got.BmcIpAddress)
+	})
+
+	t.Run("marshaled partial request omits address", func(t *testing.T) {
+		data, err := json.Marshal(APIExpectedMachineUpdateRequest{
+			Name: cutil.GetPtr("partial-update"),
+		})
+		assert.NoError(t, err)
+		assert.NotContains(t, string(data), "bmcIpAddress")
+
+		var got APIExpectedMachineUpdateRequest
+		assert.NoError(t, json.Unmarshal(data, &got))
+		assert.False(t, got.HasBmcIpAddress())
+	})
+}
+
 func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 	emptyString := ""
 	validChassisSerial := "CHASSIS123"

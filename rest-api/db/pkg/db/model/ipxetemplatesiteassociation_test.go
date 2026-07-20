@@ -44,7 +44,7 @@ func TestIpxeTemplateSiteAssociationSQLDAO_CreateGetDelete(t *testing.T) {
 
 	tmplDAO := NewIpxeTemplateDAO(dbSession)
 	tmpl, err := tmplDAO.Create(ctx, nil, IpxeTemplateCreateInput{
-		ID: uuid.New(), Name: "kernel-initrd", Scope: IpxeTemplateScopePublic,
+		ID: uuid.New(), Name: "kernel-initrd", Visibility: IpxeTemplateVisibilityPublic,
 	})
 	require.NoError(t, err)
 
@@ -86,9 +86,9 @@ func TestIpxeTemplateSiteAssociationSQLDAO_GetAllAndUniqueness(t *testing.T) {
 	site2 := TestBuildSite(t, dbSession, ip, "site-2", user)
 
 	tmplDAO := NewIpxeTemplateDAO(dbSession)
-	tmpl1, err := tmplDAO.Create(ctx, nil, IpxeTemplateCreateInput{ID: uuid.New(), Name: "tmpl-a", Scope: IpxeTemplateScopePublic})
+	tmpl1, err := tmplDAO.Create(ctx, nil, IpxeTemplateCreateInput{ID: uuid.New(), Name: "tmpl-a", Visibility: IpxeTemplateVisibilityPublic})
 	require.NoError(t, err)
-	tmpl2, err := tmplDAO.Create(ctx, nil, IpxeTemplateCreateInput{ID: uuid.New(), Name: "tmpl-b", Scope: IpxeTemplateScopePublic})
+	tmpl2, err := tmplDAO.Create(ctx, nil, IpxeTemplateCreateInput{ID: uuid.New(), Name: "tmpl-b", Visibility: IpxeTemplateVisibilityPublic})
 	require.NoError(t, err)
 
 	dao := NewIpxeTemplateSiteAssociationDAO(dbSession)

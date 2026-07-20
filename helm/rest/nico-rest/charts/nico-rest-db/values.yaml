@@ -8,6 +8,10 @@ image:
   name: nico-rest-db
 
 waitForPostgres:
+  # Set `repository` + `tag` to override (they win when both are set); otherwise the
+  # combined `image` below is used.
+  # repository: postgres
+  # tag: 14.4-alpine
   image: postgres:14.4-alpine
 
 db:

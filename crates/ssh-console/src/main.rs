@@ -197,11 +197,11 @@ impl TryInto<Config> for RunCommand {
 
 #[derive(thiserror::Error, Debug)]
 enum CliError {
-    #[error("Invalid listening address {addr}: {error}")]
+    #[error("invalid listening address {addr}: {error}")]
     InvalidListeningAddress { addr: String, error: AddrParseError },
-    #[error("Invalid metrics address {addr}: {error}")]
+    #[error("invalid metrics address {addr}: {error}")]
     InvalidMetricsAddress { addr: String, error: AddrParseError },
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     Config(#[from] ConfigError),
 }
 

@@ -19,11 +19,12 @@ use carbide_utils::has_duplicates;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
-use rpc::forge::{BmcIpAllocationType, DpuMode};
+use rpc::forge::BmcIpAllocationType;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::CarbideCliError;
+use crate::expected_machines::common::HostDpuPolicy;
 
 /// Patch expected machine (partial update, preserves unprovided fields).
 ///
@@ -47,7 +48,7 @@ use crate::errors::CarbideCliError;
 "fallback_dpu_serial_numbers",
 "sku_id",
 "bmc_ip_address",
-"dpu_mode",
+"dpu_policy",
 "bmc_ip_allocation",
 "dpf_enabled",
 "host_nics",
@@ -67,9 +68,9 @@ Rotate the BMC credentials (username and password must be set together):
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mynewpassword
 
-Change the per-host DPU mode:
+Change the per-host DPU policy:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
-    --dpu-mode no-dpu
+    --dpu-policy ignore
 
 Retain the BMC's auto-allocated DHCP address as a static one (never expires):
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
@@ -185,13 +186,14 @@ pub struct Args {
     pub bmc_retain_credentials: Option<bool>,
 
     #[clap(
-        long = "dpu-mode",
-        value_name = "DPU_MODE",
+        long = "dpu-policy",
+        visible_alias = "dpu-mode",
+        value_name = "DPU_POLICY",
         value_enum,
         group = "group",
-        help = "Per-host DPU operating mode. `dpu-mode` (default): DPUs are managed by NICo; `nic-mode`: DPU hardware present but treated as a plain NIC; `no-dpu`: no DPU hardware at all. Unset preserves the existing per-host value."
+        help = "Per-host DPU policy. `manage`: inherit the site policy, which defaults to managing DPUs; `nic`: configure DPU hardware as plain NICs; `ignore`: do not configure or attach DPU hardware. Unset preserves the existing per-host value. The previous `use-as-nic` value remains accepted as an alias. The legacy `--dpu-mode` flag also remains accepted: `dpu-mode` maps to `manage`, `nic-mode` to `nic`, and `no-dpu` to `ignore`."
     )]
-    pub dpu_mode: Option<DpuMode>,
+    pub dpu_policy: Option<HostDpuPolicy>,
 
     #[clap(
         long = "bmc-ip-allocation",
@@ -241,11 +243,11 @@ impl Args {
             && self.rack_id.is_none()
             && self.dpf_enabled.is_none()
             && self.bmc_ip_address.is_none()
-            && self.dpu_mode.is_none()
+            && self.dpu_policy.is_none()
             && self.bmc_ip_allocation.is_none()
             && self.host_nics.is_none()
         {
-            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-mode or bmc-ip-allocation or dpf-enabled or host_nics".to_string()));
+            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-policy or bmc-ip-allocation or dpf-enabled or host_nics".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers

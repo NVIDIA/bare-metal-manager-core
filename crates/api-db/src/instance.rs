@@ -250,7 +250,7 @@ fn build_operating_system_for_snapshot(
         }
         _ => {
             tracing::warn!(
-                os_id = %os_row.id,
+                operating_system_id = %os_row.id,
                 os_type = %os_row.type_,
                 "unexpected operating_system type, falling back to inline iPXE"
             );
@@ -501,8 +501,9 @@ pub async fn update_phone_home_last_contact(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     tracing::info!(
-        "Phone home last contact updated for instance {}",
-        query_result.0
+        instance_id = %instance_id,
+        phone_home_last_contact = %query_result.0,
+        "Phone home last contact updated",
     );
     Ok(query_result.0)
 }
@@ -519,7 +520,10 @@ pub async fn clear_phone_home_last_contact(
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
 
-    tracing::info!("Phone home last contact cleared for instance {instance_id}");
+    tracing::info!(
+        instance_id = %instance_id,
+        "Phone home last contact cleared",
+    );
     Ok(())
 }
 
@@ -1186,8 +1190,9 @@ pub async fn batch_update_spx_config(
     // Verify all rows were updated (version check passed)
     if result.rows_affected() != expected_count {
         tracing::error!(
-            "batch_update_spx_config affected != expected: {:#?} != {expected_count}",
-            result.rows_affected()
+            affected_row_count = result.rows_affected(),
+            expected_row_count = expected_count,
+            "SPX config batch update affected an unexpected number of rows",
         );
         return Err(DatabaseError::FailedPrecondition(
             "Spx config version mismatch during batch update".to_string(),

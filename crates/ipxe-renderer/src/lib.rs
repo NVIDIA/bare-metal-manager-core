@@ -63,10 +63,10 @@ pub struct IpxeTemplateArtifact {
     pub cached_url: Option<String>,
 }
 
-/// Scope for iPXE script templates.
+/// Visibility for iPXE script templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum IpxeTemplateScope {
+pub enum IpxeTemplateVisibility {
     /// NICo Core usage only.
     #[default]
     Internal,
@@ -87,8 +87,8 @@ pub struct IpxeTemplate {
     pub required_params: Vec<String>,
     #[serde(default)]
     pub required_artifacts: Vec<String>,
-    #[serde(default)]
-    pub scope: IpxeTemplateScope,
+    #[serde(default, alias = "scope")]
+    pub visibility: IpxeTemplateVisibility,
 }
 
 /// Template collection loaded from YAML
@@ -100,34 +100,34 @@ struct TemplateCollection {
 /// Error types for iPXE OS rendering
 #[derive(Debug, thiserror::Error)]
 pub enum IpxeScriptError {
-    #[error("Template not found: {0}")]
+    #[error("template not found: {0}")]
     TemplateNotFound(String),
 
-    #[error("Reserved parameter found in OS definition: {0}")]
+    #[error("reserved parameter found in OS definition: {0}")]
     ReservedParameterFound(String),
 
-    #[error("Required parameter missing or empty: {0}")]
+    #[error("required parameter missing or empty: {0}")]
     RequiredParameterMissing(String),
 
-    #[error("Optional parameters provided but {{{{extra}}}} not in template")]
+    #[error("optional parameters provided but {{{{extra}}}} not in template")]
     ExtraParametersNotSupported,
 
-    #[error("Hash mismatch: expected {expected}, got {actual}")]
+    #[error("hash mismatch: expected {expected}, got {actual}")]
     HashMismatch { expected: String, actual: String },
 
-    #[error("Artifact not found: {0}")]
+    #[error("artifact not found: {0}")]
     ArtifactNotFound(String),
 
-    #[error("Missing reserved parameter: {0}")]
+    #[error("missing reserved parameter: {0}")]
     MissingReservedParameter(String),
 
-    #[error("Unexpected reserved parameter: {0}")]
+    #[error("unexpected reserved parameter: {0}")]
     UnexpectedReservedParameter(String),
 
-    #[error("Unreplaced placeholders found: {0}")]
+    #[error("unreplaced placeholders found: {0}")]
     UnreplacedPlaceholders(String),
 
-    #[error("Artifact '{0}' has cache_strategy CachedOnly but no cached_url is available")]
+    #[error("artifact '{0}' has cache_strategy CachedOnly but no cached_url is available")]
     CachedOnlyNotCached(String),
 }
 

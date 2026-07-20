@@ -72,7 +72,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let desired_firmware = match fetch_desired_firmware(&state).await {
         Ok(rows) => rows,
         Err(err) => {
-            tracing::error!(%err, "fetch desired firmware");
+            tracing::error!(error = %err, "fetch desired firmware");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading desired firmware",
@@ -91,7 +91,7 @@ pub async fn show_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let desired_firmware = match fetch_desired_firmware(&state).await {
         Ok(rows) => rows,
         Err(err) => {
-            tracing::error!(%err, "fetch desired firmware");
+            tracing::error!(error = %err, "fetch desired firmware");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading desired firmware",

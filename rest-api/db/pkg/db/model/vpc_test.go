@@ -1503,24 +1503,29 @@ func TestVpc_ToProto(t *testing.T) {
 	nsg := "nsg-1"
 	nvllpID := uuid.New()
 
-	t.Run("populates id, org, metadata, NSG, and NVLink partition", func(t *testing.T) {
+	t.Run("emits config and status without deprecated flat mirrors", func(t *testing.T) {
+		fnn := VpcFNN
+		routingProfile := "INTERNAL"
+		requestedVni := 4242
+		activeVni := 9999
 		v := &Vpc{
-			ID:                       id,
-			Org:                      "org-1",
-			Name:                     "vpc-a",
-			Description:              &desc,
-			NetworkSecurityGroupID:   &nsg,
-			NVLinkLogicalPartitionID: &nvllpID,
-			Labels:                   map[string]string{"env": "prod"},
+			ID:                        id,
+			Org:                       "org-1",
+			Name:                      "vpc-a",
+			Description:               &desc,
+			NetworkSecurityGroupID:    &nsg,
+			NVLinkLogicalPartitionID:  &nvllpID,
+			NetworkVirtualizationType: &fnn,
+			RoutingProfile:            &routingProfile,
+			Vni:                       &requestedVni,
+			ActiveVni:                 &activeVni,
+			Labels:                    map[string]string{"env": "prod"},
 		}
 		got := v.ToProto()
 		require.NotNil(t, got)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, id.String(), got.Id.Value)
 		assert.Equal(t, "vpc-a", got.Name)
-		assert.Equal(t, "org-1", got.TenantOrganizationId)
-		require.NotNil(t, got.NetworkSecurityGroupId)
-		assert.Equal(t, "nsg-1", *got.NetworkSecurityGroupId)
 		require.NotNil(t, got.Metadata)
 		assert.Equal(t, "vpc-a", got.Metadata.Name)
 		assert.Equal(t, "primary", got.Metadata.Description)
@@ -1528,8 +1533,33 @@ func TestVpc_ToProto(t *testing.T) {
 		assert.Equal(t, "env", got.Metadata.Labels[0].Key)
 		require.NotNil(t, got.Metadata.Labels[0].Value)
 		assert.Equal(t, "prod", *got.Metadata.Labels[0].Value)
-		require.NotNil(t, got.DefaultNvlinkLogicalPartitionId)
-		assert.Equal(t, nvllpID.String(), got.DefaultNvlinkLogicalPartitionId.Value)
+
+		// Desired configuration is emitted via the structured `config`.
+		require.NotNil(t, got.Config)
+		assert.Equal(t, "org-1", got.Config.TenantOrganizationId)
+		require.NotNil(t, got.Config.NetworkSecurityGroupId)
+		assert.Equal(t, "nsg-1", *got.Config.NetworkSecurityGroupId)
+		require.NotNil(t, got.Config.DefaultNvlinkLogicalPartitionId)
+		assert.Equal(t, nvllpID.String(), got.Config.DefaultNvlinkLogicalPartitionId.Value)
+		require.NotNil(t, got.Config.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.Config.NetworkVirtualizationType)
+		require.NotNil(t, got.Config.Vni)
+		assert.Equal(t, uint32(requestedVni), *got.Config.Vni)
+		require.NotNil(t, got.Config.RoutingProfileType)
+		assert.Equal(t, routingProfile, *got.Config.RoutingProfileType)
+
+		// The allocated VNI is emitted via `status`.
+		require.NotNil(t, got.Status)
+		require.NotNil(t, got.Status.Vni)
+		assert.Equal(t, uint32(activeVni), *got.Status.Vni)
+
+		// Deprecated flat mirrors are no longer populated.
+		assert.Empty(t, got.TenantOrganizationId)
+		assert.Nil(t, got.NetworkVirtualizationType)
+		assert.Nil(t, got.Vni)
+		assert.Nil(t, got.DeprecatedVni)
+		assert.Nil(t, got.RoutingProfileType)
+		assert.Nil(t, got.NetworkSecurityGroupId)
 	})
 
 	t.Run("nil description and labels yield zero-value metadata", func(t *testing.T) {
@@ -1538,8 +1568,9 @@ func TestVpc_ToProto(t *testing.T) {
 		require.NotNil(t, got.Metadata)
 		assert.Equal(t, "", got.Metadata.Description)
 		assert.Nil(t, got.Metadata.Labels)
-		assert.Nil(t, got.NetworkSecurityGroupId)
-		assert.Nil(t, got.DefaultNvlinkLogicalPartitionId)
+		require.NotNil(t, got.Config)
+		assert.Nil(t, got.Config.NetworkSecurityGroupId)
+		assert.Nil(t, got.Config.DefaultNvlinkLogicalPartitionId)
 	})
 
 	t.Run("uses ControllerVpcID for the proto Id when set", func(t *testing.T) {
@@ -1554,30 +1585,52 @@ func TestVpc_ToProto(t *testing.T) {
 		empty := ""
 		v := &Vpc{ID: id, Name: "vpc-a", NetworkSecurityGroupID: &empty}
 		got := v.ToProto()
-		require.NotNil(t, got.NetworkSecurityGroupId)
-		assert.Equal(t, "", *got.NetworkSecurityGroupId)
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.NetworkSecurityGroupId)
+		assert.Equal(t, "", *got.Config.NetworkSecurityGroupId)
 	})
 
 	t.Run("maps NetworkVirtualizationType FNN string to the FNN enum", func(t *testing.T) {
 		fnn := VpcFNN
 		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &fnn}
 		got := v.ToProto()
-		require.NotNil(t, got.NetworkVirtualizationType)
-		assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.NetworkVirtualizationType)
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_FNN, *got.Config.NetworkVirtualizationType)
+	})
+
+	t.Run("maps NetworkVirtualizationType FLAT string to the FLAT enum", func(t *testing.T) {
+		flat := VpcFlat
+		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &flat}
+		got := v.ToProto()
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_FLAT, *got.Config.NetworkVirtualizationType)
 	})
 
 	t.Run("maps NetworkVirtualizationType ethernet string to ETHERNET_VIRTUALIZER", func(t *testing.T) {
 		eth := VpcEthernetVirtualizer
 		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &eth}
 		got := v.ToProto()
-		require.NotNil(t, got.NetworkVirtualizationType)
-		assert.Equal(t, corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER, *got.NetworkVirtualizationType)
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER, *got.Config.NetworkVirtualizationType)
 	})
 
 	t.Run("omits NetworkVirtualizationType when the entity has none", func(t *testing.T) {
 		v := &Vpc{ID: id, Name: "vpc-a"}
 		got := v.ToProto()
-		assert.Nil(t, got.NetworkVirtualizationType)
+		require.NotNil(t, got.Config)
+		assert.Nil(t, got.Config.NetworkVirtualizationType)
+	})
+
+	t.Run("defaults an unrecognized NetworkVirtualizationType to ETHERNET_VIRTUALIZER", func(t *testing.T) {
+		unknown := "unknown"
+		v := &Vpc{ID: id, Name: "vpc-a", NetworkVirtualizationType: &unknown}
+		got := v.ToProto()
+		require.NotNil(t, got.Config)
+		require.NotNil(t, got.Config.NetworkVirtualizationType)
+		assert.Equal(t, corev1.VpcVirtualizationType_ETHERNET_VIRTUALIZER, *got.Config.NetworkVirtualizationType)
 	})
 }
 
@@ -1605,13 +1658,24 @@ func TestVpc_FromProto(t *testing.T) {
 	})
 
 	t.Run("populates fields from proto", func(t *testing.T) {
+		fnnEnum := corev1.VpcVirtualizationType_FNN
+		requestedVni := uint32(12001)
+		activeVni := uint32(12002)
+		routingProfile := "INTERNAL"
+
 		v := &Vpc{}
 		v.FromProto(&corev1.Vpc{
-			Id:                              &corev1.VpcId{Value: id.String()},
-			Name:                            "vpc-a",
-			TenantOrganizationId:            "org-1",
-			NetworkSecurityGroupId:          &nsg,
-			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: nvllpID.String()},
+			Id:   &corev1.VpcId{Value: id.String()},
+			Name: "vpc-a",
+			Config: &corev1.VpcConfig{
+				TenantOrganizationId:            "org-1",
+				NetworkSecurityGroupId:          &nsg,
+				NetworkVirtualizationType:       &fnnEnum,
+				Vni:                             &requestedVni,
+				RoutingProfileType:              &routingProfile,
+				DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: nvllpID.String()},
+			},
+			Status: &corev1.VpcStatus{Vni: &activeVni},
 			Metadata: &corev1.Metadata{
 				Name:        "vpc-a",
 				Description: "primary",
@@ -1625,6 +1689,14 @@ func TestVpc_FromProto(t *testing.T) {
 		assert.Equal(t, "org-1", v.Org)
 		require.NotNil(t, v.NetworkSecurityGroupID)
 		assert.Equal(t, "nsg-1", *v.NetworkSecurityGroupID)
+		require.NotNil(t, v.NetworkVirtualizationType)
+		assert.Equal(t, VpcFNN, *v.NetworkVirtualizationType)
+		require.NotNil(t, v.Vni)
+		assert.Equal(t, int(requestedVni), *v.Vni)
+		require.NotNil(t, v.ActiveVni)
+		assert.Equal(t, int(activeVni), *v.ActiveVni)
+		require.NotNil(t, v.RoutingProfile)
+		assert.Equal(t, routingProfile, *v.RoutingProfile)
 		require.NotNil(t, v.NVLinkLogicalPartitionID)
 		assert.Equal(t, nvllpID, *v.NVLinkLogicalPartitionID)
 		require.NotNil(t, v.Description)
@@ -1632,21 +1704,77 @@ func TestVpc_FromProto(t *testing.T) {
 		assert.Equal(t, Labels{"env": "prod"}, v.Labels)
 	})
 
-	t.Run("missing optional fields are explicitly cleared", func(t *testing.T) {
-		stale := "stale"
+	t.Run("maps proto network virtualization types", func(t *testing.T) {
+		cases := []struct {
+			name string
+			in   corev1.VpcVirtualizationType
+			want string
+		}{
+			{name: "FLAT", in: corev1.VpcVirtualizationType_FLAT, want: VpcFlat},
+			{name: "unhandled defaults to ETHERNET_VIRTUALIZER", in: corev1.VpcVirtualizationType_FNN_CLASSIC, want: VpcEthernetVirtualizer},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				v := &Vpc{}
+				v.FromProto(&corev1.Vpc{Config: &corev1.VpcConfig{NetworkVirtualizationType: &tc.in}})
+				require.NotNil(t, v.NetworkVirtualizationType)
+				assert.Equal(t, tc.want, *v.NetworkVirtualizationType)
+			})
+		}
+	})
+
+	t.Run("clears stale fields and ignores deprecated flat fields", func(t *testing.T) {
+		// A fully populated receiver plus a proto carrying only the
+		// deprecated flat mirrors (no `config`/`status`) proves two
+		// properties at once: every optional field is reset to its zero
+		// value (clean reset, not a partial merge) and none of the flat
+		// values leak into the entity.
 		staleNvllp := uuid.New()
+		staleNSG := "stale-nsg"
+		staleVirt := VpcFNN
+		staleRouting := "INTERNAL"
+		staleRequested := 7000
+		staleActive := 7001
+		staleDesc := "stale"
+
+		flatNvllp := uuid.New()
+		flatNSG := "nsg-flat"
+		flatVirt := corev1.VpcVirtualizationType_FNN
+		flatRequestedVni := uint32(15001)
+		flatAllocatedVni := uint32(15002)
+		flatRouting := "EXTERNAL"
+
 		v := &Vpc{
-			ID:                       id,
-			Description:              &stale,
-			NetworkSecurityGroupID:   &stale,
-			NVLinkLogicalPartitionID: &staleNvllp,
-			Labels:                   map[string]string{"old": "val"},
+			ID:                        id,
+			Org:                       "stale-org",
+			Description:               &staleDesc,
+			NetworkSecurityGroupID:    &staleNSG,
+			NetworkVirtualizationType: &staleVirt,
+			RoutingProfile:            &staleRouting,
+			Vni:                       &staleRequested,
+			ActiveVni:                 &staleActive,
+			NVLinkLogicalPartitionID:  &staleNvllp,
+			Labels:                    map[string]string{"old": "val"},
 		}
 		v.FromProto(&corev1.Vpc{
-			Id:   &corev1.VpcId{Value: id.String()},
-			Name: "vpc-a",
+			Id:                              &corev1.VpcId{Value: id.String()},
+			TenantOrganizationId:            "org-flat",
+			NetworkSecurityGroupId:          &flatNSG,
+			NetworkVirtualizationType:       &flatVirt,
+			Vni:                             &flatRequestedVni,
+			DeprecatedVni:                   &flatAllocatedVni,
+			RoutingProfileType:              &flatRouting,
+			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: flatNvllp.String()},
+			Metadata:                        &corev1.Metadata{Name: "reset"},
 		})
+
+		assert.Equal(t, "reset", v.Name)
+		assert.Empty(t, v.Org)
 		assert.Nil(t, v.NetworkSecurityGroupID)
+		assert.Nil(t, v.NetworkVirtualizationType)
+		assert.Nil(t, v.RoutingProfile)
+		assert.Nil(t, v.Vni)
+		assert.Nil(t, v.ActiveVni)
 		assert.Nil(t, v.NVLinkLogicalPartitionID)
 		assert.Nil(t, v.Description)
 		assert.Nil(t, v.Labels)
@@ -1656,9 +1784,11 @@ func TestVpc_FromProto(t *testing.T) {
 		staleNvllp := uuid.New()
 		v := &Vpc{ID: id, NVLinkLogicalPartitionID: &staleNvllp}
 		v.FromProto(&corev1.Vpc{
-			Id:                              &corev1.VpcId{Value: id.String()},
-			Name:                            "vpc-a",
-			DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: "not-a-uuid"},
+			Id:   &corev1.VpcId{Value: id.String()},
+			Name: "vpc-a",
+			Config: &corev1.VpcConfig{
+				DefaultNvlinkLogicalPartitionId: &corev1.NVLinkLogicalPartitionId{Value: "not-a-uuid"},
+			},
 		})
 		assert.Nil(t, v.NVLinkLogicalPartitionID)
 	})
@@ -1682,4 +1812,42 @@ func TestVpc_FromProto(t *testing.T) {
 		})
 		assert.Equal(t, "top-level-fallback", v.Name)
 	})
+}
+
+// TestVpc_ToProtoFromProto_RoundTrip verifies the entity survives a
+// ToProto -> FromProto round trip. ID round-trips cleanly only when
+// ControllerVpcID is unset (ToProto sources proto.Id from GetSiteID).
+func TestVpc_ToProtoFromProto_RoundTrip(t *testing.T) {
+	id := uuid.New()
+	nvllpID := uuid.New()
+	fnn := VpcFNN
+	nsg := "nsg-rt"
+	routing := "INTERNAL"
+	requested := 20001
+	active := 20002
+
+	orig := &Vpc{
+		ID:                        id,
+		Org:                       "org-rt",
+		Name:                      "vpc-rt",
+		NetworkVirtualizationType: &fnn,
+		NetworkSecurityGroupID:    &nsg,
+		RoutingProfile:            &routing,
+		Vni:                       &requested,
+		ActiveVni:                 &active,
+		NVLinkLogicalPartitionID:  &nvllpID,
+	}
+
+	got := &Vpc{}
+	got.FromProto(orig.ToProto())
+
+	assert.Equal(t, orig.ID, got.ID)
+	assert.Equal(t, orig.Name, got.Name)
+	assert.Equal(t, orig.Org, got.Org)
+	assert.Equal(t, orig.NetworkVirtualizationType, got.NetworkVirtualizationType)
+	assert.Equal(t, orig.NetworkSecurityGroupID, got.NetworkSecurityGroupID)
+	assert.Equal(t, orig.RoutingProfile, got.RoutingProfile)
+	assert.Equal(t, orig.Vni, got.Vni)
+	assert.Equal(t, orig.ActiveVni, got.ActiveVni)
+	assert.Equal(t, orig.NVLinkLogicalPartitionID, got.NVLinkLogicalPartitionID)
 }

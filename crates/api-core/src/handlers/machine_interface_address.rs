@@ -74,8 +74,8 @@ pub async fn update_preallocated_machine_interface(
 
             tracing::info!(
                 %bmc_mac_address,
-                %bmc_ip,
-                interface_id = %iface.id,
+                bmc_ip_address = %bmc_ip,
+                machine_interface_id = %iface.id,
                 "Assigned static address to existing interface without addresses"
             );
         } else {
@@ -84,7 +84,7 @@ pub async fn update_preallocated_machine_interface(
             // The caller updates the expected data table; we just log.
             tracing::info!(
                 %bmc_mac_address,
-                %bmc_ip,
+                bmc_ip_address = %bmc_ip,
                 existing_addresses = ?iface.addresses,
                 "Interface already has addresses, updated expected data only"
             );
@@ -105,8 +105,8 @@ pub async fn update_preallocated_machine_interface(
 
         tracing::info!(
             %bmc_mac_address,
-            %bmc_ip,
-            segment_id = %segment.id,
+            bmc_ip_address = %bmc_ip,
+            network_segment_id = %segment.id,
             "Pre-allocated static machine interface"
         );
     }
@@ -143,18 +143,29 @@ pub async fn assign_static_address(
         )
         .await?;
         tracing::info!(
-            %interface_id,
+            machine_interface_id = %interface_id,
             %ip_address,
-            old_segment_id = %current_iface.segment_id,
-            new_segment_id = %target_segment.id,
+            previous_network_segment_id = %current_iface.segment_id,
+            next_network_segment_id = %target_segment.id,
             "Moved interface to correct segment for static address"
         );
     }
 
+    // Keep the interface's IP-derived hostname/domain consistent with the new
+    // address, matching every other assignment path. Skipping this leaves a
+    // stale hostname that encodes a now-freed IP and collides with the
+    // fqdn_must_be_unique constraint when the allocator reuses that IP.
+    db::machine_interface::sync_hostname_after_address_assignment(
+        &mut txn,
+        interface_id,
+        target_segment.config.subdomain_id,
+    )
+    .await?;
+
     txn.commit().await?;
 
     let status: rpc::AssignStaticAddressStatus = result.into();
-    tracing::info!(%interface_id, %ip_address, ?status, "Static address assignment");
+    tracing::info!(machine_interface_id = %interface_id, %ip_address, assignment_status = ?status, "Static address assignment");
 
     Ok(Response::new(rpc::AssignStaticAddressResponse {
         interface_id: Some(interface_id),
@@ -174,19 +185,33 @@ pub async fn remove_static_address(
     let ip_address: std::net::IpAddr = req.ip_address.parse()?;
 
     let mut txn = api.txn_begin().await?;
-    let deleted = db::machine_interface_address::delete_by_address(
+    // Scope the delete to the caller's interface so remove-address only ever
+    // removes that interface's own address, matching the command's contract
+    // ("remove the address from a machine interface"). A mismatched interface_id
+    // deletes nothing and returns NotFound rather than removing another
+    // interface's row that happens to hold the same IP.
+    let deleted = db::machine_interface_address::delete_by_interface_and_address(
         &mut txn,
+        interface_id,
         ip_address,
         AllocationType::Static,
     )
     .await?;
+
+    // Re-derive the interface's hostname/domain now that its address is gone,
+    // matching the DHCP lease-expiry path. Without this the interface keeps a
+    // hostname pinned to the removed IP.
+    if deleted {
+        db::machine_interface::sync_hostname_after_address_change(&mut txn, interface_id).await?;
+    }
+
     txn.commit().await?;
 
     let status = if deleted {
-        tracing::info!(%interface_id, %ip_address, "Removed static address");
+        tracing::info!(machine_interface_id = %interface_id, %ip_address, "Removed static address");
         rpc::RemoveStaticAddressStatus::Removed
     } else {
-        tracing::info!(%interface_id, %ip_address, "Static address not found");
+        tracing::info!(machine_interface_id = %interface_id, %ip_address, "Static address not found");
         rpc::RemoveStaticAddressStatus::NotFound
     };
 

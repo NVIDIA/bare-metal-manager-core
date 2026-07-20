@@ -71,8 +71,8 @@ pub(crate) async fn get_astra_config(
 
     if dpa_interfaces.is_empty() {
         tracing::info!(
-            "No Astra NICs found in host {:#?}, skipping Astra config retrieval",
-            snapshot.host_snapshot.id
+            machine_id = %snapshot.host_snapshot.id,
+            "No Astra NICs found; skipping Astra config retrieval",
         );
         return Ok(None);
     }
@@ -102,8 +102,8 @@ pub(crate) async fn get_astra_config(
             let Some(instance) = instance else {
                 // If use_admin_network is false, we expect an instance to be associated with the host.
                 tracing::error!(
-                    "DPA interface {:#?} is not associated with an instance",
-                    dpa_interface.id
+                    dpa_interface_id = %dpa_interface.id,
+                    "DPA interface is not associated with an instance",
                 );
                 continue;
             };
@@ -121,9 +121,9 @@ pub(crate) async fn get_astra_config(
                     })
             else {
                 tracing::info!(
-                    "SPX attachment {:#?} is not found in instance id {:#?}",
-                    dpa_interface.mac_address,
-                    instance.id
+                    mac_address = %dpa_interface.mac_address,
+                    instance_id = %instance.id,
+                    "SPX attachment was not found",
                 );
                 continue;
             };
@@ -136,13 +136,19 @@ pub(crate) async fn get_astra_config(
             )
             .await?;
             if dpa_vni.is_empty() {
-                tracing::error!("SPX partition {:#?} is not found", spx_partition_id);
+                tracing::error!(
+                    %spx_partition_id,
+                    "SPX partition is not found",
+                );
                 continue;
             }
 
             let dpa_vni = dpa_vni[0].vni.unwrap_or(0);
             if dpa_vni == 0 {
-                tracing::error!("SPX partition {:#?} has no DPA VNI", spx_partition_id);
+                tracing::error!(
+                    %spx_partition_id,
+                    "SPX partition has no DPA VNI",
+                );
                 continue;
             }
 
@@ -243,8 +249,8 @@ pub(crate) async fn process_astra_config_status(
             .and_then(|status| AstraPhase::try_from(status.phase).ok())
         else {
             tracing::info!(
-                "Astra status {:#?} is not READY or DELETING, skipping Astra config status processing",
-                obs
+                astra_status_observation = ?obs,
+                "Astra status is not READY or DELETING, skipping Astra config status processing",
             );
             continue;
         };
@@ -256,9 +262,9 @@ pub(crate) async fn process_astra_config_status(
             Ok(ncv) => ncv,
             Err(e) => {
                 tracing::error!(
-                    "process_astra_config_status: Error parsing config version from DPA Ack msg {:#?} {:#?}",
-                    obs,
-                    e
+                    astra_status_observation = ?obs,
+                    error = ?e,
+                    "Failed to parse Astra DPA acknowledgment config version",
                 );
                 ConfigVersion::invalid()
             }
@@ -280,8 +286,9 @@ pub(crate) async fn process_astra_config_status(
                 Ok(p) => p,
                 Err(e) => {
                     tracing::error!(
-                        "process_astra_config_status: Error for vni {vni} from find_byi {:#?}",
-                        e
+                        vni,
+                        error = ?e,
+                        "Failed to find SPX partition",
                     );
                     continue;
                 }
@@ -290,8 +297,9 @@ pub(crate) async fn process_astra_config_status(
             if partition.len() != 1 {
                 // Given a VNI, we expect exactly one partition to be found.
                 tracing::error!(
-                    "process_astra_config_status: multiple SPX partitions with vni {vni} found, len: {:#?}",
-                    partition.len()
+                    vni,
+                    spx_partition_count = partition.len(),
+                    "Unexpected number of SPX partitions found",
                 );
                 continue;
             }
@@ -300,13 +308,14 @@ pub(crate) async fn process_astra_config_status(
             spx_partition_id = spx_partition.id;
 
             tracing::debug!(
-                "process_astra_config_status: SPX partition with vni {vni} found: {:#?}",
-                spx_partition
+                vni,
+                spx_partition = ?spx_partition,
+                "Found SPX partition",
             );
         } else {
             tracing::debug!(
-                "process_astra_config_status: received vni 0 in DPA message {:#?}",
-                obs
+                astra_status_observation = ?obs,
+                "Received VNI zero in Astra status observation",
             );
         }
 
@@ -321,9 +330,9 @@ pub(crate) async fn process_astra_config_status(
             .find(|dpa_interface| dpa_interface.mac_address == obs_mac)
         else {
             tracing::info!(
-                "DPA interface {:#?} is not found in host {:#?}",
-                obs.mac_address,
-                snapshot.host_snapshot.id
+                mac_address = %obs.mac_address,
+                machine_id = %snapshot.host_snapshot.id,
+                "DPA interface was not found",
             );
             continue;
         };

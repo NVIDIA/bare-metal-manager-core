@@ -24,6 +24,22 @@ use crate::grpcurl::grpcurl;
 
 const MAX_RETRY: usize = 30; // Equal to 30s wait time
 
+pub async fn get_json_by_id(
+    addrs: &[SocketAddr],
+    machine_id: &MachineId,
+) -> eyre::Result<serde_json::Value> {
+    let data = serde_json::json!({
+        "machine_ids": [{"id": machine_id}],
+    });
+    let response = grpcurl(addrs, "FindMachinesByIds", Some(&data)).await?;
+    let response: serde_json::Value = serde_json::from_str(&response)?;
+    response["machines"]
+        .as_array()
+        .and_then(|machines| machines.first())
+        .cloned()
+        .ok_or_else(|| eyre::eyre!("machine {machine_id} was not returned by FindMachinesByIds"))
+}
+
 /// Waits for a Machine to reach a certain target state
 /// If the Machine does not reach the state within 30s, the function will fail.
 pub async fn wait_for_state(
@@ -34,7 +50,11 @@ pub async fn wait_for_state(
     let data = serde_json::json!({
         "machine_ids": [{"id": machine_id}],
     });
-    tracing::info!("Waiting for Machine {machine_id} state {target_state}");
+    tracing::info!(
+        machine_id = %machine_id,
+        target_state,
+        "Waiting for Machine state",
+    );
     let mut i = 0;
     while i < MAX_RETRY {
         let response = grpcurl(addrs, "FindMachinesByIds", Some(&data)).await?;
@@ -43,13 +63,13 @@ pub async fn wait_for_state(
         if state.contains(target_state) {
             break;
         }
-        tracing::info!("\tCurrent: {state}");
+        tracing::info!(machine_state = state, "\tCurrent",);
         thread::sleep(time::Duration::from_millis(500));
         i += 1;
     }
     if i == MAX_RETRY {
         eyre::bail!(
-            "Even after {MAX_RETRY} retries, {machine_id} did not reach state {target_state}"
+            "even after {MAX_RETRY} retries, {machine_id} did not reach state {target_state}"
         );
     }
 

@@ -93,7 +93,10 @@ async fn process(State(mut state): State<Expander>, request: Request<Body>) -> R
         .filter_map(|member| match member {
             Value::Object(object) => Some(object),
             _ => {
-                tracing::warn!("Invalid member JSON, expected Object: {:?}", member);
+                tracing::warn!(
+                    member = ?member,
+                    "Invalid member JSON, expected Object",
+                );
                 None
             }
         })
@@ -101,8 +104,8 @@ async fn process(State(mut state): State<Expander>, request: Request<Body>) -> R
             Some(Value::String(id)) => Some(id.to_owned()),
             _ => {
                 tracing::warn!(
-                    "Invalid member JSON, expected @odata.id string: {:?}",
-                    object
+                    object = ?object,
+                    "Invalid member JSON, expected @odata.id string",
                 );
                 None
             }
@@ -214,11 +217,11 @@ struct Expander {
 
 #[derive(thiserror::Error, Debug)]
 enum MemberRequestError {
-    #[error("Inner request to URI {0} returned failure: {1:?}, body: {2}")]
+    #[error("inner request to URI {0} returned failure: {1:?}, body: {2}")]
     UnsuccessfulResponse(String, axum::http::response::Parts, String),
-    #[error("Inner request to URI {0} returned a malformed response: {1}")]
+    #[error("inner request to URI {0} returned a malformed response: {1}")]
     MalformedResponse(String, String),
-    #[error("Error reading bytes from inner request to {0}")]
+    #[error("error reading bytes from inner request to {0}")]
     Axum(String, axum::Error),
 }
 

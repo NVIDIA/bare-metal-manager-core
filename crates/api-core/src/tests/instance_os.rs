@@ -121,7 +121,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     assert_eq!(
         status.message(),
         format!(
-            "An object of type instance was intended to be modified did not have the expected version {}",
+            "an object of type instance was intended to be modified did not have the expected version {}",
             initial_config_version.version_string()
         ),
         "Message is {}",
@@ -194,7 +194,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert_eq!(
         err.message(),
-        "Invalid value: InlineIpxe::ipxe_script is empty"
+        "invalid value: InlineIpxe::ipxe_script is empty"
     );
 }
 

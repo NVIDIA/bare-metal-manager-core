@@ -27,7 +27,6 @@ use futures::future::join_all;
 use futures_util::future::BoxFuture;
 use machine_a_tron::{MockSshServerHandle, PromptBehavior};
 use ssh_console_mock_api_server::{MockApiServerHandle, MockHost};
-use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 
 use crate::util::ipmi_sim::IpmiSimHandle;
@@ -79,31 +78,6 @@ pub mod fixtures {
             .canonicalize()
             .unwrap();
     }
-}
-
-pub fn log_stdout_and_stderr(process: &mut tokio::process::Child, prefix: &str) {
-    let stdout = process.stdout.take().unwrap();
-    let stderr = process.stderr.take().unwrap();
-    let prefix = prefix.to_string();
-
-    tokio::spawn(async move {
-        let stdout_reader = BufReader::new(stdout);
-        let stderr_reader = BufReader::new(stderr);
-        let mut stdout_lines = stdout_reader.lines();
-        let mut stderr_lines = stderr_reader.lines();
-        loop {
-            tokio::select! {
-                Ok(Some(line)) = stdout_lines.next_line() => {
-                    tracing::info!("[{prefix} STDOUT] {line}")
-                }
-                Ok(Some(line)) = stderr_lines.next_line() => {
-                    // stderr can be logged as info, because in practice ssh-console logs everything to stderr.
-                    tracing::info!("[{prefix} STDERR] {line}")
-                }
-                else => break,
-            }
-        }
-    });
 }
 
 /// Runs a baseline test environment for comparing results for leagacy ssh-console and (soon) new
@@ -161,7 +135,7 @@ pub async fn run_baseline_test_environment(
         .await
         .into_iter()
         .collect::<Result<_, _>>()
-        .context("Error spawning mock SSH server")?;
+        .context("error spawning mock SSH server")?;
 
     let mock_hosts: Arc<Vec<MockHost>> = Arc::new(
         mock_bmc_handles
@@ -184,7 +158,7 @@ pub async fn run_baseline_test_environment(
                 },
                 ipmi_port: match &bmc_handle {
                     MockBmcHandle::Ssh(_) => None,
-                    MockBmcHandle::Ipmi(i) => Some(i.port),
+                    MockBmcHandle::Ipmi(i) => Some(i.ipmi_sim_lan_port),
                 },
                 bmc_user: "root".to_string(),
                 bmc_password: "password".to_string(),
@@ -192,7 +166,10 @@ pub async fn run_baseline_test_environment(
             .collect(),
     );
 
-    tracing::debug!("baseline test mock hosts: {mock_hosts:?}");
+    tracing::debug!(
+        mock_host_count = mock_hosts.len(),
+        "Configured baseline test mock hosts"
+    );
 
     let api_server_handle = ssh_console_mock_api_server::MockApiServer {
         mock_hosts: mock_hosts.clone(),
@@ -302,7 +279,7 @@ impl BaselineTestEnvironment {
 
                         if result_as_tenant.is_ok() {
                             return Err(eyre::format_err!(
-                                "Connection directly to machine_id succeeded as tenant, it should have failed"
+                                "connection directly to machine_id succeeded as tenant, it should have failed"
                             ));
                         }
                     }
@@ -354,7 +331,7 @@ impl BaselineTestEnvironment {
         if let Some(metrics_fut) = get_metrics() {
             let metrics = Box::pin(metrics_fut)
                 .await
-                .context("Error getting metrics")?;
+                .context("error getting metrics")?;
             assert_metrics(metrics, self.mock_hosts.as_slice()).await?;
         }
 

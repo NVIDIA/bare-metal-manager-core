@@ -58,6 +58,9 @@ pub enum AgentCommand {
     #[clap(about = "One-off health check")]
     Health,
 
+    #[clap(about = "Print LLDP neighbors visible on this host and exit")]
+    LldpNeighbors,
+
     #[clap(about = "One-off network monitor")]
     Network(NetworkOptions),
 
@@ -361,7 +364,7 @@ impl FromStr for HbnConfigMode {
         match s {
             "container-exec" => Ok(ContainerExec),
             "nvue-rest" => Ok(NvueRest),
-            unknown_mode => Err(eyre::eyre!("Unknown HBN config mode \"{unknown_mode}\"")),
+            unknown_mode => Err(eyre::eyre!("unknown HBN config mode \"{unknown_mode}\"")),
         }
     }
 }
@@ -393,7 +396,7 @@ impl FromStr for AgentPlatformType {
         match s {
             "dpu-os" => Ok(DpuOs),
             "containerized" => Ok(Containerized),
-            unknown_type => Err(eyre::eyre!("Unknown platform type \"{unknown_type}\"")),
+            unknown_type => Err(eyre::eyre!("unknown platform type \"{unknown_type}\"")),
         }
     }
 }

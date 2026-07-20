@@ -18,6 +18,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
@@ -55,7 +56,11 @@ impl StaticEndpointSource {
             let mac = match MacAddress::from_str(&cfg.mac) {
                 Ok(mac) => mac,
                 Err(error) => {
-                    tracing::warn!(?error, mac = ?cfg.mac, "Invalid MAC in static endpoint config");
+                    tracing::warn!(
+                        ?error,
+                        bmc_mac_address = ?cfg.mac,
+                        "Invalid MAC in static endpoint config"
+                    );
                     continue;
                 }
             };
@@ -135,7 +140,7 @@ impl StaticEndpointSource {
                     .driver_version
                     .as_deref()
                     .map(str::trim)
-                    .filter(|driver_version| !driver_version.is_empty())
+                    .none_if_empty()
                     .map(str::to_string);
 
                 match machine_id.parse() {
@@ -181,7 +186,7 @@ impl StaticEndpointSource {
                 Err(error) => {
                     tracing::warn!(
                         ?error,
-                        ?addr,
+                        bmc_address = ?addr,
                         "Failed to construct BmcClient for static endpoint"
                     );
                     continue;

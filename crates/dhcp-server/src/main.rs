@@ -31,12 +31,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use cache::CacheEntry;
 use carbide_instrument::emit;
 use carbide_rpc_utils::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
+use forge_tls::client_config::ClientCert;
+use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
 use grpc_server::{ControlRequest, run_grpc_server};
 use lru::LruCache;
 use metrics::{DhcpPacketDropped, DhcpReplySent, DropReason};
@@ -69,7 +72,7 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
     let config__ = match init(args.clone()).await {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!("Failed to initialise DHCP server config: {}", e);
+            tracing::error!(error = %e, "Failed to initialise DHCP server config");
             return;
         }
     };
@@ -88,7 +91,7 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
         // and pollute the logs. We could have read() skip NotFound errors, but that
         // could be misleading in other scenarios.  Let's just "init" the file.
         if let Err(e) = d.write() {
-            tracing::error!("Failed to init DHCP timestamps file: {}", e);
+            tracing::error!(error = %e, "Failed to init DHCP timestamps file");
             return;
         }
         d
@@ -106,20 +109,20 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
     for interface in args.interfaces {
         let config_ = config__.clone();
         let args_mode = args.mode.clone();
+        let listen_address = args.listen_addr;
         let dhcp_timestamps_ = dhcp_timestamps.clone();
         let rate_limiter = rate_limiter_.clone();
         let cancel = cancel_token.clone();
 
         let handle = tokio::spawn(async move {
             let handler: Arc<Box<dyn DhcpMode>> = Arc::new(get_mode(&args_mode));
-            let listen_address = SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), 67);
 
             let socket = get_socket(listen_address, interface.clone()).await;
             tracing::info!(
-                "Listening on {:?} on interface: {}, mode: {:?}",
-                listen_address,
-                interface,
-                handler
+                %listen_address,
+                interface_name = interface.as_str(),
+                mode = ?handler,
+                "DHCP server listening"
             );
 
             let mut server = Server {
@@ -140,8 +143,8 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
                 tokio::select! {
                     _ = cancel.cancelled() => {
                         tracing::info!(
-                            "DHCP server on interface {} received cancellation, shutting down",
-                            interface
+                            interface_name = interface.as_str(),
+                            "DHCP server received cancellation, shutting down"
                         );
                         break;
                     }
@@ -152,10 +155,19 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
                                 // We don't know after this read is failed, will we be able to read again
                                 // from this socket? Mostly no. In this case, recreate the socket.
                                 // We observed this fluctuation during admin to tenant network switch.
-                                tracing::error!("Socket recv failed with error: {err}");
+                                tracing::error!(
+                                    %listen_address,
+                                    interface_name = interface.as_str(),
+                                    error = %err,
+                                    "Socket receive failed"
+                                );
                                 // Try to close the existing socket.
                                 drop(server.socket);
-                                tracing::info!("Recreating the socket on {listen_address}, {interface}");
+                                tracing::info!(
+                                    %listen_address,
+                                    interface_name = interface.as_str(),
+                                    "Recreating the socket"
+                                );
                                 server.socket =
                                     Arc::new(get_socket(listen_address, interface.clone()).await);
                                 continue;
@@ -266,7 +278,7 @@ async fn handle_update_config(
         tokio::fs::write(&new_dhcp, &dhcp_yaml)
             .await
             .map_err(|e| -> Box<dyn Error> { format!("write {new_dhcp}: {e}").into() })?;
-        tracing::info!("dhcp_config changed – staged at {new_dhcp}");
+        tracing::info!(path = new_dhcp.as_str(), "dhcp_config changed – staged");
     }
 
     if let (Some(yaml), Some(path)) = (host_yaml, &args.host_config) {
@@ -276,7 +288,7 @@ async fn handle_update_config(
             tokio::fs::write(&new_host, &yaml)
                 .await
                 .map_err(|e| -> Box<dyn Error> { format!("write {new_host}: {e}").into() })?;
-            tracing::info!("host_config changed – staged at {new_host}");
+            tracing::info!(path = new_host.as_str(), "host_config changed – staged");
         }
     }
     Ok(())
@@ -382,7 +394,7 @@ async fn run_with_grpc_control(
             .map_err(|e| -> Box<dyn Error> {
                 format!("create_dir_all {}: {e}", dir.display()).into()
             })?;
-        tracing::info!("Created config directory {}", dir.display());
+        tracing::info!(path = %dir.display(), "Created config directory");
     }
 
     // Channel through which the gRPC handlers deliver control requests.
@@ -424,7 +436,13 @@ async fn run_with_grpc_control(
                     None => std::future::pending().await,
                 }
             } => {
-                tracing::error!("DHCP server exited unexpectedly: {:?}", result);
+                match result {
+                    Ok(()) => tracing::error!("DHCP server exited unexpectedly"),
+                    Err(error) => tracing::error!(
+                        error = ?error,
+                        "DHCP server exited unexpectedly"
+                    ),
+                }
                 return Ok(());
             }
 
@@ -503,14 +521,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             address: metrics_listen_addr,
             registry: metrics_setup.registry,
             health_controller: Some(metrics_setup.health_controller),
+            additional_prefix: None,
         };
         // The endpoint's /health and /ready report process liveness (the
         // default HealthController state), not packet-serving readiness --
         // don't point a DHCP-serving probe at them.
         tokio::spawn(async move {
-            tracing::info!("Spawning metrics endpoint on {}", metrics_config.address);
+            tracing::info!(metrics_address = %metrics_config.address, "Spawning metrics endpoint");
             if let Err(e) = run_metrics_endpoint(&metrics_config).await {
-                tracing::error!("Metrics endpoint error: {}", e);
+                tracing::error!(error = %e, "Metrics endpoint error");
             }
         });
     }
@@ -541,9 +560,12 @@ fn get_mode(args_mode: &ServerMode) -> Box<dyn DhcpMode> {
 pub struct Config {
     dhcp_config: DhcpConfig,
     host_config: Option<HostConfig>, // Valid only for Dpu mode.
+    relay_response_port: u16,
+    forge_client_config: ForgeClientConfig,
 }
 
 async fn init(args: Args) -> Result<Config, DhcpError> {
+    let forge_client_config = forge_client_config(&args)?;
     let f = tokio::fs::read_to_string(args.dhcp_config).await?;
     let dhcp_config: DhcpConfig = serde_yaml::from_str(&f)?;
 
@@ -557,7 +579,33 @@ async fn init(args: Args) -> Result<Config, DhcpError> {
     Ok(Config {
         dhcp_config,
         host_config,
+        relay_response_port: args.relay_response_port,
+        forge_client_config,
     })
+}
+
+fn forge_client_config(args: &Args) -> Result<ForgeClientConfig, DhcpError> {
+    let root_ca_path = args
+        .forge_root_ca_path
+        .clone()
+        .unwrap_or_else(|| default_root_ca().to_string());
+    let client_cert = match (&args.client_cert_path, &args.client_key_path) {
+        (Some(cert_path), Some(key_path)) => ClientCert {
+            cert_path: cert_path.clone(),
+            key_path: key_path.clone(),
+        },
+        (None, None) => ClientCert {
+            cert_path: default_client_cert().to_string(),
+            key_path: default_client_key().to_string(),
+        },
+        _ => {
+            return Err(DhcpError::MissingArgument(
+                "client_cert_path and client_key_path must be configured together".to_string(),
+            ));
+        }
+    };
+
+    Ok(ForgeClientConfig::new(root_ca_path, Some(client_cert)))
 }
 
 #[derive(Debug)]
@@ -645,7 +693,7 @@ async fn process(
         return;
     }
 
-    tracing::debug!("Received packet [{}] from {}", buf[0], addr);
+    tracing::debug!(bootp_op = buf[0], source_address = %addr, "Received DHCP packet");
 
     let packet = match packet_handler::process_packet(
         buf,
@@ -687,8 +735,9 @@ async fn process(
         dhcp_timestamps.add_timestamp(host_config.host_interface_id, Utc::now().to_rfc3339());
         if let Err(e) = dhcp_timestamps.write() {
             tracing::error!(
-                "Failed writing to {}: {e}",
-                DhcpTimestampsFilePath::HbnTmp.path_str()
+                dhcp_timestamps_path = DhcpTimestampsFilePath::HbnTmp.path_str(),
+                error = %e,
+                "Failed to write DHCP timestamps file"
             );
         }
     }
@@ -714,13 +763,21 @@ mod test {
 
     use crate::command_line::{Args, ServerMode};
     use crate::errors::DhcpError;
-    use crate::{DhcpMode, Test, TestArm, cache, handle_reload, init, packet_handler, process};
+    use crate::{
+        DhcpMode, Test, TestArm, cache, forge_client_config, handle_reload, init, packet_handler,
+        process,
+    };
 
     fn make_reload_args(td: &TempDir, interfaces: Vec<String>) -> Args {
         Args {
             interfaces,
+            listen_addr: "0.0.0.0:67".parse().unwrap(),
+            relay_response_port: 67,
             dhcp_config: td.path().join("dhcp.yaml").display().to_string(),
             host_config: Some(td.path().join("host.yaml").display().to_string()),
+            forge_root_ca_path: None,
+            client_cert_path: None,
+            client_key_path: None,
             mode: ServerMode::Dpu,
             grpc_listen_addr: None,
             metrics_listen_addr: None,
@@ -884,6 +941,8 @@ mod test {
 
         Args {
             interfaces: vec!["eth0".to_string()],
+            listen_addr: "0.0.0.0:67".parse().unwrap(),
+            relay_response_port: 67,
             dhcp_config: base_path.join("conf/conf.yaml").display().to_string(),
             host_config: Some(
                 base_path
@@ -891,6 +950,9 @@ mod test {
                     .display()
                     .to_string(),
             ),
+            forge_root_ca_path: None,
+            client_cert_path: None,
+            client_key_path: None,
             mode: crate::command_line::ServerMode::Dpu,
             grpc_listen_addr: None,
             metrics_listen_addr: None,
@@ -900,6 +962,28 @@ mod test {
     #[tokio::test]
     async fn test_init() {
         init(get_test_args()).await.unwrap();
+    }
+
+    #[test]
+    fn forge_client_tls_paths_are_configurable() {
+        let defaults = forge_client_config(&get_test_args()).unwrap();
+        assert_eq!(defaults.root_ca_path, forge_tls::default::ROOT_CA);
+        let default_identity = defaults.client_cert.unwrap();
+        assert_eq!(default_identity.cert_path, forge_tls::default::CLIENT_CERT);
+        assert_eq!(default_identity.key_path, forge_tls::default::CLIENT_KEY);
+
+        let mut explicit = get_test_args();
+        explicit.forge_root_ca_path = Some("/local/ca.crt".to_string());
+        explicit.client_cert_path = Some("/local/client.crt".to_string());
+        explicit.client_key_path = Some("/local/client.key".to_string());
+        let configured = forge_client_config(&explicit).unwrap();
+        assert_eq!(configured.root_ca_path, "/local/ca.crt");
+        let configured_identity = configured.client_cert.unwrap();
+        assert_eq!(configured_identity.cert_path, "/local/client.crt");
+        assert_eq!(configured_identity.key_path, "/local/client.key");
+
+        explicit.client_key_path = None;
+        assert!(forge_client_config(&explicit).is_err());
     }
 
     #[tokio::test]
@@ -956,7 +1040,9 @@ mod test {
             MessageType::Request,
         );
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
-        let config = init(get_test_args()).await.unwrap();
+        let mut args = get_test_args();
+        args.relay_response_port = 6768;
+        let config = init(args).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
             std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
         )));
@@ -972,7 +1058,7 @@ mod test {
 
         assert_eq!(
             packet.dst_address(),
-            SocketAddrV4::new(Ipv4Addr::from([0x0a, 0xd9, 0x05, 0x29]), 67)
+            SocketAddrV4::new(Ipv4Addr::from([0x0a, 0xd9, 0x05, 0x29]), 6768)
         );
         let packet = Message::decode(&mut dhcproto::Decoder::new(packet.encoded_packet())).unwrap();
 
@@ -1161,6 +1247,11 @@ mod test {
         )
         .await
         .unwrap();
+
+        assert_eq!(
+            encoded_packet.dst_address(),
+            SocketAddrV4::new(Ipv4Addr::BROADCAST, 68)
+        );
 
         // The reply type the send path counts lease grants under matches the
         // encoded reply.

@@ -25,8 +25,8 @@ use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
-    EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
-    NicMode,
+    BlueFieldOperatingMode, EndpointExplorationError, EndpointExplorationReport,
+    InternalLockdownStatus, LockdownStatus,
 };
 
 use crate::{EndpointExplorer, SiteExplorationMetrics};
@@ -55,7 +55,7 @@ pub struct MockEndpointExplorer {
     /// Records every call to `set_nic_mode` (BMC address + requested target
     /// mode) so tests can assert the auto-correct path fired with the
     /// right arguments.
-    pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
+    pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, BlueFieldOperatingMode)>>>,
     /// Records IPs that `explore_endpoint` was called for.
     pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
     /// Real explorer that `machine_setup`/`set_boot_order_dpu_first` forward to
@@ -149,7 +149,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         _last_error: Option<&EndpointExplorationError>,
         _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        tracing::info!("Endpoint {bmc_ip_address} is getting explored");
+        tracing::info!(%bmc_ip_address, "Endpoint is getting explored");
         self.explore_endpoint_calls
             .lock()
             .unwrap()
@@ -286,7 +286,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        mode: NicMode,
+        mode: BlueFieldOperatingMode,
     ) -> Result<(), EndpointExplorationError> {
         self.set_nic_mode_calls
             .lock()

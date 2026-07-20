@@ -460,7 +460,7 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
 
     let error = result.expect_err("expected allocation to fail").to_string();
     let expected_err =
-        format!("IB Partition {ib_partition_id} is not owned by the tenant {DEFAULT_TENANT}",);
+        format!("IB partition {ib_partition_id} is not owned by the tenant {DEFAULT_TENANT}",);
     assert!(
         error.contains(&expected_err),
         "Error message should contain '{expected_err}', but is {error}"
@@ -565,7 +565,7 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     )
     .await;
 
-    let expected_err = "Host is not available for allocation due to health probe alert";
+    let expected_err = "host is not available for allocation due to health probe alert";
     assert!(result.is_err());
     let error = result.expect_err("expected allocation to fail").to_string();
     assert!(

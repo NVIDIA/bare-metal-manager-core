@@ -26,6 +26,9 @@ pub async fn create(carbide_api_addrs: &[SocketAddr], name: &str) -> eyre::Resul
         "name": name,
     });
     let domain_id = grpcurl_id(carbide_api_addrs, "CreateDomain", &data.to_string()).await?;
-    tracing::info!("Domain created with ID {domain_id}");
+    tracing::info!(
+        domain_id = %domain_id,
+        "Domain created",
+    );
     Ok(domain_id)
 }

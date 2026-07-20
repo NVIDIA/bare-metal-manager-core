@@ -186,7 +186,8 @@ async fn backfill_records_v0_for_existing_devices(pool: PgPool) {
         .await
         .unwrap();
 
-    // Site-wide targets: bmc + the three convergence-defined types, never nvos.
+    // Site-wide targets: the legacy backfill seeds bmc + UEFI + lockdown. NVOS
+    // remains absent until its first target credential is stored and verified.
     let sitewide: Vec<String> = sqlx::query_scalar(
         "SELECT credential_type::text FROM sitewide_credential_rotation ORDER BY 1",
     )
@@ -196,7 +197,7 @@ async fn backfill_records_v0_for_existing_devices(pool: PgPool) {
     assert_eq!(
         sitewide,
         vec!["bmc", "dpu_uefi", "host_uefi", "lockdown_ikm"],
-        "site-wide targets must cover bmc + UEFI + lockdown, and exclude nvos"
+        "site-wide targets must cover bmc + UEFI + lockdown"
     );
 
     // BMC: all three machines + the live switch + the live power shelf. The
@@ -231,7 +232,7 @@ async fn backfill_records_v0_for_existing_devices(pool: PgPool) {
         vec!["0a:00:00:00:00:01"]
     );
 
-    // NVOS is never backfilled, and every recorded device is at v0.
+    // NVOS device rows are never backfilled, and every recorded device is at v0.
     let nvos_rows: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM device_credential_rotation \
          WHERE credential_type = 'nvos'",
@@ -241,8 +242,13 @@ async fn backfill_records_v0_for_existing_devices(pool: PgPool) {
     .unwrap();
     assert_eq!(nvos_rows, 0, "nvos must not be backfilled");
 
+    // `IS DISTINCT FROM 0`, not `<> 0`: a plain `<>` treats `NULL <> 0` as NULL
+    // and silently drops NULL rows, so a future backfill that left
+    // current_version unset would slip past. Assert every row is confirmed at
+    // exactly 0.
     let non_v0: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM device_credential_rotation WHERE current_version <> 0",
+        "SELECT count(*) FROM device_credential_rotation \
+         WHERE current_version IS DISTINCT FROM 0",
     )
     .fetch_one(&pool)
     .await

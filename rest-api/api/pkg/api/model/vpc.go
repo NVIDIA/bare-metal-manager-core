@@ -180,16 +180,17 @@ func (ascr APIVpcCreateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcCreationReques
 		routingProfile = vpc.RoutingProfile
 	}
 	vpcProto := vpc.ToProto()
+	config := vpcProto.GetConfig()
 	return &corev1.VpcCreationRequest{
 		Id:                              vpcProto.Id,
 		Name:                            vpcProto.Name,
-		TenantOrganizationId:            vpcProto.TenantOrganizationId,
-		NetworkVirtualizationType:       vpcProto.NetworkVirtualizationType,
+		TenantOrganizationId:            config.TenantOrganizationId,
+		NetworkVirtualizationType:       config.NetworkVirtualizationType,
 		RoutingProfileType:              routingProfile,
-		NetworkSecurityGroupId:          vpcProto.NetworkSecurityGroupId,
+		NetworkSecurityGroupId:          config.NetworkSecurityGroupId,
 		Vni:                             vni,
 		Metadata:                        vpcProto.Metadata,
-		DefaultNvlinkLogicalPartitionId: vpcProto.DefaultNvlinkLogicalPartitionId,
+		DefaultNvlinkLogicalPartitionId: config.DefaultNvlinkLogicalPartitionId,
 	}
 }
 
@@ -245,10 +246,11 @@ func (asur APIVpcUpdateRequest) Validate() error {
 // from the validated DB value.
 func (asur APIVpcUpdateRequest) ToProto(vpc *cdbm.Vpc) *corev1.VpcUpdateRequest {
 	vpcProto := vpc.ToProto()
+	config := vpcProto.GetConfig()
 	return &corev1.VpcUpdateRequest{
 		Id:                              vpcProto.Id,
-		NetworkSecurityGroupId:          vpcProto.NetworkSecurityGroupId,
-		DefaultNvlinkLogicalPartitionId: vpcProto.DefaultNvlinkLogicalPartitionId,
+		NetworkSecurityGroupId:          config.NetworkSecurityGroupId,
+		DefaultNvlinkLogicalPartitionId: config.DefaultNvlinkLogicalPartitionId,
 		Metadata:                        vpcProto.Metadata,
 	}
 }

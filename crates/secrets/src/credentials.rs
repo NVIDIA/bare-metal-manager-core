@@ -412,11 +412,13 @@ pub enum CredentialKey {
     SwitchNvosAdmin {
         bmc_mac_address: MacAddress,
     },
-    /// Versioned site-wide NVOS "rotate-TO" target (`switch_nvos/site/admin/v{N}`).
-    /// Admin/rotation-written only; not a loginable per-device credential.
+
+    /// Versioned site-wide NVOS "rotate-TO" target.
+    /// Admin/rotation-written only; not a per-device login credential.
     SwitchNvosSiteAdmin {
         version: u32,
     },
+
     MqttAuth {
         credential_type: MqttCredentialType,
     },
@@ -473,8 +475,8 @@ pub enum CredentialPrefix {
 }
 
 impl CredentialPrefix {
-    /// as_str returns the Vault-style path prefix
-    /// for this credential category.
+    /// as_str returns the serialized credential-store key prefix for this
+    /// credential category.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::DpuSsh => "machines/",
@@ -546,6 +548,14 @@ impl CredentialKey {
             },
             version => Self::DpuUefiSiteVersioned { version },
         }
+    }
+
+    /// Returns the logical site-wide NVOS admin credential key for `version`.
+    ///
+    /// Callers should pass this key to [`CredentialManager`] rather than
+    /// depending on a concrete storage path or backend.
+    pub fn switch_nvos_site_admin(version: u32) -> Self {
+        Self::SwitchNvosSiteAdmin { version }
     }
 
     /// prefix returns the CredentialPrefix category
@@ -841,7 +851,8 @@ mod tests {
         );
         assert_eq!(dpu_uefi.prefix(), CredentialPrefix::DpuUefi);
 
-        let nvos = CredentialKey::SwitchNvosSiteAdmin { version: 2 };
+        let nvos = CredentialKey::switch_nvos_site_admin(2);
+
         assert_eq!(nvos.to_key_str(), "switch_nvos/site/admin/v2");
         assert_eq!(nvos.prefix(), CredentialPrefix::SwitchNvosAdmin);
     }

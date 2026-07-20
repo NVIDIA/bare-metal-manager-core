@@ -44,25 +44,25 @@ pub(crate) async fn set_firmware_update_time_window(
     if start != 0 || end != 0 {
         if start == 0 || end == 0 {
             return Err(CarbideError::InvalidArgument(
-                "Start and end must both be zero or nonzero".to_string(),
+                "start and end must both be zero or nonzero".to_string(),
             )
             .into());
         }
         if start >= end {
-            return Err(CarbideError::InvalidArgument("Start must precede end".to_string()).into());
+            return Err(CarbideError::InvalidArgument("start must precede end".to_string()).into());
         }
         if end < chrono::Utc::now().timestamp() {
-            return Err(CarbideError::InvalidArgument("End occurs in the past".to_string()).into());
+            return Err(CarbideError::InvalidArgument("end occurs in the past".to_string()).into());
         }
     }
 
     let mut txn = api.txn_begin().await?;
 
     tracing::info!(
-        "set_firmware_update_time_window: Setting update start/end ({:?} {:?}) for {:?}",
-        chrono::Utc.timestamp_opt(start, 0),
-        chrono::Utc.timestamp_opt(end, 0),
-        request.machine_ids
+        start_time = ?chrono::Utc.timestamp_opt(start, 0),
+        end_time = ?chrono::Utc.timestamp_opt(end, 0),
+        machine_ids = ?request.machine_ids,
+        "Setting firmware update time window",
     );
 
     db::machine::update_firmware_update_time_window_start_end(

@@ -49,7 +49,7 @@ use mac_address::MacAddress;
 
 use crate::IntoOnlyOne;
 use crate::errors::{CarbideCliError, CarbideCliResult};
-use crate::expected_machines::common::ExpectedMachineJson;
+use crate::expected_machines::common::{ExpectedMachineJson, HostDpuPolicy};
 use crate::instance::AllocateInstance;
 use crate::machine::MachineAutoupdate;
 
@@ -186,7 +186,7 @@ impl ApiClient {
                 return Err(CarbideCliError::UuidNotFound);
             }
             Err(err) => {
-                tracing::error!(%err, "identify_uuid error calling grpc identify_uuid");
+                tracing::error!(error = %err, "identify_uuid error calling grpc identify_uuid");
                 return Err(CarbideCliError::GenericError(err.to_string()));
             }
         };
@@ -194,8 +194,9 @@ impl ApiClient {
             Ok(ot) => ot,
             Err(e) => {
                 tracing::error!(
-                    "Invalid UuidType from carbide api: {}",
-                    uuid_details.object_type
+                    object_type = uuid_details.object_type,
+                    error = %e,
+                    "Invalid UUID type from Carbide API",
                 );
                 return Err(CarbideCliError::GenericError(e.to_string()));
             }
@@ -218,7 +219,7 @@ impl ApiClient {
                 return Err(CarbideCliError::MacAddressNotFound);
             }
             Err(err) => {
-                tracing::error!(%err, "identify_mac error calling grpc identify_mac");
+                tracing::error!(error = %err, "identify_mac error calling grpc identify_mac");
                 return Err(CarbideCliError::GenericError(err.to_string()));
             }
         };
@@ -226,8 +227,9 @@ impl ApiClient {
             Ok(ot) => ot,
             Err(e) => {
                 tracing::error!(
-                    "Invalid MachineOwner from carbide api: {}",
-                    mac_details.object_type
+                    object_type = mac_details.object_type,
+                    error = %e,
+                    "Invalid machine owner from Carbide API",
                 );
                 return Err(CarbideCliError::GenericError(e.to_string()));
             }
@@ -254,7 +256,7 @@ impl ApiClient {
                 return Err(CarbideCliError::SerialNumberNotFound);
             }
             Err(err) => {
-                tracing::error!(%err, "identify_serial error calling grpc identify_serial");
+                tracing::error!(error = %err, "identify_serial error calling grpc identify_serial");
                 return Err(CarbideCliError::GenericError(err.to_string()));
             }
         };
@@ -828,7 +830,7 @@ impl ApiClient {
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
         bmc_retain_credentials: Option<bool>,
-        dpu_mode: Option<::rpc::forge::DpuMode>,
+        dpu_policy: Option<HostDpuPolicy>,
         bmc_ip_allocation: Option<::rpc::forge::BmcIpAllocationType>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
         host_nics: Option<String>,
@@ -915,7 +917,9 @@ impl ApiClient {
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
-            dpu_mode: dpu_mode.map(|m| m as i32).or(expected_machine.dpu_mode),
+            dpu_mode: dpu_policy
+                .map(|policy| ::rpc::forge::DpuMode::from(policy) as i32)
+                .or(expected_machine.dpu_mode),
             // Use the flag value if given, else preserve the stored per-host
             // value (patch semantics).
             bmc_ip_allocation: bmc_ip_allocation
@@ -938,6 +942,9 @@ impl ApiClient {
             expected_machines: expected_machine_list
                 .into_iter()
                 .map(|machine| rpc::ExpectedMachine {
+                    dpu_mode: machine
+                        .dpu_policy()
+                        .map(|policy| ::rpc::forge::DpuMode::from(policy) as i32),
                     id: machine.id.map(|s| ::rpc::common::Uuid { value: s }),
                     bmc_mac_address: machine.bmc_mac_address.to_string(),
                     bmc_username: machine.bmc_username,
@@ -957,7 +964,6 @@ impl ApiClient {
                     is_dpf_enabled: machine.dpf_enabled,
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
-                    dpu_mode: machine.dpu_mode.map(|m| m as i32),
                     bmc_ip_allocation: machine.bmc_ip_allocation.map(|m| m as i32),
                     host_lifecycle_profile: machine.host_lifecycle_profile.map(|hlp| {
                         ::rpc::forge::HostLifecycleProfile {
@@ -1585,7 +1591,7 @@ impl ApiClient {
             } else {
                 vf_network_segment_ids.len() / pf_network_segment_ids.len()
             };
-            tracing::debug!("VFs per PF: {vfs_per_pf}");
+            tracing::debug!(vfs_per_pf, "VFs per PF",);
 
             let mut next_device_instance = HashMap::new();
 
@@ -1684,7 +1690,7 @@ impl ApiClient {
                 // pf_vpc_prefix_ids is checked for empty above (len() cannot be 0)
                 vf_vpc_prefix_ids.len() / pf_vpc_prefix_ids.len()
             };
-            tracing::debug!("VFs per PF: {vfs_per_pf}");
+            tracing::debug!(vfs_per_pf, "VFs per PF",);
             let mut vf_chunk_iter = vf_vpc_prefix_ids.chunks(vfs_per_pf);
             let mut ipv6_vf_chunk_iter = allocate_instance.ipv6_vf_prefix_id.chunks(vfs_per_pf);
             for (map_index, i) in discovery_info
@@ -1729,7 +1735,10 @@ impl ApiClient {
                             }),
                         routing_profile: None,
                     };
-                    tracing::debug!("Adding interface: {:?}", new_interface);
+                    tracing::debug!(
+                        new_interface = ?new_interface,
+                        "Adding interface",
+                    );
 
                     interface_configs.push(new_interface);
 
@@ -1761,12 +1770,18 @@ impl ApiClient {
                                 routing_profile: None,
                             };
                             vf_function_id += 1;
-                            tracing::debug!("Adding interface: {:?}", new_interface);
+                            tracing::debug!(
+                                new_interface = ?new_interface,
+                                "Adding interface",
+                            );
                             interface_configs.push(new_interface);
                         }
                     }
                 } else {
-                    tracing::debug!("No pci device info for interface: {i:?}");
+                    tracing::debug!(
+                        interface = ?i,
+                        "No PCI device info",
+                    );
                 }
             }
 

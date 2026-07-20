@@ -35,6 +35,17 @@ import (
 	pb "github.com/NVIDIA/infra-controller/rest-api/flow/pkg/proto/v1"
 )
 
+// ignoreMigrationSignatureChangesEnvVar enables the temporary migration
+// recovery workaround during service startup. When set to "true", changed
+// signatures are stored without re-running installed migration SQL.
+const ignoreMigrationSignatureChangesEnvVar = "FLOW_DB_MIGRATION_IGNORE_SIGNATURE_CHANGES"
+
+func migrationOptionsFromEnv() migrations.MigrateOptions {
+	return migrations.MigrateOptions{
+		IgnoreSignatureChanges: os.Getenv(ignoreMigrationSignatureChangesEnvVar) == "true",
+	}
+}
+
 // Service is the top-level Flow service. It owns the gRPC server, database
 // session, inventory manager, and task manager and coordinates their lifecycles.
 type Service struct {
@@ -66,8 +77,14 @@ func New(ctx context.Context, c Config) (*Service, error) {
 		return nil, fmt.Errorf("failed to create database connection: %w", err)
 	}
 
-	// Run migrations
-	if err := migrations.MigrateWithDB(ctx, session.DB); err != nil {
+	// Run migrations. The signature override is an operational escape hatch for
+	// recovering from changed migration files; strict verification remains the
+	// default.
+	migrationOptions := migrationOptionsFromEnv()
+	if migrationOptions.IgnoreSignatureChanges {
+		log.Warn().Msgf("Migration signature changes will be accepted because %s=true", ignoreMigrationSignatureChangesEnvVar)
+	}
+	if err := migrations.MigrateWithDB(ctx, session.DB, migrationOptions); err != nil {
 		session.Close()
 
 		return nil, fmt.Errorf("failed to run migrations: %w", err)

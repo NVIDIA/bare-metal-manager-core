@@ -21,10 +21,11 @@ use carbide_utils::has_duplicates;
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::forge::{BmcIpAllocationType, DpuMode, ExpectedHostNic};
+use rpc::forge::{BmcIpAllocationType, ExpectedHostNic};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::{CarbideCliError, CarbideCliResult};
+use crate::expected_machines::common::HostDpuPolicy;
 
 /// `nico-admin-cli expected-machine add` — mirrors expected switch flags; optional
 /// `--bmc-ip-address` forwards to the API static-BMC pre-allocation path.
@@ -49,7 +50,7 @@ Pre-allocate a static BMC IP (site-explorer path, like expected switches):
 Add a host whose DPU should be treated as a plain NIC:
     $ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
-    --dpu-mode nic-mode
+    --dpu-policy nic
 
 Retain the BMC's auto-allocated DHCP address as a static one (never expires):
     $ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 \
@@ -165,12 +166,13 @@ pub struct Args {
     pub bmc_retain_credentials: Option<bool>,
 
     #[clap(
-        long = "dpu-mode",
-        value_name = "DPU_MODE",
+        long = "dpu-policy",
+        visible_alias = "dpu-mode",
+        value_name = "DPU_POLICY",
         value_enum,
-        help = "Per-host DPU operating mode. `dpu-mode` (default): DPUs are managed by NICo; `nic-mode`: DPU hardware present but treated as a plain NIC; `no-dpu`: no DPU hardware at all. Unset defers to the site-wide `[site_explorer] dpu_mode` setting (which itself falls back to `dpu-mode` when not set)."
+        help = "Per-host DPU policy. `manage` (default): inherit the site policy, which defaults to managing DPUs; `nic`: configure DPU hardware as plain NICs; `ignore`: do not configure or attach DPU hardware. Unset defers to the site-wide `[site_explorer] dpu_policy` setting. The previous `use-as-nic` value remains accepted as an alias. The legacy `--dpu-mode` flag also remains accepted: `dpu-mode` maps to `manage`, `nic-mode` to `nic`, and `no-dpu` to `ignore`."
     )]
-    pub dpu_mode: Option<DpuMode>,
+    pub dpu_policy: Option<HostDpuPolicy>,
 
     #[clap(
         long = "bmc-ip-allocation",
@@ -229,7 +231,9 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             is_dpf_enabled: value.dpf_enabled,
             bmc_ip_address: value.bmc_ip_address.map(|ip| ip.to_string()),
             bmc_retain_credentials: value.bmc_retain_credentials,
-            dpu_mode: value.dpu_mode.map(|m| m as i32),
+            dpu_mode: value
+                .dpu_policy
+                .map(|policy| rpc::forge::DpuMode::from(policy) as i32),
             bmc_ip_allocation: value.bmc_ip_allocation.map(|m| m as i32),
             host_lifecycle_profile: value.disable_lockdown.map(|dl| {
                 rpc::forge::HostLifecycleProfile {

@@ -613,7 +613,7 @@ async fn test_zero_dpu_auto_update_rejects_host_inband_segment_bound_to_differen
     assert_eq!(err.code(), tonic::Code::FailedPrecondition);
     assert!(
         err.message()
-            .contains("shared Flat segments must be left unbound"),
+            .contains("shared flat segments must be left unbound"),
         "unexpected error message: {}",
         err.message()
     );
@@ -792,7 +792,7 @@ async fn test_zero_dpu_instance_allocation_rejects_non_flat_vpc_id(
     let err = result.expect_err("zero-DPU auto allocation into non-Flat VPC must be rejected");
     assert_eq!(err.code(), tonic::Code::FailedPrecondition, "got: {err}");
     assert!(
-        err.message().contains("Flat"),
+        err.message().contains("flat"),
         "error should mention Flat VPC requirement, got: {}",
         err.message()
     );

@@ -114,8 +114,6 @@ fn user_data_handler(
         );
     }
     context.insert("interface_id".to_string(), machine_interface_id.to_string());
-    // Use URL overrides for external clients (static-assignments segment),
-    // falling back to global config.
     context.insert(
         "api_url".to_string(),
         api_url_override.unwrap_or(config.client_facing_api_url),
@@ -259,10 +257,6 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                 ),
             }
         }
-        // discovery_instructions can not be None for a non-assigned machine.
-        // This means that the machine is assigned to tenant.
-        // custom_cloud_init None means user has not configured any user-data. Send a empty
-        // response.
         (None, None) => {
             let mut template_data: HashMap<String, String> = HashMap::new();
             template_data.insert("user_data".to_string(), "{}".to_string());
@@ -301,6 +295,39 @@ pub async fn meta_data(machine: Machine, state: State<AppState>) -> impl IntoRes
     axum_template::Render(template_key, state.engine.clone(), template_data)
 }
 
+/// Extracts the top-level `network:` key (if present) from a tenant's
+/// custom cloud-init document and returns it as its own standalone YAML
+/// document, suitable for seeding NoCloud's separate `network-config`
+/// file. A `network:` key inside `user-data` itself is not a recognized
+/// user-data format and is silently ignored by cloud-init.
+fn extract_network_config(custom_cloud_init: &str) -> Option<String> {
+    let value: serde_yaml::Value = serde_yaml::from_str(custom_cloud_init).ok()?;
+    serde_yaml::to_string(value.get("network")?).ok()
+}
+
+/// Serves NoCloud's `network-config` document for a tenant's assigned
+/// machine, extracted from any `network:` key present in their custom
+/// cloud-init userdata. Renders empty when no such key is present, which
+/// cloud-init treats as "no custom network config" and falls back to
+/// its default DHCP behavior.
+pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
+    let network_config_yaml = machine
+        .instructions
+        .custom_cloud_init
+        .as_deref()
+        .and_then(extract_network_config)
+        .unwrap_or_default();
+
+    let mut template_data: HashMap<String, String> = HashMap::new();
+    template_data.insert("network_config".to_string(), network_config_yaml);
+
+    axum_template::Render(
+        "network-config".to_string(),
+        state.engine.clone(),
+        template_data,
+    )
+}
+
 pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
     emit(PxeBootOutcome {
         endpoint: BootEndpoint::CloudInit,
@@ -313,6 +340,9 @@ pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
     )
 }
 
+/// Builds the PXE service's route table for the cloud-init-related
+/// endpoints served under `path_prefix`: `user-data`, `meta-data`,
+/// `vendor-data`, and `network-config`.
 pub fn get_router(path_prefix: &str) -> Router<AppState> {
     Router::new()
         .route(
@@ -326,6 +356,10 @@ pub fn get_router(path_prefix: &str) -> Router<AppState> {
         .route(
             format!("{}/{}", path_prefix, "vendor-data").as_str(),
             get(vendor_data),
+        )
+        .route(
+            format!("{}/{}", path_prefix, "network-config").as_str(),
+            get(network_config),
         )
 }
 
@@ -345,12 +379,6 @@ mod tests {
         let interface_id = "91609f10-c91d-470d-a260-6293ea0c1234".parse().unwrap();
         let config = generate_forge_agent_config(interface_id, None);
 
-        // The intent here is to actually test what the written
-        // configuration file looks like, so we can visualize to
-        // make sure it's going to look like what we think it's
-        // supposed to look like. Obviously as various new fields
-        // get added to AgentConfig, then our test config will also
-        // need to be updated accordingly, but that should be ok.
         let test_config = fs::read_to_string(format!("{TEST_DATA_DIR}/agent_config.toml")).unwrap();
         assert_eq!(config, test_config);
 
@@ -366,11 +394,8 @@ mod tests {
             interface_id.to_string().as_str(),
         );
 
-        // No forge-system section when no override is provided.
         assert!(data.get("forge-system").is_none());
 
-        // Check to make sure is_fake_dpu gets skipped
-        // from the serialized output.
         let skipped = match data.get("machine").unwrap().get("is_fake_dpu") {
             Some(_val) => false,
             None => true,
@@ -416,7 +441,6 @@ mod tests {
         let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
         let tera = tera::Tera::new(template_glob).unwrap();
 
-        // Use the same string-valued context shape the route handler passes to Tera.
         let context = HashMap::from([
             (
                 "api_url".to_string(),
@@ -455,7 +479,6 @@ mod tests {
             )
             .unwrap();
 
-        // The mlxconfig value and DHCP drop rules should use the configured count.
         assert!(rendered.contains("NUM_OF_VFS=3"));
         assert!(!rendered.contains("NUM_OF_VFS=16"));
         assert_eq!(rendered.matches("--physdev-in pf0vf").count(), 3);
@@ -471,7 +494,6 @@ mod tests {
         let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
         let tera = tera::Tera::new(template_glob).unwrap();
 
-        // Use a non-empty provisioning string so the host representor bridge loop renders.
         let context = HashMap::from([
             (
                 "api_url".to_string(),
@@ -510,7 +532,6 @@ mod tests {
             )
             .unwrap();
 
-        // The loop should emit one assignment and invocation per bridge entry.
         assert!(rendered.contains("ovs-vsctl get bridge br-sfc external_ids"));
         assert!(rendered.contains("ovs-vsctl --may-exist add-port br-sfc"));
         assert!(rendered.contains(
@@ -608,6 +629,59 @@ mod tests {
             context.get("hostname").map(String::as_str),
             Some("node-02.new.forge.example.com"),
         );
+    }
+
+    /// Table-driven coverage for `extract_network_config` across its three
+    /// input variants: a present `network:` key, a missing one, and
+    /// malformed YAML.
+    #[test]
+    fn extract_network_config_handles_various_inputs() {
+        struct Case {
+            name: &'static str,
+            input: &'static str,
+            expect_some: bool,
+        }
+
+        let cases = [
+            Case {
+                name: "network key present",
+                input: "#cloud-config\nnetwork:\n  version: 2\n  ethernets:\n    eth0:\n      addresses:\n        - 10.10.10.50/24\nwrite_files:\n  - path: /tmp/foo\n    content: bar\n",
+                expect_some: true,
+            },
+            Case {
+                name: "no network key",
+                input: "#cloud-config\nwrite_files:\n  - path: /tmp/foo\n    content: bar\n",
+                expect_some: false,
+            },
+            Case {
+                name: "invalid yaml",
+                input: "not: valid: yaml: at: all: :::",
+                expect_some: false,
+            },
+        ];
+
+        for case in cases {
+            let result = extract_network_config(case.input);
+            assert_eq!(
+                result.is_some(),
+                case.expect_some,
+                "case '{}' failed",
+                case.name
+            );
+
+            if case.expect_some {
+                let parsed: serde_yaml::Value = serde_yaml::from_str(&result.unwrap()).unwrap();
+                assert_eq!(parsed.get("version").unwrap().as_u64().unwrap(), 2);
+                assert!(
+                    parsed
+                        .get("ethernets")
+                        .and_then(|e| e.get("eth0"))
+                        .is_some(),
+                    "case '{}': expected eth0 config present",
+                    case.name
+                );
+            }
+        }
     }
 
     /// A meta-data request with no metadata lands in the generic-error

@@ -22,7 +22,7 @@ type preparedDispatch struct {
 	safetyPolicy   *safetyPolicyRuntime
 	phasePolicy    *phasePolicyRuntime
 	prepareErr     error
-	summary        reconciliationSummary
+	summary        operationrun.TargetPhaseSummary
 	changed        map[uuid.UUID]*operationrun.OperationRunTarget
 }
 
@@ -82,18 +82,31 @@ func (d *Dispatcher) prepare(
 		return prep, nil
 	}
 
-	// TODO: After operation_run.current_phase_index is persisted, lock only the
-	// current phase targets here and use SQL aggregates for cumulative safety
-	// gates and final completion instead of loading every target for the run.
-	targets, err := d.deps.Store.LockOperationRunTargets(ctx, run.ID)
+	targets, err := d.deps.Store.LockOperationRunTargets(
+		ctx,
+		run.ID,
+		run.CurrentPhaseIndex,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("lock operation run targets: %w", err)
 	}
 
-	prep.summary, err = d.reconcileTargets(ctx, targets, prep.changed)
-	if err != nil {
+	if err := d.reconcileTargets(ctx, targets, prep.changed); err != nil {
 		return nil, err
 	}
+	aggregate, err := d.deps.Store.GetTargetPhaseAggregate(
+		ctx,
+		run.ID,
+		run.CurrentPhaseIndex,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("summarize operation run targets: %w", err)
+	}
+	prep.summary = operationrun.NewTargetPhaseSummary(
+		run.CurrentPhaseIndex,
+		aggregate,
+		targets,
+	)
 
 	return prep, nil
 }

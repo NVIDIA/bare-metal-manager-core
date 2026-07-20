@@ -21,6 +21,7 @@ use carbide_rack::rms_node_type::compute_node_type_for_profile;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::machine::MachineId;
 use db::{ObjectColumnFilter, Transaction};
 use itertools::Itertools;
@@ -107,7 +108,11 @@ impl MachineCreator {
                     }
                 }
                 Ok(false) => {}
-                Err(error) => tracing::error!(%error, "Failed to create managed host {:#?}", host),
+                Err(error) => tracing::error!(
+                    %error,
+                    host = ?host,
+                    "Failed to create managed host"
+                ),
             }
         }
 
@@ -130,7 +135,7 @@ impl MachineCreator {
     ) -> SiteExplorerResult<bool> {
         let Some(expected_machine) = expected_machine else {
             tracing::warn!(
-                host_bmc_ip = %explored_host.host_bmc_ip,
+                host_bmc_ip_address = %explored_host.host_bmc_ip,
                     "Refusing to create managed host, expected machines entry not found"
             );
             return Ok(false);
@@ -249,12 +254,17 @@ impl MachineCreator {
         if let Some(rack_id) = machine_data.and_then(|d| d.rack_id.as_ref()) {
             tracing::info!(%rack_id, %host_machine_id, "Ensuring rack exists for host machine");
             if let Some(rack) = crate::ensure_rack_exists(&mut txn, rack_id).await? {
-                tracing::info!(%rack_id, "Rack exists for host machine {host_machine_id}: {rack:#?}");
+                tracing::info!(
+                    %rack_id,
+                    %host_machine_id,
+                    rack = ?rack,
+                    "Rack exists"
+                );
                 rack_profile_id = rack.rack_profile_id;
             }
         }
 
-        // Own a declared integrated boot NIC so a DpuMode host can boot from it
+        // Own a declared integrated boot NIC so a managed-DPU host can boot from it
         // while its DPUs stay managed: the NIC becomes the host's HostInband
         // primary and the DPU admin links go dormant in the reconcile below.
         // Only for hosts with explored DPUs -- a zero-DPU host's NICs (including
@@ -337,7 +347,7 @@ impl MachineCreator {
             .await
             {
                 tracing::warn!(
-                    %e,
+                    error = %e,
                     %host_machine_id,
                     "Failed to update slot_number and tray_index for machine"
                 );
@@ -427,8 +437,8 @@ impl MachineCreator {
                 .unwrap_or_default();
             tracing::warn!(
                 %machine_id,
-                ?existing_macs,
-                predicted_host_macs=?mac_addresses,
+                existing_mac_addresses = ?existing_macs,
+                predicted_host_mac_addresses = ?mac_addresses,
                 "Predicted host already exists, with different mac addresses from this one. Potentially multiple machines with same serial number?"
             );
             return Ok(None);
@@ -565,7 +575,7 @@ impl MachineCreator {
         Ok(Some(*machine_id))
     }
 
-    /// Owns a declared integrated (non-DPU) host NIC as a DpuMode host's
+    /// Owns a declared integrated (non-DPU) host NIC as a managed-DPU host's
     /// HostInband boot interface, so a host with managed DPUs can still boot from
     /// an integrated NIC. The NIC carries `primary` into `machine_interfaces` on
     /// its first DHCP; the DPUs stay explored and linked, and their admin links
@@ -573,7 +583,7 @@ impl MachineCreator {
     /// primary.
     ///
     /// Mirrors the host-NIC ownership in `create_zero_dpu_machine`, but for the
-    /// one declared NIC reached from the DpuMode path. No-op when nothing is
+    /// one declared NIC reached from the managed-DPU path. No-op when nothing is
     /// declared, or when the declared NIC is already owned (e.g. a declared DPU
     /// host-PF, which `attach_dpu_to_host` already owns).
     async fn own_declared_host_boot_nic(
@@ -621,8 +631,8 @@ impl MachineCreator {
             )
             .await?;
             tracing::info!(
-                %declared_mac, %host_machine_id,
-                "Adopted declared integrated boot NIC as the DpuMode host's primary",
+                declared_mac_address = %declared_mac, %host_machine_id,
+                "Adopted declared integrated boot NIC as the managed-DPU host's primary",
             );
             return Ok(());
         }
@@ -661,8 +671,8 @@ impl MachineCreator {
         )
         .await?;
         tracing::info!(
-            %declared_mac, %host_machine_id,
-            "Minted HostInband boot-NIC prediction for DpuMode host's declared integrated primary",
+            declared_mac_address = %declared_mac, %host_machine_id,
+            "Minted HostInband boot-NIC prediction for managed-DPU host's declared integrated primary",
         );
         Ok(())
     }
@@ -751,8 +761,9 @@ impl MachineCreator {
                 && interface.machine_id.is_none()
             {
                 tracing::info!(
-                    "Updating machine interface {} with machine id {dpu_machine_id}.",
-                    interface.id
+                    machine_interface_id = %interface.id,
+                    machine_id = %dpu_machine_id,
+                    "Associating machine interface with machine"
                 );
                 db::machine_interface::associate_interface_with_machine(
                     &interface.id,
@@ -798,7 +809,7 @@ impl MachineCreator {
             .await
             {
                 Ok(machine) => {
-                    tracing::info!("Created DPU machine with id: {}", dpu_machine_id);
+                    tracing::info!(machine_id = %dpu_machine_id, "Created DPU machine");
                     Ok(Some(machine))
                 }
                 Err(e) => {
@@ -1062,7 +1073,7 @@ fn host_mac_addresses_for_predicted_machine(
         [] => machine_data
             .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
             .map(|data| data.host_nics.as_slice())
-            .filter(|host_nics| !host_nics.is_empty())
+            .none_if_empty()
             .map(|host_nics| {
                 tracing::info!(
                     host_nic_count = host_nics.len(),

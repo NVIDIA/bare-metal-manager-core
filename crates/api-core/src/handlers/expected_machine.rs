@@ -151,8 +151,8 @@ pub(crate) async fn create_missing_from(
     for expected_machine in expected_machines {
         if existing_macs.contains(&expected_machine.bmc_mac_address.to_string()) {
             tracing::debug!(
-                "Not overwriting expected-machine with mac_addr: {}",
-                expected_machine.bmc_mac_address
+                bmc_mac_address = %expected_machine.bmc_mac_address,
+                "Expected machine already exists; not overwriting",
             );
             continue;
         }
@@ -590,7 +590,8 @@ async fn process_batch_operations(
                     }
                 },
                 Err(e) => {
-                    let _ = txn.rollback().await;
+                    txn.rollback_or_log("expected-machine write after operation failure")
+                        .await;
                     results.push(build_failure_result(id, format!("Operation failed: {}", e)));
                 }
             }
@@ -624,7 +625,8 @@ async fn process_batch_operations(
         )
         .await
         {
-            let _ = txn.rollback().await;
+            txn.rollback_or_log("expected-machine write after operation failure")
+                .await;
             return Err(e);
         }
         results.push(build_success_result(machine_for_result));

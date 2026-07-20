@@ -329,7 +329,7 @@ async fn reconcile_admin_addresses_errors_without_any_primary_admin_interface(
     Ok(())
 }
 
-/// A DpuMode host that boots from an integrated NIC has a HostInband primary and
+/// A managed-DPU host that boots from an integrated NIC has a HostInband primary and
 /// no primary *admin* interface -- its DPU admin links are present but dormant.
 /// Reconcile must treat that as valid (clean up the dormant links), not as the
 /// "no primary admin interface" error.
@@ -812,7 +812,7 @@ async fn test_delete_interface_with_machine(
             match c {
                 Code::InvalidArgument => {
                     let msg = String::from(x.message());
-                    if !msg.contains("Already a machine") {
+                    if !msg.contains("already a machine") {
                         panic!("machine interface deletion failed with wrong message {msg}");
                     }
                     return Ok(());
@@ -862,7 +862,7 @@ async fn test_delete_bmc_interface_with_machine(
             match c {
                 Code::InvalidArgument => {
                     let msg = String::from(x.message());
-                    if !msg.contains("This looks like a BMC interface and attached") {
+                    if !msg.contains("this looks like a BMC interface and attached") {
                         panic!("machine interface deletion failed with wrong message {msg}");
                     }
                     return Ok(());

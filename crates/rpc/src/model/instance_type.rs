@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use model::instance_type::{InstanceType, InstanceTypeMachineCapabilityFilter};
 
 use crate::errors::RpcDataConversionError;
@@ -111,11 +112,7 @@ impl TryFrom<InstanceType> for rpc::InstanceType {
                     .iter()
                     .map(|(key, value)| rpc::Label {
                         key: key.to_owned(),
-                        value: if value.is_empty() {
-                            None
-                        } else {
-                            Some(value.to_owned())
-                        },
+                        value: value.to_owned().none_if_empty(),
                     })
                     .collect(),
             }),

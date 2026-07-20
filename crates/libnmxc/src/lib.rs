@@ -47,16 +47,16 @@ pub const NMX_C_GATEWAY_ID: &str = "carbide";
 
 #[derive(thiserror::Error, Debug)]
 pub enum NmxcError {
-    #[error("Invalid endpoint URL: {0}")]
+    #[error("invalid endpoint URL: {0}")]
     InvalidEndpoint(String),
 
-    #[error("Transport error: {0}")]
+    #[error("transport error: {0}")]
     Transport(#[from] tonic::transport::Error),
 
     #[error("gRPC status: {0}")]
     Status(#[from] tonic::Status),
 
-    #[error("Connection not initialized")]
+    #[error("connection not initialized")]
     Uninitialized,
 
     #[error("NMX-C {operation} response missing server_header")]
@@ -390,7 +390,7 @@ impl ChannelConnector for TlsChannelConnector {
                 .await?
         };
 
-        debug!("Connected to NMX-C at {}", endpoint.uri);
+        debug!(endpoint = %endpoint.uri, "Connected to NMX-C");
         Ok(channel)
     }
 

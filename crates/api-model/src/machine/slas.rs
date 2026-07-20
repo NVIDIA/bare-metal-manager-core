@@ -57,6 +57,8 @@ pub const ASSIGNED: Duration = Duration::from_secs(30 * 60);
 pub const ASSIGNED_HOST_PLATFORM_CONFIGURATION: Duration = Duration::from_secs(90 * 60);
 pub const VALIDATION: Duration = Duration::from_secs(30 * 60);
 
+pub const MAINTENANCE: Duration = Duration::from_secs(5 * 60);
+
 /// Configuration for machine state SLA durations.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineSlaConfig {
