@@ -220,7 +220,7 @@ impl MachineCreator {
             if existing_dpu_ids != dpu_ids.iter().copied().sorted().dedup().collect::<Vec<_>>() {
                 // This would only happen if somehow a host endpoint gains/loses a DPU from its endpoint report before we
                 // get a chance to create a managed host for it.
-                let msg = "explored endpoint has a a partial number of DPU's already created";
+                let msg = "explored endpoint has a partial number of DPU's already created";
                 tracing::error!(
                     dpu_ids = dpu_ids.iter().join(", "),
                     existing_dpu_ids = existing_dpu_ids.iter().join(", "),
