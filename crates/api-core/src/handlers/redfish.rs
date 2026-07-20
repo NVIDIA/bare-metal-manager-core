@@ -15,11 +15,13 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use arc_swap::ArcSwap;
 use carbide_secrets::credentials::CredentialReader;
 use carbide_utils::HostPortPair;
+use carbide_utils::redfish::{format_forwarded_host_parameter, parse_uri_host_ip};
 use chrono::{DateTime, Local};
 use db::Transaction;
 use db::redfish_actions::{
@@ -27,6 +29,7 @@ use db::redfish_actions::{
     set_applied, update_response,
 };
 use http::header::CONTENT_TYPE;
+use http::uri::Authority;
 use http::{HeaderMap, HeaderValue, Uri};
 use model::redfish::BMCResponse;
 use serde::Serialize;
@@ -233,14 +236,7 @@ pub async fn redfish_apply_action(
             }, index).await?;
         } else {
             uris.push((
-                Uri::builder()
-                    .scheme("https")
-                    .authority(machine_ip)
-                    .path_and_query(&action_request.target)
-                    .build()
-                    .map_err(|e| {
-                        CarbideError::internal(format!("invalid uri from machine_ip: {e}"))
-                    })?,
+                redfish_action_uri(&machine_ip, &action_request.target)?,
                 index,
             ));
         }
@@ -392,6 +388,75 @@ async fn handle_request(
     }
 }
 
+/// `metadata_host` extracts the port-free host key used for BMC metadata lookup.
+///
+/// `Uri::host` retains IPv6 brackets, which are URI syntax rather than part of
+/// the address. Normalize IP literals to their bare form while leaving hostnames
+/// unchanged; a URI without a host produces an empty lookup key.
+fn metadata_host(uri: &Uri) -> String {
+    uri.host()
+        .map(|host| parse_uri_host_ip(host).map_or_else(|| host.to_string(), |ip| ip.to_string()))
+        .unwrap_or_default()
+}
+
+/// `uri_authority` combines a host and separate port into URI authority syntax.
+///
+/// IP literals can arrive bare or bracketed, so normalize them and bracket IPv6
+/// exactly once before appending the port. `Authority::try_from` rejects any
+/// remaining invalid authority syntax.
+fn uri_authority(host: &str, port: Option<u32>) -> Result<Authority, http::uri::InvalidUri> {
+    let host = match parse_uri_host_ip(host) {
+        Some(IpAddr::V4(ip)) => ip.to_string(),
+        Some(IpAddr::V6(ip)) => format!("[{ip}]"),
+        None => host.to_string(),
+    };
+
+    match port {
+        Some(port) => Authority::try_from(format!("{host}:{port}")),
+        None => Authority::try_from(host),
+    }
+}
+
+/// `client_authority` applies a proxy override to the BMC metadata authority.
+///
+/// The boolean marks that the proxy variant supplied a host. This tells
+/// `create_client` to include the original metadata IP in `Forwarded`.
+/// `HostOnly` inherits the metadata port, while `PortOnly` keeps the metadata
+/// host and leaves the boolean false.
+fn client_authority(
+    metadata_host: &str,
+    metadata_port: Option<u32>,
+    proxy_address: Option<&HostPortPair>,
+) -> Result<(Authority, bool), http::uri::InvalidUri> {
+    let (host, port, add_custom_header) = match proxy_address {
+        None => (metadata_host, metadata_port, false),
+        Some(HostPortPair::HostAndPort(host, port)) => {
+            (host.as_str(), Some(u32::from(*port)), true)
+        }
+        Some(HostPortPair::HostOnly(host)) => (host.as_str(), metadata_port, true),
+        Some(HostPortPair::PortOnly(port)) => (metadata_host, Some(u32::from(*port)), false),
+    };
+
+    uri_authority(host, port).map(|authority| (authority, add_custom_header))
+}
+
+/// `redfish_action_uri` builds the initial HTTPS URI for a Redfish action.
+///
+/// `machine_ip` is stored without URI brackets, so route it through
+/// `uri_authority` before attaching `target`. `create_client` can replace this
+/// authority later with the resolved BMC or proxy endpoint.
+fn redfish_action_uri(machine_ip: &str, target: &str) -> Result<Uri, CarbideError> {
+    let authority = uri_authority(machine_ip, None)
+        .map_err(|error| CarbideError::internal(format!("invalid uri from machine_ip: {error}")))?;
+
+    Uri::builder()
+        .scheme("https")
+        .authority(authority)
+        .path_and_query(target)
+        .build()
+        .map_err(|error| CarbideError::internal(format!("invalid uri from machine_ip: {error}")))
+}
+
 pub(crate) async fn create_client(
     uri: http::Uri,
     pool: &PgPool,
@@ -409,7 +474,7 @@ pub(crate) async fn create_client(
     let bmc_metadata_request = rpc::forge::BmcMetaDataGetRequest {
         machine_id: None,
         bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
-            ip_address: uri.host().map(|x| x.to_string()).unwrap_or_default(),
+            ip_address: metadata_host(&uri),
             mac_address: None,
         }),
         role: rpc::forge::UserRoles::Administrator.into(),
@@ -421,23 +486,9 @@ pub(crate) async fn create_client(
             .await?;
 
     let proxy_address = bmc_proxy.load();
-    let (host, port, add_custom_header) = match proxy_address.as_ref() {
-        // No override
-        None => (metadata.ip.clone(), metadata.port, false),
-        // Override the host and port
-        Some(HostPortPair::HostAndPort(h, p)) => (h.to_string(), Some(*p as u32), true),
-        // Only override the host
-        Some(HostPortPair::HostOnly(h)) => (h.to_string(), metadata.port, true),
-        // Only override the port
-        Some(HostPortPair::PortOnly(p)) => (metadata.ip.clone(), Some(*p as u32), false),
-    };
-    let new_authority = if let Some(port) = port {
-        http::uri::Authority::try_from(format!("{host}:{port}"))
-            .map_err(|e| CarbideError::internal(format!("creating url {e}")))?
-    } else {
-        http::uri::Authority::try_from(host)
-            .map_err(|e| CarbideError::internal(format!("creating url {e}")))?
-    };
+    let (new_authority, add_custom_header) =
+        client_authority(&metadata.ip, metadata.port, proxy_address.as_ref().as_ref())
+            .map_err(|error| CarbideError::internal(format!("creating url {error}")))?;
     let mut parts = uri.into_parts();
     parts.authority = Some(new_authority);
     let new_uri = http::Uri::from_parts(parts)
@@ -446,7 +497,7 @@ pub(crate) async fn create_client(
     if add_custom_header {
         headers.insert(
             "forwarded",
-            format!("host={orig_host}", orig_host = metadata.ip)
+            format_forwarded_host_parameter(&metadata.ip)
                 .parse()
                 .unwrap(),
         );
@@ -585,5 +636,128 @@ impl From<reqwest_middleware::Error> for RequestErrorInfo {
             status_code: e.status(),
             description: e.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+    use carbide_utils::HostPortPair;
+
+    use super::{client_authority, metadata_host, redfish_action_uri};
+
+    #[test]
+    fn metadata_host_is_bare_for_ip_literals() {
+        value_scenarios!(run = |raw_uri| {
+            let uri: http::Uri = raw_uri.parse().unwrap();
+            metadata_host(&uri)
+        };
+            "IPv4" {
+                "https://192.0.2.10/redfish/v1" => "192.0.2.10".to_string(),
+                "https://192.0.2.10:8443/redfish/v1" => "192.0.2.10".to_string(),
+            }
+
+            "bracketed IPv6" {
+                "https://[2001:db8::10]/redfish/v1" => "2001:db8::10".to_string(),
+                "https://[2001:db8::10]:8443/redfish/v1" => "2001:db8::10".to_string(),
+            }
+
+            "hostname" {
+                "https://bmc.example.com/redfish/v1" => "bmc.example.com".to_string(),
+                "https://bmc.example.com:8443/redfish/v1" => "bmc.example.com".to_string(),
+            }
+        );
+    }
+
+    struct ClientAuthorityCase {
+        metadata_host: &'static str,
+        metadata_port: Option<u32>,
+        proxy: Option<HostPortPair>,
+    }
+
+    #[test]
+    fn client_authority_brackets_ipv6_for_proxy_variants() {
+        value_scenarios!(run = |ClientAuthorityCase { metadata_host, metadata_port, proxy }| {
+            client_authority(metadata_host, metadata_port, proxy.as_ref())
+                .map(|(authority, forwarded)| (authority.to_string(), forwarded))
+                .unwrap()
+        };
+            "direct BMC" {
+                ClientAuthorityCase {
+                    metadata_host: "192.0.2.10",
+                    metadata_port: None,
+                    proxy: None,
+                } => ("192.0.2.10".to_string(), false),
+                ClientAuthorityCase {
+                    metadata_host: "2001:db8::10",
+                    metadata_port: None,
+                    proxy: None,
+                } => ("[2001:db8::10]".to_string(), false),
+                ClientAuthorityCase {
+                    metadata_host: "2001:db8::10",
+                    metadata_port: Some(8443),
+                    proxy: None,
+                } => ("[2001:db8::10]:8443".to_string(), false),
+                ClientAuthorityCase {
+                    metadata_host: "bmc.example.com",
+                    metadata_port: Some(8443),
+                    proxy: None,
+                } => ("bmc.example.com:8443".to_string(), false),
+            }
+
+            "proxy host and port" {
+                ClientAuthorityCase {
+                    metadata_host: "2001:db8::10",
+                    metadata_port: None,
+                    proxy: Some(HostPortPair::HostAndPort(
+                        "2001:db8::20".to_string(),
+                        9443,
+                    )),
+                } => ("[2001:db8::20]:9443".to_string(), true),
+                ClientAuthorityCase {
+                    metadata_host: "192.0.2.10",
+                    metadata_port: None,
+                    proxy: Some(HostPortPair::HostAndPort(
+                        "proxy.example.com".to_string(),
+                        9443,
+                    )),
+                } => ("proxy.example.com:9443".to_string(), true),
+            }
+
+            "proxy host only" {
+                ClientAuthorityCase {
+                    metadata_host: "2001:db8::10",
+                    metadata_port: Some(8443),
+                    proxy: Some(HostPortPair::HostOnly("[2001:db8::20]".to_string())),
+                } => ("[2001:db8::20]:8443".to_string(), true),
+            }
+
+            "proxy port only" {
+                ClientAuthorityCase {
+                    metadata_host: "2001:db8::10",
+                    metadata_port: None,
+                    proxy: Some(HostPortPair::PortOnly(9443)),
+                } => ("[2001:db8::10]:9443".to_string(), false),
+            }
+        );
+    }
+
+    #[test]
+    fn action_uri_brackets_ipv6_authorities() {
+        value_scenarios!(run = |machine_ip| {
+            redfish_action_uri(machine_ip, "/redfish/v1/Systems/1/Actions/Reset")
+                .unwrap()
+                .to_string()
+        };
+            "IPv4" {
+                "192.0.2.10" =>
+                    "https://192.0.2.10/redfish/v1/Systems/1/Actions/Reset".to_string(),
+            }
+
+            "IPv6" {
+                "2001:db8::10" =>
+                    "https://[2001:db8::10]/redfish/v1/Systems/1/Actions/Reset".to_string(),
+            }
+        );
     }
 }

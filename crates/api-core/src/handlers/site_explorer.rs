@@ -22,11 +22,11 @@ use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use carbide_site_explorer::enrich_endpoint_exploration_report;
 use config_version::ConfigVersion;
 use model::expected_entity::ExpectedEntity;
-use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::handlers::utils::resolve_bmc_address;
 
 pub(crate) async fn find_explored_endpoint_ids(
     api: &Api,
@@ -518,20 +518,7 @@ pub(crate) async fn is_bmc_in_managed_host(
 ) -> Result<Response<IsBmcInManagedHostResponse>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
-    let address = if req.ip_address.contains(':') {
-        req.ip_address.clone()
-    } else {
-        format!("{}:443", req.ip_address)
-    };
-
-    let mut addrs = lookup_host(address).await?;
-    let Some(bmc_addr) = addrs.next() else {
-        return Err(CarbideError::InvalidArgument(format!(
-            "could not resolve {}. must be hostname[:port] or IPv4[:port]",
-            req.ip_address
-        ))
-        .into());
-    };
+    let bmc_addr = resolve_bmc_address(&req.ip_address).await?;
 
     let in_managed_host =
         carbide_site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &api.database_connection)
