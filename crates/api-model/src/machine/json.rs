@@ -36,7 +36,8 @@ use crate::machine::spx::MachineSpxStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
     Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
-    MachineLastRebootRequested, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    MachineLastRebootRequested, MachineMaintenanceRequest, ManagedHostState, ReprovisionRequest,
+    UpgradeDecision,
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
@@ -73,6 +74,7 @@ pub struct MachineSnapshotPgJson {
     pub failure_details: FailureDetails,
     pub reprovisioning_requested: Option<ReprovisionRequest>,
     pub host_reprovisioning_requested: Option<HostReprovisionRequest>,
+    pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
@@ -189,6 +191,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             failure_details: value.failure_details,
             reprovision_requested: value.reprovisioning_requested,
             host_reprovision_requested: value.host_reprovisioning_requested,
+            machine_maintenance_requested: value.machine_maintenance_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
             dpu_agent_upgrade_requested: value.dpu_agent_upgrade_requested,
             health_reports: value.health_reports.unwrap_or_default(),

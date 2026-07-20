@@ -117,6 +117,7 @@ applicable.
 | `tracing` | `TracingConfig` | *(default)* | `integrations` | OTLP trace export settings (see [TracingConfig](#tracingconfig)). |
 | `secrets` | `Option<SecretsConfig>` | — | `security` | Secrets backend configuration. When present, the credential reader chain and write target are operator-configured (see [SecretsConfig](#secretsconfig)). |
 | `dhcp_lease_expiry_handling` | `bool` | `false` | `networking` | Enables IP cleanup when a DHCP lease expires. |
+| `certificates` | `CertificatesConfig` | *(default)* | `security` | Certificate vending backend, selected independently of the credential store; the default shares the credential Vault (see [CertificatesConfig](#certificatesconfig)). |
 | `allow_insecure_discovery` | `bool` | `false` | `machines` | Allows machines to submit discovery without enforcing the request comes from the expected IP address. Needed for *Integration tests only*, should otherwise not be used. |
 
 ---
@@ -652,6 +653,23 @@ events, so consumers handle them identically.
 |-------|------|---------|-------------|
 | `active` | `String` | **required** | The provider that wraps DEKs for new writes. |
 | `providers` | `HashMap<String, KmsProviderConfig>` | **required** | Named provider configurations. |
+
+### `CertificatesConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `backend` | `CertBackendKind` | `shared_vault` | Which backend issues certificates: `shared_vault` reuses the credential store's Vault client (one client, one token lease), `dedicated_vault` uses a separately-configured Vault. |
+| `dedicated_vault` | `Option<DedicatedVaultSettings>` | — | Connection settings for a dedicated certificate Vault (see [DedicatedVaultSettings](#dedicatedvaultsettings)). Required when `backend = "dedicated_vault"`, ignored otherwise. |
+
+### `DedicatedVaultSettings`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `address` | `String` | **required, non-empty** | Vault address, e.g. `https://vault-certs.example:8200`. |
+| `pki_mount_location` | `String` | **required, non-empty** | PKI secrets-engine mount path on the target Vault. |
+| `pki_role_name` | `String` | **required, non-empty** | PKI role used to sign leaf certificates. |
+| `token` | `Option<String>` | — | Token for root-token auth; required only when the pod has no Kubernetes service-account token. |
+| `vault_cacert` | `Option<String>` | — | CA bundle that signs the target Vault's TLS cert. Defaults to the site root / `VAULT_CACERT`. |
 
 ### `RackValidationConfig`
 

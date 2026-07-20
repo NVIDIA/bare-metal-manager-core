@@ -237,6 +237,11 @@ logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 # Skip any Redfish LogService whose odata id contains one of these substrings.
 # Applies when auto-mode downgrades to periodic collection. See [collectors.logs.periodic].
 exclude_services = ["Journal"]
+# When true, on first encounter of a LogService with no saved state, anchor at
+# the current highest entry ID without emitting historical entries. Matches
+# SSE real-time behaviour. Default: false (collect all existing entries on
+# first run). Also read by auto-mode after downgrade to periodic.
+# skip_initial_history = false
 
 # SSE reconnect backoff; read when mode = "sse" and during auto-mode SSE attempts.
 [collectors.logs.sse]
@@ -254,6 +259,11 @@ logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 # self-referential since polling generates Journal entries). Set to [] to collect
 # from every discovered LogService. Also read by auto-mode after downgrade.
 exclude_services = ["Journal"]
+# When true, on first encounter of a LogService with no saved state, anchor at
+# the current highest entry ID without emitting historical entries. Matches
+# SSE real-time behaviour. Default: false (collect all existing entries on
+# first run).
+# skip_initial_history = false
 
 # ==============================================================================
 # TLS: Shared certificate configuration for switch collectors

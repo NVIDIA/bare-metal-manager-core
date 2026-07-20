@@ -336,6 +336,8 @@ impl TestEnv {
             redfish_client_pool: self.redfish_sim.clone(),
             ipmi_tool: self.ipmi_tool.clone(),
             site_config: self.config.machine_state_handler_site_config().into(),
+            component_manager: self.test_component_manager.clone(),
+            credential_manager: self.test_credential_manager.clone(),
             per_object_metrics_registry: self.per_object_metrics_registry(),
         }
     }
@@ -420,6 +422,7 @@ impl TestEnv {
                 ManagedHostState::HostInit { machine_state: mc }
             }
             ManagedHostState::Ready => state.clone(),
+            ManagedHostState::Maintenance { .. } => state.clone(),
             ManagedHostState::Assigned { .. } => state.clone(),
             ManagedHostState::WaitingForCleanup { .. } => state.clone(),
             ManagedHostState::Created => state.clone(),
@@ -1542,6 +1545,8 @@ pub async fn create_test_env_with_overrides(
                 redfish_client_pool: redfish_sim.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: config.machine_state_handler_site_config().into(),
+                component_manager: test_component_manager.clone(),
+                credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),

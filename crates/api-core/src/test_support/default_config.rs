@@ -291,6 +291,7 @@ pub fn get() -> CarbideConfig {
         ntp_servers: vec![],
         secrets: None,
         dhcp_lease_expiry_handling: false,
+        certificates: Default::default(),
     }
 }
 

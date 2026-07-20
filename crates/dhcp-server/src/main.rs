@@ -31,12 +31,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use cache::CacheEntry;
 use carbide_instrument::emit;
 use carbide_rpc_utils::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
+use forge_tls::client_config::ClientCert;
+use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
 use grpc_server::{ControlRequest, run_grpc_server};
 use lru::LruCache;
 use metrics::{DhcpPacketDropped, DhcpReplySent, DropReason};
@@ -558,9 +561,11 @@ pub struct Config {
     dhcp_config: DhcpConfig,
     host_config: Option<HostConfig>, // Valid only for Dpu mode.
     relay_response_port: u16,
+    forge_client_config: ForgeClientConfig,
 }
 
 async fn init(args: Args) -> Result<Config, DhcpError> {
+    let forge_client_config = forge_client_config(&args)?;
     let f = tokio::fs::read_to_string(args.dhcp_config).await?;
     let dhcp_config: DhcpConfig = serde_yaml::from_str(&f)?;
 
@@ -575,7 +580,32 @@ async fn init(args: Args) -> Result<Config, DhcpError> {
         dhcp_config,
         host_config,
         relay_response_port: args.relay_response_port,
+        forge_client_config,
     })
+}
+
+fn forge_client_config(args: &Args) -> Result<ForgeClientConfig, DhcpError> {
+    let root_ca_path = args
+        .forge_root_ca_path
+        .clone()
+        .unwrap_or_else(|| default_root_ca().to_string());
+    let client_cert = match (&args.client_cert_path, &args.client_key_path) {
+        (Some(cert_path), Some(key_path)) => ClientCert {
+            cert_path: cert_path.clone(),
+            key_path: key_path.clone(),
+        },
+        (None, None) => ClientCert {
+            cert_path: default_client_cert().to_string(),
+            key_path: default_client_key().to_string(),
+        },
+        _ => {
+            return Err(DhcpError::MissingArgument(
+                "client_cert_path and client_key_path must be configured together".to_string(),
+            ));
+        }
+    };
+
+    Ok(ForgeClientConfig::new(root_ca_path, Some(client_cert)))
 }
 
 #[derive(Debug)]
@@ -733,7 +763,10 @@ mod test {
 
     use crate::command_line::{Args, ServerMode};
     use crate::errors::DhcpError;
-    use crate::{DhcpMode, Test, TestArm, cache, handle_reload, init, packet_handler, process};
+    use crate::{
+        DhcpMode, Test, TestArm, cache, forge_client_config, handle_reload, init, packet_handler,
+        process,
+    };
 
     fn make_reload_args(td: &TempDir, interfaces: Vec<String>) -> Args {
         Args {
@@ -742,6 +775,9 @@ mod test {
             relay_response_port: 67,
             dhcp_config: td.path().join("dhcp.yaml").display().to_string(),
             host_config: Some(td.path().join("host.yaml").display().to_string()),
+            forge_root_ca_path: None,
+            client_cert_path: None,
+            client_key_path: None,
             mode: ServerMode::Dpu,
             grpc_listen_addr: None,
             metrics_listen_addr: None,
@@ -914,6 +950,9 @@ mod test {
                     .display()
                     .to_string(),
             ),
+            forge_root_ca_path: None,
+            client_cert_path: None,
+            client_key_path: None,
             mode: crate::command_line::ServerMode::Dpu,
             grpc_listen_addr: None,
             metrics_listen_addr: None,
@@ -923,6 +962,28 @@ mod test {
     #[tokio::test]
     async fn test_init() {
         init(get_test_args()).await.unwrap();
+    }
+
+    #[test]
+    fn forge_client_tls_paths_are_configurable() {
+        let defaults = forge_client_config(&get_test_args()).unwrap();
+        assert_eq!(defaults.root_ca_path, forge_tls::default::ROOT_CA);
+        let default_identity = defaults.client_cert.unwrap();
+        assert_eq!(default_identity.cert_path, forge_tls::default::CLIENT_CERT);
+        assert_eq!(default_identity.key_path, forge_tls::default::CLIENT_KEY);
+
+        let mut explicit = get_test_args();
+        explicit.forge_root_ca_path = Some("/local/ca.crt".to_string());
+        explicit.client_cert_path = Some("/local/client.crt".to_string());
+        explicit.client_key_path = Some("/local/client.key".to_string());
+        let configured = forge_client_config(&explicit).unwrap();
+        assert_eq!(configured.root_ca_path, "/local/ca.crt");
+        let configured_identity = configured.client_cert.unwrap();
+        assert_eq!(configured_identity.cert_path, "/local/client.crt");
+        assert_eq!(configured_identity.key_path, "/local/client.key");
+
+        explicit.client_key_path = None;
+        assert!(forge_client_config(&explicit).is_err());
     }
 
     #[tokio::test]
