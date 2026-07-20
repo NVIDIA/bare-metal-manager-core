@@ -2643,8 +2643,19 @@ message NetworkPrefix {
   reserved 5,6; // deprecated state and events
   // deprecated circuit id.
   reserved 7;
+  // Legacy `uint32` count retained for existing clients. Values above
+  // `2^32 - 1` are capped, and zero also represents "not requested." New
+  // clients should use `free_ip_count_v2`.
   uint32 free_ip_count = 8;
   optional string svi_ip = 9;
+  // Wider free-address count with explicit presence. Absent when accounting was
+  // not requested; clients also see it absent in responses from older servers.
+  // When `free_ip_count_saturated` is true, this is `2^64 - 1` and the exact
+  // count is larger.
+  optional uint64 free_ip_count_v2 = 10;
+  // True when `free_ip_count_v2` was capped because the exact count exceeds
+  // `2^64 - 1`.
+  bool free_ip_count_saturated = 11;
 }
 
 message MachineState {

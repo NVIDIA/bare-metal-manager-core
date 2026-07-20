@@ -152,6 +152,34 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
 
     let seg_request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
         network_segments_ids: ids_list.network_segments_ids.clone(),
+        include_history: false,
+        include_num_free_ips: false,
+    });
+
+    let seg_list = env
+        .api
+        .find_network_segments_by_ids(seg_request)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+
+    assert_eq!(seg_list.network_segments.len(), 2);
+    for segment in seg_list.network_segments {
+        let prefixes = &segment
+            .config
+            .as_ref()
+            .expect("segment config must be present")
+            .prefixes;
+        assert!(!prefixes.is_empty());
+        assert!(prefixes.iter().all(|prefix| {
+            prefix.free_ip_count == 0
+                && prefix.free_ip_count_v2.is_none()
+                && !prefix.free_ip_count_saturated
+        }));
+    }
+
+    let seg_request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
+        network_segments_ids: ids_list.network_segments_ids.clone(),
         include_history: true,
         include_num_free_ips: true,
     });
@@ -175,14 +203,14 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
                 .is_empty()
         );
         assert!(!segment.history.is_empty());
-        assert!(
-            segment
-                .config
-                .as_ref()
-                .and_then(|c| c.prefixes.first())
-                .map_or(0, |p| p.free_ip_count)
-                > 0
-        );
+        let prefix = segment
+            .config
+            .as_ref()
+            .and_then(|config| config.prefixes.first())
+            .expect("segment prefix must be present");
+        assert!(prefix.free_ip_count > 0);
+        assert!(prefix.free_ip_count_v2.is_some_and(|count| count > 0));
+        assert!(!prefix.free_ip_count_saturated);
     }
 }
 

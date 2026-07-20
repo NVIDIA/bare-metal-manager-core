@@ -1176,6 +1176,8 @@ impl ApiClient {
                 reserve_first: 0,
                 free_ip_count: 1,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             }],
             segment_type: NetworkSegmentType::Tenant as i32,
             id: Some(id),
@@ -1251,6 +1253,8 @@ impl ApiClient {
                 // computed by the server, ignored on create
                 free_ip_count: 1,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             }],
             segment_type: NetworkSegmentType::HostInband as i32,
             id: Some(id),

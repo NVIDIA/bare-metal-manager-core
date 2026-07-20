@@ -15677,15 +15677,26 @@ func (x *NetworkSegmentsByIdsRequest) GetIncludeNumFreeIps() bool {
 }
 
 type NetworkPrefix struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            *NetworkPrefixId       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Prefix        string                 `protobuf:"bytes,2,opt,name=prefix,proto3" json:"prefix,omitempty"`
-	Gateway       *string                `protobuf:"bytes,3,opt,name=gateway,proto3,oneof" json:"gateway,omitempty"`
-	ReserveFirst  int32                  `protobuf:"varint,4,opt,name=reserve_first,json=reserveFirst,proto3" json:"reserve_first,omitempty"`
-	FreeIpCount   uint32                 `protobuf:"varint,8,opt,name=free_ip_count,json=freeIpCount,proto3" json:"free_ip_count,omitempty"`
-	SviIp         *string                `protobuf:"bytes,9,opt,name=svi_ip,json=sviIp,proto3,oneof" json:"svi_ip,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Id           *NetworkPrefixId       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Prefix       string                 `protobuf:"bytes,2,opt,name=prefix,proto3" json:"prefix,omitempty"`
+	Gateway      *string                `protobuf:"bytes,3,opt,name=gateway,proto3,oneof" json:"gateway,omitempty"`
+	ReserveFirst int32                  `protobuf:"varint,4,opt,name=reserve_first,json=reserveFirst,proto3" json:"reserve_first,omitempty"`
+	// Legacy `uint32` count retained for existing clients. Values above
+	// `2^32 - 1` are capped, and zero also represents "not requested." New
+	// clients should use `free_ip_count_v2`.
+	FreeIpCount uint32  `protobuf:"varint,8,opt,name=free_ip_count,json=freeIpCount,proto3" json:"free_ip_count,omitempty"`
+	SviIp       *string `protobuf:"bytes,9,opt,name=svi_ip,json=sviIp,proto3,oneof" json:"svi_ip,omitempty"`
+	// Wider free-address count with explicit presence. Absent when accounting was
+	// not requested; clients also see it absent in responses from older servers.
+	// When `free_ip_count_saturated` is true, this is `2^64 - 1` and the exact
+	// count is larger.
+	FreeIpCountV2 *uint64 `protobuf:"varint,10,opt,name=free_ip_count_v2,json=freeIpCountV2,proto3,oneof" json:"free_ip_count_v2,omitempty"`
+	// True when `free_ip_count_v2` was capped because the exact count exceeds
+	// `2^64 - 1`.
+	FreeIpCountSaturated bool `protobuf:"varint,11,opt,name=free_ip_count_saturated,json=freeIpCountSaturated,proto3" json:"free_ip_count_saturated,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *NetworkPrefix) Reset() {
@@ -15758,6 +15769,20 @@ func (x *NetworkPrefix) GetSviIp() string {
 		return *x.SviIp
 	}
 	return ""
+}
+
+func (x *NetworkPrefix) GetFreeIpCountV2() uint64 {
+	if x != nil && x.FreeIpCountV2 != nil {
+		return *x.FreeIpCountV2
+	}
+	return 0
+}
+
+func (x *NetworkPrefix) GetFreeIpCountSaturated() bool {
+	if x != nil {
+		return x.FreeIpCountSaturated
+	}
+	return false
 }
 
 type MachineState struct {
@@ -62134,17 +62159,21 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x1bNetworkSegmentsByIdsRequest\x12J\n" +
 	"\x14network_segments_ids\x18\x01 \x03(\v2\x18.common.NetworkSegmentIdR\x12networkSegmentsIds\x12'\n" +
 	"\x0finclude_history\x18\x02 \x01(\bR\x0eincludeHistory\x12/\n" +
-	"\x14include_num_free_ips\x18\x03 \x01(\bR\x11includeNumFreeIps\"\xfd\x01\n" +
+	"\x14include_num_free_ips\x18\x03 \x01(\bR\x11includeNumFreeIps\"\xf7\x02\n" +
 	"\rNetworkPrefix\x12'\n" +
 	"\x02id\x18\x01 \x01(\v2\x17.common.NetworkPrefixIdR\x02id\x12\x16\n" +
 	"\x06prefix\x18\x02 \x01(\tR\x06prefix\x12\x1d\n" +
 	"\agateway\x18\x03 \x01(\tH\x00R\agateway\x88\x01\x01\x12#\n" +
 	"\rreserve_first\x18\x04 \x01(\x05R\freserveFirst\x12\"\n" +
 	"\rfree_ip_count\x18\b \x01(\rR\vfreeIpCount\x12\x1a\n" +
-	"\x06svi_ip\x18\t \x01(\tH\x01R\x05sviIp\x88\x01\x01B\n" +
+	"\x06svi_ip\x18\t \x01(\tH\x01R\x05sviIp\x88\x01\x01\x12,\n" +
+	"\x10free_ip_count_v2\x18\n" +
+	" \x01(\x04H\x02R\rfreeIpCountV2\x88\x01\x01\x125\n" +
+	"\x17free_ip_count_saturated\x18\v \x01(\bR\x14freeIpCountSaturatedB\n" +
 	"\n" +
 	"\b_gatewayB\t\n" +
-	"\a_svi_ipJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\b\"$\n" +
+	"\a_svi_ipB\x13\n" +
+	"\x11_free_ip_count_v2J\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\b\"$\n" +
 	"\fMachineState\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\"\xaa\x02\n" +
 	"\x14InstancePowerRequest\x12C\n" +
