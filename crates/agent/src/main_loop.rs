@@ -998,7 +998,9 @@ impl MainLoop {
                         Ok((has_changed, astra_config_status)) => {
                             self.current_network_version.update_from(&conf);
                             has_changed_configs = has_changed;
-                            status_out.astra_config_status = Some(astra_config_status);
+                            if conf.astra_config.is_some() {
+                                status_out.astra_config_status = Some(astra_config_status);
+                            }
                             if self.options.agent_platform_type.is_dpu_os()
                                 && let Err(err) = mtu::ensure().await
                             {
