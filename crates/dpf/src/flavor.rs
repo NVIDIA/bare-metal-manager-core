@@ -280,6 +280,22 @@ fn get_config_files(
             r#type: None,
         },
         DpuFlavorConfigFiles {
+            path: "/etc/lldpd.d/lldp-interfaces.conf".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some("configure system interface pattern *\n".to_string()),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
+            path: "/etc/default/lldpd".to_string(),
+            operation: Some(DpuFlavorConfigFilesOperation::Override),
+            permissions: Some("0644".to_string()),
+            raw: Some("DAEMON_ARGS=\"-M 1\"\n".to_string()),
+            content_from: None,
+            r#type: None,
+        },
+        DpuFlavorConfigFiles {
             path: "/etc/mellanox/mlnx-bf.conf".to_string(),
             operation: Some(DpuFlavorConfigFilesOperation::Override),
             permissions: Some("0644".to_string()),
@@ -678,16 +694,16 @@ mod tests {
                     .unwrap()
                     .len()
             };
-            "no proxy yields five base files" {
-                None => 5,
+            "no proxy yields seven base files" {
+                None => 7,
             }
 
-            "proxy with empty no_proxy appends a sixth" {
-                proxy("http://proxy:3128", &[]) => 6,
+            "proxy with empty no_proxy appends an eighth" {
+                proxy("http://proxy:3128", &[]) => 8,
             }
 
             "proxy with no_proxy list still appends exactly one" {
-                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => 6,
+                proxy("http://proxy:3128", &["10.0.0.0/8", "localhost"]) => 8,
             }
         );
     }
@@ -716,7 +732,7 @@ mod tests {
 
     #[test]
     fn base_config_file_paths_are_present() {
-        // The five base files always exist regardless of proxy, with these paths.
+        // The seven base files always exist regardless of proxy, with these paths.
         let files = default_flavor("ns", &None)
             .unwrap()
             .spec
@@ -733,6 +749,14 @@ mod tests {
                 "/var/lib/hbn/etc/cumulus/acl/policy.d/10-dhcp.rules" => true,
             }
 
+            "lldp-interfaces.conf" {
+                "/etc/lldpd.d/lldp-interfaces.conf" => true,
+            }
+
+            "lldpd defaults" {
+                "/etc/default/lldpd" => true,
+            }
+
             "mlnx-bf.conf" {
                 "/etc/mellanox/mlnx-bf.conf" => true,
             }
@@ -743,6 +767,36 @@ mod tests {
 
             "mlnx-sf.conf" {
                 "/etc/mellanox/mlnx-sf.conf" => true,
+            }
+        );
+    }
+
+    #[test]
+    fn lldp_config_file_contents_are_fixed() {
+        let files = default_flavor("ns", &None)
+            .unwrap()
+            .spec
+            .config_files
+            .unwrap();
+        value_scenarios!(
+            run = |(path, expected_raw): (&str, &str)| {
+                files.iter().find(|file| file.path == path).is_some_and(|file| {
+                    matches!(file.operation, Some(DpuFlavorConfigFilesOperation::Override))
+                        && file.permissions.as_deref() == Some("0644")
+                        && file.raw.as_deref() == Some(expected_raw)
+                        && file.content_from.is_none()
+                        && file.r#type.is_none()
+                })
+            };
+            "LLDP interface pattern permits every interface" {
+                (
+                    "/etc/lldpd.d/lldp-interfaces.conf",
+                    "configure system interface pattern *\n",
+                ) => true,
+            }
+
+            "lldpd enables LLDP-MED inventory" {
+                ("/etc/default/lldpd", "DAEMON_ARGS=\"-M 1\"\n") => true,
             }
         );
     }
