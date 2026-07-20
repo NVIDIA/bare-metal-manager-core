@@ -900,7 +900,13 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 			return cutil.NewAPIError(http.StatusBadRequest, "Tenant Account does not have an associated Tenant", nil)
 		}
 
-		globalVal := model.GlobalTargetedInstanceCreationFromRequest(*apiRequest.SiteCapabilities)
+		var globalVal *bool
+		for _, cap := range *apiRequest.SiteCapabilities {
+			if cap.Scope == model.TenantAccountSiteCapabilityScopeGlobal {
+				globalVal = cap.TargetedInstanceCreation
+				break
+			}
+		}
 		if globalVal == nil {
 			return cutil.NewAPIError(http.StatusBadRequest, "siteCapabilities must include exactly one global entry", nil)
 		}
