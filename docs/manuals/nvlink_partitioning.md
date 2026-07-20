@@ -16,7 +16,7 @@ NICo extends the concept of an *NVLink Partition* with the *NVLink Logical Parti
 ## Operations: Who Does What
 
 NVLink splits between operator site setup against NMX-C and tenant partition
-management. Notably, several operator steps (fallback NMX-C endpoint
+management. Notably, two operator steps (fallback NMX-C endpoint
 registration and the GPU-mapping populate step) are **not exposed via the
 REST API** and are therefore driven through `nico-admin-cli` over gRPC. See
 [Network Isolation → Who configures what, and how](network_isolation.md#who-configures-what-and-how)
@@ -25,10 +25,10 @@ for the role and interface model.
 | Task | Role | Interface |
 |---|---|---|
 | Enable NVLink; NMX-C connection and TLS settings | Operator | **TOML** (`[nvlink_config]`) — Day 0 / rare |
-| Fallback NMX-C endpoints (per chassis serial) | Operator | `nico-admin-cli nvlink-nmxc-endpoints …` (gRPC) — not in REST |
+| Fallback NMX-C endpoints (per chassis serial) | Operator | `nico-admin-cli nvlink-nmxc-endpoints ...` (gRPC) — not in REST |
 | Populate the machine → NMX-C GPU mapping | Operator | `nico-admin-cli machine nvlink-info populate` (gRPC) — not in REST |
-| Create / update / delete an NVLink Logical Partition | Tenant | **REST** `…/nico/nvlink-logical-partition` · `nicocli nvlink-logical-partition create` |
-| Assign or change an instance's GPUs' partition | Tenant | **REST** `…/nico/instance` (`nvLinkInterfaces`) · `nicocli instance update` |
+| Create / update / delete an NVLink Logical Partition | Tenant | **REST** `.../nico/nvlink-logical-partition` · `nicocli nvlink-logical-partition create` |
+| Assign or change an instance's GPUs' partition | Tenant | **REST** `.../nico/instance` (`nvLinkInterfaces`) · `nicocli instance update` |
 | Inspect a machine's GPU domain placement (triage) | Operator | `nico-admin-cli machine nvlink-info` (gRPC) |
 
 The operator NMX setup (the first three rows) is detailed under
@@ -170,10 +170,12 @@ NVLink configuration manually before force-deleting.
 
 NMX-C is the supported gRPC control path for NVLink partition management.
 
-> **Compatibility note**: NMX-M is no longer supported. The legacy
-> `nico-admin-cli credential add-nmx-m` and `delete-nmx-m` command names remain
-> available temporarily so existing scripts receive a clear unsupported error;
-> they do not modify credentials.
+<Note title="Compatibility note">
+NMX-M is no longer supported. The legacy
+`nico-admin-cli credential add-nmx-m` and `delete-nmx-m` command names remain
+available temporarily so existing scripts receive a clear unsupported error;
+they do not modify credentials.
+</Note>
 
 Configure the NMX-C client under `[nvlink_config]`:
 
