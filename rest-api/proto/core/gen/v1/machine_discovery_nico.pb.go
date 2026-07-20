@@ -704,6 +704,8 @@ type NvmeDevice struct {
 	Model         string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
 	FirmwareRev   string                 `protobuf:"bytes,2,opt,name=firmware_rev,json=firmwareRev,proto3" json:"firmware_rev,omitempty"`
 	Serial        string                 `protobuf:"bytes,3,opt,name=serial,proto3" json:"serial,omitempty"`
+	SizeMb        *uint32                `protobuf:"varint,4,opt,name=size_mb,json=sizeMb,proto3,oneof" json:"size_mb,omitempty"`
+	PciPath       *string                `protobuf:"bytes,5,opt,name=pci_path,json=pciPath,proto3,oneof" json:"pci_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -755,6 +757,20 @@ func (x *NvmeDevice) GetFirmwareRev() string {
 func (x *NvmeDevice) GetSerial() string {
 	if x != nil {
 		return x.Serial
+	}
+	return ""
+}
+
+func (x *NvmeDevice) GetSizeMb() uint32 {
+	if x != nil && x.SizeMb != nil {
+		return *x.SizeMb
+	}
+	return 0
+}
+
+func (x *NvmeDevice) GetPciPath() string {
+	if x != nil && x.PciPath != nil {
+		return *x.PciPath
 	}
 	return ""
 }
@@ -1544,12 +1560,17 @@ const file_machine_discovery_nico_proto_rawDesc = "" +
 	"\brevision\x18\x02 \x01(\tR\brevision\x12\x16\n" +
 	"\x06serial\x18\x03 \x01(\tR\x06serial\x12\x1f\n" +
 	"\vdevice_type\x18\x04 \x01(\tR\n" +
-	"deviceType\"]\n" +
+	"deviceType\"\xb4\x01\n" +
 	"\n" +
 	"NvmeDevice\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12!\n" +
 	"\ffirmware_rev\x18\x02 \x01(\tR\vfirmwareRev\x12\x16\n" +
-	"\x06serial\x18\x03 \x01(\tR\x06serial\"\xc0\x02\n" +
+	"\x06serial\x18\x03 \x01(\tR\x06serial\x12\x1c\n" +
+	"\asize_mb\x18\x04 \x01(\rH\x00R\x06sizeMb\x88\x01\x01\x12\x1e\n" +
+	"\bpci_path\x18\x05 \x01(\tH\x01R\apciPath\x88\x01\x01B\n" +
+	"\n" +
+	"\b_size_mbB\v\n" +
+	"\t_pci_path\"\xc0\x02\n" +
 	"\aDmiData\x12\x1d\n" +
 	"\n" +
 	"board_name\x18\x01 \x01(\tR\tboardName\x12#\n" +
@@ -1702,6 +1723,7 @@ func file_machine_discovery_nico_proto_init() {
 		return
 	}
 	file_machine_discovery_nico_proto_msgTypes[0].OneofWrappers = []any{}
+	file_machine_discovery_nico_proto_msgTypes[8].OneofWrappers = []any{}
 	file_machine_discovery_nico_proto_msgTypes[10].OneofWrappers = []any{}
 	file_machine_discovery_nico_proto_msgTypes[11].OneofWrappers = []any{}
 	file_machine_discovery_nico_proto_msgTypes[12].OneofWrappers = []any{}
