@@ -1,6 +1,6 @@
 # ConfigStore Design
 
-**Date:** 2026-06-25
+**Date:** June 25, 2026
 
 ## Problem
 
@@ -13,13 +13,14 @@ Configuration in the `nico` codebase is consumed inconsistently across several d
 - Config is read via a mix of direct Figment calls, `std::env::var`, and bespoke patterns — the lookup shape differs per crate.
 - External services (e.g., the Go-based `rest-api`) must independently configure values that api-core already owns, leading to duplication and drift.
 
-The goal is a single, typed read interface that all components use to access configuration, a  single creation path
+The goal is a single, typed read interface that all components use to access configuration, a single creation path
 for additive objects regardless of whether they originate from a config file or an API call, and enforcement
 of which objects can be safely removed.
 
 ## Scope
 
 **In scope:**
+
 - `Configurable` trait — typed read interface for service config
 - `Additive` trait — objects seeded from config and addable via API (route_servers, network_segments, resource_pools)
 - `Removable` trait — additive objects that can be safely removed (no dependents — like route_servers)
@@ -31,6 +32,7 @@ of which objects can be safely removed.
 - Service-layer `object_service::create_or_skip<T: Additive>` and `object_service::remove<T: Removable>` as the type-enforced mutation entry points
 
 **Out of scope (deferred):**
+
 - Write/update paths for service config — changes require a config file edit and restart
 - File watching / hot reload
 - In-memory runtime toggles (`DynamicSettings`) — managed separately via CLI utility
@@ -49,7 +51,7 @@ Behavioral parameters set at deployment time. Never modified via API. Changing t
 
 ### Category 2: Additive Objects
 
-Entities with a logical "this object should exist" definition expressible in a config file and also creatable via API. They accumulate over time; deletion is rare at best (route servers), impossible at worst due to dependents (VPCs, NetworkSegments, ResourcePools).
+Entities with a logical "this object should exist" definition expressible in a config file and also creatable via API. They accumulate over time; deletion is routine for types with no dependents (route servers), impossible for others due to dependents (VPCs, NetworkSegments, ResourcePools).
 
 - Config file and API are **symmetric**: both express "this object should exist" and both go through the same service-layer code path.
 - Source provenance (config vs. API) is retained for display and audit only, not to change behavior.
@@ -59,6 +61,7 @@ Entities with a logical "this object should exist" definition expressible in a c
 All configuration sections must be named TOML tables. Top-level flat keys (currently scattered at the document root in `carbide-apiconfig.toml`) move under a `[general]` section. Both the base config and any site overlay must use `[general]` for these fields.
 
 Before:
+
 ```toml
 listen = "[::]:1081"
 database_url = "postgres://a:b@postgresql"
@@ -69,6 +72,7 @@ identity_pemfile_path = "/path/to/cert"
 ```
 
 After:
+
 ```toml
 [general]
 listen = "[::]:1081"
@@ -81,6 +85,44 @@ identity_pemfile_path = "/path/to/cert"
 
 Site overlay files follow the same structure and are merged by Figment — site keys win, base keys not present in the site overlay are preserved.
 
+## TOML Schema Management
+
+Every `Configurable` type has a corresponding [JSON Schema](https://json-schema.org/) file checked into the repository alongside the TOML config files. Schemas serve three purposes:
+
+- **Operator tooling** — Taplo (the TOML language server) validates config files against the schema in real time, providing IDE diagnostics and autocomplete when editing `deploy/` config files.
+- **Explicit compatibility contract** — a breaking schema change (field removal, rename, or type change) is visible as a diff to a schema file, making it reviewable before any code change lands. This is the answer to the `GetRawSection` schema compatibility concern: clients that share Rust type definitions with api-core will always stay in sync, and any change that breaks deserialization will also be visible in the schema diff.
+- **Operator documentation** — the schema is the authoritative reference for what fields are accepted, their types, and which are required.
+
+### Schema file location
+
+Schema files live at `config/schemas/<KEY>.json`, where `<KEY>` is `Configurable::KEY` with dots replaced by `/`:
+
+```text
+config/schemas/
+├── tls.json
+├── general.json
+├── auth/
+│   └── cli_certs.json
+├── pools.json
+├── networks.json
+├── route_servers.json
+└── ...
+```
+
+### Taplo configuration
+
+`.taplo.toml` at the repo root associates schemas with the operator-facing config files in `deploy/`:
+
+```toml
+[[rule]]
+include = ["deploy/**/config-files/*.toml"]
+schema = { path = "config/schemas/" }
+```
+
+### Schema requirements
+
+A schema file is required for every type that implements `Configurable`. Adding a new `Configurable` type without a corresponding schema file should fail CI. Breaking schema changes (field removal, rename, type narrowing) must be coordinated with any deployed `GrpcConfigStore` clients consuming that section via `GetRawSection`.
+
 ## Trait Hierarchy
 
 ```mermaid
@@ -89,7 +131,7 @@ graph TD
     Additive --> Removable
 ```
 
-### `Configurable`
+### Configurable
 
 Implemented by any type representing a config section. `KEY` is the dotted TOML path (e.g. `"tls"`, `"general"`, `"auth.cli_certs"`). Field-level defaults are handled by serde's `#[serde(default)]` — the store is not involved.
 
@@ -101,7 +143,7 @@ pub trait Configurable: DeserializeOwned {
 
 Types implementing only `Configurable` are **file-only** — the only way to change them is to edit the config file and restart.
 
-### `Additive`
+### Additive
 
 Extends `Configurable`. Implemented by types whose entries can also be created via API. `Item` is the singular type being added (e.g. `IpAddr` within `RouteServersConfig`). `Id` is the identity key used by `create_or_skip` to determine whether an item already exists.
 
@@ -110,6 +152,8 @@ pub trait Additive: Configurable {
     type Item;
 
     /// The identity key type for deduplication in create_or_skip.
+    /// Must correspond to a column named `id` in the resource's database table,
+    /// which carries a unique constraint used by ON CONFLICT (id) DO NOTHING.
     type Id: Eq + Hash;
 
     /// Extracts the identity key from an item.
@@ -138,7 +182,7 @@ The startup behavior differs by removability:
 - **Removable** types: startup replaces the config-file-sourced entries in the database with whatever the current config declares. This is the "desired state = config file" model (route servers today).
 - **Non-removable** types: startup runs `create_or_skip` — new entries are created; existing entries are left untouched. When an incoming item differs from the stored row, `create_or_skip` emits a `tracing::warn!` identifying the key and the mismatch (drift logging). The stored row is not modified.
 
-### `Removable`
+### Removable
 
 Extends `Additive`. Implemented by types whose entries can be safely removed with no side effects — they have no dependents. Removal is as routine as addition.
 
@@ -154,18 +198,18 @@ Example: `RouteServersConfig` implements `Removable` because removing a route se
 ## Resource Classification
 
 | Resource | Traits | Startup behavior | Reasoning |
-|---|---|---|---|
-| `TlsConfig` | `Configurable` | N/A | File-only; restart to change |
+|----------|--------|------------------|-----------|
 | `GeneralConfig` | `Configurable` | N/A | File-only; restart to change |
-| `SiteExplorerConfig` | `Configurable` | N/A | File-only; restart to change |
 | `MachineStateControllerConfig` | `Configurable` | N/A | File-only; restart to change |
-| `ResourcePoolsConfig` | `Additive` | `create_or_skip`; drift logged as `warn` | Removal unsafe; machines depend on pool addresses |
 | `NetworksConfig` | `Additive` | `create_or_skip`; drift logged as `warn` | Removal unsafe; change is dangerous |
-| `VpcDefinitions` | `Additive` | `create_or_skip`; drift logged as `warn` | Removal unsafe; other resources are scoped to a VPC |
 | `NetworkSegmentsConfig` | `Additive` | `create_or_skip`; drift logged as `warn` | Removal unsafe; machines are assigned to segments |
+| `ResourcePoolsConfig` | `Additive` | `create_or_skip`; drift logged as `warn` | Removal unsafe; machines depend on pool addresses |
 | `RouteServersConfig` | `Additive + Removable` | Replace (desired state = config file) | No dependents; add/remove/replace freely |
+| `SiteExplorerConfig` | `Configurable` | N/A | File-only; restart to change |
+| `TlsConfig` | `Configurable` | N/A | File-only; restart to change |
+| `VpcDefinitions` | `Additive` | `create_or_skip`; drift logged as `warn` | Removal unsafe; other resources are scoped to a VPC |
 
-## `ConfigStore`
+## ConfigStore
 
 `ConfigStore` is a concrete, cloneable value type — not a trait. It wraps an `Arc<dyn ConfigBackend>` where `ConfigBackend` is a private, object-safe trait with a single method. The typed `get<T>` and `list<T>` methods live on `ConfigStore` itself and do not appear in any trait, which keeps vtable dispatch simple and allows `ConfigStore` to be passed freely across threads and stored in `Arc` or `tokio::sync` primitives.
 
@@ -214,7 +258,7 @@ Each store type implements `ConfigBackend` and exposes a constructor that produc
 
 `ConfigStore::get` is intended for startup reads and infrequent operational fetches. `#[async_trait]` desugars `get_raw` to a boxed future, adding one heap allocation per call. Services that need config values on every request should call `store.get()` once at startup, cache the result, and read the cached value per-request — not call `store.get()` in the hot path.
 
-## `ConfigError`
+## ConfigError
 
 ```rust
 #[derive(Debug, thiserror::Error)]
@@ -231,9 +275,21 @@ pub enum ConfigError {
     #[error("failed to read config file '{path}': {source}")]
     Io { path: PathBuf, source: std::io::Error },
 
+    /// A file was readable but its TOML could not be parsed.
+    /// Source is dropped — Figment parse errors can reproduce the offending
+    /// value in their Display output, which risks leaking credentials.
+    #[error("failed to parse config file '{path}'")]
+    Parse { path: PathBuf },
+
     /// A gRPC call failed during GrpcConfigStore::get.
     #[error("gRPC config fetch for '{key}' failed: {source}")]
     Rpc { key: &'static str, source: tonic::Status },
+
+    /// The key was rejected by the server-side allowlist.
+    /// Distinct from NotFound so get_or_default does not silently apply
+    /// a default for a key the server has explicitly refused to serve.
+    #[error("config section '{key}' is not permitted for remote access")]
+    Denied { key: &'static str },
 }
 ```
 
@@ -245,7 +301,7 @@ pub enum ConfigError {
 
 `ConfigError::Io` includes `path` in its display, which is acceptable for ordinary config file paths (e.g. `/etc/carbide/config.toml`). If the future `figment_file_provider_adapter` feature is added and secret values are read from files under `/run/secrets/`, `Io` errors from those reads should redact the path to its directory component only (e.g. `/run/secrets/<redacted>`) to avoid exposing which secret is being read.
 
-## `FileConfigStore`
+## FileConfigStore
 
 All file I/O happens during construction; `get()` reads from in-memory state. The internal representation stores the merged configuration as an in-memory value (not a live `Figment` instance — `Figment` is `!Send`, so keeping it around would prevent `FileConfigStore` from being used across thread boundaries). `build()` runs the Figment merge and stores the result; after that the store is an owned value with no file-system dependency.
 
@@ -271,13 +327,19 @@ impl FileConfigStoreBuilder {
     pub fn with_env_prefix(self, prefix: &str) -> Self;
 
     /// Reads all registered files, runs the Figment merge, stores the result
-    /// in-memory, and wraps it in a ConfigStore. All file I/O happens here —
-    /// missing or malformed files surface as ConfigError::Io.
+    /// in-memory, and wraps it in a ConfigStore. All file I/O happens here.
+    /// Unreadable files surface as ConfigError::Io; malformed TOML surfaces
+    /// as ConfigError::Parse (source dropped for credential safety).
+    ///
+    /// On error, callers should log the error with full context and exit
+    /// with a non-zero code. There is no fallback to a previous config —
+    /// the service fails fast so the operator knows immediately which config
+    /// is in effect.
     pub fn build(self) -> Result<ConfigStore, ConfigError>;
 }
 ```
 
-### `ConfigBackend` implementation
+### ConfigBackend implementation
 
 At `build()` time, Figment merges all layers and extracts the entire config as a single `serde_json::Value` map. `get_raw` then serves sub-sections directly from that map with no further I/O or Figment calls. This means there is one Figment-to-JSON deserialization pass at construction and a second `serde_json::from_value` pass in `ConfigStore::get<T>` — acceptable at startup frequency. TOML datetimes are the one type that does not round-trip cleanly through `serde_json::Value`; config fields should use strings for date/time values.
 
@@ -332,16 +394,17 @@ let explorer: SiteExplorerConfig = store.get_or_default().await?;
 let pools: Vec<PoolConfig> = store.list::<ResourcePoolsConfig>().await?;
 ```
 
-## gRPC `ConfigService`
+## gRPC ConfigService
 
-api-core exposes a `ConfigService`. External clients use it to fetch config values that cannot be read from a local file.
+api-core exposes a `ConfigService`. External clients use it to fetch operational config values that api-core owns and that external services should not duplicate in their own local config files.
 
 ### When external services fetch config
 
 External services (e.g. the Go `rest-api`) have two tiers:
 
-1. **Startup config** — values required before the service can connect to anything (database, Temporal, TLS, listen port). Read from the service's own local config file at process start.
-2. **Operational config** — values that can be fetched after the service is running (JWT issuers, auth parameters, rate limiter settings, site-level parameters). Fetched from api-core's `ConfigService` over gRPC.
+**Startup config** — values required before the service can connect to anything (database, Temporal, TLS, listen port). Read from the service's own local config file at process start.
+
+**Operational config** — values that can be fetched after the service is running (JWT issuers, auth parameters, rate limiter settings, site-level parameters). Fetched from api-core's `ConfigService` over gRPC.
 
 ### Proto design
 
@@ -368,7 +431,7 @@ message GetRawSectionResponse { string json = 1; }
 rpc GetRawSection(GetRawSectionRequest) returns (GetRawSectionResponse);
 ```
 
-**GetRawSection authorization.** Because `GetRawSection` accepts an arbitrary key string, it requires a server-side allowlist to prevent callers from requesting sections that were never intended to be remotely accessible (e.g. `database_url`, `tls`, internal ASN values). api-core defines a `const REMOTE_SECTION_ALLOWLIST: &[&str]` array alongside the `ConfigService` implementation, listing the `Configurable::KEY` values of types explicitly intended for remote access. The server hashes this into a `HashSet` at startup and returns `NOT_FOUND` for any key not in the list. Adding a new remotely-accessible type requires adding its `KEY` to `REMOTE_SECTION_ALLOWLIST` — a one-line, reviewable change. The typed RPCs are unaffected — they expose only the types they were written for by construction.
+**GetRawSection authorization.** `GetRawSection` uses the same mTLS + SPIFFE caller authentication as all other api-core gRPC endpoints — callers must present a valid client certificate with a recognised SPIFFE identity. Because `GetRawSection` additionally accepts an arbitrary key string, it requires a server-side allowlist to prevent authenticated callers from requesting sections that were never intended to be remotely accessible (e.g. `database_url`, `tls`, internal ASN values). api-core defines a `const REMOTE_SECTION_ALLOWLIST: &[&str]` array alongside the `ConfigService` implementation, listing the `Configurable::KEY` values of types explicitly intended for remote access. The server hashes this into a `HashSet` at startup and returns `PERMISSION_DENIED` for any key not in the list; the client maps this to `ConfigError::Denied`. Using `PERMISSION_DENIED` rather than `NOT_FOUND` ensures `get_or_default` does not silently apply a default for a key the server has explicitly refused to serve. Adding a new remotely-accessible type requires adding its `KEY` to `REMOTE_SECTION_ALLOWLIST` — a one-line, reviewable change. The typed RPCs are unaffected — they expose only the types they were written for by construction.
 
 ```rust
 // In api-core alongside the ConfigService implementation.
@@ -380,11 +443,11 @@ const REMOTE_SECTION_ALLOWLIST: &[&str] = &[
 ];
 ```
 
-**Schema compatibility.** `GetRawSection` returns JSON with no schema version tag. If api-core renames or restructures a config section, any deployed `GrpcConfigStore` client targeting that section will receive a successful RPC response that fails deserialization as `ConfigError::Deserialize`. There is no backward-compatibility guarantee on the JSON shape emitted by `GetRawSection`. `GrpcConfigStore` clients must be updated and redeployed alongside api-core when the config schema changes. This is acceptable when api-core and its Rust service consumers share the same deployment lifecycle.
+**Schema compatibility.** The JSON shape emitted by `GetRawSection` is governed by the JSON Schema files in `config/schemas/` (see *TOML Schema Management*). Breaking changes to an exposed section — field removal, rename, or type change — require a corresponding schema file change, which is reviewable before the code lands. `GrpcConfigStore` clients share Rust type definitions with api-core, so a breaking schema change requires a code update on both sides; the schema diff makes this coordination visible. Additive changes (new optional fields) are safe without client updates.
 
 api-core serves both surfaces from its in-memory config store. Request messages for typed RPCs are empty (or carry a version field for future cache validation).
 
-## `GrpcConfigStore`
+## GrpcConfigStore
 
 A `ConfigStore` backed by api-core's `ConfigService` gRPC endpoint. Intended for future Rust services deployed separately from api-core that need operational config at runtime without a local config file.
 
@@ -392,11 +455,13 @@ A `ConfigStore` backed by api-core's `ConfigService` gRPC endpoint. Intended for
 
 ```rust
 impl GrpcConfigStore {
-    pub async fn connect(endpoint: Uri) -> Result<ConfigStore, ConfigError>;
+    pub fn new(channel: tonic::transport::Channel) -> ConfigStore;
 }
 ```
 
-### `ConfigBackend` implementation
+`GrpcConfigStore` does not impose a timeout or retry policy. Callers build a `tonic::transport::Channel` with whatever deadline and retry interceptors their availability requirements demand, then pass it to `new`. This keeps the store transport-agnostic.
+
+### ConfigBackend implementation
 
 `get_raw` calls the generic `GetRawSection` RPC with the section key and deserializes the JSON response. All types route through the same RPC — adding a new remotely-fetchable `Configurable` type requires no changes to `GrpcConfigStoreInner`.
 
@@ -407,7 +472,13 @@ impl ConfigBackend for GrpcConfigStoreInner {
         let resp = self.client
             .get_raw_section(GetRawSectionRequest { key: key.to_owned() })
             .await
-            .map_err(|s| ConfigError::Rpc { key, source: s })?;
+            .map_err(|s| {
+                if s.code() == tonic::Code::PermissionDenied {
+                    ConfigError::Denied { key }
+                } else {
+                    ConfigError::Rpc { key, source: s }
+                }
+            })?;
         serde_json::from_str(&resp.into_inner().json)
             .map_err(|_| ConfigError::Deserialize { key })
     }
@@ -453,21 +524,21 @@ pub async fn remove<T: Removable>(
 ) -> Result<(), ServiceError>;
 ```
 
-`create_or_skip` semantics: the implementation uses `INSERT ... ON CONFLICT (id) DO NOTHING` rather than a select-then-insert pattern. This makes it safe under Postgres's default `READ COMMITTED` isolation level without requiring a serializable transaction — two concurrent callers for the same identity key both attempt the insert; one succeeds, the other is silently discarded by the database. The affected-rows count distinguishes insert (1) from skip (0) for logging and metrics. When affected-rows is 0 (skip), the implementation fetches the existing row to compare against the incoming item and emits a `tracing::warn!` if they differ; the stored row is not modified. The extra query is a startup-only cost and is not incurred on the insert path. This replaces the per-resource snapshot+warn behavior of functions like `reconcile_pool_defs`. The identity key for each additive type is defined by its `Additive::Id` impl (e.g., pool name for `ResourcePoolsConfig`, IP address for `RouteServersConfig`). This guarantee makes the seeding pass idempotent — running it twice against the same database produces the same state as running it once.
+`create_or_skip` semantics: the implementation uses `INSERT ... ON CONFLICT (id) DO NOTHING` rather than a select-then-insert pattern. Every additive object table must have a column named `id` carrying a unique constraint — this is the convention that makes the generic implementation possible without per-resource SQL customization. This makes it safe under Postgres's default `READ COMMITTED` isolation level without requiring a serializable transaction — two concurrent callers for the same identity key both attempt the insert; one succeeds, the other is silently discarded by the database. The affected-rows count distinguishes insert (1) from skip (0) for logging and metrics. When affected-rows is 0 (skip), the implementation fetches the existing row to compare against the incoming item and emits a `tracing::warn!` if they differ; the stored row is not modified. The extra query is a startup-only cost and is not incurred on the insert path. This replaces the per-resource snapshot+warn behavior of functions like `reconcile_pool_defs`. The identity key for each additive type is defined by its `Additive::Id` impl (e.g., pool name for `ResourcePoolsConfig`, IP address for `RouteServersConfig`). This guarantee makes the seeding pass idempotent — running it twice against the same database produces the same state as running it once.
 
 ### Replace transaction semantics (Removable types)
 
-`Removable` types use a **config-file-wins** model: the config file is the complete desired state, and the database is brought into sync on every startup. The replace operation runs in a single serializable transaction: delete all existing rows for the type (both `config_file` and `api` sourced), then insert the current config-file set. An empty config-file section results in an empty table — this is intentional.
+`Removable` types use a **config-file-wins** model: the config file is the complete desired state, and the database is brought into sync on every startup. The replace operation runs in a single transaction: delete all existing rows for the type (both `config_file` and `api` sourced), then insert the current config-file set. An empty config-file section results in an empty table — this is intentional.
 
 The practical consequence is that API-added entries (e.g. a route server added via `nico-admin-cli`) are ephemeral: they survive until the next api-core restart, after which only the entries declared in the config file remain. Operators who want an API-added entry to persist across restarts must add it to the config file. This keeps the config file as the single authoritative source for `Removable` types and avoids a class of "where did this entry come from?" operational confusion.
 
-The transaction serializes against concurrent `object_service::remove` and `object_service::create_or_skip` calls on the same type.
+Concurrent `object_service::remove` and `object_service::create_or_skip` calls on the same `Removable` type are serialized via a Postgres advisory lock. Both `replace` and any concurrent mutation acquire `pg_advisory_xact_lock(hash_of_type_key)` at the start of their transaction, where `hash_of_type_key` is a stable `i64` derived from `T::KEY`. The lock is transaction-scoped and released automatically on commit or rollback. This avoids the serialization-failure/retry cycle of `SERIALIZABLE` isolation while giving the same mutual-exclusion guarantee.
 
 ## Crate Structure
 
 The crate targets the Rust 1.90.0 stable toolchain (pinned in `rust-toolchain.toml`) on Linux x86-64 and Linux aarch64; no nightly features are used.
 
-```
+```text
 crates/config-store/
 ├── Cargo.toml
 └── src/
@@ -481,7 +552,6 @@ crates/config-store/
 ```
 
 Dependencies: `figment` (workspace, features = ["toml", "env"]), `serde_json` (workspace), `async-trait` (workspace), `thiserror` (workspace), `tonic` (workspace), `prost` (workspace).
-
 
 ## Consumer Example
 
@@ -554,7 +624,7 @@ fn store_from(toml: &str) -> ConfigStore {
         .expect("test TOML must be valid")
 }
 
-#[test]
+#[tokio::test]
 async fn get_error_cases() {
     use carbide_test_support::{scenarios, Outcome::*};
 
@@ -570,7 +640,7 @@ async fn get_error_cases() {
     );
 }
 
-#[test]
+#[tokio::test]
 async fn overlay_wins_over_base() {
     let base    = "[tls]\nidentity_pemfile_path = \"/base/cert.pem\"\nidentity_keyfile_path = \"/base/key.pem\"\nroot_cafile_path = \"/base/ca.pem\"";
     let overlay = "[tls]\nidentity_pemfile_path = \"/site/cert.pem\"";
@@ -585,7 +655,7 @@ async fn overlay_wins_over_base() {
 
 **Integration tests per consumer crate** round-trip `Configurable` types against the real TOML fixture (`full_config.toml` + site overlay). These catch deserialization regressions when fields are added or renamed.
 
-**`GrpcConfigStore` tests** use a mock `ConfigService` server started in-process. The mock enforces the allowlist. A test asserts that `store.get::<TlsConfig>()` (key `"tls"`, not in the allowlist) returns `ConfigError::Rpc` with a `NOT_FOUND` status rather than a deserialization error — confirming that access control is enforced before the section is fetched, not after.
+**`GrpcConfigStore` tests** use a mock `ConfigService` server started in-process. The mock enforces the allowlist. A test asserts that `store.get::<TlsConfig>()` (key `"tls"`, not in the allowlist) returns `ConfigError::Denied` — confirming that access control is enforced before the section is fetched, not after, and that `get_or_default` would not silently apply a default for a denied key.
 
 **Additive object seeding tests** verify idempotency: running startup seeding twice produces the same DB state as running it once.
 
@@ -594,14 +664,15 @@ async fn overlay_wins_over_base() {
 Implement in this order to keep each phase independently testable:
 
 1. **`FileConfigStore` + `get` / `list` + `get_nested` + unit tests** — the file store is entirely self-contained and is the only dependency of the seeding path. All unit tests described in the Testing Strategy section can be validated at this stage.
-2. **`object_service::create_or_skip` + startup seeding refactor** — depends only on `FileConfigStore` and the existing DB layer. The full config-file → `store.list` → `create_or_skip` → DB flow can be exercised against a real store without any gRPC scaffolding.
-3. **`object_service::remove` + `Removable` replace transaction** — builds on the same DB layer; no gRPC dependency.
-4. **gRPC `ConfigService` + `GrpcConfigStore`** — add once a consuming service actually needs remote config. At that point `FileConfigStore` is stable, the contract is exercised, and the gRPC layer has a clear, tested interface to proxy.
+1. **`object_service::create_or_skip` + startup seeding refactor** — depends only on `FileConfigStore` and the existing DB layer. The full config-file → `store.list` → `create_or_skip` → DB flow can be exercised against a real store without any gRPC scaffolding.
+1. **`object_service::remove` + `Removable` replace transaction** — builds on the same DB layer; no gRPC dependency.
+1. **gRPC `ConfigService` + `GrpcConfigStore`** — add once a consuming service actually needs remote config. At that point `FileConfigStore` is stable, the contract is exercised, and the gRPC layer has a clear, tested interface to proxy.
 
 ## Future Work
 
-- **`ConditionallyRemovable`** — for objects currently classified as `Additive` (e.g. `NetworkSegment`) that could become removable once their dependents are verified to be cleared. Would add a `verify_removable(&store) -> Result<(), RemovalBlockedError>` check that `object_service::remove()` calls before proceeding. `Removable` stays as "always safe, no check needed".
+- **`ConditionallyRemovable`** — for objects currently classified as `Additive` (e.g. `NetworkSegment`) that could become removable once their dependents are verified to be cleared. This would add a `verify_removable(&store) -> Result<(), RemovalBlockedError>` check that `object_service::remove()` calls before proceeding. `Removable` stays as "always safe, no check needed".
 - **Drift operator tooling** — `create_or_skip` logs a warning when an incoming item differs from the existing row, but there is no structured operator workflow for acting on that signal. A `config_drift` table plus `nico-admin-cli config drift list/apply/reject` commands would let operators confirm or reject detected changes to non-removable objects without direct SQL access. Deferred until the need is established operationally. (This is the same concept that was present in earlier drafts as a `Reconcilable` trait; it has been simplified to a logging signal for now and deferred for structured tooling.)
+- **Config validation CLI** — a `nicocli validate-config` command that runs the same `FileConfigStore::build()` logic and reports structured errors before the operator restarts the service. Can also run as a Kubernetes init container so the previous pod keeps serving traffic if the new config is invalid. See also `#2654`.
 - **File watching** — detect changes to mounted ConfigMap files and reload without a restart.
 - **`DatabaseConfigStore`** — async-constructed store backed by a Postgres table; `get()` reads from an in-memory cache populated during construction.
 - **Secret and sensitive value support** — Kubernetes secrets are typically mounted as files inside pods rather than inlined in TOML. The [`figment_file_provider_adapter`](https://crates.io/crates/figment_file_provider_adapter) crate wraps any Figment provider so that string values ending in a configurable suffix (e.g. `_file`) are replaced with the contents of the referenced file at construction time. Adding this as an optional layer in `FileConfigStoreBuilder` would let operators write `database_url_file = "/run/secrets/db-url"` in their TOML and have the store transparently load the secret, without exposing credentials in ConfigMaps.
