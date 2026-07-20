@@ -26,15 +26,21 @@ Count active pods and build ordered list for consistent pod indexing
 {{- $defaults := .Values.machineDefaults | default dict }}
 {{/* MAC address pool config */}}
 {{- $macPool := .Values.macAddressPool | default dict }}
-{{- $macPoolEnabled := $macPool.enabled | default true }}
+{{- $macPoolEnabled := true }}
+{{- if hasKey $macPool "enabled" }}
+{{- $macPoolEnabled = $macPool.enabled }}
+{{- end }}
 {{- $macBasePrefix := $macPool.basePrefix | default "02:00" }}
 {{- $macHostBits := $macPool.hostBits | default 16 }}
 
 {{/* HW MAC address ranges config */}}
 {{- $hwMacRanges := .Values.hwMacAddressRanges | default dict }}
-{{- $hwMacRangesEnabled := $hwMacRanges.enabled | default true }}
-{{- $hwMacBasePrefix := $hwMacRanges.basePrefix | default "06" }}
-{{- $hwMacHostBits := $hwMacRanges.hostBits | default 32 }}
+{{- $hwMacRangesEnabled := true }}
+{{- if hasKey $hwMacRanges "enabled" }}
+{{- $hwMacRangesEnabled = $hwMacRanges.enabled }}
+{{- end }}
+{{- $hwMacBasePrefix := $hwMacRanges.basePrefix | default "02:01" }}
+{{- $hwMacHostBits := $hwMacRanges.hostBits | default 24 }}
 {{- $hwMacRangeHostBits := $hwMacRanges.rangeHostBits | default 8 }}
 
 {{- range $podName, $podConfig := .Values.pods }}
@@ -57,6 +63,11 @@ Skip conditions (same as deployment.yaml)
 {{- if eq $p $podName }}
 {{- $podIndex = $i }}
 {{- end }}
+{{- end }}
+
+{{/* Validate pod index fits in single byte for MAC address */}}
+{{- if ge $podIndex 256 }}
+{{- fail (printf "Too many pods: pod index %d exceeds maximum 255 for MAC address generation" $podIndex) }}
 {{- end }}
 
 {{- $name := $baseName }}

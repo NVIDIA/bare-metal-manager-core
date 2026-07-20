@@ -40,11 +40,11 @@ helm upgrade --install nico ./helm \
 
 **NICo Site Config:**
 
+```toml
 [site_explorer]
 override_target_host = "nico-machine-a-tron-bmc-mock"
 override_target_port = 1266
-
-```text
+```
 
 ---
 
@@ -223,6 +223,7 @@ create_machines = true
 
 **Network config per pod:**
 
+```toml
 [networks.pod-0-oob]
 type = "underlay"
 prefix = "10.100.0.0/22"
@@ -232,8 +233,7 @@ gateway = "10.100.0.1"
 type = "underlay"
 prefix = "10.100.4.0/22"
 gateway = "10.100.4.1"
-
-```text
+```
 
 ---
 
@@ -364,15 +364,17 @@ Causes:
 
 Verify selector labels match:
 
-## Check service selector
+**Check service selector:**
 
+```bash
 kubectl -n nico-mat get svc nico-machine-a-tron-bmc-10-100-0-2 -o jsonpath='{.spec.selector}'
+```
 
-## Check pod labels
+**Check pod labels:**
 
+```bash
 kubectl -n nico-mat get pods -l nvidia-infra-controller/pod-name=pod-0 --show-labels
-
-```text
+```
 
 ### View Generated Config
 
