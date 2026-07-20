@@ -610,6 +610,7 @@ fn spawn_switch_host_collectors(
             NvueRestCollectorConfig {
                 rest_config: rest_cfg.clone(),
                 data_sink: data_sink.clone(),
+                log_event_sink_enabled: ctx.log_event_sink_enabled,
                 credential_provider,
                 tls_http_client_provider: ctx.tls_http_client_provider.clone(),
             },
