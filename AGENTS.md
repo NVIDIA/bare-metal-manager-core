@@ -223,8 +223,10 @@ check before requesting review.
     - global versus subcommand position and required order
     - omission or fallback behavior
     - observable output, side effects, errors, and unsupported paths
-  - Exercise each changed example at the PR revision on an authorized local or
-    test target and compare it with real `--help` output.
+  - Exercise each changed CLI example at the PR revision on an authorized local
+    or test target and compare it with real `--help` output. Verify changed API,
+    configuration, environment-variable, and state contracts through schemas,
+    handlers, or exercised output appropriate to that interface.
   - If any answer is unknown, stop and ask the owner; another documentation page
     is not evidence.
 
@@ -271,8 +273,8 @@ check before requesting review.
     `rg -n --fixed-strings '<literal>' README.md crates/ rest-api/ docs/ book/ helm/ helm-prereqs/ deploy/`;
     reconcile every conflicting hit or establish one canonical explanation and
     link the others to it.
-  - New or moved public pages must be present in `docs/index.yml`, and changed
-    public paths need redirects in `fern/docs.yml`.
+  - New or moved public pages must be present in `docs/index.yml`, and moved or
+    removed public paths need redirects in `fern/docs.yml`.
   - Using the CLI version pinned in `fern/fern.config.json`, run
     `fern docs md check` and `fern check` from the repository root. Neither
     command needs a Fern token, but without one, `fern check` skips the
@@ -293,14 +295,16 @@ check before requesting review.
 
 - **Rendered output:** Review each artifact in the renderer its readers actually use.
 
-  - Run `rumdl check --config docs/.rumdl.toml <changed-markdown-files>` and fail
-    on every finding.
+  - Run `rumdl check --config docs/.rumdl.toml AGENTS.md` for this file, and pass
+    every other changed Markdown path as an additional argument. Fail on every
+    finding.
   - For Fern-published pages, inspect the CI-created PR preview. A local
     `fern docs dev` preview works without a Fern token, but does not apply the
     global `nvidia` theme without one.
   - If a hosted preview must be created manually, run
-    `fern generate --docs --preview --id <stable-id>`, then delete it after
-    review with `fern docs preview delete --id <stable-id>`.
+    `preview_id='nico-docs-review'; fern generate --docs --preview --id "$preview_id"`,
+    then delete it after review with
+    `fern docs preview delete --id "$preview_id"`.
   - Inspect generated `nico-admin-cli` pages in GitHub's renderer and OpenAPI
     output with `make rest-api/preview-openapi`. Check navigation, anchors, wide
     tables, Mermaid layout, and component rendering in the actual target; lint
