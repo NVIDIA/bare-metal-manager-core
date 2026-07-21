@@ -94,6 +94,7 @@ fn get_bf4_ovs_defaults() -> String {
         "elif systemctl list-unit-files openvswitch.service &>/dev/null; then\n",
         "    systemctl restart openvswitch\n",
         "fi\n",
+
         "_ovs-vsctl --may-exist add-br br-sfc\n",
         "_ovs-vsctl set bridge br-sfc datapath_type=netdev\n",
         "_ovs-vsctl set bridge br-sfc fail_mode=secure\n",
@@ -101,6 +102,11 @@ fn get_bf4_ovs_defaults() -> String {
         "_ovs-vsctl set Interface p0 type=dpdk\n",
         "_ovs-vsctl set Interface p0 mtu_request=9216\n",
         "_ovs-vsctl set Port p0 external_ids:dpf-type=physical\n",
+
+        "_ovs-vsctl --may-exist add-br br-hbn\n",
+        "_ovs-vsctl set bridge br-hbn datapath_type=netdev\n",
+        "_ovs-vsctl set bridge br-hbn fail_mode=secure\n",
+        "mst start\n",
     )
     .to_string()
 }
@@ -365,15 +371,12 @@ fn get_config_files(
 
     Ok(config_files)
 }
-
 fn get_bf4_default_nvconfig() -> DpuFlavorNvconfig {
-    // TODO: HIDE_PORT2_PF is not supported, so reoving it for now.
-    // We need to find the equivalent field in Bf4 and configure it again.
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
         "PF_TOTAL_SF=30".to_string(),
-        "PF_SF_BAR_SIZE=10".to_string(),
+        "PF_SF_BAR_SIZE=14".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),
         "PF_NUM_PF_MSIX=228".to_string(),
@@ -382,7 +385,6 @@ fn get_bf4_default_nvconfig() -> DpuFlavorNvconfig {
         "SRIOV_EN=1".to_string(),
         "LAG_RESOURCE_ALLOCATION=1".to_string(),
         "NUM_OF_VFS=16".to_string(),
-        "NUM_OF_PF=1".to_string(),
         "LINK_TYPE_P1=ETH".to_string(),
         "LINK_TYPE_P2=ETH".to_string(),
     ];
