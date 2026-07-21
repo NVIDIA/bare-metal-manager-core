@@ -321,7 +321,7 @@ async fn reconcile_stale_attempt(
             attempt_id = %stale_attempt.attempt_id,
             "skipping stale machine validation attempt because run no longer exists"
         );
-        return Ok(None);
+        return Ok(false);
     }
 
     let Some(validation_id) = db::machine_validation_execution::mark_attempt_stale_if_active(
