@@ -153,6 +153,9 @@ env:
   RUST_BACKTRACE: "full"
   RUST_LIB_BACKTRACE: "0"
 
+## Optional Figment dictionary for CARBIDE_API_DSX_EXCHANGE_EVENT_BUS.
+dsxExchangeEventBusConfig: ""
+
 extraEnv: []
 
 ## Authentication for the /admin WebUI. CARBIDE_WEB_AUTH_TYPE in extraEnv

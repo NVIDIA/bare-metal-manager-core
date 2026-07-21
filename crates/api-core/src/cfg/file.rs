@@ -4586,6 +4586,10 @@ mod tests {
             jail.set_env("CARBIDE_API_ASN", 777);
             jail.set_env("CARBIDE_API_AUTH", "{permissive_mode=true}");
             jail.set_env(
+                "CARBIDE_API_DSX_EXCHANGE_EVENT_BUS",
+                r#"{enabled=true,mqtt_endpoint="dsx-exchange",mqtt_broker_port=1883,auth={auth_mode="none"},periodic_state_republish={interval="10s"}}"#,
+            );
+            jail.set_env(
                 "CARBIDE_API_TLS",
                 "{identity_pemfile_path=/patched/path/to/cert}",
             );
@@ -4615,6 +4619,15 @@ mod tests {
             );
             assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
             assert!(config.auth.as_ref().unwrap().permissive_mode);
+            let dsx_exchange = config.dsx_exchange_event_bus.as_ref().unwrap();
+            assert!(dsx_exchange.enabled);
+            assert_eq!(dsx_exchange.mqtt_endpoint, "dsx-exchange");
+            assert_eq!(dsx_exchange.mqtt_broker_port, 1883);
+            assert_eq!(dsx_exchange.auth.auth_mode, MqttAuthMode::None);
+            assert_eq!(
+                dsx_exchange.periodic_state_republish.interval,
+                std::time::Duration::from_secs(10)
+            );
             assert_eq!(
                 config
                     .auth
