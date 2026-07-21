@@ -10,7 +10,7 @@ This document contains release notes for the NVIDIA Infra Controller (NICo) proj
 
 NICo now ships a built-in NTP service. The `nico-ntp` subchart deploys a 3-replica [chrony](https://chrony-project.org/) StatefulSet, each replica exposed on its own MetalLB LoadBalancer VIP so DPUs have a stable, site-local clock source. The Kea DHCP hook advertises these VIPs to DPUs as DHCP option 42 NTP servers.
 
-**To enable**, configure three VIPs in `helm-prereqs/values/nico-core.yaml`:
+To enable, configure three VIPs in `helm-prereqs/values/nico-core.yaml`:
 
 ```yaml
 nico-ntp:
@@ -32,7 +32,7 @@ The Vault policy for the `nico-vault-policy` role now includes full access to th
 
 - `secret/data/switch_nvos/*` — create, read, patch, list, update, delete
 - `secret/metadata/switch_nvos/*` — list, read, delete
-- `secret/destroy/switch_nvos/*` — delete
+- `secret/destroy/switch_nvos/*` — update (KV v2 destroys secret versions via update)
 
 No operator action is required; the policy is applied automatically by `setup.sh` on install or upgrade.
 
