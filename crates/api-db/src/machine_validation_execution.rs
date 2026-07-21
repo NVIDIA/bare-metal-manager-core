@@ -224,14 +224,6 @@ pub async fn record_result(
     Ok(first_terminal)
 }
 
-pub async fn record_result_with_parent_lock(
-    txn: &mut PgConnection,
-    result: &MachineValidationResult,
-) -> DatabaseResult<bool> {
-    crate::machine_validation::lock_by_id_no_key_update(txn, &result.validation_id).await?;
-    record_result(txn, result).await
-}
-
 pub async fn record_heartbeat(
     txn: &mut PgConnection,
     validation_id: &MachineValidationId,
@@ -1021,7 +1013,14 @@ mod tests {
         let result_pool = pool.clone();
         let mut result_task = tokio::spawn(async move {
             let mut txn = result_pool.begin().await.map_err(|err| err.to_string())?;
-            record_result_with_parent_lock(txn.as_mut(), &result)
+            crate::machine_validation::lock_by_id_no_key_update(
+                txn.as_mut(),
+                &result.validation_id,
+            )
+            .await
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| "validation disappeared before result write".to_string())?;
+            record_result(txn.as_mut(), &result)
                 .await
                 .map_err(|err| err.to_string())?;
             result_ready_tx

@@ -347,26 +347,16 @@ pub async fn find_by_id(
     )))
 }
 
-pub async fn try_lock_by_id_no_key_update(
+pub async fn lock_by_id_no_key_update(
     txn: &mut PgConnection,
     id: &MachineValidationId,
 ) -> DatabaseResult<Option<MachineValidation>> {
-    // Raw SQL is required because FilterableQueryBuilder does not support row-lock clauses.
     let query = "SELECT * FROM machine_validation WHERE id=$1 FOR NO KEY UPDATE";
     sqlx::query_as::<_, MachineValidation>(query)
         .bind(id)
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
-}
-
-pub async fn lock_by_id_no_key_update(
-    txn: &mut PgConnection,
-    id: &MachineValidationId,
-) -> DatabaseResult<MachineValidation> {
-    try_lock_by_id_no_key_update(txn, id)
-        .await?
-        .ok_or_else(|| DatabaseError::InvalidArgument(format!("Validation Id not found {id:?}")))
 }
 
 pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<MachineValidation>> {
