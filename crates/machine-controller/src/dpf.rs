@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use carbide_dpf::types::{HostDpfSnapshot, ServiceTemplateVersion};
+use carbide_dpf::types::{DpuServiceVersion, HostDpfSnapshot, ServiceTemplateVersion};
 use carbide_dpf::{
     BmcPasswordProvider, DpfError, DpfSdk, DpuDeploymentType, DpuDeviceInfo, DpuNodeInfo, DpuPhase,
     DpuWatcher, KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
@@ -108,6 +108,18 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// CR — used for comparing config vs deployed state.
     async fn list_service_template_versions(&self)
     -> Result<Vec<ServiceTemplateVersion>, DpfError>;
+
+    /// Get service versions for a DPU from its owning DPUDeployment.
+    ///
+    /// Looks up the DPU CR by device name, follows the
+    /// `svc.dpu.nvidia.com/owned-by-dpudeployment` label to find the owning
+    /// DPUDeployment, and resolves each service's version from its
+    /// DPUServiceTemplate. Used to populate `agent_reported_inventory` once
+    /// the DPU reaches `DpuPhase::Ready`.
+    async fn get_service_versions_for_dpu(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<Vec<DpuServiceVersion>, DpfError>;
 
     /// Return DPUs whose installed BFB or `spec.dpuFlavor` does not match
     /// the namespace's ready DPUDeployment, mapped back to carbide
@@ -578,6 +590,13 @@ impl DpfOperations for DpfSdkOps {
         &self,
     ) -> Result<Vec<ServiceTemplateVersion>, DpfError> {
         self.sdk.list_service_template_versions().await
+    }
+
+    async fn get_service_versions_for_dpu(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<Vec<DpuServiceVersion>, DpfError> {
+        self.sdk.get_service_versions_for_dpu(dpu_device_name).await
     }
 
     async fn find_outdated_dpus_dpf(&self) -> Result<Vec<OutdatedDpfDpu>, DpfError> {

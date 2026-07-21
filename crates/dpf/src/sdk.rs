@@ -81,9 +81,10 @@ use crate::types::{
     BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME,
     DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpfProxyDetails,
     DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary,
-    DpuPhase, DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuSummary,
-    FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME,
-    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
+    DpuPhase, DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
+    DpuServiceVersion, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig,
+    OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol, ServiceDefinition,
+    ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -2003,6 +2004,81 @@ impl<R: DpuServiceTemplateRepository, L> DpfSdk<R, L> {
                 }
             })
             .collect())
+    }
+}
+
+impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, L> DpfSdk<R, L> {
+    /// Resolve the installed service versions for a DPU by looking up its owning
+    /// DPUDeployment (via the `svc.dpu.nvidia.com/owned-by-dpudeployment` label on the DPU CR)
+    /// and reading each service's DPUServiceTemplate.
+    ///
+    /// Version is taken from `helmChart.values.image.tag` when set and non-empty;
+    /// otherwise falls back to `helmChart.source.version`.
+    pub async fn get_service_versions_for_dpu(
+        &self,
+        dpu_device_name: &str,
+    ) -> Result<Vec<DpuServiceVersion>, DpfError> {
+        let dpu = DpuRepository::get(&*self.repo, dpu_device_name, &self.namespace)
+            .await?
+            .ok_or_else(|| {
+                DpfError::InvalidState(format!("DPU CR not found: {dpu_device_name}"))
+            })?;
+
+        let owner_label = dpu
+            .metadata
+            .labels
+            .as_ref()
+            .and_then(|l| l.get(DPU_OWNED_BY_DEPLOYMENT_LABEL))
+            .ok_or_else(|| {
+                DpfError::InvalidState(format!(
+                    "DPU {dpu_device_name} is missing {DPU_OWNED_BY_DEPLOYMENT_LABEL} label"
+                ))
+            })?;
+
+        let deployment_name = owner_label
+            .strip_prefix(&format!("{}_", self.namespace))
+            .unwrap_or(owner_label.as_str());
+
+        let deployment =
+            DpuDeploymentRepository::get(&*self.repo, deployment_name, &self.namespace)
+                .await?
+                .ok_or_else(|| {
+                    DpfError::InvalidState(format!(
+                        "DPUDeployment {deployment_name} not found for DPU {dpu_device_name}"
+                    ))
+                })?;
+
+        let mut versions = Vec::new();
+        for (service_name, service) in &deployment.spec.services {
+            let Some(template_name) = &service.service_template else {
+                continue;
+            };
+            let Some(template) =
+                DpuServiceTemplateRepository::get(&*self.repo, template_name, &self.namespace)
+                    .await?
+            else {
+                continue;
+            };
+
+            let version = template
+                .spec
+                .helm_chart
+                .values
+                .as_ref()
+                .and_then(|v| v.get("image"))
+                .and_then(|img| img.get("tag"))
+                .and_then(|tag| tag.as_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&template.spec.helm_chart.source.version)
+                .to_string();
+
+            versions.push(DpuServiceVersion {
+                name: service_name.clone(),
+                version,
+            });
+        }
+
+        Ok(versions)
     }
 }
 

@@ -473,6 +473,16 @@ pub struct DpuSummary {
     pub status_bfb_file: Option<String>,
 }
 
+/// Service version resolved from a DPUDeployment's services and their DPUServiceTemplate CRs.
+/// Used by [`crate::DpfSdk::get_service_versions_for_dpu`] to populate the DPU inventory.
+#[derive(Debug, Clone)]
+pub struct DpuServiceVersion {
+    /// The `deployment_service_name` from the DPUServiceTemplate (e.g. `"doca-hbn"`).
+    pub name: String,
+    /// Docker image tag if set in `helmChart.values.image.tag`, otherwise the helm chart version.
+    pub version: String,
+}
+
 /// Helm-chart version observed on a live `DPUServiceTemplate` CR. Used by
 /// [`crate::DpfSdk::list_service_template_versions`] so callers (e.g. the
 /// admin CLI) can compare configured vs deployed versions.

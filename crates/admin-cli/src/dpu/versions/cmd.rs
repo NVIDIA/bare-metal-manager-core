@@ -101,7 +101,7 @@ impl From<Machine> for DpuVersions {
             hbn_version: machine.inventory.and_then(|inv| {
                 inv.components
                     .into_iter()
-                    .find(|c| c.name == "doca_hbn")
+                    .find(|c| c.name == "doca-hbn" || c.name == "doca_hbn")
                     .map(|c| c.version)
             }),
             agent_version: machine.dpu_agent_version,

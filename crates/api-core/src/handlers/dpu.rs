@@ -34,7 +34,7 @@ use db::{
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
-use model::hardware_info::MachineInventory;
+use model::hardware_info::{MachineInventory, MachineInventorySoftwareComponent};
 use model::instance::config::extension_services::InstanceExtensionServiceConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;
@@ -814,6 +814,64 @@ pub(crate) async fn update_agent_reported_inventory(
 
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+
+    // For DPF-ingested DPUs the agent runs containerized and cannot enumerate
+    // the DPF services directly. Read service versions from the DPF operator
+    // on every inventory report so the DB stays current after upgrades.
+    let mut txn = api.txn_begin().await?;
+    let dpu_machine = db::machine::find_one(
+        &mut txn,
+        &dpu_machine_id,
+        MachineSearchConfig {
+            include_dpus: true,
+            ..Default::default()
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    if let Some(machine) = dpu_machine
+        && machine.config.dpf.used_for_ingestion
+    {
+        let dpf_sdk = api.dpf_sdk.as_ref().ok_or_else(|| {
+            CarbideError::internal(format!(
+                "DPF SDK unavailable but DPU {dpu_machine_id} was ingested via DPF"
+            ))
+        })?;
+
+        let device_name = machine.dpf_id().ok_or_else(|| {
+            CarbideError::InvalidArgument(format!(
+                "DPF-ingested DPU {dpu_machine_id} has no BMC MAC"
+            ))
+        })?;
+
+        let service_versions = dpf_sdk
+            .get_service_versions_for_dpu(&device_name)
+            .await
+            .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+        let inventory = MachineInventory {
+            components: service_versions
+                .into_iter()
+                .map(|v| MachineInventorySoftwareComponent {
+                    name: v.name,
+                    version: v.version,
+                    url: String::new(),
+                })
+                .collect(),
+        };
+
+        let mut txn = api.txn_begin().await?;
+        db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory).await?;
+        txn.commit().await?;
+
+        tracing::debug!(
+            machine_id = %dpu_machine_id,
+            component_count = inventory.components.len(),
+            "updated DPF service inventory from operator",
+        );
+        return Ok(Response::new(()));
+    }
 
     if let Some(inventory) = request.inventory.as_ref() {
         let mut txn = api.txn_begin().await?;

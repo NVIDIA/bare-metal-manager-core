@@ -80,7 +80,7 @@ impl From<forgerpc::Machine> for Row {
                     inventory
                         .components
                         .iter()
-                        .find(|c| c.name == "forge-dpu-agent")
+                        .find(|c| c.name == "carbide-dpu-agent" || c.name == "forge-dpu-agent")
                         .map(|c| c.version.clone())
                 })
                 .unwrap_or_default(),
@@ -106,7 +106,7 @@ impl From<forgerpc::Machine> for Row {
                 .and_then(|inv| {
                     inv.components
                         .iter()
-                        .find(|c| c.name == "doca_hbn")
+                        .find(|c| c.name == "doca-hbn" || c.name == "doca_hbn")
                         .map(|c| c.version.clone())
                 })
                 .unwrap_or_default(),
