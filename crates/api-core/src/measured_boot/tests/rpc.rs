@@ -25,7 +25,10 @@ mod tests {
 
     use ::rpc::measured_boot::{FromGrpc, FromGrpcOpt};
     use carbide_uuid::machine::MachineId;
-    use carbide_uuid::measured_boot::TrustedMachineId;
+    use carbide_uuid::measured_boot::{
+        MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
+        TrustedMachineId,
+    };
     use measured_boot::pcr::PcrRegisterValue;
     use measured_boot::records::MeasurementApprovedMachineRecord;
     use model::machine::{CURRENT_STATE_MODEL_VERSION, ManagedHostState};
@@ -1693,9 +1696,7 @@ mod tests {
             mbrpc::RemoveMeasurementTrustedMachineRequest {
                 selector: Some(
                     mbrpc::remove_measurement_trusted_machine_request::Selector::ApprovalId(
-                        mbrpc::MeasurementApprovedMachineId {
-                            value: uuid::Uuid::new_v4().to_string(),
-                        },
+                        MeasurementApprovedMachineId::new(),
                     ),
                 ),
             },
@@ -1709,9 +1710,7 @@ mod tests {
             mbrpc::RemoveMeasurementTrustedProfileRequest {
                 selector: Some(
                     mbrpc::remove_measurement_trusted_profile_request::Selector::ProfileId(
-                        mbrpc::MeasurementSystemProfileId {
-                            value: uuid::Uuid::new_v4().to_string(),
-                        },
+                        MeasurementSystemProfileId::new(),
                     ),
                 ),
             },
@@ -1725,9 +1724,7 @@ mod tests {
             mbrpc::RemoveMeasurementTrustedProfileRequest {
                 selector: Some(
                     mbrpc::remove_measurement_trusted_profile_request::Selector::ApprovalId(
-                        mbrpc::MeasurementApprovedProfileId {
-                            value: uuid::Uuid::new_v4().to_string(),
-                        },
+                        MeasurementApprovedProfileId::new(),
                     ),
                 ),
             },
