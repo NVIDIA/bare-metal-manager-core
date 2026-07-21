@@ -22,7 +22,7 @@ func TestOperatingSystemCreateRequest_GetOperatingSystemType(t *testing.T) {
 }
 
 func TestOperatingSystemCreateRequest_Validate_Templated(t *testing.T) {
-	tmplID := cutil.GetPtr("tmpl-1")
+	tmplID := cutil.GetPtr(uuid.NewString())
 	siteIDs := []string{uuid.NewString()}
 	tests := []struct {
 		desc      string
@@ -38,6 +38,11 @@ func TestOperatingSystemCreateRequest_Validate_Templated(t *testing.T) {
 			desc:      "templated with siteIds is ok",
 			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs},
 			expectErr: false,
+		},
+		{
+			desc:      "templated with non-UUID ipxeTemplateId is rejected",
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: cutil.GetPtr("not-a-uuid"), SiteIDs: siteIDs},
+			expectErr: true,
 		},
 		{
 			desc:      "templated artifact with valid cache strategy is ok",
@@ -102,6 +107,14 @@ func TestOperatingSystemUpdateRequest_Validate_Template(t *testing.T) {
 	})
 	t.Run("raw ipxe rejects template id", func(t *testing.T) {
 		err := (&APIOperatingSystemUpdateRequest{IpxeTemplateId: cutil.GetPtr("t")}).Validate(rawIpxeOS)
+		assert.Error(t, err)
+	})
+	t.Run("templated accepts valid UUID template id", func(t *testing.T) {
+		err := (&APIOperatingSystemUpdateRequest{IpxeTemplateId: cutil.GetPtr(uuid.NewString())}).Validate(templatedOS)
+		assert.NoError(t, err)
+	})
+	t.Run("templated rejects non-UUID template id", func(t *testing.T) {
+		err := (&APIOperatingSystemUpdateRequest{IpxeTemplateId: cutil.GetPtr("not-a-uuid")}).Validate(templatedOS)
 		assert.Error(t, err)
 	})
 }

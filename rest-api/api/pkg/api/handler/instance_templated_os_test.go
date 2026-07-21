@@ -5,6 +5,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
@@ -152,21 +154,55 @@ func TestBuildInstanceOsConfig_TemplatedIPXE(t *testing.T) {
 		assertTemplatedOsConfig(t, osConfig, osOther.ID)
 	})
 
-	t.Run("rejects templated OS not synchronized to Site", func(t *testing.T) {
-		// No Synced association at this Site.
-		osUnsynced := buildOS("tmpl-os-instance-os-unsynced")
+	// Only a Synced association marks a definition as available at the Site. An
+	// OS with no association, or one whose association is still Syncing or has
+	// Errored, must be rejected with BadRequest and no osConfig/osID.
+	rejectCases := []struct {
+		name   string
+		status *string // nil => no association at all
+	}{
+		{name: "rejects templated OS not synchronized to Site", status: nil},
+		{name: "rejects templated OS with Syncing association", status: cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing)},
+		{name: "rejects templated OS with Error association", status: cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusError)},
+	}
+	for i, tc := range rejectCases {
+		t.Run(tc.name, func(t *testing.T) {
+			os := buildOS(fmt.Sprintf("tmpl-os-instance-os-reject-%d", i))
+			if tc.status != nil {
+				buildOperatingSystemSiteAssociationWithStatus(t, dbSession, site.ID, os.ID, *tc.status)
+			}
 
-		ec := newTemplatedOsEchoContext(t)
-		h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}
-		apiReq := &model.APIInstanceCreateRequest{
-			TenantID:          tenant.ID.String(),
-			OperatingSystemID: cutil.GetPtr(osUnsynced.ID.String()),
-		}
+			ec := newTemplatedOsEchoContext(t)
+			h := CreateInstanceHandler{dbSession: dbSession, cfg: cfg}
+			apiReq := &model.APIInstanceCreateRequest{
+				TenantID:          tenant.ID.String(),
+				OperatingSystemID: cutil.GetPtr(os.ID.String()),
+			}
 
-		osConfig, osID, apiErr := h.buildInstanceCreateRequestOsConfig(ec, &logger, apiReq, site)
-		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusBadRequest, apiErr.Code)
-		assert.Nil(t, osConfig)
-		assert.Nil(t, osID)
-	})
+			osConfig, osID, apiErr := h.buildInstanceCreateRequestOsConfig(ec, &logger, apiReq, site)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+			assert.Nil(t, osConfig)
+			assert.Nil(t, osID)
+		})
+	}
+}
+
+// buildOperatingSystemSiteAssociationWithStatus inserts an
+// OperatingSystemSiteAssociation with an explicit status, so tests can exercise
+// non-Synced states (Syncing / Error) that the templated-OS site validator must
+// reject.
+func buildOperatingSystemSiteAssociationWithStatus(t *testing.T, dbSession *cdb.Session, siteID, osID uuid.UUID, status string) {
+	t.Helper()
+	ossa := &cdbm.OperatingSystemSiteAssociation{
+		ID:                uuid.New(),
+		OperatingSystemID: osID,
+		SiteID:            siteID,
+		Version:           cutil.GetPtr("1234"),
+		Status:            status,
+		Created:           cdb.GetCurTime(),
+		Updated:           cdb.GetCurTime(),
+	}
+	_, err := dbSession.DB.NewInsert().Model(ossa).Exec(context.Background())
+	require.NoError(t, err)
 }

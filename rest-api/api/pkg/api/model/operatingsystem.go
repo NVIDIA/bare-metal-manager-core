@@ -108,9 +108,16 @@ func (oscr *APIOperatingSystemCreateRequest) Validate() error {
 		return err
 	}
 
-	if oscr.IpxeTemplateId != nil && strings.TrimSpace(*oscr.IpxeTemplateId) == "" {
-		return validation.Errors{
-			"ipxeTemplateId": errors.New("must not be empty"),
+	if oscr.IpxeTemplateId != nil {
+		if strings.TrimSpace(*oscr.IpxeTemplateId) == "" {
+			return validation.Errors{
+				"ipxeTemplateId": errors.New("must not be empty"),
+			}
+		}
+		if _, err := uuid.Parse(*oscr.IpxeTemplateId); err != nil {
+			return validation.Errors{
+				"ipxeTemplateId": errors.New("must be a valid UUID"),
+			}
 		}
 	}
 
@@ -413,6 +420,14 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 		}
 		if osur.ImageURL != nil {
 			return validation.Errors{"imageUrl": errors.New("unable to set image URL for iPXE based Operating System")}
+		}
+		if osur.IpxeTemplateId != nil {
+			if strings.TrimSpace(*osur.IpxeTemplateId) == "" {
+				return validation.Errors{"ipxeTemplateId": errors.New("must not be empty")}
+			}
+			if _, err := uuid.Parse(*osur.IpxeTemplateId); err != nil {
+				return validation.Errors{"ipxeTemplateId": errors.New("must be a valid UUID")}
+			}
 		}
 	}
 	if existingOS.Type == cdbm.OperatingSystemTypeTemplatedIPXE {

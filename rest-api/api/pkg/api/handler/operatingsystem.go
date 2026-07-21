@@ -1577,6 +1577,44 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			dbossas = refreshedOssas
 		}
 
+		// Templated iPXE updates re-push the definition to every associated Site via
+		// the Core proxy after commit. Mark each association (and its status detail)
+		// Syncing inside this transaction so the in-flight state is durable before any
+		// proxy update runs: validateTemplatedIpxeOsForSite gates Instance selection on
+		// a Synced association, so this prevents an Instance from being created against a
+		// definition that is mid-update. The post-commit proxy sync transitions each
+		// association to Synced or Error.
+		if uos.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+			tmplOssas, _, derr := ossaDAO.GetAll(
+				ctx,
+				tx,
+				cdbm.OperatingSystemSiteAssociationFilterInput{OperatingSystemIDs: []uuid.UUID{uos.ID}},
+				cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+				nil,
+			)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error retrieving Operating System Site associations for templated iPXE update")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Operating System Site associations, DB error", nil)
+			}
+			for _, tossa := range tmplOssas {
+				if _, derr := ossaDAO.Update(ctx, tx, cdbm.OperatingSystemSiteAssociationUpdateInput{
+					OperatingSystemSiteAssociationID: tossa.ID,
+					Status:                           cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
+				}); derr != nil {
+					logger.Error().Err(derr).Msg("unable to update the Operating System association record in DB")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Operating System Site Association status, DB error", nil)
+				}
+				if _, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+					EntityID: tossa.ID.String(),
+					Status:   cdbm.OperatingSystemSiteAssociationStatusSyncing,
+					Message:  cutil.GetPtr("received Operating System Association update request, syncing"),
+				}); derr != nil {
+					logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Site Association", nil)
+				}
+			}
+		}
+
 		return nil
 	})
 	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
