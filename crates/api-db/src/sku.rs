@@ -775,17 +775,30 @@ pub async fn generate_sku_from_machine_at_version_5(
     // sysfs/PCI path is stored as the drive's single "pattern". An expected SKU
     // authored from this can then widen the size range or replace the literal
     // path with a regex. Drives are ordered by path for deterministic output.
+    //
+    // Both fields are required: a missing size or PCI path would produce an
+    // unconstrained storage entry that validates any drive at any location or
+    // capacity. Since a generated SKU can be persisted as an expected SKU,
+    // reject generation rather than silently authoring a permissive v5 SKU.
     let mut storage: Vec<SkuComponentStorage> = hardware_info
         .nvme_devices
         .iter()
-        .map(|nvme| SkuComponentStorage {
-            model: nvme.model.clone(),
-            count: 1,
-            min_size_mb: nvme.size_mb,
-            max_size_mb: nvme.size_mb,
-            pci_patterns: nvme.pci_path.iter().cloned().collect(),
+        .map(|nvme| {
+            let (Some(size_mb), Some(pci_path)) = (nvme.size_mb, nvme.pci_path.as_ref()) else {
+                return Err(DatabaseError::InvalidArgument(format!(
+                    "generate sku (v5): nvme drive (model {:?}, serial {:?}) is missing size or PCI path",
+                    nvme.model, nvme.serial
+                )));
+            };
+            Ok(SkuComponentStorage {
+                model: nvme.model.clone(),
+                count: 1,
+                min_size_mb: Some(size_mb),
+                max_size_mb: Some(size_mb),
+                pci_patterns: vec![pci_path.clone()],
+            })
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
     storage.sort();
     sku.components.storage = storage;
 
