@@ -962,6 +962,63 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		assert.Nil(t, created.InfrastructureProviderID, "a tenant-owned OS is not provider-owned")
 	})
 
+	t.Run("clears provider ownership when a single-site OS becomes tenant-owned", func(t *testing.T) {
+		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-flip", "provider-flip-org", ipu)
+		st := util.TestBuildSite(t, dbSession, ip, "site-flip", cdbm.SiteStatusRegistered, nil, ipu)
+
+		tnOrg := "tenant-flip-org"
+		tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{"FORGE_TENANT_ADMIN"})
+		tn := util.TestBuildTenant(t, dbSession, tnOrg, "tenant-flip", nil, tnu)
+
+		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
+			ID: uuid.New(), Name: "tmpl-flip", Template: "#!ipxe\n", Visibility: "Public",
+		})
+		require.NoError(t, err)
+		_, err = itsaDAO.Create(ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{IpxeTemplateID: tmpl.ID, SiteID: st.ID})
+		require.NoError(t, err)
+
+		// Existing single-site OS is provider-owned (InfrastructureProviderID set,
+		// TenantID nil).
+		osID := uuid.New()
+		_, err = osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
+			ID: osID, Name: "flip-os", Org: st.Org, InfrastructureProviderID: &ip.ID,
+			OsType: cdbm.OperatingSystemTypeTemplatedIPXE, IpxeTemplateId: cutil.GetPtr(tmpl.ID.String()),
+			Status: cdbm.OperatingSystemStatusReady, CreatedBy: ipu.ID,
+		})
+		require.NoError(t, err)
+		_, err = ossaDAO.Create(ctx, nil, cdbm.OperatingSystemSiteAssociationCreateInput{
+			OperatingSystemID: osID, SiteID: st.ID, Status: cdbm.OperatingSystemSiteAssociationStatusSynced, CreatedBy: ipu.ID,
+		})
+		require.NoError(t, err)
+
+		// The Site now reports the OS with a tenant_organization_id: ownership flips
+		// from provider-owned to tenant-owned.
+		inventory := &corev1.OperatingSystemInventory{
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+			OperatingSystems: []*corev1.OperatingSystem{
+				{
+					Id:                   &corev1.OperatingSystemId{Value: osID.String()},
+					Name:                 "flip-os",
+					Type:                 corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
+					Status:               corev1.TenantState_READY,
+					IsActive:             true,
+					IpxeTemplateId:       &corev1.IpxeTemplateId{Value: tmpl.ID.String()},
+					TenantOrganizationId: cutil.GetPtr(tnOrg),
+					Updated:              time.Now().Add(time.Hour).Format(time.RFC3339),
+				},
+			},
+			Timestamp: timestamppb.Now(),
+		}
+		require.NoError(t, newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, inventory))
+
+		updated, err := osDAO.GetByID(ctx, nil, osID, nil)
+		require.NoError(t, err)
+		require.NotNil(t, updated.TenantID, "ownership must flip to tenant-owned")
+		assert.Equal(t, tn.ID, *updated.TenantID)
+		assert.Equal(t, tnOrg, updated.Org)
+		assert.Nil(t, updated.InfrastructureProviderID, "the now-inactive provider ownership column must be cleared")
+	})
+
 	t.Run("does not import an OS reported with an unknown tenant_organization_id", func(t *testing.T) {
 		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-unknown-org", "provider-unknown-org-org", ipu)
 		st := util.TestBuildSite(t, dbSession, ip, "site-unknown-org", cdbm.SiteStatusRegistered, nil, ipu)

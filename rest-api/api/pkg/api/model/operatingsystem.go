@@ -1050,6 +1050,11 @@ func (oscr *APIOperatingSystemCreateRequest) validateTemplatedIpxeOS() error {
 	if len(oscr.SiteIDs) == 0 {
 		return validation.Errors{"siteIds": errors.New("at least one siteId must be specified for Templated iPXE Operating Systems")}
 	}
+	for _, siteID := range oscr.SiteIDs {
+		if _, err := uuid.Parse(siteID); err != nil {
+			return validation.Errors{"siteIds": fmt.Errorf("siteId %q is not a valid UUID", siteID)}
+		}
+	}
 
 	if err := oscr.IpxeTemplateParameters.Validate(); err != nil {
 		return err

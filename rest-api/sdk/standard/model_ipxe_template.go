@@ -14,7 +14,9 @@ API version: 2.0.0
 package standard
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -24,29 +26,38 @@ var _ MappedNullable = &IpxeTemplate{}
 // IpxeTemplate An iPXE script template propagated (read-only) from nico-core
 type IpxeTemplate struct {
 	// Stable template UUID assigned by core
-	Id *string `json:"id,omitempty"`
+	Id string `json:"id"`
 	// Globally unique template name
-	Name *string `json:"name,omitempty"`
+	Name string `json:"name"`
 	// Raw iPXE script content
-	Template *string `json:"template,omitempty"`
+	Template string `json:"template"`
 	// Parameters that must be provided to render the template
-	RequiredParams []string `json:"requiredParams,omitempty"`
+	RequiredParams []string `json:"requiredParams"`
 	// Parameters reserved by the template and not user-supplied
-	ReservedParams []string `json:"reservedParams,omitempty"`
+	ReservedParams []string `json:"reservedParams"`
 	// Artifact names required for the template
-	RequiredArtifacts []string `json:"requiredArtifacts,omitempty"`
+	RequiredArtifacts []string `json:"requiredArtifacts"`
 	// Template visibility: Internal or Public
-	Visibility *string    `json:"visibility,omitempty"`
+	Visibility string     `json:"visibility"`
 	Created    *time.Time `json:"created,omitempty"`
 	Updated    *time.Time `json:"updated,omitempty"`
 }
+
+type _IpxeTemplate IpxeTemplate
 
 // NewIpxeTemplate instantiates a new IpxeTemplate object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewIpxeTemplate() *IpxeTemplate {
+func NewIpxeTemplate(id string, name string, template string, requiredParams []string, reservedParams []string, requiredArtifacts []string, visibility string) *IpxeTemplate {
 	this := IpxeTemplate{}
+	this.Id = id
+	this.Name = name
+	this.Template = template
+	this.RequiredParams = requiredParams
+	this.ReservedParams = reservedParams
+	this.RequiredArtifacts = requiredArtifacts
+	this.Visibility = visibility
 	return &this
 }
 
@@ -58,228 +69,172 @@ func NewIpxeTemplateWithDefaults() *IpxeTemplate {
 	return &this
 }
 
-// GetId returns the Id field value if set, zero value otherwise.
+// GetId returns the Id field value
 func (o *IpxeTemplate) GetId() string {
-	if o == nil || IsNil(o.Id) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Id
+
+	return o.Id
 }
 
-// GetIdOk returns a tuple with the Id field value if set, nil otherwise
+// GetIdOk returns a tuple with the Id field value
 // and a boolean to check if the value has been set.
 func (o *IpxeTemplate) GetIdOk() (*string, bool) {
-	if o == nil || IsNil(o.Id) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Id, true
+	return &o.Id, true
 }
 
-// HasId returns a boolean if a field has been set.
-func (o *IpxeTemplate) HasId() bool {
-	if o != nil && !IsNil(o.Id) {
-		return true
-	}
-
-	return false
-}
-
-// SetId gets a reference to the given string and assigns it to the Id field.
+// SetId sets field value
 func (o *IpxeTemplate) SetId(v string) {
-	o.Id = &v
+	o.Id = v
 }
 
-// GetName returns the Name field value if set, zero value otherwise.
+// GetName returns the Name field value
 func (o *IpxeTemplate) GetName() string {
-	if o == nil || IsNil(o.Name) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Name
+
+	return o.Name
 }
 
-// GetNameOk returns a tuple with the Name field value if set, nil otherwise
+// GetNameOk returns a tuple with the Name field value
 // and a boolean to check if the value has been set.
 func (o *IpxeTemplate) GetNameOk() (*string, bool) {
-	if o == nil || IsNil(o.Name) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Name, true
+	return &o.Name, true
 }
 
-// HasName returns a boolean if a field has been set.
-func (o *IpxeTemplate) HasName() bool {
-	if o != nil && !IsNil(o.Name) {
-		return true
-	}
-
-	return false
-}
-
-// SetName gets a reference to the given string and assigns it to the Name field.
+// SetName sets field value
 func (o *IpxeTemplate) SetName(v string) {
-	o.Name = &v
+	o.Name = v
 }
 
-// GetTemplate returns the Template field value if set, zero value otherwise.
+// GetTemplate returns the Template field value
 func (o *IpxeTemplate) GetTemplate() string {
-	if o == nil || IsNil(o.Template) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Template
+
+	return o.Template
 }
 
-// GetTemplateOk returns a tuple with the Template field value if set, nil otherwise
+// GetTemplateOk returns a tuple with the Template field value
 // and a boolean to check if the value has been set.
 func (o *IpxeTemplate) GetTemplateOk() (*string, bool) {
-	if o == nil || IsNil(o.Template) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Template, true
+	return &o.Template, true
 }
 
-// HasTemplate returns a boolean if a field has been set.
-func (o *IpxeTemplate) HasTemplate() bool {
-	if o != nil && !IsNil(o.Template) {
-		return true
-	}
-
-	return false
-}
-
-// SetTemplate gets a reference to the given string and assigns it to the Template field.
+// SetTemplate sets field value
 func (o *IpxeTemplate) SetTemplate(v string) {
-	o.Template = &v
+	o.Template = v
 }
 
-// GetRequiredParams returns the RequiredParams field value if set, zero value otherwise.
+// GetRequiredParams returns the RequiredParams field value
 func (o *IpxeTemplate) GetRequiredParams() []string {
-	if o == nil || IsNil(o.RequiredParams) {
+	if o == nil {
 		var ret []string
 		return ret
 	}
+
 	return o.RequiredParams
 }
 
-// GetRequiredParamsOk returns a tuple with the RequiredParams field value if set, nil otherwise
+// GetRequiredParamsOk returns a tuple with the RequiredParams field value
 // and a boolean to check if the value has been set.
 func (o *IpxeTemplate) GetRequiredParamsOk() ([]string, bool) {
-	if o == nil || IsNil(o.RequiredParams) {
+	if o == nil {
 		return nil, false
 	}
 	return o.RequiredParams, true
 }
 
-// HasRequiredParams returns a boolean if a field has been set.
-func (o *IpxeTemplate) HasRequiredParams() bool {
-	if o != nil && !IsNil(o.RequiredParams) {
-		return true
-	}
-
-	return false
-}
-
-// SetRequiredParams gets a reference to the given []string and assigns it to the RequiredParams field.
+// SetRequiredParams sets field value
 func (o *IpxeTemplate) SetRequiredParams(v []string) {
 	o.RequiredParams = v
 }
 
-// GetReservedParams returns the ReservedParams field value if set, zero value otherwise.
+// GetReservedParams returns the ReservedParams field value
 func (o *IpxeTemplate) GetReservedParams() []string {
-	if o == nil || IsNil(o.ReservedParams) {
+	if o == nil {
 		var ret []string
 		return ret
 	}
+
 	return o.ReservedParams
 }
 
-// GetReservedParamsOk returns a tuple with the ReservedParams field value if set, nil otherwise
+// GetReservedParamsOk returns a tuple with the ReservedParams field value
 // and a boolean to check if the value has been set.
 func (o *IpxeTemplate) GetReservedParamsOk() ([]string, bool) {
-	if o == nil || IsNil(o.ReservedParams) {
+	if o == nil {
 		return nil, false
 	}
 	return o.ReservedParams, true
 }
 
-// HasReservedParams returns a boolean if a field has been set.
-func (o *IpxeTemplate) HasReservedParams() bool {
-	if o != nil && !IsNil(o.ReservedParams) {
-		return true
-	}
-
-	return false
-}
-
-// SetReservedParams gets a reference to the given []string and assigns it to the ReservedParams field.
+// SetReservedParams sets field value
 func (o *IpxeTemplate) SetReservedParams(v []string) {
 	o.ReservedParams = v
 }
 
-// GetRequiredArtifacts returns the RequiredArtifacts field value if set, zero value otherwise.
+// GetRequiredArtifacts returns the RequiredArtifacts field value
 func (o *IpxeTemplate) GetRequiredArtifacts() []string {
-	if o == nil || IsNil(o.RequiredArtifacts) {
+	if o == nil {
 		var ret []string
 		return ret
 	}
+
 	return o.RequiredArtifacts
 }
 
-// GetRequiredArtifactsOk returns a tuple with the RequiredArtifacts field value if set, nil otherwise
+// GetRequiredArtifactsOk returns a tuple with the RequiredArtifacts field value
 // and a boolean to check if the value has been set.
 func (o *IpxeTemplate) GetRequiredArtifactsOk() ([]string, bool) {
-	if o == nil || IsNil(o.RequiredArtifacts) {
+	if o == nil {
 		return nil, false
 	}
 	return o.RequiredArtifacts, true
 }
 
-// HasRequiredArtifacts returns a boolean if a field has been set.
-func (o *IpxeTemplate) HasRequiredArtifacts() bool {
-	if o != nil && !IsNil(o.RequiredArtifacts) {
-		return true
-	}
-
-	return false
-}
-
-// SetRequiredArtifacts gets a reference to the given []string and assigns it to the RequiredArtifacts field.
+// SetRequiredArtifacts sets field value
 func (o *IpxeTemplate) SetRequiredArtifacts(v []string) {
 	o.RequiredArtifacts = v
 }
 
-// GetVisibility returns the Visibility field value if set, zero value otherwise.
+// GetVisibility returns the Visibility field value
 func (o *IpxeTemplate) GetVisibility() string {
-	if o == nil || IsNil(o.Visibility) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Visibility
+
+	return o.Visibility
 }
 
-// GetVisibilityOk returns a tuple with the Visibility field value if set, nil otherwise
+// GetVisibilityOk returns a tuple with the Visibility field value
 // and a boolean to check if the value has been set.
 func (o *IpxeTemplate) GetVisibilityOk() (*string, bool) {
-	if o == nil || IsNil(o.Visibility) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Visibility, true
+	return &o.Visibility, true
 }
 
-// HasVisibility returns a boolean if a field has been set.
-func (o *IpxeTemplate) HasVisibility() bool {
-	if o != nil && !IsNil(o.Visibility) {
-		return true
-	}
-
-	return false
-}
-
-// SetVisibility gets a reference to the given string and assigns it to the Visibility field.
+// SetVisibility sets field value
 func (o *IpxeTemplate) SetVisibility(v string) {
-	o.Visibility = &v
+	o.Visibility = v
 }
 
 // GetCreated returns the Created field value if set, zero value otherwise.
@@ -356,27 +311,13 @@ func (o IpxeTemplate) MarshalJSON() ([]byte, error) {
 
 func (o IpxeTemplate) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.Id) {
-		toSerialize["id"] = o.Id
-	}
-	if !IsNil(o.Name) {
-		toSerialize["name"] = o.Name
-	}
-	if !IsNil(o.Template) {
-		toSerialize["template"] = o.Template
-	}
-	if !IsNil(o.RequiredParams) {
-		toSerialize["requiredParams"] = o.RequiredParams
-	}
-	if !IsNil(o.ReservedParams) {
-		toSerialize["reservedParams"] = o.ReservedParams
-	}
-	if !IsNil(o.RequiredArtifacts) {
-		toSerialize["requiredArtifacts"] = o.RequiredArtifacts
-	}
-	if !IsNil(o.Visibility) {
-		toSerialize["visibility"] = o.Visibility
-	}
+	toSerialize["id"] = o.Id
+	toSerialize["name"] = o.Name
+	toSerialize["template"] = o.Template
+	toSerialize["requiredParams"] = o.RequiredParams
+	toSerialize["reservedParams"] = o.ReservedParams
+	toSerialize["requiredArtifacts"] = o.RequiredArtifacts
+	toSerialize["visibility"] = o.Visibility
 	if !IsNil(o.Created) {
 		toSerialize["created"] = o.Created
 	}
@@ -384,6 +325,49 @@ func (o IpxeTemplate) ToMap() (map[string]interface{}, error) {
 		toSerialize["updated"] = o.Updated
 	}
 	return toSerialize, nil
+}
+
+func (o *IpxeTemplate) UnmarshalJSON(data []byte) (err error) {
+	// This validates that all required properties are included in the JSON object
+	// by unmarshalling the object into a generic map with string keys and checking
+	// that every required field exists as a key in the generic map.
+	requiredProperties := []string{
+		"id",
+		"name",
+		"template",
+		"requiredParams",
+		"reservedParams",
+		"requiredArtifacts",
+		"visibility",
+	}
+
+	allProperties := make(map[string]interface{})
+
+	err = json.Unmarshal(data, &allProperties)
+
+	if err != nil {
+		return err
+	}
+
+	for _, requiredProperty := range requiredProperties {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
+			return fmt.Errorf("no value given for required property %v", requiredProperty)
+		}
+	}
+
+	varIpxeTemplate := _IpxeTemplate{}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varIpxeTemplate)
+
+	if err != nil {
+		return err
+	}
+
+	*o = IpxeTemplate(varIpxeTemplate)
+
+	return err
 }
 
 type NullableIpxeTemplate struct {

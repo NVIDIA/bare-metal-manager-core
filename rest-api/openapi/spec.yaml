@@ -17000,6 +17000,9 @@ components:
       title: OperatingSystemIpxeParameter
       type: object
       description: A name/value parameter passed to an iPXE template
+      required:
+        - name
+        - value
       properties:
         name:
           type: string
@@ -17011,6 +17014,9 @@ components:
       title: OperatingSystemIpxeArtifact
       type: object
       description: An artifact (kernel, initrd, ISO, ...) referenced by an iPXE OS definition
+      required:
+        - name
+        - url
       properties:
         name:
           type: string
@@ -17045,6 +17051,14 @@ components:
       title: IpxeTemplate
       type: object
       description: An iPXE script template propagated (read-only) from nico-core
+      required:
+        - id
+        - name
+        - template
+        - requiredParams
+        - reservedParams
+        - requiredArtifacts
+        - visibility
       examples:
         - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
           name: ubuntu-autoinstall

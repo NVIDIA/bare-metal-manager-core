@@ -14,7 +14,9 @@ API version: 2.0.0
 package standard
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 )
 
 // checks if the OperatingSystemIpxeParameter type satisfies the MappedNullable interface at compile time
@@ -23,17 +25,21 @@ var _ MappedNullable = &OperatingSystemIpxeParameter{}
 // OperatingSystemIpxeParameter A name/value parameter passed to an iPXE template
 type OperatingSystemIpxeParameter struct {
 	// Parameter name (used as a variable in the template)
-	Name *string `json:"name,omitempty"`
+	Name string `json:"name"`
 	// Parameter value
-	Value *string `json:"value,omitempty"`
+	Value string `json:"value"`
 }
+
+type _OperatingSystemIpxeParameter OperatingSystemIpxeParameter
 
 // NewOperatingSystemIpxeParameter instantiates a new OperatingSystemIpxeParameter object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewOperatingSystemIpxeParameter() *OperatingSystemIpxeParameter {
+func NewOperatingSystemIpxeParameter(name string, value string) *OperatingSystemIpxeParameter {
 	this := OperatingSystemIpxeParameter{}
+	this.Name = name
+	this.Value = value
 	return &this
 }
 
@@ -45,68 +51,52 @@ func NewOperatingSystemIpxeParameterWithDefaults() *OperatingSystemIpxeParameter
 	return &this
 }
 
-// GetName returns the Name field value if set, zero value otherwise.
+// GetName returns the Name field value
 func (o *OperatingSystemIpxeParameter) GetName() string {
-	if o == nil || IsNil(o.Name) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Name
+
+	return o.Name
 }
 
-// GetNameOk returns a tuple with the Name field value if set, nil otherwise
+// GetNameOk returns a tuple with the Name field value
 // and a boolean to check if the value has been set.
 func (o *OperatingSystemIpxeParameter) GetNameOk() (*string, bool) {
-	if o == nil || IsNil(o.Name) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Name, true
+	return &o.Name, true
 }
 
-// HasName returns a boolean if a field has been set.
-func (o *OperatingSystemIpxeParameter) HasName() bool {
-	if o != nil && !IsNil(o.Name) {
-		return true
-	}
-
-	return false
-}
-
-// SetName gets a reference to the given string and assigns it to the Name field.
+// SetName sets field value
 func (o *OperatingSystemIpxeParameter) SetName(v string) {
-	o.Name = &v
+	o.Name = v
 }
 
-// GetValue returns the Value field value if set, zero value otherwise.
+// GetValue returns the Value field value
 func (o *OperatingSystemIpxeParameter) GetValue() string {
-	if o == nil || IsNil(o.Value) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Value
+
+	return o.Value
 }
 
-// GetValueOk returns a tuple with the Value field value if set, nil otherwise
+// GetValueOk returns a tuple with the Value field value
 // and a boolean to check if the value has been set.
 func (o *OperatingSystemIpxeParameter) GetValueOk() (*string, bool) {
-	if o == nil || IsNil(o.Value) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Value, true
+	return &o.Value, true
 }
 
-// HasValue returns a boolean if a field has been set.
-func (o *OperatingSystemIpxeParameter) HasValue() bool {
-	if o != nil && !IsNil(o.Value) {
-		return true
-	}
-
-	return false
-}
-
-// SetValue gets a reference to the given string and assigns it to the Value field.
+// SetValue sets field value
 func (o *OperatingSystemIpxeParameter) SetValue(v string) {
-	o.Value = &v
+	o.Value = v
 }
 
 func (o OperatingSystemIpxeParameter) MarshalJSON() ([]byte, error) {
@@ -119,13 +109,47 @@ func (o OperatingSystemIpxeParameter) MarshalJSON() ([]byte, error) {
 
 func (o OperatingSystemIpxeParameter) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.Name) {
-		toSerialize["name"] = o.Name
-	}
-	if !IsNil(o.Value) {
-		toSerialize["value"] = o.Value
-	}
+	toSerialize["name"] = o.Name
+	toSerialize["value"] = o.Value
 	return toSerialize, nil
+}
+
+func (o *OperatingSystemIpxeParameter) UnmarshalJSON(data []byte) (err error) {
+	// This validates that all required properties are included in the JSON object
+	// by unmarshalling the object into a generic map with string keys and checking
+	// that every required field exists as a key in the generic map.
+	requiredProperties := []string{
+		"name",
+		"value",
+	}
+
+	allProperties := make(map[string]interface{})
+
+	err = json.Unmarshal(data, &allProperties)
+
+	if err != nil {
+		return err
+	}
+
+	for _, requiredProperty := range requiredProperties {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
+			return fmt.Errorf("no value given for required property %v", requiredProperty)
+		}
+	}
+
+	varOperatingSystemIpxeParameter := _OperatingSystemIpxeParameter{}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varOperatingSystemIpxeParameter)
+
+	if err != nil {
+		return err
+	}
+
+	*o = OperatingSystemIpxeParameter(varOperatingSystemIpxeParameter)
+
+	return err
 }
 
 type NullableOperatingSystemIpxeParameter struct {

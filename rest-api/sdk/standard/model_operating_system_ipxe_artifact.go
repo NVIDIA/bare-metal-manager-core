@@ -14,7 +14,9 @@ API version: 2.0.0
 package standard
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 )
 
 // checks if the OperatingSystemIpxeArtifact type satisfies the MappedNullable interface at compile time
@@ -23,9 +25,9 @@ var _ MappedNullable = &OperatingSystemIpxeArtifact{}
 // OperatingSystemIpxeArtifact An artifact (kernel, initrd, ISO, ...) referenced by an iPXE OS definition
 type OperatingSystemIpxeArtifact struct {
 	// Artifact name
-	Name *string `json:"name,omitempty"`
+	Name string `json:"name"`
 	// Original URL for the artifact
-	Url *string `json:"url,omitempty"`
+	Url string `json:"url"`
 	// Optional SHA256 checksum
 	Sha NullableString `json:"sha,omitempty"`
 	// Optional auth type: Basic or Bearer
@@ -36,12 +38,16 @@ type OperatingSystemIpxeArtifact struct {
 	CacheStrategy *string `json:"cacheStrategy,omitempty"`
 }
 
+type _OperatingSystemIpxeArtifact OperatingSystemIpxeArtifact
+
 // NewOperatingSystemIpxeArtifact instantiates a new OperatingSystemIpxeArtifact object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewOperatingSystemIpxeArtifact() *OperatingSystemIpxeArtifact {
+func NewOperatingSystemIpxeArtifact(name string, url string) *OperatingSystemIpxeArtifact {
 	this := OperatingSystemIpxeArtifact{}
+	this.Name = name
+	this.Url = url
 	return &this
 }
 
@@ -53,68 +59,52 @@ func NewOperatingSystemIpxeArtifactWithDefaults() *OperatingSystemIpxeArtifact {
 	return &this
 }
 
-// GetName returns the Name field value if set, zero value otherwise.
+// GetName returns the Name field value
 func (o *OperatingSystemIpxeArtifact) GetName() string {
-	if o == nil || IsNil(o.Name) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Name
+
+	return o.Name
 }
 
-// GetNameOk returns a tuple with the Name field value if set, nil otherwise
+// GetNameOk returns a tuple with the Name field value
 // and a boolean to check if the value has been set.
 func (o *OperatingSystemIpxeArtifact) GetNameOk() (*string, bool) {
-	if o == nil || IsNil(o.Name) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Name, true
+	return &o.Name, true
 }
 
-// HasName returns a boolean if a field has been set.
-func (o *OperatingSystemIpxeArtifact) HasName() bool {
-	if o != nil && !IsNil(o.Name) {
-		return true
-	}
-
-	return false
-}
-
-// SetName gets a reference to the given string and assigns it to the Name field.
+// SetName sets field value
 func (o *OperatingSystemIpxeArtifact) SetName(v string) {
-	o.Name = &v
+	o.Name = v
 }
 
-// GetUrl returns the Url field value if set, zero value otherwise.
+// GetUrl returns the Url field value
 func (o *OperatingSystemIpxeArtifact) GetUrl() string {
-	if o == nil || IsNil(o.Url) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Url
+
+	return o.Url
 }
 
-// GetUrlOk returns a tuple with the Url field value if set, nil otherwise
+// GetUrlOk returns a tuple with the Url field value
 // and a boolean to check if the value has been set.
 func (o *OperatingSystemIpxeArtifact) GetUrlOk() (*string, bool) {
-	if o == nil || IsNil(o.Url) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Url, true
+	return &o.Url, true
 }
 
-// HasUrl returns a boolean if a field has been set.
-func (o *OperatingSystemIpxeArtifact) HasUrl() bool {
-	if o != nil && !IsNil(o.Url) {
-		return true
-	}
-
-	return false
-}
-
-// SetUrl gets a reference to the given string and assigns it to the Url field.
+// SetUrl sets field value
 func (o *OperatingSystemIpxeArtifact) SetUrl(v string) {
-	o.Url = &v
+	o.Url = v
 }
 
 // GetSha returns the Sha field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -288,12 +278,8 @@ func (o OperatingSystemIpxeArtifact) MarshalJSON() ([]byte, error) {
 
 func (o OperatingSystemIpxeArtifact) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.Name) {
-		toSerialize["name"] = o.Name
-	}
-	if !IsNil(o.Url) {
-		toSerialize["url"] = o.Url
-	}
+	toSerialize["name"] = o.Name
+	toSerialize["url"] = o.Url
 	if o.Sha.IsSet() {
 		toSerialize["sha"] = o.Sha.Get()
 	}
@@ -307,6 +293,44 @@ func (o OperatingSystemIpxeArtifact) ToMap() (map[string]interface{}, error) {
 		toSerialize["cacheStrategy"] = o.CacheStrategy
 	}
 	return toSerialize, nil
+}
+
+func (o *OperatingSystemIpxeArtifact) UnmarshalJSON(data []byte) (err error) {
+	// This validates that all required properties are included in the JSON object
+	// by unmarshalling the object into a generic map with string keys and checking
+	// that every required field exists as a key in the generic map.
+	requiredProperties := []string{
+		"name",
+		"url",
+	}
+
+	allProperties := make(map[string]interface{})
+
+	err = json.Unmarshal(data, &allProperties)
+
+	if err != nil {
+		return err
+	}
+
+	for _, requiredProperty := range requiredProperties {
+		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
+			return fmt.Errorf("no value given for required property %v", requiredProperty)
+		}
+	}
+
+	varOperatingSystemIpxeArtifact := _OperatingSystemIpxeArtifact{}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	err = decoder.Decode(&varOperatingSystemIpxeArtifact)
+
+	if err != nil {
+		return err
+	}
+
+	*o = OperatingSystemIpxeArtifact(varOperatingSystemIpxeArtifact)
+
+	return err
 }
 
 type NullableOperatingSystemIpxeArtifact struct {

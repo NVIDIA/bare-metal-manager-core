@@ -46,6 +46,11 @@ func TestOperatingSystemCreateRequest_Validate_Templated(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			desc:      "templated with non-UUID siteId is rejected",
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: []string{"not-a-uuid"}},
+			expectErr: true,
+		},
+		{
 			desc:      "templated artifact with valid cache strategy is ok",
 			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: APIOperatingSystemIpxeArtifacts{{Name: "kernel", URL: "http://x/k", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
 			expectErr: false,

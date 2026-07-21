@@ -814,7 +814,31 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				IpxeOSHash:               reportedOS.IpxeTemplateDefinitionHash,
 				Status:                   &controllerState,
 			}
-			if _, uerr := osDAO.Update(ctx, nil, updateInput); uerr != nil {
+			// Ownership is mutually exclusive: exactly one of TenantID /
+			// InfrastructureProviderID is populated. Update only writes the active
+			// owner column (the inactive one is nil and thus left unchanged), so
+			// when ownership flips we must explicitly clear the now-inactive column
+			// to avoid leaving both populated. Update + Clear run in one transaction.
+			var ownerClearInput *cdbm.OperatingSystemClearInput
+			switch {
+			case ownerTenantID != nil && existingOS.InfrastructureProviderID != nil:
+				ownerClearInput = &cdbm.OperatingSystemClearInput{OperatingSystemId: existingOS.ID, InfrastructureProviderID: true}
+			case ownerProviderID != nil && existingOS.TenantID != nil:
+				ownerClearInput = &cdbm.OperatingSystemClearInput{OperatingSystemId: existingOS.ID, TenantID: true}
+			}
+
+			uerr := cdb.WithTx(ctx, mos.dbSession, func(tx *cdb.Tx) error {
+				if _, serr := osDAO.Update(ctx, tx, updateInput); serr != nil {
+					return serr
+				}
+				if ownerClearInput != nil {
+					if _, serr := osDAO.Clear(ctx, tx, *ownerClearInput); serr != nil {
+						return serr
+					}
+				}
+				return nil
+			})
+			if uerr != nil {
 				slogger.Error().Err(uerr).Msg("Failed to update Operating System, DB error")
 				continue
 			}
