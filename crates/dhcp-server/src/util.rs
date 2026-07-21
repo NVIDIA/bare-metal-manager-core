@@ -25,7 +25,11 @@ macro_rules! socket_opr {
     ($socket:expr, $statement:expr, $retry:expr) => {
         if let Err(e) = $statement {
             drop($socket);
-            tracing::info!("Socket set option failed. Retry: {}, error: {e}", $retry);
+            tracing::info!(
+                retry = $retry,
+                error = %e,
+                "Socket set option failed"
+            );
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             continue;
         }
@@ -83,7 +87,7 @@ pub fn machine_get_filename(
 }
 
 /// Create a UDP socket and set non_blocking, broadcast and other options flag on it.
-pub async fn get_socket(listen_address: core::net::SocketAddr, interface: String) -> UdpSocket {
+pub async fn get_socket(listen_address: core::net::SocketAddrV4, interface: String) -> UdpSocket {
     for retry in 0..10 {
         // Create a socket2.socket. std and tokio sockets do not support advance options like
         // reuseaddr to be set.
@@ -94,7 +98,7 @@ pub async fn get_socket(listen_address: core::net::SocketAddr, interface: String
         ) {
             Ok(socket) => socket,
             Err(e) => {
-                tracing::info!("Socket creation failed. Retry: {retry}, error: {e}");
+                tracing::info!(retry, error = %e, "Socket creation failed");
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
             }
@@ -109,7 +113,11 @@ pub async fn get_socket(listen_address: core::net::SocketAddr, interface: String
         let mut retries_left = 10;
         while retries_left > 0 && socket.bind_device(Some(interface.as_bytes())).is_err() {
             retries_left -= 1;
-            tracing::info!("Interface {interface} not ready, retrying {retries_left} more times");
+            tracing::info!(
+                interface_name = interface.as_str(),
+                retries_left,
+                "Interface not ready, retrying"
+            );
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
         if retries_left == 0 {

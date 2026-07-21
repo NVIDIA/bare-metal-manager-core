@@ -71,10 +71,10 @@ You can run admin cli commands as
 ```bash
 nico-admin-cli https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path /path/to/ca.crt --client-cert-path /path/to/client.crt  --client-key-path /path/to/client.key <command> ...
 ```
-Alternatively to shorten the command line you can create a file named `carbide_api_cli.json` in folder `$HOME/.config` and add the following content:
+Alternatively to shorten the command line you can create a file named `nico_api_cli.json` in folder `$HOME/.config` and add the following content:
 ```json
 {
-  "carbide_api_url": "https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>:443",
+  "api_url": "https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>:443",
   "root_ca_path": "/path/to/ca.crt",
   "client_cert_path": "/path/to/client.crt",
   "client_key_path": "/path/to/client.key"

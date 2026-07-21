@@ -18,6 +18,7 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use ::rpc::forge as rpc;
 use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
@@ -71,11 +72,7 @@ impl SiteFabricPrefixList {
         // the VPC isolation feature built on top of it, and it is better not
         // to construct one of these at all (and thus the Option-wrapped return
         // type).
-        if prefixes.is_empty() {
-            None
-        } else {
-            Some(Self { prefixes })
-        }
+        prefixes.none_if_empty().map(|prefixes| Self { prefixes })
     }
 
     pub fn as_ip_slice(&self) -> &[IpNetwork] {
@@ -332,15 +329,20 @@ pub async fn admin_network(
     // If we loop through the machine interfaces for the host snapshot and look for
     // that combo, the segment_id of that interface should be the network segment we want,
     // but checking against known admin segments adds a little bit of defense.
-    let interface = snapshot.host_snapshot.interfaces.iter().find(|interface| {
-        interface.attached_dpu_machine_id.as_ref() == Some(dpu_machine_id)
-            && admin_segment_ids.contains(&interface.segment_id)
-    });
+    let interface = snapshot
+        .host_snapshot
+        .status
+        .interfaces
+        .iter()
+        .find(|interface| {
+            interface.attached_dpu_machine_id.as_ref() == Some(dpu_machine_id)
+                && admin_segment_ids.contains(&interface.segment_id)
+        });
 
     let host_machine_id = snapshot.host_snapshot.id;
     let Some(interface) = interface else {
         return Err(CarbideError::InvalidArgument(format!(
-            "No admin interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
+            "no admin interface found attached on host: {host_machine_id} with dpu: {dpu_machine_id}"
         ))
         .into());
     };
@@ -351,6 +353,7 @@ pub async fn admin_network(
     // still disables the admin DHCP path on non-primary DPUs via is_primary_dpu.
     let active_interface = snapshot
         .host_snapshot
+        .status
         .interfaces
         .iter()
         .find(|interface| {
@@ -358,7 +361,7 @@ pub async fn admin_network(
         })
         .ok_or_else(|| {
             CarbideError::InvalidArgument(format!(
-                "No primary admin interface found on host: {host_machine_id}"
+                "no primary admin interface found on host: {host_machine_id}"
             ))
         })?;
 
@@ -368,7 +371,7 @@ pub async fn admin_network(
 
     let Some(admin_segment) = admin_segment else {
         return Err(CarbideError::internal(format!(
-            "Unknown primary admin segment `{}` attached on host: {host_machine_id}",
+            "unknown primary admin segment `{}` attached on host: {host_machine_id}",
             active_interface.segment_id
         ))
         .into());
@@ -408,7 +411,7 @@ pub async fn admin_network(
         .find(|address| address.is_ipv4())
         .ok_or_else(|| {
             CarbideError::InvalidArgument(format!(
-                "No IPv4 address found on primary host admin interface {}",
+                "no IPv4 address found on primary host admin interface {}",
                 active_interface.id
             ))
         })?;
@@ -469,7 +472,7 @@ pub async fn admin_network(
                     None => {
                         // if FNN is enabled, VPC must be created and updated in admin_segment.
                         return Err(CarbideError::internal(format!(
-                            "Admin VPC is not found with id: {vpc_id}."
+                            "admin VPC is not found with id: {vpc_id}"
                         ))
                         .into());
                     }
@@ -478,7 +481,7 @@ pub async fn admin_network(
             None => {
                 // if FNN is enabled, VPC must be created and updated in admin_segment.
                 return Err(CarbideError::internal(
-                    "Admin VPC is not attached to admin segment.".to_string(),
+                    "admin VPC is not attached to admin segment".to_string(),
                 )
                 .into());
             }

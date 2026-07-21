@@ -49,6 +49,7 @@ NICo monitors hardware through the hardware health service. The Helm chart is
 The service discovers BMC endpoints from NICo and queries them through Redfish.
 It monitors host BMCs, DPU BMCs, and configured switch or power-shelf BMCs. The
 primary monitoring path is sensor collection. Additional collectors can gather
+entity metrics (see [Hardware Entity Metrics](#hardware-entity-metrics)),
 firmware, log, NMX-T, NMX-C, NVUE REST, and leak-related data when configured.
 
 ### Helm Configuration
@@ -123,6 +124,10 @@ Collector defaults from the example config:
 | Sensor collector | `state_refresh_interval` | `"30m"` | Broader BMC state refresh cadence. |
 | Sensor collector | `sensor_fetch_concurrency` | `10` | Concurrent sensor fetch limit. |
 | Sensor collector | `include_sensor_thresholds` | `true` | Include BMC threshold data when available. |
+| Entity discovery | `refresh_interval` | `"5m"` | Redfish entity inventory rediscovery cadence. |
+| Entity discovery | `discovery_concurrency` | `4` | Concurrent per-BMC discovery limit. |
+| Entity metrics collector | `fetch_interval` | `"2m"` | Entity metrics polling cadence. |
+| Entity metrics collector | `fetch_concurrency` | `4` | Concurrent per-entity metric fetch limit. |
 | Firmware collector | `firmware_refresh_interval` | `"30m"` | Firmware refresh cadence. |
 | Logs collector | `mode` | `"sse"` | Preferred BMC log collection mode. |
 | NMX-C collector | `grpc_port` | `9370` | Switch-host NMX-C gRPC endpoint port. |
@@ -178,6 +183,62 @@ and thresholds. Sensor classifications include:
 If numeric threshold data indicates a problem but the BMC reports the sensor as
 healthy, NICo treats the sensor as healthy. In that case the BMC health state is
 the authority.
+
+### Hardware Entity Metrics
+
+Beyond sensors, BMCs expose scalar values on Redfish `*Metrics` resources —
+error counters, throttle durations, bandwidth utilization, power figures — that
+have no sensor backing. The entity metrics collector polls these and exports
+them as Prometheus series.
+
+The entity metrics collector is **disabled by default**. Add the `[collectors.metrics]`
+section to the hardware health service config to enable it:
+
+```toml
+[collectors.metrics]
+fetch_interval = "2m"     # default
+fetch_concurrency = 4     # default; parallel per-entity fetches
+```
+
+What it collects, per entity type discovered on the BMC:
+
+| Redfish source | Examples |
+|---|---|
+| `ProcessorMetrics` | Core/other error counters, PCIe error counters (fatal, non-fatal, correctable, replay, NAK, bad TLP/DLLP), power/thermal throttle durations, bandwidth, frequency, temperature, consumed power, core voltage. |
+| `MemoryMetrics` | Corrected volatile/persistent errors, current-period and lifetime ECC counters, dirty shutdowns, bandwidth, operating speed, capacity utilization. |
+| `DriveMetrics` | Correctable/uncorrectable read and write I/O errors, bad blocks, power-on hours, read/write volume. |
+| `PowerSupplyMetrics` | Input voltage/current/power, output power, energy, frequency, temperature, fan speed. |
+
+Sensor-backed values (carrying a Redfish `DataSourceUri`) are skipped:
+the sensor collector already publishes them as `hw_sensor` series, so nothing
+is double-reported.
+
+Exported series are named
+`{prefix}_hw_metric_{metric_type}_{unit}` — with the default
+`carbide_hardware_health` prefix, for example:
+
+```text
+carbide_hardware_health_hw_metric_correctable_core_errors_count
+carbide_hardware_health_hw_metric_pcie_fatal_errors_count
+carbide_hardware_health_hw_metric_bandwidth_percent
+carbide_hardware_health_hw_metric_input_power_watts
+```
+
+On the Prometheus endpoint, series carry entity labels (`processor_id`,
+`memory_id`, `drive_id`, `powersupply_id`, `system_id`, `model`, ...) plus the
+standard identity labels added by the sink (`machine_id`, `endpoint_ip`,
+`serial_number`, `rack_id`, ...), with `collector_type="metrics_collector"`.
+
+The OTLP sink (`[sinks.otlp]`) emits the same metric *names*, but places the
+identity context on OTLP resource attributes rather than datapoint labels;
+whether those appear as query labels depends on the backend (VictoriaMetrics,
+for example, flattens resource attributes onto every series).
+
+Entity discovery runs as its own periodic task (`[collectors.discovery]`,
+always on) that walks each BMC's Redfish Systems and Chassis trees and
+publishes an inventory snapshot; the metrics collector only reads that
+snapshot. Until the first discovery pass completes, the metrics collector
+emits nothing.
 
 ### Hardware Health Logs
 
@@ -513,6 +574,51 @@ sum by(classification) (
     forge_hosts_unhealthy_by_classification_count{fresh="true"}
   )
 )
+```
+
+### Per-Object Health Metrics
+
+The aggregate metrics above report *counts* of unhealthy objects. To identify
+*which* objects carry a given health-alert classification, NICo can emit one
+additional time series per affected object:
+
+```text
+carbide_object_unhealthy_by_classification_count{object_type="machine",object_id="fm100...",classification="Hardware",in_use="true"} 1
+```
+
+Labels:
+
+| Label | Values |
+|---|---|
+| `object_type` | `machine`, `switch`, `rack`, `power_shelf` |
+| `object_id` | The object's NICo id. |
+| `classification` | The health-alert classification. |
+| `in_use` | Machines only: whether a tenant instance uses the host. |
+
+Emission is opt-in per classification to contain cardinality: series count
+still scales with fleet size (one series per matching object per listed
+classification — an object carrying two enabled classifications emits two
+series), but only for the classifications you list. It is disabled by
+default; enable it in the NICo API config by listing the classifications to
+emit:
+
+```toml
+[observability]
+per_object_metrics_for_classifications = ["Hardware", "PreventAllocations"]
+```
+
+With an empty list (the default) the metric is not registered at all; the
+aggregate health metrics are unaffected either way. Series disappear
+automatically when the object becomes healthy, loses the classification, or
+is deleted — entries are retained for the registry's hold period, which is
+configured slightly longer than the state controllers' `metric_hold_time`.
+
+For example, use the following PromQL query to list hosts blocked from allocations by a hardware problem, or alert when hardware-unhealthy machines accumulate fleet-wide:
+
+```promql
+carbide_object_unhealthy_by_classification_count{object_type="machine",classification="Hardware",in_use="false"}
+
+count(carbide_object_unhealthy_by_classification_count{object_type="machine",classification="Hardware"}) > 10
 ```
 
 DPU metrics:

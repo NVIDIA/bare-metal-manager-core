@@ -51,11 +51,12 @@ pub struct RedfishActionsTable {
 /// and displays the result
 pub async fn query(
     AxumState(state): AxumState<Arc<Api>>,
-    Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
+    Extension(oauth2_layer): Extension<Option<Arc<Oauth2Layer>>>,
     request_headers: HeaderMap,
 ) -> Response {
-    let cookiejar = oauth2_layer
-        .map(|layer| PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key));
+    let cookiejar = oauth2_layer.map(|layer| {
+        PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key.clone())
+    });
 
     let mut browser = RedfishBrowser {
         actions: RedfishActionsTable {
@@ -77,7 +78,7 @@ pub async fn query(
     {
         Ok(results) => results.into_inner().actions,
         Err(err) => {
-            tracing::error!(%err, "fetch_action_requests");
+            tracing::error!(error = %err, "fetch_action_requests");
             browser.error = Some(format!("Failed to look up action requests {err}",));
             return (StatusCode::OK, Html(browser.render().unwrap())).into_response();
         }

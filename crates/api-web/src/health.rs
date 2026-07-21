@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// Flat `rpc::forge::Machine` fields are deprecated in favour of `status`/`config`
+// sub-messages, but this module must still read them until the REST API is migrated.
+// See https://github.com/NVIDIA/infra-controller/issues/2793
+#![allow(deprecated)]
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -316,7 +320,7 @@ async fn fetch_machine_health_page_data(
         Ok(entries) => entries,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
         Err(err) => {
-            tracing::error!(%err, %machine_id, "list_health_report_entries");
+            tracing::error!(error = %err, %machine_id, "list_health_report_entries");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -325,7 +329,7 @@ async fn fetch_machine_health_page_data(
     let history = match fetch_health_history(api, machine_id).await {
         Ok(records) => HealthHistoryTable { records },
         Err(err) => {
-            tracing::error!(%err, %machine_id, "find_machine_health_histories");
+            tracing::error!(error = %err, %machine_id, "find_machine_health_histories");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -347,7 +351,7 @@ async fn fetch_rack_health_page_data(
         Ok(entries) => entries,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
         Err(err) => {
-            tracing::error!(%err, %rack_id, "list_rack_health_report_overrides");
+            tracing::error!(error = %err, %rack_id, "list_rack_health_report_overrides");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -371,7 +375,7 @@ async fn fetch_power_shelf_health_page_data(
         Ok(entries) => entries,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
         Err(err) => {
-            tracing::error!(%err, %power_shelf_id, "list_power_shelf_health_reports");
+            tracing::error!(error = %err, %power_shelf_id, "list_power_shelf_health_reports");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -395,7 +399,7 @@ async fn fetch_switch_health_page_data(
         Ok(entries) => entries,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
         Err(err) => {
-            tracing::error!(%err, %switch_id, "list_switch_health_reports");
+            tracing::error!(error = %err, %switch_id, "list_switch_health_reports");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -418,7 +422,7 @@ async fn fetch_nvlink_domain_health_page_data(
         Ok(entries) => entries,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
         Err(err) => {
-            tracing::error!(%err, %domain_id, "list_nvlink_domain_health_reports");
+            tracing::error!(error = %err, %domain_id, "list_nvlink_domain_health_reports");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -455,7 +459,7 @@ async fn fetch_dpu_health_contributors(
         Ok(m) => m.machines,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
         Err(err) => {
-            tracing::error!(%err, %host_machine_id, "find_dpu_machines_by_ids");
+            tracing::error!(error = %err, %host_machine_id, "find_dpu_machines_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -563,7 +567,7 @@ async fn fetch_machine_health_snapshot(
         Ok(mut m) => Some(m.machines.remove(0)),
         Err(err) if err.code() == tonic::Code::NotFound => None,
         Err(err) => {
-            tracing::error!(%err, %machine_id, "find_machines_by_ids");
+            tracing::error!(error = %err, %machine_id, "find_machines_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -601,7 +605,7 @@ async fn fetch_rack_aggregate_health(
         Ok(mut r) => Some(r.racks.remove(0)),
         Err(err) if err.code() == tonic::Code::NotFound => None,
         Err(err) => {
-            tracing::error!(%err, %rack_id, "find_racks_by_ids");
+            tracing::error!(error = %err, %rack_id, "find_racks_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -638,7 +642,7 @@ async fn fetch_power_shelf_aggregate_health(
         Ok(mut r) => Some(r.power_shelves.remove(0)),
         Err(err) if err.code() == tonic::Code::NotFound => None,
         Err(err) => {
-            tracing::error!(%err, %power_shelf_id, "find_power_shelves_by_ids");
+            tracing::error!(error = %err, %power_shelf_id, "find_power_shelves_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -675,7 +679,7 @@ async fn fetch_switch_aggregate_health(
         Ok(mut r) => Some(r.switches.remove(0)),
         Err(err) if err.code() == tonic::Code::NotFound => None,
         Err(err) => {
-            tracing::error!(%err, %switch_id, "find_switches_by_ids");
+            tracing::error!(error = %err, %switch_id, "find_switches_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
         }
     };
@@ -920,7 +924,7 @@ async fn add_health_report_for(
             (StatusCode::NOT_FOUND, format!("Not found: {object_id}")).into_response()
         }
         Err(err) => {
-            tracing::error!(%err, %object_id, object_kind, "insert_health_report");
+            tracing::error!(error = %err, %object_id, object_kind, "insert_health_report");
             (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         }
         Ok(_) => (StatusCode::OK, String::new()).into_response(),
@@ -1047,7 +1051,7 @@ async fn remove_health_report_for(
             (StatusCode::NOT_FOUND, format!("Not found: {object_id}")).into_response()
         }
         Err(err) => {
-            tracing::error!(%err, %object_id, object_kind, "remove_health_report");
+            tracing::error!(error = %err, %object_id, object_kind, "remove_health_report");
             (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
         }
         Ok(_) => (StatusCode::OK, String::new()).into_response(),

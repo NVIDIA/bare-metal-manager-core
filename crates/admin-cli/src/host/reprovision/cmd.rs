@@ -24,6 +24,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
+#[allow(deprecated)]
 pub async fn trigger_reprovisioning_set(
     data: ReprovisionSet,
     api_client: &ApiClient,

@@ -156,7 +156,7 @@ pub async fn find_by_name(txn: &mut PgConnection, name: &str) -> DatabaseResult<
         Err(DatabaseError::new(
             "Switch::find_by_name",
             sqlx::Error::Decode(
-                eyre::eyre!("Searching for Switch {} returned multiple results", name).into(),
+                eyre::eyre!("searching for switch {} returned multiple results", name).into(),
             ),
         ))
     }
@@ -173,7 +173,7 @@ pub async fn find_by_id(txn: &mut PgConnection, id: &SwitchId) -> DatabaseResult
         Err(DatabaseError::new(
             "Switch::find_by_id",
             sqlx::Error::Decode(
-                eyre::eyre!("Searching for Switch {} returned multiple results", id).into(),
+                eyre::eyre!("searching for switch {} returned multiple results", id).into(),
             ),
         ))
     }
@@ -843,10 +843,16 @@ mod tests {
 
     use carbide_uuid::machine::MachineInterfaceId;
     use carbide_uuid::network::NetworkSegmentId;
+    use carbide_uuid::rack::{RackId, RackProfileId};
     use model::allocation_type::AllocationType;
-    use model::switch::{NewSwitch, SwitchConfig};
+    use model::rack::RackConfig;
+    use model::switch::{
+        CONTROL_PLANE_STATE_CONFIGURED, FabricManagerState, FabricManagerStatus, NewSwitch,
+        SwitchConfig, SwitchControllerState,
+    };
 
     use super::*;
+    use crate::test_support::switch::create_seeded_discovered;
 
     /// The switch load query must surface `bmc_info` (MAC + IP +
     /// machine-interface id) resolved from the BMC machine_interface linked
@@ -949,6 +955,182 @@ mod tests {
         assert_eq!(bmc_info.machine_interface_id, Some(bmc_interface_id));
         assert_eq!(bmc_info.mac, Some(bmc_mac.parse()?));
         assert_eq!(bmc_info.ip, Some(bmc_ip));
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_find_ready_control_plane_configured_switch_ids_in_rack(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rack_id: RackId = "rack-sw-find".parse().unwrap();
+        let other_rack_id: RackId = "rack-other".parse().unwrap();
+        let rack_profile_id = RackProfileId::new("NVL72");
+        let mut txn = pool.begin().await?;
+        crate::rack::create(
+            txn.as_mut(),
+            &rack_id,
+            Some(&rack_profile_id),
+            &RackConfig::default(),
+            None,
+        )
+        .await?;
+        crate::rack::create(
+            txn.as_mut(),
+            &other_rack_id,
+            Some(&rack_profile_id),
+            &RackConfig::default(),
+            None,
+        )
+        .await?;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let matching_switch = create_seeded_discovered(txn.as_mut(), 1, "Switch1").await?;
+        txn.commit().await?;
+        let mut txn = pool.begin().await?;
+        let wrong_fm_switch = create_seeded_discovered(txn.as_mut(), 2, "Switch2").await?;
+        txn.commit().await?;
+        let mut txn = pool.begin().await?;
+        let other_rack_switch = create_seeded_discovered(txn.as_mut(), 4, "Switch4").await?;
+        txn.commit().await?;
+
+        let configured_status = FabricManagerStatus {
+            fabric_manager_state: FabricManagerState::Ok,
+            addition_info: Some(CONTROL_PLANE_STATE_CONFIGURED.to_string()),
+            reason: None,
+            error_message: None,
+        };
+
+        let mut txn = pool.begin().await?;
+        for (switch_id, rack, fm_status) in [
+            (matching_switch.id, &rack_id, Some(&configured_status)),
+            (wrong_fm_switch.id, &rack_id, None),
+            (
+                other_rack_switch.id,
+                &other_rack_id,
+                Some(&configured_status),
+            ),
+        ] {
+            sqlx::query("UPDATE switches SET rack_id = $1 WHERE id = $2")
+                .bind(rack)
+                .bind(switch_id)
+                .execute(txn.as_mut())
+                .await?;
+
+            let switch = find_by_id(txn.as_mut(), &switch_id)
+                .await?
+                .expect("switch should exist");
+            let updated = try_update_controller_state(
+                txn.as_mut(),
+                switch_id,
+                switch.controller_state.version,
+                switch.controller_state.version.increment(),
+                &SwitchControllerState::Ready,
+            )
+            .await?;
+            assert!(
+                updated,
+                "setup should update switch controller state with the current version"
+            );
+
+            if let Some(status) = fm_status {
+                update_fabric_manager_status(txn.as_mut(), switch_id, Some(status)).await?;
+            }
+        }
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let found =
+            find_ready_control_plane_configured_switch_ids_in_rack(txn.as_mut(), &rack_id).await?;
+        assert_eq!(found, vec![matching_switch.id]);
+
+        let found_other =
+            find_ready_control_plane_configured_switch_ids_in_rack(txn.as_mut(), &other_rack_id)
+                .await?;
+        assert_eq!(found_other, vec![other_rack_switch.id]);
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_find_ready_control_plane_configured_switch_endpoints_prefers_primary(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rack_id: RackId = "rack-sw-endpoint".parse().unwrap();
+        let rack_profile_id = RackProfileId::new("NVL72");
+        let mut txn = pool.begin().await?;
+        crate::rack::create(
+            txn.as_mut(),
+            &rack_id,
+            Some(&rack_profile_id),
+            &RackConfig::default(),
+            None,
+        )
+        .await?;
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let secondary_switch = create_seeded_discovered(txn.as_mut(), 1, "Switch1").await?;
+        txn.commit().await?;
+        let mut txn = pool.begin().await?;
+        let primary_switch = create_seeded_discovered(txn.as_mut(), 2, "Switch2").await?;
+        txn.commit().await?;
+
+        let configured_status = FabricManagerStatus {
+            fabric_manager_state: FabricManagerState::Ok,
+            addition_info: Some(CONTROL_PLANE_STATE_CONFIGURED.to_string()),
+            reason: None,
+            error_message: None,
+        };
+
+        let mut txn = pool.begin().await?;
+        for switch_id in [secondary_switch.id, primary_switch.id] {
+            sqlx::query("UPDATE switches SET rack_id = $1 WHERE id = $2")
+                .bind(&rack_id)
+                .bind(switch_id)
+                .execute(txn.as_mut())
+                .await?;
+
+            let switch = find_by_id(txn.as_mut(), &switch_id)
+                .await?
+                .expect("switch should exist");
+            let updated = try_update_controller_state(
+                txn.as_mut(),
+                switch_id,
+                switch.controller_state.version,
+                switch.controller_state.version.increment(),
+                &SwitchControllerState::Ready,
+            )
+            .await?;
+            assert!(
+                updated,
+                "setup should update switch controller state with the current version"
+            );
+
+            update_fabric_manager_status(txn.as_mut(), switch_id, Some(&configured_status)).await?;
+        }
+        set_primary_switch_for_rack(txn.as_mut(), &rack_id, &primary_switch.id).await?;
+
+        let expected_nvos_ip = find_switch_endpoints_by_ids(txn.as_mut(), &[primary_switch.id])
+            .await?
+            .pop()
+            .expect("primary switch endpoint")
+            .nvos_ip
+            .expect("primary switch nvos ip");
+
+        let endpoints = find_ready_control_plane_configured_switch_endpoints(txn.as_mut()).await?;
+        let rack_endpoints = endpoints
+            .into_iter()
+            .filter(|endpoint| endpoint.rack_id == rack_id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(rack_endpoints.len(), 1);
+        assert_eq!(rack_endpoints[0].switch_id, primary_switch.id);
+        assert_eq!(rack_endpoints[0].rack_id, rack_id);
+        assert_eq!(rack_endpoints[0].nvos_ip, expected_nvos_ip);
+        txn.rollback().await?;
 
         Ok(())
     }

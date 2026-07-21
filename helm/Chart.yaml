@@ -44,3 +44,6 @@ dependencies:
   - name: unbound
     version: "0.1.0"
     condition: unbound.enabled
+  - name: nico-machine-a-tron
+    version: "0.1.0"
+    condition: nico-machine-a-tron.enabled

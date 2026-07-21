@@ -267,7 +267,10 @@ impl Tui {
                 .1
             }
             _ => {
-                tracing::warn!("Unexpected event: {:?}", event);
+                tracing::warn!(
+                    event = ?event,
+                    "Unexpected event",
+                );
                 false
             }
         }
@@ -459,7 +462,10 @@ impl Tui {
                         Some(Ok(event)) => {
                             list_updated = self.handle_event(event).await;
                         }
-                        Some(Err(e)) => tracing::warn!("Error: {:?}", e),
+                        Some(Err(e)) => tracing::warn!(
+                            error = ?e,
+                            "TUI error",
+                        ),
                         None => break,
                     }
                 }

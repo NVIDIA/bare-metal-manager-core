@@ -214,8 +214,11 @@ impl BmcClient {
                     tracing::error!(
                         %error,
                         %machine_id,
-                        "error spawning BMC connection, will retry in {}s",
-                        next_retry.checked_duration_since(Instant::now()).unwrap_or_default().as_secs()
+                        retry_delay_seconds = next_retry
+                            .checked_duration_since(Instant::now())
+                            .unwrap_or_default()
+                            .as_secs(),
+                        "error spawning BMC connection, will retry"
                     );
                     continue 'retry;
                 }
@@ -273,7 +276,11 @@ impl BmcClient {
                         if recovered_conflicting_sol_session {
                             tracing::debug!(%machine_id, "retrying immediately after IPMI SOL session recovery");
                         } else {
-                            tracing::debug!(%machine_id, "last connection lasted {}s, resetting backoff to 0s", connection_time.as_secs());
+                            tracing::debug!(
+                                %machine_id,
+                                connection_duration_seconds = connection_time.as_secs_f64(),
+                                "last connection succeeded long enough; resetting backoff"
+                            );
                         }
                         next_retry = Instant::now();
                     }
@@ -283,9 +290,12 @@ impl BmcClient {
                     tracing::warn!(
                         %machine_id,
                         error = error_string,
-                        ?connection_time,
-                        "connection to BMC closed, will retry in {}s",
-                        next_retry.checked_duration_since(Instant::now()).unwrap_or_default().as_secs(),
+                        connection_duration_seconds = connection_time.as_secs_f64(),
+                        retry_delay_seconds = next_retry
+                            .checked_duration_since(Instant::now())
+                            .unwrap_or_default()
+                            .as_secs(),
+                        "connection to BMC closed, will retry",
                     );
                 }
             }
@@ -346,7 +356,11 @@ async fn wait_until_host_is_up(
 
         if do_log {
             do_log = false;
-            tracing::info!(%machine_id, %addr, "BMC is not listening on {addr}. Will wait until the port is open before attempting to connect.")
+            tracing::info!(
+                %machine_id,
+                bmc_address = %addr,
+                "BMC is not listening; waiting for the port to open before connecting"
+            )
         }
     }
 }
@@ -490,9 +504,9 @@ fn next_retry_backoff(config: &Config, prev: Duration) -> Duration {
         Duration::from_secs_f64(rand::random_range(prev.as_secs_f64()..upper))
     };
     tracing::debug!(
-        "next_retry_backoff, increasing from {}ms to {}ms",
-        prev.as_millis(),
-        duration.as_millis()
+        previous_backoff_milliseconds = prev.as_millis(),
+        next_backoff_milliseconds = duration.as_millis(),
+        "increasing connection retry backoff"
     );
     duration
 }

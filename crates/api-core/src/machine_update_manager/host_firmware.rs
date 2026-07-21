@@ -73,7 +73,10 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             if firmware_catalog_last_read.as_ref() != Some(&catalog_marker) {
                 // Save the firmware config in an SQL table so that we can filter for hosts with non-matching firmware there.
                 let fw_config_snapshot = self.effective_firmware_config_snapshot(&mut txn).await?;
-                tracing::info!("Firmware config now: {:?}", fw_config_snapshot);
+                tracing::info!(
+                    firmware_config_snapshot = ?fw_config_snapshot,
+                    "Firmware config now",
+                );
                 let models = fw_config_snapshot.into_values().collect::<Vec<_>>();
                 desired_firmware::snapshot_desired_firmware(&mut txn, &models).await?;
                 *firmware_catalog_last_read = Some(catalog_marker);
@@ -183,7 +186,7 @@ impl HostFirmwareUpdate {
         meter: opentelemetry::metrics::Meter,
         firmware_config: FirmwareConfig,
     ) -> Option<Self> {
-        tracing::info!("Using firmware configuration: {firmware_config:?}");
+        tracing::info!(?firmware_config, "Using firmware configuration",);
 
         let metrics = HostFirmwareUpdateMetrics::new();
         metrics.register_callbacks(&meter);
@@ -280,9 +283,7 @@ impl HostFirmwareUpdateMetrics {
         let exhausted_reprovision_retries = self.exhausted_reprovision_retries.clone();
         meter
             .u64_observable_gauge("carbide_pending_host_firmware_update_count")
-            .with_description(
-                "The number of host machines in the system that need a firmware update.",
-            )
+            .with_description("Number of host machines in the system that need a firmware update.")
             .with_callback(move |observer| {
                 observer.observe(pending_firmware_updates.load(Ordering::Relaxed), &[])
             })
@@ -290,7 +291,7 @@ impl HostFirmwareUpdateMetrics {
         meter
             .u64_observable_gauge("carbide_active_host_firmware_update_count")
             .with_description(
-                "The number of host machines in the system currently working on updating their firmware.",
+                "Number of host machines in the system currently working on updating their firmware.",
             )
             .with_callback(move |observer|
                 observer.observe(active_firmware_updates.load(Ordering::Relaxed), &[]))

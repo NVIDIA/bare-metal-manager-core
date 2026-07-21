@@ -19,6 +19,7 @@ use std::str::FromStr;
 
 use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use carbide_libmlx_model::firmware::result::FirmwareFlashReport;
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use mac_address::MacAddress;
 
 use crate::protos::mlx_device::{
@@ -63,26 +64,18 @@ impl TryFrom<MlxDeviceInfoPb> for MlxDeviceInfo {
             )
         };
 
-        // Similar to parse_optional_xml_field, have a little helper
-        // for handling it with Rust <-> proto type conversion as well.
-        let parse_optional_field = |s: String| if s.is_empty() { None } else { Some(s) };
-
         Ok(MlxDeviceInfo {
             pci_name: proto.pci_name,
             device_type: proto.device_type,
-            psid: parse_optional_field(proto.psid),
-            device_description: parse_optional_field(proto.device_description),
-            part_number: parse_optional_field(proto.part_number),
-            fw_version_current: parse_optional_field(proto.fw_version_current),
-            pxe_version_current: parse_optional_field(proto.pxe_version_current),
-            uefi_version_current: parse_optional_field(proto.uefi_version_current),
-            uefi_version_virtio_blk_current: parse_optional_field(
-                proto.uefi_version_virtio_blk_current,
-            ),
-            uefi_version_virtio_net_current: parse_optional_field(
-                proto.uefi_version_virtio_net_current,
-            ),
-            status: parse_optional_field(proto.status),
+            psid: proto.psid.none_if_empty(),
+            device_description: proto.device_description.none_if_empty(),
+            part_number: proto.part_number.none_if_empty(),
+            fw_version_current: proto.fw_version_current.none_if_empty(),
+            pxe_version_current: proto.pxe_version_current.none_if_empty(),
+            uefi_version_current: proto.uefi_version_current.none_if_empty(),
+            uefi_version_virtio_blk_current: proto.uefi_version_virtio_blk_current.none_if_empty(),
+            uefi_version_virtio_net_current: proto.uefi_version_virtio_net_current.none_if_empty(),
+            status: proto.status.none_if_empty(),
             base_mac,
         })
     }

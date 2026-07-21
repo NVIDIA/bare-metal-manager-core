@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
@@ -25,10 +26,11 @@ use serde::{Deserialize, Serialize};
 /// reported by Redfish. Carrying both identifiers is what makes boot-interface
 /// operations resilient -- callers target the MAC first and fall back to the
 /// [stable] `interface_id`, so the boot interface stays addressable even if one
-/// identifier becomes unavailable. That happens, for example, after a DPU
-/// `DpuMode` -> `NicMode` flip: some vendor BIOSes stop probing the adapter and
-/// the MAC drops out of `NetworkDeviceFunctions` / `EthernetInterfaces` /
-/// `NetworkAdapters`, leaving the `interface_id` as the reliable handle.
+/// identifier becomes unavailable. That happens, for example, after a BlueField
+/// operating-mode flip from DPU to NIC: some vendor BIOSes stop probing the
+/// adapter and the MAC drops out of `NetworkDeviceFunctions` /
+/// `EthernetInterfaces` / `NetworkAdapters`, leaving the `interface_id` as the
+/// reliable handle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct MachineBootInterface {
@@ -54,7 +56,7 @@ impl MachineBootInterface {
     ) -> Option<Self> {
         Some(Self {
             mac_address: mac_address?,
-            interface_id: interface_id.filter(|s| !s.is_empty())?,
+            interface_id: interface_id.none_if_empty()?,
         })
     }
 

@@ -106,7 +106,11 @@ pub async fn run(
         )
         .await?;
     let machine_id = registration_data.machine_id;
-    info!("successfully discovered machine {machine_id} for interface {machine_interface_id:?}");
+    info!(
+        %machine_id,
+        ?machine_interface_id,
+        "successfully discovered machine",
+    );
 
     // If we are not on a DPU and have some post-registration things to do,
     // we do them here.
@@ -124,9 +128,9 @@ pub async fn run(
                 "Sent AttestKeyInfo and received AttestKeyBindChallenge, starting measurements ..."
             );
             tracing::info!(
-                "cred_blob - {} bytes long, secret - {} bytes long",
-                attest_key_challenge.cred_blob.len(),
-                attest_key_challenge.encrypted_secret.len()
+                credential_blob_bytes = attest_key_challenge.cred_blob.len(),
+                encrypted_secret_bytes = attest_key_challenge.encrypted_secret.len(),
+                "Received attestation key challenge credential sizes",
             );
 
             let Some(ek_handle) = endorsement_key_handle_opt else {

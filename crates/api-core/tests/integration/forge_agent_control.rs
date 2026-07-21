@@ -136,7 +136,7 @@ async fn assigned_discovery_boot_does_not_reset_without_cleanup_timestamp(pool: 
 
     let mut txn = env.db_txn().await;
     let host = mh.host.db_machine(&mut txn).await;
-    assert!(host.last_cleanup_time.is_none());
+    assert!(host.status.last_cleanup_time.is_none());
     txn.rollback().await.unwrap();
 
     mh.host.reboot_completed().await;
@@ -187,7 +187,7 @@ async fn waiting_for_scout_upgrade_returns_task_without_cleanup_timestamp(pool: 
 
     let mut txn = env.db_txn().await;
     let host = mh.host.db_machine(&mut txn).await;
-    assert!(host.last_cleanup_time.is_none());
+    assert!(host.status.last_cleanup_time.is_none());
     txn.rollback().await.unwrap();
 
     let response = mh.host.forge_agent_control().await;

@@ -56,10 +56,9 @@ envConfig:
   # Using InsecuregRPC (0) against a TLS-only server causes a 5-second
   # DeadlineExceeded on the initial Version health-check RPC and leaves the
   # NicoClient nil, causing all inventory activity panics.
-  # Set both NICO_* (renamed binary) and CARBIDE_* (current carbide binary) names
-  # so the chart works with either image; binary reads only its expected env name.
-  NICO_ADDRESS: "nico-api.nico-system.svc.cluster.local:1079"
-  NICO_SEC_OPT: "2"
+  # Site-agent reads CORE_GRPC_* first, then CARBIDE_* legacy fallbacks.
+  CORE_GRPC_ADDRESS: "nico-api.nico-system.svc.cluster.local:1079"
+  CORE_GRPC_SEC_OPT: "2"
   CARBIDE_ADDRESS: "nico-api.nico-system.svc.cluster.local:1079"
   CARBIDE_SEC_OPT: "2"
 

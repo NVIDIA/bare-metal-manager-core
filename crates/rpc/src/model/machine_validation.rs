@@ -16,6 +16,7 @@
  */
 use std::str::FromStr;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use model::machine_validation::{
@@ -302,11 +303,7 @@ impl TryFrom<rpc::forge::MachineValidationTest> for MachineValidationTest {
             modified_by: value.modified_by,
             verified: value.verified,
             read_only: value.read_only,
-            custom_tags: if value.custom_tags.is_empty() {
-                None
-            } else {
-                Some(value.custom_tags)
-            },
+            custom_tags: value.custom_tags.none_if_empty(),
             components: value.components,
             last_modified_at: Utc::now(),
             is_enabled: value.is_enabled,

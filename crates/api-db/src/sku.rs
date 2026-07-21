@@ -314,7 +314,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
         ));
     };
 
-    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+    let Some(hardware_info) = machine.status.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
             "generate sku: load hardware info",
             sqlx::Error::RowNotFound,
@@ -369,7 +369,7 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
 
     let ib_capabilities = MachineCapabilityInfiniband::from_ib_interfaces_and_status(
         &hardware_info.infiniband_interfaces,
-        machine.infiniband_status_observation.as_ref(),
+        machine.status.infiniband_status_observation.as_ref(),
     );
     let ib_components: Vec<SkuComponentInfinibandDevices> = ib_capabilities
         .into_iter()
@@ -444,9 +444,9 @@ pub fn generate_base_sku_from_hardware(
 
     let capabilities = MachineCapabilitiesSet::from_hardware_info(
         hardware_info,
-        machine.infiniband_status_observation.as_ref(),
+        machine.status.infiniband_status_observation.as_ref(),
         machine.associated_dpu_machine_ids(),
-        &machine.interfaces,
+        &machine.status.interfaces,
     );
 
     let chassis = SkuComponentChassis {
@@ -567,7 +567,7 @@ pub async fn generate_sku_from_machine_at_version_2(
         ));
     };
 
-    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+    let Some(hardware_info) = machine.status.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
             "generate sku: load hardware info (v2)",
             sqlx::Error::RowNotFound,
@@ -620,7 +620,7 @@ pub async fn generate_sku_from_machine_at_version_3(
         ));
     };
 
-    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+    let Some(hardware_info) = machine.status.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
             "generate sku: load hardware info (v3)",
             sqlx::Error::RowNotFound,
@@ -669,7 +669,7 @@ pub async fn generate_sku_from_machine_at_version_4(
         ));
     };
 
-    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+    let Some(hardware_info) = machine.status.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
             "generate sku: load hardware info (v4)",
             sqlx::Error::RowNotFound,

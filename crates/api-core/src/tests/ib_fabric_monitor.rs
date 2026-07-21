@@ -143,11 +143,23 @@ async fn test_ib_port_down_sets_prevent_allocations_alert(
     }
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     let guid1 = discovery_info.infiniband_interfaces[0].guid.clone();
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let has_ib_port_down_alert = health.alerts.iter().any(|alert| alert.id == "IbPortDown");
     assert!(
         !has_ib_port_down_alert,
@@ -160,7 +172,13 @@ async fn test_ib_port_down_sets_prevent_allocations_alert(
     env.run_ib_fabric_monitor_iteration().await;
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let ib_port_down_alert = health.alerts.iter().find(|alert| alert.id == "IbPortDown");
     assert!(
         ib_port_down_alert.is_some(),
@@ -186,7 +204,13 @@ async fn test_ib_port_down_sets_prevent_allocations_alert(
 
     // Verify IbPortDown alert is cleared
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let has_ib_port_down_alert = health.alerts.iter().any(|alert| alert.id == "IbPortDown");
     assert!(
         !has_ib_port_down_alert,
@@ -222,7 +246,13 @@ async fn test_ib_multiple_ports_down(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     }
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     let guid1 = discovery_info.infiniband_interfaces[0].guid.clone();
     let guid2 = discovery_info.infiniband_interfaces[1].guid.clone();
     let total_ports = discovery_info.infiniband_interfaces.len();
@@ -234,7 +264,13 @@ async fn test_ib_multiple_ports_down(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_ib_fabric_monitor_iteration().await;
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let ib_port_down_alert = health
         .alerts
         .iter()
@@ -265,7 +301,13 @@ async fn test_ib_multiple_ports_down(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_ib_fabric_monitor_iteration().await;
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let ib_port_down_alert = health
         .alerts
         .iter()
@@ -289,7 +331,13 @@ async fn test_ib_multiple_ports_down(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_ib_fabric_monitor_iteration().await;
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let ib_port_down_alert = health.alerts.iter().find(|alert| alert.id == "IbPortDown");
 
     assert!(

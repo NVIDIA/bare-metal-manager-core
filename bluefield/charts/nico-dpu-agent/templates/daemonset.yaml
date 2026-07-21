@@ -1,3 +1,41 @@
+{{- $bootstrapCa := default (dict) .Values.bootstrapCa -}}
+{{- $bootstrapCaSource := default "legacy_download" (get $bootstrapCa "source") -}}
+{{- $bootstrapCaUrl := default "" (get $bootstrapCa "url") -}}
+{{- $bootstrapCaObject := default (dict) (get $bootstrapCa "object") -}}
+{{- $bootstrapCaObjectKind := default "" (get $bootstrapCaObject "kind") -}}
+{{- $bootstrapCaObjectName := default "" (get $bootstrapCaObject "name") -}}
+{{- $bootstrapCaObjectKey := "ca.crt" -}}
+{{- if hasKey $bootstrapCaObject "key" -}}
+{{- $bootstrapCaObjectKey = get $bootstrapCaObject "key" -}}
+{{- end -}}
+{{- $certsDir := .Values.certsDir | default "/opt/nico" -}}
+{{- if not (has $bootstrapCaSource (list "legacy_download" "mounted")) -}}
+{{- fail (printf "bootstrapCa.source must be one of legacy_download or mounted; got %q" $bootstrapCaSource) -}}
+{{- end -}}
+{{- if eq $bootstrapCaSource "legacy_download" -}}
+  {{- if not (empty $bootstrapCaObject) -}}
+  {{- fail "bootstrapCa.object is only valid when bootstrapCa.source is mounted" -}}
+  {{- end -}}
+{{- else -}}
+  {{- if not (empty $bootstrapCaUrl) -}}
+  {{- fail "bootstrapCa.url is only valid when bootstrapCa.source is legacy_download" -}}
+  {{- end -}}
+  {{- if not (has $bootstrapCaObjectKind (list "Secret" "ConfigMap")) -}}
+  {{- fail "bootstrapCa.object.kind must be Secret or ConfigMap when bootstrapCa.source is mounted" -}}
+  {{- end -}}
+  {{- if empty $bootstrapCaObjectName -}}
+  {{- fail "bootstrapCa.object.name is required when bootstrapCa.source is mounted" -}}
+  {{- end -}}
+  {{- if empty $bootstrapCaObjectKey -}}
+  {{- fail "bootstrapCa.object.key must not be empty when bootstrapCa.source is mounted" -}}
+  {{- end -}}
+  {{- /* The init container installs the validated bundle at its fixed
+         /opt/forge/forge_root.pem path, so the shared nico-certs hostPath must
+         be mounted there. */ -}}
+  {{- if ne $certsDir "/opt/forge" -}}
+  {{- fail "bootstrapCa.source mounted requires certsDir=/opt/forge because the init container installs /opt/forge/forge_root.pem there" -}}
+  {{- end -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -51,6 +89,11 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
             - init-container
+            {{- if eq $bootstrapCaSource "mounted" }}
+            - "--bootstrap-ca-source=mounted"
+            {{- else if not (empty $bootstrapCaUrl) }}
+            - {{ printf "--bootstrap-ca-url=%s" $bootstrapCaUrl | quote }}
+            {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: RUST_BACKTRACE
@@ -77,6 +120,11 @@ spec:
             - name: host-resolv-conf
               mountPath: /host-resolv.conf
               readOnly: true
+            {{- if eq $bootstrapCaSource "mounted" }}
+            - name: bootstrap-ca-source
+              mountPath: /var/run/secrets/nico-bootstrap-ca
+              readOnly: true
+            {{- end }}
       containers:
         - name: nico-dpu-agent
           securityContext:
@@ -165,6 +213,22 @@ spec:
           hostPath:
             path: /etc/resolv.conf
             type: File
+        {{- if eq $bootstrapCaSource "mounted" }}
+        - name: bootstrap-ca-source
+          {{- if eq $bootstrapCaObjectKind "Secret" }}
+          secret:
+            secretName: {{ $bootstrapCaObjectName | quote }}
+            items:
+              - key: {{ $bootstrapCaObjectKey | quote }}
+                path: ca.pem
+          {{- else }}
+          configMap:
+            name: {{ $bootstrapCaObjectName | quote }}
+            items:
+              - key: {{ $bootstrapCaObjectKey | quote }}
+                path: ca.pem
+          {{- end }}
+        {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

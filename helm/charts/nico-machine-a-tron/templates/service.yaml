@@ -1,0 +1,68 @@
+{{- $root := . }}
+{{- $namespace := include "nico-machine-a-tron.namespace" . }}
+{{- $baseName := include "nico-machine-a-tron.name" . }}
+
+{{/*
+Count active pods (same logic as deployment.yaml)
+*/}}
+{{- $activePods := 0 }}
+{{- range $podName, $podConfig := .Values.pods }}
+{{- if $root.Values.bmcServices.enabled }}
+{{- if $podConfig.cidr }}
+{{- $activePods = add $activePods 1 }}
+{{- end }}
+{{- else }}
+{{- if $podConfig.machines }}
+{{- $activePods = add $activePods 1 }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- range $podName, $podConfig := .Values.pods }}
+{{/*
+Skip conditions (same as deployment.yaml)
+*/}}
+{{- if $root.Values.bmcServices.enabled }}
+{{- if not $podConfig.cidr }}
+{{- continue }}
+{{- end }}
+{{- else }}
+{{- if not $podConfig.machines }}
+{{- continue }}
+{{- end }}
+{{- end }}
+
+{{- $name := $baseName }}
+{{- if gt $activePods 1 }}
+{{- $name = printf "%s-%s" $baseName $podName }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-bmc-mock
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" $root | nindent 4 }}
+    app: {{ $baseName }}
+    {{- if gt $activePods 1 }}
+    nvidia-infra-controller/pod-name: {{ $podName | quote }}
+    {{- end }}
+spec:
+  selector:
+    {{- include "nico-machine-a-tron.selectorLabels" $root | nindent 4 }}
+    {{- if gt $activePods 1 }}
+    nvidia-infra-controller/pod-name: {{ $podName | quote }}
+    {{- end }}
+  ports:
+    - port: {{ $root.Values.service.bmcMock.port }}
+      name: redfish
+      targetPort: redfish
+      protocol: TCP
+    {{- if $root.Values.machineATron.mockBmcSshServer }}
+    - port: {{ $root.Values.service.ssh.port }}
+      name: ssh
+      targetPort: ssh
+      protocol: TCP
+    {{- end }}
+{{- end }}

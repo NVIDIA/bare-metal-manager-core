@@ -89,6 +89,9 @@ pub struct EndpointSourcesConfig {
 
     /// Static BMC endpoints
     pub static_bmc_endpoints: Vec<StaticBmcEndpoint>,
+
+    /// Cluster inventory file source (file or cluster manager JSON RPC)
+    pub cluster: Configurable<ClusterEndpointSourceConfig>,
 }
 
 impl Default for EndpointSourcesConfig {
@@ -96,7 +99,91 @@ impl Default for EndpointSourcesConfig {
         Self {
             carbide_api: Configurable::Enabled(CarbideApiConnectionConfig::default()),
             static_bmc_endpoints: Vec::new(),
+            cluster: Configurable::Disabled,
         }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClusterEndpointSourceConfig {
+    /// Path to a JSON inventory file containing BMC endpoints and credentials for the cluster.
+    /// Used when `cluster_manager_url` is absent.
+    #[serde(default)]
+    pub inventory_path: PathBuf,
+
+    /// Cluster manager head-node URL (e.g. https://10.x.x.x:8081).
+    /// When set, inventory and credentials are fetched live via cluster manager JSON RPC
+    /// instead of reading `inventory_path`.
+    #[serde(default)]
+    pub cluster_manager_url: Option<url::Url>,
+
+    /// Cluster manager partition to read bmcsettings from (default: "base").
+    /// The cluster manager stores BMC username/password at partition level; this selects which partition.
+    #[serde(default = "default_cluster_manager_partition")]
+    pub cluster_manager_partition: String,
+
+    /// Fallback BMC username if cluster manager JSON RPC does not return one.
+    /// Cluster manager default is "bright" (set during head-node installation).
+    #[serde(default = "default_cluster_manager_username")]
+    pub default_username: String,
+
+    /// Fallback BMC password if cluster manager JSON RPC does not return one.
+    /// Must be set explicitly — no code-level default.
+    #[serde(default)]
+    pub default_password: Option<String>,
+
+    /// Optional BMC port override. None uses the BmcClient default (443/HTTPS).
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+fn default_cluster_manager_partition() -> String {
+    "base".to_string()
+}
+
+fn default_cluster_manager_username() -> String {
+    "bright".to_string()
+}
+
+impl Default for ClusterEndpointSourceConfig {
+    fn default() -> Self {
+        Self {
+            inventory_path: PathBuf::default(),
+            cluster_manager_url: None,
+            cluster_manager_partition: default_cluster_manager_partition(),
+            default_username: default_cluster_manager_username(),
+            default_password: None,
+            port: None,
+        }
+    }
+}
+
+impl ClusterEndpointSourceConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.cluster_manager_url.is_none() && self.inventory_path.as_os_str().is_empty() {
+            return Err(
+                "cluster endpoint source requires either `inventory_path` or `cluster_manager_url`"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ClusterEndpointSourceConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClusterEndpointSourceConfig")
+            .field("inventory_path", &self.inventory_path)
+            .field("cluster_manager_url", &self.cluster_manager_url)
+            .field("cluster_manager_partition", &self.cluster_manager_partition)
+            .field("default_username", &self.default_username)
+            .field(
+                "default_password",
+                &self.default_password.as_ref().map(|_| "<redacted>"),
+            )
+            .field("port", &self.port)
+            .finish()
     }
 }
 
@@ -371,6 +458,13 @@ pub struct OtlpTargetConfig {
     /// Endpoint URI that receives both logs and metrics over OTLP/gRPC.
     pub endpoint: String,
 
+    /// Optional TLS or mTLS configuration for this endpoint.
+    ///
+    /// Omit this table for HTTPS endpoints that use platform trust roots. A
+    /// configured profile supplies a private CA, and supplying a client
+    /// certificate and key additionally enables mTLS.
+    pub tls: Option<OtlpTlsConfig>,
+
     /// Maximum number of events or samples exported per request. Defaults to
     /// 512.
     #[serde(default = "OtlpTargetConfig::default_batch_size")]
@@ -415,8 +509,107 @@ impl OtlpTargetConfig {
             return Err(format!("{path}.flush_interval must be greater than 0"));
         }
 
-        tonic::transport::Channel::from_shared(self.endpoint.clone())
+        let endpoint = tonic::transport::Channel::from_shared(self.endpoint.clone())
             .map_err(|_| format!("invalid {path}.endpoint: {}", self.endpoint))?;
+
+        if let Some(tls) = &self.tls {
+            if endpoint.uri().scheme_str() != Some("https") {
+                return Err(format!("{path}.tls requires an https endpoint"));
+            }
+
+            tls.validate(&path)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// TLS policy for one OTLP/gRPC target.
+///
+/// The CA bundle verifies the server certificate. Supplying both client paths
+/// adds a client identity and enables mTLS. Each signal drain periodically
+/// reloads the certificate files and adopts them only after a replacement
+/// connection succeeds. A failed reload leaves the current connection active.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OtlpTlsConfig {
+    /// Path to the CA bundle used to verify the OTLP server certificate.
+    pub ca_cert_path: PathBuf,
+
+    /// Optional path to the client certificate chain for mTLS.
+    pub client_cert_path: Option<PathBuf>,
+
+    /// Optional path to the client private key for mTLS.
+    pub client_key_path: Option<PathBuf>,
+
+    /// Optional DNS name used for TLS SNI and server certificate verification.
+    pub tls_server_name: Option<String>,
+
+    /// Interval between reloads of this target's TLS files. Defaults to five
+    /// minutes.
+    #[serde(
+        default = "OtlpTlsConfig::default_reload_interval",
+        with = "humantime_serde"
+    )]
+    pub reload_interval: Duration,
+}
+
+impl OtlpTlsConfig {
+    /// Default interval between attempts to reload an OTLP target's TLS files.
+    pub(crate) const DEFAULT_RELOAD_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+    fn default_reload_interval() -> Duration {
+        Self::DEFAULT_RELOAD_INTERVAL
+    }
+
+    fn validate(&self, target_path: &str) -> Result<(), String> {
+        let path = format!("{target_path}.tls");
+
+        if self.ca_cert_path.as_os_str().is_empty() {
+            return Err(format!("{path}.ca_cert_path must not be empty"));
+        }
+
+        match (&self.client_cert_path, &self.client_key_path) {
+            (Some(client_cert_path), Some(client_key_path)) => {
+                if client_cert_path.as_os_str().is_empty() {
+                    return Err(format!("{path}.client_cert_path must not be empty"));
+                }
+
+                if client_key_path.as_os_str().is_empty() {
+                    return Err(format!("{path}.client_key_path must not be empty"));
+                }
+            }
+            (Some(_), None) => {
+                return Err(format!(
+                    "{path}.client_key_path must be set when {path}.client_cert_path is set"
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(format!(
+                    "{path}.client_cert_path must be set when {path}.client_key_path is set"
+                ));
+            }
+            (None, None) => {}
+        }
+
+        if let Some(tls_server_name) = self.tls_server_name.as_deref() {
+            if tls_server_name.trim().is_empty() {
+                return Err(format!("{path}.tls_server_name must not be empty"));
+            }
+
+            if tls_server_name.trim() != tls_server_name {
+                return Err(format!(
+                    "{path}.tls_server_name must not contain leading or trailing whitespace"
+                ));
+            }
+
+            DnsName::try_from(tls_server_name)
+                .map_err(|_| format!("{path}.tls_server_name must be a valid DNS name"))?;
+        }
+
+        if self.reload_interval.is_zero() {
+            return Err(format!("{path}.reload_interval must be greater than 0"));
+        }
 
         Ok(())
     }
@@ -596,6 +789,9 @@ pub struct CollectorsConfig {
 
     /// NVUE collector configuration for direct NVUE HTTP(s) polling of NVLink switches
     pub nvue: Configurable<NvueCollectorConfig>,
+
+    /// GPU inventory collector: compares OOB GPU count vs the assigned SKU.
+    pub gpu_inventory: Configurable<GpuInventoryConfig>,
 }
 
 impl Default for CollectorsConfig {
@@ -610,6 +806,7 @@ impl Default for CollectorsConfig {
             nmxt: Configurable::Disabled,
             nmxc: Configurable::Disabled,
             nvue: Configurable::Disabled,
+            gpu_inventory: Configurable::Disabled,
         }
     }
 }
@@ -724,6 +921,25 @@ impl Default for MetricsCollectorConfig {
         Self {
             fetch_interval: Duration::from_secs(120),
             fetch_concurrency: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GpuInventoryConfig {
+    /// How often to re-check the GPU count against the assigned SKU. GPU
+    /// population is near-static and each iteration re-reads the SKU from the
+    /// NICo API, so this defaults to a low frequency (1h, matching the entity
+    /// discovery refresh cadence) rather than hammering the API.
+    #[serde(with = "humantime_serde")]
+    pub interval: Duration,
+}
+
+impl Default for GpuInventoryConfig {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(3600),
         }
     }
 }
@@ -939,6 +1155,22 @@ pub struct PeriodicLogConfig {
 
     /// Path to logs collector state file (supports {machine_id} placeholder).
     pub logs_state_file: String,
+
+    /// Substrings matched against each Redfish LogService odata id; any service
+    /// whose id contains one of these is skipped during discovery. Defaults to
+    /// `["Journal"]` to suppress the bmcweb HTTP-access log, which is
+    /// high-volume and self-referential. Set to `[]` to collect from every
+    /// discovered LogService.
+    #[serde(default)]
+    pub exclude_services: Vec<String>,
+
+    /// When true, on the first encounter of a LogService with no saved state,
+    /// anchor at the current highest entry ID without emitting existing entries.
+    /// Subsequent polls collect only new entries, matching SSE real-time
+    /// behaviour. Defaults to false (existing entries are collected on first
+    /// run). Also applies when auto-mode downgrades to periodic collection.
+    #[serde(default)]
+    pub skip_initial_history: bool,
 }
 
 impl Default for PeriodicLogConfig {
@@ -947,6 +1179,8 @@ impl Default for PeriodicLogConfig {
             logs_collection_interval: Duration::from_secs(300),
             state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
+            exclude_services: vec!["Journal".to_string()],
+            skip_initial_history: false,
         }
     }
 }
@@ -1424,6 +1658,10 @@ impl Config {
             endpoint.validate(index)?;
         }
 
+        if let Configurable::Enabled(ref cluster_cfg) = self.endpoint_sources.cluster {
+            cluster_cfg.validate()?;
+        }
+
         if let Configurable::Enabled(health_report) = &self.sinks.health_report
             && health_report.workers == 0
         {
@@ -1480,6 +1718,27 @@ impl Config {
 
         if let Configurable::Enabled(nmxc) = &self.collectors.nmxc {
             nmxc.validate()?;
+        }
+
+        if let Configurable::Enabled(gpu_inventory) = &self.collectors.gpu_inventory {
+            if !self.endpoint_sources.carbide_api.is_enabled() {
+                return Err(
+                    "collectors.gpu_inventory requires endpoint_sources.carbide_api to be enabled \
+                     (expected GPU counts are resolved from the machine SKU via the Carbide API)"
+                        .to_string(),
+                );
+            }
+            if !self.sinks.health_report.is_enabled() {
+                return Err(
+                    "collectors.gpu_inventory requires sinks.health_report to be enabled \
+                     (GPU shortage alerts are delivered through the health-report sink)"
+                        .to_string(),
+                );
+            }
+            if gpu_inventory.interval.is_zero() {
+                // A zero interval would busy-loop the collector and flood the BMC / API.
+                return Err("collectors.gpu_inventory.interval must be greater than 0".to_string());
+            }
         }
 
         if let Configurable::Enabled(ref otlp) = self.sinks.otlp {
@@ -1791,6 +2050,47 @@ username = "root"
     }
 
     #[test]
+    fn test_gpu_inventory_requires_carbide_api_and_health_report() {
+        let mut config = Config::default();
+        config.collectors.gpu_inventory = Configurable::Enabled(GpuInventoryConfig::default());
+
+        // Enabled without the Carbide API source -> invalid (can't resolve SKU).
+        config.endpoint_sources.carbide_api = Configurable::Disabled;
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig::default());
+        assert!(config.validate().is_err());
+
+        // Enabled without the health-report sink -> invalid (alerts go nowhere).
+        config.endpoint_sources.carbide_api =
+            Configurable::Enabled(CarbideApiConnectionConfig::default());
+        config.sinks.health_report = Configurable::Disabled;
+        assert!(config.validate().is_err());
+
+        // Both dependencies present -> valid.
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig::default());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_gpu_inventory_rejects_zero_interval() {
+        let mut config = Config::default();
+        config.endpoint_sources.carbide_api =
+            Configurable::Enabled(CarbideApiConnectionConfig::default());
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig::default());
+
+        // A zero interval would busy-loop the collector -> rejected.
+        config.collectors.gpu_inventory = Configurable::Enabled(GpuInventoryConfig {
+            interval: Duration::from_secs(0),
+        });
+        assert!(config.validate().is_err());
+
+        // A positive interval with both dependencies present -> valid.
+        config.collectors.gpu_inventory = Configurable::Enabled(GpuInventoryConfig {
+            interval: Duration::from_secs(300),
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
     fn test_config_validation() {
         let mut config = Config::default();
 
@@ -1943,6 +2243,7 @@ username = "root"
                 batch_size: 512,
                 flush_interval: Duration::from_secs(2),
                 include_diagnostics: false,
+                tls: None,
             }],
         });
 
@@ -1958,6 +2259,7 @@ username = "root"
                 batch_size: 512,
                 flush_interval: Duration::from_secs(2),
                 include_diagnostics: false,
+                tls: None,
             }],
         });
 
@@ -2000,13 +2302,20 @@ include_diagnostics = true
             .merge(Toml::string(
                 r#"
 [[targets]]
-endpoint = "http://site.example:4317"
+endpoint = "https://site.example:4317"
 
 [[targets]]
 endpoint = "https://central.example:4317"
 batch_size = 1024
 flush_interval = "5s"
 include_diagnostics = true
+
+[targets.tls]
+ca_cert_path = "/central/ca.crt"
+client_cert_path = "/central/tls.crt"
+client_key_path = "/central/tls.key"
+tls_server_name = "central.example"
+reload_interval = "30s"
 "#,
             ))
             .extract()
@@ -2015,11 +2324,32 @@ include_diagnostics = true
         let targets = &otlp.targets;
 
         assert_eq!(targets.len(), 2);
+        assert!(targets[0].tls.is_none());
         assert_eq!(targets[0].batch_size, 512);
         assert_eq!(targets[0].flush_interval, Duration::from_secs(2));
         assert_eq!(targets[1].batch_size, 1024);
         assert_eq!(targets[1].flush_interval, Duration::from_secs(5));
         assert!(targets[1].include_diagnostics);
+
+        let tls = targets[1]
+            .tls
+            .as_ref()
+            .expect("central target should use TLS");
+
+        assert_eq!(tls.ca_cert_path, PathBuf::from("/central/ca.crt"));
+
+        assert_eq!(
+            tls.client_cert_path.as_deref(),
+            Some(Path::new("/central/tls.crt"))
+        );
+
+        assert_eq!(
+            tls.client_key_path.as_deref(),
+            Some(Path::new("/central/tls.key"))
+        );
+
+        assert_eq!(tls.tls_server_name.as_deref(), Some("central.example"));
+        assert_eq!(tls.reload_interval, Duration::from_secs(30));
 
         let mut config = Config::default();
 
@@ -2028,6 +2358,16 @@ include_diagnostics = true
         config
             .validate()
             .expect("multi-target OTLP config should validate");
+    }
+
+    #[test]
+    fn otlp_tls_reload_interval_defaults_to_five_minutes() {
+        let tls: OtlpTlsConfig = Figment::new()
+            .merge(Toml::string("ca_cert_path = \"/site/ca.crt\""))
+            .extract()
+            .expect("OTLP TLS config should parse without a reload interval");
+
+        assert_eq!(tls.reload_interval, OtlpTlsConfig::DEFAULT_RELOAD_INTERVAL);
     }
 
     #[test]
@@ -2064,6 +2404,41 @@ endpoint = "http://site.example:4317"
 "#,
                 expected: "sinks.otlp.targets[1].endpoint must be unique: http://site.example:4317",
             },
+            TestCase {
+                name: "TLS with plaintext endpoint",
+                toml: r#"
+[[targets]]
+endpoint = "http://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+"#,
+                expected: "sinks.otlp.targets[0].tls requires an https endpoint",
+            },
+            TestCase {
+                name: "incomplete mTLS identity",
+                toml: r#"
+[[targets]]
+endpoint = "https://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+client_cert_path = "/site/tls.crt"
+"#,
+                expected: "sinks.otlp.targets[0].tls.client_key_path must be set when sinks.otlp.targets[0].tls.client_cert_path is set",
+            },
+            TestCase {
+                name: "zero TLS reload interval",
+                toml: r#"
+[[targets]]
+endpoint = "https://site.example:4317"
+
+[targets.tls]
+ca_cert_path = "/site/ca.crt"
+reload_interval = "0s"
+"#,
+                expected: "sinks.otlp.targets[0].tls.reload_interval must be greater than 0",
+            },
         ];
 
         for case in cases {
@@ -2097,6 +2472,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()
@@ -2133,6 +2509,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: true,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()
@@ -2149,12 +2526,14 @@ endpoint = "http://site.example:4317"
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: false,
+                                tls: None,
                             },
                             OtlpTargetConfig {
                                 endpoint: "http://central.example:4317".to_string(),
                                 batch_size: 512,
                                 flush_interval: Duration::from_secs(2),
                                 include_diagnostics: true,
+                                tls: None,
                             },
                         ],
                     }),
@@ -2199,6 +2578,7 @@ endpoint = "http://site.example:4317"
                             batch_size: 512,
                             flush_interval: Duration::from_secs(2),
                             include_diagnostics: false,
+                            tls: None,
                         }],
                     }),
                     ..SinksConfig::default()

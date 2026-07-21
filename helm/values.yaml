@@ -145,6 +145,12 @@ nico-ntp:
 ## ---------------------------------------------------------------------------
 nico-pxe:
   enabled: true
+  ## Optional CA bundle served to bootstrapping clients. Set at most one object
+  ## name; leaving both empty preserves the PXE workload CA fallback.
+  bootstrapRootCa:
+    configMapName: ""
+    secretName: ""
+    key: ca.crt
 
 ## ---------------------------------------------------------------------------
 ## nico-ssh-console-rs — SSH console proxy
@@ -164,4 +170,14 @@ nico-ssh-console-rs:
 ##       Reads .Values.imagePullSecrets (not global) for pull secrets.
 ## ---------------------------------------------------------------------------
 unbound:
+  enabled: false
+
+## ---------------------------------------------------------------------------
+## nico-machine-a-tron - Mock machine simulator (development/testing only)
+## Simulates bare-metal machines, DPUs, switches and power shelves for
+## testing NICo without physical hardware. NOT for production use.
+## Deploy standalone for dev environments:
+##   helm install mat ./helm/charts/nico-machine-a-tron -n nico-system ...
+## ---------------------------------------------------------------------------
+nico-machine-a-tron:
   enabled: false

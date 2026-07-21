@@ -173,6 +173,33 @@ fn parse_create_bmc_user() {
     );
 }
 
+#[test]
+fn parse_reset_bios() {
+    scenarios!(
+        run = |argv| {
+            RedfishAction::try_parse_from(argv.iter().copied())
+                .map(|a| match a.command {
+                    Cmd::ResetBios(args) => args.reboot,
+                    _ => panic!("expected ResetBios variant"),
+                })
+                .map_err(drop)
+        };
+        "without reboot" {
+            &["redfish", "--address", "192.0.2.10", "reset-bios"][..] => Yields(false),
+        }
+
+        "with reboot" {
+            &[
+                "redfish",
+                "--address",
+                "192.0.2.10",
+                "reset-bios",
+                "--reboot",
+            ][..] => Yields(true),
+        }
+    );
+}
+
 // `dpu firmware status` parses through the nested DpuOperations / FwCommand
 // subcommands to the Dpu Firmware Status variant.
 #[test]

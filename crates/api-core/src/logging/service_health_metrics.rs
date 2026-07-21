@@ -71,7 +71,7 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         health_context
             .meter
             .u64_observable_gauge("carbide_db_pool_idle_conns")
-            .with_description("The amount of idle connections in the carbide database pool")
+            .with_description("Number of idle connections in the carbide database pool")
             .with_callback(move |observer| {
                 observer.observe(database_pool.num_idle() as u64, &[]);
             })
@@ -83,9 +83,7 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         health_context
             .meter
             .u64_observable_gauge("carbide_db_pool_total_conns")
-            .with_description(
-                "The amount of total (active + idle) connections in the carbide database pool",
-            )
+            .with_description("Number of (active + idle) connections in the carbide database pool")
             .with_callback(move |observer| {
                 observer.observe(database_pool.size() as u64, &[]);
             })
@@ -97,7 +95,7 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         health_context
             .meter
             .u64_observable_gauge("carbide_resourcepool_used_count")
-            .with_description("Count of values in the pool currently allocated")
+            .with_description("Number of currently allocated values in the resource pool")
             .with_callback(move |observer| {
                 for (name, stats) in rp_stats.lock().unwrap().iter() {
                     observer.observe(
@@ -114,7 +112,9 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
         health_context
             .meter
             .u64_observable_gauge("carbide_resourcepool_free_count")
-            .with_description("Count of values in the pool currently available for allocation")
+            .with_description(
+                "Number of values in the resource pool currently available for allocation",
+            )
             .with_callback(move |observer| {
                 for (name, stats) in rp_stats.lock().unwrap().iter() {
                     let name_attr = KeyValue::new("pool", name.to_string());

@@ -154,15 +154,29 @@ The `global.image.repository` and `global.image.tag` values **must** be set -- t
 | `unbound` | `unbound.image.repository` / `.tag` | `""` (must be set) |
 | `unbound` (exporter) | `unbound.exporterImage.repository` / `.tag` | `""` (must be set) |
 
+### WebUI Authentication
+
+The `/admin` WebUI defaults to HTTP Basic Auth with username `admin`. By
+default, Helm creates `nico-api-web-basic-auth` with a generated password and
+preserves that password across direct Helm upgrades. Release notes show a
+`kubectl` command for retrieving it without printing it during installation.
+
+For an operator-managed password, set
+`nico-api.webAuth.basic.existingSecret.name` and `.key`. Set
+`nico-api.webAuth.mode` to `oauth2` or `none` to select another mode; those
+modes do not create or reference the Basic password Secret. If a non-Helm or
+older deployment does not supply `CARBIDE_WEB_BASIC_AUTH_PASSWORD`, nico-api
+falls back to a temporary per-process password reported in its startup logs.
+
 ### OAuth2 / SSO Setup
 
 To enable OAuth2 authentication (for example, Azure AD or Okta), configure the `nico-api.extraEnv` values:
 
 ```yaml
 nico-api:
+  webAuth:
+    mode: oauth2
   extraEnv:
-    - name: CARBIDE_WEB_AUTH_TYPE
-      value: "oauth2"
     - name: CARBIDE_WEB_OAUTH2_AUTH_ENDPOINT
       value: "https://your-idp/authorize"
     - name: CARBIDE_WEB_OAUTH2_TOKEN_ENDPOINT
@@ -171,6 +185,8 @@ nico-api:
       value: "your-client-id"
     - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS
       value: "group1,group2"
+    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS_ID_LIST
+      value: "<group1-id>,<group2-id>"
     - name: CARBIDE_WEB_OAUTH2_CLIENT_SECRET
       valueFrom:
         secretKeyRef:
@@ -178,7 +194,12 @@ nico-api:
           key: client_secret
 ```
 
-The `extraEnv` array supports any Kubernetes `env` spec, including `valueFrom` references to Secrets and ConfigMaps.
+The `extraEnv` array supports any Kubernetes `env` spec, including `valueFrom`
+references to Secrets and ConfigMaps. For backward compatibility, a
+`CARBIDE_WEB_AUTH_TYPE` entry in `extraEnv` takes precedence over
+`webAuth.mode`, and the chart does not emit a duplicate mode variable.
+Password variables in `extraEnv` remain supported, but
+`webAuth.basic.existingSecret` is preferred.
 
 ### External LoadBalancer Services
 

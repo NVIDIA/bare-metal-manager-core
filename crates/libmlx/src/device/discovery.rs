@@ -116,7 +116,7 @@ pub fn discover_devices() -> Result<Vec<MlxDeviceInfo>, String> {
 
     {
         let xml_content = String::from_utf8_lossy(&output.stdout);
-        warn!("mlxfwmanager XML output: {}", xml_content);
+        warn!(xml = %xml_content, "mlxfwmanager XML output");
         parse_mlxfwmanager_xml(&xml_content)
     }
 }
@@ -125,7 +125,7 @@ pub fn discover_devices() -> Result<Vec<MlxDeviceInfo>, String> {
 // The actual XML returned is still "devices", but will only
 // contain the target device.
 pub fn discover_device(device: &str) -> Result<MlxDeviceInfo, String> {
-    debug!("Running mlxfwmanager to discover device: {device}");
+    debug!(device, "Running mlxfwmanager to discover device");
 
     let output = Command::new("mlxfwmanager")
         .args(["--dev", device, "--query-format", "xml"])
@@ -148,7 +148,7 @@ pub fn discover_device(device: &str) -> Result<MlxDeviceInfo, String> {
     }
 
     let xml_content = String::from_utf8_lossy(&output.stdout);
-    debug!("mlxfwmanager XML output: {}", xml_content);
+    debug!(xml = %xml_content, "mlxfwmanager XML output");
 
     let devices = parse_mlxfwmanager_xml(&xml_content)?;
     if devices.len() > 1 {
@@ -172,20 +172,21 @@ pub fn discover_devices_with_filters(filter: DeviceFilter) -> Result<Vec<MlxDevi
         .filter(|device| {
             let matches = filter.matches(device);
             debug!(
-                "Device {} (type: {}, part: {}, fw: {}) matches filter: {}",
-                device.pci_name_pretty(),
-                device.device_type_pretty(),
-                device.part_number_pretty(),
-                device.fw_version_current_pretty(),
-                matches
+                device = device.pci_name_pretty(),
+                device_type = device.device_type_pretty(),
+                part_number = device.part_number_pretty(),
+                firmware_version = device.fw_version_current_pretty(),
+                matches,
+                "Device matches filter"
             );
             matches
         })
         .collect();
 
     debug!(
-        "Found {} devices matching filter: [{filter}]",
-        filtered_devices.len()
+        device_count = filtered_devices.len(),
+        %filter,
+        "Found devices matching filter"
     );
 
     Ok(filtered_devices)
@@ -243,7 +244,7 @@ pub fn parse_mlxfwmanager_xml(xml_content: &str) -> Result<Vec<MlxDeviceInfo>, S
         devices.push(device_info);
     }
 
-    debug!("Discovered {} MLX devices", devices.len());
+    debug!(device_count = devices.len(), "Discovered MLX devices");
     Ok(devices)
 }
 
@@ -273,8 +274,9 @@ pub fn convert_pci_name_to_address(pci_name: &str) -> Result<String, String> {
     };
 
     debug!(
-        "Converted PCI name '{}' to address '{}'",
-        pci_name, cleaned_address
+        pci_name,
+        pci_address = cleaned_address.as_str(),
+        "Converted PCI name to address"
     );
     Ok(cleaned_address)
 }

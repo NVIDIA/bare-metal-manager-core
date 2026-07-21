@@ -37,7 +37,8 @@ use metrics::MeasuredBootMetricsCollectorMetrics;
 /// pass costs as the site's measured-boot data grows.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_measured_boot_collector_iteration_latency_milliseconds",
+    event_name = "measured_boot_collector_iteration",
+    metric_name = "carbide_measured_boot_collector_iteration_latency_milliseconds",
     component = "nico-api",
     log = off,
     metric = histogram,
@@ -100,7 +101,10 @@ impl MeasuredBootMetricsCollector {
     async fn run(&self, cancel_token: CancellationToken) {
         loop {
             if let Err(e) = self.run_single_iteration().await {
-                tracing::warn!("MeasuredBootMetricsCollector error: {}", e);
+                tracing::warn!(
+                    error = %e,
+                    "MeasuredBootMetricsCollector error",
+                );
             }
 
             tokio::select! {

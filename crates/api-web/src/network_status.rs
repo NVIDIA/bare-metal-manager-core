@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// Flat `rpc::forge::Machine` fields are deprecated in favour of `status`/`config`
+// sub-messages, but this module must still read them until the REST API is migrated.
+// See https://github.com/NVIDIA/infra-controller/issues/2793
+#![allow(deprecated)]
 
 use std::cmp::min;
 use std::collections::HashMap;
@@ -81,7 +85,7 @@ pub async fn show_html(
     let (pages, all_status) = match fetch_network_status(state, current_page, limit).await {
         Ok(all) => all,
         Err(err) => {
-            tracing::error!(%err, "fetch_network_status");
+            tracing::error!(error = %err, "fetch_network_status");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network status",
@@ -160,7 +164,7 @@ pub async fn show_all_json(
     let (_, all_status) = match fetch_network_status(state, current_page, limit).await {
         Ok(all) => all,
         Err(err) => {
-            tracing::error!(%err, "fetch_network_status");
+            tracing::error!(error = %err, "fetch_network_status");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network status",

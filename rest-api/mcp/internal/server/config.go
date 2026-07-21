@@ -12,19 +12,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Options carry the server-side defaults that every tool invocation
-// starts from. Individual tool calls override these per request through
-// resolveCallConfig.
+// Options carry the server-side settings that tool invocations resolve against
+// through FromCallConfig. BaseURL also bounds the allowed destination.
 type Options struct {
-	// BaseURL is the NICo REST base URL (e.g. https://nico.example.com).
+	// BaseURL is the trusted NICo REST base URL (e.g. https://nico.example.com).
+	// When set, a per-call base_url must resolve to the same value.
 	BaseURL string
 	// Org is the default organisation used in /v2/org/<org>/... paths.
 	Org string
 	// APIName is the API path segment between org and resource (default
 	// "nico", overridable via api.name in config).
 	APIName string
-	// Token is the static bearer used when no inbound bearer or tool
-	// arg token is provided.
+	// Token is the static bearer used with BaseURL when no inbound bearer or
+	// tool arg token is provided. It is not sent to a caller-selected base URL.
 	Token string
 	// Debug enables logrus debug-level HTTP request/response logging
 	// through to the appcli.Client.
@@ -47,22 +47,22 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-// commonConfigDescriptions documents the four per-call config overrides
-// that are merged into every tool's input schema. Kept as a slice (not
+// commonConfigDescriptions documents the four per-call config fields that are
+// merged into every tool's input schema. Kept as a slice (not
 // a map) so the schema render order is stable.
 var commonConfigDescriptions = []struct {
 	Name string
 	Desc string
 }{
 	{"org", "Org used in /v2/org/<org>/... paths for this call. Overrides the server startup flag/env default when set."},
-	{"base_url", "NICo REST base URL for this call. Overrides the server startup flag/env default when set; useful when one MCP server fronts multiple NICo REST deployments."},
+	{"base_url", "NICo REST base URL for this call. When the server has a configured base URL, this value must match it. Otherwise, only a token supplied in the same tool call may be sent to this destination."},
 	{"api_name", "Override the API path segment used in /v2/org/<org>/<name>/... (api.name; default \"nico\")."},
-	{"token", "Bearer token for this call. Overrides the inbound Authorization header. Omit it when an upstream proxy injects the Authorization header, which is passed through to NICo REST unchanged."},
+	{"token", "Bearer token for this call. Overrides the inbound Authorization header. Inbound or default credentials are forwarded only to the server's configured base URL."},
 }
 
-// resolvedConfig is the result of merging Options with the per-call
-// overrides for one tool invocation. It is consumed by registerGET to
-// construct a fresh appcli.Client.
+// resolvedConfig is the result of resolving Options with the per-call values
+// for one tool invocation. It is consumed by registerGET to construct a fresh
+// appcli.Client.
 type resolvedConfig struct {
 	BaseURL string
 	Org     string
@@ -74,28 +74,42 @@ type resolvedConfig struct {
 // documented in the design plan:
 //
 //  1. Tool-call argument (org, base_url, api_name, token)
-//  2. Inbound Authorization header (token only)
+//  2. Inbound Authorization header (token only, for a configured BaseURL)
 //  3. Server startup flag / Options (BaseURL, Org, APIName, Token)
 //
-// It returns an error when a required field (org, base_url) ends up
-// empty so the tool handler can surface a JSON-RPC error instead of
-// letting the call go out with an invalid URL.
+// A configured BaseURL binds all calls to that destination. Without one,
+// inherited inbound or default credentials are not accepted for a per-call
+// destination; if authentication is needed, callers must provide the token in
+// the same tool call. It returns an error when this policy is violated or a
+// required field (org, base_url) ends up empty, before the handler constructs
+// an outbound request.
 func (cfg *resolvedConfig) FromCallConfig(in map[string]any, req *mcp.CallToolRequest, opts Options) error {
-	cfg.BaseURL = normalizeBaseURL(cmp.Or(stringArg(in, "base_url"), opts.BaseURL))
+	callBaseURL := normalizeBaseURL(stringArg(in, "base_url"))
+	configuredBaseURL := normalizeBaseURL(opts.BaseURL)
+	if configuredBaseURL != "" && callBaseURL != "" && !sameBaseURL(callBaseURL, configuredBaseURL) {
+		return fmt.Errorf("per-call base_url does not match the configured server base URL")
+	}
+
+	callToken := stringArg(in, "token")
+	inboundToken := bearerFromExtra(req)
+	if configuredBaseURL == "" && callBaseURL != "" && callToken == "" &&
+		(inboundToken != "" || opts.Token != "") {
+		return fmt.Errorf("refusing to forward inherited credentials to a per-call base_url; pass token in the same tool call or configure the server base URL")
+	}
+
+	cfg.BaseURL = cmp.Or(callBaseURL, configuredBaseURL)
 	cfg.Org = cmp.Or(stringArg(in, "org"), opts.Org)
 	cfg.APIName = cmp.Or(stringArg(in, "api_name"), opts.APIName)
 	cfg.Token = normalizeToken(cmp.Or(
-		stringArg(in, "token"),
-		bearerFromExtra(req),
+		callToken,
+		inboundToken,
 		opts.Token,
 	))
 	return cfg.requireNonEmpty()
 }
 
-// requireNonEmpty returns a descriptive error when org or BaseURL are
-// blank. Token can be empty -- NICo REST will reject the request with
-// 401 and the response surfaces to the caller as an MCP error result;
-// that path is exercised by the bearer-passthrough integration test.
+// requireNonEmpty returns a descriptive error when org or BaseURL are blank.
+// Token may be empty; appcli.Client then sends no Authorization header.
 func (c resolvedConfig) requireNonEmpty() error {
 	missing := []string{}
 	if c.Org == "" {

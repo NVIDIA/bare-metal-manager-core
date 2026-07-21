@@ -1942,6 +1942,51 @@ span.page-link.disabled {
 }
 
 /* ------------------------------------------------------------------------
+   Per-table client-side filter (search box injected by table_filter.js)
+   ------------------------------------------------------------------------ */
+.table-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.table-filter-input {
+  flex: 0 1 22rem;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+  height: 40px;
+  box-sizing: border-box;
+}
+
+.table-filter-input:focus {
+  outline: none;
+  border-color: var(--accent-green);
+  background-color: var(--bg-primary);
+  box-shadow: 0 0 0 3px rgba(118, 185, 0, 0.1);
+}
+
+.table-filter-input::placeholder {
+  color: var(--text-muted);
+}
+
+.table-filter-count {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.table-filter-count.table-filter-empty {
+  color: var(--accent-red, #e5484d);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------------
    CONFIGURATION PAGE (/admin)
 
    Generated option catalog: one tab per group, plain sections of option

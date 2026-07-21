@@ -92,6 +92,7 @@ pub(crate) enum OutcomeReason {
     ArchitectureNotFound,
     InterfaceNotFound,
     InstructionsEmpty,
+    InstructionsInvalid,
     MetadataNotFound,
     UpstreamApiError,
 }
@@ -101,7 +102,8 @@ pub(crate) enum OutcomeReason {
 /// failure paths stay as they are, and the rate is the signal.
 #[derive(Event)]
 #[event(
-    name = "carbide_pxe_boot_outcomes_total",
+    event_name = "pxe_boot_outcome",
+    metric_name = "carbide_pxe_boot_outcomes_total",
     component = "carbide-pxe",
     log = off,
     metric = counter,
@@ -162,6 +164,11 @@ mod tests {
                     scenario: "instructions empty",
                     input: OutcomeReason::InstructionsEmpty.label_value(),
                     expect: "instructions_empty".to_string(),
+                },
+                Check {
+                    scenario: "instructions invalid",
+                    input: OutcomeReason::InstructionsInvalid.label_value(),
+                    expect: "instructions_invalid".to_string(),
                 },
                 Check {
                     scenario: "upstream API error",

@@ -91,7 +91,7 @@ pub(crate) async fn create(
         .is_none()
         {
             return Err(CarbideError::FailedPrecondition(format!(
-                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                "NetworkSecurityGroup `{}` does not exist or is not owned by tenant `{}`",
                 id, vpc_creation_request.tenant_organization_id,
             ))
             .into());
@@ -203,7 +203,7 @@ pub(crate) async fn update(
         .is_none()
         {
             return Err(CarbideError::FailedPrecondition(format!(
-                "NetworkSecurityGroup `{}` does not exist or is not owned by Tenant `{}`",
+                "NetworkSecurityGroup `{}` does not exist or is not owned by tenant `{}`",
                 id, vpc.config.tenant_organization_id
             ))
             .into());
@@ -440,7 +440,7 @@ async fn allocate_vpc_vni(
                 tracing::error!(
                     owner_id,
                     pool = source_pool.name(),
-                    value = requested_vni,
+                    requested_vni,
                     "invalid pool value requested, cannot allocate"
                 );
                 CarbideError::FailedPrecondition(format!(

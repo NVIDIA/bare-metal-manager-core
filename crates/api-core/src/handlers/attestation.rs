@@ -58,7 +58,7 @@ pub(crate) async fn trigger_machine_attestation(
                 id: format!("{}", machine_id),
             }));
         }
-        1 => &machines[0].bmc_info,
+        1 => &machines[0].status.bmc_info,
         _ => {
             return Err(Status::from(CarbideError::Internal {
                 message: format!("Found more than one machine for machine id {}", machine_id),
@@ -263,7 +263,7 @@ pub(crate) async fn attest_quote(
             Some(entry) => entry.ak_pub,
             None => {
                 return Err(CarbideError::AttestQuoteError(
-                    "Could not form SQL query to fetch AK Pub".into(),
+                    "could not form SQL query to fetch AK pub".into(),
                 )
                 .into());
             }
@@ -344,8 +344,8 @@ pub(crate) async fn attest_quote(
 
     if attestation_failed {
         tracing::info!(
-            "Attestation failed for machine with id {} - not vending any certs",
-            machine_id
+            machine_id = %machine_id,
+            "Attestation failed; not vending any certificates",
         );
         return Ok(Response::new(rpc::AttestQuoteResponse {
             success: false,
@@ -364,9 +364,9 @@ pub(crate) async fn attest_quote(
     };
 
     tracing::info!(
-        "Attestation succeeded for machine with id {} - sending a cert back. Attestion_enabled is {}",
-        machine_id,
-        api.runtime_config.attestation_enabled
+        machine_id = %machine_id,
+        attestation_enabled = api.runtime_config.attestation_enabled,
+        "Attestation succeeded; sending a certificate",
     );
     Ok(Response::new(rpc::AttestQuoteResponse {
         success: true,

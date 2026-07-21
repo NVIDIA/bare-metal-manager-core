@@ -42,6 +42,7 @@ pub async fn handle_update_machine_hardware_info_gpus(
         .await
 }
 
+#[allow(deprecated)]
 pub async fn handle_show_machine_hardware_info(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,

@@ -19,8 +19,8 @@ REPO_ROOT = { script = [
   "dirname $(cargo locate-project --message-format plain --workspace)",
 ] }
 PKG_VERSION = { script = [
-  "v=$(git describe --tags --first-parent --always --long | sed 's/^v//'); case \"$v\" in [0-9]*) echo \"$v\" ;; *) echo \"0.0.0-$v\" ;; esac",
-] }
+  "if [ -n \"$VERSION\" ]; then echo \"$VERSION\" | sed 's/^v//'; else v=$(git describe --tags --first-parent --always --long | sed 's/^v//'); case \"$v\" in [0-9]*) echo \"$v\" ;; *) echo \"0.0.0-$v\" ;; esac; fi",
+], condition = { env_not_set = ["PKG_VERSION"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 
 # BlueField Bundle (BFB) Version
@@ -386,6 +386,16 @@ args = [
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
   "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
+
+[tasks.test-stage-bootstrap-ca]
+category = "Copy DPU bootstrap CA"
+command = "sh"
+args = ["${REPO_ROOT}/pxe/common_files/stage-bootstrap-ca_test.sh"]
+
+[tasks.test-runtime-bootstrap-ca]
+category = "Copy DPU bootstrap CA"
+command = "sh"
+args = ["${REPO_ROOT}/pxe/common_files/runtime-bootstrap-ca_test.sh"]
 
 [tasks.copy-forge-scout-x86_64]
 category = "Copy Forge Scout locally"
@@ -805,6 +815,7 @@ dependencies = [
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
+  "bfb-stage-embedded-bootstrap-ca",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
@@ -837,6 +848,7 @@ dependencies = [
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
+  "bfb-stage-embedded-bootstrap-ca",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
@@ -871,6 +883,7 @@ dependencies = [
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-dev-forge-root-ca-to-bfb",
+  "bfb-stage-embedded-bootstrap-ca",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
@@ -980,6 +993,15 @@ args = [
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
   "${BUILD_LOCATION}/forge_root.pem",
 ]
+
+[tasks.bfb-stage-embedded-bootstrap-ca]
+category = "iPXE Kernel"
+description = "Stage an explicitly supplied DPU bootstrap CA in the BFB"
+dependencies = ["test-stage-bootstrap-ca", "test-runtime-bootstrap-ca"]
+script = '''
+  sh "${REPO_ROOT}/pxe/common_files/stage-bootstrap-ca.sh" \
+    "${BUILD_LOCATION}/embedded_forge_root.pem"
+'''
 
 [tasks.cleanup-old-debs]
 category = "iPXE Kernel"

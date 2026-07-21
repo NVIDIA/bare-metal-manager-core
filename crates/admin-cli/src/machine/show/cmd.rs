@@ -31,6 +31,7 @@ use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv, async_writeln};
 
+#[allow(deprecated)]
 fn convert_machine_to_nice_format(
     machine: forgerpc::Machine,
     history_count: u32,
@@ -217,6 +218,7 @@ fn get_machine_type(machine_id: Option<MachineId>) -> String {
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
+#[allow(deprecated)]
 fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
     let mut table = Box::new(Table::new());
 
@@ -425,6 +427,7 @@ pub async fn handle_show(
     Ok(())
 }
 
+#[allow(deprecated)]
 pub async fn get_next_free_machine(
     api_client: &ApiClient,
     machine_ids: &mut VecDeque<MachineId>,
@@ -432,7 +435,10 @@ pub async fn get_next_free_machine(
     flat_vpc_id: Option<VpcId>,
 ) -> Option<Machine> {
     while let Some(id) = machine_ids.pop_front() {
-        tracing::debug!("Checking {}", id);
+        tracing::debug!(
+            machine_id = %id,
+            "Checking machine",
+        );
         if let Ok(machine) = api_client.get_machine(id).await {
             if machine.state != "Ready" {
                 tracing::debug!("Machine is not ready");

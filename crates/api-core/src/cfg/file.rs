@@ -28,6 +28,7 @@ use carbide_firmware::defaults::{
     BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
     BF3_CEC_VERSION, BF3_NIC_VERSION, BF3_UEFI_VERSION,
 };
+use carbide_host_support::bootstrap_ca::BootstrapCaSource;
 use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
 use carbide_machine_controller::config::power_manager::default_power_options;
 use carbide_machine_controller::config::{
@@ -40,6 +41,7 @@ use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_utils::config::{as_duration, as_option_duration, as_std_duration};
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use chrono::Duration;
 use db::host_naming::HostNamingStrategyKind;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
@@ -279,6 +281,13 @@ pub struct CarbideConfig {
     /// the full semantics.
     #[serde(default)]
     pub allow_bmc_basic_auth_fallback: bool,
+
+    /// Allows machine discovery to trust the caller-supplied interface ID
+    /// instead of selecting an interface from the request's remote IP.
+    /// This is intended only for test environments using machine-a-tron
+    /// in single-IP mode.
+    #[serde(default)]
+    pub allow_insecure_discovery: bool,
 
     /// Infiniband fabrics managed by the site
     /// Note: At the moment, only a single fabric is supported
@@ -578,7 +587,7 @@ pub struct CarbideConfig {
     /// (disconnected / air-gapped) infrastructure manager for racks of GB200/GB300/VR144.
     /// Only set this if using NICo site controller with Rack Manager to manage GB200/300/VR144.
     /// It will change site controller behavior significantly in the following ways, etc.:
-    /// 1. skip dpu management and use dpus in nic mode (set the site-wide `[site_explorer] dpu_mode = "nic_mode"`, or per-host `ExpectedMachine.dpu_mode`)
+    /// 1. skip DPU management and use DPUs as NICs (set the site-wide `[site_explorer] dpu_policy = "nic"`, or per-host `ExpectedMachine.dpu_policy`)
     ///    a. no dpu bfb upgrade and host power cycle
     ///    b. no firmware upgrade and host power cycle
     ///    c. no hbn deployment (no ecmp, etc)
@@ -774,6 +783,110 @@ pub struct CarbideConfig {
     /// IP cleanup on lease expiry
     #[serde(default)]
     pub dhcp_lease_expiry_handling: bool,
+
+    /// Certificate vending backend. Selected independently of the credential
+    /// store; absent means certs are issued from the credential Vault.
+    #[serde(default)]
+    pub certificates: CertificatesConfig,
+}
+
+/// `[certificates]` config section: selects the backend that vends machine and
+/// service certificates, independently of where credentials are stored.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CertificatesConfig {
+    /// Which backend issues certificates. Defaults to sharing the credential
+    /// Vault client (historical behavior).
+    #[serde(default)]
+    pub backend: CertBackendKind,
+
+    /// Connection settings for a dedicated certificate Vault. Required when
+    /// `backend = "dedicated_vault"`, ignored otherwise.
+    #[serde(default)]
+    pub dedicated_vault: Option<DedicatedVaultSettings>,
+}
+
+/// Tag selecting the certificate backend. The matching settings (if any) live
+/// in their own sub-table, so the choice is explicit rather than inferred.
+// The shared `Vault` suffix is intentional: both current backends are Vault
+// backends. The lint resolves once a non-Vault backend is added.
+#[allow(clippy::enum_variant_names)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CertBackendKind {
+    /// Reuse the credential store's Vault client — one client, one token lease.
+    #[default]
+    SharedVault,
+    /// Use a dedicated Vault configured under `[certificates.dedicated_vault]`.
+    DedicatedVault,
+}
+
+/// `[certificates.dedicated_vault]` settings.
+///
+/// The connection-identifying fields are required, so a partial section fails
+/// to parse rather than silently inheriting the credential Vault's process-wide
+/// `VAULT_*` environment configuration.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DedicatedVaultSettings {
+    /// Vault address, e.g. `https://vault-certs.example:8200`.
+    pub address: String,
+    /// PKI secrets-engine mount path on the target Vault.
+    pub pki_mount_location: String,
+    /// PKI role used to sign leaf certificates.
+    pub pki_role_name: String,
+    /// Token for root-token auth; required only when the pod has no Kubernetes
+    /// service-account token.
+    #[serde(default)]
+    pub token: Option<String>,
+    /// CA bundle that signs the target Vault's TLS cert. Defaults to the site
+    /// root / `VAULT_CACERT`.
+    #[serde(default)]
+    pub vault_cacert: Option<String>,
+}
+
+// Hand-rolled so the root `token` is never printed verbatim in logs or errors;
+// only its presence is shown. Serialization is handled separately by
+// `CarbideConfig::redacted()`, which clears the token before the config is
+// serialized for the admin API or config-dump paths.
+impl std::fmt::Debug for DedicatedVaultSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DedicatedVaultSettings")
+            .field("address", &self.address)
+            .field("pki_mount_location", &self.pki_mount_location)
+            .field("pki_role_name", &self.pki_role_name)
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .field("vault_cacert", &self.vault_cacert)
+            .finish()
+    }
+}
+
+impl CertificatesConfig {
+    /// Convert the parsed section into the runtime certificate config, failing
+    /// fast if a dedicated backend was selected without its settings.
+    pub fn to_certificate_config(&self) -> eyre::Result<carbide_secrets::CertificateConfig> {
+        let backend = match self.backend {
+            CertBackendKind::SharedVault => carbide_secrets::CertBackend::SharedVault,
+            CertBackendKind::DedicatedVault => {
+                let dedicated = self.dedicated_vault.as_ref().ok_or_else(|| {
+                    eyre::eyre!(
+                        "[certificates] backend = \"dedicated_vault\" requires a \
+                         [certificates.dedicated_vault] section"
+                    )
+                })?;
+                carbide_secrets::CertBackend::DedicatedVault(
+                    carbide_secrets::DedicatedVaultConfig {
+                        address: dedicated.address.clone(),
+                        pki_mount_location: dedicated.pki_mount_location.clone(),
+                        pki_role_name: dedicated.pki_role_name.clone(),
+                        token: dedicated.token.clone(),
+                        vault_cacert: dedicated.vault_cacert.clone(),
+                    },
+                )
+            }
+        };
+        Ok(carbide_secrets::CertificateConfig { backend })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1052,6 +1165,109 @@ pub enum ComputeAllocationEnforcement {
 
 /// DPF (DPU Platform Framework) configuration for
 /// deploying DPU fabric as a Kubernetes service.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "source", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DpfDpuAgentBootstrapCa {
+    /// Preserve the legacy behavior: download the trust anchor from nico-pxe.
+    LegacyDownload {
+        /// Optional full endpoint override. When omitted, the DPU agent uses its
+        /// built-in legacy endpoint.
+        #[serde(default)]
+        url: Option<url::Url>,
+    },
+    /// Copy the trust anchor projected from a Kubernetes object.
+    Mounted {
+        /// Kubernetes object type containing the trust anchor.
+        object_kind: DpfBootstrapCaObjectKind,
+        /// Name of the Kubernetes object in the DPU cluster.
+        name: String,
+        /// Key within the Kubernetes object.
+        #[serde(default = "default_dpf_bootstrap_ca_key")]
+        key: String,
+    },
+}
+
+impl Default for DpfDpuAgentBootstrapCa {
+    fn default() -> Self {
+        Self::LegacyDownload { url: None }
+    }
+}
+
+impl DpfDpuAgentBootstrapCa {
+    /// Validate values that cannot be constrained by deserialization alone.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::LegacyDownload { url: Some(url) }
+                if !matches!(url.scheme(), "http" | "https") =>
+            {
+                Err("dpf.dpu_agent_bootstrap_ca.url must use http or https".to_string())
+            }
+            Self::Mounted { name, .. } if name.trim().is_empty() => Err(
+                "dpf.dpu_agent_bootstrap_ca.name must not be empty for mounted sources".to_string(),
+            ),
+            Self::Mounted { name, .. } if !is_valid_kubernetes_object_name(name) => Err(
+                "dpf.dpu_agent_bootstrap_ca.name must be a valid Kubernetes DNS subdomain for mounted sources"
+                    .to_string(),
+            ),
+            Self::Mounted { key, .. } if key.trim().is_empty() => Err(
+                "dpf.dpu_agent_bootstrap_ca.key must not be empty for mounted sources".to_string(),
+            ),
+            Self::Mounted { key, .. } if !is_valid_kubernetes_data_key(key) => Err(
+                "dpf.dpu_agent_bootstrap_ca.key must be a valid Kubernetes Secret or ConfigMap data key for mounted sources"
+                    .to_string(),
+            ),
+            _ => Ok(()),
+        }
+    }
+}
+
+const KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH: usize = 253;
+
+// Secret and ConfigMap names use Kubernetes' DNS-1123 subdomain validation.
+fn is_valid_kubernetes_object_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        && value.split('.').all(|label| {
+            let bytes = label.as_bytes();
+            bytes
+                .first()
+                .is_some_and(|byte| is_dns_1123_alphanumeric(*byte))
+                && bytes
+                    .last()
+                    .is_some_and(|byte| is_dns_1123_alphanumeric(*byte))
+                && bytes
+                    .iter()
+                    .all(|byte| is_dns_1123_alphanumeric(*byte) || *byte == b'-')
+        })
+}
+
+fn is_dns_1123_alphanumeric(byte: u8) -> bool {
+    byte.is_ascii_lowercase() || byte.is_ascii_digit()
+}
+
+// Kubernetes applies this validation to keys in both ConfigMap and Secret data.
+fn is_valid_kubernetes_data_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH
+        && value != "."
+        && !value.starts_with("..")
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+/// Kubernetes object kinds supported as DPF DPU-agent trust-anchor sources.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DpfBootstrapCaObjectKind {
+    Secret,
+    ConfigMap,
+}
+
+fn default_dpf_bootstrap_ca_key() -> String {
+    "ca.crt".to_string()
+}
+
 #[derive(Clone, Debug, Serialize, Default, Deserialize)]
 pub struct DpfConfig {
     /// Enables DPF deployment.
@@ -1063,6 +1279,9 @@ pub struct DpfConfig {
     /// docker_image_pull_secret is set in services sections as well.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
+    /// Selects how the DPF-managed DPU agent obtains the API trust anchor.
+    #[serde(default)]
+    pub dpu_agent_bootstrap_ca: DpfDpuAgentBootstrapCa,
     /// Mandatory Helm services to deploy alongside DPF.
     #[serde(default)]
     pub services: Box<DpfMandatoryServicesConfig>,
@@ -1707,6 +1926,14 @@ impl CarbideConfig {
             let host = config.database_url.split_at(host_index).1;
             config.database_url = format!("postgres://redacted{host}");
         }
+        // The dedicated certificate Vault's root token is a secret; the
+        // redacted config is serialized to JSON for the admin API and config
+        // dumps, so drop it before it leaves the process.
+        if let Some(dedicated) = config.certificates.dedicated_vault.as_mut()
+            && dedicated.token.is_some()
+        {
+            dedicated.token = Some("redacted".to_string());
+        }
         config
     }
     pub fn get_firmware_config(&self) -> FirmwareConfig {
@@ -2175,6 +2402,10 @@ pub const fn default_bmc_session_lockout_threshold() -> u32 {
 /// DpuConfig related internal configuration
 #[derive(Clone, Debug, Serialize)]
 pub struct DpuConfig {
+    /// How booting DPUs obtain the CA used to authenticate Carbide.
+    #[serde(default)]
+    pub bootstrap_ca_source: BootstrapCaSource,
+
     /// Enable dpu firmware updates on initial discovery
     #[serde(default)]
     pub dpu_nic_firmware_initial_update_enabled: bool,
@@ -2233,6 +2464,8 @@ impl<'de> Deserialize<'de> for DpuConfig {
         #[derive(Deserialize)]
         struct PartialDpuConfig {
             #[serde(default)]
+            bootstrap_ca_source: Option<BootstrapCaSource>,
+            #[serde(default)]
             dpu_nic_firmware_initial_update_enabled: Option<bool>,
             #[serde(default)]
             dpu_nic_firmware_reprovision_update_enabled: Option<bool>,
@@ -2258,6 +2491,9 @@ impl<'de> Deserialize<'de> for DpuConfig {
         }
 
         Ok(DpuConfig {
+            bootstrap_ca_source: partial
+                .bootstrap_ca_source
+                .unwrap_or(default.bootstrap_ca_source),
             dpu_nic_firmware_initial_update_enabled: partial
                 .dpu_nic_firmware_initial_update_enabled
                 .unwrap_or(default.dpu_nic_firmware_initial_update_enabled),
@@ -2285,6 +2521,7 @@ impl Default for DpuConfig {
     // can support auto-ingestion for.
     fn default() -> Self {
         Self {
+            bootstrap_ca_source: BootstrapCaSource::default(),
             dpu_nic_firmware_initial_update_enabled: false,
             dpu_nic_firmware_reprovision_update_enabled: true,
             dpu_models: HashMap::from([
@@ -2991,7 +3228,7 @@ impl TrafficInterceptBridging {
             .join(",");
 
         // An empty map, or one with only skipped entries, means no provisioning config.
-        (!config.is_empty()).then_some(config)
+        config.none_if_empty()
     }
 }
 
@@ -3015,13 +3252,15 @@ mod tests {
     use carbide_authn::config::CertComponent;
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_site_explorer::config::SiteExplorerExploreMode;
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Check, check_values, scenarios};
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
     use health_report::HealthAlertClassification;
     use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
-    use model::expected_machine::DpuMode;
+    use model::expected_machine::HostDpuPolicy;
     use model::network_segment::NetworkDefinitionSegmentType;
     use model::resource_pool;
 
@@ -3029,6 +3268,147 @@ mod tests {
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
+
+    /// Exercises the real `[certificates]` / `[certificates.dedicated_vault]`
+    /// TOML contract through Figment (the production config path), rather than
+    /// JSON serde. Each case parses a TOML fragment into `CertificatesConfig`
+    /// and asserts either the parse outcome or the `to_certificate_config`
+    /// mapping/error.
+    #[test]
+    fn certificates_toml_config_contract() {
+        use carbide_secrets::CertBackend;
+
+        enum Expect {
+            /// Figment/serde extraction fails (missing required field, unknown key).
+            ParseErr,
+            /// Extraction succeeds but `to_certificate_config` rejects it.
+            ConvertErr,
+            Shared,
+            Dedicated {
+                address: &'static str,
+                pki_mount_location: &'static str,
+                pki_role_name: &'static str,
+                token: Option<&'static str>,
+                vault_cacert: Option<&'static str>,
+            },
+        }
+
+        // The fragments extract into `CertificatesConfig` directly, so the root
+        // fields (`backend`, `[dedicated_vault]`) are the same ones that live
+        // under the `[certificates]` / `[certificates.dedicated_vault]` tables.
+        let cases: &[(&str, &str, Expect)] = &[
+            (
+                "absent section defaults to shared_vault",
+                "",
+                Expect::Shared,
+            ),
+            (
+                "explicit shared_vault",
+                r#"backend = "shared_vault""#,
+                Expect::Shared,
+            ),
+            (
+                "dedicated_vault maps all fields",
+                r#"
+                    backend = "dedicated_vault"
+                    [dedicated_vault]
+                    address = "https://vault-certs.example:8200"
+                    pki_mount_location = "pki"
+                    pki_role_name = "machine"
+                    token = "s.abc123"
+                    vault_cacert = "/etc/ssl/certs/vault-ca.pem"
+                "#,
+                Expect::Dedicated {
+                    address: "https://vault-certs.example:8200",
+                    pki_mount_location: "pki",
+                    pki_role_name: "machine",
+                    token: Some("s.abc123"),
+                    vault_cacert: Some("/etc/ssl/certs/vault-ca.pem"),
+                },
+            ),
+            (
+                "dedicated_vault selected without its section fails conversion",
+                r#"backend = "dedicated_vault""#,
+                Expect::ConvertErr,
+            ),
+            (
+                "dedicated_vault missing required address fails parse",
+                r#"
+                    backend = "dedicated_vault"
+                    [dedicated_vault]
+                    pki_mount_location = "pki"
+                    pki_role_name = "machine"
+                "#,
+                Expect::ParseErr,
+            ),
+            (
+                "unknown field rejected by deny_unknown_fields",
+                "backend = \"shared_vault\"\ntypo = true",
+                Expect::ParseErr,
+            ),
+        ];
+
+        for (name, toml, expect) in cases {
+            let parsed: Result<CertificatesConfig, _> =
+                Figment::new().merge(Toml::string(toml)).extract();
+
+            match expect {
+                Expect::ParseErr => {
+                    assert!(parsed.is_err(), "{name}: expected a parse error");
+                }
+                Expect::ConvertErr => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    let err = match cfg.to_certificate_config() {
+                        Ok(_) => panic!("{name}: expected conversion to fail"),
+                        Err(err) => err,
+                    };
+                    assert!(
+                        err.to_string().contains("dedicated_vault"),
+                        "{name}: unexpected error: {err}"
+                    );
+                }
+                Expect::Shared => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    assert!(
+                        matches!(
+                            cfg.to_certificate_config().unwrap().backend,
+                            CertBackend::SharedVault
+                        ),
+                        "{name}: expected SharedVault backend"
+                    );
+                }
+                Expect::Dedicated {
+                    address,
+                    pki_mount_location,
+                    pki_role_name,
+                    token,
+                    vault_cacert,
+                } => {
+                    let cfg = parsed
+                        .unwrap_or_else(|e| panic!("{name}: expected parse to succeed, got {e}"));
+                    match cfg.to_certificate_config().unwrap().backend {
+                        CertBackend::DedicatedVault(d) => {
+                            assert_eq!(d.address, *address, "{name}: address");
+                            assert_eq!(
+                                d.pki_mount_location, *pki_mount_location,
+                                "{name}: pki_mount_location"
+                            );
+                            assert_eq!(d.pki_role_name, *pki_role_name, "{name}: pki_role_name");
+                            assert_eq!(d.token.as_deref(), *token, "{name}: token");
+                            assert_eq!(
+                                d.vault_cacert.as_deref(),
+                                *vault_cacert,
+                                "{name}: vault_cacert"
+                            );
+                        }
+                        other => panic!("{name}: expected dedicated vault backend, got {other:?}"),
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn deserialize_serialize_machine_controller_config() {
@@ -3298,6 +3678,24 @@ mod tests {
         config.database_url = "postgres://forge-system.carbide:very-very-long-password@forge-pg-cluster.postgres.svc.cluster.local:5432/forge_system_carbide".to_string();
         let redacted = config.redacted();
         assert_eq!(redacted.database_url, "postgres://redacted@forge-pg-cluster.postgres.svc.cluster.local:5432/forge_system_carbide".to_string());
+
+        // The dedicated certificate Vault's root token must not survive redaction.
+        config.certificates.dedicated_vault = Some(DedicatedVaultSettings {
+            address: "https://vault-certs.example:8200".to_string(),
+            pki_mount_location: "pki".to_string(),
+            pki_role_name: "leaf".to_string(),
+            token: Some("s.super-secret-root-token".to_string()),
+            vault_cacert: None,
+        });
+        let redacted = config.redacted();
+        assert_eq!(
+            redacted
+                .certificates
+                .dedicated_vault
+                .as_ref()
+                .and_then(|d| d.token.as_deref()),
+            Some("redacted")
+        );
     }
 
     #[test]
@@ -3330,6 +3728,7 @@ mod tests {
             std::time::Duration::from_secs(30 * 60)
         );
         assert!(config.dhcp_servers.is_empty());
+        assert!(!config.allow_insecure_discovery);
         assert!(config.route_servers.is_empty());
         assert!(config.tls.is_none());
         assert!(config.auth.is_none());
@@ -3383,6 +3782,37 @@ mod tests {
         // And make sure lack of [mlx-config-profiles] doesn't blow up
         // for sites not configured with any.
         assert!(config.mlxconfig_profiles.is_none());
+    }
+
+    #[test]
+    fn insecure_discovery_configuration_is_opt_in() {
+        check_values(
+            [
+                Check {
+                    scenario: "omitted",
+                    input: "",
+                    expect: false,
+                },
+                Check {
+                    scenario: "explicitly disabled",
+                    input: "allow_insecure_discovery = false",
+                    expect: false,
+                },
+                Check {
+                    scenario: "explicitly enabled",
+                    input: "allow_insecure_discovery = true",
+                    expect: true,
+                },
+            ],
+            |patch| {
+                let config: CarbideConfig = Figment::new()
+                    .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                    .merge(Toml::string(patch))
+                    .extract()
+                    .unwrap();
+                config.allow_insecure_discovery
+            },
+        );
     }
 
     #[test]
@@ -3467,7 +3897,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -3593,6 +4023,10 @@ mod tests {
         );
         assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
         assert!(!config.auth.as_ref().unwrap().permissive_mode);
+        assert_eq!(
+            config.dpu_config.bootstrap_ca_source,
+            BootstrapCaSource::LegacyDownload
+        );
         assert_eq!(config.dpu_config.num_of_vfs, DEFAULT_DPU_NUM_OF_VFS);
         assert_eq!(
             config
@@ -3675,7 +4109,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -3906,6 +4340,17 @@ mod tests {
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
+
+        assert_eq!(config.certificates.backend, CertBackendKind::DedicatedVault);
+        let dedicated = config.certificates.dedicated_vault.as_ref().unwrap();
+        assert_eq!(dedicated.address, "https://vault-certs.example:8200");
+        assert_eq!(dedicated.pki_mount_location, "pki-machine");
+        assert_eq!(dedicated.pki_role_name, "machine");
+        assert_eq!(dedicated.token.as_deref(), Some("s.fulltest"));
+        assert_eq!(
+            dedicated.vault_cacert.as_deref(),
+            Some("/path/to/vault-ca.pem")
+        );
     }
 
     #[test]
@@ -4018,7 +4463,7 @@ mod tests {
                 create_switches: Arc::new(true.into()),
                 switches_created_per_run: 9,
                 rotate_switch_nvos_credentials: Arc::new(false.into()),
-                dpu_mode: None,
+                dpu_policy: None,
                 explore_mode: SiteExplorerExploreMode::NvRedfish,
             }
         );
@@ -4208,36 +4653,77 @@ mod tests {
         Ok(())
     }
 
-    /// Verifies the `[site_explorer] dpu_mode = ...` setting parses
-    /// correctly for every named variant. When unset (the default),
-    /// `site_explorer.dpu_mode` is `None` and hosts resolve to
-    /// `DpuMode::DpuMode`.
+    /// Verifies the canonical `[site_explorer] dpu_policy = ...` setting and
+    /// legacy `dpu_mode` spelling parse correctly. When unset, hosts ultimately
+    /// resolve to `HostDpuPolicy::Manage`.
     #[test]
-    fn site_explorer_dpu_mode_parses_and_defaults_to_none() {
+    fn site_explorer_dpu_policy_parses_and_defaults_to_none() {
         let config: CarbideConfig = Figment::new()
             .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
             .extract()
             .unwrap();
-        assert_eq!(config.site_explorer.dpu_mode, None);
+        assert_eq!(config.site_explorer.dpu_policy, None);
 
-        for (toml_value, expected) in [
-            ("dpu_mode", DpuMode::DpuMode),
-            ("nic_mode", DpuMode::NicMode),
-            ("no_dpu", DpuMode::NoDpu),
-        ] {
-            let config: CarbideConfig = Figment::new()
-                .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
-                .merge(Toml::string(&format!(
-                    "[site_explorer]\ndpu_mode = \"{toml_value}\"\n"
-                )))
-                .extract()
-                .unwrap();
-            assert_eq!(
-                config.site_explorer.dpu_mode,
-                Some(expected),
-                "[site_explorer] dpu_mode = {toml_value:?} should parse to {expected:?}",
-            );
-        }
+        scenarios!(
+            run = |toml_setting| {
+                Figment::new()
+                    .merge(Toml::file(format!("{TEST_DATA_DIR}/min_config.toml")))
+                    .merge(Toml::string(&format!(
+                        "[site_explorer]\n{toml_setting}\n"
+                    )))
+                    .extract::<CarbideConfig>()
+                    .map(|config| config.site_explorer.dpu_policy)
+                    .map_err(drop)
+            };
+            "canonical policy values" {
+                "dpu_policy = \"manage\"" => Yields(Some(HostDpuPolicy::Manage)),
+                "dpu_policy = \"nic\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_policy = \"ignore\"" => Yields(Some(HostDpuPolicy::Ignore)),
+            }
+
+            "compatibility values" {
+                "dpu_policy = \"use_as_nic\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_mode = \"dpu_mode\"" => Yields(Some(HostDpuPolicy::Manage)),
+                "dpu_mode = \"nic_mode\"" => Yields(Some(HostDpuPolicy::Nic)),
+                "dpu_mode = \"no_dpu\"" => Yields(Some(HostDpuPolicy::Ignore)),
+            }
+        );
+    }
+
+    #[test]
+    fn site_explorer_dpu_policy_serializes_only_canonical_key() {
+        scenarios!(
+            run = |dpu_policy| {
+                let config = SiteExplorerConfig {
+                    dpu_policy,
+                    ..SiteExplorerConfig::default()
+                };
+
+                serde_json::to_value(config)
+                    .map(|serialized| {
+                        (
+                            serialized.get("dpu_policy").cloned(),
+                            serialized.get("dpu_mode").cloned(),
+                        )
+                    })
+                    .map_err(drop)
+            };
+            "canonical key only" {
+                None => Yields((Some(serde_json::Value::Null), None)),
+                Some(HostDpuPolicy::Manage) => Yields((
+                    Some(serde_json::Value::String("manage".to_string())),
+                    None,
+                )),
+                Some(HostDpuPolicy::Nic) => Yields((
+                    Some(serde_json::Value::String("nic".to_string())),
+                    None,
+                )),
+                Some(HostDpuPolicy::Ignore) => Yields((
+                    Some(serde_json::Value::String("ignore".to_string())),
+                    None,
+                )),
+            }
+        );
     }
 
     #[test]
@@ -4374,6 +4860,7 @@ mqtt_endpoint = "mqtt.forge"
     fn deserialize_dpu_config() {
         let toml = r#"
 [dpu_config]
+bootstrap_ca_source = "embedded"
 dpu_enable_secure_boot = true
 num_of_vfs = 64
 "#;
@@ -4384,9 +4871,29 @@ num_of_vfs = 64
             .extract()
             .unwrap();
 
+        assert_eq!(
+            config.dpu_config.bootstrap_ca_source,
+            BootstrapCaSource::Embedded
+        );
         assert!(config.dpu_config.dpu_enable_secure_boot);
         assert_eq!(config.dpu_config.num_of_vfs, 64);
         assert!(!config.dpu_config.dpu_models.is_empty());
+    }
+
+    #[test]
+    fn deserialize_dpu_config_rejects_unknown_bootstrap_ca_source() {
+        let toml = r#"
+[dpu_config]
+bootstrap_ca_source = "download"
+"#;
+
+        let error = Figment::new()
+            .merge(Toml::file(format!("{TEST_DATA_DIR}/full_config.toml")))
+            .merge(Toml::string(toml))
+            .extract::<CarbideConfig>()
+            .unwrap_err();
+
+        assert!(error.to_string().contains("bootstrap_ca_source"), "{error}");
     }
 
     /// Validates the hard limit on generated BlueField virtual functions.
@@ -4674,6 +5181,247 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 pool_type: resource_pool::ResourcePoolType::Integer,
                 delegate_prefix_len: None,
             }
+        );
+    }
+
+    #[test]
+    fn deserialize_dpf_dpu_agent_bootstrap_ca_sources() {
+        check_values(
+            [
+                Check {
+                    scenario: "default legacy download",
+                    input: "",
+                    expect: Ok((DpfDpuAgentBootstrapCa::default(), Ok(()))),
+                },
+                Check {
+                    scenario: "custom legacy endpoint",
+                    input: r#"
+[dpu_agent_bootstrap_ca]
+source = "legacy_download"
+url = "https://pxe.example.test/site-ca.pem"
+"#,
+                    expect: Ok((
+                        DpfDpuAgentBootstrapCa::LegacyDownload {
+                            url: Some(
+                                url::Url::parse("https://pxe.example.test/site-ca.pem").unwrap(),
+                            ),
+                        },
+                        Ok(()),
+                    )),
+                },
+                Check {
+                    scenario: "mounted ConfigMap CA",
+                    input: r#"
+[dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "config_map"
+name = "nico-bootstrap-ca-v1"
+"#,
+                    expect: Ok((
+                        DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "nico-bootstrap-ca-v1".to_string(),
+                            key: "ca.crt".to_string(),
+                        },
+                        Ok(()),
+                    )),
+                },
+            ],
+            |input| {
+                toml::from_str::<DpfConfig>(input)
+                    .map_err(|error| error.to_string())
+                    .map(|config| {
+                        let validation = config.dpu_agent_bootstrap_ca.validate();
+                        (config.dpu_agent_bootstrap_ca, validation)
+                    })
+            },
+        );
+    }
+
+    #[test]
+    fn deserialize_dpf_dpu_agent_bootstrap_ca_rejects_unknown_fields() {
+        let error = toml::from_str::<DpfConfig>(
+            r#"
+[dpu_agent_bootstrap_ca]
+source = "legacy_download"
+object_kind = "secret"
+"#,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field `object_kind`"));
+    }
+
+    #[test]
+    fn dpf_dpu_agent_bootstrap_ca_validation_rejects_unsafe_values() {
+        struct ValidationInput {
+            policy: DpfDpuAgentBootstrapCa,
+            expected_error: &'static str,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "unsupported URL scheme",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::LegacyDownload {
+                            url: Some(url::Url::parse("file:///tmp/site-ca.pem").unwrap()),
+                        },
+                        expected_error: "must use http or https",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "empty object name",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "  ".to_string(),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must not be empty",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "empty object key",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: String::new(),
+                        },
+                        expected_error: "key must not be empty",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object name containing uppercase characters",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "Nico-bootstrap-ca".to_string(),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must be a valid Kubernetes DNS subdomain",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object name with an empty DNS label",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "nico..bootstrap-ca".to_string(),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must be a valid Kubernetes DNS subdomain",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object name longer than the Kubernetes limit",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "a".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH + 1),
+                            key: "ca.crt".to_string(),
+                        },
+                        expected_error: "name must be a valid Kubernetes DNS subdomain",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object key containing a path separator",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: "certs/ca.crt".to_string(),
+                        },
+                        expected_error: "key must be a valid Kubernetes Secret or ConfigMap data key",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object key using a reserved parent-directory prefix",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: "..ca.crt".to_string(),
+                        },
+                        expected_error: "key must be a valid Kubernetes Secret or ConfigMap data key",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object key using the reserved current-directory name",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: ".".to_string(),
+                        },
+                        expected_error: "key must be a valid Kubernetes Secret or ConfigMap data key",
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "object key longer than the Kubernetes limit",
+                    input: ValidationInput {
+                        policy: DpfDpuAgentBootstrapCa::Mounted {
+                            object_kind: DpfBootstrapCaObjectKind::Secret,
+                            name: "nico-bootstrap-ca".to_string(),
+                            key: "a".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH + 1),
+                        },
+                        expected_error: "key must be a valid Kubernetes Secret or ConfigMap data key",
+                    },
+                    expect: true,
+                },
+            ],
+            |ValidationInput {
+                 policy,
+                 expected_error,
+             }| {
+                policy
+                    .validate()
+                    .is_err_and(|error| error.contains(expected_error))
+            },
+        );
+    }
+
+    #[test]
+    fn dpf_dpu_agent_bootstrap_ca_validation_accepts_kubernetes_references() {
+        check_values(
+            [
+                Check {
+                    scenario: "dotted object name and default-style key",
+                    input: ("nico.bootstrap-ca-v1".to_string(), "ca.crt".to_string()),
+                    expect: Ok(()),
+                },
+                Check {
+                    scenario: "maximum-length object name and key",
+                    input: (
+                        "a".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH),
+                        "A".repeat(KUBERNETES_DNS_SUBDOMAIN_MAX_LENGTH),
+                    ),
+                    expect: Ok(()),
+                },
+                Check {
+                    scenario: "uppercase and underscore in data key",
+                    input: ("nico-bootstrap-ca".to_string(), ".SITE_CA-V1".to_string()),
+                    expect: Ok(()),
+                },
+            ],
+            |(name, key)| {
+                DpfDpuAgentBootstrapCa::Mounted {
+                    object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                    name,
+                    key,
+                }
+                .validate()
+            },
         );
     }
 

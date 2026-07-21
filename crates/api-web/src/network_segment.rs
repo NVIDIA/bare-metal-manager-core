@@ -93,7 +93,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let networks = match fetch_network_segments(state.clone()).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_network_segments");
+            tracing::error!(error = %err, "fetch_network_segments");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network segments",
@@ -122,7 +122,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         let mut display: NetworkSegmentRowDisplay = match n.try_into() {
             Ok(d) => d,
             Err(err) => {
-                tracing::error!(err, "skipping malformed network segment");
+                tracing::error!(error = err, "skipping malformed network segment");
                 continue;
             }
         };
@@ -149,7 +149,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let networks = match fetch_network_segments(state).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_network_segments");
+            tracing::error!(error = %err, "fetch_network_segments");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network segments",
@@ -220,7 +220,7 @@ async fn get_domain_name(state: Arc<Api>, domain_id: &DomainId) -> eyre::Result<
 
     if domain_list.domains.len() != 1 {
         eyre::bail!(
-            "Expected one domain matching {domain_id}, found {}",
+            "expected one domain matching {domain_id}, found {}",
             domain_list.domains.len()
         );
     }
@@ -362,7 +362,7 @@ pub async fn detail(
         }
         Ok(mut n) => n.network_segments.remove(0),
         Err(err) => {
-            tracing::error!(%err, "find_network_segments");
+            tracing::error!(error = %err, "find_network_segments");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading network segments",
@@ -387,7 +387,7 @@ pub async fn detail(
     let mut tmpl: NetworkSegmentDetail = match segment.try_into() {
         Ok(t) => t,
         Err(err) => {
-            tracing::error!(err, "malformed network segment");
+            tracing::error!(error = err, "malformed network segment");
             return (StatusCode::INTERNAL_SERVER_ERROR, err).into_response();
         }
     };

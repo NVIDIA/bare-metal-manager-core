@@ -399,8 +399,40 @@ oauth2_client_id      = "nico-api"
 allowed_access_groups = ["nico-operators", "nico-admins"]
 ```
 
-The chart supports overriding any `[auth.web]` field via
-`nico-api.extraEnv` (see [`helm/README.md` → OAuth2 / SSO Setup](../../../helm/README.md#oauth2--sso-setup)).
+The deployed WebUI authentication mode is configured with
+`nico-api.webAuth.mode` (`basic`, `oauth2`, or `none`) and defaults to Basic
+Auth with a generated password Secret. When `webAuth.mode: oauth2` is selected,
+provide the endpoints, client credentials, and allowed groups through
+`nico-api.extraEnv`:
+
+```yaml
+nico-api:
+  webAuth:
+    mode: oauth2
+  extraEnv:
+    - name: CARBIDE_WEB_OAUTH2_AUTH_ENDPOINT
+      value: "https://keycloak.example.com/realms/nico/protocol/openid-connect/auth"
+    - name: CARBIDE_WEB_OAUTH2_TOKEN_ENDPOINT
+      value: "https://keycloak.example.com/realms/nico/protocol/openid-connect/token"
+    - name: CARBIDE_WEB_OAUTH2_CLIENT_ID
+      value: "nico-api"
+    - name: CARBIDE_WEB_OAUTH2_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: nico-web-oauth2-client
+          key: client_secret
+    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS
+      value: "nico-operators,nico-admins"
+    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS_ID_LIST
+      value: "<operators-group-id>,<admins-group-id>"
+```
+
+`extraEnv` accepts normal Kubernetes `env` entries, including `valueFrom`
+references. An existing `CARBIDE_WEB_AUTH_TYPE` entry there takes precedence
+over `webAuth.mode` for backward compatibility, but new configurations should
+use `webAuth.mode` to select the mode. See
+[`helm/README.md` → OAuth2 / SSO Setup](../../../helm/README.md#oauth2--sso-setup)
+for the complete Helm guidance.
 
 `[auth.acls]` defines per-principal HTTP method+path allow/deny rules
 (used by `nico-bmc-proxy` and other authenticating proxies). The example

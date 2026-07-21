@@ -88,7 +88,7 @@ pub fn main_sync(sync_options: SyncOptions, machine_id: &MachineId, host_machine
         ),
     ]);
     if let Err(e) = duppet::sync(duppet_files, sync_options) {
-        tracing::error!("error during duppet run: {}", e)
+        tracing::error!(error = %e, "error during duppet run")
     }
 }
 

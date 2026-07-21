@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// Flat `rpc::forge::Machine` fields are deprecated in favour of `status`/`config`
+// sub-messages, but this module must still read them until the REST API is migrated.
+// See https://github.com/NVIDIA/infra-controller/issues/2793
+#![allow(deprecated)]
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -187,7 +191,7 @@ pub async fn show_nvlink_logical_partitions_html(
     let partitions = match fetch_logical_partitions(state.clone(), false, None).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_logical_partitions");
+            tracing::error!(error = %err, "fetch_logical_partitions");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading logical partitions",
@@ -208,7 +212,7 @@ pub async fn show_nvlink_logical_partitions_json(
     let partitions = match fetch_logical_partitions(state, false, None).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_logical_partitions");
+            tracing::error!(error = %err, "fetch_logical_partitions");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json("Error loading logical_partitions".to_string()),
@@ -228,7 +232,7 @@ pub async fn show_nvlink_domain_health_html(
     let rows = match fetch_nvlink_domain_health_rows(&state).await {
         Ok(rows) => rows,
         Err(err) => {
-            tracing::error!(%err, "fetch_nvlink_domain_health_rows");
+            tracing::error!(error = %err, "fetch_nvlink_domain_health_rows");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading NVLink domain health",
@@ -253,7 +257,7 @@ pub async fn show_nvlink_domain_health_html(
     match tmpl.render() {
         Ok(html) => (StatusCode::OK, Html(html)).into_response(),
         Err(err) => {
-            tracing::error!(%err, "render_nvlink_domain_health");
+            tracing::error!(error = %err, "render_nvlink_domain_health");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error rendering NVLink domain health",
@@ -268,7 +272,7 @@ pub async fn show_nvlink_domain_health_json(AxumState(state): AxumState<Arc<Api>
     let rows = match fetch_nvlink_domain_health_rows(&state).await {
         Ok(rows) => rows,
         Err(err) => {
-            tracing::error!(%err, "fetch_nvlink_domain_health_rows");
+            tracing::error!(error = %err, "fetch_nvlink_domain_health_rows");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json("Error loading NVLink domain health".to_string()),
@@ -305,7 +309,7 @@ pub async fn detail(
     let partitions = match fetch_logical_partitions(state.clone(), true, Some(partitionid)).await {
         Ok(n) => n,
         Err(err) => {
-            tracing::error!(%err, "fetch_logical_partitions");
+            tracing::error!(error = %err, "fetch_logical_partitions");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error loading logical partitions",

@@ -3455,7 +3455,7 @@ impl Forge for Api {
                 description: template.description.clone(),
                 reserved_params: template.reserved_params.clone(),
                 required_artifacts: template.required_artifacts.clone(),
-                scope: ipxe_template_scope_to_proto(template.scope).into(),
+                visibility: ipxe_template_visibility_to_proto(template.visibility).into(),
             })),
             None => Err(Status::not_found(format!(
                 "iPXE template '{}' not found",
@@ -3491,7 +3491,7 @@ impl Forge for Api {
                     description: t.description.clone(),
                     reserved_params: t.reserved_params.clone(),
                     required_artifacts: t.required_artifacts.clone(),
-                    scope: ipxe_template_scope_to_proto(t.scope).into(),
+                    visibility: ipxe_template_visibility_to_proto(t.visibility).into(),
                 })
             })
             .collect::<Result<Vec<_>, Status>>()?;
@@ -3509,14 +3509,14 @@ impl Forge for Api {
     }
 }
 
-fn ipxe_template_scope_to_proto(
-    scope: carbide_ipxe_renderer::IpxeTemplateScope,
-) -> ::rpc::forge::IpxeTemplateScope {
-    use ::rpc::forge::IpxeTemplateScope as ProtoScope;
-    use carbide_ipxe_renderer::IpxeTemplateScope as RendererScope;
-    match scope {
-        RendererScope::Internal => ProtoScope::Internal,
-        RendererScope::Public => ProtoScope::Public,
+fn ipxe_template_visibility_to_proto(
+    visibility: carbide_ipxe_renderer::IpxeTemplateVisibility,
+) -> ::rpc::forge::IpxeTemplateVisibility {
+    use ::rpc::forge::IpxeTemplateVisibility as ProtoVisibility;
+    use carbide_ipxe_renderer::IpxeTemplateVisibility as RendererVisibility;
+    match visibility {
+        RendererVisibility::Internal => ProtoVisibility::Internal,
+        RendererVisibility::Public => ProtoVisibility::Public,
     }
 }
 
@@ -3619,7 +3619,7 @@ impl Api {
                     // don't raise the "not set" warning on a transient secrets failure.
                     tracing::warn!(
                         key = %key.to_key_str(),
-                        %err,
+                        error = %err,
                         "could not verify default credential presence",
                     );
                 }

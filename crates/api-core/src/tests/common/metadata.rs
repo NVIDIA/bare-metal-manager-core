@@ -35,7 +35,7 @@ pub fn invalid_metadata_testcases(
                     value: None,
                 }],
             },
-            "Invalid value: Label key cannot be empty.".to_string(),
+            "invalid value: Label key cannot be empty.".to_string(),
         ),
         (
             // Duplicated Key
@@ -53,7 +53,7 @@ pub fn invalid_metadata_testcases(
                     },
                 ],
             },
-            "Label is not valid: Duplicate key found: a".to_string(),
+            "label is not valid: Duplicate key found: a".to_string(),
         ),
         (
             // Name is longer than limit
@@ -63,7 +63,7 @@ pub fn invalid_metadata_testcases(
                 labels: vec![],
             },
             format!(
-                "Invalid value: Name must be between {} and 256 characters long, got 257 characters",
+                "invalid value: Name must be between {} and 256 characters long, got 257 characters",
                 if include_min_length_test_cases { 2 } else { 0 }),
         ),
         (
@@ -73,7 +73,7 @@ pub fn invalid_metadata_testcases(
                 description: String::from_utf8(vec![b'A'; 1025]).unwrap(),
                 labels: vec![],
             },
-            "Invalid value: Description must be between 0 and 1024 characters long, got 1025 characters".to_string(),
+            "invalid value: Description must be between 0 and 1024 characters long, got 1025 characters".to_string(),
         ),
         (
             // Invalid Chars in Name
@@ -82,7 +82,7 @@ pub fn invalid_metadata_testcases(
                 description: "a\u{211D}".to_string(),
                 labels: vec![],
             },
-            "Invalid value: Name 'asdf😊' must contain ASCII characters only".to_string(),
+            "invalid value: Name 'asdf😊' must contain ASCII characters only".to_string(),
         ),
         (
             // Overlong Key
@@ -100,7 +100,7 @@ pub fn invalid_metadata_testcases(
                 }],
             },
             concat!(
-                "Invalid value: Label key '",
+                "invalid value: Label key '",
                 "0123456789012345678901234567890123456789012345678901234567890123456789",
                 "0123456789012345678901234567890123456789012345678901234567890123456789",
                 "0123456789012345678901234567890123456789012345678901234567890123456789",
@@ -126,7 +126,7 @@ pub fn invalid_metadata_testcases(
                 }],
             },
             concat!(
-                "Invalid value: Label value '",
+                "invalid value: Label value '",
                 "0123456789012345678901234567890123456789012345678901234567890123456789",
                 "0123456789012345678901234567890123456789012345678901234567890123456789",
                 "0123456789012345678901234567890123456789012345678901234567890123456789",
@@ -208,7 +208,7 @@ pub fn invalid_metadata_testcases(
                     value: None,
                 },],
             },
-            "Invalid value: Cannot have more than 16 labels".to_string()
+            "invalid value: Cannot have more than 16 labels".to_string()
         ),
     ].to_vec();
 
@@ -221,7 +221,7 @@ pub fn invalid_metadata_testcases(
                     description: "def".to_string(),
                     labels: vec![],
                 },
-                "Invalid value: Name must be between 2 and 256 characters long, got 0 characters"
+                "invalid value: Name must be between 2 and 256 characters long, got 0 characters"
                     .to_string(),
             ),
             (
@@ -231,7 +231,7 @@ pub fn invalid_metadata_testcases(
                     description: "def".to_string(),
                     labels: vec![],
                 },
-                "Invalid value: Name must be between 2 and 256 characters long, got 1 characters"
+                "invalid value: Name must be between 2 and 256 characters long, got 1 characters"
                     .to_string(),
             ),
         ]);

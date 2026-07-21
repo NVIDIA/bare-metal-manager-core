@@ -29,7 +29,7 @@ use crate::config::NvueRestConfig;
 use crate::endpoint::{BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata};
 use crate::sink::{
     Classification, CollectorEvent, DataSink, EventContext, HealthReport, HealthReportAlert,
-    HealthReportSuccess, HealthReportTarget, MetricSample, Probe, ReportSource,
+    HealthReportSuccess, HealthReportTarget, LogRecord, MetricSample, Probe, ReportSource,
 };
 
 const COLLECTOR_NAME: &str = "nvue_rest";
@@ -147,6 +147,9 @@ pub struct NvueRestCollectorConfig {
     /// Optional sink that receives NVUE REST health reports and events.
     pub data_sink: Option<Arc<dyn DataSink>>,
 
+    /// Whether an enabled sink consumes structured log events.
+    pub log_event_sink_enabled: bool,
+
     /// Credential source used to authenticate to NVUE REST.
     pub credential_provider: Arc<dyn CredentialProvider>,
 
@@ -159,6 +162,7 @@ pub struct NvueRestCollector {
     switch_id: String,
     event_context: EventContext,
     data_sink: Option<Arc<dyn DataSink>>,
+    log_event_sink_enabled: bool,
     addr: BmcAddr,
     provider: Arc<dyn CredentialProvider>,
 }
@@ -195,6 +199,7 @@ impl PeriodicCollector<crate::bmc::BmcClient> for NvueRestCollector {
             switch_id,
             event_context,
             data_sink: config.data_sink,
+            log_event_sink_enabled: config.log_event_sink_enabled,
             addr: endpoint.addr.clone(),
             provider: config.credential_provider,
         })
@@ -542,23 +547,36 @@ impl NvueRestCollector {
         }
     }
 
-    /// Emits reboot-reason metadata as an info metric.
+    /// Emits reboot-reason metadata through log sinks and as an info metric.
     ///
     /// `reason` is intentionally kept as the Prometheus grouping label because
     /// the metric is not useful without it. `gentime` and `user` are excluded
-    /// from labels because they churn per event and can expose operator data.
+    /// from metric labels because they churn per event and can expose operator
+    /// data, but remain available as structured log attributes. `switch_id`
+    /// remains a log attribute so every sink can correlate the event.
     fn emit_reboot_reason_data(&self, reason: &RebootReasonResponse) {
         let reason_text = reason.reason.as_deref().unwrap_or("unknown");
-        let gentime = reason.gentime.as_deref().unwrap_or("unknown");
-        let user = reason.user.as_deref().unwrap_or("unknown");
 
-        tracing::info!(
-            switch_id = %self.switch_id,
-            reason = reason_text,
-            gentime,
-            user,
-            "nvue_rest: collected system reboot reason"
-        );
+        if self.log_event_sink_enabled {
+            let gentime = reason.gentime.as_deref().unwrap_or("unknown");
+            let user = reason.user.as_deref().unwrap_or("unknown");
+
+            self.emit_event(CollectorEvent::Log(Box::new(LogRecord {
+                body: "nvue_rest: collected system reboot reason".to_string(),
+                severity: "INFO".to_string(),
+                attributes: vec![
+                    (
+                        Cow::Borrowed("message_id"),
+                        "NvueRest.SystemRebootReason".to_string(),
+                    ),
+                    (Cow::Borrowed("switch_id"), self.switch_id.clone()),
+                    (Cow::Borrowed("reason"), reason_text.to_string()),
+                    (Cow::Borrowed("gentime"), gentime.to_string()),
+                    (Cow::Borrowed("user"), user.to_string()),
+                ],
+                diagnostic_record: None,
+            })));
+        }
 
         self.emit_metric(
             "reboot_reason_info",
@@ -796,6 +814,7 @@ mod tests {
     struct CapturingSink {
         samples: StdMutex<Vec<MetricSample>>,
         reports: StdMutex<Vec<HealthReport>>,
+        logs: StdMutex<Vec<LogRecord>>,
     }
 
     impl DataSink for CapturingSink {
@@ -815,10 +834,12 @@ mod tests {
                 CollectorEvent::HealthReport(report) => {
                     self.reports.lock().unwrap().push((**report).clone());
                 }
+                CollectorEvent::Log(record) => {
+                    self.logs.lock().unwrap().push((**record).clone());
+                }
                 CollectorEvent::MetricCollectionStart
                 | CollectorEvent::MetricCollectionEnd
                 | CollectorEvent::CollectorRemoved
-                | CollectorEvent::Log(_)
                 | CollectorEvent::Firmware(_) => {}
             }
             Ok(())
@@ -1340,10 +1361,11 @@ mod tests {
     }
 
     #[test]
-    fn test_reboot_reason_emits_reason_label_without_user_or_gentime() {
+    fn test_reboot_reason_emits_log_metadata_and_limits_metric_labels_to_reason() {
         let sink = Arc::new(CapturingSink::default());
         let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
         collector.data_sink = Some(sink.clone());
+        collector.log_event_sink_enabled = true;
 
         let reason = RebootReasonResponse {
             reason: Some("package upgrade".to_string()),
@@ -1355,7 +1377,29 @@ mod tests {
 
         let samples = sink.samples.lock().unwrap();
         let reports = sink.reports.lock().unwrap();
+        let logs = sink.logs.lock().unwrap();
         let sample = samples.first().expect("reboot reason emits one sample");
+        let log = logs.first().expect("reboot reason emits one log");
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(log.body, "nvue_rest: collected system reboot reason");
+        assert_eq!(log.severity, "INFO");
+
+        assert_eq!(
+            log.attributes,
+            vec![
+                (
+                    Cow::Borrowed("message_id"),
+                    "NvueRest.SystemRebootReason".to_string(),
+                ),
+                (Cow::Borrowed("switch_id"), "test-switch".to_string()),
+                (Cow::Borrowed("reason"), "package upgrade".to_string()),
+                (Cow::Borrowed("gentime"), "2026-07-05 12:34:56".to_string()),
+                (Cow::Borrowed("user"), "admin".to_string()),
+            ]
+        );
+
+        assert!(log.diagnostic_record.is_none());
 
         assert_eq!(samples.len(), 1);
         assert!(reports.is_empty());
@@ -1369,6 +1413,27 @@ mod tests {
             sample.labels,
             vec![(Cow::Borrowed("reason"), "package upgrade".to_string())]
         );
+    }
+
+    #[test]
+    fn test_reboot_reason_without_log_sink_emits_only_metric() {
+        let sink = Arc::new(CapturingSink::default());
+        let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
+        collector.data_sink = Some(sink.clone());
+
+        let reason = RebootReasonResponse {
+            reason: Some("package upgrade".to_string()),
+            gentime: Some("2026-07-05 12:34:56".to_string()),
+            user: Some("admin".to_string()),
+        };
+
+        collector.emit_reboot_reason_data(&reason);
+
+        let samples = sink.samples.lock().unwrap();
+        let logs = sink.logs.lock().unwrap();
+
+        assert_eq!(samples.len(), 1);
+        assert!(logs.is_empty());
     }
 
     #[test]
@@ -1547,6 +1612,7 @@ mod tests {
             switch_id: "test-switch".to_string(),
             event_context,
             data_sink: None,
+            log_event_sink_enabled: false,
             addr,
             provider,
         }

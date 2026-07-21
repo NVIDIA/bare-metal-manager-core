@@ -74,8 +74,8 @@ impl InstanceSpxStatus {
                 }
                 None => {
                     tracing::error!(
-                        "could not find matching status spx attachment {:?}",
-                        cfg.device_instance
+                        device_instance = cfg.device_instance,
+                        "could not find matching status spx attachment",
                     );
                     configs_synced = SyncState::Pending;
                     InstanceSpxAttachmentStatus {

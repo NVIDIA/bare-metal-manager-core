@@ -18,6 +18,7 @@ bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-db = { path = "../api-db" }
 carbide-api-model = { path = "../api-model" }
 carbide-firmware = { path = "../firmware" }
+carbide-instrument = { path = "../instrument" }
 carbide-redfish = { path = "../redfish" }
 carbide-secrets = { path = "../secrets" }
 carbide-ssh = { path = "../ssh" }
@@ -38,6 +39,7 @@ version-compare = { workspace = true }
 
 [dev-dependencies]
 carbide-firmware = { path = "../firmware", features = ["test-support"] }
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-harness = { path = "../test-harness" }
 carbide-test-support = { path = "../test-support" }
 carbide-uuid = { path = "../uuid" }

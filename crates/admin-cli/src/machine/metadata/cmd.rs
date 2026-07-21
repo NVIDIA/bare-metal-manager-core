@@ -117,6 +117,7 @@ pub async fn metadata_remove_labels(
     Ok(())
 }
 
+#[allow(deprecated)]
 pub async fn metadata_from_expected_machine(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandFromExpectedMachine,

@@ -161,7 +161,7 @@ impl MacAddressPool {
 pub enum Error {
     #[error("MAC address {0} is already allocated")]
     AlreadyAllocated(MacAddress),
-    #[error("Trying to reserve MAC address {mac} is within allocated range {range}")]
+    #[error("trying to reserve MAC address {mac} is within allocated range {range}")]
     ReservationWithinAllocatedRange { mac: MacAddress, range: MacAddress },
     #[error("MAC address pool exhausted")]
     Exhausted,
@@ -169,9 +169,9 @@ pub enum Error {
     PoolNotConfigured,
     #[error("MAC address ranges are not configured")]
     RangesNotConfigured,
-    #[error("Invalid host bits length: {0} (must be up to 48)")]
+    #[error("invalid host bits length: {0} (must be up to 48)")]
     InvalidHostBits(usize),
-    #[error("Invalid range host bits length: {range_host_bits} > {host_bits}")]
+    #[error("invalid range host bits length: {range_host_bits} > {host_bits}")]
     InvalidRangeHostBits {
         range_host_bits: usize,
         host_bits: usize,

@@ -51,6 +51,7 @@ carbide-health-report = { path = "../health-report" }
 carbide-rpc = { path = "../rpc" }
 carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-utils = { path = "../utils" }
+metrics-endpoint = { path = "../metrics-endpoint" }
 nvue-client = { path = "../nvue-client" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
@@ -103,6 +104,7 @@ regex = { workspace = true }
 resolv-conf = { workspace = true }
 rtnetlink = { workspace = true }
 rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -137,7 +139,6 @@ tonic-prost-build = { workspace = true }
 carbide-test-support = { path = "../test-support" }
 ctor = { workspace = true }
 prost = { workspace = true }
-rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 
 [lints]

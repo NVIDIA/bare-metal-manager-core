@@ -550,7 +550,7 @@ pub(crate) async fn delete(
     {
         if allocation.tenant_organization_id != tenant_organization_id {
             return Err(CarbideError::InvalidArgument(format!(
-                "ComputeAllocation `{}` is not owned by Tenant `{}`",
+                "ComputeAllocation `{}` is not owned by tenant `{}`",
                 allocation.id.clone(),
                 tenant_organization_id.clone()
             ))

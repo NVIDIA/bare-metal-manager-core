@@ -65,7 +65,11 @@ impl FirmwareConfigSnapshot {
                 }
             })
             .cloned();
-        tracing::debug!("FirmwareConfig::find: key {key} found {ret:?}");
+        tracing::debug!(
+            %key,
+            firmware = ?ret,
+            "Firmware config lookup completed",
+        );
         ret
     }
 
@@ -137,7 +141,11 @@ impl FirmwareConfig {
             // Fake configs to merge for unit tests
             for ovrd in &self.test_overrides {
                 if let Err(err) = self.merge_from_string(&mut data, ovrd.clone()) {
-                    tracing::error!("Bad override {ovrd}: {err}");
+                    tracing::error!(
+                        override_config = %ovrd,
+                        error = %err,
+                        "Failed to merge test firmware override",
+                    );
                 }
             }
         }
@@ -174,7 +182,7 @@ impl FirmwareConfig {
         firmware_directory: &PathBuf,
     ) {
         if !firmware_directory.is_dir() {
-            tracing::error!("Missing firmware directory {:?}", firmware_directory);
+            tracing::error!(?firmware_directory, "Firmware directory does not exist",);
             return;
         }
 
@@ -192,12 +200,20 @@ impl FirmwareConfig {
             let metadata = match fs::read_to_string(metadata_path.clone()) {
                 Ok(str) => str,
                 Err(e) => {
-                    tracing::error!("Could not read {metadata_path:?}: {e}");
+                    tracing::error!(
+                        ?metadata_path,
+                        error = %e,
+                        "Could not read firmware metadata",
+                    );
                     continue;
                 }
             };
             if let Err(e) = self.merge_from_string(map, metadata) {
-                tracing::error!("Failed to merge in metadata from {:?}: {e}", dir.path());
+                tracing::error!(
+                    metadata_directory = ?dir.path(),
+                    error = %e,
+                    "Failed to merge firmware metadata",
+                );
             }
         }
     }
@@ -375,7 +391,10 @@ fn vendor_model_to_key(vendor: bmc_vendor::BMCVendor, model: &str) -> String {
 
 fn subdirectories_sorted_by_modification_date(topdir: &PathBuf) -> Vec<fs::DirEntry> {
     let Ok(dirs) = topdir.read_dir() else {
-        tracing::error!("Unreadable firmware directory {:?}", topdir);
+        tracing::error!(
+            firmware_directory = ?topdir,
+            "Unreadable firmware directory",
+        );
         return vec![];
     };
 

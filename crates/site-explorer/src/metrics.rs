@@ -45,9 +45,9 @@ pub enum PairingBlockerReason {
     HostSystemReportMissing,
     /// Host's boot MAC not found in any discovered DPU
     BootInterfaceMacMismatch,
-    /// Host BMC reports no Bluefield PCIe devices but the host isn't
-    /// declared as `dpu_mode = "no_dpu"`. We expect DPUs but didn't
-    /// find any -- likely a misconfiguration or DPU-discovery bug.
+    /// Host has no DPUs available for management while its effective policy is
+    /// `Manage`. We expected managed DPUs but found none -- likely a
+    /// misconfiguration or DPU-discovery bug.
     NoDpuReportedByHost,
 }
 
@@ -66,9 +66,9 @@ impl Display for PairingBlockerReason {
     }
 }
 
-/// Signals emitted while migrating a DPU's NIC mode toward its declared target.
-/// Each marks a step in the flip-and-reset flow that drives a DPU into the
-/// mode its host's `dpu_mode` calls for.
+/// Signals emitted while reconciling a DPU with its resolved target operating mode.
+/// The target incorporates the effective host policy and, for `Manage`, product defaults.
+/// Each signal marks a step in the resulting flip-and-reset flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DpuMigrationSignal {
     /// Found a DPU whose actual mode differs from the target; will reconfigure.
@@ -77,9 +77,9 @@ pub enum DpuMigrationSignal {
     SetNicModeIssued,
     /// Requested a host power-cycle to apply a queued NIC-mode change.
     ResetRequested,
-    /// Registered a host with zero managed DPUs because its declared
-    /// `dpu_mode` is NicMode (distinct from NoDpu).
-    RegisteredZeroDpuForNicMode,
+    /// Registered a host with zero managed DPUs because its policy is
+    /// `Nic` (distinct from `Ignore`).
+    RegisteredZeroDpuForNic,
 }
 
 impl Display for DpuMigrationSignal {
@@ -88,7 +88,8 @@ impl Display for DpuMigrationSignal {
             Self::ModeMismatchFound => "mode_mismatch_found",
             Self::SetNicModeIssued => "set_nic_mode_issued",
             Self::ResetRequested => "reset_requested",
-            Self::RegisteredZeroDpuForNicMode => "registered_zero_dpu_for_nic_mode",
+            // Keep the established metric label stable across the policy rename.
+            Self::RegisteredZeroDpuForNic => "registered_zero_dpu_for_nic_mode",
         };
         write!(f, "{s}")
     }
@@ -166,9 +167,9 @@ pub struct SiteExplorationMetrics {
     /// Generic category for the latest whole-run failure. `None` means success.
     pub run_failure_category: Option<String>,
     /// Total count of DPU NIC-mode migration signals by kind. These track the
-    /// flip-and-reset flow that drives a DPU into the mode its host's
-    /// `dpu_mode` declares (mismatch found, `set_nic_mode` issued, reset
-    /// requested, and zero-DPU registered for a NicMode host).
+    /// flip-and-reset flow that reconciles a DPU with its resolved target mode
+    /// (mismatch found, `set_nic_mode` issued, reset requested, and zero-DPU
+    /// registered for a `Nic` host).
     pub dpu_migration_signals: HashMap<String, usize>,
 }
 
@@ -373,7 +374,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_endpoint_explorations_count")
-                .with_description("The amount of endpoint explorations that have been attempted")
+                .with_description("Number of attempted endpoint explorations")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.endpoint_explorations as u64, attrs);
@@ -413,7 +414,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_endpoint_exploration_success_count")
-                .with_description("The amount of endpoint explorations that have been successful")
+                .with_description("Number of successful endpoint explorations")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.endpoint_explorations_success as u64, attrs);
@@ -426,7 +427,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_endpoint_exploration_failures_count")
-                .with_description("The amount of endpoint explorations that have failed by error")
+                .with_description("Number of failed endpoint explorations, by error")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for (error, &count) in metrics.endpoint_explorations_failures_by_type.iter()
@@ -445,9 +446,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_endpoint_exploration_failures_overall_count")
-                .with_description(
-                    "The total number of endpoint explorations that have failed by error",
-                )
+                .with_description("Number of failed endpoint explorations, by error")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for (error, &count) in
@@ -466,8 +465,12 @@ impl SiteExplorerInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_endpoint_exploration_preingestions_incomplete_overall_count")
-                .with_description("The total number of machines in a preingestion state by expectation and machine type")
+                .u64_observable_gauge(
+                    "carbide_endpoint_exploration_preingestions_incomplete_overall_count",
+                )
+                .with_description(
+                    "Number of machines in a preingestion state by expectation and machine type",
+                )
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for ((expected, machine_type), &count) in metrics
@@ -481,11 +484,11 @@ impl SiteExplorerInstruments {
                                     &[
                                         KeyValue::new("expectation", expected.to_string()),
                                         KeyValue::new("machine_type", machine_type.metrics_value()),
-                                    ]
-                                ].concat()
+                                    ],
+                                ]
+                                .concat(),
                             );
                         }
-
                     })
                 })
                 .build();
@@ -495,7 +498,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_endpoint_exploration_expected_serial_number_mismatches_overall_count")
-                .with_description("The total number of found expected machines by machine type where the observed and expected serial numbers do not match")
+                .with_description("Number of found expected machines by machine type where the observed and expected serial numbers do not match")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for (machine_type, &count) in metrics
@@ -521,7 +524,7 @@ impl SiteExplorerInstruments {
                 .u64_observable_gauge(
                     "carbide_endpoint_exploration_machines_explored_overall_count",
                 )
-                .with_description("The total number of machines explored by machine type")
+                .with_description("Number of machines explored, by expectation and machine type")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for ((expected, machine_type), &count) in metrics
@@ -551,7 +554,7 @@ impl SiteExplorerInstruments {
                 .u64_observable_gauge(
                     "carbide_endpoint_exploration_identified_managed_hosts_overall_count",
                 )
-                .with_description("The total number of managed hosts identified by expectation")
+                .with_description("Number of managed hosts identified by expectation")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for (expected, &count) in metrics
@@ -575,9 +578,7 @@ impl SiteExplorerInstruments {
                 .u64_observable_gauge(
                     "carbide_endpoint_exploration_expected_machines_missing_overall_count",
                 )
-                .with_description(
-                    "The total number of machines that were expected but not identified",
-                )
+                .with_description("Number of machines expected but not identified")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(
@@ -624,13 +625,13 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_site_exploration_identified_managed_hosts_count")
-                .with_description("The amount of Host+DPU pairs that has been identified in the last SiteExplorer run")
+                .with_description(
+                    "Number of Host+DPU pairs identified in the last SiteExplorer run",
+                )
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        observer.observe(
-                            metrics.exploration_identified_managed_hosts as u64,
-                            attrs,
-                        );
+                        observer
+                            .observe(metrics.exploration_identified_managed_hosts as u64, attrs);
                     })
                 })
                 .build();
@@ -658,13 +659,12 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_site_explorer_created_machines_count")
-                .with_description("The amount of Machine pairs that had been created by Site Explorer after being identified")
+                .with_description(
+                    "Number of machine pairs created by Site Explorer after identification",
+                )
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        observer.observe(
-                            metrics.created_machines as u64,
-                            attrs,
-                        );
+                        observer.observe(metrics.created_machines as u64, attrs);
                     })
                 })
                 .build();
@@ -674,7 +674,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_site_explorer_bmc_reset_count")
-                .with_description("The amount of BMC resets initiated in the last SiteExplorer run")
+                .with_description("Number of successful BMC resets in the last SiteExplorer run")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.bmc_reset_count as u64, attrs);
@@ -689,9 +689,7 @@ impl SiteExplorerInstruments {
                 .u64_observable_gauge(
                     "carbide_endpoint_exploration_expected_power_shelves_missing_overall_count",
                 )
-                .with_description(
-                    "The total number of power shelves that were expected but not identified",
-                )
+                .with_description("Number of power shelves expected but not identified")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(
@@ -709,7 +707,7 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_site_exploration_expected_machines_sku_count")
-                .with_description("The total count of expected machines by SKU ID and device type")
+                .with_description("Number of expected machines by SKU ID and device type")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for ((sku_id, device_type), &count) in
@@ -737,8 +735,8 @@ impl SiteExplorerInstruments {
             meter
                 .u64_observable_gauge("carbide_host_dpu_pairing_blockers_count")
                 .with_description(
-                    "Count of host+dpu pairing blockers by reason. These are issues that prevent \
-                     a host from being paired with its dpu(s) and require manual intervention.",
+                    "Number of host+DPU pairing blockers by reason. These are issues that prevent \
+                     a host from being paired with its DPU(s) and require manual intervention.",
                 )
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
@@ -758,7 +756,7 @@ impl SiteExplorerInstruments {
             meter
                 .u64_observable_gauge("carbide_site_explorer_dpu_migration_signals_count")
                 .with_description(
-                    "Count of DPU NIC-mode migration signals by kind -- mode-mismatch found, \
+                    "Number of DPU NIC-mode migration signals by signal type -- mode-mismatch found, \
                      set_nic_mode issued, reset requested, and zero-DPU registered for a NicMode \
                      host.",
                 )
@@ -781,9 +779,7 @@ impl SiteExplorerInstruments {
                 .u64_observable_gauge(
                     "carbide_endpoint_exploration_expected_power_shelves_missing_overall_count",
                 )
-                .with_description(
-                    "The total number of power shelves that were expected but not identified",
-                )
+                .with_description("Number of power shelves expected but not identified")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(
@@ -801,13 +797,12 @@ impl SiteExplorerInstruments {
             let metrics = shared_metrics;
             meter
                 .u64_observable_gauge("carbide_site_explorer_created_power_shelves_count")
-                .with_description("The amount of Power Shelves that had been created by Site Explorer after being identified")
+                .with_description(
+                    "Number of power shelves created by Site Explorer after identification",
+                )
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
-                        observer.observe(
-                            metrics.created_power_shelves_count as u64,
-                            attrs,
-                        );
+                        observer.observe(metrics.created_power_shelves_count as u64, attrs);
                     })
                 })
                 .build();
@@ -978,7 +973,7 @@ impl MetricHolder {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::scenarios;
+    use carbide_test_support::{scenarios, value_scenarios};
     use opentelemetry::metrics::MeterProvider;
     use opentelemetry_sdk::metrics::SdkMeterProvider;
     use prometheus::{Encoder, TextEncoder};
@@ -1018,6 +1013,26 @@ mod tests {
             encoder.encode(&metric_families, &mut buffer).unwrap();
             String::from_utf8(buffer).unwrap()
         }
+    }
+
+    #[test]
+    fn dpu_migration_signal_labels_stay_stable() {
+        value_scenarios!(
+            run = |signal: DpuMigrationSignal| signal.to_string();
+            "mode mismatch" {
+                DpuMigrationSignal::ModeMismatchFound => "mode_mismatch_found".to_string(),
+            }
+            "NIC-mode change issued" {
+                DpuMigrationSignal::SetNicModeIssued => "set_nic_mode_issued".to_string(),
+            }
+            "reset requested" {
+                DpuMigrationSignal::ResetRequested => "reset_requested".to_string(),
+            }
+            "NIC policy registration keeps the legacy label" {
+                DpuMigrationSignal::RegisteredZeroDpuForNic =>
+                    "registered_zero_dpu_for_nic_mode".to_string(),
+            }
+        );
     }
 
     #[test]

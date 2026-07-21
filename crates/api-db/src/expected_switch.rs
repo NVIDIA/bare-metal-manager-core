@@ -511,8 +511,8 @@ pub async fn create_missing_from(
     for expected_switch in expected_switches {
         if existing_map.contains_key(&expected_switch.bmc_mac_address.to_string()) {
             tracing::debug!(
-                "Not overwriting expected-switch with mac_addr: {}",
-                expected_switch.bmc_mac_address.to_string()
+                bmc_mac_address = %expected_switch.bmc_mac_address,
+                "Expected switch already exists; not overwriting",
             );
             continue;
         }

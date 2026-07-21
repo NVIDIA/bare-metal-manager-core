@@ -153,7 +153,7 @@ pub async fn find_by_name(
             "PowerShelf::find_by_name",
             sqlx::Error::Decode(
                 eyre::eyre!(
-                    "Searching for PowerShelf {} returned multiple results",
+                    "searching for PowerShelf {} returned multiple results",
                     name
                 )
                 .into(),
@@ -176,7 +176,7 @@ pub async fn find_by_id(
         Err(DatabaseError::new(
             "PowerShelf::find_by_id",
             sqlx::Error::Decode(
-                eyre::eyre!("Searching for PowerShelf {} returned multiple results", id).into(),
+                eyre::eyre!("searching for PowerShelf {} returned multiple results", id).into(),
             ),
         ))
     }
@@ -585,46 +585,8 @@ pub async fn remove_health_report(
 
 #[cfg(test)]
 mod tests {
-    use carbide_uuid::power_shelf::{HardwareHash, PowerShelfIdSource, PowerShelfType};
-    use model::metadata::Metadata;
-    use model::power_shelf::PowerShelfConfig;
-
     use super::*;
-
-    /// Build a unique `PowerShelfId` for the test. The `seed` byte is used to
-    /// derive a deterministic 32-byte hardware hash so multiple shelves can
-    /// coexist within a single `sqlx_test` transaction without colliding.
-    fn test_power_shelf_id(seed: u8) -> PowerShelfId {
-        let hash: HardwareHash = [seed; 32];
-        PowerShelfId::new(
-            PowerShelfIdSource::ProductBoardChassisSerial,
-            hash,
-            PowerShelfType::Rack,
-        )
-    }
-
-    async fn create_test_power_shelf(
-        txn: &mut PgConnection,
-        seed: u8,
-        name: &str,
-    ) -> Result<PowerShelf, DatabaseError> {
-        let new_power_shelf = NewPowerShelf {
-            id: test_power_shelf_id(seed),
-            config: PowerShelfConfig {
-                name: name.to_string(),
-                capacity: Some(5000),
-                voltage: Some(240),
-            },
-            bmc_mac_address: None,
-            metadata: Some(Metadata {
-                name: name.to_string(),
-                description: String::new(),
-                labels: Default::default(),
-            }),
-            rack_id: None,
-        };
-        create(txn, &new_power_shelf).await
-    }
+    use crate::test_support::power_shelf::{create_seeded, create_seeded_with_config, seeded_id};
 
     /// The power-shelf load query must surface `bmc_info` (PMC MAC + IP +
     /// machine-interface id) resolved from the BMC machine_interface linked
@@ -641,8 +603,8 @@ mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let shelf = create_test_power_shelf(&mut txn, 10, "BMC info shelf").await?;
-        let other = create_test_power_shelf(&mut txn, 11, "Data-only shelf").await?;
+        let shelf = create_seeded(&mut txn, 10, "BMC info shelf").await?;
+        let other = create_seeded(&mut txn, 11, "Data-only shelf").await?;
 
         // A non-underlay segment on purpose: resolution must not depend on the
         // segment type, only on the BMC link back to the shelf.
@@ -720,11 +682,265 @@ mod tests {
     }
 
     #[crate::sqlx_test]
+    async fn test_power_shelf_database_operations(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let power_shelf = create_seeded_with_config(
+            &mut txn,
+            20,
+            "Database Test Power Shelf",
+            Some(6000),
+            Some(480),
+        )
+        .await?;
+        let power_shelf_id = power_shelf.id;
+
+        assert_eq!(power_shelf_id, seeded_id(20));
+        assert_eq!(power_shelf.config.name, "Database Test Power Shelf");
+        assert_eq!(power_shelf.config.capacity, Some(6000));
+        assert_eq!(power_shelf.config.voltage, Some(480));
+
+        let found_power_shelves = find_by(
+            &mut txn,
+            crate::ObjectColumnFilter::One(IdColumn, &power_shelf_id),
+        )
+        .await?;
+
+        assert_eq!(found_power_shelves.len(), 1);
+        let mut found_power_shelf = found_power_shelves[0].clone();
+        assert_eq!(found_power_shelf.id, power_shelf_id);
+        assert_eq!(found_power_shelf.config.name, "Database Test Power Shelf");
+
+        let deleted_power_shelf = mark_as_deleted(&mut found_power_shelf, &mut txn).await?;
+        assert!(deleted_power_shelf.deleted.is_some());
+        assert!(deleted_power_shelf.is_marked_as_deleted());
+
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_power_shelf_status_update(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let mut power_shelf = create_seeded_with_config(
+            &mut txn,
+            21,
+            "Status Test Power Shelf",
+            Some(5000),
+            Some(240),
+        )
+        .await?;
+
+        let status = model::power_shelf::PowerShelfStatus {
+            shelf_name: "Status Test Power Shelf".to_string(),
+            power_state: "on".to_string(),
+            health_status: "ok".to_string(),
+        };
+
+        power_shelf.status = Some(status.clone());
+        let updated_power_shelf = update(&power_shelf, &mut txn).await?;
+
+        assert!(updated_power_shelf.status.is_some());
+        let updated_status = updated_power_shelf.status.as_ref().unwrap();
+        assert_eq!(updated_status.shelf_name, "Status Test Power Shelf");
+        assert_eq!(updated_status.power_state, "on");
+        assert_eq!(updated_status.health_status, "ok");
+
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_power_shelf_controller_state_transitions(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let power_shelf = create_seeded_with_config(
+            &mut txn,
+            22,
+            "Controller State Test Power Shelf",
+            Some(5000),
+            Some(240),
+        )
+        .await?;
+        let power_shelf_id = power_shelf.id;
+
+        let initial_state = &power_shelf.controller_state.value;
+        assert!(matches!(
+            initial_state,
+            PowerShelfControllerState::Initializing
+        ));
+
+        let new_state = PowerShelfControllerState::Ready;
+        let current_version = power_shelf.controller_state.version;
+
+        let next_version = current_version.increment();
+        let updated = try_update_controller_state(
+            &mut txn,
+            power_shelf_id,
+            current_version,
+            next_version,
+            &new_state,
+        )
+        .await?;
+        assert!(updated, "update with correct version should succeed");
+
+        let updated_power_shelves = find_by(
+            &mut txn,
+            crate::ObjectColumnFilter::One(IdColumn, &power_shelf_id),
+        )
+        .await?;
+
+        assert_eq!(updated_power_shelves.len(), 1);
+        let updated_power_shelf = &updated_power_shelves[0];
+        assert!(matches!(
+            updated_power_shelf.controller_state.value,
+            PowerShelfControllerState::Ready
+        ));
+
+        assert_eq!(
+            updated_power_shelf.controller_state.version.version_nr(),
+            current_version.version_nr() + 1,
+            "version should be incremented after update"
+        );
+
+        let stale_update = try_update_controller_state(
+            &mut txn,
+            power_shelf_id,
+            current_version,
+            current_version.increment(),
+            &PowerShelfControllerState::Initializing,
+        )
+        .await?;
+        assert!(
+            !stale_update,
+            "update with stale version should be rejected"
+        );
+
+        let new_version = updated_power_shelf.controller_state.version;
+        let updated_again = try_update_controller_state(
+            &mut txn,
+            power_shelf_id,
+            new_version,
+            new_version.increment(),
+            &PowerShelfControllerState::Initializing,
+        )
+        .await?;
+        assert!(updated_again, "update with current version should succeed");
+
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_power_shelf_list_segment_ids(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let configs = [
+            ("List Test Power Shelf 1", 5000, 240),
+            ("List Test Power Shelf 2", 3000, 120),
+            ("List Test Power Shelf 3", 4000, 208),
+        ];
+
+        let mut created_ids = Vec::new();
+
+        for (index, (name, capacity, voltage)) in configs.into_iter().enumerate() {
+            let power_shelf = create_seeded_with_config(
+                &mut txn,
+                30 + index as u8,
+                name,
+                Some(capacity),
+                Some(voltage),
+            )
+            .await?;
+            created_ids.push(power_shelf.id);
+        }
+
+        let listed_ids = find_ids(
+            txn.as_mut(),
+            model::power_shelf::PowerShelfSearchFilter {
+                rack_id: None,
+                deleted: model::DeletedFilter::Include,
+                controller_state: None,
+                bmc_mac: None,
+            },
+        )
+        .await?;
+
+        for created_id in &created_ids {
+            assert!(listed_ids.contains(created_id));
+        }
+
+        assert!(listed_ids.len() >= created_ids.len());
+
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_power_shelf_controller_state_outcome(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+
+        let power_shelf = create_seeded_with_config(
+            &mut txn,
+            40,
+            "Outcome Test Power Shelf",
+            Some(5000),
+            Some(240),
+        )
+        .await?;
+        let power_shelf_id = power_shelf.id;
+
+        let outcome = model::controller_outcome::PersistentStateHandlerOutcome::Transition {
+            source_ref: None,
+        };
+
+        update_controller_state_outcome(&mut txn, power_shelf_id, outcome).await?;
+
+        let updated_power_shelves = find_by(
+            &mut txn,
+            crate::ObjectColumnFilter::One(IdColumn, &power_shelf_id),
+        )
+        .await?;
+
+        assert_eq!(updated_power_shelves.len(), 1);
+        let updated_power_shelf = &updated_power_shelves[0];
+        assert!(updated_power_shelf.controller_state_outcome.is_some());
+
+        let updated_outcome = updated_power_shelf
+            .controller_state_outcome
+            .as_ref()
+            .unwrap();
+        assert!(matches!(
+            updated_outcome,
+            model::controller_outcome::PersistentStateHandlerOutcome::Transition { .. }
+        ));
+
+        txn.rollback().await?;
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
     async fn test_set_power_shelf_maintenance_requested_power_on(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
-        let shelf = create_test_power_shelf(&mut txn, 1, "PowerOn shelf").await?;
+        let shelf = create_seeded(&mut txn, 1, "PowerOn shelf").await?;
         assert!(
             shelf.power_shelf_maintenance_requested.is_none(),
             "freshly created power shelf should have no maintenance request"
@@ -757,7 +973,7 @@ mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
-        let shelf = create_test_power_shelf(&mut txn, 2, "PowerOff shelf").await?;
+        let shelf = create_seeded(&mut txn, 2, "PowerOff shelf").await?;
 
         set_power_shelf_maintenance_requested(
             &mut txn,
@@ -789,7 +1005,7 @@ mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
-        let shelf = create_test_power_shelf(&mut txn, 3, "Overwrite shelf").await?;
+        let shelf = create_seeded(&mut txn, 3, "Overwrite shelf").await?;
 
         set_power_shelf_maintenance_requested(
             &mut txn,
@@ -821,7 +1037,7 @@ mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
-        let shelf = create_test_power_shelf(&mut txn, 4, "Clear shelf").await?;
+        let shelf = create_seeded(&mut txn, 4, "Clear shelf").await?;
 
         // Test clearing both flavors of operation.
         for operation in [
@@ -863,7 +1079,7 @@ mod tests {
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
-        let shelf = create_test_power_shelf(&mut txn, 5, "Idempotent clear shelf").await?;
+        let shelf = create_seeded(&mut txn, 5, "Idempotent clear shelf").await?;
         assert!(shelf.power_shelf_maintenance_requested.is_none());
 
         clear_power_shelf_maintenance_requested(&mut txn, shelf.id).await?;

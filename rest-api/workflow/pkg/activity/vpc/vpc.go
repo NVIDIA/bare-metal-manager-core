@@ -159,24 +159,25 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			controllerVpcID = &ctrlID
 		}
 
+		reportedVpc := &cdbm.Vpc{}
+		reportedVpc.FromProto(controllerVpc)
+
 		// Initialized Network virtualization type
 		var networkVirtualizationType *string
 		// If the VPC in the DB has Network Virtualization Type, but Site reported different one then update it
-		if controllerVpc.NetworkVirtualizationType != nil &&
-			(vpc.NetworkVirtualizationType == nil || (vpc.NetworkVirtualizationType != nil &&
-				controllerVpc.NetworkVirtualizationType.String() != *vpc.NetworkVirtualizationType)) {
-			networkVirtualizationType = cwutil.GetPtr(controllerVpc.NetworkVirtualizationType.String())
+		reportedVirtType := reportedVpc.NetworkVirtualizationType
+		if reportedVirtType != nil && !util.PtrsEqual(vpc.NetworkVirtualizationType, reportedVirtType) {
+			networkVirtualizationType = reportedVirtType
 		}
 
-		var controllerActiveVni *int
-		if controllerVpc.Status != nil {
-			controllerActiveVni = util.GetUint32PtrToIntPtr(controllerVpc.Status.Vni)
-		}
+		controllerActiveVni := reportedVpc.ActiveVni
+		reportedRoutingProfile := reportedVpc.RoutingProfile
+		reportedNSGID := reportedVpc.NetworkSecurityGroupID
 
 		needsUpdate := isMissingOnSite != nil ||
 			controllerVpcID != nil ||
 			networkVirtualizationType != nil ||
-			!util.PtrsEqual(vpc.RoutingProfile, controllerVpc.RoutingProfileType) ||
+			!util.PtrsEqual(vpc.RoutingProfile, reportedRoutingProfile) ||
 			!vpc.NetworkSecurityGroupPropagationDetails.Equal(sitePropagationStatus) ||
 			// Changing VNI isn't allowed after creation, and it should never go back to nil - that would be a bug.
 			// We should assume status _could start_ as null and then update to the active VPC VNI.
@@ -198,7 +199,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 				}
 			}
 
-			if vpc.RoutingProfile != nil && controllerVpc.RoutingProfileType == nil {
+			if vpc.RoutingProfile != nil && reportedRoutingProfile == nil {
 				vpc, err = vpcDAO.Clear(ctx, nil, cdbm.VpcClearInput{
 					VpcID:          vpc.ID,
 					RoutingProfile: true,
@@ -210,7 +211,7 @@ func (mv ManageVpc) UpdateVpcsInDB(ctx context.Context, siteID uuid.UUID, vpcInv
 			}
 
 			// Save controller VPC ID
-			_, serr := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc.ID, NetworkSecurityGroupID: controllerVpc.NetworkSecurityGroupId, NetworkSecurityGroupPropagationDetails: sitePropagationStatus, NetworkVirtualizationType: networkVirtualizationType, RoutingProfile: controllerVpc.RoutingProfileType, ControllerVpcID: controllerVpcID, IsMissingOnSite: isMissingOnSite, ActiveVni: controllerActiveVni})
+			_, serr := vpcDAO.Update(ctx, nil, cdbm.VpcUpdateInput{VpcID: vpc.ID, NetworkSecurityGroupID: reportedNSGID, NetworkSecurityGroupPropagationDetails: sitePropagationStatus, NetworkVirtualizationType: networkVirtualizationType, RoutingProfile: reportedRoutingProfile, ControllerVpcID: controllerVpcID, IsMissingOnSite: isMissingOnSite, ActiveVni: controllerActiveVni})
 			if serr != nil {
 				slogger.Error().Err(serr).Msg("failed to update missing on Site flag/controller VPC ID in DB")
 				continue

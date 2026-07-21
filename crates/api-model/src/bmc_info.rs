@@ -40,8 +40,13 @@ pub struct BmcInfo {
 impl BmcInfo {
     pub fn supports_bfb_install(&self) -> bool {
         self.firmware_version.as_ref().is_some_and(|v| {
-            version_compare::compare_to(v.to_lowercase().replace("bf-", ""), "24.10", Cmp::Ge)
-                .is_ok_and(|r| r)
+            // `firmware_version` is normalized to a numeric version by
+            // `dpu_bmc_version` (the generation prefix "bf-"/"bf4-" is stripped);
+            // strip here too in case it arrives raw from another source. BFB
+            // install requires firmware >= 24.10; BF4 firmware is year-based
+            // (>= 26.x) so it always clears this gate.
+            let version = v.to_lowercase().replace("bf4-", "").replace("bf-", "");
+            version_compare::compare_to(version, "24.10", Cmp::Ge).is_ok_and(|r| r)
         })
     }
 }
@@ -58,7 +63,7 @@ impl<'r> FromRow<'r, PgRow> for BmcInfo {
 
 impl BmcInfo {
     pub fn ip_addr(&self) -> Result<IpAddr, Report> {
-        self.ip.ok_or(eyre! {"Missing BMC address"})
+        self.ip.ok_or(eyre! {"missing BMC address"})
     }
 }
 
@@ -98,5 +103,42 @@ impl FromStr for UserRoles {
                 "Unknown role found in database: {x}"
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bmc_with_firmware(version: Option<&str>) -> BmcInfo {
+        BmcInfo {
+            firmware_version: version.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn supports_bfb_install_bf4() {
+        // BF4 firmware is year-based (>= 26.x) and clears the 24.10 gate.
+        // In the real flow `dpu_bmc_version` strips the "bf4-" prefix, so the
+        // stored version is numeric; a raw "BF4-…" string works too.
+        assert!(bmc_with_firmware(Some("26.04-8")).supports_bfb_install());
+        assert!(bmc_with_firmware(Some("BF4-26.04-8")).supports_bfb_install());
+    }
+
+    #[test]
+    fn supports_bfb_install_bf3_gated_on_version() {
+        // BF3 firmware "BF-<ver>" is supported at/after 24.10.
+        assert!(bmc_with_firmware(Some("BF-25.10-9")).supports_bfb_install());
+        assert!(bmc_with_firmware(Some("BF-24.10-0")).supports_bfb_install());
+        // Already-stripped numeric form (as dpu_bmc_version returns) also works.
+        assert!(bmc_with_firmware(Some("25.10-9")).supports_bfb_install());
+        // Older BF3 firmware is not supported.
+        assert!(!bmc_with_firmware(Some("BF-24.04-1")).supports_bfb_install());
+    }
+
+    #[test]
+    fn supports_bfb_install_absent_firmware_is_false() {
+        assert!(!bmc_with_firmware(None).supports_bfb_install());
     }
 }

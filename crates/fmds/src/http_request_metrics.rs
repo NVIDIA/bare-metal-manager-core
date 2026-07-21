@@ -19,19 +19,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::State;
-use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
-use axum::routing::get;
 use eyre::WrapErr;
-use http_body_util::Full;
-use hyper::body::Bytes;
 use hyper::{Request, Response};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter, MeterProvider};
 use opentelemetry_prometheus::ExporterBuilder;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
-use prometheus::{Encoder, Registry, TextEncoder};
+use prometheus::Registry;
 use tonic::service::AxumBody;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
@@ -47,7 +42,7 @@ impl HttpRequestMetrics {
     fn new(meter: &Meter) -> Self {
         let http_counter = meter
             .u64_counter("http_requests")
-            .with_description("Total number of HTTP requests made.")
+            .with_description("Number of HTTP requests made.")
             .build();
         let http_req_latency_histogram = meter
             .f64_histogram("request_latency")
@@ -70,7 +65,7 @@ pub fn init() -> eyre::Result<(Registry, HttpRequestMetrics)> {
         .without_scope_info()
         .without_target_info()
         .build()
-        .wrap_err("Could not build Prometheus exporter")?;
+        .wrap_err("could not build prometheus exporter")?;
 
     let resource_attributes = opentelemetry_sdk::Resource::builder()
         .with_attributes([
@@ -91,31 +86,6 @@ pub fn init() -> eyre::Result<(Registry, HttpRequestMetrics)> {
     Ok((prometheus_registry, http_metrics))
 }
 
-pub fn metrics_router(registry: Registry) -> Router {
-    Router::new()
-        .route("/", get(export_metrics))
-        .with_state(registry)
-}
-
-#[axum::debug_handler]
-async fn export_metrics(State(registry): State<Registry>) -> Response<Full<Bytes>> {
-    tokio::task::spawn_blocking(move || {
-        let mut buffer = vec![];
-        let encoder = TextEncoder::new();
-        let metric_families = registry.gather();
-        encoder.encode(&metric_families, &mut buffer).unwrap();
-
-        Response::builder()
-            .status(200)
-            .header(CONTENT_TYPE, encoder.format_type())
-            .header(CONTENT_LENGTH, buffer.len())
-            .body(buffer.into())
-            .unwrap()
-    })
-    .await
-    .unwrap()
-}
-
 /// Same HTTP instrumentation as forge-dpu-agent `WithTracingLayer` (request count + latency + tracing logs).
 pub fn with_http_request_trace_layer(router: Router, metrics: Arc<HttpRequestMetrics>) -> Router {
     let metrics_request = metrics.clone();
@@ -130,14 +100,21 @@ pub fn with_http_request_trace_layer(router: Router, metrics: Arc<HttpRequestMet
         })
         .on_request(move |request: &Request<AxumBody>, _span: &Span| {
             metrics_request.http_counter.add(1, &[]);
-            tracing::info!("started {} {}", request.method(), request.uri().path());
+            tracing::info!(
+                method = %request.method(),
+                request_path = %request.uri().path(),
+                "started request",
+            );
         })
         .on_response(
             move |_response: &Response<AxumBody>, latency: Duration, _span: &Span| {
                 metrics_response
                     .http_req_latency_histogram
                     .record(latency.as_secs_f64() * 1000.0, &[]);
-                tracing::info!("response generated in {:?}", latency);
+                tracing::info!(
+                    latency_milliseconds = latency.as_secs_f64() * 1000.0,
+                    "response generated"
+                );
             },
         );
 

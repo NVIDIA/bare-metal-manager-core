@@ -108,12 +108,11 @@ func syncPowershelvesNICo(
 		componentsByShelfID[leps.PowerShelfID] = ps
 	}
 
-	// Fetch inventory from Core for all matched power shelves. A failure here
-	// leaves the serial-mismatch drifts incomplete, so flag the type
-	// not-OK: the caller then preserves the existing drift table this cycle
-	// rather than overwriting it with a partial view.
-	now := time.Now()
-	inventoryOK := true
+	// Fetch inventory from Core for all matched power shelves. Inventory only
+	// feeds the firmware_version / power_state direct-writes now — drift is
+	// keyed on PMC MAC via the linked RPC above — so a failure here is
+	// best-effort and just leaves those fields stale this cycle; it does not
+	// make the drift table partial.
 	if len(shelfIDs) > 0 {
 		invResp, err := nicoClient.GetComponentInventory(ctx, &corev1.GetComponentInventoryRequest{
 			Target: &corev1.GetComponentInventoryRequest_PowerShelfIds{
@@ -122,15 +121,15 @@ func syncPowershelvesNICo(
 		})
 		if err != nil {
 			log.Error().Msgf("Unable to retrieve powershelf inventory from NICo: %v", err)
-			inventoryOK = false
 		} else {
-			drifts = append(drifts, applyInventoryToComponents(ctx, pool, invResp, componentsByShelfID)...)
+			applyInventoryToComponents(ctx, pool, invResp, componentsByShelfID)
 		}
 	}
 
 	syncPowershelfStatuses(ctx, pool, nicoClient, componentsByShelfID)
 
 	// Build drifts for components that don't have a Core PowerShelfId yet
+	now := time.Now()
 	for _, ps := range expectedByPmcMac {
 		if ps.ComponentID == nil || *ps.ComponentID == "" {
 			compID := ps.ID
@@ -145,7 +144,7 @@ func syncPowershelvesNICo(
 	}
 
 	log.Info().Msgf("Powershelf NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedPowershelves))
-	return received, drifts, inventoryOK
+	return received, drifts, true
 }
 
 // syncPowershelfStatuses is the power-shelf equivalent of syncSwitchStatuses.

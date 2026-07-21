@@ -34,7 +34,7 @@ fi
 DOCKER_USER="${SUDO_USER:-$(id -un)}"
 
 # --- 1. System packages -------------------------------------------------------
-echo "=== [1/8] Installing system packages via apt ==="
+echo "=== [1/9] Installing system packages via apt ==="
 ${SUDO} apt-get update
 ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get install -y \
     build-essential cpio direnv mkosi uidmap curl file fakeroot git \
@@ -43,7 +43,7 @@ ${SUDO} DEBIAN_FRONTEND=noninteractive apt-get install -y \
     libtss2-dev kea-dev systemd-boot systemd-ukify jq zip
 
 # --- 2. Rust toolchain --------------------------------------------------------
-echo "=== [2/8] Installing rustup + Rust toolchain ==="
+echo "=== [2/9] Installing rustup + Rust toolchain ==="
 if command -v rustup >/dev/null 2>&1; then
     echo "rustup already installed -- skipping"
 else
@@ -56,7 +56,7 @@ if [[ -f "${HOME}/.cargo/env" ]]; then
 fi
 
 # --- 3. direnv shell hook -----------------------------------------------------
-echo "=== [3/8] Configuring the direnv shell hook ==="
+echo "=== [3/9] Configuring the direnv shell hook ==="
 _shell="$(basename "${SHELL:-bash}")"
 case "${_shell}" in
     bash) _rc="${HOME}/.bashrc"; _hook='eval "$(direnv hook bash)"' ;;
@@ -76,25 +76,29 @@ else
 fi
 
 # --- 4. Allow direnv for this repo --------------------------------------------
-echo "=== [4/8] Allowing direnv for this repo ==="
+echo "=== [4/9] Allowing direnv for this repo ==="
 direnv allow .
 
 # --- 5. Git submodules (mkosi + ipxe) -----------------------------------------
 # The pinned mkosi and ipxe sources live under pxe/ as git submodules.
-echo "=== [5/8] Fetching git submodules (mkosi, ipxe) ==="
+echo "=== [5/9] Fetching git submodules (mkosi, ipxe) ==="
 git submodule update --init --recursive
 
 # --- 6. Docker socket ---------------------------------------------------------
-echo "=== [6/8] Enabling the docker socket ==="
-${SUDO} systemctl enable docker.socket
+echo "=== [6/9] Enabling the docker socket ==="
+${SUDO} systemctl enable --now docker.socket
 
-# --- 7. Cargo build tooling ---------------------------------------------------
-echo "=== [7/8] Installing cargo build tooling (cargo-make, cargo-cache) ==="
+# --- 7. Cross-architecture container support ---------------------------------
+echo "=== [7/9] Registering cross-architecture container support ==="
+${SUDO} docker run --privileged --rm tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0 --install all
+
+# --- 8. Cargo build tooling ---------------------------------------------------
+echo "=== [8/9] Installing cargo build tooling (cargo-make, cargo-cache) ==="
 command -v cargo-make  >/dev/null 2>&1 || cargo install cargo-make
 command -v cargo-cache >/dev/null 2>&1 || cargo install cargo-cache
 
-# --- 8. Host configuration ----------------------------------------------------
-echo "=== [8/8] Configuring host (unprivileged userns + docker group) ==="
+# --- 9. Host configuration ----------------------------------------------------
+echo "=== [9/9] Configuring host (unprivileged userns + docker group) ==="
 echo "kernel.apparmor_restrict_unprivileged_userns=0" \
     | ${SUDO} tee /etc/sysctl.d/99-userns.conf >/dev/null
 ${SUDO} usermod -aG docker "${DOCKER_USER}"

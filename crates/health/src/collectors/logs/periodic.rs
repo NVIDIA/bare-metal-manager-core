@@ -42,6 +42,17 @@ pub struct LogsCollectorConfig {
 
     /// Attach Redfish diagnostic payloads to emitted log records.
     pub include_diagnostics: bool,
+
+    /// Substrings; a discovered LogService whose odata id contains any of these
+    /// is skipped. Empty collects from every service.
+    pub exclude_services: Vec<String>,
+
+    /// When true, on the first encounter of a LogService with no saved state,
+    /// anchor at the current highest log entry ID without emitting historical
+    /// entries. Subsequent polls collect only new entries forward, matching
+    /// SSE behaviour. When false (default), all existing entries are collected
+    /// on first encounter.
+    pub skip_initial_history: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -70,6 +81,8 @@ pub struct LogsCollector<B: Bmc> {
     service_refresh_interval: Duration,
     data_sink: Option<Arc<dyn DataSink>>,
     include_diagnostics: bool,
+    exclude_services: Vec<String>,
+    skip_initial_history: bool,
 }
 
 impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
@@ -90,6 +103,8 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for LogsCollector<B> {
             service_refresh_interval: config.service_refresh_interval,
             data_sink: config.data_sink,
             include_diagnostics: config.include_diagnostics,
+            exclude_services: config.exclude_services,
+            skip_initial_history: config.skip_initial_history,
         })
     }
 
@@ -140,19 +155,36 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         Ok(())
     }
 
+    /// True if this service's odata id matches any configured exclude substring.
+    fn is_excluded(&self, service_id: &str) -> bool {
+        service_is_excluded(&self.exclude_services, service_id)
+    }
+
     async fn discover_log_services(&self) -> Result<Vec<LogService<B>>, HealthError> {
         let service_root = ServiceRoot::new(self.bmc.clone()).await?;
         let mut services = Vec::new();
         let mut seen_ids = HashSet::new();
+        let mut excluded_count = 0usize;
+
+        let consider = |service: LogService<B>,
+                        services: &mut Vec<LogService<B>>,
+                        seen_ids: &mut HashSet<String>,
+                        excluded_count: &mut usize| {
+            let service_id = service.odata_id().to_string();
+            if self.is_excluded(&service_id) {
+                *excluded_count += 1;
+                return;
+            }
+            if seen_ids.insert(service_id) {
+                services.push(service);
+            }
+        };
 
         if let Ok(Some(manager_collection)) = service_root.managers().await {
             for manager in manager_collection.members().await.iter().flatten() {
                 if let Ok(Some(log_services)) = manager.log_services().await {
                     for service in log_services {
-                        let service_id = service.odata_id().to_string();
-                        if seen_ids.insert(service_id) {
-                            services.push(service);
-                        }
+                        consider(service, &mut services, &mut seen_ids, &mut excluded_count);
                     }
                 }
             }
@@ -162,10 +194,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             for chassis in chassis_collection.members().await.iter().flatten() {
                 if let Ok(Some(log_services)) = chassis.log_services().await {
                     for service in log_services {
-                        let service_id = service.odata_id().to_string();
-                        if seen_ids.insert(service_id) {
-                            services.push(service);
-                        }
+                        consider(service, &mut services, &mut seen_ids, &mut excluded_count);
                     }
                 }
             }
@@ -175,17 +204,15 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             for system in system_collection.members().await.iter().flatten() {
                 if let Ok(Some(log_services)) = system.log_services().await {
                     for service in log_services {
-                        let service_id = service.odata_id().to_string();
-                        if seen_ids.insert(service_id) {
-                            services.push(service);
-                        }
+                        consider(service, &mut services, &mut seen_ids, &mut excluded_count);
                     }
                 }
             }
         }
 
         tracing::info!(
-            total_services = services.len(),
+            service_count = services.len(),
+            excluded_service_count = excluded_count,
             "Discovered distinct log services"
         );
 
@@ -206,8 +233,8 @@ impl<B: Bmc + 'static> LogsCollector<B> {
             match self.discover_log_services().await {
                 Ok(services) => {
                     tracing::info!(
-                        "Service discovery complete. Found {} log services",
-                        services.len()
+                        service_count = services.len(),
+                        "Log service discovery complete"
                     );
 
                     let persistent_state = self.load_persistent_state().await;
@@ -301,27 +328,54 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         })
                         .collect()
                 }
-                None => match service.entries().await {
-                    Ok(Some(v)) => {
+                None => {
+                    let all_entries = match service.entries().await {
+                        Ok(Some(v)) => v,
+                        Ok(None) => continue,
+                        Err(error) => {
+                            fetch_failures += 1;
+                            tracing::warn!(
+                                %service_id,
+                                ?error,
+                                "Failed to fetch log entries"
+                            );
+                            continue;
+                        }
+                    };
+
+                    if self.skip_initial_history {
+                        // Anchor at the current highest entry ID without emitting
+                        // historical entries, so the next poll collects only new
+                        // entries. Matches the real-time-only behaviour of SSE.
+                        //
+                        // We always write a sentinel (-1) when the service is
+                        // empty or has no parseable numeric IDs, so the service
+                        // is marked initialised in last_seen_ids. Without this,
+                        // a subsequent poll would re-enter this None arm and
+                        // treat the first real entry as "initial history" and
+                        // discard it. -1 is safe: real Redfish IDs are ≥ 0, so
+                        // the next poll's `id > anchor` filter passes everything.
+                        let anchor_id =
+                            initial_anchor_id(all_entries.iter().map(|e| e.base.id.as_str()));
+                        state
+                            .last_seen_ids
+                            .insert(service.odata_id().clone(), anchor_id);
                         tracing::info!(
                             %service_id,
-                            endpoint=?self.endpoint.addr,
-                            "Last seen id is empty, fetching all entries");
-                        v
-                    }
-                    Ok(None) => {
-                        continue;
-                    }
-                    Err(error) => {
-                        fetch_failures += 1;
-                        tracing::warn!(
-                            %service_id,
-                            ?error,
-                            "Failed to fetch log entries"
+                            anchor_id,
+                            "skip_initial_history: anchored at current log position, \
+                             skipping historical entries"
                         );
                         continue;
                     }
-                },
+
+                    tracing::info!(
+                        %service_id,
+                        endpoint=?self.endpoint.addr,
+                        "Last seen id is empty, fetching all entries"
+                    );
+                    all_entries
+                }
             };
 
             if entries.is_empty() {
@@ -394,5 +448,143 @@ impl<B: Bmc + 'static> LogsCollector<B> {
         }
 
         Ok((total_log_count, fetch_failures))
+    }
+}
+
+/// Returns the highest parseable integer ID from `ids`, or -1 when `ids` is
+/// empty or contains no parseable integers.
+///
+/// Used as the `last_seen_ids` anchor when `skip_initial_history = true`. -1
+/// is a safe sentinel because real Redfish entry IDs are non-negative, so a
+/// subsequent poll's `id > anchor` filter passes every entry.
+fn initial_anchor_id<'a>(ids: impl Iterator<Item = &'a str>) -> i32 {
+    ids.filter_map(|id| id.parse::<i32>().ok())
+        .max()
+        .unwrap_or(-1)
+}
+
+/// True if `service_id` contains any of the configured exclude substrings.
+/// An empty `exclude_services` never excludes anything. Matching is a plain
+/// (case-sensitive) substring test against the Redfish LogService odata id.
+fn service_is_excluded(exclude_services: &[String], service_id: &str) -> bool {
+    exclude_services
+        .iter()
+        .any(|pat| !pat.is_empty() && service_id.contains(pat.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::{initial_anchor_id, service_is_excluded};
+
+    const JOURNAL_BMC: &str = "/redfish/v1/Managers/BMC_0/LogServices/Journal";
+    const JOURNAL_HGX: &str = "/redfish/v1/Managers/HGX_BMC_0/LogServices/Journal";
+    const EVENTLOG: &str = "/redfish/v1/Systems/System_0/LogServices/EventLog";
+    const XID: &str = "/redfish/v1/Chassis/HGX_GPU_0/LogServices/XID";
+    const SEL: &str = "/redfish/v1/Systems/System_0/LogServices/SEL";
+
+    #[test]
+    fn service_exclusion_filter() {
+        check_values(
+            [
+                Check {
+                    scenario: "empty exclude list keeps all services",
+                    input: (vec![], JOURNAL_BMC),
+                    expect: false,
+                },
+                Check {
+                    scenario: "empty string pattern never excludes",
+                    input: (vec!["".to_string()], JOURNAL_BMC),
+                    expect: false,
+                },
+                Check {
+                    scenario: "substring match excludes BMC journal",
+                    input: (vec!["Journal".to_string()], JOURNAL_BMC),
+                    expect: true,
+                },
+                Check {
+                    scenario: "substring match excludes HGX journal",
+                    input: (vec!["Journal".to_string()], JOURNAL_HGX),
+                    expect: true,
+                },
+                Check {
+                    scenario: "non-matching service is kept",
+                    input: (vec!["Journal".to_string()], EVENTLOG),
+                    expect: false,
+                },
+                Check {
+                    scenario: "any of multiple patterns excludes",
+                    input: (vec!["Journal".to_string(), "Dump".to_string()], JOURNAL_BMC),
+                    expect: true,
+                },
+                Check {
+                    scenario: "second pattern in list matches",
+                    input: (
+                        vec!["Journal".to_string(), "Dump".to_string()],
+                        "/redfish/v1/Managers/BMC_0/LogServices/Dump",
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "no pattern matches non-excluded services",
+                    input: (vec!["Journal".to_string(), "Dump".to_string()], XID),
+                    expect: false,
+                },
+                Check {
+                    scenario: "matching is case-sensitive",
+                    input: (
+                        vec!["Journal".to_string()],
+                        "/redfish/v1/Managers/BMC_0/LogServices/journal",
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "SEL service is not excluded by Journal pattern",
+                    input: (vec!["Journal".to_string()], SEL),
+                    expect: false,
+                },
+            ],
+            |(patterns, service_id)| service_is_excluded(&patterns, service_id),
+        );
+    }
+
+    #[test]
+    fn initial_anchor_id_cases() {
+        check_values(
+            [
+                Check {
+                    scenario: "empty service yields sentinel -1",
+                    input: vec![],
+                    expect: -1,
+                },
+                Check {
+                    scenario: "single numeric id is returned",
+                    input: vec!["42"],
+                    expect: 42,
+                },
+                Check {
+                    scenario: "max of multiple numeric ids is returned",
+                    input: vec!["1", "99", "7"],
+                    expect: 99,
+                },
+                Check {
+                    scenario: "non-parseable ids only yield sentinel -1",
+                    input: vec!["abc", "xyz"],
+                    expect: -1,
+                },
+                Check {
+                    scenario: "mixed parseable and non-parseable uses numeric max",
+                    input: vec!["abc", "5", "xyz", "3"],
+                    expect: 5,
+                },
+                Check {
+                    scenario: "id zero is returned (not confused with sentinel)",
+                    input: vec!["0"],
+                    expect: 0,
+                },
+            ],
+            |ids: Vec<&str>| initial_anchor_id(ids.into_iter()),
+        );
     }
 }

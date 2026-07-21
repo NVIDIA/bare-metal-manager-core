@@ -43,7 +43,7 @@ fn dpf_error(error: DpfError) -> StateHandlerError {
 }
 
 fn bmc_ip(machine: &Machine) -> Result<IpAddr, StateHandlerError> {
-    machine.bmc_info.ip.ok_or_else(|| {
+    machine.status.bmc_info.ip.ok_or_else(|| {
         StateHandlerError::GenericError(eyre::eyre!("BMC IP is not set for machine {}", machine.id))
     })
 }
@@ -179,6 +179,7 @@ async fn create_and_register_dpudevices_and_dpunode(
 ) -> Result<(), StateHandlerError> {
     let primary_dpu_id = state
         .host_snapshot
+        .status
         .interfaces
         .iter()
         .find(|iface| iface.primary_interface)
@@ -190,11 +191,19 @@ async fn create_and_register_dpudevices_and_dpunode(
 
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
+            .status
             .hardware_info
             .as_ref()
             .and_then(|x| x.dmi_data.as_ref())
             .map(|x| x.product_serial.as_str())
             .unwrap_or_default();
+        if serial_number.is_empty() {
+            tracing::warn!(
+                dpu_machine_id = %dpu.id,
+                host_machine_id = %state.host_snapshot.id,
+                "DPU product serial is missing; registering DPU device with DPF using an empty serial"
+            );
+        }
         let device_info = carbide_dpf::DpuDeviceInfo {
             device_id: dpf_id(dpu)?,
             dpu_bmc_ip: bmc_ip(dpu)?,
@@ -309,6 +318,7 @@ async fn handle_dpf_reboot(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let reboot_already_requested = state
         .host_snapshot
+        .status
         .last_reboot_requested
         .as_ref()
         .is_some_and(|r| r.time > state.host_snapshot.state.version.timestamp());
@@ -380,8 +390,8 @@ async fn handle_dpf_waiting_for_ready(
 
     if current_phase == carbide_dpf::DpuPhase::Error {
         tracing::error!(
-            host = %state.host_snapshot.id,
-            dpu = %dpu_snapshot.id,
+            machine_id = %state.host_snapshot.id,
+            dpu_machine_id = %dpu_snapshot.id,
             "DPU entered error phase during DPF provisioning"
         );
         let details = FailureDetails {
@@ -447,7 +457,7 @@ async fn handle_dpf_reprovisioning(
             .map_err(dpf_error)?;
     if dpf_dpudevices_and_dpunode_crs_noexist {
         tracing::info!(
-            host = %state.host_snapshot.id,
+            machine_id = %state.host_snapshot.id,
             "DPUDevice/DPUNode CRs do not exist, creating them before reprovisioning"
         );
         if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
@@ -465,7 +475,7 @@ async fn handle_dpf_reprovisioning(
         return Ok(outcome.with_txn(txn));
     }
 
-    tracing::info!("DPF initiate reprovision of DPU {}", dpu_snapshot.id);
+    tracing::info!(machine_id = %dpu_snapshot.id, "DPF initiate reprovision of DPU");
     dpf_sdk
         .reprovision_dpu(&dpf_id(dpu_snapshot)?, &node_name)
         .await
@@ -501,7 +511,7 @@ pub async fn handle_dpf_state(
         .map_err(dpf_error)?
     {
         tracing::error!(
-            host = %state.host_snapshot.id,
+            machine_id = %state.host_snapshot.id,
             node = %node_name,
             "DPUNode has stale labels, failing for reprovisioning"
         );
@@ -532,7 +542,7 @@ pub async fn handle_dpf_state(
             handle_dpf_reprovisioning(state, dpu_snapshot, ctx, dpf_sdk).await
         }
         DpfState::Unknown => {
-            tracing::warn!(dpu_id = %dpu_snapshot.id, "unknown DPF state in DB, transitioning to provisioning");
+            tracing::warn!(dpu_machine_id = %dpu_snapshot.id, "unknown DPF state in DB, transitioning to provisioning");
             let next = set_one_dpu_dpf_state(state, &dpu_snapshot.id, DpfState::Provisioning)?;
             Ok(StateHandlerOutcome::transition(next))
         }

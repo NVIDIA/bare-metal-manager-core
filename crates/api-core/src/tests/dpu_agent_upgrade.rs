@@ -420,6 +420,8 @@ impl TestManagedHost {
             .into_iter()
             .next()
             .expect("expected host machine to be found")
+            .status
+            .unwrap()
             .health
             .expect("expected health report")
             .alerts;

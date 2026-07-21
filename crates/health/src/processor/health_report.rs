@@ -146,7 +146,14 @@ impl HealthReportProcessor {
                 target: Some(health.sensor_id.clone()),
             }),
             state => {
-                if health.bmc_health == BmcHealth::Ok {
+                // A BMC that reports Ok must not be able to silence serious
+                // threshold breaches: a faulty or compromised BMC reporting Ok
+                // would otherwise suppress independent threshold alerting
+                // entirely. Only the lowest-severity Warning is treated as
+                // likely noise from mis-tuned caution thresholds and downgraded
+                // when the BMC independently agrees the sensor is Ok; Critical,
+                // Fatal and SensorFailure always alert regardless of BMC status.
+                if health.bmc_health == BmcHealth::Ok && matches!(state, SensorHealth::Warning) {
                     tracing::warn!(
                         sensor_id = %health.sensor_id,
                         entity_type = %health.entity_type,
@@ -157,7 +164,7 @@ impl HealthReportProcessor {
                         caution_range = %Self::fmt_range(health.lower_caution, health.upper_caution),
                         critical_range = %Self::fmt_range(health.lower_critical, health.upper_critical),
                         calculated_status = ?state,
-                        "Threshold check indicates issue but BMC reports sensor as OK - likely incorrect thresholds, reporting OK"
+                        "Threshold check indicates caution but BMC reports sensor as OK - likely incorrect thresholds, reporting OK"
                     );
                     return SensorHealthResult::Success(HealthReportSuccess {
                         probe_id: Probe::Sensor,
@@ -330,6 +337,90 @@ mod tests {
         assert_eq!(report.target, Some(HealthReportTarget::Machine));
         assert!(report.successes.is_empty());
         assert_eq!(report.alerts.len(), 1);
+    }
+
+    fn threshold_context(bmc_health: BmcHealth) -> SensorThresholdContext {
+        SensorThresholdContext {
+            entity_type: "sensor".to_string(),
+            sensor_id: "Temp1".to_string(),
+            upper_fatal: Some(90.0),
+            lower_fatal: Some(5.0),
+            upper_critical: Some(80.0),
+            lower_critical: Some(10.0),
+            upper_caution: Some(70.0),
+            lower_caution: Some(20.0),
+            range_max: Some(100.0),
+            range_min: Some(0.0),
+            bmc_health,
+        }
+    }
+
+    fn metric_with_value(value: f64) -> MetricSample {
+        MetricSample {
+            key: "sensor-1".to_string(),
+            name: "hw_sensor".to_string(),
+            metric_type: "temperature".to_string(),
+            unit: "celsius".to_string(),
+            value,
+            labels: vec![],
+            context: None,
+        }
+    }
+
+    /// Returns the emitted alert classifications, or `None` if the reading was
+    /// reported as a success (downgraded / in range).
+    fn classify_result(value: f64, bmc_health: BmcHealth) -> Option<Vec<Classification>> {
+        let health = threshold_context(bmc_health);
+        let metric = metric_with_value(value);
+        match HealthReportProcessor::to_health_result(&metric, &health) {
+            SensorHealthResult::Alert(alert) => Some(alert.classifications),
+            SensorHealthResult::Success(_) => None,
+        }
+    }
+
+    #[test]
+    fn bmc_ok_does_not_suppress_fatal_alert() {
+        // A BMC reporting Ok must not silence a Fatal threshold breach, and the
+        // alert must retain its Fatal severity for downstream consumers.
+        let value = 95.0; // above upper_fatal (90.0) -> Fatal
+        assert_eq!(
+            classify_result(value, BmcHealth::Ok),
+            Some(vec![Classification::SensorFatal])
+        );
+    }
+
+    #[test]
+    fn bmc_ok_does_not_suppress_critical_alert() {
+        let value = 85.0; // above upper_critical (80.0) -> Critical
+        assert_eq!(
+            classify_result(value, BmcHealth::Ok),
+            Some(vec![Classification::SensorCritical])
+        );
+    }
+
+    #[test]
+    fn bmc_ok_does_not_suppress_sensor_failure_alert() {
+        let value = 150.0; // above range_max (100.0) -> SensorFailure
+        assert_eq!(
+            classify_result(value, BmcHealth::Ok),
+            Some(vec![Classification::SensorFailure])
+        );
+    }
+
+    #[test]
+    fn bmc_ok_suppresses_warning_alert() {
+        // Warning is still treated as likely-noise when the BMC agrees it is Ok.
+        let value = 72.0; // above upper_caution (70.0) -> Warning
+        assert_eq!(classify_result(value, BmcHealth::Ok), None);
+    }
+
+    #[test]
+    fn bmc_not_ok_still_alerts_on_warning() {
+        let value = 72.0; // Warning, BMC not Ok -> alert retains Warning severity
+        assert_eq!(
+            classify_result(value, BmcHealth::Warning),
+            Some(vec![Classification::SensorWarning])
+        );
     }
 
     #[test]

@@ -253,3 +253,13 @@ description = "this is yet another test profile"
 [mlx-config-profiles.test-profile2.config]
 SRIOV_EN = false
 NUM_OF_VFS = 16
+
+[certificates]
+backend = "dedicated_vault"
+
+[certificates.dedicated_vault]
+address = "https://vault-certs.example:8200"
+pki_mount_location = "pki-machine"
+pki_role_name = "machine"
+token = "s.fulltest"
+vault_cacert = "/path/to/vault-ca.pem"

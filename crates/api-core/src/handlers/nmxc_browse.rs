@@ -184,7 +184,7 @@ pub(crate) async fn nmxc_browse(
 
         nmxc.hello(NMX_C_GATEWAY_ID)
             .await
-            .map_err(|e| CarbideError::internal(format!("Failed to call NMX-C hello: {e}")))?;
+            .map_err(|e| CarbideError::internal(format!("failed to call NMX-C hello: {e}")))?;
 
         let result = match op {
             rpc::NmxcBrowseOperation::Unspecified => Err(CarbideError::InvalidArgument(

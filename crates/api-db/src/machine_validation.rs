@@ -347,6 +347,18 @@ pub async fn find_by_id(
     )))
 }
 
+pub async fn lock_by_id_no_key_update(
+    txn: &mut PgConnection,
+    id: &MachineValidationId,
+) -> DatabaseResult<Option<MachineValidation>> {
+    let query = "SELECT * FROM machine_validation WHERE id=$1 FOR NO KEY UPDATE";
+    sqlx::query_as::<_, MachineValidation>(query)
+        .bind(id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<MachineValidation>> {
     find_by(txn, ObjectColumnFilter::<IdColumn>::All).await
 }

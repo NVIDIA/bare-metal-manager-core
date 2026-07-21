@@ -48,6 +48,7 @@ pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResu
     }
 }
 
+#[allow(deprecated)]
 async fn apply_health_report(
     api_client: &ApiClient,
     id: carbide_uuid::machine::MachineId,

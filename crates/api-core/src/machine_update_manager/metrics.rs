@@ -42,25 +42,21 @@ impl MachineUpdateManagerMetrics {
             self.concurrent_machine_updates_available.clone();
         meter
             .u64_observable_gauge("carbide_machines_in_maintenance_count")
-            .with_description("The total number of machines in the system that are in maintenance.")
+            .with_description("Number of machines in the system in maintenance")
             .with_callback(move |observer| {
                 observer.observe(machines_in_maintenance.load(Ordering::Relaxed), &[])
             })
             .build();
         meter
             .u64_observable_gauge("carbide_machine_updates_started_count")
-            .with_description(
-                "The number of machines in the system that are in the process of updating.",
-            )
+            .with_description("Number of machines in the system in the process of updating")
             .with_callback(move |observer| {
                 observer.observe(machine_updates_started.load(Ordering::Relaxed), &[])
             })
             .build();
         meter
             .u64_observable_gauge("carbide_concurrent_machine_updates_available")
-            .with_description(
-                "The number of machines in the system that we will update concurrently.",
-            )
+            .with_description("Number of machines in the system that can be updated concurrently.")
             .with_callback(move |observer| {
                 observer.observe(
                     concurrent_machine_updates_available.load(Ordering::Relaxed),
@@ -103,7 +99,8 @@ pub enum FirmwareUpdatePhase {
 /// the log lines always had.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_firmware_updates_total",
+    event_name = "firmware_update_progress",
+    metric_name = "carbide_firmware_updates_total",
     component = "nico-api",
     log = info,
     metric = counter,
@@ -141,7 +138,8 @@ pub enum FirmwareUpdateFailureCause {
 /// alert; the log line names the machine and version involved.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_firmware_update_failures_total",
+    event_name = "firmware_update_failed",
+    metric_name = "carbide_firmware_update_failures_total",
     component = "nico-api",
     log = warn,
     metric = counter,

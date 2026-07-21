@@ -200,7 +200,10 @@ impl PxeInstructions {
         machine_type: MachineType,
     ) -> String {
         tracing::info!(
-            "machine_type: {machine_type}; machine interface ID: {machine_interface_id}; mac address: {mac_address}"
+            machine_type = %machine_type,
+            machine_interface_id = %machine_interface_id,
+            mac_address = %mac_address,
+            "machine network boot parameters",
         );
         match arch {
             rpc::MachineArchitecture::Arm => {
@@ -266,7 +269,7 @@ impl PxeInstructions {
 
         renderer
             .render(ipxeos, &reserved_params)
-            .map_err(|e| CarbideError::internal(format!("Failed to render iPXE script: {}", e)))
+            .map_err(|e| CarbideError::internal(format!("failed to render iPXE script: {}", e)))
     }
 
     pub async fn get_pxe_instructions(
@@ -342,9 +345,9 @@ exit ||
                     ));
                 } else {
                     tracing::warn!(
-                        "Unsupported DPU type. Product is '{}', but architecture is {:?}",
-                        product,
-                        target.arch,
+                        product = %product,
+                        arch = ?target.arch,
+                        "Unsupported DPU type",
                     )
                 }
             };
@@ -362,7 +365,7 @@ exit ||
             else {
                 // This only happens if someone powered on a host manually before we ingested it,
                 // which is unlikely but possible.
-                tracing::info!(interface = ?interface, "Request for PXE instructions for unknown interface, skipping PXE boot");
+                tracing::info!(machine_interface = ?interface, "Request for PXE instructions for unknown interface, skipping PXE boot");
                 return Ok(UNKNOWN_HOST_INSTRUCTIONS.to_string());
             };
 
@@ -388,12 +391,12 @@ exit ||
 
         let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
             .await
-            .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
+            .map_err(|e| CarbideError::InvalidArgument(format!("get machine failed, error: {e}")))?
             .ok_or(CarbideError::InvalidArgument(
-                "Invalid machine id. Not found in db.".to_string(),
+                "invalid machine id. not found in db".to_string(),
             ))?;
 
-        tracing::info!(machine_id = %machine.id, interface_id = %target.interface_id, state=%machine.current_state(), "Found existing machine for pxe instructions");
+        tracing::info!(machine_id = %machine.id, machine_interface_id = %target.interface_id, machine_state = %machine.current_state(), "Found existing machine for pxe instructions");
         // DPUs need to boot twice during initial discovery. Both reboots require
         // that the DPU gets pxe instructions.
         //
@@ -456,7 +459,7 @@ exit ||
         if target.arch == rpc::MachineArchitecture::Arm {
             console = "ttyAMA0";
             qcow_imager_url = "chain ${base-url}/internal/aarch64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
-        } else if let Some(hardware_info) = machine.hardware_info.as_ref()
+        } else if let Some(hardware_info) = machine.status.hardware_info.as_ref()
             && let Some(dmi_info) = hardware_info.dmi_data.as_ref()
             && (dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro")
         {

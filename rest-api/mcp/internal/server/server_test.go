@@ -6,6 +6,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -51,6 +52,32 @@ func TestToolDescription(t *testing.T) {
 		op := &openapi3.Operation{OperationID: "get-foo"}
 		require.Equal(t, "get-foo", toolDescription(op))
 	})
+}
+
+func TestSameOrigin(t *testing.T) {
+	tests := []struct {
+		name string
+		a    string
+		b    string
+		want bool
+	}{
+		{name: "same_origin", a: "https://example.com/a", b: "https://example.com/b", want: true},
+		{name: "host_is_case_insensitive", a: "https://EXAMPLE.com/a", b: "https://example.com/b", want: true},
+		{name: "implicit_and_explicit_default_port", a: "https://example.com/a", b: "https://example.com:443/b", want: true},
+		{name: "different_scheme", a: "http://example.com/a", b: "https://example.com/b", want: false},
+		{name: "different_host", a: "https://one.example.com/a", b: "https://two.example.com/b", want: false},
+		{name: "different_effective_port", a: "https://example.com/a", b: "https://example.com:8443/b", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, err := url.Parse(tt.a)
+			require.NoError(t, err)
+			b, err := url.Parse(tt.b)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, sameOrigin(a, b))
+		})
+	}
 }
 
 func TestSplitArgs(t *testing.T) {

@@ -83,7 +83,8 @@ pub trait DataSink: Send + Sync {
 /// the report sinks' submission workers for every completed attempt.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_health_report_submissions_total",
+    event_name = "health_report_submission_completed",
+    metric_name = "carbide_health_report_submissions_total",
     component = "nico-hardware-health",
     log = dynamic,
     metric = counter,

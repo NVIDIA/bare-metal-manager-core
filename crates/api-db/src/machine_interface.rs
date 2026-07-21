@@ -193,7 +193,7 @@ pub async fn set_primary_interface(
 ///
 /// Used when a new interface takes over as the machine's sole primary -- e.g. a
 /// declared integrated host NIC promoted ahead of the DPU admin link it replaces
-/// on a DpuMode host -- so the incoming primary never collides with the outgoing
+/// on a managed-DPU host -- so the incoming primary never collides with the outgoing
 /// one on the `one_primary_interface_per_machine` index.
 pub async fn demote_primary_interfaces_for_machine(
     machine_id: &MachineId,
@@ -212,7 +212,7 @@ pub async fn demote_primary_interfaces_for_machine(
 ///
 /// Lets admin-address reconciliation distinguish a genuinely broken host (no
 /// primary at all) from one that legitimately boots from a non-admin primary --
-/// a HostInband integrated NIC on a DpuMode host -- whose DPU admin links are
+/// a HostInband integrated NIC on a managed-DPU host -- whose DPU admin links are
 /// then all dormant.
 pub async fn machine_has_primary_interface(
     machine_id: &MachineId,
@@ -609,7 +609,8 @@ async fn find_or_create_machine_interface_inner(
         None => {
             tracing::info!(
                 %mac_address,
-                "Found no existing machine with mac address {mac_address} using networks with relays {relaystr}",
+                relays = ?relays,
+                "No existing machine found",
             );
             let mut interface = validate_existing_mac_and_create_inner(
                 &mut *txn,
@@ -630,7 +631,7 @@ async fn find_or_create_machine_interface_inner(
                 n => {
                     tracing::warn!(
                         %mac_address,
-                        relay_ips = %relaystr,
+                        relay_ip_addresses = %relaystr,
                         matching_interface_count = n,
                         expected_interface_count = 1,
                         "Unexpected number of machine interfaces for MAC while machine is already known",
@@ -667,7 +668,8 @@ pub async fn find_or_create_observed_machine_interface(
         None => {
             tracing::info!(
                 %mac_address,
-                "Found no existing machine with mac address {mac_address} using networks with relays {relaystr}",
+                relays = ?relays,
+                "No existing machine found",
             );
 
             // Return an existing row when the MAC is already known on this segment.
@@ -737,7 +739,7 @@ pub async fn find_or_create_observed_machine_interface(
                 n => {
                     tracing::warn!(
                         %mac_address,
-                        relay_ips = %relaystr,
+                        relay_ip_addresses = %relaystr,
                         matching_interface_count = n,
                         expected_interface_count = 1,
                         "Unexpected number of machine interfaces for MAC while machine is already known",
@@ -797,7 +799,7 @@ pub async fn network_segments_for_dhcp_relays(
                 .any(|segment| segment.config.segment_type != network_segment_type)
         {
             tracing::warn!(
-                relay_ips = %relays.iter().join(", "),
+                relay_ip_addresses = %relays.iter().join(", "),
                 expected_network_segment_type = %network_segment_type,
                 exact_segment_ids = %exact_segments.iter().map(|segment| segment.id.to_string()).join(", "),
                 exact_segment_types = %exact_segments
@@ -1202,8 +1204,8 @@ async fn preallocate_machine_interface_with_type(
         Ok(_) => {
             tracing::info!(
                 %mac_address,
-                %static_ip,
-                segment_id = %segment.id,
+                static_ip_address = %static_ip,
+                network_segment_id = %segment.id,
                 "Pre-allocated static machine interface"
             );
             Ok(())
@@ -1935,30 +1937,34 @@ pub async fn allocate_svi_ip(
     }
 }
 
-// Support dpu-agent/scout transition from machine_interface_id to source IP.
-// Allow either for now.
-pub async fn find_by_ip_or_id(
+/// Find a single machine_interface by IP, while locking the machine_interfaces and
+/// machine_interface_addresses rows via FOR UPDATE.
+pub async fn find_for_update_by_ip(
     txn: &mut PgConnection,
-    remote_ip: Option<IpAddr>,
-    interface_id: Option<MachineInterfaceId>,
+    remote_ip: IpAddr,
 ) -> Result<MachineInterfaceSnapshot, DatabaseError> {
-    if let Some(remote_ip) = remote_ip
-        && let Some(interface) = find_by_ip(&mut *txn, remote_ip).await?
-    {
-        // remove debug message by Apr 2024
-        tracing::debug!(
-            interface_id = %interface.id,
-            %remote_ip,
-            "Loaded interface by remote IP"
-        );
-        return Ok(interface);
-    }
-    match interface_id {
-        Some(interface_id) => find_one(txn, interface_id).await,
-        None => Err(DatabaseError::NotFoundError {
-            kind: "machine_interface",
-            id: format!("remote_ip={remote_ip:?},interface_id={interface_id:?}"),
+    let query = r#"
+        SELECT mi.id
+        FROM machine_interface_addresses mia
+        JOIN machine_interfaces mi ON mi.id = mia.interface_id
+        WHERE mia.address = $1::inet
+        FOR UPDATE OF mia, mi
+    "#;
+    let interface_ids: Vec<(MachineInterfaceId,)> = sqlx::query_as(query)
+        .bind(remote_ip)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    match interface_ids.as_slice() {
+        [] => Err(DatabaseError::NotFoundError {
+            kind: "machine_interface for discovery IP",
+            id: remote_ip.to_string(),
         }),
+        [(interface_id,)] => find_one(txn, *interface_id).await,
+        _ => Err(DatabaseError::internal(format!(
+            "multiple machine interfaces map to discovery IP {remote_ip}"
+        ))),
     }
 }
 
@@ -2070,7 +2076,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     tracing::info!(
         machine_id=%predicted_machine_interface.machine_id,
         mac_address=%predicted_machine_interface.mac_address,
-        %relay_ip,
+        relay_ip_address = %relay_ip,
         "Got DHCP from predicted machine interface, moving to machine"
     );
     let Some(network_segment) = crate::network_segment::for_relay(txn, relay_ip).await? else {
@@ -2166,7 +2172,7 @@ pub async fn move_predicted_machine_interface_to_machine(
     }
 
     // A primary prediction takes over as the host's sole primary: demote any
-    // current primary (e.g. the DPU admin link on a DpuMode host that boots from
+    // current primary (e.g. the DPU admin link on a managed-DPU host that boots from
     // a declared integrated NIC) before this row joins the machine, so the two
     // never collide on `one_primary_interface_per_machine`.
     if predicted_machine_interface.primary_interface {
@@ -2355,7 +2361,7 @@ pub async fn reconcile_admin_addresses_for_host(
 
     // The active primary admin interface to repair, paired with its segment --
     // present only when the host boots from a DPU admin link. A host that boots
-    // from a non-admin primary (a HostInband integrated NIC on a DpuMode host)
+    // from a non-admin primary (a HostInband integrated NIC on a managed-DPU host)
     // has no primary in the admin set, which is valid, not broken: every DPU
     // admin link is then dormant and only gets cleaned up below. A host with no
     // primary interface at all is the genuine error.
@@ -2963,8 +2969,8 @@ async fn reconcile_interface_segment(
 
         tracing::info!(
             mac_address = %existing_interface.mac_address,
-            old_segment_id = %existing_interface.segment_id,
-            new_segment_id = %relay_segment.id,
+            previous_network_segment_id = %existing_interface.segment_id,
+            next_network_segment_id = %relay_segment.id,
             "Moving interface from static-assignments into DHCP-managed segment"
         );
         update_segment_id(

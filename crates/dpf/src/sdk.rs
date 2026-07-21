@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_utils::none_if_empty::NoneIfEmpty;
 use kube::core::ObjectMeta;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -319,14 +320,14 @@ async fn refresh_bmc_secret_if_changed<R: K8sConfigRepository>(
     match provider.get_bmc_password().await {
         Ok(new_pw) if new_pw != last_password => {
             if let Err(e) = write_bmc_secret::<R>(repo, namespace, &new_pw).await {
-                tracing::error!("Failed to refresh BMC secret: {e}");
+                tracing::error!(error = %e, "Failed to refresh BMC secret");
                 last_password
             } else {
                 new_pw
             }
         }
         Err(e) => {
-            tracing::error!("Failed to read BMC password: {e}");
+            tracing::error!(error = %e, "Failed to read BMC password");
             last_password
         }
         _ => last_password,
@@ -738,11 +739,7 @@ pub fn build_service_configuration(
         },
         spec: DpuServiceConfigurationSpec {
             deployment_service_name: svc.name.clone(),
-            interfaces: if interfaces.is_empty() {
-                None
-            } else {
-                Some(interfaces)
-            },
+            interfaces: interfaces.none_if_empty(),
             service_configuration,
             upgrade_policy: DpuServiceConfigurationUpgradePolicy {
                 apply_node_effect: Some(false),
@@ -1549,7 +1546,7 @@ impl<R: DpuNodeRepository, L: ResourceLabeler> DpfSdk<R, L> {
         if let Err(e) =
             DpuNodeRepository::patch(&*self.repo, node_name, &self.namespace, patch).await
         {
-            tracing::warn!("Failed to remove label from DPU node {}: {}", node_name, e);
+            tracing::warn!(node_name, error = %e, "Failed to remove label from DPU node");
         }
 
         DpuNodeRepository::delete(&*self.repo, node_name, &self.namespace).await
@@ -1659,14 +1656,15 @@ impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
                     .and_then(|l| l.get(DPU_OWNED_BY_DEPLOYMENT_LABEL));
                 let Some(owner_label) = owner_label else {
                     tracing::debug!(
-                        dpu = %cr_name,
-                        "DPU is missing {DPU_OWNED_BY_DEPLOYMENT_LABEL} label; skipping"
+                        dpu_name = %cr_name,
+                        label = DPU_OWNED_BY_DEPLOYMENT_LABEL,
+                        "DPU is missing label; skipping"
                     );
                     return None;
                 };
                 let Some(deployment) = ready_deployments.get(owner_label.as_str()) else {
                     tracing::debug!(
-                        dpu = %cr_name,
+                        dpu_name = %cr_name,
                         owner = %owner_label,
                         "DPU's owning DPUDeployment is not ready or not found; skipping"
                     );
@@ -1798,12 +1796,12 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
             if let Err(e) =
                 DpuNodeRepository::patch(&*self.repo, node_name, &self.namespace, patch).await
             {
-                tracing::warn!("Failed to remove label from DPU node {}: {}", node_name, e);
+                tracing::warn!(node_name, error = %e, "Failed to remove label from DPU node");
             }
 
             if let Err(e) = DpuNodeRepository::delete(&*self.repo, node_name, &self.namespace).await
             {
-                tracing::warn!("Failed to delete DPU node {}: {}", node_name, e);
+                tracing::warn!(node_name, error = %e, "Failed to delete DPU node");
             }
 
             // dpus[].name already has the device- prefix (set by register_dpu_node)
@@ -1811,13 +1809,17 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
                 if let Err(e) =
                     DpuDeviceRepository::delete(&*self.repo, &dpu.name, &self.namespace).await
                 {
-                    tracing::warn!("Failed to delete DPU device {}: {}", dpu.name, e);
+                    tracing::warn!(
+                        dpu_device = %dpu.name,
+                        error = %e,
+                        "Failed to delete DPU device"
+                    );
                 }
             }
         } else {
             tracing::info!(
-                "DPU node {} not found, trying to delete DPU devices",
-                node_name
+                node_name,
+                "DPU node not found, trying to delete DPU devices"
             );
         }
 
@@ -1826,7 +1828,11 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
             if let Err(e) =
                 DpuDeviceRepository::delete(&*self.repo, &cr_name, &self.namespace).await
             {
-                tracing::warn!("Failed to delete DPU device {}: {}", cr_name, e);
+                tracing::warn!(
+                    dpu_device = %cr_name,
+                    error = %e,
+                    "Failed to delete DPU device"
+                );
             }
         }
 
@@ -1845,13 +1851,17 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
         let dpf_id = node_id_from_dpu_node_cr_name(node_name);
         let cr_name = dpu_cr_name(dpu_device_name, dpf_id);
         if let Err(e) = DpuRepository::delete(&*self.repo, &cr_name, &self.namespace).await {
-            tracing::warn!("Failed to delete DPU {}: {}", cr_name, e);
+            tracing::warn!(dpu_name = %cr_name, error = %e, "Failed to delete DPU");
         }
         let device_cr_name = dpu_device_cr_name(dpu_device_name);
         if let Err(e) =
             DpuDeviceRepository::delete(&*self.repo, &device_cr_name, &self.namespace).await
         {
-            tracing::warn!("Failed to delete DPU device {}: {}", device_cr_name, e);
+            tracing::warn!(
+                dpu_device = %device_cr_name,
+                error = %e,
+                "Failed to delete DPU device"
+            );
         }
         Ok(())
     }
@@ -1872,15 +1882,19 @@ impl<R: DpuRepository + DpuNodeRepository + DpuDeviceRepository, L: ResourceLabe
         if let Err(e) =
             DpuNodeRepository::patch(&*self.repo, node_name, &self.namespace, patch).await
         {
-            tracing::warn!("Failed to remove label from DPU node {}: {}", node_name, e);
+            tracing::warn!(node_name, error = %e, "Failed to remove label from DPU node");
         }
         if let Err(e) = DpuNodeRepository::delete(&*self.repo, node_name, &self.namespace).await {
-            tracing::warn!("Failed to delete DPU node {}: {}", node_name, e);
+            tracing::warn!(node_name, error = %e, "Failed to delete DPU node");
         }
         for dpu_id in &dpu_ids {
             if let Err(e) = DpuDeviceRepository::delete(&*self.repo, dpu_id, &self.namespace).await
             {
-                tracing::warn!("Failed to delete DPU device {}: {}", dpu_id, e);
+                tracing::warn!(
+                    dpu_device = %dpu_id,
+                    error = %e,
+                    "Failed to delete DPU device"
+                );
             }
         }
         Ok(())

@@ -23,5 +23,10 @@
 /docs/ @polarweasel
 /fern/ @polarweasel
 
+# The metrics catalogue is generated (`test_integration` regenerates it from the
+# `/metrics` scrape; `cargo xtask check-metric-docs --fix` adds the rest), not
+# authored prose -- exclude it so metric-only changes don't wait on docs review.
+/docs/observability/core_metrics.md
+
 # Network IP module
 /common/network/src/ip/ @DrewBloechl

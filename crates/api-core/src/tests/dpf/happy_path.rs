@@ -77,7 +77,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let host = mh.host().db_machine(&mut txn).await;
     let dpu = mh.dpu().db_machine(&mut txn).await;
 
-    assert!(host.dpf.used_for_ingestion);
+    assert!(host.config.dpf.used_for_ingestion);
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
 
     let carbide_machines_per_state = env.test_meter.parsed_metrics("carbide_machines_per_state");

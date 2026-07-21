@@ -57,7 +57,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out = match fetch_tenants(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_tenants");
+            tracing::error!(error = %err, "fetch_tenants");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading tenants").into_response();
         }
     };
@@ -72,7 +72,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let out: forgerpc::TenantList = match fetch_tenants(state).await {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(%err, "fetch_tenants");
+            tracing::error!(error = %err, "fetch_tenants");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading tenants").into_response();
         }
     };
@@ -170,7 +170,7 @@ pub async fn detail(
             return super::not_found_response(organization_id);
         }
         Err(err) => {
-            tracing::error!(%err, %organization_id, "find_tenants");
+            tracing::error!(error = %err, %organization_id, "find_tenants");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading tenants").into_response();
         }
     };
