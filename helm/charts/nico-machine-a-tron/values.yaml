@@ -184,8 +184,10 @@ machineDefaults:
 ##   - Supports up to 256 pods
 ##
 macAddressPool:
-  ## Enable auto-generation of per-pod MAC address pools
-  enabled: true
+  ## Enable auto-generation of per-pod MAC address pools.
+  ## Default: false (uses binary defaults from machine-a-tron: 02:00:00:00:00:00/24)
+  ## Set to true for multi-pod deployments to avoid MAC collisions.
+  enabled: false
   ## Base prefix (first 2 bytes). Pod index added to byte 3.
   basePrefix: "02:00"
   ## Number of host bits per pod (16 = ~65K MACs per pod)
@@ -207,8 +209,10 @@ macAddressPool:
 ## Format: 02:01:PP:XX:XX:XX where PP = pod index
 ##
 hwMacAddressRanges:
-  ## Enable auto-generation of per-pod HW MAC ranges
-  enabled: true
+  ## Enable auto-generation of per-pod HW MAC ranges.
+  ## Default: false (uses binary defaults from machine-a-tron: 06:00:00:00:00:00/32/8)
+  ## Set to true for multi-pod deployments to avoid MAC collisions.
+  enabled: false
   ## Base prefix (first 2 bytes). Pod index added to byte 3.
   basePrefix: "02:01"
   ## Total host bits (24 = 16M addresses in the range pool)
