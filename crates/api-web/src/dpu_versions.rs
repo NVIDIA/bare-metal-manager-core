@@ -106,7 +106,7 @@ impl From<forgerpc::Machine> for Row {
                 .and_then(|inv| {
                     inv.components
                         .iter()
-                        .find(|c| c.name == "doca-hbn" || c.name == "doca_hbn")
+                        .find(|c| c.name.contains("hbn"))
                         .map(|c| c.version.clone())
                 })
                 .unwrap_or_default(),

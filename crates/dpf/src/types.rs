@@ -477,10 +477,15 @@ pub struct DpuSummary {
 /// Used by [`crate::DpfSdk::get_service_versions_for_dpu`] to populate the DPU inventory.
 #[derive(Debug, Clone)]
 pub struct DpuServiceVersion {
-    /// The `deployment_service_name` from the DPUServiceTemplate (e.g. `"doca-hbn"`).
+    /// Image case: basename after the final `/` of `helmChart.values.image.repository`.
+    /// Helm fallback: `helmChart.source.chart`.
     pub name: String,
-    /// Docker image tag if set in `helmChart.values.image.tag`, otherwise the helm chart version.
+    /// Image case: `helmChart.values.image.tag`.
+    /// Helm fallback: `helmChart.source.version`.
     pub version: String,
+    /// Image case: `helmChart.values.image.repository` up to (not including) the final `/`.
+    /// Helm fallback: `helmChart.source.repoURL`.
+    pub url: String,
 }
 
 /// Helm-chart version observed on a live `DPUServiceTemplate` CR. Used by

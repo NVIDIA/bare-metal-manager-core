@@ -118,7 +118,7 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// the DPU reaches `DpuPhase::Ready`.
     async fn get_service_versions_for_dpu(
         &self,
-        dpu_device_name: &str,
+        dpu_name: &str,
     ) -> Result<Vec<DpuServiceVersion>, DpfError>;
 
     /// Return DPUs whose installed BFB or `spec.dpuFlavor` does not match
@@ -594,9 +594,9 @@ impl DpfOperations for DpfSdkOps {
 
     async fn get_service_versions_for_dpu(
         &self,
-        dpu_device_name: &str,
+        dpu_name: &str,
     ) -> Result<Vec<DpuServiceVersion>, DpfError> {
-        self.sdk.get_service_versions_for_dpu(dpu_device_name).await
+        self.sdk.get_service_versions_for_dpu(dpu_name).await
     }
 
     async fn find_outdated_dpus_dpf(&self) -> Result<Vec<OutdatedDpfDpu>, DpfError> {

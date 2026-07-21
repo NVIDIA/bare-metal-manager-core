@@ -2012,17 +2012,21 @@ impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, 
     /// DPUDeployment (via the `svc.dpu.nvidia.com/owned-by-dpudeployment` label on the DPU CR)
     /// and reading each service's DPUServiceTemplate.
     ///
-    /// Version is taken from `helmChart.values.image.tag` when set and non-empty;
-    /// otherwise falls back to `helmChart.source.version`.
+    /// Each returned [`DpuServiceVersion`] is derived per field:
+    /// - `version`: `helmChart.values.image.tag` when set and non-empty, else
+    ///   `helmChart.source.version`.
+    /// - `url` + `name`: when `helmChart.values.image.repository` is set, it is
+    ///   split at its final `/` into `url` (registry/path) and `name` (image name);
+    ///   otherwise `url` is `helmChart.source.repoURL` and `name` is
+    ///   `helmChart.source.chart`. If no name can be derived, the DPUDeployment
+    ///   service name is used.
     pub async fn get_service_versions_for_dpu(
         &self,
-        dpu_device_name: &str,
+        dpu_name: &str,
     ) -> Result<Vec<DpuServiceVersion>, DpfError> {
-        let dpu = DpuRepository::get(&*self.repo, dpu_device_name, &self.namespace)
+        let dpu = DpuRepository::get(&*self.repo, dpu_name, &self.namespace)
             .await?
-            .ok_or_else(|| {
-                DpfError::InvalidState(format!("DPU CR not found: {dpu_device_name}"))
-            })?;
+            .ok_or_else(|| DpfError::InvalidState(format!("DPU CR not found: {dpu_name}")))?;
 
         let owner_label = dpu
             .metadata
@@ -2031,7 +2035,7 @@ impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, 
             .and_then(|l| l.get(DPU_OWNED_BY_DEPLOYMENT_LABEL))
             .ok_or_else(|| {
                 DpfError::InvalidState(format!(
-                    "DPU {dpu_device_name} is missing {DPU_OWNED_BY_DEPLOYMENT_LABEL} label"
+                    "DPU {dpu_name} is missing {DPU_OWNED_BY_DEPLOYMENT_LABEL} label"
                 ))
             })?;
 
@@ -2044,7 +2048,7 @@ impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, 
                 .await?
                 .ok_or_else(|| {
                     DpfError::InvalidState(format!(
-                        "DPUDeployment {deployment_name} not found for DPU {dpu_device_name}"
+                        "DPUDeployment {deployment_name} not found for DPU {dpu_name}"
                     ))
                 })?;
 
@@ -2060,22 +2064,55 @@ impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, 
                 continue;
             };
 
-            let version = template
+            let image_values = template
                 .spec
                 .helm_chart
                 .values
                 .as_ref()
-                .and_then(|v| v.get("image"))
+                .and_then(|v| v.get("image"));
+            let image_tag = image_values
                 .and_then(|img| img.get("tag"))
                 .and_then(|tag| tag.as_str())
-                .filter(|s| !s.is_empty())
-                .unwrap_or(&template.spec.helm_chart.source.version)
-                .to_string();
+                .filter(|s| !s.is_empty());
+            let image_repo = image_values
+                .and_then(|img| img.get("repository"))
+                .and_then(|r| r.as_str())
+                .filter(|s| !s.is_empty());
 
-            versions.push(DpuServiceVersion {
-                name: service_name.clone(),
-                version,
-            });
+            // Version is the image tag when set, otherwise the Helm chart version.
+            // These are independent of the image repository: a template that only
+            // overrides the tag must still report that tag.
+            let version = image_tag
+                .map(str::to_string)
+                .unwrap_or_else(|| template.spec.helm_chart.source.version.clone());
+
+            // url + name: split the image repository at its final '/' when present
+            // (registry/path as url, image name as name); otherwise fall back to the
+            // Helm source repo URL and chart name.
+            let (url, mut name) = if let Some(repo) = image_repo {
+                repo.rsplit_once('/')
+                    .map(|(prefix, base)| (prefix.to_string(), base.to_string()))
+                    .unwrap_or_else(|| (String::new(), repo.to_string()))
+            } else {
+                (
+                    template.spec.helm_chart.source.repo_url.clone(),
+                    template
+                        .spec
+                        .helm_chart
+                        .source
+                        .chart
+                        .clone()
+                        .unwrap_or_default(),
+                )
+            };
+
+            // Never emit a nameless component; the DPUDeployment service name is a
+            // stable identifier when neither the image basename nor chart name is set.
+            if name.is_empty() {
+                name = service_name.clone();
+            }
+
+            versions.push(DpuServiceVersion { name, version, url });
         }
 
         Ok(versions)
