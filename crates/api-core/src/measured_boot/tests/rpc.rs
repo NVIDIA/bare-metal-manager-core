@@ -1641,6 +1641,104 @@ mod tests {
         Ok(())
     }
 
+    #[crate::sqlx_test]
+    async fn test_remove_measurement_trust_approvals(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let env = create_test_env(db_conn).await;
+        let api = &env.api;
+
+        let add_resp = site::handle_add_measurement_trusted_machine(
+            api,
+            mbrpc::AddMeasurementTrustedMachineRequest {
+                machine_id: "*".to_string(),
+                approval_type: mbrpc::MeasurementApprovedTypePb::Persist.into(),
+                pcr_registers: String::new(),
+                comments: String::new(),
+            },
+        )
+        .await?;
+        let remove_resp = site::handle_remove_measurement_trusted_machine(
+            api,
+            mbrpc::RemoveMeasurementTrustedMachineRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_machine_request::Selector::MachineId(
+                        "*".to_string(),
+                    ),
+                ),
+            },
+        )
+        .await?;
+        assert_eq!(
+            add_resp.approval_record.unwrap().approval_id,
+            remove_resp.approval_record.unwrap().approval_id
+        );
+
+        let missing_machine_id = site::handle_remove_measurement_trusted_machine(
+            api,
+            mbrpc::RemoveMeasurementTrustedMachineRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_machine_request::Selector::MachineId(
+                        "*".to_string(),
+                    ),
+                ),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_machine_id.code(), tonic::Code::NotFound);
+
+        let missing_machine_approval = site::handle_remove_measurement_trusted_machine(
+            api,
+            mbrpc::RemoveMeasurementTrustedMachineRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_machine_request::Selector::ApprovalId(
+                        mbrpc::MeasurementApprovedMachineId {
+                            value: uuid::Uuid::new_v4().to_string(),
+                        },
+                    ),
+                ),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_machine_approval.code(), tonic::Code::NotFound);
+
+        let missing_profile_id = site::handle_remove_measurement_trusted_profile(
+            api,
+            mbrpc::RemoveMeasurementTrustedProfileRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_profile_request::Selector::ProfileId(
+                        mbrpc::MeasurementSystemProfileId {
+                            value: uuid::Uuid::new_v4().to_string(),
+                        },
+                    ),
+                ),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_profile_id.code(), tonic::Code::NotFound);
+
+        let missing_profile_approval = site::handle_remove_measurement_trusted_profile(
+            api,
+            mbrpc::RemoveMeasurementTrustedProfileRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_profile_request::Selector::ApprovalId(
+                        mbrpc::MeasurementApprovedProfileId {
+                            value: uuid::Uuid::new_v4().to_string(),
+                        },
+                    ),
+                ),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_profile_approval.code(), tonic::Code::NotFound);
+
+        Ok(())
+    }
+
     // test_permissive_approvals is used to make sure that
     // having a site-wide "permissive" approval of "*" works
     // as intended.
