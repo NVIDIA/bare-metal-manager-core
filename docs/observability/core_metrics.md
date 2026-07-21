@@ -53,6 +53,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dpus_up_count</td><td>gauge</td><td>Number of DPUs in the system that are up. Up means we have received a health report less than 5 minutes ago.</td></tr>
 <tr><td>carbide_dropped_v6_requests_total</td><td>counter</td><td>Number of dropped DHCPv6 requests, by reason.</td></tr>
 <tr><td>carbide_dsx_event_bus_publish_count_total</td><td>counter</td><td>Number of MQTT publish attempts</td></tr>
+<tr><td>carbide_dsx_exchange_consumer_alerts_detected_total</td><td>counter</td><td>Number of leak alerts detected</td></tr>
 <tr><td>carbide_dsx_exchange_consumer_dedup_skipped_total</td><td>counter</td><td>Number of messages skipped due to deduplication</td></tr>
 <tr><td>carbide_dsx_exchange_consumer_health_report_persist_failures_total</td><td>counter</td><td>Number of rack health report persist failures against the Carbide API</td></tr>
 <tr><td>carbide_dsx_exchange_consumer_message_age_seconds</td><td>histogram</td><td>Age of consumed BMS value messages at processing time (consumer lag), in seconds</td></tr>
