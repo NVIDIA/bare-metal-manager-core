@@ -234,24 +234,24 @@ fn get_nvme_size_mb(context: &libudev::Context, controller: &Device) -> Option<u
     enumerator.match_subsystem("block").ok()?;
     enumerator.match_parent(controller).ok()?;
 
-    let total_sectors: u64 = enumerator
-        .scan_devices()
-        .ok()?
-        .filter(|ns| {
-            // Only whole-namespace disks. `match_parent` walks the full block
-            // subtree, so without this a partitioned drive would have its
-            // partition sizes summed on top of the namespace size, inflating
-            // the reported capacity.
-            ns.property_value("DEVTYPE").and_then(|v| v.to_str()) == Some("disk")
-        })
-        .filter_map(|ns| {
-            ns.attribute_value("size")
-                .and_then(|v| v.to_str())
-                .and_then(|v| v.trim().parse::<u64>().ok())
-        })
-        .sum();
-
-    if total_sectors == 0 {
+    let mut total_sectors = 0_u64;
+    let mut found_namespace = false;
+    for ns in enumerator.scan_devices().ok()? {
+        // Only whole-namespace disks. `match_parent` walks the full block
+        // subtree, so without this a partitioned drive would have its
+        // partition sizes summed on top of the namespace size, inflating
+        // the reported capacity.
+        if ns.property_value("DEVTYPE").and_then(|v| v.to_str()) != Some("disk") {
+            continue;
+        }
+        found_namespace = true;
+        let sectors = ns
+            .attribute_value("size")
+            .and_then(|v| v.to_str())
+            .and_then(|v| v.trim().parse::<u64>().ok())?;
+        total_sectors = total_sectors.checked_add(sectors)?;
+    }
+    if !found_namespace {
         return None;
     }
     u32::try_from(total_sectors / 2048).ok()

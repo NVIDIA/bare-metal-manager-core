@@ -760,7 +760,7 @@ pub async fn generate_sku_from_machine_at_version_5(
         ));
     };
 
-    let Some(hardware_info) = machine.hardware_info.as_ref() else {
+    let Some(hardware_info) = machine.status.hardware_info.as_ref() else {
         return Err(DatabaseError::new(
             "generate sku: load hardware info (v5)",
             sqlx::Error::RowNotFound,
