@@ -21,6 +21,7 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
+use carbide_instrument::{DynamicLog, Event, LogAt};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 
@@ -166,9 +167,39 @@ impl Display for NvlPartitionMonitorMetrics {
     }
 }
 
+/// `NvlPartitionMonitorIterationFinished` closes one partition reconciliation
+/// pass. Every emission records the existing label-free latency histogram; a
+/// returned error also writes the monitor's `WARN` record.
+#[derive(Event)]
+#[event(
+    event_name = "nvlink_partition_monitor_iteration_finished",
+    metric_name = "carbide_nvlink_partition_monitor_iteration_latency_milliseconds",
+    component = "nvlink-manager",
+    log = dynamic,
+    metric = histogram,
+    message = "NVLink partition monitor error",
+    describe = "Time consumed for one monitor iteration"
+)]
+pub(crate) struct NvlPartitionMonitorIterationFinished {
+    #[observation]
+    pub latency: Duration,
+    /// Empty on success, which keeps the completion event metric-only.
+    #[context]
+    pub error: String,
+}
+
+impl DynamicLog for NvlPartitionMonitorIterationFinished {
+    fn log_at(&self) -> LogAt {
+        if self.error.is_empty() {
+            LogAt::Off
+        } else {
+            LogAt::Level(tracing::Level::WARN)
+        }
+    }
+}
+
 /// Instruments that are used by pub struct NvlPartitionMonitor
 pub struct NvlPartitionMonitorInstruments {
-    pub iteration_latency: Histogram<f64>,
     pub nmxc_changes_applied: Counter<u64>,
     pub operations_latency: Histogram<f64>,
     pub nvlink_config_apply_latency: Histogram<f64>,
@@ -179,12 +210,6 @@ impl NvlPartitionMonitorInstruments {
         meter: Meter,
         shared_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>,
     ) -> Self {
-        let iteration_latency = meter
-            .f64_histogram("carbide_nvlink_partition_monitor_iteration_latency")
-            .with_description("Time consumed for one monitor iteration")
-            .with_unit("ms")
-            .build();
-
         let operations_latency = meter
             .f64_histogram("carbide_nvlink_partition_monitor_nmxc_op_latency")
             .with_description("Time consumed for one NMX-C operation")
@@ -402,7 +427,6 @@ impl NvlPartitionMonitorInstruments {
         }
 
         Self {
-            iteration_latency,
             nmxc_changes_applied,
             operations_latency,
             nvlink_config_apply_latency,
@@ -410,11 +434,6 @@ impl NvlPartitionMonitorInstruments {
     }
 
     fn emit_counters_and_histograms(&self, metrics: &NvlPartitionMonitorMetrics) {
-        self.iteration_latency.record(
-            1000.0 * metrics.recording_started_at.elapsed().as_secs_f64(),
-            &[],
-        );
-
         for (change, &count) in metrics.applied_changes.iter() {
             self.nmxc_changes_applied.add(
                 count as u64,
@@ -551,7 +570,6 @@ impl MetricHolder {
 
     /// Updates the most recent metrics
     pub fn update_metrics(&self, metrics: NvlPartitionMonitorMetrics) {
-        // Emit the last recent latency metrics
         self.instruments.emit_counters_and_histograms(&metrics);
         self.last_iteration_metrics.update(metrics);
     }
@@ -569,4 +587,146 @@ fn truncate_error_for_metric_label(mut error: String) -> String {
         .unwrap_or(error.len());
     error.truncate(upto);
     error
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    #[test]
+    fn partition_monitor_iteration_records_latency_and_warns_only_on_failure() {
+        const METRIC_NAME: &str = "carbide_nvlink_partition_monitor_iteration_latency_milliseconds";
+
+        struct IterationCase {
+            latency: Duration,
+            error: &'static str,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct LogObservation {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            error: Option<String>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            log: Option<LogObservation>,
+            histogram_count_delta: u64,
+            histogram_sum_delta: f64,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "successful iteration",
+                    input: IterationCase {
+                        latency: Duration::from_millis(125),
+                        error: "",
+                    },
+                    expect: Observation {
+                        log_count: 0,
+                        log: None,
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 125.0,
+                    },
+                },
+                Check {
+                    scenario: "failed iteration",
+                    input: IterationCase {
+                        latency: Duration::from_millis(375),
+                        error: "database unavailable",
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: Some(LogObservation {
+                            level: tracing::Level::WARN,
+                            metadata_name: "nvlink_partition_monitor_iteration_finished"
+                                .to_string(),
+                            message: "NVLink partition monitor error".to_string(),
+                            event_name: Some(
+                                "nvlink_partition_monitor_iteration_finished".to_string(),
+                            ),
+                            metric_name: Some(METRIC_NAME.to_string()),
+                            error: Some("database unavailable".to_string()),
+                        }),
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 375.0,
+                    },
+                },
+            ],
+            |IterationCase { latency, error }| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit(NvlPartitionMonitorIterationFinished {
+                        latency,
+                        error: error.to_string(),
+                    });
+                });
+                let log = logs.first().map(|log| LogObservation {
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                });
+
+                Observation {
+                    log_count: logs.len(),
+                    log,
+                    histogram_count_delta: metrics.histogram_count_delta(METRIC_NAME, &[]),
+                    histogram_sum_delta: metrics.histogram_sum_delta(METRIC_NAME, &[]),
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn partition_monitor_iteration_histogram_exposition_stays_stable() {
+        const METRIC_NAME: &str = "carbide_nvlink_partition_monitor_iteration_latency_milliseconds";
+
+        let metrics = MetricsCapture::start();
+        emit(NvlPartitionMonitorIterationFinished {
+            latency: Duration::from_millis(125),
+            error: String::new(),
+        });
+
+        let encoded = metrics.render();
+        assert!(
+            encoded.contains(&format!(
+                "# HELP {METRIC_NAME} Time consumed for one monitor iteration\n"
+            )),
+            "description or exposed family changed:\n{encoded}"
+        );
+        assert!(
+            encoded.contains(&format!("# TYPE {METRIC_NAME} histogram\n")),
+            "expected the millisecond family to remain a histogram:\n{encoded}"
+        );
+        assert!(
+            !encoded.contains(
+                "carbide_nvlink_partition_monitor_iteration_latency_milliseconds_milliseconds"
+            ),
+            "the unit suffix must be applied exactly once:\n{encoded}"
+        );
+        for suffix in ["count", "sum"] {
+            let prefix = format!("{METRIC_NAME}_{suffix} ");
+            let sample = encoded
+                .lines()
+                .find(|line| line.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("missing {prefix} sample:\n{encoded}"));
+            assert!(
+                !sample.contains('{'),
+                "iteration latency must remain label-free: {sample}"
+            );
+        }
+    }
 }

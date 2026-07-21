@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{fmt, io};
 
+use carbide_instrument::{DynamicLog, Event, LogAt};
 use carbide_utils::metrics::SharedMetricsHolder;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::rack::RackId;
@@ -33,7 +34,7 @@ use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use model::rack::{MaintenanceActivity, MaintenanceScope};
 use opentelemetry::KeyValue;
-use opentelemetry::metrics::{Histogram, Meter};
+use opentelemetry::metrics::Meter;
 use rustls::{ClientConfig, RootCertStore};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use sha2::{Digest, Sha256};
@@ -174,18 +175,43 @@ impl fmt::Display for SwitchCertMonitorMetrics {
     }
 }
 
-struct SwitchCertMonitorInstruments {
-    iteration_latency: Histogram<f64>,
+/// `SwitchCertificateMonitorIterationFinished` closes one certificate
+/// reconciliation pass. Every emission records the existing label-free
+/// latency histogram; a returned error also writes the monitor's `WARN`
+/// record.
+#[derive(Event)]
+#[event(
+    event_name = "nvlink_switch_certificate_monitor_iteration_finished",
+    metric_name = "carbide_nvlink_switch_cert_monitor_iteration_latency_milliseconds",
+    component = "nvlink-manager",
+    log = dynamic,
+    metric = histogram,
+    message = "Switch certificate monitor error",
+    describe = "Time consumed for one NMX-C switch certificate monitor iteration"
+)]
+struct SwitchCertificateMonitorIterationFinished {
+    /// Numeric milliseconds preserve the manual histogram's whole-millisecond truncation.
+    #[observation]
+    latency_ms: f64,
+    /// Empty on success, which keeps the completion event metric-only.
+    #[context]
+    error: String,
 }
 
-impl SwitchCertMonitorInstruments {
-    fn new(meter: Meter, shared_metrics: SharedMetricsHolder<SwitchCertMonitorMetrics>) -> Self {
-        let iteration_latency = meter
-            .f64_histogram("carbide_nvlink_switch_cert_monitor_iteration_latency")
-            .with_description("Time consumed for one NMX-C switch certificate monitor iteration")
-            .with_unit("ms")
-            .build();
+impl DynamicLog for SwitchCertificateMonitorIterationFinished {
+    fn log_at(&self) -> LogAt {
+        if self.error.is_empty() {
+            LogAt::Off
+        } else {
+            LogAt::Level(tracing::Level::WARN)
+        }
+    }
+}
 
+struct SwitchCertMonitorInstruments;
+
+impl SwitchCertMonitorInstruments {
+    fn register(meter: Meter, shared_metrics: SharedMetricsHolder<SwitchCertMonitorMetrics>) {
         {
             let metrics = shared_metrics.clone();
             meter
@@ -417,35 +443,23 @@ impl SwitchCertMonitorInstruments {
                 })
                 .build();
         }
-
-        Self { iteration_latency }
-    }
-
-    fn emit_counters_and_histograms(&self, metrics: &SwitchCertMonitorMetrics) {
-        self.iteration_latency.record(
-            metrics.recording_started_at.elapsed().as_millis() as f64,
-            &[],
-        );
     }
 }
 
 pub struct MetricHolder {
-    instruments: SwitchCertMonitorInstruments,
     last_iteration_metrics: SharedMetricsHolder<SwitchCertMonitorMetrics>,
 }
 
 impl MetricHolder {
     pub fn new(meter: Meter, hold_period: Duration) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
-        let instruments = SwitchCertMonitorInstruments::new(meter, last_iteration_metrics.clone());
+        SwitchCertMonitorInstruments::register(meter, last_iteration_metrics.clone());
         Self {
-            instruments,
             last_iteration_metrics,
         }
     }
 
     fn update_metrics(&self, metrics: SwitchCertMonitorMetrics) {
-        self.instruments.emit_counters_and_histograms(&metrics);
         self.last_iteration_metrics.update(metrics);
     }
 }
@@ -539,12 +553,9 @@ impl SwitchCertificateMonitor {
         let timer = PeriodicTimer::new(self.config.nmx_c_certificate_rotation.run_interval);
         loop {
             let tick = timer.tick();
-            if let Err(e) = self.run_single_iteration(&cancel_token).await {
-                tracing::warn!(
-                    error = %e,
-                    "Switch certificate monitor error",
-                );
-            }
+            // `run_single_iteration` owns the completion event, including the
+            // historical `WARN`, before it returns to this scheduling loop.
+            self.run_single_iteration(&cancel_token).await.ok();
 
             tokio::select! {
                 _ = tick.sleep() => {},
@@ -584,6 +595,16 @@ impl SwitchCertificateMonitor {
         }
         switch_cert_monitor_span.record("metrics", metrics.to_string());
         let iteration_result = SwitchCertificateMonitorIterationResult::from_metrics(&metrics);
+        switch_cert_monitor_span.in_scope(|| {
+            carbide_instrument::emit(SwitchCertificateMonitorIterationFinished {
+                latency_ms: metrics.recording_started_at.elapsed().as_millis() as f64,
+                error: result
+                    .as_ref()
+                    .err()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            });
+        });
         self.metric_holder.update_metrics(metrics);
         result.map(|_| iteration_result)
     }
@@ -1179,6 +1200,9 @@ fn switch_cert_monitor_error_kind(error: &str) -> SwitchCertMonitorErrorKind {
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
     use rcgen::{CertifiedKey, generate_simple_self_signed};
 
     use super::*;
@@ -1244,5 +1268,140 @@ mod tests {
 
         assert_eq!(actual.fingerprint_sha256, expected_fingerprint);
         assert!(actual.not_after_timestamp > Utc::now().timestamp());
+    }
+
+    #[test]
+    fn switch_certificate_iteration_records_latency_and_warns_only_on_failure() {
+        const METRIC_NAME: &str =
+            "carbide_nvlink_switch_cert_monitor_iteration_latency_milliseconds";
+
+        struct IterationCase {
+            latency_ms: f64,
+            error: &'static str,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct LogObservation {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            error: Option<String>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            log: Option<LogObservation>,
+            histogram_count_delta: u64,
+            histogram_sum_delta: f64,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "successful iteration",
+                    input: IterationCase {
+                        latency_ms: 225.0,
+                        error: "",
+                    },
+                    expect: Observation {
+                        log_count: 0,
+                        log: None,
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 225.0,
+                    },
+                },
+                Check {
+                    scenario: "failed iteration",
+                    input: IterationCase {
+                        latency_ms: 425.0,
+                        error: "certificate query failed",
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: Some(LogObservation {
+                            level: tracing::Level::WARN,
+                            metadata_name: "nvlink_switch_certificate_monitor_iteration_finished"
+                                .to_string(),
+                            message: "Switch certificate monitor error".to_string(),
+                            event_name: Some(
+                                "nvlink_switch_certificate_monitor_iteration_finished".to_string(),
+                            ),
+                            metric_name: Some(METRIC_NAME.to_string()),
+                            error: Some("certificate query failed".to_string()),
+                        }),
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 425.0,
+                    },
+                },
+            ],
+            |IterationCase { latency_ms, error }| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit(SwitchCertificateMonitorIterationFinished {
+                        latency_ms,
+                        error: error.to_string(),
+                    });
+                });
+                let log = logs.first().map(|log| LogObservation {
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                });
+
+                Observation {
+                    log_count: logs.len(),
+                    log,
+                    histogram_count_delta: metrics.histogram_count_delta(METRIC_NAME, &[]),
+                    histogram_sum_delta: metrics.histogram_sum_delta(METRIC_NAME, &[]),
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn switch_certificate_iteration_histogram_exposition_stays_stable() {
+        const METRIC_NAME: &str =
+            "carbide_nvlink_switch_cert_monitor_iteration_latency_milliseconds";
+
+        let metrics = MetricsCapture::start();
+        emit(SwitchCertificateMonitorIterationFinished {
+            latency_ms: 225.0,
+            error: String::new(),
+        });
+
+        let encoded = metrics.render();
+        assert!(
+            encoded.contains(&format!(
+                "# HELP {METRIC_NAME} Time consumed for one NMX-C switch certificate monitor iteration\n"
+            )),
+            "description or exposed family changed:\n{encoded}"
+        );
+        assert!(
+            encoded.contains(&format!("# TYPE {METRIC_NAME} histogram\n")),
+            "expected the millisecond family to remain a histogram:\n{encoded}"
+        );
+        assert!(
+            !encoded.contains(
+                "carbide_nvlink_switch_cert_monitor_iteration_latency_milliseconds_milliseconds"
+            ),
+            "the unit suffix must be applied exactly once:\n{encoded}"
+        );
+        for suffix in ["count", "sum"] {
+            let prefix = format!("{METRIC_NAME}_{suffix} ");
+            let sample = encoded
+                .lines()
+                .find(|line| line.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("missing {prefix} sample:\n{encoded}"));
+            assert!(
+                !sample.contains('{'),
+                "iteration latency must remain label-free: {sample}"
+            );
+        }
     }
 }

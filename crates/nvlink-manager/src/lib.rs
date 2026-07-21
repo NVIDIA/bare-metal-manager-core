@@ -49,7 +49,7 @@ use libnmxc::nmxc_model::{
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
 use metrics::{
     AppliedChange, ChassisNmxCUnreachableReason, NmxcMetricOperationStatus,
-    NvlPartitionMonitorMetrics,
+    NvlPartitionMonitorIterationFinished, NvlPartitionMonitorMetrics,
 };
 use model::hardware_info::{HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::instance::status::SyncState;
@@ -1051,19 +1051,16 @@ impl NvlPartitionMonitor {
         let timer = PeriodicTimer::new(self.config.monitor_run_interval);
         loop {
             let mut tick = timer.tick();
-            match self.run_single_iteration().await {
-                Ok(num_changes) => {
-                    if num_changes > 0 {
-                        // Decrease the interval if changes have been made.
-                        tick.set_interval(Duration::from_millis(1000));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "NVLink partition monitor error",
-                    );
-                }
+            // `run_single_iteration` owns the completion event, including the
+            // historical `WARN`; this loop only needs the successful change
+            // count to adjust its cadence.
+            if self
+                .run_single_iteration()
+                .await
+                .is_ok_and(|num_changes| num_changes > 0)
+            {
+                // Decrease the interval if changes have been made.
+                tick.set_interval(Duration::from_millis(1000));
             }
 
             tokio::select! {
@@ -1100,6 +1097,16 @@ impl NvlPartitionMonitor {
             check_nvl_partition_span.record("otel.status_message", format!("{e:?}"));
         }
         check_nvl_partition_span.record("metrics", metrics.to_string());
+        check_nvl_partition_span.in_scope(|| {
+            carbide_instrument::emit(NvlPartitionMonitorIterationFinished {
+                latency: metrics.recording_started_at.elapsed(),
+                error: result
+                    .as_ref()
+                    .err()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            });
+        });
         self.metric_holder.update_metrics(metrics);
         result
     }
