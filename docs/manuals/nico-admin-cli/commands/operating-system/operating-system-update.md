@@ -53,7 +53,7 @@ Set whether the instance is held in a provisioning state until the booted OS
 calls back ("phones home") to NICo's metadata service, instead of being
 reported ready as soon as provisioning finishes. NICo injects the cloud-init
 `phone_home` block into your user-data for you, so your `userData` must be
-valid cloud-init YAML when this is enabled. See
+valid cloud-init YAML when this is enabled. Refer to
 [Phone-home](../../../../configuration/tenant_management.md#phone-home) for
 what it injects, the endpoint, and usage guidance.\
 
@@ -110,4 +110,4 @@ nico-admin-cli operating-system update 12345678-1234-5678-90ab-cdef01234567 --ip
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)

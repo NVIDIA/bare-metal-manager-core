@@ -605,17 +605,17 @@ phone_home:
   post: all
 ```
 
-The injected `url` is the site-configured phone-home endpoint (`site.phoneHomeUrl`; default `http://169.254.169.254:7777/latest/meta-data/phone_home`), which the platform operator can override per deployment. If you supply no `userData`, NICo generates a minimal `#cloud-config` containing only the block above. Disabling phone-home reverses this: NICo removes the matching `phone_home` block it manages. Because NICo rewrites your user-data as YAML, **any `userData` you provide must be valid cloud-init YAML (a `#cloud-config` mapping) when phone-home is enabled** -- the API rejects a request whose non-empty user-data is not. (Supplying no user-data is fine: NICo generates the minimal `#cloud-config` shown above.)
+The injected `url` is the site-configured phone-home endpoint (`site.phoneHomeUrl`; default `http://169.254.169.254:7777/latest/meta-data/phone_home`), which the platform operator can override per deployment. If you supply no `userData`, NICo generates a minimal `#cloud-config` containing only the block above. Disabling phone-home reverses this, and NICo removes the matching `phone_home` block it manages. Because NICo rewrites your user-data as YAML, **any `userData` you provide must be valid cloud-init YAML (a `#cloud-config` mapping) when phone-home is enabled**. The API rejects requests with invalid user-data. (Supplying no user-data is fine: NICo generates the minimal `#cloud-config` shown above.)
 
-cloud-init runs the `phone_home` module in its final stage, after the rest of your configuration has been applied, so the callback fires only once your setup has completed. When NICo receives the POST it records the contact and releases the readiness gate, allowing the instance to become `Ready`.
+cloud-init runs the `phone_home` module in its final stage, after the rest of your configuration has been applied, so the callback fires only after your setup has completed. When NICo receives the POST, it records the contact and releases the readiness gate, allowing the instance to become `Ready`.
 
-**When to use it.** Enable phone-home when "ready" must mean "the guest has finished its own first-boot setup" -- for example, to delay readiness until cloud-init has applied SSH keys and passwords, so that automation watching for `Ready` does not connect before the host is fully configured. Leave it disabled when NICo finishing provisioning is a sufficient ready signal and you do not need a callback from inside the guest.
+**When to use it.** Enable phone-home when "ready" must mean "the guest has finished its own first-boot setup" -- for example, to delay readiness until cloud-init has applied SSH keys and passwords, so that automation watching for `Ready` does not connect before the host is fully configured. Leave phone-home disabled when NICo finishing provisioning is a sufficient ready signal and you do not need a callback from inside the guest.
 
 **Notes and caveats.**
 
 - Phone-home only gates *status reporting*. It does not change how the host is provisioned or booted -- the reboot into the provisioned OS happens identically whether or not phone-home is enabled.
-- If phone-home is enabled but the booted OS never runs cloud-init -- or the guest cannot reach the metadata endpoint -- the callback never arrives and the instance stays in its provisioning state, never reporting ready.
-- The metadata endpoint (`169.254.169.254:7777`) is reachable only from the provisioned host over its link-local metadata link; it is not a tenant-facing API.
+- If phone-home is enabled but the booted OS never runs cloud-init, or the guest cannot reach the metadata endpoint, the callback never arrives and the instance stays in its provisioning state, never reporting ready.
+- The metadata endpoint (by default, `169.254.169.254:7777`) is not a tenant-facing API, and is reachable only from the provisioned host over its link-local metadata link.
 - Rebooting the instance with a one-time custom iPXE override (`instance update --reboot-with-custom-ipxe=true`) re-arms the gate when phone-home is enabled: NICo clears the recorded contact, so the OS must phone home again before the instance is reported ready.
 
 ### Batch Instance Creation

@@ -52,7 +52,7 @@ Hold the instance in a provisioning state until the booted OS calls back
 ("phones home") to NICo's metadata service, instead of reporting it ready as
 soon as provisioning finishes. NICo injects the cloud-init `phone_home` block
 into your user-data for you, so your `userData` must be valid cloud-init YAML
-when this is enabled. See
+when this is enabled. Refer to
 [Phone-home](../../../../configuration/tenant_management.md#phone-home) for
 what it injects, the endpoint, and usage guidance.
 
@@ -97,4 +97,4 @@ nico-admin-cli operating-system create --name ubuntu-22.04 --org fds34511233a --
 
 ---
 
-**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../README.md)
+**See also:** [Tenant commands](../../tenant.md) · [CLI reference index](../../index.md)
