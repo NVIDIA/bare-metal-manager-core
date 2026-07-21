@@ -17,7 +17,8 @@ Decommissioning starts only from `Ready` and only when no managed host on the
 power shelf's rack is in use. It ends in the retained terminal
 `Decommissioned` state. Final deletion preserves the
 `expected_power_shelves` record so a connected shelf can be discovered and
-ingested again.
+ingested again. The caller can retain the PMC ignore entry during final
+deletion to defer that rediscovery.
 
 ## Invariants
 
@@ -91,7 +92,7 @@ stateDiagram-v2
 | `Preparing` | `RemovingManagedCredentials` | The PMC MAC and `expected_power_shelves` record exist; Site Explorer is suppressed for the PMC; and the current and neutral PMC credentials are available. |
 | `RemovingManagedCredentials` | `VerifyingDhcpRelease` | The PMC credential reset is verified; the neutral credential needed for the final PMC reset remains available; other NICo-held PMC credential material, sessions, and rotation markers are absent. |
 | `VerifyingDhcpRelease` | `Decommissioned` | The PMC restart is issued after DHCP suppression; `dhcp_discover_suppressed_at` is non-null; the old lease and address allocation are released; any remaining per-shelf credential state is absent. |
-| `Decommissioned` | deleted | `DeleteDecommissionedPowerShelf` is authorized; associated power-shelf state and the PMC ignore row are removed; `expected_power_shelves` remains. |
+| `Decommissioned` | deleted | `DeleteDecommissionedPowerShelf` is authorized; associated power-shelf state is removed; the PMC ignore row is removed unless retention is requested; `expected_power_shelves` remains. |
 
 ## State behavior
 
@@ -121,7 +122,7 @@ unsupported password-reset operation blocks decommissioning rather than being
 treated as success.
 
 This workflow does not power the shelf off, reset its configuration, or change
-its firmware. The management-controller reset in `VerifyingDhcpRelease`
+its firmware. The PMC reset in `VerifyingDhcpRelease`
 restarts only the PMC so its DHCP client begins a new exchange.
 
 ### `Decommissioning/VerifyingDhcpRelease`
@@ -177,12 +178,24 @@ reset or advance past an unverified result.
 rpc DeleteDecommissionedPowerShelf(
     DeleteDecommissionedPowerShelfRequest
 ) returns (DeleteDecommissionedPowerShelfResponse);
+
+message DeleteDecommissionedPowerShelfRequest {
+  PowerShelfId power_shelf_id = 1;
+  bool retain_ignore_entries = 2;
+}
+
+message DeleteDecommissionedPowerShelfResponse {
+  repeated string retained_bmc_mac_addresses = 1;
+}
 ```
 
 The request is accepted only from exactly `Decommissioned`. It removes the
 power shelf, interfaces, observations, health records, DNS/DHCP state, stored
-operation state, and PMC ignore row. The `expected_power_shelves` record is
-deliberately preserved.
+operation state, and, by default, the PMC ignore row. With
+`retain_ignore_entries` set, NICo marks and retains the PMC ignore row and
+reports its MAC address in the response. The shared release API removes it
+later. The `expected_power_shelves` record is deliberately preserved, and the
+shelf is not eligible for rediscovery until its ignore row is removed.
 
 The existing `DeletePowerShelf` and `AdminForceDeletePowerShelf` operations do
 not perform or prove this cleanup and are not substitutes for decommissioning.
@@ -199,13 +212,14 @@ unit, integration, and hardware qualification must cover:
 - PMC password reset and verification, including an already-neutral PMC;
 - retry after the password write succeeds but verification or stored cleanup
   fails;
-- retention of the PMC credential through the final management-controller
-  reset and DHCP handoff;
+- retention of the PMC credential through the final PMC reset and DHCP handoff;
 - no power-state, configuration, or firmware change during decommissioning;
 - restart of the PMC after DHCP suppression using the verified neutral credential;
 - a PMC request for the old lease receiving `DHCPNAK` rather than being dropped;
 - a suppressed PMC `DHCPDISCOVER` is recorded before the old address allocation
   is released;
 - terminal exclusion from rack and power-shelf controller work; and
-- final deletion preserving `expected_power_shelves` and permitting
-  reingestion of still-connected hardware.
+- final deletion preserving `expected_power_shelves` and removing the PMC
+  ignore row by default; and
+- final deletion with `retain_ignore_entries` deferring reingestion of
+  still-connected hardware until the shared release API is called.

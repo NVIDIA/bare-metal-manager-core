@@ -273,7 +273,7 @@ resubmitting or taking manual action.
 
 Successful task completion means every planned managed host, switch, and power
 shelf reached `Decommissioned` and remains protected from rediscovery by its
-management-controller ignore record.
+BMC ignore record.
 
 The operator then chooses one of two follow-up paths:
 
@@ -281,8 +281,11 @@ The operator then chooses one of two follow-up paths:
   site should no longer ingest that hardware, then use the resource-specific
   final-deletion APIs.
 - **Fresh ingestion:** leave the expected-resource records in place and use the
-  resource-specific final-deletion APIs. Removing the ignore records makes the
-  connected hardware eligible for discovery and ingestion again.
+  resource-specific final-deletion APIs. By default final deletion removes the
+  ignore records, making connected hardware eligible for discovery and
+  ingestion again. Set `retain_ignore_entries` on a final-deletion request to
+  defer discovery, then release those entries explicitly when the site is ready
+  to ingest the hardware again.
 
 Deleting or purging the Flow inventory rack is a separate inventory operation.
 `DeleteRack` and `PurgeRack` do not substitute for Core decommissioning or prove

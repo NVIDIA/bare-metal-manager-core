@@ -16,7 +16,8 @@ credential state.
 Decommissioning starts only from `Ready` and only when no managed host on the
 switch's rack is in use. It ends in the retained terminal `Decommissioned`
 state. Final deletion preserves the `expected_switches` record so a connected
-switch can be discovered and ingested again.
+switch can be discovered and ingested again. The caller can retain the BMC
+ignore entry during final deletion to defer that rediscovery.
 
 ## Invariants
 
@@ -96,7 +97,7 @@ stateDiagram-v2
 | `ResettingNVOS` | `RemovingManagedCredentials` | NICo-managed NVOS configuration is removed, the NVOS password is reset to its neutral value, and both outcomes are verified. |
 | `RemovingManagedCredentials` | `VerifyingDhcpRelease` | The BMC credential reset is verified; the neutral credential needed for the final BMC reset remains available; other NICo-held BMC and NVOS credential material and rotation markers are absent. |
 | `VerifyingDhcpRelease` | `Decommissioned` | The BMC restart is issued after DHCP suppression; `dhcp_discover_suppressed_at` is non-null; the old lease and address allocation are released; any remaining per-switch credential state is absent. |
-| `Decommissioned` | deleted | `DeleteDecommissionedSwitch` is authorized; associated switch state and the BMC ignore row are removed; `expected_switches` remains. |
+| `Decommissioned` | deleted | `DeleteDecommissionedSwitch` is authorized; associated switch state is removed; the BMC ignore row is removed unless retention is requested; `expected_switches` remains. |
 
 ## State behavior
 
@@ -188,12 +189,24 @@ or advance past an unverified result.
 ```protobuf
 rpc DeleteDecommissionedSwitch(DeleteDecommissionedSwitchRequest)
     returns (DeleteDecommissionedSwitchResponse);
+
+message DeleteDecommissionedSwitchRequest {
+  SwitchId switch_id = 1;
+  bool retain_ignore_entries = 2;
+}
+
+message DeleteDecommissionedSwitchResponse {
+  repeated string retained_bmc_mac_addresses = 1;
+}
 ```
 
 The request is accepted only from exactly `Decommissioned`. It removes the
 switch, interfaces, observations, health records, DNS/DHCP state, stored
-operation state, and BMC ignore row. The `expected_switches` record is
-deliberately preserved.
+operation state, and, by default, the BMC ignore row. With
+`retain_ignore_entries` set, NICo marks and retains the BMC ignore row and
+reports its MAC address in the response. The shared release API removes it
+later. The `expected_switches` record is deliberately preserved, and the switch
+is not eligible for rediscovery until its ignore row is removed.
 
 The existing `DeleteSwitch` and `AdminForceDeleteSwitch` operations do not
 perform or prove this cleanup and are not substitutes for decommissioning.
@@ -212,9 +225,11 @@ unit, integration, and hardware qualification must cover:
 - retention of NVOS and BMC credentials until their last dependent operations;
 - verification of the replacement password before stored credential removal;
 - restart of the BMC after DHCP suppression using the verified neutral credential;
-- a BMC request for the old lease receiving `DHCPNAK;
+- a BMC request for the old lease receiving `DHCPNAK`;
 - a suppressed BMC `DHCPDISCOVER` is recorded before the old address allocation
   is released;
 - terminal exclusion from rack and switch controller work; and
-- final deletion preserving `expected_switches` and permitting reingestion of
-  still-connected hardware.
+- final deletion preserving `expected_switches` and removing the BMC ignore row
+  by default; and
+- final deletion with `retain_ignore_entries` deferring reingestion of
+  still-connected hardware until the shared release API is called.

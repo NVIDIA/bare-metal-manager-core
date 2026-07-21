@@ -19,7 +19,7 @@ the configurations and credentials it placed on the host and its DPUs, installs
 a vanilla BFB on every managed DPU, and then ends in the terminal
 `Decommissioned` state.
 
-During decommissioning, NICo applies the shared management-controller ignore
+During decommissioning, NICo applies the shared BMC ignore
 behavior to every host and DPU BMC MAC. Site Explorer is suppressed before
 hardware cleanup. Before terminal completion, DHCP is suppressed and every BMC
 must return to `DHCPDISCOVER`; only then are its old lease and address allocation
@@ -27,11 +27,12 @@ released.
 
 The terminal record is retained until an operator explicitly requests final
 deletion, which is different from force deletion. Final deletion removes the
-machine, its associated state, and its BMC ignore entries, but does not touch the
-`expected_machines` entry. Consequently, hardware that is still connected to
-the site is automatically discovered and ingested again. Hardware that has
-been physically removed stays absent. The site manager can remove the machine
-from `expected_machines` after the process is complete.
+machine and its associated state, but does not touch the `expected_machines`
+entry. By default it also removes the BMC ignore entries so connected hardware
+can be discovered and ingested again. An operator can instead retain the ignore
+entries to defer rediscovery. Hardware that has been physically removed stays
+absent. The site manager can remove the machine from `expected_machines` after
+the process is complete.
 
 ## Terminology and invariants
 
@@ -119,7 +120,7 @@ stateDiagram-v2
 | `InstallingVanillaBFB`       | `RemovingManagedCredentials` | Every managed DPU has completed vanilla BFB installation; Redfish/DPF reports success. For a zero-DPU or NIC-mode host this is a no-op.                                                                                                                                   |
 | `RemovingManagedCredentials` | `VerifyingDhcpRelease`       | Host and DPU BMC credentials are reset and the neutral credentials needed for the final BMC resets are verified; other per-device secrets and rotation markers are absent; DPU OS credentials disappeared with the vanilla BFB.                                             |
 | `VerifyingDhcpRelease`       | `Decommissioned`             | Every host and DPU BMC restart is issued after DHCP suppression; every ignore row has a non-null `dhcp_discover_suppressed_at`; old leases and address allocations are released; any remaining per-device credential state is absent.                                       |
-| `Decommissioned`             | deleted                      | `DeleteDecommissionedMachine` is authorized; all associated database and external control-plane resources are absent; machine rows and ignore rows are removed atomically; `expected_machines` remains.                                                                   |
+| `Decommissioned`             | deleted                      | `DeleteDecommissionedMachine` is authorized; all associated database and external control-plane resources are absent; machine rows are removed atomically; ignore rows are removed unless retention is requested; `expected_machines` remains.                            |
 
 ## State behavior
 
@@ -128,7 +129,7 @@ stateDiagram-v2
 The API changes `Ready` to `Preparing`. The step fails if the host BMC MAC, expected-machine entry, required credentials, or vanilla artifact cannot be resolved. This validation happens before NICo changes hardware.
 
 All BMC MAC addresses are added to the
-[shared ignore table](/docs/design/decommissioning/decommissioning-workflow.md#management-controller-ignore-table),
+[shared ignore table](/docs/design/decommissioning/decommissioning-workflow.md#bmc-ignore-table),
 and `suppress_site_explorer` is set to `true`.
 
 ### `Decommissioning/DeconfiguringHost`
@@ -279,6 +280,15 @@ while reporting the host as successfully decommissioned.
 ```protobuf
 rpc DeleteDecommissionedMachine(DeleteDecommissionedMachineRequest)
     returns (DeleteDecommissionedMachineResponse);
+
+message DeleteDecommissionedMachineRequest {
+  MachineId machine_id = 1;
+  bool retain_ignore_entries = 2;
+}
+
+message DeleteDecommissionedMachineResponse {
+  repeated string retained_bmc_mac_addresses = 1;
+}
 ```
 
 The request requires the canonical host ID and is accepted only from exactly
@@ -288,10 +298,13 @@ allocation state, and DPF/extension resources.
 
 The `expected_machines` row is deliberately preserved.
 
-The final transaction removes the machine rows and corresponding
-`ignored_bmc_macs` rows. If the BMC is still reachable, the expected-machine
-entry drives normal discovery and ingestion from the beginning. If the machine
-is absent, no managed-host record is recreated.
+By default, the final transaction removes the machine rows and corresponding
+`ignored_bmc_macs` rows. With `retain_ignore_entries` set, it removes the
+machine rows but marks and retains every host and DPU BMC ignore row; the
+response reports those MAC addresses. The shared release API removes them
+later. A reachable BMC becomes eligible for normal discovery and ingestion only
+after its ignore row is removed. If the machine is absent, no managed-host
+record is recreated.
 
 ## Failure and retry behavior
 
@@ -324,7 +337,10 @@ unit and integration tests should cover:
   neutral credential;
 - old BMC DHCP lease requests receive `DHCPNAK`; and
 - old BMC address allocations are not released before all required suppressed
-  discoveries are recorded.
+  discoveries are recorded;
+- final deletion removes all host and DPU BMC ignore rows by default; and
+- final deletion with `retain_ignore_entries` preserves all of them until the
+  shared release API is called.
 
 Hardware qualification must exercise each supported host vendor, BlueField
 generation, BFB installation method, multi-DPU topology, and required power
