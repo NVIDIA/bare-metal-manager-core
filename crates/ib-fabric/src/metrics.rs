@@ -19,8 +19,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
+use carbide_instrument::{DynamicLog, Event, LogAt};
 use opentelemetry::KeyValue;
-use opentelemetry::metrics::{Counter, Histogram, Meter};
+use opentelemetry::metrics::{Counter, Meter};
 use serde::Serialize;
 
 /// Metrics that are gathered in one a single `IbFabricMonitor` run
@@ -114,20 +115,45 @@ impl IbFabricMonitorMetrics {
     }
 }
 
+/// Closes a monitor pass after the work lock is acquired. Every emission
+/// records the existing label-free latency histogram; failures also retain the
+/// historical `ERROR` diagnostic.
+#[derive(Event)]
+#[event(
+    event_name = "ib_monitor_iteration_finished",
+    metric_name = "carbide_ib_monitor_iteration_latency_milliseconds",
+    component = "ib-fabric-monitor",
+    log = dynamic,
+    metric = histogram,
+    message = "IB fabric monitor run failed",
+    describe = "The time it took to perform one IB fabric monitor iteration"
+)]
+pub(crate) struct IbMonitorIterationFinished {
+    #[observation]
+    pub latency: Duration,
+    /// An empty value keeps successful passes log-silent without skipping the
+    /// latency observation.
+    #[context]
+    pub error: String,
+}
+
+impl DynamicLog for IbMonitorIterationFinished {
+    fn log_at(&self) -> LogAt {
+        if self.error.is_empty() {
+            LogAt::Off
+        } else {
+            LogAt::Level(tracing::Level::ERROR)
+        }
+    }
+}
+
 /// Instruments that are used by pub struct IbFabricMonitor
 pub struct IbFabricMonitorInstruments {
-    pub iteration_latency: Histogram<f64>,
     pub ufm_changes_applied: Counter<u64>,
 }
 
 impl IbFabricMonitorInstruments {
     pub fn new(meter: Meter, shared_metrics: SharedMetricsHolder<IbFabricMonitorMetrics>) -> Self {
-        let iteration_latency = meter
-            .f64_histogram("carbide_ib_monitor_iteration_latency")
-            .with_description("The time it took to perform one IB fabric monitor iteration")
-            .with_unit("ms")
-            .build();
-
         {
             let metrics = shared_metrics.clone();
             meter
@@ -423,17 +449,11 @@ impl IbFabricMonitorInstruments {
         }
 
         Self {
-            iteration_latency,
             ufm_changes_applied,
         }
     }
 
-    fn emit_counters_and_histograms(&self, metrics: &IbFabricMonitorMetrics) {
-        self.iteration_latency.record(
-            1000.0 * metrics.recording_started_at.elapsed().as_secs_f64(),
-            &[],
-        );
-
+    fn emit_counters(&self, metrics: &IbFabricMonitorMetrics) {
         for (change, &count) in metrics.applied_changes.iter() {
             self.ufm_changes_applied.add(
                 count as u64,
@@ -446,7 +466,7 @@ impl IbFabricMonitorInstruments {
         }
     }
 
-    fn init_counters_and_histograms(&self, fabric_ids: &[&str]) {
+    fn init_counters(&self, fabric_ids: &[&str]) {
         for fabric_id in fabric_ids.iter() {
             for status in UfmOperationStatus::values() {
                 for operation in UfmOperation::values() {
@@ -523,7 +543,7 @@ impl MetricHolder {
     pub fn new(meter: Meter, hold_period: Duration, fabric_ids: &[&str]) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         let instruments = IbFabricMonitorInstruments::new(meter, last_iteration_metrics.clone());
-        instruments.init_counters_and_histograms(fabric_ids);
+        instruments.init_counters(fabric_ids);
         Self {
             instruments,
             last_iteration_metrics,
@@ -532,8 +552,7 @@ impl MetricHolder {
 
     /// Updates the most recent metrics
     pub fn update_metrics(&self, metrics: IbFabricMonitorMetrics) {
-        // Emit the last recent latency metrics
-        self.instruments.emit_counters_and_histograms(&metrics);
+        self.instruments.emit_counters(&metrics);
         self.last_iteration_metrics.update(metrics);
     }
 }
@@ -555,7 +574,9 @@ fn truncate_error_for_metric_label(mut error: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::value_scenarios;
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values, value_scenarios};
 
     use super::*;
 
@@ -565,6 +586,148 @@ mod tests {
 
     fn status_metric_value(status: UfmOperationStatus) -> String {
         opentelemetry::Value::from(status).to_string()
+    }
+
+    #[test]
+    fn ib_monitor_iteration_outcomes_pair_latency_with_failure_log() {
+        const EXPOSED_METRIC: &str = "carbide_ib_monitor_iteration_latency_milliseconds";
+
+        struct IterationCase {
+            latency: Duration,
+            error: &'static str,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct LogObservation {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            error: Option<String>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            log: Option<LogObservation>,
+            histogram_count_delta: u64,
+            histogram_sum_delta: f64,
+        }
+
+        let failure = r#"Internal { message: "simulated iteration failure" }"#;
+        check_values(
+            [
+                Check {
+                    scenario: "successful iteration",
+                    input: IterationCase {
+                        latency: Duration::from_millis(125),
+                        error: "",
+                    },
+                    expect: Observation {
+                        log_count: 0,
+                        log: None,
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 125.0,
+                    },
+                },
+                Check {
+                    scenario: "fractional milliseconds remain precise",
+                    input: IterationCase {
+                        latency: Duration::from_micros(125_500),
+                        error: "",
+                    },
+                    expect: Observation {
+                        log_count: 0,
+                        log: None,
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 125.5,
+                    },
+                },
+                Check {
+                    scenario: "failed iteration",
+                    input: IterationCase {
+                        latency: Duration::from_millis(375),
+                        error: failure,
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: Some(LogObservation {
+                            level: tracing::Level::ERROR,
+                            metadata_name: "ib_monitor_iteration_finished".to_string(),
+                            message: "IB fabric monitor run failed".to_string(),
+                            event_name: Some("ib_monitor_iteration_finished".to_string()),
+                            metric_name: Some(EXPOSED_METRIC.to_string()),
+                            error: Some(failure.to_string()),
+                        }),
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 375.0,
+                    },
+                },
+            ],
+            |IterationCase { latency, error }| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit(IbMonitorIterationFinished {
+                        latency,
+                        error: error.to_string(),
+                    });
+                });
+                let log = logs.first().map(|log| LogObservation {
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                });
+
+                Observation {
+                    log_count: logs.len(),
+                    log,
+                    histogram_count_delta: metrics.histogram_count_delta(EXPOSED_METRIC, &[]),
+                    histogram_sum_delta: metrics.histogram_sum_delta(EXPOSED_METRIC, &[]),
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn ib_monitor_iteration_histogram_exposition_stays_stable() {
+        const EXPOSED_METRIC: &str = "carbide_ib_monitor_iteration_latency_milliseconds";
+
+        let metrics = MetricsCapture::start();
+        emit(IbMonitorIterationFinished {
+            latency: Duration::from_millis(125),
+            error: String::new(),
+        });
+
+        let encoded = metrics.render();
+        assert!(
+            encoded.contains(&format!(
+                "# HELP {EXPOSED_METRIC} The time it took to perform one IB fabric monitor iteration\n"
+            )),
+            "description or exposed family changed:\n{encoded}"
+        );
+        assert!(
+            encoded.contains(&format!("# TYPE {EXPOSED_METRIC} histogram\n")),
+            "expected the millisecond family to remain a histogram:\n{encoded}"
+        );
+        assert!(
+            !encoded.contains("carbide_ib_monitor_iteration_latency_milliseconds_milliseconds"),
+            "the unit suffix must be applied exactly once:\n{encoded}"
+        );
+        for suffix in ["count", "sum"] {
+            let prefix = format!("{EXPOSED_METRIC}_{suffix} ");
+            let sample = encoded
+                .lines()
+                .find(|line| line.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("missing {prefix} sample:\n{encoded}"));
+            assert!(
+                !sample.contains('{'),
+                "iteration latency must remain label-free: {sample}"
+            );
+        }
     }
 
     #[test]

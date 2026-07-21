@@ -2133,6 +2133,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-ib-fabric",
+ "carbide-instrument",
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",

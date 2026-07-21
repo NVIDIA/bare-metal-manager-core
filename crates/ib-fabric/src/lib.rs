@@ -33,7 +33,8 @@ use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
 use health_report::HealthReportApplyMode;
 use metrics::{
-    AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
+    AppliedChange, FabricMetrics, IbFabricMonitorMetrics, IbMonitorIterationFinished, UfmOperation,
+    UfmOperationStatus,
 };
 use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
 use model::ib_partition::{IBPartition, IbPartitionSearchFilter, PartitionKey};
@@ -127,18 +128,16 @@ impl IbFabricMonitor {
 
         loop {
             let mut tick = timer.tick();
-            match self.run_single_iteration().await {
-                Ok(num_changes) => {
-                    if num_changes > 0 {
-                        // If any change has been applied to the IB fabric,
-                        // the status that has been collected in the last iteration is already outdated
-                        // Therefore run again as soon as possible.
-                        tick.set_interval(Duration::from_millis(1000));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "IB fabric monitor iteration failed");
-                }
+            // Failed passes emit `IbMonitorIterationFinished` next to their
+            // latency. This loop only adjusts cadence; logging here would
+            // duplicate the terminal diagnostic at a different level.
+            if let Ok(num_changes) = self.run_single_iteration().await
+                && num_changes > 0
+            {
+                // If any change has been applied to the IB fabric,
+                // the status that has been collected in the last iteration is already outdated
+                // Therefore run again as soon as possible.
+                tick.set_interval(Duration::from_millis(1000));
             }
 
             tokio::select! {
@@ -193,7 +192,6 @@ impl IbFabricMonitor {
                     *num_changes
                 }
                 Err(e) => {
-                    tracing::error!(error = ?e, "IB fabric monitor run failed");
                     check_ib_fabrics_span.record("otel.status_code", "error");
                     // Writing this field will set the span status to error
                     // Therefore we only write it on errors
@@ -201,6 +199,17 @@ impl IbFabricMonitor {
                     0
                 }
             };
+
+            check_ib_fabrics_span.in_scope(|| {
+                carbide_instrument::emit(IbMonitorIterationFinished {
+                    latency: metrics.recording_started_at.elapsed(),
+                    error: res
+                        .as_ref()
+                        .err()
+                        .map(|error| format!("{error:?}"))
+                        .unwrap_or_default(),
+                });
+            });
 
             // Cache all other metrics that have been captured in this iteration.
             // Those will be queried by OTEL on demand
