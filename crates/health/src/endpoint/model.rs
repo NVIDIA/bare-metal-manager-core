@@ -33,6 +33,8 @@ use crate::bmc::{BmcClient, BoxFuture};
 #[derive(Clone)]
 pub struct BmcEndpoint {
     pub addr: BmcAddr,
+    /// Optional Fleet Intelligence node UUID for correlating OOB telemetry.
+    pub node_uuid: Option<String>,
     pub metadata: Option<EndpointMetadata>,
     pub rack_id: Option<RackId>,
     pub bmc: Arc<BmcClient>,
@@ -53,6 +55,9 @@ impl BmcEndpoint {
     }
 
     pub fn log_identity(&self) -> Cow<'_, str> {
+        if let Some(node_uuid) = self.node_uuid.as_deref() {
+            return Cow::Borrowed(node_uuid);
+        }
         match &self.metadata {
             Some(EndpointMetadata::Machine(machine)) => Cow::Owned(machine.machine_id.to_string()),
             Some(EndpointMetadata::PowerShelf(power_shelf)) => Cow::Borrowed(&power_shelf.serial),

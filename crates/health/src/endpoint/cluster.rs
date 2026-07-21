@@ -440,6 +440,7 @@ fn build_endpoints(
         };
         endpoints.push(Arc::new(BmcEndpoint {
             addr,
+            node_uuid: None,
             metadata: None,
             rack_id: node.rack.as_deref().map(RackId::new),
             bmc,

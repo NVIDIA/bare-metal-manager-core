@@ -31,7 +31,7 @@ use super::diagnostic::{
 };
 use crate::HealthError;
 use crate::collectors::{IterationResult, PeriodicCollector};
-use crate::endpoint::{BmcEndpoint, EndpointMetadata};
+use crate::endpoint::{BmcEndpoint};
 use crate::sink::{CollectorEvent, DataSink, EventContext, LogRecord};
 
 /// Configuration for logs collector
@@ -266,10 +266,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
     }
 
     async fn collect_logs_from_services(&mut self) -> Result<(usize, usize), HealthError> {
-        let Some(EndpointMetadata::Machine(machine)) = &self.endpoint.metadata else {
-            return Ok((0, 0));
-        };
-        let machine_id = machine.machine_id.to_string();
+        let log_identity = self.endpoint.log_identity().into_owned();
 
         let Some(state) = self.state.as_mut() else {
             return Ok((0, 0));
@@ -422,7 +419,7 @@ impl<B: Bmc + 'static> LogsCollector<B> {
                         body,
                         severity: severity_text,
                         attributes: vec![
-                            (Cow::Borrowed("machine_id"), machine_id.clone()),
+                            (Cow::Borrowed("node_uuid"), log_identity.clone()),
                             (Cow::Borrowed("entry_id"), entry.base.id.clone()),
                             (Cow::Borrowed("service_id"), service_id.clone()),
                         ],

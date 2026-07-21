@@ -375,6 +375,7 @@ mod tests {
     fn test_event_context(collector_type: &'static str) -> EventContext {
         EventContext {
             endpoint_key: "aa:bb:cc:dd:ee:ff".to_string(),
+            node_uuid: None,
             addr: BmcAddr {
                 ip: "10.0.0.1".parse().unwrap(),
                 port: None,
@@ -779,6 +780,7 @@ mod tests {
                     mac: MacAddress::from_str("AA:BB:CC:DD:EE:FF").unwrap(),
                 },
                 collector_type: ON_CHANGE_STREAM_ID_SYSTEM_EVENTS,
+                node_uuid: None,
                 metadata: Some(EndpointMetadata::Switch(SwitchData {
                     id: Some(switch_id),
                     serial: "SN-SWITCH-001".to_string(),

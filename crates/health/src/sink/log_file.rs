@@ -97,6 +97,8 @@ struct JsonLogRecord<'a> {
     endpoint: &'a str,
     collector: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    node_uuid: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     machine_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     machine_serial: Option<&'a str>,
@@ -118,6 +120,7 @@ impl<'a> JsonLogRecord<'a> {
         Self {
             endpoint: context.endpoint_key(),
             collector: context.collector_type,
+            node_uuid: context.node_uuid(),
             machine_id: context.machine_id().map(|id| id.to_string()),
             machine_serial: context.machine_serial(),
             driver_version: context.driver_version(),
@@ -288,6 +291,7 @@ mod tests {
                 mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
             },
             collector_type: "test",
+            node_uuid: None,
             metadata: None,
             rack_id: None,
         }

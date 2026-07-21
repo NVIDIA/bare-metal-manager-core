@@ -606,6 +606,7 @@ impl ApiEndpointSource {
         };
         Ok(Arc::new(BmcEndpoint {
             addr,
+            node_uuid: None,
             metadata,
             rack_id,
             bmc,

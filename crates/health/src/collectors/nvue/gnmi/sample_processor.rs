@@ -1100,6 +1100,7 @@ mod tests {
             endpoint_key: "aa:bb:cc:dd:ee:ff".to_string(),
             addr,
             collector_type: NVUE_GNMI_SAMPLE_STREAM_ID,
+            node_uuid: None,
             metadata: None,
             rack_id: None,
         };
@@ -1167,6 +1168,7 @@ mod tests {
                     mac: MacAddress::from_str("AA:BB:CC:DD:EE:FF").unwrap(),
                 },
                 collector_type: NVUE_GNMI_SAMPLE_STREAM_ID,
+                node_uuid: None,
                 metadata: Some(EndpointMetadata::Switch(SwitchData {
                     id: Some(switch_id),
                     serial: "SN-SWITCH-001".to_string(),

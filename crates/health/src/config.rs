@@ -197,6 +197,9 @@ pub struct StaticBmcEndpoint {
     pub mac: String,
     pub username: String,
     pub password: Option<String>,
+    /// Optional Fleet Intelligence node UUID emitted on endpoint telemetry.
+    #[serde(default)]
+    pub node_uuid: Option<String>,
     pub machine: Option<StaticMachineEndpoint>,
     pub power_shelf: Option<StaticPowerShelfEndpoint>,
     pub switch: Option<StaticSwitchEndpoint>,
@@ -268,6 +271,7 @@ impl Debug for StaticBmcEndpoint {
             .field("ip", &self.ip)
             .field("port", &self.port)
             .field("mac", &self.mac)
+            .field("node_uuid", &self.node_uuid)
             .field("machine", &self.machine)
             .field("power_shelf", &self.power_shelf)
             .field("switch", &self.switch)
@@ -288,6 +292,20 @@ impl StaticBmcEndpoint {
             return Err(format!(
                 "endpoint_sources.static_bmc_endpoints[{index}] must specify at most one of machine, power_shelf, or switch"
             ));
+        }
+
+        if let Some(node_uuid) = &self.node_uuid {
+            let trimmed = node_uuid.trim();
+            if trimmed.is_empty() {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].node_uuid cannot be empty"
+                ));
+            }
+            if uuid::Uuid::parse_str(trimmed).is_err() {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].node_uuid must be a UUID"
+                ));
+            }
         }
 
         if let Some(power_shelf) = &self.power_shelf

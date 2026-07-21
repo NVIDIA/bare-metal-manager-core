@@ -89,6 +89,7 @@ nv-redfish = { workspace = true, features = [
 ] }
 rand = { workspace = true }
 url = { workspace = true, features = ["serde"] }
+uuid = { workspace = true }
 x509-parser = { workspace = true }
 
 # [local-dependencies]

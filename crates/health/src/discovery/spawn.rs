@@ -1209,6 +1209,7 @@ mod tests {
         );
         let endpoint = Arc::new(BmcEndpoint {
             addr,
+            node_uuid: None,
             metadata: Some(switch_metadata_with_role(
                 SwitchEndpointRole::Host,
                 true,

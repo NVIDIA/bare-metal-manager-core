@@ -290,6 +290,7 @@ mod tests {
                 mac: MacAddress::from_str("aa:bb:cc:dd:ee:ff").unwrap(),
             },
             collector_type: "test",
+            node_uuid: None,
             metadata: None,
             rack_id: None,
         }
@@ -443,10 +444,12 @@ mod tests {
         let sink = test_sink();
         let rest_ctx = EventContext {
             collector_type: "nvue_rest",
+            node_uuid: None,
             ..test_context()
         };
         let gnmi_ctx = EventContext {
             collector_type: "nvue_gnmi",
+            node_uuid: None,
             ..test_context()
         };
         sink.handle_event(&rest_ctx, &metric_event());

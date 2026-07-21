@@ -150,6 +150,7 @@ mod tests {
                 mac: MacAddress::from_str(mac).expect("valid mac"),
             },
             collector_type: "sensor_collector",
+            node_uuid: None,
             metadata: None,
             rack_id: Some(RackId::new(rack)),
         }
@@ -164,6 +165,7 @@ mod tests {
                 mac: MacAddress::from_str(mac).expect("valid mac"),
             },
             collector_type: "sensor_collector",
+            node_uuid: None,
             metadata: None,
             rack_id: None,
         }

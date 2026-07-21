@@ -159,6 +159,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").expect("valid mac"),
             },
             collector_type: "leak_detector_collector",
+            node_uuid: None,
             metadata: None,
             rack_id: None,
         }

@@ -213,6 +213,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
             },
             collector_type: "test",
+            node_uuid: None,
             metadata: None,
             rack_id: None,
         };
@@ -261,6 +262,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
             },
             collector_type: "test",
+            node_uuid: None,
             metadata: None,
             rack_id: None,
         };
@@ -362,6 +364,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
             },
             collector_type: "test",
+            node_uuid: None,
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
                     .parse()
@@ -435,6 +438,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
             },
             collector_type: "sensor_collector",
+            node_uuid: None,
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
                     .parse()
@@ -491,6 +495,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
             },
             collector_type: "sensor_collector",
+            node_uuid: None,
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
                     .parse()

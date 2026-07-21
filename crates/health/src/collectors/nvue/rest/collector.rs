@@ -1603,6 +1603,7 @@ mod tests {
             endpoint_key: "test-switch".to_string(),
             addr: addr.clone(),
             collector_type: COLLECTOR_NAME,
+            node_uuid: None,
             metadata: None,
             rack_id: None,
         };

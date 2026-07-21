@@ -22,6 +22,8 @@ port = 1266
 mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
+# Optional Fleet Intelligence node UUID emitted as OTLP resource attribute node.uuid
+# node_uuid = "9aee71e4-6e80-11ee-a8ac-74d4dd550187"
 rack_id = "RACK_1"
 machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
 # switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SWITCH-001", slot_number = 7, tray_index = 3 }

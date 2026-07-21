@@ -83,6 +83,7 @@ impl DataSink for TracingSink {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
+                    node_uuid = context.node_uuid(),
                     machine_id = context.machine_id().map(tracing::field::display),
                     machine_serial = context.machine_serial(),
                     driver_version = context.driver_version(),

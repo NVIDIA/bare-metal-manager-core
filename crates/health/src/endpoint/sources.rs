@@ -192,8 +192,15 @@ impl StaticEndpointSource {
                     continue;
                 }
             };
+            let node_uuid = cfg
+                .node_uuid
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
             let endpoint = BmcEndpoint {
                 addr,
+                node_uuid,
                 metadata,
                 rack_id: cfg.rack_id.as_ref().map(|id| RackId::new(id.as_str())),
                 bmc,
@@ -288,6 +295,7 @@ mod tests {
                 mac: "00:11:22:33:44:55".to_string(),
                 username: "admin".to_string(),
                 password: Some("pass".to_string()),
+                node_uuid: None,
                 machine: None,
                 power_shelf: None,
                 switch: None,
@@ -299,6 +307,7 @@ mod tests {
                 mac: "not-a-mac".to_string(),
                 username: "admin".to_string(),
                 password: Some("pass".to_string()),
+                node_uuid: None,
                 machine: None,
                 power_shelf: None,
                 switch: None,
@@ -325,6 +334,7 @@ mod tests {
             mac: "11:22:33:44:55:66".to_string(),
             username: "cumulus".to_string(),
             password: Some("pass".to_string()),
+            node_uuid: None,
             machine: None,
             power_shelf: None,
             switch: Some(StaticSwitchEndpoint {
@@ -368,6 +378,7 @@ mod tests {
             mac: "22:33:44:55:66:77".to_string(),
             username: "admin".to_string(),
             password: Some("pass".to_string()),
+            node_uuid: None,
             machine: None,
             power_shelf: Some(StaticPowerShelfEndpoint {
                 id: Some(power_shelf_id.to_string()),
@@ -404,6 +415,7 @@ mod tests {
             mac: "11:22:33:44:55:11".to_string(),
             username: "admin".to_string(),
             password: Some("pass".to_string()),
+            node_uuid: None,
             machine: Some(StaticMachineEndpoint {
                 id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string(),
                 serial: Some("MN-001".to_string()),
@@ -449,6 +461,7 @@ mod tests {
             mac: "11:22:33:44:55:12".to_string(),
             username: "admin".to_string(),
             password: Some("pass".to_string()),
+            node_uuid: None,
             machine: Some(StaticMachineEndpoint {
                 id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string(),
                 serial: None,
@@ -482,6 +495,7 @@ mod tests {
             mac: "aa:bb:cc:dd:ee:ff".to_string(),
             username: "admin".to_string(),
             password: Some("pass".to_string()),
+            node_uuid: None,
             machine: None,
             power_shelf: None,
             switch: None,

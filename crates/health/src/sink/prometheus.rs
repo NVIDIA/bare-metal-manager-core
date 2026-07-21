@@ -93,6 +93,9 @@ impl PrometheusSink {
             ),
         ];
 
+        if let Some(node_uuid) = context.node_uuid() {
+            labels.push((Cow::Borrowed("node_uuid"), node_uuid.to_string()));
+        }
         if let Some(machine_id) = context.machine_id() {
             labels.push((Cow::Borrowed("machine_id"), machine_id.to_string()));
         }
@@ -274,6 +277,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
             },
             collector_type: "sensor_collector",
+            node_uuid: None,
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
                     .parse()
@@ -320,6 +324,7 @@ mod tests {
                 mac: MacAddress::from_str("11:22:33:44:55:66").unwrap(),
             },
             collector_type: "switch_collector",
+            node_uuid: None,
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-001".to_string(),

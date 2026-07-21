@@ -46,6 +46,8 @@ pub struct EventContext {
     pub endpoint_key: String,
     pub addr: BmcAddr,
     pub collector_type: &'static str,
+    /// Optional Fleet Intelligence node UUID for correlating OOB telemetry.
+    pub node_uuid: Option<String>,
     pub metadata: Option<EndpointMetadata>,
     pub rack_id: Option<RackId>,
 }
@@ -56,6 +58,7 @@ impl EventContext {
             endpoint_key: endpoint.key(),
             addr: endpoint.addr.clone(),
             collector_type,
+            node_uuid: endpoint.node_uuid.clone(),
             metadata: endpoint.metadata.clone(),
             rack_id: endpoint.rack_id.clone(),
         }
@@ -63,6 +66,11 @@ impl EventContext {
 
     pub fn endpoint_key(&self) -> &str {
         &self.endpoint_key
+    }
+
+    /// Returns the Fleet Intelligence node UUID when configured for this endpoint.
+    pub fn node_uuid(&self) -> Option<&str> {
+        self.node_uuid.as_deref()
     }
 
     /// Returns machine metadata when this context belongs to a machine endpoint.
@@ -667,6 +675,7 @@ mod tests {
             endpoint_key: "00:11:22:33:44:55".to_string(),
             addr: addr(),
             collector_type: "unit-test",
+            node_uuid: None,
             metadata,
             rack_id: Some(RackId::new("rack-1")),
         }
