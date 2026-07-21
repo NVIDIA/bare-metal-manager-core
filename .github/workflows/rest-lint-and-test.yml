@@ -30,21 +30,29 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: rest-api/go.sum
+          cache-dependency-path: |
+            rest-api/go.sum
+            rest-api/temporal-server/go.sum
 
       - name: Download dependencies
-        run: go mod download
+        run: |
+          go mod download
+          cd temporal-server && go mod download
 
       - name: Install and run revive
         run: |
           go install github.com/mgechev/revive@v1.15.0
           pkgs=$(go list ./... | grep -v $(go env GOMODCACHE))
           go list $pkgs | grep -v $(go env GOMODCACHE) | xargs -L1 revive -config .revive.toml -set_exit_status
+          cd temporal-server
+          pkgs=$(go list ./... | grep -v $(go env GOMODCACHE))
+          go list $pkgs | grep -v $(go env GOMODCACHE) | xargs -L1 revive -config ../.revive.toml -set_exit_status
 
       - name: Run go fmt
         run: |
           pkgs=$(go list ./... | grep -v $(go env GOMODCACHE))
           go fmt $pkgs > /dev/null 2>&1
+          cd temporal-server && go fmt ./... > /dev/null 2>&1 && cd ..
           if git diff --quiet; then
             echo "go fmt was clean"
           else
@@ -68,13 +76,19 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: rest-api/go.sum
+          cache-dependency-path: |
+            rest-api/go.sum
+            rest-api/temporal-server/go.sum
 
       - name: Download dependencies
-        run: go mod download
+        run: |
+          go mod download
+          cd temporal-server && go mod download
 
       - name: Run go vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          cd temporal-server && go vet ./...
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
@@ -229,6 +243,7 @@ jobs:
           - site-agent
           - site-manager
           - site-workflow
+          - temporal-server
           - workflow
 
     env:

@@ -3,7 +3,7 @@
 
 .PHONY: test postgres-up postgres-down ensure-postgres postgres-wait clean check-source-headers fix-source-headers
 .PHONY: build docker-build docker-build-local
-.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow test-powershelf-manager test-nvswitch-manager migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
+.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow test-powershelf-manager test-nvswitch-manager test-temporal-server migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
 .PHONY: validate-openapi preview-openapi generate-client
 .PHONY: core-proto core-proto-clean core-proto-fetch core-proto-fmt core-protogen flow-proto flow-protogen
 .PHONY: pre-commit-install pre-commit-run pre-commit-update
@@ -17,7 +17,7 @@ DOCKER_ARCHES := amd64 arm64
 LOCAL_REGISTRY_CONTAINER := nico-build-registry
 REST_IMAGES := nico-rest-api nico-rest-workflow nico-rest-site-manager \
 	nico-rest-site-agent nico-rest-db nico-rest-cert-manager nico-flow \
-	nico-psm nico-nsm nico-mcp
+	nico-psm nico-nsm nico-mcp nico-temporal-server
 
 # PostgreSQL container configuration
 POSTGRES_CONTAINER_NAME := project-test
@@ -241,7 +241,10 @@ test-nvswitch-manager:
 		DB_NAME=$(POSTGRES_DB) \
 		go test -p 1 ./... -count=1
 
-test: test-ipam test-db test-api test-auth test-common test-cert-manager test-site-workflow test-site-manager test-workflow test-site-agent test-flow test-powershelf-manager test-nvswitch-manager
+test-temporal-server:
+	cd temporal-server && go test ./... -count=1
+
+test: test-ipam test-db test-api test-auth test-common test-cert-manager test-site-workflow test-site-manager test-workflow test-site-agent test-flow test-powershelf-manager test-nvswitch-manager test-temporal-server
 
 build:
 	mkdir -p $(BUILD_DIR)
@@ -391,6 +394,7 @@ LOCAL_CORE_CERTS_DIR ?= ../dev/certs/localhost
 
 # Build images using local Dockerfiles (public base images for local dev)
 docker-build-local:
+	docker build -t $(IMAGE_REGISTRY)/nico-temporal-server:$(IMAGE_TAG) -f $(LOCAL_DOCKERFILE_DIR)/Dockerfile.nico-temporal-server .
 	docker build -t $(IMAGE_REGISTRY)/nico-rest-api:$(IMAGE_TAG) -f $(LOCAL_DOCKERFILE_DIR)/Dockerfile.nico-rest-api .
 	docker build -t $(IMAGE_REGISTRY)/nico-rest-workflow:$(IMAGE_TAG) -f $(LOCAL_DOCKERFILE_DIR)/Dockerfile.nico-rest-workflow .
 	docker build -t $(IMAGE_REGISTRY)/nico-rest-site-manager:$(IMAGE_TAG) -f $(LOCAL_DOCKERFILE_DIR)/Dockerfile.nico-rest-site-manager .
@@ -417,6 +421,7 @@ kind-deploy: docker-build-local kind-load kind-apply
 
 # Load all images into kind cluster
 kind-load:
+	kind load docker-image $(IMAGE_REGISTRY)/nico-temporal-server:$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)
 	kind load docker-image $(IMAGE_REGISTRY)/nico-rest-api:$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)
 	kind load docker-image $(IMAGE_REGISTRY)/nico-rest-workflow:$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)
 	kind load docker-image $(IMAGE_REGISTRY)/nico-rest-site-manager:$(IMAGE_TAG) --name $(KIND_CLUSTER_NAME)

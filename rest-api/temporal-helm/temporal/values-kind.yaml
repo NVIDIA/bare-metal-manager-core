@@ -29,9 +29,9 @@ server:
   enabled: true
   sidecarContainers: {}
   image:
-    repository: temporalio/server
-    tag: 1.26.2
-    pullPolicy: IfNotPresent
+    repository: localhost:5000/nico-temporal-server
+    tag: latest
+    pullPolicy: Never
 
   # Global default settings (can be overridden per service)
   replicaCount: 1

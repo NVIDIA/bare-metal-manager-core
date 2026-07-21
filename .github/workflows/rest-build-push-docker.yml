@@ -93,6 +93,30 @@ jobs:
       NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
       NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
 
+  build-nico-temporal-server:
+    name: Build nico-temporal-server
+    uses: ./.github/workflows/rest-build-push-service.yml
+    with:
+      ngc_path: ${{ inputs.ngc_path }}
+      runner: ${{ inputs.runner }}
+      service_name: nico-temporal-server
+      binary_name: temporal-server
+      binary_path: /usr/local/bin/temporal-server
+      dockerfile: ./rest-api/docker/production/Dockerfile.nico-temporal-server
+      semantic_version: ${{ inputs.semantic_version }}
+      short_sha: ${{ inputs.short_sha }}
+      branch_sha_tag: ${{ inputs.branch_sha_tag }}
+      target_registry: ${{ inputs.target_registry }}
+      push_enabled: ${{ inputs.push_enabled }}
+      is_main_branch: ${{ inputs.is_main_branch }}
+      release_tag: ${{ inputs.release_tag }}
+    secrets:
+      NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
+      NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}
+      NICO_TARGET_REGISTRY_USERNAME: ${{ secrets.NICO_TARGET_REGISTRY_USERNAME }}
+      NICO_TARGET_REGISTRY_TOKEN: ${{ secrets.NICO_TARGET_REGISTRY_TOKEN }}
+      NICO_NGC_TOKEN: ${{ secrets.NICO_NGC_TOKEN }}
+
   build-nico-rest-db:
     name: Build nico-rest-db
     uses: ./.github/workflows/rest-build-push-service.yml
@@ -290,6 +314,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
     needs:
       - build-nico-rest-api
+      - build-nico-temporal-server
       - build-nico-rest-db
       - build-nico-rest-site-manager
       - build-nico-rest-workflow
@@ -338,14 +363,15 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Images Built" >> $GITHUB_STEP_SUMMARY
           echo "1. \`nico-rest-api:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "2. \`nico-rest-db:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "3. \`nico-rest-site-manager:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "4. \`nico-rest-workflow:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "5. \`nico-rest-site-agent:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "6. \`nico-rest-cert-manager:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "7. \`nico-flow:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "8. \`nico-psm:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "9. \`nico-nsm:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "2. \`nico-temporal-server:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "3. \`nico-rest-db:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "4. \`nico-rest-site-manager:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "5. \`nico-rest-workflow:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "6. \`nico-rest-site-agent:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "7. \`nico-rest-cert-manager:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "8. \`nico-flow:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "9. \`nico-psm:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "10. \`nico-nsm:${{ inputs.branch_sha_tag }}\` (amd64 + arm64)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ inputs.push_enabled }}" = "true" ]; then
             echo "## Binary Artifacts Uploaded" >> $GITHUB_STEP_SUMMARY
@@ -354,6 +380,7 @@ jobs:
           fi
           echo "## Job Status" >> $GITHUB_STEP_SUMMARY
           echo "- nico-rest-api: \`${{ needs.build-nico-rest-api.result }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- nico-temporal-server: \`${{ needs.build-nico-temporal-server.result }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- nico-rest-db: \`${{ needs.build-nico-rest-db.result }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- nico-rest-site-manager: \`${{ needs.build-nico-rest-site-manager.result }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- nico-rest-workflow: \`${{ needs.build-nico-rest-workflow.result }}\`" >> $GITHUB_STEP_SUMMARY
@@ -373,6 +400,12 @@ jobs:
               "image_ref": "${{ needs.build-nico-rest-api.outputs.image_ref }}",
               "binary_resource": "${{ needs.build-nico-rest-api.outputs.ngc_binary_resource }}",
               "image_resource": "${{ needs.build-nico-rest-api.outputs.ngc_image_resource }}"
+            },
+            {
+              "service": "nico-temporal-server",
+              "image_ref": "${{ needs.build-nico-temporal-server.outputs.image_ref }}",
+              "binary_resource": "${{ needs.build-nico-temporal-server.outputs.ngc_binary_resource }}",
+              "image_resource": "${{ needs.build-nico-temporal-server.outputs.ngc_image_resource }}"
             },
             {
               "service": "nico-rest-db",
