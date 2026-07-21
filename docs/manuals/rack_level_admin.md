@@ -16,7 +16,18 @@ NICo provides APIs and automated workflows to manage these components for the fo
 
 ## Dependencies
 
-In order to use rack-level administration features today, NICo deployment needs to include NICo Flow, NSM, and PSM, properly configured with the REST API, site agent, temporal workflow, and NICo Core. The following diagram shows the control and data flows within NICo services and dependencies.
+Rack-level administration does not require one fixed backend stack. NICo Core
+must be configured with a component-manager backend for each role being managed:
+
+- [RMS](../configuration/component-manager-rms.md) can provide compute, switch,
+  and power-shelf management.
+- NSM is required only when the switch backend is set to `nsm`.
+- PSM is required only when the power-shelf backend is set to `psm`.
+
+NICo Flow is required for deployments using the HW Lifecycle REST API and its
+workflow orchestration. Clients using NICo Core APIs directly do not require
+NICo Flow. The following diagram shows the Flow-based REST deployment and its
+control and data paths.
 
 ![Dependencies](../static/rack-level-admin-dependencies.svg)
 
@@ -151,4 +162,3 @@ Currently, NICo only supports GB200 NVL72 racks, where a rack and a NVL domain o
 - [PATCH /v2/org/{org}/carbide/tray/{id}/power](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/power-control-tray): Control the power of the specified tray. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
 - [PATCH /v2/org/{org}/carbide/tray/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/firmware-update-trays): Update the firmware on all or selected trays in the site.  
 - [PATCH /v2/org/{org}/carbide/tray/{id}/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/firmware-update-tray): Update the firmware on the specified tray.
-

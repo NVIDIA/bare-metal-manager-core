@@ -15,6 +15,13 @@
  * limitations under the License.
  */
 
+//! Builds RMS node identity from NICo rack profiles.
+//!
+//! NICo validates only descriptor inputs: a non-empty role-specific vendor and
+//! product family. RMS remains responsible for deciding whether a descriptor is
+//! supported. A legacy [`rms::NodeType`] is included only for combinations known
+//! to this NICo version and never limits descriptor construction.
+
 use std::collections::HashMap;
 
 use librms::protos::rack_manager as rms;
@@ -27,7 +34,10 @@ const ROLE_COMPUTE: &str = "compute";
 const ROLE_SWITCH: &str = "switch";
 const ROLE_POWER_SHELF: &str = "power_shelf";
 
-/// Error returned when local data cannot build an RMS node descriptor.
+/// Error returned when a rack profile lacks data required for an RMS descriptor.
+///
+/// These errors describe missing local inputs, not unsupported hardware. RMS
+/// validates the resulting role, vendor, and product-family combination.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NodeDescriptorError {
     /// The rack profile does not identify a product family needed by RMS.
@@ -64,9 +74,11 @@ impl RmsNodeRole {
     }
 }
 
-/// RMS node identity used to build descriptor-based requests.
+/// RMS node identity derived from a rack profile and component role.
 ///
-/// The descriptor contains `role`, `vendor`, and `product_family`.
+/// Every identity contains a descriptor with `role`, `vendor`, and
+/// `product_family`. Known hardware may also carry a legacy enum override for
+/// compatibility with RMS versions that predate descriptor dispatch.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RmsNodeIdentity {
     role: RmsNodeRole,
@@ -75,7 +87,11 @@ pub struct RmsNodeIdentity {
 }
 
 impl RmsNodeIdentity {
-    /// Applies descriptor identity and an optional legacy enum override.
+    /// Applies this identity to an RMS node request.
+    ///
+    /// The descriptor is always populated. The legacy `NodeType` is populated
+    /// only when NICo has an exact compatibility mapping; otherwise it remains
+    /// unspecified so RMS resolves the descriptor.
     pub fn apply_to_node_info(&self, node: &mut rms::NodeInfo) {
         node.r#type = self.legacy_node_type.map(|node_type| node_type as i32);
         node.node_descriptor = Some(self.node_descriptor.clone());
@@ -88,6 +104,11 @@ impl RmsNodeIdentity {
 }
 
 /// Builds the RMS compute identity for a rack profile.
+///
+/// # Errors
+///
+/// Returns [`NodeDescriptorError`] when `product_family` or the compute vendor
+/// is missing or empty.
 pub fn compute_node_identity_for_profile(
     profile: &RackProfile,
 ) -> Result<RmsNodeIdentity, NodeDescriptorError> {
@@ -95,20 +116,36 @@ pub fn compute_node_identity_for_profile(
 }
 
 /// Builds the RMS switch identity for a rack profile.
+///
+/// # Errors
+///
+/// Returns [`NodeDescriptorError`] when `product_family` or the switch vendor
+/// is missing or empty.
 pub fn switch_node_identity_for_profile(
     profile: &RackProfile,
 ) -> Result<RmsNodeIdentity, NodeDescriptorError> {
     node_identity_for_profile(profile, RmsNodeRole::Switch)
 }
 
-/// Builds the RMS power shelf identity for a rack profile.
+/// Builds the RMS power-shelf identity for a rack profile.
+///
+/// # Errors
+///
+/// Returns [`NodeDescriptorError`] when `product_family` or the power-shelf
+/// vendor is missing or empty.
 pub fn power_shelf_node_identity_for_profile(
     profile: &RackProfile,
 ) -> Result<RmsNodeIdentity, NodeDescriptorError> {
     node_identity_for_profile(profile, RmsNodeRole::PowerShelf)
 }
 
-/// Builds legacy and descriptor-keyed firmware-object component filters.
+/// Builds firmware-object component filters for RMS node identities.
+///
+/// The first tuple element contains compatibility filters keyed by legacy
+/// `NodeType`; the second contains descriptor-keyed filters for every identity.
+/// Empty `components` produces two empty collections. Unsupported legacy
+/// combinations are omitted from the first collection without rejecting the
+/// descriptor filter.
 pub fn firmware_object_component_filters_for_node_identities<'a>(
     components: &[String],
     node_identities: impl IntoIterator<Item = &'a RmsNodeIdentity>,

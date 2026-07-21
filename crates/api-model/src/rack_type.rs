@@ -70,7 +70,10 @@ impl From<&str> for RackHardwareType {
 /// Identifies the product family shared by rack components.
 ///
 /// String parsing trims outer whitespace, recognizes the lowercase
-/// `gb200` and `gb300` values, and preserves other non-empty identifiers.
+/// `gb200` and `gb300` values, and preserves other non-empty identifiers in
+/// [`RackProductFamily::Other`]. Named variants retain existing API behavior;
+/// the open-ended variant lets descriptor-based backends accept new product
+/// families without a NICo release.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RackProductFamily {
     /// GB200 rack hardware.
@@ -79,12 +82,18 @@ pub enum RackProductFamily {
     /// GB300 rack hardware.
     Gb300,
 
-    /// A product-family identifier not represented by a named variant.
+    /// A non-empty product-family identifier not represented by a named variant.
+    ///
+    /// The original spelling is preserved after outer whitespace is removed.
     Other(String),
 }
 
 impl RackProductFamily {
-    /// Returns the product-family identifier with outer whitespace removed.
+    /// Returns the product-family identifier sent to descriptor-based backends.
+    ///
+    /// Named variants use their canonical lowercase value. Values stored in
+    /// [`RackProductFamily::Other`] retain their original spelling with outer
+    /// whitespace removed.
     pub fn as_str(&self) -> &str {
         match self {
             Self::Gb200 => "gb200",
