@@ -238,7 +238,7 @@ func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 			Description:    cutil.GetPtr("templated via proxy"),
 			IpxeTemplateId: cutil.GetPtr(f.tmpl.ID.String()),
 			SiteIDs:        []string{f.site.ID.String()},
-			IpxeTemplateParameters: []cdbm.OperatingSystemIpxeParameter{
+			IpxeTemplateParameters: model.APIOperatingSystemIpxeParameters{
 				{Name: "version", Value: "22.04"},
 			},
 		}
@@ -278,7 +278,7 @@ func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 
 		updateReq := model.APIOperatingSystemUpdateRequest{
 			Description: cutil.GetPtr("templated via proxy - updated"),
-			IpxeTemplateParameters: &[]cdbm.OperatingSystemIpxeParameter{
+			IpxeTemplateParameters: &model.APIOperatingSystemIpxeParameters{
 				{Name: "version", Value: "24.04"},
 			},
 		}

@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -46,22 +47,22 @@ func TestOperatingSystemCreateRequest_Validate_Templated(t *testing.T) {
 		},
 		{
 			desc:      "templated artifact with valid cache strategy is ok",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://x/k", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: APIOperatingSystemIpxeArtifacts{{Name: "kernel", URL: "http://x/k", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
 			expectErr: false,
 		},
 		{
 			desc:      "templated artifact with invalid cache strategy is rejected",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", URL: "http://x/k", CacheStrategy: "BOGUS"}}},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: APIOperatingSystemIpxeArtifacts{{Name: "kernel", URL: "http://x/k", CacheStrategy: "BOGUS"}}},
 			expectErr: true,
 		},
 		{
 			desc:      "templated artifact missing url is rejected",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: []cdbm.OperatingSystemIpxeArtifact{{Name: "kernel", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs, IpxeTemplateArtifacts: APIOperatingSystemIpxeArtifacts{{Name: "kernel", CacheStrategy: cdbm.OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded}}},
 			expectErr: true,
 		},
 		{
 			desc:      "raw ipxe rejects template parameters",
-			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeScript: cutil.GetPtr("ipxe"), IpxeTemplateParameters: []cdbm.OperatingSystemIpxeParameter{{Name: "p", Value: "v"}}},
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeScript: cutil.GetPtr("ipxe"), IpxeTemplateParameters: APIOperatingSystemIpxeParameters{{Name: "p", Value: "v"}}},
 			expectErr: true,
 		},
 		{
@@ -98,11 +99,11 @@ func TestOperatingSystemUpdateRequest_Validate_Template(t *testing.T) {
 	rawIpxeOS := &cdbm.OperatingSystem{ID: uuid.New(), Name: "ab", Type: cdbm.OperatingSystemTypeIPXE, IpxeScript: cutil.GetPtr("x"), Status: cdbm.OperatingSystemStatusReady}
 
 	t.Run("templated accepts template params", func(t *testing.T) {
-		err := (&APIOperatingSystemUpdateRequest{IpxeTemplateParameters: &[]cdbm.OperatingSystemIpxeParameter{{Name: "p", Value: "v"}}}).Validate(templatedOS)
+		err := (&APIOperatingSystemUpdateRequest{IpxeTemplateParameters: &APIOperatingSystemIpxeParameters{{Name: "p", Value: "v"}}}).Validate(templatedOS)
 		assert.NoError(t, err)
 	})
 	t.Run("raw ipxe rejects template params", func(t *testing.T) {
-		err := (&APIOperatingSystemUpdateRequest{IpxeTemplateParameters: &[]cdbm.OperatingSystemIpxeParameter{{Name: "p", Value: "v"}}}).Validate(rawIpxeOS)
+		err := (&APIOperatingSystemUpdateRequest{IpxeTemplateParameters: &APIOperatingSystemIpxeParameters{{Name: "p", Value: "v"}}}).Validate(rawIpxeOS)
 		assert.Error(t, err)
 	})
 	t.Run("raw ipxe rejects template id", func(t *testing.T) {
@@ -200,8 +201,16 @@ func TestNewAPIOperatingSystem_RedactsArtifactAuthToken(t *testing.T) {
 	api := NewAPIOperatingSystem(dbOS, nil, nil, nil)
 	require.NotNil(t, api)
 	require.Len(t, api.IpxeTemplateArtifacts, 1)
-	assert.Nil(t, api.IpxeTemplateArtifacts[0].AuthToken, "artifact authToken must be redacted in API responses")
-	// The source DB object must not be mutated by the redaction copy.
+	assert.Equal(t, "kernel", api.IpxeTemplateArtifacts[0].Name)
+
+	// The response artifact type has no AuthToken field, so the serialized
+	// response can never carry the stored secret (structural redaction).
+	blob, err := json.Marshal(api)
+	require.NoError(t, err)
+	assert.NotContains(t, string(blob), "authToken", "serialized response must not contain an authToken field")
+	assert.NotContains(t, string(blob), "super-secret", "serialized response must not contain the stored secret")
+
+	// The source DB object must not be mutated when building the response.
 	require.NotNil(t, dbOS.IpxeTemplateArtifacts[0].AuthToken)
 	assert.Equal(t, "super-secret", *dbOS.IpxeTemplateArtifacts[0].AuthToken)
 }

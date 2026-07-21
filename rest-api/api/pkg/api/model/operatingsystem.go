@@ -34,6 +34,194 @@ func IsCloudInitFromUserData(userData *string) bool {
 	return userData != nil && *userData != ""
 }
 
+// APIOperatingSystemIpxeParameter is the API representation of a single iPXE
+// template name/value parameter. It is API-owned so the REST contract does not
+// depend on the persistence model.
+type APIOperatingSystemIpxeParameter struct {
+	// Name is the parameter name (used as a variable in the template).
+	Name string `json:"name"`
+	// Value is the parameter value.
+	Value string `json:"value"`
+}
+
+// toDBModel converts the receiver to the persistence model.
+func (p APIOperatingSystemIpxeParameter) toDBModel() cdbm.OperatingSystemIpxeParameter {
+	return cdbm.OperatingSystemIpxeParameter{Name: p.Name, Value: p.Value}
+}
+
+// APIOperatingSystemIpxeParameters is a typed list of iPXE parameters carrying
+// list-level validation and conversion helpers.
+type APIOperatingSystemIpxeParameters []APIOperatingSystemIpxeParameter
+
+// Validate checks every parameter in the list.
+func (ps APIOperatingSystemIpxeParameters) Validate() error {
+	for i, p := range ps {
+		if strings.TrimSpace(p.Name) == "" {
+			return validation.Errors{"ipxeTemplateParameters": fmt.Errorf("entry %d: name is required", i)}
+		}
+	}
+	return nil
+}
+
+// ToDBModel converts the list to the persistence model, preserving nil.
+func (ps APIOperatingSystemIpxeParameters) ToDBModel() []cdbm.OperatingSystemIpxeParameter {
+	if ps == nil {
+		return nil
+	}
+	out := make([]cdbm.OperatingSystemIpxeParameter, len(ps))
+	for i := range ps {
+		out[i] = ps[i].toDBModel()
+	}
+	return out
+}
+
+// ToDBModelPtr converts an optional (pointer) list to the pointer persistence
+// model used by update inputs, preserving a nil pointer (field not provided).
+func (ps *APIOperatingSystemIpxeParameters) ToDBModelPtr() *[]cdbm.OperatingSystemIpxeParameter {
+	if ps == nil {
+		return nil
+	}
+	out := ps.ToDBModel()
+	return &out
+}
+
+// APIOperatingSystemIpxeArtifact is the API (request) representation of a single
+// iPXE artifact (kernel, initrd, ISO, ...). AuthToken is accepted on input but is
+// never echoed back: responses use APIOperatingSystemIpxeArtifactResponse, which
+// has no AuthToken field.
+type APIOperatingSystemIpxeArtifact struct {
+	// Name is the artifact name.
+	Name string `json:"name"`
+	// URL is the original URL for the artifact.
+	URL string `json:"url"`
+	// SHA is an optional SHA256 checksum.
+	SHA *string `json:"sha"`
+	// AuthType is an optional auth type (Basic or Bearer).
+	AuthType *string `json:"authType"`
+	// AuthToken is an optional auth token, only accepted on input.
+	AuthToken *string `json:"authToken"`
+	// CacheStrategy controls how the artifact is cached on-site.
+	CacheStrategy string `json:"cacheStrategy"`
+}
+
+// toDBModel converts the receiver to the persistence model.
+func (a APIOperatingSystemIpxeArtifact) toDBModel() cdbm.OperatingSystemIpxeArtifact {
+	return cdbm.OperatingSystemIpxeArtifact{
+		Name:          a.Name,
+		URL:           a.URL,
+		SHA:           a.SHA,
+		AuthType:      a.AuthType,
+		AuthToken:     a.AuthToken,
+		CacheStrategy: a.CacheStrategy,
+	}
+}
+
+// APIOperatingSystemIpxeArtifacts is a typed list of iPXE artifacts carrying
+// list-level validation and conversion helpers.
+type APIOperatingSystemIpxeArtifacts []APIOperatingSystemIpxeArtifact
+
+// Validate checks every artifact in the list.
+func (as APIOperatingSystemIpxeArtifacts) Validate() error {
+	for i, a := range as {
+		if strings.TrimSpace(a.Name) == "" {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d: name is required", i)}
+		}
+		if strings.TrimSpace(a.URL) == "" {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): url is required", i, a.Name)}
+		}
+		if err := validation.Validate(a.URL, is.URL); err != nil {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): url is not valid: %w", i, a.Name, err)}
+		}
+		if _, ok := validCacheStrategies[a.CacheStrategy]; !ok {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): cacheStrategy must be one of CacheAsNeeded, LocalOnly, CachedOnly, RemoteOnly", i, a.Name)}
+		}
+		if a.AuthType != nil && *a.AuthType != "" {
+			at := *a.AuthType
+			if at != cdbm.OperatingSystemAuthTypeBasic && at != cdbm.OperatingSystemAuthTypeBearer {
+				return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authType must be Basic or Bearer", i, a.Name)}
+			}
+			if a.AuthToken == nil || *a.AuthToken == "" {
+				return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authToken is required when authType is specified", i, a.Name)}
+			}
+		}
+		if a.AuthToken != nil && *a.AuthToken != "" && (a.AuthType == nil || *a.AuthType == "") {
+			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authType must be specified when authToken is provided", i, a.Name)}
+		}
+	}
+	return nil
+}
+
+// ToDBModel converts the list to the persistence model, preserving nil.
+func (as APIOperatingSystemIpxeArtifacts) ToDBModel() []cdbm.OperatingSystemIpxeArtifact {
+	if as == nil {
+		return nil
+	}
+	out := make([]cdbm.OperatingSystemIpxeArtifact, len(as))
+	for i := range as {
+		out[i] = as[i].toDBModel()
+	}
+	return out
+}
+
+// ToDBModelPtr converts an optional (pointer) list to the pointer persistence
+// model used by update inputs, preserving a nil pointer (field not provided).
+func (as *APIOperatingSystemIpxeArtifacts) ToDBModelPtr() *[]cdbm.OperatingSystemIpxeArtifact {
+	if as == nil {
+		return nil
+	}
+	out := as.ToDBModel()
+	return &out
+}
+
+// APIOperatingSystemIpxeArtifactResponse is the API response representation of an
+// iPXE artifact. It deliberately has no AuthToken field so stored secrets cannot
+// be serialized back to clients (structural redaction).
+type APIOperatingSystemIpxeArtifactResponse struct {
+	// Name is the artifact name.
+	Name string `json:"name"`
+	// URL is the original URL for the artifact.
+	URL string `json:"url"`
+	// SHA is an optional SHA256 checksum.
+	SHA *string `json:"sha"`
+	// AuthType is an optional auth type (Basic or Bearer).
+	AuthType *string `json:"authType"`
+	// CacheStrategy controls how the artifact is cached on-site.
+	CacheStrategy string `json:"cacheStrategy"`
+}
+
+// newAPIIpxeParametersFromDB converts persisted parameters to the API response
+// representation, preserving nil.
+func newAPIIpxeParametersFromDB(params []cdbm.OperatingSystemIpxeParameter) []APIOperatingSystemIpxeParameter {
+	if params == nil {
+		return nil
+	}
+	out := make([]APIOperatingSystemIpxeParameter, len(params))
+	for i, p := range params {
+		out[i] = APIOperatingSystemIpxeParameter{Name: p.Name, Value: p.Value}
+	}
+	return out
+}
+
+// newAPIIpxeArtifactResponsesFromDB converts persisted artifacts to the API
+// response representation, preserving nil. AuthToken is dropped structurally: the
+// response type has no such field.
+func newAPIIpxeArtifactResponsesFromDB(artifacts []cdbm.OperatingSystemIpxeArtifact) []APIOperatingSystemIpxeArtifactResponse {
+	if artifacts == nil {
+		return nil
+	}
+	out := make([]APIOperatingSystemIpxeArtifactResponse, len(artifacts))
+	for i, a := range artifacts {
+		out[i] = APIOperatingSystemIpxeArtifactResponse{
+			Name:          a.Name,
+			URL:           a.URL,
+			SHA:           a.SHA,
+			AuthType:      a.AuthType,
+			CacheStrategy: a.CacheStrategy,
+		}
+	}
+	return out
+}
+
 // APIOperatingSystemCreateRequest is the data structure to capture user request to create a new OperatingSystem
 type APIOperatingSystemCreateRequest struct {
 	// Name is the name of the OperatingSystem
@@ -75,9 +263,9 @@ type APIOperatingSystemCreateRequest struct {
 	// IpxeTemplateId is the ID of the iPXE template to use (alternative to a raw ipxeScript)
 	IpxeTemplateId *string `json:"ipxeTemplateId"`
 	// IpxeTemplateParameters are the parameters to pass to the iPXE template
-	IpxeTemplateParameters []cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	IpxeTemplateParameters APIOperatingSystemIpxeParameters `json:"ipxeTemplateParameters"`
 	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition
-	IpxeTemplateArtifacts []cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	IpxeTemplateArtifacts APIOperatingSystemIpxeArtifacts `json:"ipxeTemplateArtifacts"`
 }
 
 // GetOperatingSystemType returns the OperatingSystem type inferred from the
@@ -348,9 +536,9 @@ type APIOperatingSystemUpdateRequest struct {
 	// IpxeTemplateId is the ID of the iPXE template to use (alternative to a raw ipxeScript)
 	IpxeTemplateId *string `json:"ipxeTemplateId"`
 	// IpxeTemplateParameters are the parameters to pass to the iPXE template
-	IpxeTemplateParameters *[]cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	IpxeTemplateParameters *APIOperatingSystemIpxeParameters `json:"ipxeTemplateParameters"`
 	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition
-	IpxeTemplateArtifacts *[]cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	IpxeTemplateArtifacts *APIOperatingSystemIpxeArtifacts `json:"ipxeTemplateArtifacts"`
 }
 
 // Validate ensure the values passed in request are acceptable
@@ -432,12 +620,12 @@ func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.Operating
 	}
 	if existingOS.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
 		if osur.IpxeTemplateParameters != nil {
-			if verr := validateIpxeTemplateParameters(*osur.IpxeTemplateParameters); verr != nil {
+			if verr := osur.IpxeTemplateParameters.Validate(); verr != nil {
 				return verr
 			}
 		}
 		if osur.IpxeTemplateArtifacts != nil {
-			if verr := validateIpxeTemplateArtifacts(*osur.IpxeTemplateArtifacts); verr != nil {
+			if verr := osur.IpxeTemplateArtifacts.Validate(); verr != nil {
 				return verr
 			}
 		}
@@ -731,10 +919,10 @@ type APIOperatingSystem struct {
 	// IpxeTemplateId is the ID of the iPXE template used by this Operating System
 	IpxeTemplateId *string `json:"ipxeTemplateId"`
 	// IpxeTemplateParameters are the parameters passed to the iPXE template
-	IpxeTemplateParameters []cdbm.OperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
+	IpxeTemplateParameters []APIOperatingSystemIpxeParameter `json:"ipxeTemplateParameters"`
 	// IpxeTemplateArtifacts are the artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition.
-	// Any artifact authToken is redacted in API responses.
-	IpxeTemplateArtifacts []cdbm.OperatingSystemIpxeArtifact `json:"ipxeTemplateArtifacts"`
+	// The response artifact type has no authToken field, so stored secrets are never echoed back.
+	IpxeTemplateArtifacts []APIOperatingSystemIpxeArtifactResponse `json:"ipxeTemplateArtifacts"`
 	// PhoneHomeEnabled is an attribute which is specified by user if Operating System needs to be enabled for phone home or not
 	PhoneHomeEnabled bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the Operating System
@@ -789,16 +977,10 @@ func NewAPIOperatingSystem(dbOS *cdbm.OperatingSystem, dbsds []cdbm.StatusDetail
 		Created:            dbOS.Created,
 		Updated:            dbOS.Updated,
 	}
-	apiOperatingSystem.IpxeTemplateParameters = dbOS.IpxeTemplateParameters
-	// Redact artifact auth tokens: never echo stored secrets back to clients.
-	if dbOS.IpxeTemplateArtifacts != nil {
-		redactedArtifacts := make([]cdbm.OperatingSystemIpxeArtifact, len(dbOS.IpxeTemplateArtifacts))
-		for i, artifact := range dbOS.IpxeTemplateArtifacts {
-			artifact.AuthToken = nil
-			redactedArtifacts[i] = artifact
-		}
-		apiOperatingSystem.IpxeTemplateArtifacts = redactedArtifacts
-	}
+	apiOperatingSystem.IpxeTemplateParameters = newAPIIpxeParametersFromDB(dbOS.IpxeTemplateParameters)
+	// The response artifact type has no AuthToken field, so stored secrets are
+	// dropped structurally rather than by manual redaction.
+	apiOperatingSystem.IpxeTemplateArtifacts = newAPIIpxeArtifactResponsesFromDB(dbOS.IpxeTemplateArtifacts)
 	if dbOS.InfrastructureProviderID != nil {
 		apiOperatingSystem.InfrastructureProviderID = cutil.GetPtr(dbOS.InfrastructureProviderID.String())
 	}
@@ -869,10 +1051,10 @@ func (oscr *APIOperatingSystemCreateRequest) validateTemplatedIpxeOS() error {
 		return validation.Errors{"siteIds": errors.New("at least one siteId must be specified for Templated iPXE Operating Systems")}
 	}
 
-	if err := validateIpxeTemplateParameters(oscr.IpxeTemplateParameters); err != nil {
+	if err := oscr.IpxeTemplateParameters.Validate(); err != nil {
 		return err
 	}
-	if err := validateIpxeTemplateArtifacts(oscr.IpxeTemplateArtifacts); err != nil {
+	if err := oscr.IpxeTemplateArtifacts.Validate(); err != nil {
 		return err
 	}
 	return nil
@@ -888,45 +1070,6 @@ var validCacheStrategies = func() map[string]struct{} {
 	}
 	return m
 }()
-
-func validateIpxeTemplateParameters(params []cdbm.OperatingSystemIpxeParameter) error {
-	for i, p := range params {
-		if strings.TrimSpace(p.Name) == "" {
-			return validation.Errors{"ipxeTemplateParameters": fmt.Errorf("entry %d: name is required", i)}
-		}
-	}
-	return nil
-}
-
-func validateIpxeTemplateArtifacts(artifacts []cdbm.OperatingSystemIpxeArtifact) error {
-	for i, a := range artifacts {
-		if strings.TrimSpace(a.Name) == "" {
-			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d: name is required", i)}
-		}
-		if strings.TrimSpace(a.URL) == "" {
-			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): url is required", i, a.Name)}
-		}
-		if err := validation.Validate(a.URL, is.URL); err != nil {
-			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): url is not valid: %w", i, a.Name, err)}
-		}
-		if _, ok := validCacheStrategies[a.CacheStrategy]; !ok {
-			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): cacheStrategy must be one of CacheAsNeeded, LocalOnly, CachedOnly, RemoteOnly", i, a.Name)}
-		}
-		if a.AuthType != nil && *a.AuthType != "" {
-			at := *a.AuthType
-			if at != cdbm.OperatingSystemAuthTypeBasic && at != cdbm.OperatingSystemAuthTypeBearer {
-				return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authType must be Basic or Bearer", i, a.Name)}
-			}
-			if a.AuthToken == nil || *a.AuthToken == "" {
-				return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authToken is required when authType is specified", i, a.Name)}
-			}
-		}
-		if a.AuthToken != nil && *a.AuthToken != "" && (a.AuthType == nil || *a.AuthType == "") {
-			return validation.Errors{"ipxeTemplateArtifacts": fmt.Errorf("entry %d (%s): authType must be specified when authToken is provided", i, a.Name)}
-		}
-	}
-	return nil
-}
 
 // BuildCreateOperatingSystemRequest builds the forge.Forge CreateOperatingSystem
 // request proto from a persisted Operating System record. It is used by the OS
