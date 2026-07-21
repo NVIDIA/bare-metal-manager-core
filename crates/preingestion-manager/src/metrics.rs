@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::fmt;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -389,17 +390,86 @@ impl PowerOperation {
     }
 }
 
-/// A preingestion Redfish power operation completed. Metric-only: every call
-/// site keeps its own log line (each already reports the endpoint and error
-/// at its own level), and this counter is the shared failure-rate signal
-/// beside them.
+/// Which preingestion step requested a power operation. This stays in log
+/// context -- `operation` is the bounded metric label, while `power_step`
+/// preserves the caller-specific diagnostic when the same operation appears
+/// in several workflows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PowerControlStep {
+    PowerOff,
+    AcPowercyclePrerequisite,
+    AcPowercycle,
+    PowerOn,
+    UefiReboot,
+    BmcReboot,
+    CecChassisReset,
+    CecChassisResetUnsupported,
+    RecoveryPowerOff,
+    RecoveryPowerOffNotNeeded,
+    RecoveryBmcReset,
+    RecoveryPowerOn,
+    RecoveryPowerOnNotNeeded,
+    RecoveryPowerControl,
+}
+
+impl fmt::Display for PowerControlStep {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::PowerOff => "power_off",
+            Self::AcPowercyclePrerequisite => "ac_powercycle_prerequisite",
+            Self::AcPowercycle => "ac_powercycle",
+            Self::PowerOn => "power_on",
+            Self::UefiReboot => "uefi_reboot",
+            Self::BmcReboot => "bmc_reboot",
+            Self::CecChassisReset => "cec_chassis_reset",
+            Self::CecChassisResetUnsupported => "cec_chassis_reset_unsupported",
+            Self::RecoveryPowerOff => "recovery_power_off",
+            Self::RecoveryPowerOffNotNeeded => "recovery_power_off_not_needed",
+            Self::RecoveryBmcReset => "recovery_bmc_reset",
+            Self::RecoveryPowerOn => "recovery_power_on",
+            Self::RecoveryPowerOnNotNeeded => "recovery_power_on_not_needed",
+            Self::RecoveryPowerControl => "recovery_power_control",
+        })
+    }
+}
+
+/// Log context for one wrapped power operation. Keeping this selection at the
+/// call site lets the Event retain each workflow's existing message and fields
+/// without turning BMC addresses, retry counts, or workflow names into metric
+/// labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PowerControlLog {
+    Step {
+        bmc_ip_address: IpAddr,
+        step: PowerControlStep,
+    },
+    InitialBmcReset {
+        bmc_ip_address: IpAddr,
+        attempt: u32,
+        max_attempts: u32,
+    },
+    RecoverySequence {
+        bmc_ip_address: IpAddr,
+    },
+    BfbPlatformPowercycle {
+        dpu_bmc_ip_address: IpAddr,
+        host_bmc_ip_address: IpAddr,
+        post_install: bool,
+    },
+}
+
+/// A preingestion Redfish power operation completed. Every call updates the
+/// existing counter; failures also retain the caller's terminal record. A
+/// successful operation stays silent, while an already-satisfied recovery
+/// step keeps its historical `DEBUG` record.
 #[derive(Event)]
 #[event(
     event_name = "preingestion_power_control_finished",
     metric_name = "carbide_preingestion_power_control_total",
     component = "preingestion-manager",
-    log = off,
+    log = dynamic,
     metric = counter,
+    message = dynamic,
     describe = "Number of preingestion Redfish power operations (host power control, BMC and \
                 chassis resets), by operation and outcome."
 )]
@@ -408,18 +478,167 @@ pub(crate) struct PowerControlFinished {
     pub operation: PowerOperation,
     #[label]
     pub outcome: Outcome,
+    #[context]
+    pub bmc_ip_address: IpAddr,
+    #[context]
+    pub power_step: PowerControlStep,
+    /// The Redfish failure; empty when the operation returned `Ok`.
+    #[context]
+    pub error: String,
+}
+
+impl DynamicLog for PowerControlFinished {
+    fn log_at(&self) -> LogAt {
+        if self.error.is_empty() {
+            return LogAt::Off;
+        }
+
+        match self.power_step {
+            PowerControlStep::RecoveryPowerOffNotNeeded
+            | PowerControlStep::RecoveryPowerOnNotNeeded => LogAt::Level(tracing::Level::DEBUG),
+            PowerControlStep::RecoveryPowerOff
+            | PowerControlStep::RecoveryBmcReset
+            | PowerControlStep::RecoveryPowerOn
+            | PowerControlStep::RecoveryPowerControl => LogAt::Level(tracing::Level::WARN),
+            _ => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
+
+impl DynamicMessage for PowerControlFinished {
+    fn message(&self) -> &'static str {
+        match self.power_step {
+            PowerControlStep::PowerOff => "Failed to power off",
+            PowerControlStep::AcPowercyclePrerequisite => "Failed to force off",
+            PowerControlStep::AcPowercycle => "Failed to power cycle",
+            PowerControlStep::PowerOn => "Failed to power on",
+            PowerControlStep::UefiReboot => "Failed to reboot",
+            PowerControlStep::BmcReboot => "Failed to reboot BMC",
+            PowerControlStep::CecChassisReset => "Failed to call chassis reset",
+            PowerControlStep::CecChassisResetUnsupported => {
+                "Chassis reset is not supported by current CEC firmware; host power cycle required"
+            }
+            PowerControlStep::RecoveryPowerOff => "Could not turn off power",
+            PowerControlStep::RecoveryPowerOffNotNeeded => "Power off not needed",
+            PowerControlStep::RecoveryBmcReset => "Could not reset BMC",
+            PowerControlStep::RecoveryPowerOn => "Could not turn on power",
+            PowerControlStep::RecoveryPowerOnNotNeeded => "Power on not needed",
+            PowerControlStep::RecoveryPowerControl => "Power control failed",
+        }
+    }
+}
+
+/// An initial BMC reset attempt completed. This sibling Event shares the
+/// power-control counter while retaining the retry fields and the distinct
+/// final-attempt message used by the state machine.
+#[derive(Event)]
+#[event(
+    event_name = "preingestion_initial_bmc_reset_finished",
+    metric_name = "carbide_preingestion_power_control_total",
+    component = "preingestion-manager",
+    log = dynamic,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
+                chassis resets), by operation and outcome."
+)]
+struct InitialBmcResetFinished {
+    #[label]
+    operation: PowerOperation,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    bmc_ip_address: IpAddr,
+    #[context(value)]
+    attempt: i64,
+    #[context(value)]
+    max_attempts: i64,
+    #[context]
+    error: String,
+}
+
+impl DynamicLog for InitialBmcResetFinished {
+    fn log_at(&self) -> LogAt {
+        if self.error.is_empty() {
+            LogAt::Off
+        } else {
+            LogAt::Level(tracing::Level::WARN)
+        }
+    }
+}
+
+impl DynamicMessage for InitialBmcResetFinished {
+    fn message(&self) -> &'static str {
+        if self.attempt >= self.max_attempts {
+            "Initial BMC reset failed; proceeding with preingestion without it"
+        } else {
+            "Initial BMC reset failed; will retry"
+        }
+    }
+}
+
+/// A host power operation for a DPU's BFB platform powercycle completed. The
+/// separate Event keeps both endpoints and `post_install` on the diagnostic
+/// record while sharing the existing operation/result counter.
+#[derive(Event)]
+#[event(
+    event_name = "preingestion_bfb_platform_power_control_finished",
+    metric_name = "carbide_preingestion_power_control_total",
+    component = "preingestion-manager",
+    log = dynamic,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
+                chassis resets), by operation and outcome."
+)]
+struct BfbPlatformPowerControlFinished {
+    #[label]
+    operation: PowerOperation,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    dpu_bmc_ip_address: IpAddr,
+    #[context]
+    host_bmc_ip_address: IpAddr,
+    #[context(value)]
+    post_install: bool,
+    #[context]
+    error: String,
+}
+
+impl DynamicLog for BfbPlatformPowerControlFinished {
+    fn log_at(&self) -> LogAt {
+        if self.error.is_empty() {
+            LogAt::Off
+        } else {
+            LogAt::Level(tracing::Level::ERROR)
+        }
+    }
+}
+
+impl DynamicMessage for BfbPlatformPowerControlFinished {
+    fn message(&self) -> &'static str {
+        match self.operation {
+            PowerOperation::ForceOff => {
+                "Failed to power off host during BFB power cycle; will retry"
+            }
+            PowerOperation::On => "Failed to power on host during BFB power cycle; will retry",
+            _ => "Host power control failed during BFB power cycle; will retry",
+        }
+    }
 }
 
 /// Wraps one preingestion Redfish power operation: the result is returned
-/// untouched, and its outcome ticks `carbide_preingestion_power_control_total`.
+/// untouched, while one Event updates the counter and owns any terminal log.
 /// For operations that target a power state (`On`, `GracefulShutdown`,
 /// `ForceOff`), `RedfishError::UnnecessaryOperation` counts as `ok` (the
 /// requested state already held); for restarts, powercycles, and the BMC and
 /// chassis resets it counts as `error` -- there is no state to already be in,
 /// so a 409 is a refusal (see [`PowerOperation::treats_unnecessary_as_ok`]).
-pub(crate) async fn count_power_op<T>(
+pub(crate) async fn instrument_power_op<T>(
     operation: PowerOperation,
     call: impl Future<Output = Result<T, RedfishError>>,
+    log: PowerControlLog,
 ) -> Result<T, RedfishError> {
     let result = call.await;
     let outcome = match &result {
@@ -429,7 +648,74 @@ pub(crate) async fn count_power_op<T>(
         }
         Err(_) => Outcome::Error,
     };
-    emit(PowerControlFinished { operation, outcome });
+    let error = result
+        .as_ref()
+        .err()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+
+    match log {
+        PowerControlLog::Step {
+            bmc_ip_address,
+            mut step,
+        } => {
+            if step == PowerControlStep::CecChassisReset && error.contains("is not supported") {
+                step = PowerControlStep::CecChassisResetUnsupported;
+            }
+            emit(PowerControlFinished {
+                operation,
+                outcome,
+                bmc_ip_address,
+                power_step: step,
+                error,
+            });
+        }
+        PowerControlLog::InitialBmcReset {
+            bmc_ip_address,
+            attempt,
+            max_attempts,
+        } => emit(InitialBmcResetFinished {
+            operation,
+            outcome,
+            bmc_ip_address,
+            attempt: i64::from(attempt),
+            max_attempts: i64::from(max_attempts),
+            error,
+        }),
+        PowerControlLog::RecoverySequence { bmc_ip_address } => {
+            let power_step = match (operation, &result) {
+                (PowerOperation::ForceOff, Err(RedfishError::UnnecessaryOperation)) => {
+                    PowerControlStep::RecoveryPowerOffNotNeeded
+                }
+                (PowerOperation::ForceOff, _) => PowerControlStep::RecoveryPowerOff,
+                (PowerOperation::BmcReset, _) => PowerControlStep::RecoveryBmcReset,
+                (PowerOperation::On, Err(RedfishError::UnnecessaryOperation)) => {
+                    PowerControlStep::RecoveryPowerOnNotNeeded
+                }
+                (PowerOperation::On, _) => PowerControlStep::RecoveryPowerOn,
+                _ => PowerControlStep::RecoveryPowerControl,
+            };
+            emit(PowerControlFinished {
+                operation,
+                outcome,
+                bmc_ip_address,
+                power_step,
+                error,
+            });
+        }
+        PowerControlLog::BfbPlatformPowercycle {
+            dpu_bmc_ip_address,
+            host_bmc_ip_address,
+            post_install,
+        } => emit(BfbPlatformPowerControlFinished {
+            operation,
+            outcome,
+            dpu_bmc_ip_address,
+            host_bmc_ip_address,
+            post_install,
+            error,
+        }),
+    }
     result
 }
 
@@ -439,7 +725,7 @@ mod tests {
     use std::time::Duration;
 
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::{Check, check_values, value_scenarios};
     use carbide_utils::test_support::test_meter::TestMeter;
     use prometheus_text_parser::ParsedPrometheusMetrics;
 
@@ -1018,119 +1304,367 @@ mod tests {
         );
     }
 
-    /// The wrapper returns the call's result untouched and splits
-    /// `UnnecessaryOperation` (libredfish's mapping of every HTTP 409) by
-    /// operation: `ok` for operations that target a power state, where it
-    /// means "already in the requested state", and `error` for restarts,
-    /// powercycles, and the BMC and chassis resets, where a 409 is the BMC
-    /// refusing the operation. Every other error counts as `error`. No log
-    /// line: the call sites own their own.
+    /// `UnnecessaryOperation` is successful only for operations whose target
+    /// is a durable power state. Restarts, powercycles, and reset calls ask the
+    /// BMC to perform a transition, so the same HTTP 409 remains an error.
     #[test]
-    fn count_power_op_splits_unnecessary_operation_by_operation() {
+    fn power_operation_classifies_unnecessary_operation() {
+        value_scenarios!(run = |operation| operation.treats_unnecessary_as_ok();
+            "state targets" {
+                PowerOperation::On => true,
+                PowerOperation::GracefulShutdown => true,
+                PowerOperation::ForceOff => true,
+            }
+
+            "transitions and reset calls" {
+                PowerOperation::GracefulRestart => false,
+                PowerOperation::ForceRestart => false,
+                PowerOperation::AcPowercycle => false,
+                PowerOperation::PowerCycle => false,
+                PowerOperation::BmcReset => false,
+                PowerOperation::ChassisReset => false,
+            }
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    enum PowerCall {
+        Ok,
+        Unnecessary,
+        NotSupported(&'static str),
+    }
+
+    impl PowerCall {
+        fn result(self) -> Result<(), RedfishError> {
+            match self {
+                Self::Ok => Ok(()),
+                Self::Unnecessary => Err(RedfishError::UnnecessaryOperation),
+                Self::NotSupported(error) => Err(RedfishError::NotSupported(error.to_string())),
+            }
+        }
+
+        fn metric_outcome(self, operation: PowerOperation) -> Outcome {
+            match self {
+                Self::Ok => Outcome::Ok,
+                Self::Unnecessary if operation.treats_unnecessary_as_ok() => Outcome::Ok,
+                Self::Unnecessary | Self::NotSupported(_) => Outcome::Error,
+            }
+        }
+    }
+
+    struct PowerControlInput {
+        operation: PowerOperation,
+        call: PowerCall,
+        log: PowerControlLog,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct PowerControlObservation {
+        returned_error: bool,
+        counter_delta: f64,
+        logs_are_correlated: bool,
+        logs: Vec<String>,
+    }
+
+    fn observe_power_control(input: PowerControlInput) -> PowerControlObservation {
         use futures_util::FutureExt as _;
 
         let metrics = MetricsCapture::start();
-        let logs = capture_logs(|| {
-            count_power_op(PowerOperation::ForceOff, std::future::ready(Ok(())))
-                .now_or_never()
-                .expect("ready future")
-                .expect("ok result passes through");
-            count_power_op(
-                PowerOperation::ForceOff,
-                std::future::ready(Err::<(), _>(RedfishError::UnnecessaryOperation)),
+        let metric_outcome = input.call.metric_outcome(input.operation);
+        let operation_label = input.operation.label_value();
+        let outcome_label = metric_outcome.label_value();
+        let mut returned_error = false;
+        let captured_logs = capture_logs(|| {
+            returned_error = instrument_power_op(
+                input.operation,
+                std::future::ready(input.call.result()),
+                input.log,
             )
             .now_or_never()
             .expect("ready future")
-            .expect_err("the error itself still propagates");
-            count_power_op(
-                PowerOperation::AcPowercycle,
-                std::future::ready(Err::<(), _>(RedfishError::UnnecessaryOperation)),
+            .is_err();
+        });
+        let logs_are_correlated = captured_logs.iter().all(|log| {
+            log.field("event_name") == Some(log.metadata_name.as_str())
+                && log.field("metric_name") == Some("carbide_preingestion_power_control_total")
+        });
+        let logs = captured_logs
+        .into_iter()
+        .map(|log| {
+            let field = |name| log.field(name).unwrap_or("-");
+            format!(
+                "{:?}|{}|{}|operation={}|outcome={}|bmc={}|dpu={}|host={}|step={}|attempt={}|max={}|post_install={}|error={}",
+                log.level,
+                log.metadata_name,
+                log.message,
+                field("operation"),
+                field("outcome"),
+                field("bmc_ip_address"),
+                field("dpu_bmc_ip_address"),
+                field("host_bmc_ip_address"),
+                field("power_step"),
+                field("attempt"),
+                field("max_attempts"),
+                field("post_install"),
+                field("error"),
             )
-            .now_or_never()
-            .expect("ready future")
-            .expect_err("the error itself still propagates");
-            count_power_op(
-                PowerOperation::ForceRestart,
-                std::future::ready(Err::<(), _>(RedfishError::UnnecessaryOperation)),
-            )
-            .now_or_never()
-            .expect("ready future")
-            .expect_err("the error itself still propagates");
-            count_power_op(
-                PowerOperation::BmcReset,
-                std::future::ready(Err::<(), _>(RedfishError::UnnecessaryOperation)),
-            )
-            .now_or_never()
-            .expect("ready future")
-            .expect_err("the error itself still propagates");
-            count_power_op(
-                PowerOperation::ChassisReset,
-                std::future::ready(Err::<(), _>(RedfishError::UnnecessaryOperation)),
-            )
-            .now_or_never()
-            .expect("ready future")
-            .expect_err("the error itself still propagates");
-            count_power_op(
-                PowerOperation::BmcReset,
-                std::future::ready(Err::<(), _>(RedfishError::NotSupported(
-                    "no such reset".to_string(),
-                ))),
-            )
-            .now_or_never()
-            .expect("ready future")
-            .expect_err("the error itself still propagates");
+        })
+        .collect();
+
+        PowerControlObservation {
+            returned_error,
+            counter_delta: metrics.counter_delta(
+                "carbide_preingestion_power_control_total",
+                &[
+                    ("operation", operation_label.as_str()),
+                    ("outcome", outcome_label.as_str()),
+                ],
+            ),
+            logs_are_correlated,
+            logs,
+        }
+    }
+
+    fn expected_power_control(returned_error: bool, log: Option<&str>) -> PowerControlObservation {
+        PowerControlObservation {
+            returned_error,
+            counter_delta: 1.0,
+            logs_are_correlated: true,
+            logs: log.map(str::to_string).into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn power_control_steps_retain_their_log_contract() {
+        value_scenarios!(run = |power_step| {
+            let event = PowerControlFinished {
+                operation: PowerOperation::ForceOff,
+                outcome: Outcome::Error,
+                bmc_ip_address: IpAddr::from([10, 0, 0, 5]),
+                power_step,
+                error: "power control failed".to_string(),
+            };
+            let level = match DynamicLog::log_at(&event) {
+                LogAt::Off => None,
+                LogAt::Level(level) => Some(level),
+            };
+            (level, DynamicMessage::message(&event))
+        };
+            "workflow errors" {
+                PowerControlStep::PowerOff => (Some(tracing::Level::ERROR), "Failed to power off"),
+                PowerControlStep::AcPowercyclePrerequisite => (Some(tracing::Level::ERROR), "Failed to force off"),
+                PowerControlStep::AcPowercycle => (Some(tracing::Level::ERROR), "Failed to power cycle"),
+                PowerControlStep::PowerOn => (Some(tracing::Level::ERROR), "Failed to power on"),
+                PowerControlStep::UefiReboot => (Some(tracing::Level::ERROR), "Failed to reboot"),
+                PowerControlStep::BmcReboot => (Some(tracing::Level::ERROR), "Failed to reboot BMC"),
+                PowerControlStep::CecChassisReset => (Some(tracing::Level::ERROR), "Failed to call chassis reset"),
+                PowerControlStep::CecChassisResetUnsupported => (Some(tracing::Level::ERROR), "Chassis reset is not supported by current CEC firmware; host power cycle required"),
+            }
+
+            "recovery sequence" {
+                PowerControlStep::RecoveryPowerOff => (Some(tracing::Level::WARN), "Could not turn off power"),
+                PowerControlStep::RecoveryPowerOffNotNeeded => (Some(tracing::Level::DEBUG), "Power off not needed"),
+                PowerControlStep::RecoveryBmcReset => (Some(tracing::Level::WARN), "Could not reset BMC"),
+                PowerControlStep::RecoveryPowerOn => (Some(tracing::Level::WARN), "Could not turn on power"),
+                PowerControlStep::RecoveryPowerOnNotNeeded => (Some(tracing::Level::DEBUG), "Power on not needed"),
+                PowerControlStep::RecoveryPowerControl => (Some(tracing::Level::WARN), "Power control failed"),
+            }
+        );
+    }
+
+    #[test]
+    fn bfb_platform_power_operations_retain_their_messages() {
+        let message = |operation| {
+            DynamicMessage::message(&BfbPlatformPowerControlFinished {
+                operation,
+                outcome: Outcome::Error,
+                dpu_bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
+                host_bmc_ip_address: IpAddr::from([10, 0, 0, 5]),
+                post_install: false,
+                error: "power control failed".to_string(),
+            })
+        };
+
+        value_scenarios!(run = message;
+            "operation" {
+                PowerOperation::ForceOff => "Failed to power off host during BFB power cycle; will retry",
+                PowerOperation::On => "Failed to power on host during BFB power cycle; will retry",
+                PowerOperation::BmcReset => "Host power control failed during BFB power cycle; will retry",
+            }
+        );
+    }
+
+    /// Every wrapped call increments its existing `operation`/`outcome`
+    /// series. Successes stay silent; each failure retains the level, message,
+    /// and caller-specific fields that previously lived beside the wrapper.
+    #[test]
+    fn power_control_results_emit_their_metric_and_historical_log() {
+        let bmc_ip_address = IpAddr::from([10, 0, 0, 5]);
+        check_values(
+            [
+                Check {
+                    scenario: "successful workflow step",
+                    input: PowerControlInput {
+                        operation: PowerOperation::ForceOff,
+                        call: PowerCall::Ok,
+                        log: PowerControlLog::Step {
+                            bmc_ip_address,
+                            step: PowerControlStep::PowerOff,
+                        },
+                    },
+                    expect: expected_power_control(false, None),
+                },
+                Check {
+                    scenario: "workflow failure",
+                    input: PowerControlInput {
+                        operation: PowerOperation::ForceOff,
+                        call: PowerCall::NotSupported("power control unavailable"),
+                        log: PowerControlLog::Step {
+                            bmc_ip_address,
+                            step: PowerControlStep::PowerOff,
+                        },
+                    },
+                    expect: expected_power_control(
+                        true,
+                        Some(
+                            "Level(Error)|preingestion_power_control_finished|Failed to power off|operation=force_off|outcome=error|bmc=10.0.0.5|dpu=-|host=-|step=power_off|attempt=-|max=-|post_install=-|error=BMC vendor does not support this operation: power control unavailable",
+                        ),
+                    ),
+                },
+                Check {
+                    scenario: "already-off workflow failure still logs but counts as ok",
+                    input: PowerControlInput {
+                        operation: PowerOperation::ForceOff,
+                        call: PowerCall::Unnecessary,
+                        log: PowerControlLog::Step {
+                            bmc_ip_address,
+                            step: PowerControlStep::PowerOff,
+                        },
+                    },
+                    expect: expected_power_control(
+                        true,
+                        Some(
+                            "Level(Error)|preingestion_power_control_finished|Failed to power off|operation=force_off|outcome=ok|bmc=10.0.0.5|dpu=-|host=-|step=power_off|attempt=-|max=-|post_install=-|error=UnnecessaryOperation such as trying to turn on a machine that is already on.",
+                        ),
+                    ),
+                },
+                Check {
+                    scenario: "already-off recovery step",
+                    input: PowerControlInput {
+                        operation: PowerOperation::ForceOff,
+                        call: PowerCall::Unnecessary,
+                        log: PowerControlLog::RecoverySequence { bmc_ip_address },
+                    },
+                    expect: expected_power_control(
+                        true,
+                        Some(
+                            "Level(Debug)|preingestion_power_control_finished|Power off not needed|operation=force_off|outcome=ok|bmc=10.0.0.5|dpu=-|host=-|step=recovery_power_off_not_needed|attempt=-|max=-|post_install=-|error=UnnecessaryOperation such as trying to turn on a machine that is already on.",
+                        ),
+                    ),
+                },
+                Check {
+                    scenario: "retryable initial BMC reset",
+                    input: PowerControlInput {
+                        operation: PowerOperation::BmcReset,
+                        call: PowerCall::NotSupported("reset unavailable"),
+                        log: PowerControlLog::InitialBmcReset {
+                            bmc_ip_address,
+                            attempt: 1,
+                            max_attempts: 3,
+                        },
+                    },
+                    expect: expected_power_control(
+                        true,
+                        Some(
+                            "Level(Warn)|preingestion_initial_bmc_reset_finished|Initial BMC reset failed; will retry|operation=bmc_reset|outcome=error|bmc=10.0.0.5|dpu=-|host=-|step=-|attempt=1|max=3|post_install=-|error=BMC vendor does not support this operation: reset unavailable",
+                        ),
+                    ),
+                },
+                Check {
+                    scenario: "final initial BMC reset attempt",
+                    input: PowerControlInput {
+                        operation: PowerOperation::BmcReset,
+                        call: PowerCall::NotSupported("reset unavailable"),
+                        log: PowerControlLog::InitialBmcReset {
+                            bmc_ip_address,
+                            attempt: 3,
+                            max_attempts: 3,
+                        },
+                    },
+                    expect: expected_power_control(
+                        true,
+                        Some(
+                            "Level(Warn)|preingestion_initial_bmc_reset_finished|Initial BMC reset failed; proceeding with preingestion without it|operation=bmc_reset|outcome=error|bmc=10.0.0.5|dpu=-|host=-|step=-|attempt=3|max=3|post_install=-|error=BMC vendor does not support this operation: reset unavailable",
+                        ),
+                    ),
+                },
+                Check {
+                    scenario: "unsupported CEC reset",
+                    input: PowerControlInput {
+                        operation: PowerOperation::ChassisReset,
+                        call: PowerCall::NotSupported("reset is not supported"),
+                        log: PowerControlLog::Step {
+                            bmc_ip_address,
+                            step: PowerControlStep::CecChassisReset,
+                        },
+                    },
+                    expect: expected_power_control(
+                        true,
+                        Some(
+                            "Level(Error)|preingestion_power_control_finished|Chassis reset is not supported by current CEC firmware; host power cycle required|operation=chassis_reset|outcome=error|bmc=10.0.0.5|dpu=-|host=-|step=cec_chassis_reset_unsupported|attempt=-|max=-|post_install=-|error=BMC vendor does not support this operation: reset is not supported",
+                        ),
+                    ),
+                },
+                Check {
+                    scenario: "BFB platform power failure",
+                    input: PowerControlInput {
+                        operation: PowerOperation::ForceOff,
+                        call: PowerCall::NotSupported("host power unavailable"),
+                        log: PowerControlLog::BfbPlatformPowercycle {
+                            dpu_bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
+                            host_bmc_ip_address: bmc_ip_address,
+                            post_install: true,
+                        },
+                    },
+                    expect: expected_power_control(
+                        true,
+                        Some(
+                            "Level(Error)|preingestion_bfb_platform_power_control_finished|Failed to power off host during BFB power cycle; will retry|operation=force_off|outcome=error|bmc=-|dpu=10.0.0.6|host=10.0.0.5|step=-|attempt=-|max=-|post_install=true|error=BMC vendor does not support this operation: host power unavailable",
+                        ),
+                    ),
+                },
+            ],
+            observe_power_control,
+        );
+    }
+
+    /// The Event replaces the old counter registration without changing its
+    /// HELP text or adding log-only context to the Prometheus label set.
+    #[test]
+    fn power_control_counter_exposition_stays_stable() {
+        let metrics = MetricsCapture::start();
+        emit(PowerControlFinished {
+            operation: PowerOperation::ForceOff,
+            outcome: Outcome::Ok,
+            bmc_ip_address: IpAddr::from([10, 0, 0, 5]),
+            power_step: PowerControlStep::PowerOff,
+            error: String::new(),
         });
 
-        assert!(
-            logs.is_empty(),
-            "log = off must not construct any log line, got {logs:?}"
-        );
-        assert_eq!(
-            metrics.counter_delta(
-                "carbide_preingestion_power_control_total",
-                &[("operation", "force_off"), ("outcome", "ok")],
-            ),
-            2.0,
-            "a real success and an already-in-state 409 both count as ok",
-        );
-        assert_eq!(
-            metrics.counter_delta(
-                "carbide_preingestion_power_control_total",
-                &[("operation", "bmc_reset"), ("outcome", "error")],
-            ),
-            2.0,
-            "for a BMC reset a 409 is a refusal, not an outcome that already held",
-        );
-        assert_eq!(
-            metrics.counter_delta(
-                "carbide_preingestion_power_control_total",
-                &[("operation", "chassis_reset"), ("outcome", "error")],
-            ),
-            1.0,
-        );
-        assert_eq!(
-            metrics.counter_delta(
-                "carbide_preingestion_power_control_total",
-                &[("operation", "ac_powercycle"), ("outcome", "error")],
-            ),
-            1.0,
-            "a powercycle has no state to already be in; its 409 is a refusal",
-        );
-        assert_eq!(
-            metrics.counter_delta(
-                "carbide_preingestion_power_control_total",
-                &[("operation", "force_restart"), ("outcome", "error")],
-            ),
-            1.0,
-            "a restart has no state to already be in; its 409 is a refusal",
-        );
-        assert_eq!(
-            metrics.counter_delta(
-                "carbide_preingestion_power_control_total",
-                &[("operation", "bmc_reset"), ("outcome", "ok")],
-            ),
-            0.0,
-            "an untouched label pair must not move",
-        );
+        let encoded = metrics.render();
+        assert!(encoded.contains(
+            "# HELP carbide_preingestion_power_control_total Number of preingestion Redfish power operations (host power control, BMC and chassis resets), by operation and outcome.\n"
+        ));
+        assert!(encoded.contains("# TYPE carbide_preingestion_power_control_total counter\n"));
+        let sample = encoded
+            .lines()
+            .find(|line| {
+                line.starts_with("carbide_preingestion_power_control_total{")
+                    && line.contains("operation=\"force_off\"")
+                    && line.contains("outcome=\"ok\"")
+            })
+            .unwrap_or_else(|| panic!("missing force-off/ok power-control sample:\n{encoded}"));
+        assert!(!sample.contains("bmc_ip_address"), "{sample}");
+        assert!(!sample.contains("power_step"), "{sample}");
     }
 }
