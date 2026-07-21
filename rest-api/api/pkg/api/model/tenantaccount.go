@@ -20,11 +20,8 @@ const (
 	// ErrTenantIDOrOrgRequired is returned when no tenant ID or tenant org is provided
 	validationErrorTenantIDOrOrgRequired = "Either Tenant ID or Tenant Org must be specified"
 
-	validationErrorInvalidSiteCapabilityScope = "scope must be global or limited"
-	validationErrorGlobalSiteIDsNotAllowed    = "siteIds must be omitted or empty when scope is global"
-	validationErrorLimitedSiteIDsRequired     = "siteIds must be specified when scope is limited"
-	validationErrorDuplicateGlobalScope       = "only one global siteCapabilities entry is allowed"
-	validationErrorMissingGlobalScope         = "exactly one global siteCapabilities entry is required"
+	validationErrorDuplicateAccountCapability = "only one siteCapabilities entry with empty siteIds is allowed"
+	validationErrorMissingAccountCapability   = "exactly one siteCapabilities entry with empty siteIds is required"
 	validationErrorDuplicateSiteID            = "duplicate siteIds are not allowed across siteCapabilities entries"
 )
 
@@ -48,11 +45,6 @@ var (
 			Type:         DeprecationTypeAttribute,
 			TakeActionBy: accountNumberSubscriptionIDTierDeprecationTime,
 		},
-	}
-
-	tenantAccountSiteCapabilityScopes = []interface{}{
-		TenantAccountSiteCapabilityScopeGlobal,
-		TenantAccountSiteCapabilityScopeLimited,
 	}
 )
 
@@ -105,30 +97,19 @@ func (taur APITenantAccountUpdateRequest) HasSiteCapabilities() bool {
 	return taur.SiteCapabilities != nil
 }
 
-// TenantAccountSiteCapabilityScope identifies whether a capability entry applies globally
-// or to an explicit set of sites.
-type TenantAccountSiteCapabilityScope string
-
-const (
-	TenantAccountSiteCapabilityScopeGlobal  TenantAccountSiteCapabilityScope = "global"
-	TenantAccountSiteCapabilityScopeLimited TenantAccountSiteCapabilityScope = "limited"
-)
-
 // APITenantAccountSiteCapability describes the TargetedInstanceCreation capability for
-// either all sites (global) or an explicit site list (limited). Used in responses.
+// either the TenantAccount or an explicit site list. Used in responses.
 type APITenantAccountSiteCapability struct {
-	SiteIDs                  []string                         `json:"siteIds,omitempty"`
-	Scope                    TenantAccountSiteCapabilityScope `json:"scope"`
-	TargetedInstanceCreation bool                             `json:"targetedInstanceCreation"`
+	SiteIDs                  []string `json:"siteIds,omitempty"`
+	TargetedInstanceCreation bool     `json:"targetedInstanceCreation"`
 }
 
 // APITenantAccountSiteCapabilityUpdate is the replace payload entry for Provider Admin
 // capability updates. targetedInstanceCreation must be present on every entry so an
 // omitted field cannot silently bind as false.
 type APITenantAccountSiteCapabilityUpdate struct {
-	SiteIDs                  []string                         `json:"siteIds,omitempty"`
-	Scope                    TenantAccountSiteCapabilityScope `json:"scope"`
-	TargetedInstanceCreation *bool                            `json:"targetedInstanceCreation"`
+	SiteIDs                  []string `json:"siteIds,omitempty"`
+	TargetedInstanceCreation *bool    `json:"targetedInstanceCreation"`
 }
 
 // APITenantAccountSiteCapabilitiesUpdateRequest is the replace payload for Provider Admin
@@ -141,31 +122,23 @@ func (caps APITenantAccountSiteCapabilitiesUpdateRequest) Validate() error {
 		return validation.Errors{"siteCapabilities": fmt.Errorf("siteCapabilities must contain at least one entry")}
 	}
 
-	globalCount := 0
+	accountCapabilityCount := 0
 	seenSiteIDs := map[string]struct{}{}
 
 	for i, cap := range caps {
 		prefix := fmt.Sprintf("[%d]", i)
 		if err := validation.ValidateStruct(&cap,
-			validation.Field(&cap.Scope,
-				validation.Required.Error(validationErrorValueRequired),
-				validation.In(tenantAccountSiteCapabilityScopes...).Error(validationErrorInvalidSiteCapabilityScope)),
 			validation.Field(&cap.TargetedInstanceCreation,
-				validation.Required.Error(validationErrorValueRequired)),
+				validation.NotNil.Error(validationErrorValueRequired)),
 			validation.Field(&cap.SiteIDs,
-				validation.When(cap.Scope == TenantAccountSiteCapabilityScopeGlobal,
-					validation.Empty.Error(validationErrorGlobalSiteIDsNotAllowed)),
-				validation.When(cap.Scope == TenantAccountSiteCapabilityScopeLimited,
-					validation.Required.Error(validationErrorLimitedSiteIDsRequired),
-					validation.Each(validationis.UUID.Error(validationErrorInvalidUUID)),
-				),
+				validation.Each(validationis.UUID.Error(validationErrorInvalidUUID)),
 			),
 		); err != nil {
 			return validation.Errors{prefix: err}
 		}
 
-		if cap.Scope == TenantAccountSiteCapabilityScopeGlobal {
-			globalCount++
+		if len(cap.SiteIDs) == 0 {
+			accountCapabilityCount++
 		}
 
 		for _, siteID := range cap.SiteIDs {
@@ -184,11 +157,11 @@ func (caps APITenantAccountSiteCapabilitiesUpdateRequest) Validate() error {
 		}
 	}
 
-	if globalCount == 0 {
-		return validation.Errors{"siteCapabilities": fmt.Errorf(validationErrorMissingGlobalScope)}
+	if accountCapabilityCount == 0 {
+		return validation.Errors{"siteCapabilities": fmt.Errorf(validationErrorMissingAccountCapability)}
 	}
-	if globalCount > 1 {
-		return validation.Errors{"siteCapabilities": fmt.Errorf(validationErrorDuplicateGlobalScope)}
+	if accountCapabilityCount > 1 {
+		return validation.Errors{"siteCapabilities": fmt.Errorf(validationErrorDuplicateAccountCapability)}
 	}
 
 	return nil
@@ -292,11 +265,10 @@ func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, al
 		apiTenantAccount.Deprecations = append(apiTenantAccount.Deprecations, NewAPIDeprecation(deprecation))
 	}
 
-	global := dbta.Config.TargetedInstanceCreation
+	accountDefault := dbta.Config.TargetedInstanceCreation
 	caps := []APITenantAccountSiteCapability{
 		{
-			Scope:                    TenantAccountSiteCapabilityScopeGlobal,
-			TargetedInstanceCreation: global,
+			TargetedInstanceCreation: accountDefault,
 		},
 	}
 
@@ -314,7 +286,7 @@ func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, al
 				continue
 			}
 			override := *ts.Config.TargetedInstanceCreation
-			if override == global {
+			if override == accountDefault {
 				continue
 			}
 			if override {
@@ -329,14 +301,12 @@ func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, al
 
 		if len(enabledSiteIDs) > 0 {
 			caps = append(caps, APITenantAccountSiteCapability{
-				Scope:                    TenantAccountSiteCapabilityScopeLimited,
 				SiteIDs:                  enabledSiteIDs,
 				TargetedInstanceCreation: true,
 			})
 		}
 		if len(disabledSiteIDs) > 0 {
 			caps = append(caps, APITenantAccountSiteCapability{
-				Scope:                    TenantAccountSiteCapabilityScopeLimited,
 				SiteIDs:                  disabledSiteIDs,
 				TargetedInstanceCreation: false,
 			})

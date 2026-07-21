@@ -900,21 +900,21 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 			return cutil.NewAPIError(http.StatusBadRequest, "Tenant Account does not have an associated Tenant", nil)
 		}
 
-		var globalVal *bool
+		var accountValue *bool
 		for _, cap := range *apiRequest.SiteCapabilities {
-			if cap.Scope == model.TenantAccountSiteCapabilityScopeGlobal {
-				globalVal = cap.TargetedInstanceCreation
+			if len(cap.SiteIDs) == 0 {
+				accountValue = cap.TargetedInstanceCreation
 				break
 			}
 		}
-		if globalVal == nil {
-			return cutil.NewAPIError(http.StatusBadRequest, "siteCapabilities must include exactly one global entry", nil)
+		if accountValue == nil {
+			return cutil.NewAPIError(http.StatusBadRequest, "siteCapabilities must include exactly one entry with empty siteIds", nil)
 		}
 
 		_, derr = taDAO.Update(ctx, tx, cdbm.TenantAccountUpdateInput{
 			TenantAccountID: taID,
 			Config: &cdbm.TenantAccountConfig{
-				TargetedInstanceCreation: *globalVal,
+				TargetedInstanceCreation: *accountValue,
 			},
 		})
 		if derr != nil {
@@ -923,11 +923,11 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 		}
 
 		tsDAO := cdbm.NewTenantSiteDAO(utah.dbSession)
-		limitedUpdates := map[uuid.UUID]bool{}
-		limitedSiteIDs := map[uuid.UUID]struct{}{}
+		siteUpdates := map[uuid.UUID]bool{}
+		siteIDs := map[uuid.UUID]struct{}{}
 
 		for _, cap := range *apiRequest.SiteCapabilities {
-			if cap.Scope != model.TenantAccountSiteCapabilityScopeLimited {
+			if len(cap.SiteIDs) == 0 {
 				continue
 			}
 			for _, siteIDStr := range cap.SiteIDs {
@@ -935,12 +935,12 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 				if perr != nil {
 					return cutil.NewAPIError(http.StatusBadRequest, "Invalid Site ID in siteCapabilities", nil)
 				}
-				limitedUpdates[siteID] = *cap.TargetedInstanceCreation
-				limitedSiteIDs[siteID] = struct{}{}
+				siteUpdates[siteID] = *cap.TargetedInstanceCreation
+				siteIDs[siteID] = struct{}{}
 			}
 		}
 
-		for siteID := range limitedUpdates {
+		for siteID := range siteUpdates {
 			ts, gerr := tsDAO.GetByTenantIDAndSiteID(ctx, tx, *ta.TenantID, siteID, []string{"Site"})
 			if gerr != nil {
 				if gerr == cdb.ErrDoesNotExist {
@@ -956,7 +956,7 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 			_, derr = tsDAO.Update(ctx, tx, cdbm.TenantSiteUpdateInput{
 				TenantSiteID: ts.ID,
 				Config: &cdbm.TenantSiteConfig{
-					TargetedInstanceCreation: cutil.GetPtr(limitedUpdates[siteID]),
+					TargetedInstanceCreation: cutil.GetPtr(siteUpdates[siteID]),
 				},
 			})
 			if derr != nil {
@@ -977,7 +977,7 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 			if ts.Site == nil || ts.Site.InfrastructureProviderID != ta.InfrastructureProviderID {
 				continue
 			}
-			if _, listed := limitedSiteIDs[ts.SiteID]; listed {
+			if _, listed := siteIDs[ts.SiteID]; listed {
 				continue
 			}
 			if ts.Config.TargetedInstanceCreation == nil {

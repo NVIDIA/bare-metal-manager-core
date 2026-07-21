@@ -22,13 +22,11 @@ import (
 // checks if the TenantAccountSiteCapability type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &TenantAccountSiteCapability{}
 
-// TenantAccountSiteCapability TargetedInstanceCreation capability for either all Sites on this Tenant Account (global scope) or an explicit Site list (limited scope).  Update payloads must satisfy all of the following when siteCapabilities is sent on PATCH: - the siteCapabilities array must contain at least one entry - exactly one entry must have scope global - each siteId may appear at most once across all entries - when scope is global, siteIds must be omitted or an empty array - when scope is limited, siteIds must contain at least one valid Site UUID
+// TenantAccountSiteCapability TargetedInstanceCreation capability for the Tenant Account default or an explicit Site list.  Update payloads must satisfy all of the following when siteCapabilities is sent on PATCH: - the siteCapabilities array must contain at least one entry - exactly one entry must omit siteIds or provide an empty siteIds array - each siteId may appear at most once across all entries - every provided siteId must be a valid Site UUID
 type TenantAccountSiteCapability struct {
-	// Whether this entry applies globally or to the listed Sites
-	Scope TenantAccountSiteCapabilityScope `json:"scope"`
-	// Required when scope is limited; must be omitted or empty when scope is global. Each Site UUID may appear only once across all siteCapabilities entries in the same request.
+	// Sites to configure. An omitted or empty array identifies the Tenant Account default entry. Each Site UUID may appear only once across all siteCapabilities entries in the same request.
 	SiteIds []string `json:"siteIds,omitempty"`
-	// Whether TargetedInstanceCreation is enabled for the scope. When true, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
+	// Whether TargetedInstanceCreation is enabled for the Tenant Account default or listed Sites. When true, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
 	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
 }
 
@@ -38,9 +36,8 @@ type _TenantAccountSiteCapability TenantAccountSiteCapability
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewTenantAccountSiteCapability(scope TenantAccountSiteCapabilityScope, targetedInstanceCreation bool) *TenantAccountSiteCapability {
+func NewTenantAccountSiteCapability(targetedInstanceCreation bool) *TenantAccountSiteCapability {
 	this := TenantAccountSiteCapability{}
-	this.Scope = scope
 	this.TargetedInstanceCreation = targetedInstanceCreation
 	return &this
 }
@@ -51,30 +48,6 @@ func NewTenantAccountSiteCapability(scope TenantAccountSiteCapabilityScope, targ
 func NewTenantAccountSiteCapabilityWithDefaults() *TenantAccountSiteCapability {
 	this := TenantAccountSiteCapability{}
 	return &this
-}
-
-// GetScope returns the Scope field value
-func (o *TenantAccountSiteCapability) GetScope() TenantAccountSiteCapabilityScope {
-	if o == nil {
-		var ret TenantAccountSiteCapabilityScope
-		return ret
-	}
-
-	return o.Scope
-}
-
-// GetScopeOk returns a tuple with the Scope field value
-// and a boolean to check if the value has been set.
-func (o *TenantAccountSiteCapability) GetScopeOk() (*TenantAccountSiteCapabilityScope, bool) {
-	if o == nil {
-		return nil, false
-	}
-	return &o.Scope, true
-}
-
-// SetScope sets field value
-func (o *TenantAccountSiteCapability) SetScope(v TenantAccountSiteCapabilityScope) {
-	o.Scope = v
 }
 
 // GetSiteIds returns the SiteIds field value if set, zero value otherwise.
@@ -143,7 +116,6 @@ func (o TenantAccountSiteCapability) MarshalJSON() ([]byte, error) {
 
 func (o TenantAccountSiteCapability) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["scope"] = o.Scope
 	if !IsNil(o.SiteIds) {
 		toSerialize["siteIds"] = o.SiteIds
 	}
@@ -156,7 +128,6 @@ func (o *TenantAccountSiteCapability) UnmarshalJSON(data []byte) (err error) {
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"scope",
 		"targetedInstanceCreation",
 	}
 

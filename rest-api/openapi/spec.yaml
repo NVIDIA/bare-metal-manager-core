@@ -110,7 +110,7 @@ tags:
     description: |-
       Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
 
-      Provider Admins configure TargetedInstanceCreation for a Tenant using the `siteCapabilities` attribute (global or per-site scope). Site-scoped overrides may further refine the effective capability via Tenant Site configuration.
+      Provider Admins configure TargetedInstanceCreation for a Tenant using the `siteCapabilities` attribute. An entry with empty or omitted `siteIds` configures the Tenant Account default; entries with `siteIds` configure Tenant Site overrides.
 
       Deprecation history:
 
@@ -736,8 +736,7 @@ paths:
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
                     siteCapabilities:
-                      - scope: global
-                        targetedInstanceCreation: true
+                      - targetedInstanceCreation: true
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '403':
@@ -807,8 +806,7 @@ paths:
                         created: '2019-08-24T14:15:22Z'
                         updated: '2019-08-24T14:15:22Z'
                     siteCapabilities:
-                      - scope: global
-                        targetedInstanceCreation: true
+                      - targetedInstanceCreation: true
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '400':
@@ -822,7 +820,7 @@ paths:
 
         Tenant Admins may accept an invitation sent by an Infrastructure Provider by supplying `tenantContactId`.
 
-        Provider Admins may replace `siteCapabilities` to configure TargetedInstanceCreation globally or for specific Sites. When `siteCapabilities` is sent, it must be non-empty, include exactly one `global` entry, and must not repeat any `siteId` across entries. Requests containing both `tenantContactId` and `siteCapabilities` are rejected with 400.
+        Provider Admins may replace `siteCapabilities` to configure the Tenant Account default and overrides for specific Sites. When `siteCapabilities` is sent, it must be non-empty, include exactly one entry with empty or omitted `siteIds`, and must not repeat any `siteId` across entries. Requests containing both `tenantContactId` and `siteCapabilities` are rejected with 400.
 
         Org must have a Tenant entity whose ID matches the `tenantId` of the Tenant Account object when accepting an invite. User must have authorization role with `TENANT_ADMIN` suffix to accept; `PROVIDER_ADMIN` suffix to update `siteCapabilities`. Tenant Admins can only update a Tenant Account that has `Invited` status.
       requestBody:
@@ -837,7 +835,7 @@ paths:
               update-site-capabilities:
                 value:
                   siteCapabilities:
-                    - scope: global
+                    - siteIds: []
                       targetedInstanceCreation: true
         description: Tenant invite acceptance or Provider Admin site capability update.
     delete:
@@ -15465,8 +15463,7 @@ components:
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
           siteCapabilities:
-            - scope: global
-              targetedInstanceCreation: true
+            - targetedInstanceCreation: true
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
       properties:
@@ -15527,44 +15524,33 @@ components:
           description: |-
             Provider-scoped TargetedInstanceCreation settings for this Tenant Account. Replaces the deprecated tenant-level capabilities.targetedInstanceCreation attribute.
 
-            When present on a Tenant Account response, the array always includes one global entry derived from TenantAccount.config, followed by zero or more limited entries for per-site overrides that differ from the global default.
+            When present on a Tenant Account response, the array always includes one entry with omitted `siteIds` derived from TenantAccount.config, followed by zero or more entries with `siteIds` for per-site overrides that differ from the account default.
           minItems: 1
           items:
             $ref: '#/components/schemas/TenantAccountSiteCapability'
-    TenantAccountSiteCapabilityScope:
-      title: TenantAccountSiteCapabilityScope
-      type: string
-      enum:
-        - global
-        - limited
     TenantAccountSiteCapability:
       title: TenantAccountSiteCapability
       type: object
       description: |-
-        TargetedInstanceCreation capability for either all Sites on this Tenant Account (global scope) or an explicit Site list (limited scope).
+        TargetedInstanceCreation capability for the Tenant Account default or an explicit Site list.
 
         Update payloads must satisfy all of the following when siteCapabilities is sent on PATCH:
         - the siteCapabilities array must contain at least one entry
-        - exactly one entry must have scope global
+        - exactly one entry must omit siteIds or provide an empty siteIds array
         - each siteId may appear at most once across all entries
-        - when scope is global, siteIds must be omitted or an empty array
-        - when scope is limited, siteIds must contain at least one valid Site UUID
+        - every provided siteId must be a valid Site UUID
       required:
-        - scope
         - targetedInstanceCreation
       properties:
-        scope:
-          $ref: '#/components/schemas/TenantAccountSiteCapabilityScope'
-          description: Whether this entry applies globally or to the listed Sites
         siteIds:
           type: array
-          description: Required when scope is limited; must be omitted or empty when scope is global. Each Site UUID may appear only once across all siteCapabilities entries in the same request.
+          description: Sites to configure. An omitted or empty array identifies the Tenant Account default entry. Each Site UUID may appear only once across all siteCapabilities entries in the same request.
           items:
             type: string
             format: uuid
         targetedInstanceCreation:
           type: boolean
-          description: Whether TargetedInstanceCreation is enabled for the scope. When true, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
+          description: Whether TargetedInstanceCreation is enabled for the Tenant Account default or listed Sites. When true, Tenant Admins with a Ready Tenant Account on the Site's Infrastructure Provider may create Instances by Machine ID and perform related privileged actions on that Site.
     TenantAccountStatus:
       title: TenantAccountStatus
       type: string
@@ -15607,14 +15593,13 @@ components:
         Tenant Admins may accept an invite via `tenantContactId` only.
         Requests containing both fields are rejected with 400.
 
-        When `siteCapabilities` is included, the replace payload must contain at least one entry, include exactly one `global` entry, and must not repeat any `siteId` across entries. Limited entries require at least one Site UUID; global entries must not include `siteIds`.
+        When `siteCapabilities` is included, the replace payload must contain at least one entry, include exactly one entry with empty or omitted `siteIds`, and must not repeat any `siteId` across entries.
       examples:
         - tenantContactId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
         - siteCapabilities:
-            - scope: global
+            - siteIds: []
               targetedInstanceCreation: true
-            - scope: limited
-              siteIds:
+            - siteIds:
                 - 3fa85f64-5717-4562-b3fc-2c963f66afa6
               targetedInstanceCreation: false
       properties:
@@ -15626,14 +15611,13 @@ components:
           type: array
           minItems: 1
           description: |-
-            Provider Admin replace payload for TargetedInstanceCreation scoping. Required to be non-empty when sent.
+            Provider Admin replace payload for TargetedInstanceCreation configuration. Required to be non-empty when sent.
 
             Server validation rules:
             - must contain at least one entry
-            - must contain exactly one entry with scope global
+            - must contain exactly one entry with omitted or empty siteIds
             - must not repeat any siteId across entries
-            - global entries must omit siteIds or send an empty array
-            - limited entries must include at least one siteId
+            - every provided siteId must be a valid Site UUID
           items:
             $ref: '#/components/schemas/TenantAccountSiteCapability'
     Site:
