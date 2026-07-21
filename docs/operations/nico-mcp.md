@@ -23,7 +23,7 @@ NICo REST with the Helm chart at `helm/rest/nico-mcp`. By default, the chart
 creates a `ClusterIP` Service on port `8080` and serves MCP requests at `/mcp`.
 
 Configure one fixed NICo REST base URL at startup. An in-cluster Service URL is
-the normal choice:
+the typical choice:
 
 ```yaml
 config:
@@ -34,10 +34,10 @@ config:
 The MCP listener is plaintext HTTP. Place an upstream service in front of it
 that provides all of the following controls:
 
-- authenticates callers and passes each caller's bearer token to `nico-mcp`;
-- terminates TLS for client connections;
-- routes MCP traffic to the `nico-mcp` ClusterIP Service; and
-- restricts direct access to the MCP Service from untrusted networks.
+- Authenticates callers and passes each caller's bearer token to `nico-mcp`
+- Terminates TLS for client connections
+- Routes MCP traffic to the `nico-mcp` ClusterIP Service
+- Restricts direct access to the MCP Service from untrusted networks
 
 The chart does not deploy these controls. Use the ingress, gateway, proxy, and
 network-policy components approved for your environment.
@@ -65,9 +65,9 @@ and network controls required for production.
 
 Before installing the chart, make sure that:
 
-- the `nico-mcp` image is available to the cluster;
-- NICo REST is reachable from the target namespace; and
-- the upstream authentication and TLS front is configured.
+- The `nico-mcp` image is available to the cluster
+- NICo REST is reachable from the target namespace
+- The upstream authentication and TLS frontend is configured
 
 Create a values file for the deployment:
 
@@ -103,11 +103,11 @@ Deployment starts when the registry requires authentication.
 ### Chart Values
 
 | Value | Default | Purpose |
-| --- | --- | --- |
+| ----- | ------- | ------- |
 | `global.image.repository` | empty | Image registry and repository prefix. Required for deployment. |
 | `global.image.tag` | empty | Image tag. Required for deployment. |
 | `global.image.pullPolicy` | `IfNotPresent` | Kubernetes image pull policy. |
-| `global.imagePullSecrets` | `image-pull-secret` | Existing image pull Secrets attached to the Pod. |
+| `global.imagePullSecrets` | `image-pull-secret` | Existing image pull secrets attached to the pod. |
 | `replicaCount` | `1` | Number of MCP server replicas. |
 | `nameOverride` | empty | Override for the Deployment and Service name. |
 | `namespaceOverride` | empty | Namespace override; otherwise the Helm release namespace is used. |
@@ -129,19 +129,19 @@ service token.
 
 ## Runtime Configuration
 
-The standalone binary accepts these startup settings. When running the binary
+The standalone binary accepts the following startup settings. When running the binary
 directly, a command-line flag takes its value from the corresponding environment
 variable when the flag is omitted.
 
 | Flag | Environment variable | Default | Helm value |
-| --- | --- | --- | --- |
+| ---- | -------------------- | ------- | ---------- |
 | `--listen` | `NICO_MCP_LISTEN` | `:8080` | `service.port` sets the port |
 | `--path` | `NICO_MCP_PATH` | `/mcp` | `config.path` |
 | `--shutdown-timeout` | `NICO_MCP_SHUTDOWN_TIMEOUT` | `10s` | `config.shutdownTimeout` |
 | `--base-url` | `NICO_BASE_URL` | none | `config.baseURL` |
 | `--org` | `NICO_ORG` | none | `config.org` |
 | `--api-name` | `NICO_API_NAME` | `nico` | `config.apiName` |
-| `--token` | `NICO_TOKEN` | none | not exposed |
+| `--token` | `NICO_TOKEN` | none | Not exposed |
 | `--debug` | none | `false` | `config.debug` |
 
 The Helm chart explicitly renders `--listen`, `--path`, and
@@ -155,7 +155,7 @@ Every tool accepts optional `base_url`, `org`, `api_name`, and `token`
 arguments. Non-empty values are resolved for each call as follows:
 
 | Setting | Precedence, highest first |
-| --- | --- |
+| ------- | ------------------------- |
 | `base_url` | fixed startup `--base-url` or `NICO_BASE_URL`; without a startup value, the tool argument |
 | `org` | tool argument, then startup `--org` or `NICO_ORG` |
 | `api_name` | tool argument, then startup `--api-name` or `NICO_API_NAME`, then `nico` |
