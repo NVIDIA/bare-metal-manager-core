@@ -156,12 +156,12 @@ arguments. Non-empty values are resolved for each call as follows:
 
 | Setting | Precedence, highest first |
 | ------- | ------------------------- |
-| `base_url` | fixed startup `--base-url` or `NICO_BASE_URL`; without a startup value, the tool argument |
-| `org` | tool argument, then startup `--org` or `NICO_ORG` |
-| `api_name` | tool argument, then startup `--api-name` or `NICO_API_NAME`, then `nico` |
-| `token` | tool argument, inbound `Authorization: Bearer` header, then startup `--token` or `NICO_TOKEN` |
+| `base_url` | Fixed startup `--base-url` or `NICO_BASE_URL`; without a startup value, the tool argument |
+| `org` | Tool argument, then startup `--org` or `NICO_ORG` |
+| `api_name` | Tool argument, then startup `--api-name` or `NICO_API_NAME`, then `nico` |
+| `token` | Tool argument, inbound `Authorization: Bearer` header, then startup `--token` or `NICO_TOKEN` |
 
-When a startup base URL is configured, a tool argument may repeat that
+When a startup base URL is configured, a tool argument can repeat that
 destination, with or without a trailing slash, but it cannot select a different
 one. When no startup base URL is configured, a tool call can supply `base_url`
 only with an explicit per-call `token` or with no resolved token. The server
@@ -182,7 +182,7 @@ Treat the REST destination and the bearer token as one trust decision:
   per-call `base_url` is rejected, including when the call supplies an explicit
   token.
 - Without a startup base URL, a per-call `base_url` is allowed only when the
-  call also supplies its own explicit `token`, or when the request resolves to
+  call also supplies its own explicit token, or when the request resolves to
   no token. The server does not send an inherited inbound or startup credential
   to a caller-selected destination.
 - Do not configure `NICO_TOKEN` for a shared production deployment. It is a
