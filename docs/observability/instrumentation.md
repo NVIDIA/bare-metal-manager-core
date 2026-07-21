@@ -166,7 +166,10 @@ must be small and closed. The framework makes that structural instead of a revie
   `String` never implements it.
 - **`#[context]` fields take anything `Display`** and appear only when the Event emits a log
   line. This is where `machine_id`, addresses, and error text belong. A context field cannot
-  become a metric label.
+  become a metric label. Use **`#[context(value)]`** only for `bool`, `i64`, `f64`, or
+  `String` fields that must retain their native structured type instead of being rendered
+  through `Display`; convert other numeric widths only with a checked, lossless conversion.
+  When that cannot be guaranteed, keep the default `Display` formatting.
 - **Bounded-but-not-enumerated values** such as vendor strings or SKUs can go through a
   **manual `impl LabelValue` on a newtype** -- the deliberate, greppable escape hatch, and
   the place to justify boundedness at review. The deciding factor should be real boundedness *at the call
