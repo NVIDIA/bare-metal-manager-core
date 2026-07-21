@@ -97,6 +97,12 @@
 //! }
 //! ```
 //!
+//! `#[label(name = "component")]` exists for a frozen metric key that cannot
+//! also be the Rust field name because Event logs reserve `component`. For a
+//! field such as `publisher: Publisher`, the metric keeps `component` while
+//! the generated log keeps `publisher`. Context and observation fields do not
+//! support this compatibility alias.
+//!
 //! The metric name is validated at compile time -- the `carbide_` prefix, the
 //! `_total` suffix for counters, a unit suffix for histograms:
 //!

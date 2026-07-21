@@ -91,7 +91,8 @@ fn expand_label_value(input: DeriveInput) -> syn::Result<TokenStream> {
 
 /// Derives `carbide_instrument::Event` for a struct declared with an
 /// `#[event(...)]` attribute. Every field takes exactly one of `#[label]`
-/// (enum via `LabelValue`; goes to both the log line and the metric),
+/// (`LabelValue`; supplies the metric label and, when logging, the matching log
+/// field, with `name = "..."` available as a metric-only compatibility alias),
 /// `#[context]` (any `Display`; log-only), `#[context(value)]` (`bool`, `i64`,
 /// `f64`, or `String` retained as a native structured value; log-only), or
 /// `#[observation]` (the histogram value). The metric name is validated at
@@ -303,6 +304,7 @@ fn classify_field(field: &Field) -> syn::Result<FieldKind> {
         } else if attr.path().is_ident("context") {
             kinds.push(FieldKind::Context(context_mode(attr)?));
         } else if attr.path().is_ident("observation") {
+            require_bare_field_attribute(attr, "observation")?;
             kinds.push(FieldKind::Observation);
         }
     }
@@ -316,6 +318,73 @@ fn classify_field(field: &Field) -> syn::Result<FieldKind> {
         _ => Err(syn::Error::new_spanned(
             field,
             "an Event field takes only one of #[label], #[context], #[observation]",
+        )),
+    }
+}
+
+fn require_bare_field_attribute(attr: &syn::Attribute, name: &str) -> syn::Result<()> {
+    if matches!(&attr.meta, Meta::Path(_)) {
+        return Ok(());
+    }
+    Err(syn::Error::new_spanned(
+        attr,
+        format!("#[{name}] does not accept arguments; use bare #[{name}]"),
+    ))
+}
+
+/// Validate an exposed metric label key, whether it comes from the Rust field
+/// name or an explicit compatibility alias.
+fn validate_metric_label_name(value: String, span: proc_macro2::Span) -> syn::Result<String> {
+    let mut chars = value.chars();
+    let valid_first = chars
+        .next()
+        .is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic());
+    let valid_rest = chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric());
+    if !valid_first || !valid_rest {
+        return Err(syn::Error::new(
+            span,
+            "metric label names start with an ASCII letter or underscore and contain only ASCII \
+             letters, digits, and underscores",
+        ));
+    }
+    Ok(value)
+}
+
+/// `label_metric_name` resolves the metric key for one `#[label]` field. A bare
+/// attribute uses the Rust field name for both the metric and generated log;
+/// `name = "..."` changes only the metric key. That lets a frozen metric label
+/// such as `component` coexist with the `Event` log's reserved field names.
+fn label_metric_name(field: &Field) -> syn::Result<String> {
+    let ident = field.ident.as_ref().expect("named field");
+    let attr = field
+        .attrs
+        .iter()
+        .find(|attr| attr.path().is_ident("label"))
+        .expect("label field was classified above");
+
+    match &attr.meta {
+        Meta::Path(_) => validate_metric_label_name(ident.to_string(), ident.span()),
+        Meta::List(_) => {
+            let mut name: Option<LitStr> = None;
+            attr.parse_nested_meta(|meta| {
+                if !meta.path.is_ident("name") {
+                    return Err(meta.error("unknown `label` key; expected `name`"));
+                }
+                if name.is_some() {
+                    return Err(meta.error("duplicate label `name`"));
+                }
+                name = Some(meta.value()?.parse()?);
+                Ok(())
+            })?;
+
+            let name = name.ok_or_else(|| {
+                syn::Error::new_spanned(attr, "#[label(...)] requires name = \"...\"")
+            })?;
+            validate_metric_label_name(name.value(), name.span())
+        }
+        Meta::NameValue(_) => Err(syn::Error::new_spanned(
+            attr,
+            "use #[label(name = \"...\")] to alias a metric label key",
         )),
     }
 }
@@ -540,7 +609,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         }
     };
 
-    let mut labels: Vec<&Ident> = Vec::new();
+    let mut labels: Vec<(&Ident, String)> = Vec::new();
     let mut contexts: Vec<(&Ident, ContextMode)> = Vec::new();
     let mut observations: Vec<&Ident> = Vec::new();
     for field in fields {
@@ -548,7 +617,16 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         let field_kind = classify_field(field)?;
         validate_event_log_field(args.log, field_kind, ident)?;
         match field_kind {
-            FieldKind::Label => labels.push(ident),
+            FieldKind::Label => {
+                let metric_name = label_metric_name(field)?;
+                if labels.iter().any(|(_, name)| name == &metric_name) {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        format!("duplicate metric label name `{metric_name}`"),
+                    ));
+                }
+                labels.push((ident, metric_name));
+            }
             FieldKind::Context(mode) => contexts.push((ident, mode)),
             FieldKind::Observation => observations.push(ident),
         }
@@ -573,8 +651,12 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
 
     // The pieces of the generated impl.
     let n_labels = labels.len();
-    let label_names: Vec<String> = labels.iter().map(|i| i.to_string()).collect();
-    let context_names: Vec<String> = contexts.iter().map(|(i, _)| i.to_string()).collect();
+    let label_idents: Vec<&Ident> = labels.iter().map(|(ident, _)| *ident).collect();
+    let label_names: Vec<&str> = labels.iter().map(|(_, name)| name.as_str()).collect();
+    let context_names: Vec<String> = contexts
+        .iter()
+        .map(|(ident, _)| ident.to_string())
+        .collect();
 
     // `log = dynamic` keeps the trait's nominal LOG and routes the decision
     // through the hand-implemented `DynamicLog` -- per-instance levels (count
@@ -628,7 +710,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     if let Some(metric_name) = metric_name {
         log_fields.push(quote! { metric_name = #metric_name });
     }
-    log_fields.extend(labels.iter().map(|ident| {
+    log_fields.extend(label_idents.iter().map(|ident| {
         quote! {
             #ident = ::carbide_instrument::LabelValue::label_value(&self.#ident).as_str()
         }
@@ -716,7 +798,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
                     #(
                         ::carbide_instrument::__private::opentelemetry::KeyValue::new(
                             #label_names,
-                            ::carbide_instrument::LabelValue::label_value(&self.#labels),
+                            ::carbide_instrument::LabelValue::label_value(&self.#label_idents),
                         ),
                     )*
                 ]
@@ -776,7 +858,7 @@ fn snake_case(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case as TestCase, check_cases};
+    use carbide_test_support::{Case as TestCase, Check, check_cases, check_values};
     use proc_macro2::Span;
     use syn::{Data, DeriveInput, Fields, Ident};
 
@@ -971,6 +1053,112 @@ mod tests {
                     Ok(_) => panic!("fixture field is context"),
                     Err(error) => Err(error.to_string()),
                 }
+            },
+        );
+    }
+
+    #[test]
+    fn label_metric_name_alias_diagnostics_are_specific() {
+        struct DiagnosticInput {
+            source: &'static str,
+            expected: &'static str,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "unknown alias key",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", log = info, metric = counter, message = "demo", describe = "Number of demo events")] struct Demo { #[label(rename = "component")] publisher: Stage }"#,
+                        expected: "unknown `label` key; expected `name`",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "duplicate alias key",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", log = info, metric = counter, message = "demo", describe = "Number of demo events")] struct Demo { #[label(name = "component", name = "source")] publisher: Stage }"#,
+                        expected: "duplicate label `name`",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "missing alias name",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", log = info, metric = counter, message = "demo", describe = "Number of demo events")] struct Demo { #[label()] publisher: Stage }"#,
+                        expected: "requires name = \"...\"",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "invalid metric label name",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", log = info, metric = counter, message = "demo", describe = "Number of demo events")] struct Demo { #[label(name = "bad-label")] publisher: Stage }"#,
+                        expected: "metric label names start with an ASCII letter",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "non-ASCII bare label name",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", log = info, metric = counter, message = "demo", describe = "Number of demo events")] struct Demo { #[label] café: Stage }"#,
+                        expected: "metric label names start with an ASCII letter",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "name-value attribute syntax",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", log = info, metric = counter, message = "demo", describe = "Number of demo events")] struct Demo { #[label = "component"] publisher: Stage }"#,
+                        expected: "use #[label(name = \"...\")]",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "duplicate resolved metric label name",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", log = info, metric = counter, message = "demo", describe = "Number of demo events")] struct Demo { #[label(name = "component")] publisher: Stage, #[label(name = "component")] source: Stage }"#,
+                        expected: "duplicate metric label name `component`",
+                    },
+                    expect: None,
+                },
+            ],
+            |DiagnosticInput { source, expected }| {
+                let error = expansion_error(source);
+                (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
+            },
+        );
+    }
+
+    #[test]
+    fn observation_attributes_reject_arguments() {
+        struct DiagnosticInput {
+            source: &'static str,
+            expected: &'static str,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "observation list arguments",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", component = "demo", message = "demo")] struct Demo { #[observation(name = "value")] value: f64 }"#,
+                        expected: "#[observation] does not accept arguments; use bare #[observation]",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "observation name-value syntax",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "demo", component = "demo", message = "demo")] struct Demo { #[observation = "value"] value: f64 }"#,
+                        expected: "#[observation] does not accept arguments; use bare #[observation]",
+                    },
+                    expect: None,
+                },
+            ],
+            |DiagnosticInput { source, expected }| {
+                let error = expansion_error(source);
+                (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
             },
         );
     }

@@ -190,8 +190,7 @@ async fn run_worker<P: MqttPublisher>(
                         }
                         Ok(None) => Vec::new(),
                         Err(error) => {
-                            tracing::warn!(topic = %topic, %error, "Failed to parse BMS metadata");
-                            metrics.record_serialization_error();
+                            metrics.record_bms_metadata_parse_error(topic, error.to_string());
                             Vec::new()
                         }
                     },
@@ -216,22 +215,22 @@ async fn publish_all<P: MqttPublisher>(
         let payload = match publication.payload_json() {
             Ok(payload) => payload,
             Err(error) => {
-                tracing::warn!(topic = %publication.topic, %error, "Failed to serialize BMS DSX publication");
-                metrics.record_serialization_error();
+                metrics.record_bms_publication_serialization_error(
+                    publication.topic,
+                    error.to_string(),
+                );
                 continue;
             }
         };
 
         let deadline = Instant::now() + publish_timeout;
         match timeout_at(deadline, publisher.publish(&publication.topic, payload)).await {
-            Ok(Ok(())) => metrics.record_success(),
+            Ok(Ok(())) => metrics.record_bms_success(),
             Ok(Err(error)) => {
-                tracing::warn!(topic = %publication.topic, %error, "Failed to publish BMS DSX message");
-                metrics.record_publish_error();
+                metrics.record_bms_publish_error(publication.topic, error.to_string());
             }
             Err(_) => {
-                tracing::warn!(topic = %publication.topic, "BMS DSX publish timed out");
-                metrics.record_timeout();
+                metrics.record_bms_timeout(publication.topic);
             }
         }
     }
