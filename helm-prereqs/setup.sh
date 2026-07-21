@@ -77,6 +77,11 @@
 #                          REQUIRED when DPF install is enabled.
 #   NICO_DPF_METALLB_POOL  MetalLB address pool that advertises the DPU cluster
 #                          VIP. Optional — skip when the VIP is already routable.
+#   NICO_DPF_CP_LABEL_VALUE
+#                          Value of the node-role.kubernetes.io/control-plane
+#                          label on this cluster's control-plane nodes.
+#                          Default: "" (the kubeadm convention); set to "true"
+#                          on distributions that label with a value.
 #   NICO_DPF_BMC_ROOT_PASSWORD
 #                          Site-wide BMC root password. REQUIRED unless --skip-dpf.
 #                          setup.sh deploys Core with DPF off, sets this via
@@ -218,6 +223,11 @@ _on_failure() {
     # skipped _dpf_set_bmc_root's own cleanup — the plaintext site-wide BMC
     # password must never linger in the cluster after setup exits.
     if [[ "${INSTALL_DPF:-false}" == "true" ]]; then
+        # Stop the credential Job first: a still-running pod holds the BMC
+        # password in its environment, so it must be gone before (not after)
+        # its source Secrets are removed.
+        kubectl delete job dpf-set-bmc-root -n nico-system \
+            --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1 || true
         kubectl delete secret dpf-bmc-root-pw dpf-admincli-cert -n nico-system \
             --ignore-not-found >/dev/null 2>&1 || true
     fi
@@ -686,7 +696,7 @@ if "${INSTALL_DPF}"; then
     if ! kubectl get secret hbn-user-password -n dpf-operator-system &>/dev/null; then
         kubectl create secret generic hbn-user-password \
             --namespace dpf-operator-system \
-            --from-literal=password="$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 10)"
+            --from-file=password=<(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 10)
     fi
     kubectl label secret hbn-user-password -n dpf-operator-system \
         dpu.nvidia.com/image-pull-secret="" --overwrite
@@ -770,9 +780,10 @@ if "${INSTALL_DPF}"; then
     fi
     export NICO_DPF_K8S_API_VIP NICO_DPF_K8S_API_PORT
     export NICO_DPF_DPU_INTERFACE NICO_DPF_DPU_CLUSTER_VIP
+    export NICO_DPF_CP_LABEL_VALUE="${NICO_DPF_CP_LABEL_VALUE:-}"
     envsubst '${NICO_DPF_K8S_API_VIP} ${NICO_DPF_K8S_API_PORT}' \
         < operators/dpf/dpfoperatorconfig.yaml.tmpl | kubectl apply -f -
-    envsubst '${NICO_DPF_DPU_INTERFACE} ${NICO_DPF_DPU_CLUSTER_VIP}' \
+    envsubst '${NICO_DPF_DPU_INTERFACE} ${NICO_DPF_DPU_CLUSTER_VIP} ${NICO_DPF_CP_LABEL_VALUE}' \
         < operators/dpf/dpucluster.yaml.tmpl | kubectl apply -f -
     if [[ -n "${NICO_DPF_METALLB_POOL:-}" ]]; then
         export NICO_DPF_METALLB_POOL

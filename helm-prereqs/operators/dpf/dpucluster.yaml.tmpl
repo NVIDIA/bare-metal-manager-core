@@ -28,7 +28,8 @@ spec:
       vip: "${NICO_DPF_DPU_CLUSTER_VIP}"
       virtualRouterID: 126
       nodeSelector:
-        # Some environments label control-plane nodes with value "true" —
-        # verify with:
+        # kubeadm labels control-plane nodes with an empty value, but some
+        # environments use "true" — set NICO_DPF_CP_LABEL_VALUE to match.
+        # Verify with:
         #   kubectl get node <n> -o jsonpath='{.metadata.labels.node-role\.kubernetes\.io/control-plane}'
-        node-role.kubernetes.io/control-plane: ""
+        node-role.kubernetes.io/control-plane: "${NICO_DPF_CP_LABEL_VALUE}"
