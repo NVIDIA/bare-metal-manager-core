@@ -38,7 +38,7 @@ No operator action is required; the policy is applied automatically by `setup.sh
 
 ### Upgrade Notes
 
-#### REST Database Consolidation (`v1.x` → `v2.0`)
+#### REST Database Consolidation (`v0.x` → `v2.0`)
 
 The NICo REST API database has been moved from its own standalone PostgreSQL instance to the shared Zalando-managed `nico-pg-cluster`. The standalone REST database is no longer deployed.
 
@@ -48,7 +48,7 @@ The NICo REST API database has been moved from its own standalone PostgreSQL ins
 - Database credentials are now synced via External Secrets Operator (ESO) as the `nico-rest-pg-creds` Secret in the `nico-rest` namespace (previously `db-creds`).
 - The `nico-rest-db` Helm chart's `waitForPostgres` init container now connects to `nico-pg-cluster` instead of a separate postgres instance.
 
-**Upgrade path from v1.x:**
+**Upgrade path from v0.x:**
 
 1. Back up the REST database from the old standalone PostgreSQL pod before upgrading.
 2. Run `setup.sh` as normal — it will provision the `nico_rest` database on `nico-pg-cluster` and apply the ESO secret sync automatically.
