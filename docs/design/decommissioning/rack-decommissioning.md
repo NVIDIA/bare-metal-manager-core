@@ -278,11 +278,11 @@ management-controller ignore record.
 The operator then chooses one of two follow-up paths:
 
 - **Physical removal:** remove the rack's expected-resource records when the
-site should no longer ingest that hardware, then use the resource-specific
-final-deletion APIs.
+  site should no longer ingest that hardware, then use the resource-specific
+  final-deletion APIs.
 - **Fresh ingestion:** leave the expected-resource records in place and use the
-resource-specific final-deletion APIs. Removing the ignore records makes the
-connected hardware eligible for discovery and ingestion again.
+  resource-specific final-deletion APIs. Removing the ignore records makes the
+  connected hardware eligible for discovery and ingestion again.
 
 Deleting or purging the Flow inventory rack is a separate inventory operation.
 `DeleteRack` and `PurgeRack` do not substitute for Core decommissioning or prove

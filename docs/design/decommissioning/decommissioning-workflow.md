@@ -70,7 +70,7 @@ stateDiagram-v2
     state "Preparing" as Preparing
     state "Resource cleanup" as Cleanup
     state "Removing managed credentials" as RemovingCredentials
-    state "Finalizing" as Finalizing
+    state "VerifyingDhcpRelease" as VerifyingDhcpRelease
     state "Decommissioned" as Decommissioned
     state "Deleted" as Deleted
     state "Fresh ingestion" as FreshIngestion
@@ -78,8 +78,8 @@ stateDiagram-v2
     Ready --> Preparing : start accepted
     Preparing --> Cleanup : preflight complete and discovery suppressed
     Cleanup --> RemovingCredentials : resource cleanup verified
-    RemovingCredentials --> Finalizing : managed credentials removed
-    Finalizing --> Decommissioned : DHCP suppressed and leases revoked
+    RemovingCredentials --> VerifyingDhcpRelease : neutral reset credential retained
+    VerifyingDhcpRelease --> Decommissioned : controller restart and DHCP handoff verified
     Decommissioned --> Deleted : final deletion
     Deleted --> FreshIngestion : expected record remains and hardware is visible
 ```
@@ -163,22 +163,47 @@ read back before advancing.
 ### Managed credential removal
 
 Credential removal occurs after the last hardware operation that needs each
-credential. NICo resets the device credential, verifies the replacement
-credential, and only then removes the corresponding secret and rotation state.
+credential. NICo resets the device credential and verifies the replacement
+credential before entering `VerifyingDhcpRelease`. It removes credentials that
+are no longer needed, but retains access to the verified neutral credential
+required to reset the management controller. Any remaining per-device
+credential and rotation state is removed only after the reset and DHCP handoff
+succeed.
 Resource-specific documents identify the credentials and other trust material
 that must be removed.
 
 Site-wide credentials and shared lockdown input key material are not deleted.
 
-### Finalizing
+### Verifying DHCP release
 
-After hardware and credential cleanup are verified, NICo:
+After hardware cleanup, NICo performs the following operation for every
+management controller:
 
-1. sets `suppress_dhcp` to `true` for every ignored management-controller MAC;
-2. revokes existing management-controller DHCP leases and releases their
-  address allocations;
-3. invalidates the DHCP record cache; and
-4. commits the transition to `Decommissioned`.
+1. atomically sets `suppress_dhcp` to `true` and clears
+   `dhcp_discover_suppressed_at` for each management-controller MAC whose
+   suppression changes from `false` to `true`;
+2. invalidates the DHCP record cache so subsequent DHCP requests observe the
+   suppression;
+3. uses the retained, verified reset credential to restart the management
+   controller with Redfish `Manager.Reset` or the vendor-equivalent operation;
+4. returns `DHCPNAK`, if the restarted controller sends `DHCPREQUEST` for its old
+   address; the NAK forces the DHCP client back to INIT.
+5. suppresses incoming `DHCPDISCOVER`, returns no
+   `DHCPOFFER`, and atomically records `dhcp_discover_suppressed_at`;
+6. waits for `dhcp_discover_suppressed_at` to be set for every management
+   controller, proving that each DHCP client discarded its old address and
+   returned to the initial DHCP state;
+7. revokes the old DHCP leases, releases their address allocations, and removes
+   any remaining per-device reset-credential and rotation state; and
+8. commits the transition to `Decommissioned`.
+
+Clearing the timestamp happens only when `suppress_dhcp` changes from `false`
+to `true`. A retry that finds suppression already enabled preserves an existing
+timestamp. If any required timestamp remains null, the resource remains in
+`VerifyingDhcpRelease`; its address allocation and reset credential are
+retained. A retry does not reset a controller whose suppressed discovery is
+already recorded. A reset is otherwise idempotent and may be reissued according
+to the normal retry policy.
 
 The resource is then excluded from capacity and health remediation. Rack
 health may report it as administratively absent, but no controller may try to
@@ -206,6 +231,7 @@ CREATE TABLE ignored_bmc_macs (
     reason TEXT NOT NULL,
     suppress_site_explorer BOOLEAN NOT NULL DEFAULT FALSE,
     suppress_dhcp BOOLEAN NOT NULL DEFAULT FALSE,
+    dhcp_discover_suppressed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -215,8 +241,12 @@ Site Explorer loads this table on each iteration and filters an endpoint as
 soon as its MAC is known, before authentication, credential rotation, inventory
 persistence, power control, or managed-resource creation.
 
-`DiscoverDhcp` checks the table immediately after parsing the client MAC. It
-returns no DHCP record for an ignored MAC when `suppress_dhcp` is `true`.
+
+For a MAC with `suppress_dhcp` set, NICo handles the message as follows:
+
+- `DHCPREQUEST` returns a `DHCPNAK` disposition; and
+- `DHCPDISCOVER` atomically sets `dhcp_discover_suppressed_at` and returns a
+  no-offer disposition.
 
 The table covers the BMC or PMC management-controller MAC used to discover each
 managed host, switch, or power shelf.
@@ -255,6 +285,13 @@ before hardware mutation;
 - every substate resumes correctly after a controller restart;
 - credentials remain until dependent hardware operations finish;
 - ignored management controllers are neither explored nor served by DHCP;
+- each management controller is restarted with a verified credential after DHCP
+  suppression is committed;
+- a suppressed `DHCPREQUEST` receives `DHCPNAK`, and a suppressed `DHCPDISCOVER` receives no offer;
+- every required management controller has a non-null
+  `dhcp_discover_suppressed_at` before its address allocation is released and
+  its retained reset credential is removed or the resource enters
+  `Decommissioned`;
 - final deletion is rejected before `Decommissioned`;
 - final deletion preserves the expected-resource record and removes ignore
 rows;

@@ -21,8 +21,9 @@ a vanilla BFB on every managed DPU, and then ends in the terminal
 
 During decommissioning, NICo applies the shared management-controller ignore
 behavior to every host and DPU BMC MAC. Site Explorer is suppressed before
-hardware cleanup, and DHCP is suppressed and existing leases are revoked before
-terminal completion.
+hardware cleanup. Before terminal completion, DHCP is suppressed and every BMC
+must return to `DHCPDISCOVER`; only then are its old lease and address allocation
+released.
 
 The terminal record is retained until an operator explicitly requests final
 deletion, which is different from force deletion. Final deletion removes the
@@ -67,7 +68,7 @@ enum DecommissioningState {
         dpu_states: HashMap<MachineId, VanillaBFBInstallState>,
     },
     RemovingManagedCredentials,
-    Finalizing,
+    VerifyingDhcpRelease,
 }
 ```
 
@@ -78,7 +79,7 @@ The externally reported state strings are exactly:
 - `Decommissioning/DeconfiguringDPUs`
 - `Decommissioning/InstallingVanillaBFB`
 - `Decommissioning/RemovingManagedCredentials`
-- `Decommissioning/Finalizing`
+- `Decommissioning/VerifyingDhcpRelease`
 - `Decommissioned`
 
 ### State diagram
@@ -91,7 +92,7 @@ stateDiagram-v2
     state "Decommissioning/DeconfiguringDPUs" as DeconfiguringDPUs
     state "Decommissioning/InstallingVanillaBFB" as InstallingVanillaBFB
     state "Decommissioning/RemovingManagedCredentials" as RemovingCredentials
-    state "Decommissioning/Finalizing" as Finalizing
+    state "Decommissioning/VerifyingDhcpRelease" as VerifyingDhcpRelease
     state "Decommissioned" as Decommissioned
     state "Deleted" as Deleted
     state "Fresh ingestion" as FreshIngestion
@@ -101,8 +102,8 @@ stateDiagram-v2
     DeconfiguringHost --> DeconfiguringDPUs : host cleanup verified
     DeconfiguringDPUs --> InstallingVanillaBFB : DPU pre-install cleanup verified
     InstallingVanillaBFB --> RemovingCredentials : vanilla BFB verified on every DPU
-    RemovingCredentials --> Finalizing : device and stored credentials removed
-    Finalizing --> Decommissioned : ignore rows and terminal state committed
+    RemovingCredentials --> VerifyingDhcpRelease : neutral BMC credentials verified
+    VerifyingDhcpRelease --> Decommissioned : BMC restarts and DHCP handoffs verified
     Decommissioned --> Deleted : DeleteDecommissionedMachine
     Deleted --> FreshIngestion : hardware is still visible
 ```
@@ -116,8 +117,8 @@ stateDiagram-v2
 | `DeconfiguringHost`          | `DeconfiguringDPUs`          | lockdown is disabled; UEFI password is cleared; BIOS reset; in-band BMC/IPMI policy restored; NIC/SuperNIC lockdown cleared; The host is rebooted when required by the vendor operation.                                                                                  |
 | `DeconfiguringDPUs`          | `InstallingVanillaBFB`       | NIC/SuperNIC lockdown is removed, DPU UEFI settings are reset, one-time boot overrides are cleared, and any DPF or extension-service resources that would reconfigure the DPU are removed for every DPU. No DPU agent changes are needed after this point.                |
 | `InstallingVanillaBFB`       | `RemovingManagedCredentials` | Every managed DPU has completed vanilla BFB installation; Redfish/DPF reports success. For a zero-DPU or NIC-mode host this is a no-op.                                                                                                                                   |
-| `RemovingManagedCredentials` | `Finalizing`                 | per-device secrets and rotation markers are absent; DPU OS credentials disappeared with the vanilla BFB.                                                                                                                                                                  |
-| `Finalizing`                 | `Decommissioned`             | Current BMC DHCP allocations are revoked; suppress DHCP in the ignore table.                                                                                                                                                                                              |
+| `RemovingManagedCredentials` | `VerifyingDhcpRelease`       | Host and DPU BMC credentials are reset and the neutral credentials needed for the final BMC resets are verified; other per-device secrets and rotation markers are absent; DPU OS credentials disappeared with the vanilla BFB.                                             |
+| `VerifyingDhcpRelease`       | `Decommissioned`             | Every host and DPU BMC restart is issued after DHCP suppression; every ignore row has a non-null `dhcp_discover_suppressed_at`; old leases and address allocations are released; any remaining per-device credential state is absent.                                       |
 | `Decommissioned`             | deleted                      | `DeleteDecommissionedMachine` is authorized; all associated database and external control-plane resources are absent; machine rows and ignore rows are removed atomically; `expected_machines` remains.                                                                   |
 
 ## State behavior
@@ -184,37 +185,56 @@ credentials needed to retry hardware operations.
 
 #### Host
 
-- The host BMC credentials are factory reset, verified, and then its per-BMC
-  secret is removed.
+- The host BMC credentials are factory reset and verified. NICo retains access
+  to the verified neutral credential until it issues the final BMC reset.
 
 #### DPU
 
 - The vanilla install removes DPU OS SSH keys, HBN credentials, client
   certificates, NICo trust roots, and agent enrollment material from the DPU
   filesystem.
-- The DPU BMC credentials are factory reset, verified, and then its per-BMC
-  secret is removed.
+- The DPU BMC credentials are factory reset and verified. NICo retains access
+  to each verified neutral credential until it issues the final BMC reset.
 
 #### NICo control plane
 
-NICo deletes all machine-specific credential material, including:
+NICo deletes machine-specific credential material that is no longer needed,
+including:
 
 - `BmcRoot` and `BmcForgeAdmin` secrets for every known BMC MAC;
 - `DpuSsh` and `DpuHbn` secrets for every DPU machine ID;
 - BMC, host-UEFI, and DPU-UEFI credential-rotation convergence rows; and
 - outstanding BMC sessions and machine-scoped enrollment tokens.
 
+Any per-BMC credential state required to use the verified neutral credential is
+retained through the final reset and removed before `Decommissioned`.
+
 Site-wide credentials and lockdown input key material are not deleted.
 
-### `Decommissioning/Finalizing`
+### `Decommissioning/VerifyingDhcpRelease`
 
 This state performs the control-plane cutover:
 
-1. Set `suppress_dhcp` to true in the ignore table for all BMCs.
-2. Revoke the existing BMC DHCP leases and release their current address
-  allocations.
-3. Invalidate the DHCP record cache.
-4. Transition to `Decommissioned`.
+1. Atomically set `suppress_dhcp` to true and clear
+   `dhcp_discover_suppressed_at` for every host and DPU BMC entering
+   suppression.
+2. Invalidate the DHCP record cache.
+3. Use the verified neutral credentials to restart every host and DPU BMC whose
+   suppressed discovery is not already recorded.
+4. Return `DHCPNAK` if a restarted BMC enters INIT-REBOOT and requests its old
+   address, forcing its DHCP client back to INIT. Suppress the resulting
+   `DHCPDISCOVER`, return no offer, and set
+   `dhcp_discover_suppressed_at`.
+5. Wait for `dhcp_discover_suppressed_at` for every host and DPU BMC.
+6. Revoke the old leases, release their address allocations, and remove any
+   remaining per-BMC credential and rotation state.
+7. Transition to `Decommissioned`.
+
+The state controller checks the complete BMC MAC set resolved during
+`Preparing`. One null `dhcp_discover_suppressed_at` keeps the managed host in
+`VerifyingDhcpRelease` and retains the corresponding address allocation and reset
+credential. Idempotent retries preserve timestamps already set after
+suppression began and do not reset a BMC whose handoff is complete.
 
 ### `Decommissioned`
 
@@ -261,7 +281,7 @@ rpc DeleteDecommissionedMachine(DeleteDecommissionedMachineRequest)
     returns (DeleteDecommissionedMachineResponse);
 ```
 
-The request requires the canonical host ID. It is accepted only from exactly
+The request requires the canonical host ID and is accepted only from exactly
 `Decommissioned`. It deletes the host, associated DPUs, interfaces, explored
 endpoints, observations, measurements, health records, DNS/DHCP state,
 allocation state, and DPF/extension resources.
@@ -297,8 +317,14 @@ unit and integration tests should cover:
 - zero-, one-, and multi-DPU transitions, including one DPU retrying after a
   sibling completes;
 - vanilla BFB completion is verified without a DPU-agent heartbeat;
-- the terminal transition and final ignore-table update are atomic; and
-- old BMC DHCP lease renewals are rejected after DHCP suppression.
+- the terminal transition requires `dhcp_discover_suppressed_at` for every host
+  and DPU BMC;
+- a retry preserves previously recorded suppressed discoveries;
+- every host and DPU BMC is restarted after DHCP suppression using a verified
+  neutral credential;
+- old BMC DHCP lease requests receive `DHCPNAK`; and
+- old BMC address allocations are not released before all required suppressed
+  discoveries are recorded.
 
 Hardware qualification must exercise each supported host vendor, BlueField
 generation, BFB installation method, multi-DPU topology, and required power
