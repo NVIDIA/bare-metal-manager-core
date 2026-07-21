@@ -164,6 +164,11 @@ must be small and closed. The framework makes that structural instead of a revie
 - **`#[label]` fields must implement `LabelValue`**, which is derivable **only for
   fieldless enums**. A derived label value is the variant's snake_case name.
   `String` never implements it.
+- **A frozen metric label key that collides with a reserved Event-log field** can use the
+  narrow `#[label(name = "component")] publisher: PublishComponent` compatibility form.
+  `name` changes only the Prometheus label key; the generated log uses the Rust field name
+  (`publisher`). Use a bare `#[label]` everywhere else, and do not use this to rename
+  context or observation fields.
 - **`#[context]` fields take anything `Display`** and appear only when the Event emits a log
   line. This is where `machine_id`, addresses, and error text belong. A context field cannot
   become a metric label.
@@ -309,7 +314,9 @@ inspection.
 - **Reserved Event-log fields**: `message` is always reserved. Events that can log must
   also not declare payload fields named `msg`, `level`, `location`, `component`, `span_id`,
   `event_name`, or `metric_name`. Metric-only legacy labels remain allowed because renaming
-  a Prometheus label would break its metric contract.
+  a Prometheus label would break its metric contract. When such a metric-only Event gains a
+  log, preserve the label key with `#[label(name = "component")]` on a domain-specific Rust
+  field such as `publisher`; only the metric key is aliased.
 
 ## References
 
