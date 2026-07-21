@@ -675,7 +675,7 @@ mod parse_ping_stdout_tests {
             )
             .map_err(|_| ())?;
 
-            Ok((result.success_count, result.average_latency))
+            Ok::<_, ()>((result.success_count, result.average_latency))
         };
             "successful ping" {
                 "5 packets transmitted, 5 received, 0% packet loss, time 4006ms\n\
