@@ -19,7 +19,7 @@ use carbide_test_harness::prelude::TestHarness;
 use hyper::http::Request;
 use hyper::http::request::Builder;
 
-use crate::routes;
+use crate::{WebAuthMode, routes_with_auth_mode};
 
 mod env;
 mod explored_endpoint;
@@ -29,11 +29,11 @@ mod managed_host;
 mod vpc;
 
 fn make_test_app(test_harness: &TestHarness) -> Router {
-    let r = routes(test_harness.api_arc()).unwrap();
+    let r = routes_with_auth_mode(test_harness.api_arc(), WebAuthMode::None).unwrap();
     Router::new().nest_service("/admin", r)
 }
 
-/// Builder for admin UI requests (in-process auth defaults to none in tests).
+/// Builder for admin UI requests (tests explicitly disable in-process auth).
 fn web_request_builder() -> Builder {
     Request::builder().header("Host", "with.the.most")
 }

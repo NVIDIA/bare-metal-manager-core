@@ -21,9 +21,9 @@ use std::str::FromStr;
 use carbide_network::{deserialize_input_mac_to_address, sanitized_mac};
 use mac_address::MacAddress;
 use model::site_explorer::{
-    BootOption as ModelBootOption, BootOrder as ModelBootOrder,
+    BlueFieldOperatingMode, BootOption as ModelBootOption, BootOrder as ModelBootOrder,
     ComputerSystem as ModelComputerSystem, ComputerSystemAttributes,
-    EthernetInterface as ModelEthernetInterface, MachineSetupDiff, NicMode, PCIeDevice,
+    EthernetInterface as ModelEthernetInterface, MachineSetupDiff, PCIeDevice,
     PowerState as ModelPowerState, SecureBootStatus, UefiDevicePath as ModelUefiDevicePath,
 };
 use nv_redfish::computer_system::boot_option::UefiDevicePath as BootOptionUefiDevicePath;
@@ -205,7 +205,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                         })
                         .ok()
                 });
-                nic_mode = Self::dpu_mode(&self.system, self.bios.as_ref(), oem_bf);
+                nic_mode = Self::bluefield_operating_mode(&self.system, self.bios.as_ref(), oem_bf);
             }
             let is_bf4_shape = chassis
                 .members
@@ -485,11 +485,11 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             .transpose()
     }
 
-    fn dpu_mode(
+    fn bluefield_operating_mode(
         system: &ComputerSystem<B>,
         bios: Option<&Bios<B>>,
         bf_ncs: &NvidiaComputerSystem<B>,
-    ) -> Option<NicMode> {
+    ) -> Option<BlueFieldOperatingMode> {
         let hw_id = system.hardware_id();
         let manufacturer = hw_id.manufacturer.map(|v| v.into_inner());
         let model = hw_id.model.map(|v| v.into_inner());
@@ -503,8 +503,8 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     | Some("Bluefield 3 SmartNIC Main Card") => {
                         use nv_redfish::oem::nvidia::bluefield::nvidia_computer_system::Mode;
                         bf_ncs.mode().and_then(|v| match v {
-                            Mode::DpuMode => Some(NicMode::Dpu),
-                            Mode::NicMode => Some(NicMode::Nic),
+                            Mode::DpuMode => Some(BlueFieldOperatingMode::Dpu),
+                            Mode::NicMode => Some(BlueFieldOperatingMode::Nic),
                             Mode::UnsupportedValue => None,
                         })
                     }
@@ -513,8 +513,8 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                         bios.and_then(|bios| bios.attribute("NicMode"))
                             .and_then(|attr| {
                                 attr.str_value().and_then(|v| match v {
-                                    "NicMode" => Some(NicMode::Nic),
-                                    "DpuMode" => Some(NicMode::Dpu),
+                                    "NicMode" => Some(BlueFieldOperatingMode::Nic),
+                                    "DpuMode" => Some(BlueFieldOperatingMode::Dpu),
                                     _ => None,
                                 })
                             })

@@ -387,6 +387,16 @@ args = [
   "mkosi.profiles/scout-oss-aarch64/mkosi.extra/opt/forge/forge_root.pem",
 ]
 
+[tasks.test-stage-bootstrap-ca]
+category = "Copy DPU bootstrap CA"
+command = "sh"
+args = ["${REPO_ROOT}/pxe/common_files/stage-bootstrap-ca_test.sh"]
+
+[tasks.test-runtime-bootstrap-ca]
+category = "Copy DPU bootstrap CA"
+command = "sh"
+args = ["${REPO_ROOT}/pxe/common_files/runtime-bootstrap-ca_test.sh"]
+
 [tasks.copy-forge-scout-x86_64]
 category = "Copy Forge Scout locally"
 script = '''
@@ -805,6 +815,7 @@ dependencies = [
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
+  "bfb-stage-embedded-bootstrap-ca",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
@@ -837,6 +848,7 @@ dependencies = [
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
+  "bfb-stage-embedded-bootstrap-ca",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
@@ -871,6 +883,7 @@ dependencies = [
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-dev-forge-root-ca-to-bfb",
+  "bfb-stage-embedded-bootstrap-ca",
   "mkdir-hbn-folder-in-bfb",
   "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
@@ -980,6 +993,15 @@ args = [
   "${REPO_ROOT}/dev/certs/forge_developer_local_only_root_cert_pem",
   "${BUILD_LOCATION}/forge_root.pem",
 ]
+
+[tasks.bfb-stage-embedded-bootstrap-ca]
+category = "iPXE Kernel"
+description = "Stage an explicitly supplied DPU bootstrap CA in the BFB"
+dependencies = ["test-stage-bootstrap-ca", "test-runtime-bootstrap-ca"]
+script = '''
+  sh "${REPO_ROOT}/pxe/common_files/stage-bootstrap-ca.sh" \
+    "${BUILD_LOCATION}/embedded_forge_root.pem"
+'''
 
 [tasks.cleanup-old-debs]
 category = "iPXE Kernel"

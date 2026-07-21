@@ -76,24 +76,28 @@ nico-api:
     RUST_BACKTRACE: "full"
     RUST_LIB_BACKTRACE: "0"
 
-  ## OAuth2/SSO authentication — configure via extraEnv
-  ## These are not built into the chart to keep it auth-provider agnostic.
+  ## WebUI authentication defaults to Basic with a generated password Secret.
+  ## Select OAuth2 here; provider-specific settings remain in extraEnv.
+  webAuth:
+    mode: oauth2
+
   extraEnv:
-    - name: NICO_WEB_AUTH_TYPE
-      value: "oauth2"
-    - name: NICO_WEB_OAUTH2_AUTH_ENDPOINT
+    - name: CARBIDE_WEB_OAUTH2_AUTH_ENDPOINT
       value: "https://login.example.com/oauth2/v2.0/authorize"
-    - name: NICO_WEB_OAUTH2_TOKEN_ENDPOINT
+    - name: CARBIDE_WEB_OAUTH2_TOKEN_ENDPOINT
       value: "https://login.example.com/oauth2/v2.0/token"
-    - name: NICO_WEB_OAUTH2_CLIENT_ID
+    - name: CARBIDE_WEB_OAUTH2_CLIENT_ID
       value: "your-oauth2-client-id"
-    - name: NICO_WEB_OAUTH2_CLIENT_SECRET
+    - name: CARBIDE_WEB_OAUTH2_CLIENT_SECRET
       valueFrom:
         secretKeyRef:
           name: azure-sso-nico-web-client-secret
           key: client_secret
-    - name: NICO_WEB_ALLOWED_ACCESS_GROUPS
+    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS
       value: "nico-admins,nico-operators"
+    ## Fail-closed examples: replace with the corresponding group object IDs.
+    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS_ID_LIST
+      value: "00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002"
 
   ## NICo Web UI hostname
   hostname: "nico.example.com"

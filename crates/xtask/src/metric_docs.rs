@@ -252,10 +252,16 @@ fn event_metric(item: &ItemStruct, source: &Path) -> eyre::Result<Option<Declare
             metric_name_unchecked = true;
         } else if meta.path.is_ident("describe_unchecked") {
             // A flag with no value, and no bearing on documentation.
-        } else if meta.path.is_ident("component")
-            || meta.path.is_ident("message")
-            || meta.path.is_ident("unit")
-        {
+        } else if meta.path.is_ident("message") {
+            // Either a string literal or the `dynamic` ident (message = dynamic);
+            // the gate ignores the value but must consume whichever form.
+            let value = meta.value()?;
+            if value.peek(syn::LitStr) {
+                let _: syn::LitStr = value.parse()?;
+            } else {
+                let _: syn::Ident = value.parse()?;
+            }
+        } else if meta.path.is_ident("component") || meta.path.is_ident("unit") {
             // String-valued keys the gate ignores; consumed to keep parsing.
             let _: syn::LitStr = meta.value()?.parse()?;
         } else if meta.path.is_ident("log") {
@@ -449,6 +455,22 @@ mod tests {
         );
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0].name, "carbide_cooked_total");
+    }
+
+    /// A metric-backed event may declare `message = dynamic` (per-variant log
+    /// wording); the gate consumes the ident form and still collects the row.
+    #[test]
+    fn dynamic_message_counter_is_collected() {
+        let metrics = declared(
+            r#"
+            #[derive(Event)]
+            #[event(metric_name = "carbide_dynmsg_total", component = "c", log = dynamic,
+                    metric = counter, message = dynamic, describe = "Number of dynmsg things")]
+            struct DynMsg;
+            "#,
+        );
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].name, "carbide_dynmsg_total");
     }
 
     /// Events under `#[cfg(test)]` -- on the struct or an enclosing module --

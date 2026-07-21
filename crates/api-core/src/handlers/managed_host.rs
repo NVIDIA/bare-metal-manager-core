@@ -236,6 +236,7 @@ async fn set_primary_interface_core(
         })?;
 
     let bmc_addr = machine
+        .status
         .bmc_info
         .ip
         .ok_or_else(|| CarbideError::NotFoundError {

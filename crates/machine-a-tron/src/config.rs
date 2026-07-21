@@ -85,8 +85,6 @@ pub struct MachineConfig {
         serialize_with = "as_std_duration"
     )]
     pub scout_run_interval: Duration,
-    #[serde(default = "default_template_dir")]
-    pub template_dir: String,
     pub oob_dhcp_relay_address: Ipv4Addr,
     pub admin_dhcp_relay_address: Ipv4Addr,
     /// Relay address used when a host DHCPs directly through a plain NIC rather than a managed DPU.
@@ -446,10 +444,6 @@ impl From<PersistedDpuMachine> for DpuMachineInfo {
 
 fn default_bmc_mock_port() -> u16 {
     2000
-}
-
-fn default_template_dir() -> String {
-    String::from("dev/machine-a-tron/templates")
 }
 
 fn default_run_interval_working() -> Duration {

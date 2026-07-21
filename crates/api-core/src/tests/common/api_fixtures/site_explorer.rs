@@ -104,7 +104,7 @@ async fn current_host_state_and_cleanup_needed(
 
     (
         machine.current_state().clone(),
-        machine.last_cleanup_time.is_none(),
+        machine.status.last_cleanup_time.is_none(),
     )
 }
 
@@ -914,7 +914,7 @@ impl<'a> MockExploredHost<'a> {
                     20,
                     |machine| {
                         machine.current_state() == &expected_state
-                            || machine.hw_sku.is_none()
+                            || machine.config.hw_sku.is_none()
                                 && matches!(
                                     *machine.current_state(),
                                     ManagedHostState::BomValidating {
@@ -924,7 +924,7 @@ impl<'a> MockExploredHost<'a> {
                                             ),
                                     }
                                 )
-                            || machine.hw_sku.is_some()
+                            || machine.config.hw_sku.is_some()
                     },
                 )
                 .await;
@@ -1502,10 +1502,10 @@ pub async fn register_expected_machine(
         data.dpf_enabled = default_dpf_enabled;
     }
     // For fixtures that intentionally create zero-DPU hosts (no DpuConfigs),
-    // declare them as `NoDpu` so site-explorer accepts them. Tests that
-    // explicitly set `dpu_mode` via `expected_machine_data` are left alone.
-    if config.dpus.is_empty() && data.dpu_mode == model::expected_machine::DpuMode::DpuMode {
-        data.dpu_mode = model::expected_machine::DpuMode::NoDpu;
+    // declare them as `Ignore` so site-explorer accepts them. Explicit
+    // non-`Manage` policies in `expected_machine_data` are left alone.
+    if config.dpus.is_empty() && data.dpu_policy == model::expected_machine::HostDpuPolicy::Manage {
+        data.dpu_policy = model::expected_machine::HostDpuPolicy::Ignore;
     }
 
     let em = ExpectedMachine {

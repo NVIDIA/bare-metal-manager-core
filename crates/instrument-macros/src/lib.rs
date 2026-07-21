@@ -125,11 +125,19 @@ enum MetricSpec {
     None,
 }
 
+/// The `message` knob: absent, a static string, or `dynamic` -- the last routed
+/// through the hand-implemented `DynamicMessage`.
+enum MessageSpec {
+    None,
+    Static(LitStr),
+    Dynamic,
+}
+
 struct EventArgs {
     event_name: Option<LitStr>,
     metric_name: Option<LitStr>,
     component: Option<LitStr>,
-    message: Option<LitStr>,
+    message: MessageSpec,
     describe: Option<LitStr>,
     unit: Option<LitStr>,
     log: LogSpec,
@@ -143,7 +151,7 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
         event_name: None,
         metric_name: None,
         component: None,
-        message: None,
+        message: MessageSpec::None,
         describe: None,
         unit: None,
         log: LogSpec::Info,
@@ -177,7 +185,17 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
             } else if meta.path.is_ident("component") {
                 args.component = Some(meta.value()?.parse()?);
             } else if meta.path.is_ident("message") {
-                args.message = Some(meta.value()?.parse()?);
+                let value = meta.value()?;
+                args.message = if value.peek(LitStr) {
+                    MessageSpec::Static(value.parse()?)
+                } else {
+                    let ident: Ident = value.parse()?;
+                    if ident == "dynamic" {
+                        MessageSpec::Dynamic
+                    } else {
+                        return Err(meta.error("message must be a string literal or `dynamic`"));
+                    }
+                };
             } else if meta.path.is_ident("describe") {
                 args.describe = Some(meta.value()?.parse()?);
             } else if meta.path.is_ident("unit") {
@@ -460,11 +478,11 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         ));
     }
 
-    if args.message.is_none() && args.log != LogSpec::Off {
+    if matches!(args.message, MessageSpec::None) && args.log != LogSpec::Off {
         return Err(syn::Error::new_spanned(
             &input.ident,
-            "message = \"...\" is required when the event logs (or set log = off for a \
-             metric-only event)",
+            "a message is required when the event logs: set message = \"...\" or \
+             message = dynamic (or set log = off for a metric-only event)",
         ));
     }
     if args.log == LogSpec::Off && args.metric == MetricSpec::None {
@@ -555,7 +573,11 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         Some(metric_name) => quote! { ::std::option::Option::Some(#metric_name) },
         None => quote! { ::std::option::Option::None },
     };
-    let message_value = args.message.as_ref().map(LitStr::value).unwrap_or_default();
+    let message_body = match &args.message {
+        MessageSpec::Static(message) => quote! { #message },
+        MessageSpec::Dynamic => quote! { ::carbide_instrument::DynamicMessage::message(self) },
+        MessageSpec::None => quote! { "" },
+    };
     let describe_value = args
         .describe
         .as_ref()
@@ -638,7 +660,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             type Labels = [::carbide_instrument::__private::opentelemetry::KeyValue; #n_labels];
 
             fn message(&self) -> &'static str {
-                #message_value
+                #message_body
             }
 
             fn labels(&self) -> Self::Labels {
@@ -817,5 +839,16 @@ mod tests {
 
         let machine_id = Ident::new("machine_id", Span::call_site());
         assert!(validate_event_log_field(LogSpec::Info, FieldKind::Context, &machine_id).is_ok());
+    }
+
+    #[test]
+    fn message_rejects_an_unknown_bare_word() {
+        let error = expansion_error(
+            r#"#[event(event_name = "demo", component = "demo", message = bogus)] struct Demo {}"#,
+        );
+        assert!(
+            error.contains("string literal or `dynamic`"),
+            "expected a message-value diagnostic, got `{error}`"
+        );
     }
 }

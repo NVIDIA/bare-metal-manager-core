@@ -272,6 +272,9 @@ pub(crate) async fn resolve_cloud_init_instructions(
                     hbn_bridge: traffic_intercept_bridging.map(|b| b.hbn_bridge.clone()),
                     host_representor_intercept_bridging: traffic_intercept_bridging
                         .and_then(|b| b.host_representor_intercept_bridging_provisioning_config()),
+                    bootstrap_ca_source: rpc::BootstrapCaSource::from(
+                        api.runtime_config.dpu_config.bootstrap_ca_source,
+                    ) as i32,
                 }),
                 metadata,
                 api_url_override,

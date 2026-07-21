@@ -1098,20 +1098,7 @@ pub fn create_vault_client(
         ForgeVaultAuthenticationType::Root(vault_config.token()?)
     };
 
-    // The attempted / succeeded / failed counters and the request-duration
-    // histogram are now `carbide-instrument` events (the `VaultRequest*` types);
-    // only the token-refresh state gauge stays a hand-rolled instrument.
-    let vault_token_time_remaining_until_refresh_gauge = meter
-        .f64_gauge("carbide-api.vault.token_time_until_refresh")
-        .with_description(
-            "The amount of time, in seconds, until the Vault token is required to be refreshed",
-        )
-        .with_unit("s")
-        .build();
-
-    let forge_vault_metrics = ForgeVaultMetrics {
-        vault_token_gauge: vault_token_time_remaining_until_refresh_gauge,
-    };
+    let forge_vault_metrics = build_vault_metrics(&meter);
 
     let vault_client_config = ForgeVaultClientConfig {
         auth_type,
@@ -1126,6 +1113,140 @@ pub fn create_vault_client(
 
     let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics);
     Ok(Arc::new(forge_vault_client))
+}
+
+/// Build the hand-rolled Vault instruments shared by every Vault client. The
+/// attempted / succeeded / failed counters and the request-duration histogram
+/// are now `carbide-instrument` events (the `VaultRequest*` types); only the
+/// token-refresh state gauge stays a hand-rolled instrument.
+fn build_vault_metrics(meter: &Meter) -> ForgeVaultMetrics {
+    let vault_token_time_remaining_until_refresh_gauge = meter
+        .f64_gauge("carbide-api.vault.token_time_until_refresh")
+        .with_description(
+            "The amount of time, in seconds, until the Vault token is required to be refreshed",
+        )
+        .with_unit("s")
+        .build();
+
+    ForgeVaultMetrics {
+        vault_token_gauge: vault_token_time_remaining_until_refresh_gauge,
+    }
+}
+
+/// Site-wide SPIFFE identity namespace used when minting machine certificates.
+///
+/// Certificates are issued under the same identity namespace regardless of
+/// which Vault signs them, so this is resolved once from the site's
+/// `[auth.trust]` config and shared across cert backends.
+#[derive(Debug, Clone)]
+pub struct SpiffeIdentity {
+    pub trust_domain: String,
+    pub machine_base_path: String,
+}
+
+/// Connection settings for a Vault used *only* to vend certificates, kept
+/// separate from the credential store's Vault.
+///
+/// The connection-identifying fields are required (non-optional), so a value
+/// of this type cannot be constructed without naming the target Vault, its PKI
+/// mount, and its role. None of these fields fall back to the process-global
+/// `VAULT_*` environment variables — that fallback is exactly what would
+/// silently re-point a half-configured cert Vault back at the credential Vault.
+#[derive(Clone)]
+pub struct DedicatedVaultConfig {
+    /// Vault address, e.g. `https://vault.example:8200`. Required.
+    pub address: String,
+    /// PKI secrets-engine mount path on the target Vault. Required.
+    pub pki_mount_location: String,
+    /// PKI role used to sign leaf certificates. Required.
+    pub pki_role_name: String,
+    /// Token for root-token auth. Required only when the pod has no Kubernetes
+    /// service-account token (the preferred auth path); ignored when SA auth
+    /// is available.
+    pub token: Option<String>,
+    /// Path to the CA bundle that signs the target Vault's TLS certificate.
+    /// Defaults to the standard site root (`/var/run/secrets/forge-roots/ca.crt`,
+    /// or `VAULT_CACERT`) — this is TLS trust material, not a Vault selector.
+    pub vault_cacert: Option<String>,
+}
+
+// Hand-rolled so the root `token` is never printed verbatim in logs or errors;
+// only its presence is shown.
+impl std::fmt::Debug for DedicatedVaultConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DedicatedVaultConfig")
+            .field("address", &self.address)
+            .field("pki_mount_location", &self.pki_mount_location)
+            .field("pki_role_name", &self.pki_role_name)
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .field("vault_cacert", &self.vault_cacert)
+            .finish()
+    }
+}
+
+/// Build a Vault client dedicated to certificate vending from fully explicit
+/// settings, with NO environment-variable fallback for the connection fields.
+/// A missing required setting fails here, at startup, rather than silently
+/// inheriting the credential Vault's configuration.
+pub fn create_dedicated_vault_client(
+    config: &DedicatedVaultConfig,
+    spiffe: SpiffeIdentity,
+    meter: Meter,
+) -> eyre::Result<Arc<ForgeVaultClient>> {
+    // Required fields are non-`Option`, but an empty string would still slip
+    // through serde and build a client that fails confusingly on first use.
+    for (field, value) in [
+        ("address", &config.address),
+        ("pki_mount_location", &config.pki_mount_location),
+        ("pki_role_name", &config.pki_role_name),
+    ] {
+        if value.trim().is_empty() {
+            return Err(eyre!(
+                "dedicated certificate vault requires a non-empty `{field}`"
+            ));
+        }
+    }
+
+    let configured_ca_path = config
+        .vault_cacert
+        .clone()
+        .unwrap_or_else(|| DEFAULT_VAULT_CA_PATH.to_string());
+    let vault_root_ca_path = resolve_vault_root_ca_path(configured_ca_path.as_str())?;
+
+    let service_account_token_path =
+        Path::new("/var/run/secrets/kubernetes.io/serviceaccount/token");
+    let auth_type = if service_account_token_path.exists() {
+        ForgeVaultAuthenticationType::ServiceAccount(service_account_token_path.to_owned())
+    } else {
+        let token = config
+            .token
+            .as_ref()
+            .filter(|token| !token.trim().is_empty())
+            .cloned()
+            .ok_or_else(|| {
+                eyre!(
+                    "dedicated certificate vault requires a non-empty explicit `token` when no kubernetes service-account token is present"
+                )
+            })?;
+        ForgeVaultAuthenticationType::Root(token)
+    };
+
+    let vault_client_config = ForgeVaultClientConfig {
+        auth_type,
+        vault_address: config.address.clone(),
+        // Certificate vending never touches the KV engine.
+        kv_mount_location: String::new(),
+        pki_mount_location: config.pki_mount_location.clone(),
+        pki_role_name: config.pki_role_name.clone(),
+        spiffe_trust_domain: spiffe.trust_domain,
+        spiffe_machine_base_path: spiffe.machine_base_path,
+        vault_root_ca_path,
+    };
+
+    Ok(Arc::new(ForgeVaultClient::new(
+        vault_client_config,
+        build_vault_metrics(&meter),
+    )))
 }
 
 /// Build raw vaultrs client settings for a separate vault consumer (the
@@ -1163,7 +1284,48 @@ mod tests {
     use base64::Engine;
     use serde_json::json;
 
-    use super::{machine_spiffe_uri, service_account_role_name_from_jwt};
+    use super::{
+        DedicatedVaultConfig, SpiffeIdentity, create_dedicated_vault_client, machine_spiffe_uri,
+        service_account_role_name_from_jwt,
+    };
+
+    fn dedicated_config() -> DedicatedVaultConfig {
+        DedicatedVaultConfig {
+            address: "https://vault-certs.example:8200".to_string(),
+            pki_mount_location: "pki".to_string(),
+            pki_role_name: "machine".to_string(),
+            token: None,
+            vault_cacert: None,
+        }
+    }
+
+    fn test_spiffe() -> SpiffeIdentity {
+        SpiffeIdentity {
+            trust_domain: "nico.local".to_string(),
+            machine_base_path: "/forge-system/machine/".to_string(),
+        }
+    }
+
+    #[test]
+    fn dedicated_vault_rejects_empty_required_fields() {
+        let meter = opentelemetry::global::meter("test");
+        for mutate in [
+            |c: &mut DedicatedVaultConfig| c.address = "  ".to_string(),
+            |c: &mut DedicatedVaultConfig| c.pki_mount_location = String::new(),
+            |c: &mut DedicatedVaultConfig| c.pki_role_name = String::new(),
+        ] {
+            let mut config = dedicated_config();
+            mutate(&mut config);
+            let err = match create_dedicated_vault_client(&config, test_spiffe(), meter.clone()) {
+                Ok(_) => panic!("empty required field must be rejected"),
+                Err(err) => err,
+            };
+            assert!(
+                err.to_string().contains("non-empty"),
+                "unexpected error: {err}"
+            );
+        }
+    }
 
     #[test]
     fn machine_spiffe_uri_uses_trust_domain_and_base_path() {

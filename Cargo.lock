@@ -1493,6 +1493,7 @@ dependencies = [
  "carbide-sqlx-testing",
  "carbide-test-harness",
  "carbide-test-support",
+ "carbide-utils",
  "carbide-uuid",
  "carbide-version",
  "chrono",
@@ -1507,6 +1508,7 @@ dependencies = [
  "lazy_static",
  "mac_address",
  "oauth2",
+ "rand 0.10.1",
  "regex",
  "reqwest 0.13.4",
  "serde",
@@ -2334,6 +2336,7 @@ dependencies = [
  "axum",
  "base64",
  "bmc-mock",
+ "carbide-api-model",
  "carbide-network",
  "carbide-rpc",
  "carbide-test-support",
@@ -2390,6 +2393,7 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "chrono",
+ "component-manager",
  "config-version",
  "duration-str",
  "eyre",
@@ -2680,6 +2684,7 @@ dependencies = [
  "prometheus",
  "rand 0.10.1",
  "serde",
+ "serde_yaml",
  "tempfile",
  "tera",
  "tokio",
@@ -6719,7 +6724,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.21#63431424e2f5eea93e3df7eb41f0b2b3e98f72fb"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.22#53c0b12569d6de1ecccde826d495618ff987d8c6"
 dependencies = [
  "chrono",
  "clap",

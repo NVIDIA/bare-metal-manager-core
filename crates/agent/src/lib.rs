@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::fs::File;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,9 +33,10 @@ use carbide_utils::arch::CpuArchitecture;
 pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
 use forge_tls::client_config::ClientCert;
+use futures_util::TryStreamExt;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
-use tokio::fs;
+use tokio::io::AsyncReadExt;
 use version_compare::{Part, Version};
 
 use crate::duppet::{SummaryFormat, SyncOptions};
@@ -91,20 +92,188 @@ pub const FMDS_MINIMUM_HBN_VERSION: &str = "1.5.0-doca2.2.0";
 /// supported configuration path, DPUs running older HBN versions cannot be configured.
 pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
-// Downloads cert (pem) file in case of dpu-agent is running as initcontainer.
-async fn download_cert() -> eyre::Result<()> {
-    let url = "http://carbide-pxe.forge/api/v0/tls/root_ca";
-    let output_file = "/opt/forge/forge_root.pem";
-    let permissions = std::fs::Permissions::from_mode(0o644);
+const BOOTSTRAP_CA_OUTPUT_PATH: &str = "/opt/forge/forge_root.pem";
+const MOUNTED_BOOTSTRAP_CA_PATH: &str = "/var/run/secrets/nico-bootstrap-ca/ca.pem";
+const MAX_BOOTSTRAP_CA_BYTES: usize = 1024 * 1024;
+const BOOTSTRAP_CA_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
+const PEM_BEGIN_MARKER: &[u8] = b"-----BEGIN ";
+const CERTIFICATE_PEM_BEGIN_MARKER: &[u8] = b"-----BEGIN CERTIFICATE-----";
 
-    let response = reqwest::get(url).await?;
+async fn acquire_bootstrap_ca(
+    source: command_line::InitContainerBootstrapCaSource,
+    legacy_download_url: &url::Url,
+) -> eyre::Result<Vec<u8>> {
+    match source {
+        command_line::InitContainerBootstrapCaSource::LegacyDownload => {
+            download_bootstrap_ca(legacy_download_url).await
+        }
+        command_line::InitContainerBootstrapCaSource::Mounted => {
+            read_bootstrap_ca_file(Path::new(MOUNTED_BOOTSTRAP_CA_PATH)).await
+        }
+    }
+}
 
-    let mut file = File::create(output_file)?;
-    let mut content = Cursor::new(response.bytes().await?);
-    std::io::copy(&mut content, &mut file)?;
-    fs::set_permissions(output_file, permissions).await?;
+async fn read_bootstrap_ca_file(path: &Path) -> eyre::Result<Vec<u8>> {
+    let file = tokio::fs::File::open(path)
+        .await
+        .wrap_err_with(|| format!("failed to open bootstrap CA at {}", path.display()))?;
+    let mut contents = Vec::new();
+    file.take((MAX_BOOTSTRAP_CA_BYTES + 1) as u64)
+        .read_to_end(&mut contents)
+        .await
+        .wrap_err_with(|| format!("failed to read bootstrap CA at {}", path.display()))?;
+    if contents.len() > MAX_BOOTSTRAP_CA_BYTES {
+        eyre::bail!(
+            "bootstrap CA at {} exceeds the {MAX_BOOTSTRAP_CA_BYTES}-byte size limit",
+            path.display()
+        );
+    }
+
+    Ok(contents)
+}
+
+async fn download_bootstrap_ca(url: &url::Url) -> eyre::Result<Vec<u8>> {
+    download_bootstrap_ca_with_timeout(url, BOOTSTRAP_CA_DOWNLOAD_TIMEOUT).await
+}
+
+async fn download_bootstrap_ca_with_timeout(
+    url: &url::Url,
+    timeout: Duration,
+) -> eyre::Result<Vec<u8>> {
+    let client = reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .wrap_err("failed to build bootstrap CA download client")?;
+    let response = client
+        .get(url.clone())
+        .send()
+        .await
+        .wrap_err_with(|| format!("failed to download bootstrap CA from {url}"))?
+        .error_for_status()
+        .wrap_err_with(|| format!("bootstrap CA download from {url} returned an error status"))?;
+
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_BOOTSTRAP_CA_BYTES as u64)
+    {
+        eyre::bail!("bootstrap CA from {url} exceeds the {MAX_BOOTSTRAP_CA_BYTES}-byte size limit");
+    }
+
+    let mut contents = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream
+        .try_next()
+        .await
+        .wrap_err_with(|| format!("failed while reading bootstrap CA response from {url}"))?
+    {
+        let new_len = contents
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(|| eyre::eyre!("bootstrap CA size overflow"))?;
+        if new_len > MAX_BOOTSTRAP_CA_BYTES {
+            eyre::bail!(
+                "bootstrap CA from {url} exceeds the {MAX_BOOTSTRAP_CA_BYTES}-byte size limit"
+            );
+        }
+        contents.extend_from_slice(&chunk);
+    }
+
+    Ok(contents)
+}
+
+fn validate_bootstrap_ca(contents: &[u8]) -> eyre::Result<()> {
+    if contents.len() > MAX_BOOTSTRAP_CA_BYTES {
+        eyre::bail!("bootstrap CA exceeds the {MAX_BOOTSTRAP_CA_BYTES}-byte size limit");
+    }
+    if contains_unsupported_pem_begin_marker(contents) {
+        eyre::bail!("bootstrap CA contains unsupported PEM material");
+    }
+
+    let items = rustls_pemfile::read_all(&mut Cursor::new(contents))
+        .collect::<Result<Vec<_>, _>>()
+        .wrap_err("bootstrap CA contains invalid PEM")?;
+
+    let mut trust_anchors = rustls::RootCertStore::empty();
+    for item in items {
+        let rustls_pemfile::Item::X509Certificate(certificate) = item else {
+            eyre::bail!("bootstrap CA contains non-certificate PEM material");
+        };
+        trust_anchors
+            .add(certificate)
+            .wrap_err("bootstrap CA contains an invalid certificate")?;
+    }
+    if trust_anchors.is_empty() {
+        eyre::bail!("bootstrap CA contains no certificates");
+    }
 
     Ok(())
+}
+
+fn contains_unsupported_pem_begin_marker(contents: &[u8]) -> bool {
+    let mut search_offset = 0;
+    while let Some(relative_offset) = contents[search_offset..]
+        .windows(PEM_BEGIN_MARKER.len())
+        .position(|marker| marker == PEM_BEGIN_MARKER)
+    {
+        let begin_offset = search_offset + relative_offset;
+        let line_end = contents[begin_offset..]
+            .iter()
+            .position(|byte| matches!(*byte, b'\n' | b'\r'))
+            .map_or(contents.len(), |line_end| begin_offset + line_end);
+        if &contents[begin_offset..line_end] != CERTIFICATE_PEM_BEGIN_MARKER {
+            return true;
+        }
+        search_offset = begin_offset + PEM_BEGIN_MARKER.len();
+    }
+    false
+}
+
+fn install_bootstrap_ca(contents: &[u8], output_path: &Path) -> eyre::Result<()> {
+    // Validate before creating a temporary file so a bad source cannot disturb
+    // the last known-good trust anchor.
+    validate_bootstrap_ca(contents)?;
+
+    let parent = output_path.parent().ok_or_else(|| {
+        eyre::eyre!(
+            "bootstrap CA output path has no parent: {}",
+            output_path.display()
+        )
+    })?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).wrap_err_with(|| {
+        format!(
+            "failed to create temporary bootstrap CA in {}",
+            parent.display()
+        )
+    })?;
+    temporary
+        .write_all(contents)
+        .wrap_err("failed to write temporary bootstrap CA")?;
+    temporary
+        .as_file()
+        .set_permissions(std::fs::Permissions::from_mode(0o644))
+        .wrap_err("failed to set bootstrap CA permissions")?;
+    temporary
+        .as_file()
+        .sync_all()
+        .wrap_err("failed to sync temporary bootstrap CA")?;
+    temporary.persist(output_path).map_err(|error| {
+        eyre::eyre!(
+            "failed to atomically install bootstrap CA at {}: {}",
+            output_path.display(),
+            error.error
+        )
+    })?;
+    std::fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .wrap_err_with(|| format!("failed to sync bootstrap CA directory {}", parent.display()))?;
+
+    Ok(())
+}
+
+async fn provision_bootstrap_ca(options: &command_line::InitContainerOptions) -> eyre::Result<()> {
+    let contents =
+        acquire_bootstrap_ca(options.bootstrap_ca_source, &options.bootstrap_ca_url).await?;
+    install_bootstrap_ca(&contents, Path::new(BOOTSTRAP_CA_OUTPUT_PATH))
 }
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
@@ -201,10 +370,10 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             }
         }
 
-        // Init-container entry point: download cert + snapshot hardware to the shared volume.
+        // Init-container entry point: provision the CA + snapshot hardware to the shared volume.
         // Output path is fixed (HW_CACHE_PATH) so the main container can always find it.
-        Some(AgentCommand::InitContainer) => {
-            download_cert().await?;
+        Some(AgentCommand::InitContainer(options)) => {
+            provision_bootstrap_ca(&options).await?;
             enumerate_and_save_hardware().await?;
             util::save_host_nameservers()?;
         }

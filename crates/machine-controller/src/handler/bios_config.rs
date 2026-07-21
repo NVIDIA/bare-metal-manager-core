@@ -117,7 +117,12 @@ pub(super) async fn configure_host_bios(
             //
             // As of July 2024, Josh Price said there's an NBU FR to fix
             // this, but it wasn't target to a release yet.
-            let reboot_status = if mh_snapshot.host_snapshot.last_reboot_requested.is_none() {
+            let reboot_status = if mh_snapshot
+                .host_snapshot
+                .status
+                .last_reboot_requested
+                .is_none()
+            {
                 handler_host_power_control(mh_snapshot, ctx, SystemPowerControl::ForceRestart)
                     .await?;
 
@@ -310,6 +315,7 @@ pub(super) async fn advance_bios_config_job(
                     if current_power_state != libredfish::PowerState::On {
                         let basetime = mh_snapshot
                             .host_snapshot
+                            .status
                             .last_reboot_requested
                             .as_ref()
                             .map(|x| x.time)

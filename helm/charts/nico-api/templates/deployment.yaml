@@ -140,6 +140,17 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.envFrom.nicoWebHostname.configMapName }}
                   key: hostname
+            {{- if ne (include "nico-api.webAuth.hasModeOverride" .) "true" }}
+            - name: CARBIDE_WEB_AUTH_TYPE
+              value: {{ include "nico-api.webAuth.configuredMode" . | quote }}
+            {{- end }}
+            {{- if eq (include "nico-api.webAuth.renderBasicSecret" .) "true" }}
+            - name: CARBIDE_WEB_BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nico-api.webAuth.basicSecretName" . }}
+                  key: {{ include "nico-api.webAuth.basicSecretKey" . }}
+            {{- end }}
             - name: RUST_BACKTRACE
               value: {{ .Values.env.RUST_BACKTRACE | quote }}
             - name: RUST_LIB_BACKTRACE

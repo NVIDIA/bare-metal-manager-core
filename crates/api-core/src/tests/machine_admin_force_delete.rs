@@ -110,7 +110,7 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     validate_delete_response(&response, Some(&host.id), &dpu_machine_id);
     assert_eq!(
         response.dpu_machine_interface_id,
-        dpu_machine.interfaces[0].id.to_string()
+        dpu_machine.status.interfaces[0].id.to_string()
     );
 
     assert!(response.all_done, "DPU must be deleted");
@@ -298,10 +298,11 @@ async fn test_admin_force_delete_orders_locks_against_exploration(pool: sqlx::Pg
         .unwrap()
         .unwrap();
     let bmc_ip = machine
+        .status
         .bmc_info
         .ip
         .expect("managed host fixture has a BMC ip");
-    let interface_id = machine.interfaces[0].id;
+    let interface_id = machine.status.interfaces[0].id;
     let explored_host = ExploredManagedHost {
         host_bmc_ip: bmc_ip,
         dpus: Vec::new(),
@@ -350,6 +351,94 @@ async fn test_admin_force_delete_orders_locks_against_exploration(pool: sqlx::Pg
         .into_inner();
     assert!(response.all_done);
     validate_machine_deletion(&env, &host.dpu_ids[0], None).await;
+}
+
+/// Multi-endpoint exploration persistence and force-delete must acquire
+/// `explored_endpoints` rows in the same ascending address order. The fixture
+/// allocates DPU BMC addresses before the host BMC address, so the old
+/// host-first force-delete order formed an inverse-order cycle here.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_orders_endpoint_locks_by_address(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let managed_host = create_managed_host_multi_dpu(&env, 2).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_machine = db::machine::find_one(
+        txn.as_mut(),
+        &managed_host.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let dpu_machines = db::machine::find_dpus_by_host_machine_id(txn.as_mut(), &managed_host.id)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let host_address = host_machine
+        .status
+        .bmc_info
+        .ip
+        .expect("managed host fixture has a BMC ip");
+    let mut endpoint_addresses = dpu_machines
+        .iter()
+        .filter_map(|machine| machine.status.bmc_info.ip)
+        .chain(std::iter::once(host_address))
+        .collect::<Vec<_>>();
+    endpoint_addresses.sort_unstable();
+    assert_eq!(endpoint_addresses.len(), 3);
+    assert_ne!(
+        endpoint_addresses[0], host_address,
+        "fixture must put a DPU endpoint below the host endpoint"
+    );
+
+    // Simulate site-explorer taking the lowest endpoint row first.
+    let mut exploration_txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE explored_endpoints SET address = address WHERE address = $1")
+        .bind(endpoint_addresses[0])
+        .execute(exploration_txn.as_mut())
+        .await
+        .unwrap();
+
+    let api = managed_host.api.clone();
+    let host_id = managed_host.id;
+    let force_delete_task = tokio::spawn(async move {
+        api.admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+    });
+    wait_until_blocked_on(&env.pool, "explored_endpoints").await;
+
+    // Continue site-explorer's updates in canonical order. Force-delete must
+    // be waiting on the first row without holding any higher-address endpoint.
+    for address in endpoint_addresses.iter().skip(1) {
+        sqlx::query("UPDATE explored_endpoints SET address = address WHERE address = $1")
+            .bind(address)
+            .execute(exploration_txn.as_mut())
+            .await
+            .expect("ascending endpoint update must not deadlock against force-delete");
+    }
+    exploration_txn.commit().await.unwrap();
+
+    let response = force_delete_task
+        .await
+        .unwrap()
+        .expect("force delete completes once exploration commits")
+        .into_inner();
+    assert!(response.all_done);
+    for machine_id in managed_host
+        .dpu_ids
+        .iter()
+        .chain(std::iter::once(&managed_host.id))
+    {
+        validate_machine_deletion(&env, machine_id, None).await;
+    }
 }
 
 /// Polls `pg_stat_activity` until some backend in this test's database sits
@@ -559,9 +648,10 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
 
     assert_eq!(machine.current_state(), &ManagedHostState::Ready);
     assert!(!machine.is_dpu());
-    assert!(machine.hardware_info.as_ref().is_some());
+    assert!(machine.status.hardware_info.as_ref().is_some());
     assert_eq!(
         machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -569,9 +659,16 @@ async fn test_admin_force_delete_host_with_ib_instance(pool: sqlx::PgPool) {
             .len(),
         6
     );
-    assert!(machine.infiniband_status_observation.as_ref().is_some());
+    assert!(
+        machine
+            .status
+            .infiniband_status_observation
+            .as_ref()
+            .is_some()
+    );
     assert_eq!(
         machine
+            .status
             .infiniband_status_observation
             .as_ref()
             .unwrap()
@@ -660,7 +757,12 @@ async fn test_admin_force_delete_managed_host_multi_dpu(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = mh.host().rpc_machine().await;
-    let dpu_ids = host_machine.associated_dpu_machine_ids;
+    let dpu_ids = host_machine
+        .status
+        .as_ref()
+        .unwrap()
+        .associated_dpu_machine_ids
+        .clone();
     assert_eq!(
         dpu_ids.len(),
         2,
@@ -961,7 +1063,7 @@ async fn test_admin_force_delete_retains_boot_interface_ids(pool: sqlx::PgPool) 
     .await
     .unwrap()
     .unwrap();
-    let boot_mac = host_machine.interfaces[0].mac_address;
+    let boot_mac = host_machine.status.interfaces[0].mac_address;
     db::machine_interface::set_boot_interface_id(boot_mac, "NIC.Slot.5-1", txn.as_mut())
         .await
         .unwrap();

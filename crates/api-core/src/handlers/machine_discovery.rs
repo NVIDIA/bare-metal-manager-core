@@ -16,7 +16,6 @@
  */
 
 use std::collections::HashMap;
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -41,28 +40,16 @@ pub(crate) async fn discover_machine(
     request: Request<rpc::MachineDiscoveryInfo>,
 ) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
     // We don't log_request_data(&request); here because the hardware info is huge
-    let remote_ip: Option<IpAddr> = match request.metadata().get("X-Forwarded-For") {
-        None => {
-            // Normal production case.
-            // This is set in api/src/listener.rs::listen_and_serve when we `accept` the connection
-            // The IP is usually an IPv4-mapped IPv6 addresses (e.g. `::ffff:10.217.133.10`) so
-            // we use to_canonical() to convert it to IPv4.
-            request
-                .extensions()
-                .get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
-                .map(|conn_attrs| conn_attrs.peer_address.ip().to_canonical())
-        }
-        Some(ip_str) => {
-            // Development case, we override the remote IP with HTTP header
-            ip_str
-                .to_str()
-                .ok()
-                .and_then(|s| s.parse().map(|ip: IpAddr| ip.to_canonical()).ok())
-        }
-    };
+
+    // This is set in api/src/listener.rs::listen_and_serve when we `accept` the connection
+    // The IP is usually an IPv4-mapped IPv6 addresses (e.g. `::ffff:10.217.133.10`) so
+    // we use to_canonical() to convert it to IPv4.
+    let remote_ip = request
+        .extensions()
+        .get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
+        .map(|conn_attrs| conn_attrs.peer_address.ip().to_canonical());
 
     let machine_discovery_info = request.into_inner();
-    let interface_id = machine_discovery_info.machine_interface_id;
     let discovery_reporter = machine_discovery_info.discovery_reporter();
 
     let discovery_data = machine_discovery_info
@@ -90,7 +77,7 @@ pub(crate) async fn discover_machine(
     // Generate a stable Machine ID based on the hardware information
     let stable_machine_id = from_hardware_info(&hardware_info).map_err(|e| {
             CarbideError::InvalidArgument(
-                format!("insufficient HardwareInfo to derive a stable machine ID for machine on InterfaceId {interface_id:?}: {e}"),
+                format!("insufficient HardwareInfo to derive a stable machine ID from DiscoverMachine call by {remote_ip:?}: {e}"),
             )
         })?;
     log_machine_id(&stable_machine_id);
@@ -128,18 +115,75 @@ pub(crate) async fn discover_machine(
 
     tracing::debug!(
         remote_ip_address = ?remote_ip,
-        machine_interface_id = ?interface_id,
+        caller_machine_interface_id = ?machine_discovery_info.machine_interface_id,
         "discover_machine loading interface"
     );
+
+    // Who's discovery info is this? DiscoverMachine is an anonymous call, and so normally we should
+    // look it up ourselves from the client IP. But that isn't feasible in integration tests, so
+    // config.allow_insecure_discovery lets the caller pass a machine_interface_id.
+    let caller_interface = if let Some(interface_id) = machine_discovery_info.machine_interface_id
+        && api.runtime_config.allow_insecure_discovery
+    {
+        let interface = db::machine_interface::find_one(&mut txn, interface_id).await?;
+        tracing::warn!(
+            "Allowing insecure discovery: trusting caller-provided machine_interface_id. This is for integration tests only and must not be done in production."
+        );
+        interface
+    } else {
+        let remote_ip = remote_ip.ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "could not determine client IP address for discovery".to_string(),
+            )
+        })?;
+        db::machine_interface::find_for_update_by_ip(&mut txn, remote_ip).await?
+    };
+
+    let site_explorer_creates_machines = api
+        .runtime_config
+        .site_explorer
+        .create_machines
+        .load(Ordering::Relaxed);
+
+    // Now that we know who's submitting this DiscoveryInfo, make sure they're not submitting info
+    // for another host in an attempt to get their machine certificate.
+    let authorized = match caller_interface.machine_id.as_ref() {
+        Some(caller_machine_id) if caller_machine_id == &stable_machine_id => {
+            // The stable machine ID generated from the discovery info matches the caller's machine
+            // ID, good.
+            true
+        }
+        Some(caller_machine_id)
+            if caller_machine_id.machine_type().is_predicted_host()
+                && stable_machine_id.machine_type().is_host() =>
+        {
+            // This is a predicted host being promoted to a known host, which we allow.
+            true
+        }
+        None if hardware_info.is_dpu() && machine_discovery_info.create_machine => {
+            // There's no machine ID at all yet, and this is a dpu attempting to create a machine
+            // entry from DiscoveryInfo. We only allow this if site explorer isn't configured to
+            // create machines.
+            !site_explorer_creates_machines
+        }
+        _ => false,
+    };
+    if !authorized {
+        return Err(CarbideError::PermissionDeniedError(
+            "machine discovery is not authorized for the selected interface".to_string(),
+        )
+        .into());
+    }
 
     if !hardware_info.is_dpu()
         && hardware_info.tpm_ek_certificate.is_none()
         && api.runtime_config.tpm_required
     {
         return Err(CarbideError::InvalidArgument(format!(
-                "ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {interface_id:?}"
-            ))
-            .into());
+            "ignoring DiscoverMachine request for non-tpm enabled host with InterfaceId {:?}",
+            caller_interface.id,
+        ))
+        .into());
     } else if !hardware_info.is_dpu() && hardware_info.tpm_ek_certificate.is_some() {
         // this means we do have an EK cert for a host
 
@@ -160,28 +204,23 @@ pub(crate) async fn discover_machine(
         .await?;
     }
 
-    let interface =
-        db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
     if !hardware_info.is_dpu()
         && hardware_info.tpm_ek_certificate.is_none()
         && stable_machine_id.source() == MachineIdSource::ProductBoardChassisSerial
-        && let Some(existing_machine_id) = interface.machine_id
+        && let Some(existing_machine_id) = caller_interface.machine_id
         && existing_machine_id.source() == MachineIdSource::Tpm
         && existing_machine_id.machine_type().is_host()
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "TPM EK certificate missing for host discovery on InterfaceId {interface_id:?}; refusing to derive serial-based machine id {stable_machine_id} for existing TPM-derived machine id {existing_machine_id}"
+            "TPM EK certificate missing for host discovery on InterfaceId {:?}; refusing to derive serial-based machine id {} for existing TPM-derived machine id {}",
+            caller_interface.id, stable_machine_id, existing_machine_id,
         ))
         .into());
     }
+
     let machine_id = if hardware_info.is_dpu() {
         // if site explorer is creating machine records and there isn't one for this machine return an error
-        if api
-            .runtime_config
-            .site_explorer
-            .create_machines
-            .load(Ordering::Relaxed)
-        {
+        if site_explorer_creates_machines {
             db::machine::find_one(
                 &mut txn,
                 &stable_machine_id,
@@ -203,14 +242,14 @@ pub(crate) async fn discover_machine(
                 &mut txn,
                 Some(&api.common_pools),
                 &stable_machine_id,
-                &interface,
+                &caller_interface,
             )
             .await?;
 
             // Update the record only when create_machine is enabled.
             // Site-explorer will update if machine is created by site-explorer.
             db::machine_interface::associate_interface_with_dpu_machine(
-                &interface.id,
+                &caller_interface.id,
                 &stable_machine_id,
                 &mut txn,
             )
@@ -284,7 +323,7 @@ pub(crate) async fn discover_machine(
         // Now we know stable machine id for host. Let's update it in db.
         db::machine::try_sync_stable_id_with_current_machine_id_for_host(
             &mut txn,
-            &interface.machine_id,
+            &caller_interface.machine_id,
             &stable_machine_id,
         )
         .await?
@@ -466,7 +505,7 @@ pub(crate) async fn discover_machine(
         machine_id: Some(stable_machine_id),
         machine_certificate,
         attest_key_challenge,
-        machine_interface_id: Some(interface.id),
+        machine_interface_id: Some(caller_interface.id),
     }));
 
     if hardware_info.is_dpu()

@@ -580,6 +580,7 @@ struct MachineAnalysis {
 }
 
 /// Helper function to get BMC IP and MAC address from machine_id
+#[allow(deprecated)]
 async fn get_bmc_ip_from_host_id(
     api_client: &ApiClient,
     host_id: &str,
@@ -1698,6 +1699,7 @@ impl<'a> ZipBundleCreator<'a> {
         Ok(())
     }
 
+    #[allow(deprecated)]
     fn add_machine_analysis_json(
         &self,
         zip: &mut ZipWriter<File>,
@@ -1801,6 +1803,7 @@ impl<'a> ZipBundleCreator<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(deprecated)]
     fn add_metadata(
         &self,
         zip: &mut ZipWriter<File>,

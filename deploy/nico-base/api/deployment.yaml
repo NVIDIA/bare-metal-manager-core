@@ -122,9 +122,10 @@ spec:
             #     configMapKeyRef:
             #       name: nico-web-api-hostname
             #       key: hostname
-            # Admin UI: omit or NICO_WEB_AUTH_TYPE=none (no in-process auth; use network/proxy).
-            # For Entra SSO: NICO_WEB_AUTH_TYPE=oauth2 plus OAuth env vars below.
-            # - name: NICO_WEB_AUTH_TYPE
+            # Admin UI defaults to Basic Auth. Set CARBIDE_WEB_BASIC_AUTH_PASSWORD
+            # from a Secret, or select Entra SSO with the OAuth env vars below.
+            # Without one, nico-api generates a temporary password and logs it at startup.
+            # - name: CARBIDE_WEB_AUTH_TYPE
             #   value: oauth2
             - name: BITNAMI_DEBUG
               value: "false"

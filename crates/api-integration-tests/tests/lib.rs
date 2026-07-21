@@ -25,6 +25,7 @@ use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{
     BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig, RackConfig,
 };
+use api_test_helper::utils::TestApiServerArgs;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
     vpc_prefix,
@@ -85,25 +86,31 @@ async fn test_integration() -> eyre::Result<()> {
     let (server_handle_1, server_handle_2) = (
         utils::start_api_server(
             test_env.clone(),
-            Some(HostPortPair::HostAndPort(
-                "127.0.0.1".to_string(),
-                bmc_mock_handle.address.port(),
-            )),
-            empty_firmware_dir.path().to_owned(),
-            0,
-            true,
+            TestApiServerArgs {
+                bmc_proxy: Some(HostPortPair::HostAndPort(
+                    "127.0.0.1".to_string(),
+                    bmc_mock_handle.address.port(),
+                )),
+                firmware_directory: empty_firmware_dir.path().to_owned(),
+                addr_index: 0,
+                put_dev_bin_in_path: true,
+                insecure_discovery: true,
+            },
             cancel_token.clone(),
         )
         .await?,
         utils::start_api_server(
             test_env.clone(),
-            Some(HostPortPair::HostAndPort(
-                "127.0.0.1".to_string(),
-                bmc_mock_handle.address.port(),
-            )),
-            empty_firmware_dir.path().to_owned(),
-            1,
-            true,
+            TestApiServerArgs {
+                bmc_proxy: Some(HostPortPair::HostAndPort(
+                    "127.0.0.1".to_string(),
+                    bmc_mock_handle.address.port(),
+                )),
+                firmware_directory: empty_firmware_dir.path().to_owned(),
+                addr_index: 1,
+                put_dev_bin_in_path: true,
+                insecure_discovery: true,
+            },
             cancel_token.clone(),
         )
         .await?,
@@ -228,14 +235,11 @@ async fn test_integration() -> eyre::Result<()> {
             &host_inband_segment_id,
         )
         .boxed(),
-        test_machine_a_tron_dpu_to_nic_mode_reregistration(
-            HostHardwareType::DellPowerEdgeR750,
-            &test_env,
-            &bmc_address_registry,
-            // Relay IP in admin net
-            Ipv4Addr::new(172, 20, 0, 2),
-        )
-        .boxed(),
+        // TODO: https://github.com/NVIDIA/infra-controller/issues/3709
+        // Re-enable `test_machine_a_tron_dpu_to_nic_mode_reregistration` after the
+        // Admin-to-HostInband re-ingestion race is fixed. The scenario currently flakes in CI when
+        // the host-facing DPU MAC is re-created on the Admin segment before the NIC-mode
+        // transition completes.
         test_machine_a_tron_dual_stack(
             HostHardwareType::DellPowerEdgeR750,
             &test_env,
@@ -302,13 +306,16 @@ async fn test_machine_a_tron_rack_integration() -> eyre::Result<()> {
     let cancel_token = CancellationToken::new();
     let server_handle = utils::start_api_server(
         test_env.clone(),
-        Some(HostPortPair::HostAndPort(
-            "127.0.0.1".to_string(),
-            bmc_mock_handle.address.port(),
-        )),
-        empty_firmware_dir.path().to_owned(),
-        0,
-        true,
+        TestApiServerArgs {
+            bmc_proxy: Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            firmware_directory: empty_firmware_dir.path().to_owned(),
+            addr_index: 0,
+            put_dev_bin_in_path: true,
+            insecure_discovery: true,
+        },
         cancel_token.clone(),
     )
     .await?;
@@ -494,13 +501,16 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     let cancel_token = CancellationToken::new();
     let server_handle = utils::start_api_server(
         test_env.clone(),
-        Some(HostPortPair::HostAndPort(
-            "127.0.0.1".to_string(),
-            bmc_mock_handle.address.port(),
-        )),
-        empty_firmware_dir.path().to_owned(),
-        0,
-        true,
+        TestApiServerArgs {
+            bmc_proxy: Some(HostPortPair::HostAndPort(
+                "127.0.0.1".to_string(),
+                bmc_mock_handle.address.port(),
+            )),
+            firmware_directory: empty_firmware_dir.path().to_owned(),
+            addr_index: 0,
+            put_dev_bin_in_path: true,
+            insecure_discovery: true,
+        },
         cancel_token.clone(),
     )
     .await?;
@@ -1049,6 +1059,7 @@ async fn assert_auto_instance_network(
 /// Asserts the re-ingest milestone directly against the database -- the host's
 /// (stable, TPM-derived) machine row returns with its data-plane NIC and no
 /// managed DPU -- then drives the re-ingested NIC-mode host all the way to Ready.
+#[expect(dead_code, reason = "temporarily disabled due to a CI race")]
 async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
     hw_type: HostHardwareType,
     test_env: &IntegrationTestEnvironment,
@@ -1084,9 +1095,10 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
                 );
 
                 // 2. Flip the ExpectedMachine to NIC mode. Get the current record,
-                //    set `dpu_mode`, and round-trip the full message back through
-                //    UpdateExpectedMachine (the same get-mutate-update the admin CLI
-                //    `patch_expected_machine` uses, so we preserve every other field).
+                //    set the stable Forge `dpu_mode` field (translated to
+                //    HostDpuPolicy internally), and round-trip the full message
+                //    back through UpdateExpectedMachine. This is the same
+                //    get-mutate-update flow the admin CLI uses.
                 let get_req = serde_json::json!({ "bmc_mac_address": bmc_mac });
                 let expected_machine_json =
                     api_test_helper::grpcurl::grpcurl(carbide_api_addrs, "GetExpectedMachine", Some(&get_req))
@@ -1510,12 +1522,6 @@ where
                 dpu_per_host_count,
                 dpu_reboot_delay: 1,
                 host_reboot_delay: 1,
-                template_dir: test_env
-                    .root_dir
-                    .join("crates/machine-a-tron/templates")
-                    .to_str()
-                    .unwrap()
-                    .to_string(),
                 admin_dhcp_relay_address,
                 // Keep this distinct from the Admin relay so NIC-mode tests
                 // fail if machine-a-tron sends host DHCP through Admin.

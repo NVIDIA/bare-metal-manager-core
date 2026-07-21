@@ -326,10 +326,13 @@ pub async fn setup_and_run(
         managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
     }
 
-    if options.agent_platform_type.is_dpu_os()
-        && let Err(e) = lldp::set_lldp_system_description(&machine_id)
-    {
-        tracing::warn!(error = %e, "Couldn't update LLDP system description")
+    if options.agent_platform_type.is_dpu_os() {
+        if let Err(e) = lldp::prepare_lldp().await {
+            tracing::error!(error = %e, "Couldn't prepare LLDP configuration");
+        }
+        if let Err(e) = lldp::set_lldp_system_description(&machine_id).await {
+            tracing::warn!(error = %e, "Couldn't update LLDP system description");
+        }
     }
 
     let periodic_config_reader = periodic_config_fetcher.reader();
@@ -998,7 +1001,9 @@ impl MainLoop {
                         Ok((has_changed, astra_config_status)) => {
                             self.current_network_version.update_from(&conf);
                             has_changed_configs = has_changed;
-                            status_out.astra_config_status = Some(astra_config_status);
+                            if conf.astra_config.is_some() {
+                                status_out.astra_config_status = Some(astra_config_status);
+                            }
                             if self.options.agent_platform_type.is_dpu_os()
                                 && let Err(err) = mtu::ensure().await
                             {

@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// Flat `rpc::forge::Machine` fields are deprecated in favour of `status`/`config`
+// sub-messages, but this module must still read them until the REST API is migrated.
+// See https://github.com/NVIDIA/infra-controller/issues/2793
+#![allow(deprecated)]
 
 use std::sync::Arc;
 
@@ -62,11 +66,12 @@ pub struct QueryParams {
 pub async fn query(
     AxumState(state): AxumState<Arc<Api>>,
     AxumQuery(query): AxumQuery<QueryParams>,
-    Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
+    Extension(oauth2_layer): Extension<Option<Arc<Oauth2Layer>>>,
     request_headers: HeaderMap,
 ) -> Response {
-    let cookiejar = oauth2_layer
-        .map(|layer| PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key));
+    let cookiejar = oauth2_layer.map(|layer| {
+        PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key.clone())
+    });
 
     let mut browser = RedfishBrowser {
         url: query.url.clone().unwrap_or_default(),

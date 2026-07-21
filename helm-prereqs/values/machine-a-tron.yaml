@@ -90,7 +90,6 @@ pods:
         runIntervalWorking: "1s"
         runIntervalIdle: "10s"
         networkStatusRunInterval: "20s"
-        templateDir: "/opt/machine-a-tron/templates"
         # Set to the gateway of the OOB/underlay network in nico-core site config.
         # (setup-machine-a-tron.sh fills this from the running nico-core config.)
         oobDhcpRelayAddress: "FILL_IN"
@@ -102,4 +101,3 @@ pods:
 extraEnv:
   - name: RUST_LOG
     value: "info"
-

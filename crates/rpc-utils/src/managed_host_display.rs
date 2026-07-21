@@ -15,6 +15,10 @@
  * limitations under the License.
  */
 
+// The deprecated flat fields on `rpc::forge::Machine` must still be read here for
+// backwards-compat until a follow-up PR migrates this crate to the new config/status sub-messages.
+#![allow(deprecated)]
+
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::sync::Arc;

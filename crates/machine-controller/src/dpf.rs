@@ -535,6 +535,7 @@ impl DpfOperations for DpfSdkOps {
 
     fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError> {
         let part_number = dpu
+            .status
             .hardware_info
             .as_ref()
             .and_then(|hw| hw.dpu_info.as_ref())

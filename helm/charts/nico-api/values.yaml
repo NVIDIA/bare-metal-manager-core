@@ -155,6 +155,18 @@ env:
 
 extraEnv: []
 
+## Authentication for the /admin WebUI. CARBIDE_WEB_AUTH_TYPE in extraEnv
+## takes precedence for compatibility with existing installations.
+webAuth:
+  ## Allowed values: basic, oauth2, none.
+  mode: basic
+  basic:
+    ## Use an operator-managed password Secret instead of generating one.
+    ## Leave name empty to create nico-api-web-basic-auth with a generated password.
+    existingSecret:
+      name: ""
+      key: password
+
 ## External secret/configmap references mounted into the pod
 envFrom:
   vaultApproleTokens:

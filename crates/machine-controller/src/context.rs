@@ -20,6 +20,8 @@ use std::sync::Arc;
 use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_secrets::credentials::CredentialManager;
+use component_manager::component_manager::ComponentManager;
 use db::db_read::PgPoolReader;
 use libredfish::Redfish;
 use model::machine::Machine;
@@ -48,6 +50,9 @@ pub struct MachineStateHandlerServices {
     pub ipmi_tool: Arc<dyn IPMITool>,
     /// Configuration used by MachineStateHandler.
     pub site_config: Arc<MachineStateHandlerSiteConfig>,
+    /// Optional Component Manager backend for rack-scale maintenance operations.
+    pub component_manager: Option<Arc<ComponentManager>>,
+    pub credential_manager: Arc<dyn CredentialManager>,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
 }

@@ -35,6 +35,7 @@ carbide-health-report = { path = "../health-report" }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 carbide-rpc = { path = "../rpc", features = ["sqlx", "model"] }
 carbide-rpc-utils = { path = "../rpc-utils" }
+carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-version = { path = "../version" }
 config-version = { path = "../config-version", features = ["sqlx"] }
@@ -61,6 +62,7 @@ itertools = { workspace = true }
 lazy_static = { workspace = true }
 mac_address = { workspace = true }
 oauth2 = { workspace = true, default-features = false }
+rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true, default-features = false, features = [
   "rustls",

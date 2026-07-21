@@ -192,12 +192,23 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
     Ok(())
 }
 
+pub struct TestApiServerArgs {
+    pub bmc_proxy: Option<HostPortPair>,
+    pub firmware_directory: PathBuf,
+    pub addr_index: usize,
+    pub put_dev_bin_in_path: bool,
+    pub insecure_discovery: bool,
+}
+
 pub async fn start_api_server(
     test_env: IntegrationTestEnvironment,
-    bmc_proxy: Option<HostPortPair>,
-    firmware_directory: PathBuf,
-    addr_index: usize,
-    put_dev_bin_in_path: bool,
+    TestApiServerArgs {
+        bmc_proxy,
+        firmware_directory,
+        addr_index,
+        put_dev_bin_in_path,
+        insecure_discovery,
+    }: TestApiServerArgs,
     cancel_token: CancellationToken,
 ) -> eyre::Result<ApiServerHandle> {
     // Destructure into vars to save typing
@@ -261,6 +272,7 @@ pub async fn start_api_server(
                 cancel_token,
                 ready_channel: ready_tx,
                 credential_config,
+                insecure_discovery,
             })
             .await
             .inspect_err(|e| {

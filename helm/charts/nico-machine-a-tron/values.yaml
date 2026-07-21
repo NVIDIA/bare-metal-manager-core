@@ -157,7 +157,6 @@ machineDefaults:
   runIntervalWorking: "1s"
   runIntervalIdle: "10s"
   networkStatusRunInterval: "20s"
-  templateDir: "/opt/machine-a-tron/templates"
   networkVirtualizationType: ""
   dpusInNicMode: false
 
@@ -295,7 +294,6 @@ configFiles:
   #     dpu_per_host_count = 2
   #     oob_dhcp_relay_address = "10.100.0.1"
   #     admin_dhcp_relay_address = "192.168.176.1"
-  #     template_dir = "/opt/machine-a-tron/templates"
   #
   #     [machines.switches]
   #     hw_type = "nvidia_switch_nd5200_ld"
@@ -303,5 +301,4 @@ configFiles:
   #     dpu_per_host_count = 0
   #     oob_dhcp_relay_address = "10.100.0.1"
   #     admin_dhcp_relay_address = "192.168.176.1"
-  #     template_dir = "/opt/machine-a-tron/templates"
   matConfigs: {}

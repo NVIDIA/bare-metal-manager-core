@@ -21,7 +21,8 @@ use std::str::FromStr;
 use carbide_network::ip::prefix::Ipv4Net;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_uuid::machine::MachineId;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+use url::Url;
 
 use crate::network_monitor::NetworkPingerType;
 
@@ -51,9 +52,9 @@ pub enum AgentCommand {
     Hardware(HardwareOptions),
 
     #[clap(
-        about = "Init-container entry point: download the root CA cert and snapshot hardware to the shared volume for the main container."
+        about = "Init-container entry point: provision the root CA cert and snapshot hardware to the shared volume for the main container."
     )]
-    InitContainer,
+    InitContainer(InitContainerOptions),
 
     #[clap(about = "One-off health check")]
     Health,
@@ -69,6 +70,41 @@ pub enum AgentCommand {
 
     #[clap(about = "Write a templated config file", subcommand)]
     Write(WriteTarget),
+}
+
+pub const DEFAULT_BOOTSTRAP_CA_URL: &str = "http://carbide-pxe.forge/api/v0/tls/root_ca";
+
+fn parse_bootstrap_ca_url(value: &str) -> Result<Url, String> {
+    let url = Url::parse(value).map_err(|error| format!("invalid URL: {error}"))?;
+    match url.scheme() {
+        "http" | "https" => Ok(url),
+        scheme => Err(format!(
+            "unsupported bootstrap CA URL scheme {scheme:?}; expected http or https"
+        )),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+#[value(rename_all = "snake_case")]
+pub enum InitContainerBootstrapCaSource {
+    LegacyDownload,
+    Mounted,
+}
+
+#[derive(Parser, Debug)]
+pub struct InitContainerOptions {
+    /// Selects where the bootstrap CA is obtained. The default preserves the
+    /// legacy unauthenticated PXE download.
+    #[clap(long, default_value = "legacy_download")]
+    pub bootstrap_ca_source: InitContainerBootstrapCaSource,
+
+    /// URL used only when --bootstrap-ca-source=legacy_download.
+    #[clap(
+        long,
+        default_value = DEFAULT_BOOTSTRAP_CA_URL,
+        value_parser = parse_bootstrap_ca_url
+    )]
+    pub bootstrap_ca_url: Url,
 }
 
 #[derive(Parser, Debug)]
@@ -583,15 +619,89 @@ mod tests {
 
     #[test]
     fn test_init_container_subcommand_parses_without_args() {
-        // The init-container subcommand deliberately takes no flags: the output path
-        // is fixed so devs cannot misroute hardware data away from the main container.
         let opts = Options::try_parse_from(["forge-dpu-agent", "init-container"]).unwrap();
-        assert!(matches!(opts.cmd, Some(AgentCommand::InitContainer)));
+        let Some(AgentCommand::InitContainer(options)) = opts.cmd else {
+            panic!("expected init-container command");
+        };
+        assert!(matches!(
+            options.bootstrap_ca_source,
+            InitContainerBootstrapCaSource::LegacyDownload
+        ));
+        assert_eq!(options.bootstrap_ca_url.as_str(), DEFAULT_BOOTSTRAP_CA_URL);
+    }
+
+    #[test]
+    fn test_init_container_subcommand_parses_bootstrap_ca_sources() {
+        value_scenarios!(run = |value: &str| {
+            Options::try_parse_from([
+                "forge-dpu-agent",
+                "init-container",
+                "--bootstrap-ca-source",
+                value,
+            ])
+            .is_ok_and(|opts| {
+                matches!(opts.cmd, Some(AgentCommand::InitContainer(_)))
+            })
+        };
+            "supported bootstrap CA sources parse" {
+                "legacy_download" => true,
+                "mounted" => true,
+            }
+
+            "unknown bootstrap CA sources are rejected" {
+                "embedded" => false,
+                "download-or-whatever" => false,
+            }
+        );
+    }
+
+    #[test]
+    fn test_init_container_subcommand_parses_custom_bootstrap_ca_url() {
+        let opts = Options::try_parse_from([
+            "forge-dpu-agent",
+            "init-container",
+            "--bootstrap-ca-url",
+            "https://pxe.example.test/custom/ca.pem",
+        ])
+        .unwrap();
+        let Some(AgentCommand::InitContainer(options)) = opts.cmd else {
+            panic!("expected init-container command");
+        };
+        assert_eq!(
+            options.bootstrap_ca_url.as_str(),
+            "https://pxe.example.test/custom/ca.pem"
+        );
+    }
+
+    #[test]
+    fn test_init_container_subcommand_rejects_invalid_bootstrap_ca_url() {
+        let result = Options::try_parse_from([
+            "forge-dpu-agent",
+            "init-container",
+            "--bootstrap-ca-url",
+            "not a URL",
+        ]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_init_container_subcommand_rejects_unsupported_bootstrap_ca_url_scheme() {
+        let result = Options::try_parse_from([
+            "forge-dpu-agent",
+            "init-container",
+            "--bootstrap-ca-url",
+            "file:///tmp/site-ca.pem",
+        ]);
+        let error = result.err().expect("file URL should be rejected");
+        assert!(
+            error.to_string().contains("expected http or https"),
+            "unexpected parser error: {error}"
+        );
     }
 
     #[test]
     fn test_init_container_subcommand_rejects_output_file_flag() {
-        // If someone tries to pass --output-file (or any other flag), parsing must fail.
+        // Hardware output remains fixed even though bootstrap CA options are configurable.
         let result = Options::try_parse_from([
             "forge-dpu-agent",
             "init-container",

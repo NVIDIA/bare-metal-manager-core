@@ -43,7 +43,7 @@ fn dpf_error(error: DpfError) -> StateHandlerError {
 }
 
 fn bmc_ip(machine: &Machine) -> Result<IpAddr, StateHandlerError> {
-    machine.bmc_info.ip.ok_or_else(|| {
+    machine.status.bmc_info.ip.ok_or_else(|| {
         StateHandlerError::GenericError(eyre::eyre!("BMC IP is not set for machine {}", machine.id))
     })
 }
@@ -179,6 +179,7 @@ async fn create_and_register_dpudevices_and_dpunode(
 ) -> Result<(), StateHandlerError> {
     let primary_dpu_id = state
         .host_snapshot
+        .status
         .interfaces
         .iter()
         .find(|iface| iface.primary_interface)
@@ -190,6 +191,7 @@ async fn create_and_register_dpudevices_and_dpunode(
 
     for dpu in &state.dpu_snapshots {
         let serial_number = dpu
+            .status
             .hardware_info
             .as_ref()
             .and_then(|x| x.dmi_data.as_ref())
@@ -316,6 +318,7 @@ async fn handle_dpf_reboot(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let reboot_already_requested = state
         .host_snapshot
+        .status
         .last_reboot_requested
         .as_ref()
         .is_some_and(|r| r.time > state.host_snapshot.state.version.timestamp());

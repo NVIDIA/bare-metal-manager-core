@@ -105,7 +105,6 @@ data:
     run_interval_working = {{ $section.runIntervalWorking | default $defaults.runIntervalWorking | default "1s" | quote }}
     run_interval_idle = {{ $section.runIntervalIdle | default $defaults.runIntervalIdle | default "10s" | quote }}
     network_status_run_interval = {{ $section.networkStatusRunInterval | default $defaults.networkStatusRunInterval | default "20s" | quote }}
-    template_dir = {{ $section.templateDir | default $defaults.templateDir | default "/opt/machine-a-tron/templates" | quote }}
     oob_dhcp_relay_address = {{ $section.oobDhcpRelayAddress | default "192.168.192.1" | quote }}
     admin_dhcp_relay_address = {{ $section.adminDhcpRelayAddress | default "192.168.176.1" | quote }}
     {{- $nvType := $section.networkVirtualizationType | default $defaults.networkVirtualizationType }}

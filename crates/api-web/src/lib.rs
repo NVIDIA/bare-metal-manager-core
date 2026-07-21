@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -28,10 +29,12 @@ use axum::middleware::Next;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
+use base64::Engine as _;
+use base64::prelude::BASE64_STANDARD;
 use carbide_api_core::cfg::file::ToolLink;
 use carbide_api_core::{Api, AuthContext, CarbideError, DefaultCredential};
 use carbide_authn::middleware::Principal;
-use http::header::CONTENT_TYPE;
+use http::header::{AUTHORIZATION, CONTENT_TYPE, WWW_AUTHENTICATE};
 use http::{HeaderMap, Request, StatusCode};
 use itertools::Itertools;
 use oauth2::basic::{
@@ -42,6 +45,7 @@ use oauth2::{
     AuthUrl, Client, ClientId, ClientSecret, CsrfToken, EndpointNotSet, EndpointSet,
     PkceCodeChallenge, RedirectUrl, Scope, StandardRevocableToken, TokenUrl,
 };
+use rand::RngExt as _;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use tonic::service::AxumBody;
@@ -226,6 +230,8 @@ fn format_state_sla(sla: Option<&forgerpc::StateSla>) -> String {
 // `fixtures(...)`; use explicit setup helpers instead.
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
+use carbide_utils::none_if_empty::NoneIfEmpty;
+
 #[cfg(test)]
 mod tests;
 
@@ -282,6 +288,11 @@ mod ufm_browser;
 mod vpc;
 
 const AUTH_TYPE_ENV: &str = "CARBIDE_WEB_AUTH_TYPE";
+const BASIC_AUTH_PASSWORD_ENV: &str = "CARBIDE_WEB_BASIC_AUTH_PASSWORD";
+const BASIC_AUTH_USERNAME: &str = "admin";
+const BASIC_AUTH_REALM: &str = "Basic realm=\"NICo\"";
+const TEMPORARY_BASIC_AUTH_REALM: &str =
+    "Basic realm=\"NICo - check service logs for the random admin password\"";
 const AUTH_CALLBACK_ROOT: &str = "auth-callback";
 
 // Details https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Overview/appId/5ae5fa35-be8e-44cc-be7b-01ff76af5315/isMSAApp~/false
@@ -321,7 +332,6 @@ pub(crate) type Oauth2ClientWithPropertiesSet = Client<
     EndpointSet,
 >;
 
-#[derive(Clone)]
 pub(crate) struct Oauth2Layer {
     client: Oauth2ClientWithPropertiesSet,
     http_client: reqwest::Client,
@@ -330,15 +340,78 @@ pub(crate) struct Oauth2Layer {
     allowed_access_groups_ids_to_name: HashMap<String, String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum WebAuthMode {
+    #[default]
+    Basic,
+    OAuth2,
+    None,
+}
+
+impl FromStr for WebAuthMode {
+    type Err = eyre::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "basic" => Ok(Self::Basic),
+            "oauth2" => Ok(Self::OAuth2),
+            "none" => Ok(Self::None),
+            other => Err(eyre::eyre!(
+                "unknown {AUTH_TYPE_ENV}={other:?}: expected \"basic\", \"oauth2\", or \"none\""
+            )),
+        }
+    }
+}
+
+enum WebAuth {
+    Basic {
+        password: String,
+        challenge: &'static str,
+    },
+    OAuth2(Arc<Oauth2Layer>),
+    None,
+}
+
+impl WebAuth {
+    fn basic(configured_password: Option<String>) -> Self {
+        match configured_password {
+            Some(password) => WebAuth::Basic {
+                password,
+                challenge: BASIC_AUTH_REALM,
+            },
+            None => {
+                let password: String = rand::rng()
+                    .sample_iter(&rand::distr::Alphanumeric)
+                    .take(32)
+                    .map(char::from)
+                    .collect();
+                tracing::warn!(
+                    username = BASIC_AUTH_USERNAME,
+                    password = %password,
+                    "{BASIC_AUTH_PASSWORD_ENV} is not configured; generated a temporary WebUI Basic Auth password for this process. This password is not persisted and changes on every launch. Configure a permanent password by setting {BASIC_AUTH_PASSWORD_ENV} to a non-empty value."
+                );
+                WebAuth::Basic {
+                    password,
+                    challenge: TEMPORARY_BASIC_AUTH_REALM,
+                }
+            }
+        }
+    }
+}
+
 /// All the URLs in the admin interface. Nested under /admin in api.rs.
 pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
-    // `CARBIDE_WEB_AUTH_TYPE`: `none` (default) = no in-process auth — protect the admin UI with
-    // network policy, or a reverse proxy (OAuth2 Proxy, etc.). `oauth2` = Entra / OIDC via env.
-    let auth_type = env::var(AUTH_TYPE_ENV)
-        .unwrap_or_else(|_| "none".to_string())
-        .to_lowercase();
-    let oauth_extension_layer = match auth_type.as_str() {
-        "oauth2" => {
+    let auth_mode =
+        env::var(AUTH_TYPE_ENV).map_or(Ok(WebAuthMode::default()), |value| value.parse())?;
+    routes_with_auth_mode(api, auth_mode)
+}
+
+fn routes_with_auth_mode(
+    api: Arc<Api>,
+    auth_mode: WebAuthMode,
+) -> eyre::Result<NormalizePath<Router>> {
+    let web_auth = match auth_mode {
+        WebAuthMode::OAuth2 => {
             // Get our cookiejar key so we can add it as an extension.
             let private_cookiejar_key = Key::try_from(
                 env::var(CARBIDE_WEB_PRIVATE_COOKIEJAR_KEY_ENV)
@@ -399,31 +472,29 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 builder.build()?
             };
 
-            Some(Oauth2Layer {
+            WebAuth::OAuth2(Arc::new(Oauth2Layer {
                 client,
                 private_cookiejar_key,
                 allowed_access_groups_filter,
                 allowed_access_groups_ids_to_name,
                 http_client,
-            })
+            }))
         }
-        "none" | "" => {
+        WebAuthMode::None => {
             tracing::warn!(
                 auth_type_env_var = AUTH_TYPE_ENV,
                 "admin web UI has no in-process authentication; restrict access with network policy, a private network, or an authenticating reverse proxy (for example OAuth2 Proxy)",
             );
-            None
+            WebAuth::None
         }
-        "basic" => {
-            return Err(eyre::eyre!(
-                "{AUTH_TYPE_ENV}=basic is not supported. use \"none\" (default; secure the UI with network controls or an auth proxy) or \"oauth2\" (SSO via entra)"
-            ));
+        WebAuthMode::Basic => {
+            WebAuth::basic(env::var(BASIC_AUTH_PASSWORD_ENV).ok().none_if_empty())
         }
-        other => {
-            return Err(eyre::eyre!(
-                "unknown {AUTH_TYPE_ENV}={other:?}: expected \"none\" or \"oauth2\""
-            ));
-        }
+    };
+
+    let oauth_extension_layer = match &web_auth {
+        WebAuth::OAuth2(layer) => Some(Arc::clone(layer)),
+        WebAuth::Basic { .. } | WebAuth::None => None,
     };
 
     Ok(NormalizePath::trim_trailing_slash(
@@ -821,28 +892,34 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .route("/logs", get(logs::page))
             .route("/logs/{source}/stream", get(logs::stream))
             .route("/logs/{source}/history", get(logs::history))
-            .layer(axum::middleware::from_fn(auth_oauth2))
+            .layer(axum::middleware::from_fn(web_auth_middleware_fn))
+            .layer(Extension(Arc::new(web_auth)))
             .layer(Extension(oauth_extension_layer))
             .with_state(api),
     ))
 }
 
-pub async fn auth_oauth2(
+pub async fn web_auth_middleware_fn(
     headers: HeaderMap,
     mut req: Request<AxumBody>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let oauth_extension_layer = match req.extensions().get::<Option<Oauth2Layer>>() {
+    let oauth_extension_layer = match req.extensions().get::<Arc<WebAuth>>().map(AsRef::as_ref) {
         None => {
-            tracing::error!("failed to find oauth2 extension layer");
+            tracing::error!("failed to find web authentication extension layer");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
-        Some(o) => match o {
-            None => {
+        Some(WebAuth::None) => return Ok(next.run(req).await),
+        Some(WebAuth::Basic {
+            password,
+            challenge,
+        }) => {
+            if basic_credentials_are_valid(&headers, password) {
                 return Ok(next.run(req).await);
             }
-            Some(oa) => oa.to_owned(),
-        },
+            return Ok((StatusCode::UNAUTHORIZED, [(WWW_AUTHENTICATE, *challenge)]).into_response());
+        }
+        Some(WebAuth::OAuth2(layer)) => Arc::clone(layer),
     };
 
     // /auth-callback should pass through because that's
@@ -943,6 +1020,196 @@ pub async fn auth_oauth2(
         Redirect::to(auth_url.as_ref()),
     )
         .into_response())
+}
+
+fn basic_credentials_are_valid(headers: &HeaderMap, configured_password: &str) -> bool {
+    let Some((scheme, encoded)) = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split_once(' '))
+    else {
+        return false;
+    };
+    if !scheme.eq_ignore_ascii_case("basic") || encoded.is_empty() {
+        return false;
+    }
+    let Ok(credentials) = BASE64_STANDARD.decode(encoded) else {
+        return false;
+    };
+    let Ok(credentials) = String::from_utf8(credentials) else {
+        return false;
+    };
+    let Some((username, password)) = credentials.split_once(':') else {
+        return false;
+    };
+
+    username == BASIC_AUTH_USERNAME && password == configured_password
+}
+
+#[cfg(test)]
+mod web_auth_tests {
+    use axum::body::Body;
+    use carbide_test_support::{Case, Outcome, check_cases, value_scenarios};
+    use http::Request;
+    use tower::ServiceExt as _;
+
+    use super::*;
+
+    #[test]
+    fn auth_mode_parsing() {
+        check_cases(
+            [
+                Case {
+                    scenario: "basic",
+                    input: "basic",
+                    expect: Outcome::Yields(WebAuthMode::Basic),
+                },
+                Case {
+                    scenario: "oauth2",
+                    input: "oauth2",
+                    expect: Outcome::Yields(WebAuthMode::OAuth2),
+                },
+                Case {
+                    scenario: "none",
+                    input: "none",
+                    expect: Outcome::Yields(WebAuthMode::None),
+                },
+                Case {
+                    scenario: "case insensitive",
+                    input: "BASIC",
+                    expect: Outcome::Yields(WebAuthMode::Basic),
+                },
+                Case {
+                    scenario: "empty",
+                    input: "",
+                    expect: Outcome::Fails,
+                },
+                Case {
+                    scenario: "unknown",
+                    input: "saml",
+                    expect: Outcome::Fails,
+                },
+            ],
+            |value| value.parse::<WebAuthMode>().map_err(drop),
+        );
+        assert_eq!(WebAuthMode::default(), WebAuthMode::Basic);
+    }
+
+    #[test]
+    fn basic_credentials() {
+        value_scenarios!(run = |header: Option<&str>| {
+            let mut headers = HeaderMap::new();
+            if let Some(header) = header {
+                headers.insert(AUTHORIZATION, header.parse().unwrap());
+            }
+            basic_credentials_are_valid(&headers, "correct-password")
+        };
+            "accepted" {
+                Some("Basic YWRtaW46Y29ycmVjdC1wYXNzd29yZA==") => true,
+                Some("basic YWRtaW46Y29ycmVjdC1wYXNzd29yZA==") => true,
+            }
+            "rejected" {
+                Some("Basic dXNlcjpjb3JyZWN0LXBhc3N3b3Jk") => false,
+                Some("Basic YWRtaW46d3Jvbmc=") => false,
+                None => false,
+                Some("Bearer token") => false,
+                Some("Basic not-base64") => false,
+                Some("Basic YWRtaW4=") => false,
+            }
+        );
+        assert!(!basic_credentials_are_valid(&HeaderMap::new(), ""));
+    }
+
+    fn auth_test_router(auth: WebAuth) -> Router {
+        Router::new()
+            .route("/", get(|| async { StatusCode::NO_CONTENT }))
+            .layer(axum::middleware::from_fn(web_auth_middleware_fn))
+            .layer(Extension(Arc::new(auth)))
+    }
+
+    #[tokio::test]
+    async fn valid_basic_credentials_reach_the_ui() {
+        let response = auth_test_router(WebAuth::basic(Some("secret".to_string())))
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(AUTHORIZATION, "Basic YWRtaW46c2VjcmV0")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn invalid_basic_credentials_receive_a_challenge() {
+        let response = auth_test_router(WebAuth::basic(Some("secret".to_string())))
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()[WWW_AUTHENTICATE], BASIC_AUTH_REALM);
+    }
+
+    #[tokio::test]
+    async fn empty_basic_configuration_generates_a_usable_temporary_password() {
+        let auth = WebAuth::basic(None);
+        let WebAuth::Basic {
+            password,
+            challenge,
+        } = &auth
+        else {
+            panic!("basic_auth must return Basic authentication");
+        };
+        assert_eq!(password.len(), 32);
+        assert!(
+            password
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+        );
+        assert_eq!(*challenge, TEMPORARY_BASIC_AUTH_REALM);
+
+        let credentials = BASE64_STANDARD.encode(format!("{BASIC_AUTH_USERNAME}:{password}"));
+        let response = auth_test_router(auth)
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(AUTHORIZATION, format!("Basic {credentials}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn temporary_password_challenge_points_to_the_logs() {
+        let response = auth_test_router(WebAuth::basic(None))
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers()[WWW_AUTHENTICATE],
+            TEMPORARY_BASIC_AUTH_REALM
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_none_reaches_the_ui() {
+        let response = auth_test_router(WebAuth::None)
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
 }
 
 #[derive(Template)]

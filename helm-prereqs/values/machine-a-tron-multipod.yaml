@@ -153,7 +153,6 @@ configFiles:
       run_interval_working = "1s"
       run_interval_idle = "10s"
       network_status_run_interval = "20s"
-      template_dir = "/opt/machine-a-tron/templates"
       oob_dhcp_relay_address = "10.233.58.1"
       admin_dhcp_relay_address = "10.102.0.1"
       dpus_in_nic_mode = false
@@ -188,7 +187,6 @@ configFiles:
       run_interval_working = "1s"
       run_interval_idle = "10s"
       network_status_run_interval = "20s"
-      template_dir = "/opt/machine-a-tron/templates"
       oob_dhcp_relay_address = "10.233.60.1"
       admin_dhcp_relay_address = "10.102.0.1"
       dpus_in_nic_mode = false

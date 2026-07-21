@@ -31,7 +31,8 @@ use carbide_dpf::{
 };
 
 use crate::cfg::file::{
-    DEFAULT_DPF_IMAGE_PULL_SECRET, DpfMandatoryServicesConfig, DpfServiceConfig,
+    DEFAULT_DPF_IMAGE_PULL_SECRET, DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa,
+    DpfMandatoryServicesConfig, DpfServiceConfig,
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
@@ -283,25 +284,67 @@ pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-/// Forge DPU Agent service definition.
-pub fn dpu_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
-    ServiceDefinition {
-        helm_values: Some(serde_json::json!({
-            "image": {
-                "repository": cfg.docker_repo_url,
-                "tag": cfg.docker_image_tag,
-            },
-            "hbn": {
-                "nvue_https_address": "nvue",
-                "nvue_credentials_secret_name": "hbn-user-password",
-                "nvue_password_key": "password",
-            },
-            "imagePullSecrets": [
-                {
-                    "name": cfg.docker_image_pull_secret
-                }
-            ]
+fn dpu_agent_helm_values(
+    cfg: &DpfServiceConfig,
+    bootstrap_ca: &DpfDpuAgentBootstrapCa,
+) -> serde_json::Value {
+    let mut values = serde_json::json!({
+        "image": {
+            "repository": cfg.docker_repo_url,
+            "tag": cfg.docker_image_tag,
+        },
+        "hbn": {
+            "nvue_https_address": "nvue",
+            "nvue_credentials_secret_name": "hbn-user-password",
+            "nvue_password_key": "password",
+        },
+        "imagePullSecrets": [
+            {
+                "name": cfg.docker_image_pull_secret
+            }
+        ]
+    });
+
+    let bootstrap_ca_values = match bootstrap_ca {
+        DpfDpuAgentBootstrapCa::LegacyDownload { url: None } => None,
+        DpfDpuAgentBootstrapCa::LegacyDownload { url: Some(url) } => Some(serde_json::json!({
+            "source": "legacy_download",
+            "url": url,
         })),
+        DpfDpuAgentBootstrapCa::Mounted {
+            object_kind,
+            name,
+            key,
+        } => Some(serde_json::json!({
+            "source": "mounted",
+            "object": {
+                "kind": match object_kind {
+                    DpfBootstrapCaObjectKind::Secret => "Secret",
+                    DpfBootstrapCaObjectKind::ConfigMap => "ConfigMap",
+                },
+                "name": name,
+                "key": key,
+            },
+        })),
+    };
+
+    if let Some(bootstrap_ca_values) = bootstrap_ca_values {
+        values
+            .as_object_mut()
+            .expect("DPU agent Helm values are an object")
+            .insert("bootstrapCa".to_string(), bootstrap_ca_values);
+    }
+
+    values
+}
+
+/// Forge DPU Agent service definition.
+pub fn dpu_agent_service(
+    cfg: &DpfServiceConfig,
+    bootstrap_ca: &DpfDpuAgentBootstrapCa,
+) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(dpu_agent_helm_values(cfg, bootstrap_ca)),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
 
@@ -430,12 +473,15 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 /// Build the full list of mandatory DPU services from config.
-pub fn mandatory_services(cfg: &DpfMandatoryServicesConfig) -> Vec<ServiceDefinition> {
+pub fn mandatory_services(
+    cfg: &DpfMandatoryServicesConfig,
+    bootstrap_ca: &DpfDpuAgentBootstrapCa,
+) -> Vec<ServiceDefinition> {
     vec![
         dts_service(&cfg.dts),
         doca_hbn_service(&cfg.doca_hbn),
         dhcp_server_service(&cfg.dhcp_server),
-        dpu_agent_service(&cfg.dpu_agent),
+        dpu_agent_service(&cfg.dpu_agent, bootstrap_ca),
         fmds_service(&cfg.fmds),
         otelcol_service(&cfg.otel),
     ]
@@ -446,10 +492,59 @@ mod tests {
     use carbide_dpf::build_service_interface;
     use carbide_dpf::sdk::build_dpu_interfaces_vec;
     use carbide_dpf::types::DpuServiceInterfaceTemplateType;
+    use carbide_test_support::value_scenarios;
+    use url::Url;
 
     use super::*;
 
     const TEST_NS: &str = "dpf-operator-system";
+
+    #[test]
+    fn dpu_agent_bootstrap_ca_helm_values_follow_site_policy() {
+        value_scenarios!(
+            run = |policy| {
+                dpu_agent_helm_values(&default_dpu_agent_service(), &policy)
+                    .get("bootstrapCa")
+                    .cloned()
+            };
+            "legacy download" {
+                DpfDpuAgentBootstrapCa::default() => None,
+                DpfDpuAgentBootstrapCa::LegacyDownload {
+                    url: Some(Url::parse("https://pxe.example.test/site-ca.pem").unwrap()),
+                } => Some(serde_json::json!({
+                    "source": "legacy_download",
+                    "url": "https://pxe.example.test/site-ca.pem",
+                })),
+            }
+
+            "mounted Kubernetes object" {
+                DpfDpuAgentBootstrapCa::Mounted {
+                    object_kind: DpfBootstrapCaObjectKind::Secret,
+                    name: "nico-bootstrap-ca-v1".to_string(),
+                    key: "root.pem".to_string(),
+                } => Some(serde_json::json!({
+                    "source": "mounted",
+                    "object": {
+                        "kind": "Secret",
+                        "name": "nico-bootstrap-ca-v1",
+                        "key": "root.pem",
+                    },
+                })),
+                DpfDpuAgentBootstrapCa::Mounted {
+                    object_kind: DpfBootstrapCaObjectKind::ConfigMap,
+                    name: "nico-bootstrap-ca-v2".to_string(),
+                    key: "ca.crt".to_string(),
+                } => Some(serde_json::json!({
+                    "source": "mounted",
+                    "object": {
+                        "kind": "ConfigMap",
+                        "name": "nico-bootstrap-ca-v2",
+                        "key": "ca.crt",
+                    },
+                })),
+            }
+        );
+    }
 
     // ---- dpu_service_interfaces ----
 

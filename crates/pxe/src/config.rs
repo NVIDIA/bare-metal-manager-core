@@ -23,6 +23,9 @@ pub(crate) struct RuntimeConfig {
     pub client_facing_api_url: String,
     pub pxe_url: String,
     pub static_pxe_url: String,
+    /// CA bundle served to bootstrapping clients. When no dedicated bundle is
+    /// configured, this remains the same file used for outbound API trust.
+    pub bootstrap_root_ca_path: String,
     pub forge_root_ca_path: String,
     pub server_cert_path: String,
     pub server_key_path: String,
@@ -35,6 +38,12 @@ impl RuntimeConfig {
     pub(crate) fn from_env() -> Result<Self, String> {
         let carbide_pxe_url =
             env::var("CARBIDE_PXE_URL").unwrap_or_else(|_| "http://carbide-pxe.forge".to_string());
+        let forge_root_ca_path = env::var("FORGE_ROOT_CAFILE_PATH")
+            .map_err(|_| "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string())?;
+        let bootstrap_root_ca_path = env::var("FORGE_BOOTSTRAP_ROOT_CAFILE_PATH")
+            .ok()
+            .filter(|path| !path.is_empty())
+            .unwrap_or_else(|| forge_root_ca_path.clone());
         let this = Self {
             internal_api_url: env::var("CARBIDE_API_INTERNAL_URL").unwrap_or_else(|_| {
                 "https://carbide-api.forge-system.svc.cluster.local:1079".to_string()
@@ -43,9 +52,8 @@ impl RuntimeConfig {
                 .unwrap_or_else(|_| "https://carbide-api.forge".to_string()),
             pxe_url: carbide_pxe_url.clone(),
             static_pxe_url: env::var("CARBIDE_STATIC_PXE_URL").unwrap_or(carbide_pxe_url),
-            forge_root_ca_path: env::var("FORGE_ROOT_CAFILE_PATH").map_err(|_| {
-                "Could not extract FORGE_ROOT_CAFILE_PATH from environment".to_string()
-            })?,
+            bootstrap_root_ca_path,
+            forge_root_ca_path,
             server_cert_path: env::var("FORGE_CLIENT_CERT_PATH").map_err(|_| {
                 "Could not extract FORGE_CLIENT_CERT_PATH from environment".to_string()
             })?,
@@ -84,6 +92,7 @@ mod tests {
         "CARBIDE_API_INTERNAL_URL",
         "CARBIDE_API_URL",
         "CARBIDE_STATIC_PXE_URL",
+        "FORGE_BOOTSTRAP_ROOT_CAFILE_PATH",
         "FORGE_ROOT_CAFILE_PATH",
         "FORGE_CLIENT_CERT_PATH",
         "FORGE_CLIENT_KEY_PATH",
@@ -103,6 +112,7 @@ mod tests {
         client_facing_api_url: String,
         pxe_url: String,
         static_pxe_url: String,
+        bootstrap_root_ca_path: String,
         forge_root_ca_path: String,
         server_cert_path: String,
         server_key_path: String,
@@ -156,6 +166,7 @@ mod tests {
             client_facing_api_url: config.client_facing_api_url,
             pxe_url: config.pxe_url,
             static_pxe_url: config.static_pxe_url,
+            bootstrap_root_ca_path: config.bootstrap_root_ca_path,
             forge_root_ca_path: config.forge_root_ca_path,
             server_cert_path: config.server_cert_path,
             server_key_path: config.server_key_path,
@@ -206,6 +217,28 @@ mod tests {
                     client_facing_api_url: "https://carbide-api.forge".to_string(),
                     pxe_url: "http://carbide-pxe.forge".to_string(),
                     static_pxe_url: "http://carbide-pxe.forge".to_string(),
+                    bootstrap_root_ca_path: "/certs/root.pem".to_string(),
+                    forge_root_ca_path: "/certs/root.pem".to_string(),
+                    server_cert_path: "/certs/client.pem".to_string(),
+                    server_key_path: "/certs/client.key".to_string(),
+                    bind_address: "0.0.0.0".parse().unwrap(),
+                    bind_port: 8080,
+                    template_directory: "/opt/carbide/pxe/templates".to_string(),
+                }),
+
+                ConfigEnv {
+                    vars: &[
+                        ("FORGE_BOOTSTRAP_ROOT_CAFILE_PATH", ""),
+                        ("FORGE_ROOT_CAFILE_PATH", "/certs/root.pem"),
+                        ("FORGE_CLIENT_CERT_PATH", "/certs/client.pem"),
+                        ("FORGE_CLIENT_KEY_PATH", "/certs/client.key"),
+                    ],
+                } => Yields(RuntimeConfigSummary {
+                    internal_api_url: "https://carbide-api.forge-system.svc.cluster.local:1079".to_string(),
+                    client_facing_api_url: "https://carbide-api.forge".to_string(),
+                    pxe_url: "http://carbide-pxe.forge".to_string(),
+                    static_pxe_url: "http://carbide-pxe.forge".to_string(),
+                    bootstrap_root_ca_path: "/certs/root.pem".to_string(),
                     forge_root_ca_path: "/certs/root.pem".to_string(),
                     server_cert_path: "/certs/client.pem".to_string(),
                     server_key_path: "/certs/client.key".to_string(),
@@ -222,6 +255,7 @@ mod tests {
                         ("CARBIDE_API_URL", "https://client.example.com"),
                         ("CARBIDE_PXE_URL", "http://pxe.example.com"),
                         ("CARBIDE_STATIC_PXE_URL", "http://static-pxe.example.com"),
+                        ("FORGE_BOOTSTRAP_ROOT_CAFILE_PATH", "/explicit/bootstrap-root.pem"),
                         ("FORGE_ROOT_CAFILE_PATH", "/explicit/root.pem"),
                         ("FORGE_CLIENT_CERT_PATH", "/explicit/client.pem"),
                         ("FORGE_CLIENT_KEY_PATH", "/explicit/client.key"),
@@ -234,6 +268,7 @@ mod tests {
                     client_facing_api_url: "https://client.example.com".to_string(),
                     pxe_url: "http://pxe.example.com".to_string(),
                     static_pxe_url: "http://static-pxe.example.com".to_string(),
+                    bootstrap_root_ca_path: "/explicit/bootstrap-root.pem".to_string(),
                     forge_root_ca_path: "/explicit/root.pem".to_string(),
                     server_cert_path: "/explicit/client.pem".to_string(),
                     server_key_path: "/explicit/client.key".to_string(),
