@@ -48,6 +48,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dns_queries_total</td><td>counter</td><td>Number of DNS queries received, by query type</td></tr>
 <tr><td>carbide_dns_request_duration_milliseconds</td><td>histogram</td><td>Time to process a DNS query, by query type and response code</td></tr>
 <tr><td>carbide_dns_responses_total</td><td>counter</td><td>Number of DNS responses sent, by response code</td></tr>
+<tr><td>carbide_dpa_monitor_iteration_latency_milliseconds</td><td>histogram</td><td>Time consumed for one monitor iteration</td></tr>
 <tr><td>carbide_dpu_agent_report_total</td><td>counter</td><td>Number of DPU-agent report-loop iterations, by loop and outcome</td></tr>
 <tr><td>carbide_dpu_agent_version_count</td><td>gauge</td><td>Number of DPU agents which have reported a certain version.</td></tr>
 <tr><td>carbide_dpu_firmware_version_count</td><td>gauge</td><td>Number of DPUs which have reported a certain firmware version.</td></tr>
