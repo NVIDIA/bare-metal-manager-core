@@ -24,20 +24,34 @@ Configure `nicocli` for the target REST API. The caller's organization must have
 Use `GracefulRestart` when the operating system can shut down cleanly. Use `ForceRestart` only when a graceful restart is not possible.
 
 ```bash
-nicocli machine power-control-machine machine-power-control-machine \
+MACHINE_ID='machine-id'
+nicocli machine power-control-machine \
   --action GracefulRestart \
-  <machine-id>
+  "$MACHINE_ID"
+```
+
+If a graceful restart is not possible, use the forced action explicitly:
+
+```bash
+nicocli machine power-control-machine \
+  --action ForceRestart \
+  "$MACHINE_ID"
 ```
 
 If the Machine has an attached Instance, acknowledge the workload disruption explicitly:
 
 ```bash
-nicocli machine power-control-machine machine-power-control-machine \
+nicocli machine power-control-machine \
   --action GracefulRestart \
   --acknowledge-attached-instance true \
-  <machine-id>
+  "$MACHINE_ID"
 ```
 
-A successful request returns HTTP 202. Retrieve the Machine afterward with `nicocli machine get <machine-id>` and confirm that it returns to the expected lifecycle state.
+A successful request returns HTTP 202 after NICo accepts the power-control
+request. The API does not expose a reboot task or terminal reboot status, and
+`nicocli machine get "$MACHINE_ID"` can return the same REST lifecycle state
+before, during, and after the reboot. Confirm that the machine becomes
+unavailable and returns through the Site's host or BMC monitoring instead of
+treating a single Machine status, or a poll of that status, as completion.
 
 </Steps>

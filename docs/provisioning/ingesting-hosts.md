@@ -65,9 +65,20 @@ cat /tmp/issued.json | jq -r '.data.certificate' > /path/to/client.crt
 cat /tmp/issued.json | jq -r '.data.issuing_ca' >  /path/to/ca.crt
 ```
 
-You can run admin cli commands as
+Set the variables below to the target API and certificate paths. You can then
+run admin CLI commands as follows:
 ```bash
-nico-admin-cli https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path /path/to/ca.crt --client-cert-path /path/to/client.crt  --client-key-path /path/to/client.key <command> ...
+NICO_API_URL='https://api.example.com'
+NICO_ROOT_CA_PATH='/path/to/ca.crt'
+NICO_CLIENT_CERT_PATH='/path/to/client.crt'
+NICO_CLIENT_KEY_PATH='/path/to/client.key'
+
+nico-admin-cli \
+  -a "$NICO_API_URL" \
+  --root-ca-path "$NICO_ROOT_CA_PATH" \
+  --client-cert-path "$NICO_CLIENT_CERT_PATH" \
+  --client-key-path "$NICO_CLIENT_KEY_PATH" \
+  --help
 ```
 Alternatively to shorten the command line you can create a file named `nico_api_cli.json` in folder `$HOME/.config` and add the following content:
 ```json
@@ -114,10 +125,13 @@ https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --nico-root-ca-path <NICO_ROOT
 Run this command to store the desired Host and DPU BMC password:
 
 ```bash
-nicocli bmc-credential create \
-  --site-id <site-uuid> \
-  --kind SiteWideRoot \
-  --password '<password>'
+read -r -s -p 'Site-wide BMC password: ' NICO_PASSWORD
+printf '\n'
+printf '%s' "$NICO_PASSWORD" |
+  jq -Rs --arg siteId '<site-uuid>' \
+    '{siteId: $siteId, kind: "SiteWideRoot", password: .}' |
+  nicocli bmc-credential create --data-file -
+unset NICO_PASSWORD
 ```
 
 ### Store Host and DPU UEFI Passwords
@@ -125,19 +139,25 @@ nicocli bmc-credential create \
 Run this command to store the desired host UEFI password:
 
 ```bash
-nicocli uefi-credential create \
-  --site-id <site-uuid> \
-  --kind Host \
-  --password '<password>'
+read -r -s -p 'Host UEFI password: ' NICO_PASSWORD
+printf '\n'
+printf '%s' "$NICO_PASSWORD" |
+  jq -Rs --arg siteId '<site-uuid>' \
+    '{siteId: $siteId, kind: "Host", password: .}' |
+  nicocli uefi-credential create --data-file -
+unset NICO_PASSWORD
 ```
 
 Run this command to store the desired DPU UEFI password:
 
 ```bash
-nicocli uefi-credential create \
-  --site-id <site-uuid> \
-  --kind DPU \
-  --password '<password>'
+read -r -s -p 'DPU UEFI password: ' NICO_PASSWORD
+printf '\n'
+printf '%s' "$NICO_PASSWORD" |
+  jq -Rs --arg siteId '<site-uuid>' \
+    '{siteId: $siteId, kind: "DPU", password: .}' |
+  nicocli uefi-credential create --data-file -
+unset NICO_PASSWORD
 ```
 
 ## Add Expected Machines Table
@@ -147,12 +167,23 @@ NICo needs to know the factory default credentials for each BMC, which is expres
 Register a single Expected Machine with `nicocli`:
 
 ```bash
-nicocli expected-machine create \
-  --site-id <site-uuid> \
-  --bmc-mac-address <mac> \
-  --chassis-serial-number <chassis-serial> \
-  --default-bmc-username <bmc-user> \
-  --default-bmc-password <bmc-password>
+read -r -s -p 'Factory-default BMC password: ' NICO_PASSWORD
+printf '\n'
+printf '%s' "$NICO_PASSWORD" |
+  jq -Rs \
+    --arg siteId '<site-uuid>' \
+    --arg bmcMacAddress '<mac>' \
+    --arg chassisSerialNumber '<chassis-serial>' \
+    --arg defaultBmcUsername '<bmc-user>' \
+    '{
+      siteId: $siteId,
+      bmcMacAddress: $bmcMacAddress,
+      chassisSerialNumber: $chassisSerialNumber,
+      defaultBmcUsername: $defaultBmcUsername,
+      defaultBmcPassword: .
+    }' |
+  nicocli expected-machine create --data-file -
+unset NICO_PASSWORD
 ```
 
 For more than one machine, prepare the JSON array documented in [Ingesting Hosts (REST API)](ingesting-hosts-rest-api.md#batch-recommended-for-full-rack-onboarding), then run:
@@ -267,17 +298,15 @@ The expected machines table in the nico-api database holds the following fields 
 Use `nicocli` to operate on individual entries:
 
 ```bash
+EXPECTED_MACHINE_ID='expected-machine-id'
 nicocli expected-machine update \
   --description '<description>' \
-  <expected-machine-id>
-nicocli expected-machine create \
-  --site-id <site-uuid> \
-  --bmc-mac-address <mac> \
-  --chassis-serial-number <chassis-serial> \
-  --default-bmc-username <bmc-username> \
-  --default-bmc-password <bmc-password>
-nicocli expected-machine delete <expected-machine-id>
+  "$EXPECTED_MACHINE_ID"
+nicocli expected-machine delete "$EXPECTED_MACHINE_ID"
 ```
+
+To create another entry, use the password-safe stdin workflow in
+[Add Expected Machines Table](#add-expected-machines-table).
 
 ### Bulk operations
 
@@ -293,7 +322,7 @@ See [Ingesting Hosts (REST API)](ingesting-hosts-rest-api.md#batch-update) for t
 Delete an entry by ID:
 
 ```bash
-nicocli expected-machine delete <expected-machine-id>
+nicocli expected-machine delete "$EXPECTED_MACHINE_ID"
 ```
 
 ### Export

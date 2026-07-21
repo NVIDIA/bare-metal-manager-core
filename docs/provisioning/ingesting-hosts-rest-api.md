@@ -32,18 +32,33 @@ The Expected Machine endpoints are scoped per-org per-site. All requests require
 
 ### Single Machine
 
-Create one Expected Machine with explicit flags:
+Prompt for the BMC password and send the request body over stdin so the secret
+does not appear in shell history or the process list:
 
 ```bash
-nicocli expected-machine create \
-  --site-id <site-uuid> \
-  --bmc-mac-address <mac> \
-  --chassis-serial-number <chassis-serial> \
-  --default-bmc-username <bmc-user> \
-  --default-bmc-password <bmc-password>
+read -r -s -p 'Factory-default BMC password: ' NICO_PASSWORD
+printf '\n'
+printf '%s' "$NICO_PASSWORD" |
+  jq -Rs \
+    --arg siteId '<site-uuid>' \
+    --arg bmcMacAddress '<mac>' \
+    --arg chassisSerialNumber '<chassis-serial>' \
+    --arg defaultBmcUsername '<bmc-user>' \
+    '{
+      siteId: $siteId,
+      bmcMacAddress: $bmcMacAddress,
+      chassisSerialNumber: $chassisSerialNumber,
+      defaultBmcUsername: $defaultBmcUsername,
+      defaultBmcPassword: .
+    }' |
+  nicocli expected-machine create --data-file -
+unset NICO_PASSWORD
 ```
 
-Required flags: `--site-id`, `--bmc-mac-address`, `--chassis-serial-number`. The BMC credentials are optional on the REST schema but required in practice -- without them NICo cannot authenticate to the BMC for discovery.
+Required request fields are `siteId`, `bmcMacAddress`, and
+`chassisSerialNumber`. The BMC credentials are optional on the REST schema but
+required in practice -- without them NICo cannot authenticate to the BMC for
+discovery.
 
 Optional flags add metadata or pre-allocate resources:
 
@@ -55,23 +70,29 @@ Optional flags add metadata or pre-allocate resources:
 | `--manufacturer`, `--model`, `--firmware-version`, `--name`, `--description` | Free-text hardware metadata |
 | `--slot-id`, `--tray-idx`, `--host-id` | Physical placement within a rack/tray |
 
-You can also pass the entire request body as JSON:
+You can also pass additional fields in the stdin JSON object. Keep the password
+on stdin rather than writing it into the command:
 
 ```bash
-nicocli expected-machine create --data-file - <<'EOF'
-{
-  "siteId": "<site-uuid>",
-  "bmcMacAddress": "<mac>",
-  "defaultBmcUsername": "<bmc-user>",
-  "defaultBmcPassword": "<bmc-password>",
-  "chassisSerialNumber": "<chassis-serial>",
-  "fallbackDPUSerialNumbers": ["<dpu-serial-1>", "<dpu-serial-2>"],
-  "labels": {
-    "environment": "production",
-    "rack": "A1"
-  }
-}
-EOF
+read -r -s -p 'Factory-default BMC password: ' NICO_PASSWORD
+printf '\n'
+printf '%s' "$NICO_PASSWORD" |
+  jq -Rs \
+    --arg siteId '<site-uuid>' \
+    --arg bmcMacAddress '<mac>' \
+    --arg chassisSerialNumber '<chassis-serial>' \
+    --arg defaultBmcUsername '<bmc-user>' \
+    '{
+      siteId: $siteId,
+      bmcMacAddress: $bmcMacAddress,
+      defaultBmcUsername: $defaultBmcUsername,
+      defaultBmcPassword: .,
+      chassisSerialNumber: $chassisSerialNumber,
+      fallbackDPUSerialNumbers: ["<dpu-serial-1>", "<dpu-serial-2>"],
+      labels: {environment: "production", rack: "A1"}
+    }' |
+  nicocli expected-machine create --data-file -
+unset NICO_PASSWORD
 ```
 
 `fallbackDPUSerialNumbers` is JSON-only (no flag form) and is needed for DGX-H100 or other machines where the NetworkAdapter serial number is not available in the host Redfish.
