@@ -1778,6 +1778,14 @@ pub enum DpfState {
         #[serde(default)]
         phase_detail: Option<String>,
     },
+    /// Executing a DPF-requested power cycle. `state.version.timestamp()`
+    /// records when this step started; the handler uses it to enforce the
+    /// configured power-transition delay (`reachability_params.power_down_wait`).
+    HandleReboot {
+        op: PerformPowerOperation,
+        #[serde(default)]
+        retry_count: u32,
+    },
     /// DPU device reported ready by the DPF operator. Carbide
     /// waits for all DPUs to reach this state before proceeding.
     DeviceReady,

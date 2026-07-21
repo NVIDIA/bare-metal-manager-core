@@ -2260,7 +2260,7 @@ pub async fn check_restart_in_logs(
 }
 
 // Function to wait for some time in state machine.
-fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
+pub(super) fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
     let expected_time = *basetime + wait_time;
     let current_time = Utc::now();
 
@@ -2826,7 +2826,15 @@ async fn handle_dpu_reprovision(
                     "DPF reprovision state reached but DPF is not configured"
                 ))
             })?;
-            dpf::handle_dpf_state(state, dpu_snapshot, substate, ctx, dpf).await
+            dpf::handle_dpf_state(
+                state,
+                dpu_snapshot,
+                substate,
+                ctx,
+                dpf,
+                reachability_params.power_down_wait,
+            )
+            .await
         }
         ReprovisionState::InstallDpuOs { substate } => {
             handle_bfb_install_state(
@@ -4088,7 +4096,15 @@ impl DpuMachineStateHandler {
                         "DPF state reached but DPF is not configured"
                     ))
                 })?;
-                dpf::handle_dpf_state(state, dpu_snapshot, dpf_state, ctx, dpf_sdk).await
+                dpf::handle_dpf_state(
+                    state,
+                    dpu_snapshot,
+                    dpf_state,
+                    ctx,
+                    dpf_sdk,
+                    self.reachability_params.power_down_wait,
+                )
+                .await
             }
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::Off,
