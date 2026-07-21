@@ -565,16 +565,19 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 				switch {
 				case terr != nil:
+					// Transient lookup failure: do not cache, so later Operating
+					// Systems for this org retry resolution this cycle.
 					slogger.Error().Err(terr).Str("TenantOrg", tenantOrg).Msg("Failed to resolve tenant for Operating System; skipping this cycle")
 				case len(tenants) == 0:
 					slogger.Error().Str("TenantOrg", tenantOrg).Msg("No REST tenant matches Operating System's tenant_organization_id; skipping OS (cannot attribute ownership)")
+					tenantOrgToID[tenantOrg] = tenantID
 				default:
 					if len(tenants) > 1 {
 						slogger.Warn().Str("TenantOrg", tenantOrg).Msg("Multiple tenants found for Operating System org; using first")
 					}
 					tenantID = cutil.GetPtr(tenants[0].ID)
+					tenantOrgToID[tenantOrg] = tenantID
 				}
-				tenantOrgToID[tenantOrg] = tenantID
 			}
 			if tenantID == nil {
 				// tenant_organization_id is set but unknown to REST: skip rather than
