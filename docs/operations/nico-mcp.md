@@ -107,7 +107,7 @@ Deployment starts when the registry requires authentication.
 | `global.image.repository` | empty | Image registry and repository prefix. Required for deployment. |
 | `global.image.tag` | empty | Image tag. Required for deployment. |
 | `global.image.pullPolicy` | `IfNotPresent` | Kubernetes image pull policy. |
-| `global.imagePullSecrets` | `image-pull-secret` | Existing image pull secrets attached to the pod. |
+| `global.imagePullSecrets` | `[{name: image-pull-secret}]` | Existing image pull secrets attached to the pod (list of `name` objects). |
 | `replicaCount` | `1` | Number of MCP server replicas. |
 | `nameOverride` | empty | Override for the Deployment and Service name. |
 | `namespaceOverride` | empty | Namespace override; otherwise the Helm release namespace is used. |
@@ -156,7 +156,7 @@ arguments. Non-empty values are resolved for each call as follows:
 
 | Setting | Precedence, highest first |
 | ------- | ------------------------- |
-| `base_url` | Fixed startup `--base-url` or `NICO_BASE_URL`; without a startup value, the tool argument |
+| `base_url` | Fixed startup `--base-url` or `NICO_BASE_URL`; a tool argument must match it (mismatch rejected). Without a startup value, the tool argument |
 | `org` | Tool argument, then startup `--org` or `NICO_ORG` |
 | `api_name` | Tool argument, then startup `--api-name` or `NICO_API_NAME`, then `nico` |
 | `token` | Tool argument, inbound `Authorization: Bearer` header, then startup `--token` or `NICO_TOKEN` |
