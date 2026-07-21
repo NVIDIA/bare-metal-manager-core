@@ -15,20 +15,18 @@
  * limitations under the License.
  */
 
+use carbide_api_core::test_support::default_config;
+use carbide_test_harness::CarbideConfig;
+use carbide_test_harness::prelude::*;
 use carbide_uuid::rack::{RackId, RackProfileId};
-use common::api_fixtures::{create_test_env, create_test_env_with_overrides, get_config};
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
     RackProductFamily, RackProfile, RackProfileConfig,
 };
-use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedRackList, ExpectedRackRequest};
 
-use crate::tests::common;
-use crate::tests::common::api_fixtures::TestEnvOverrides;
-
-fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
-    let mut config = get_config();
+fn config_with_rack_profiles() -> CarbideConfig {
+    let mut config = default_config::get();
     config.rack_profiles = RackProfileConfig {
         rack_profiles: [
             (
@@ -92,14 +90,21 @@ fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
     config
 }
 
+async fn env_with_rack_profiles(pool: PgPool) -> TestHarness {
+    let config = config_with_rack_profiles();
+    TestHarness::builder(pool)
+        .with_api_builder_fn(move |builder| builder.with_runtime_config(config.into()))
+        .build()
+        .await
+}
+
 fn new_rack_id() -> RackId {
     RackId::new(uuid::Uuid::new_v4().to_string())
 }
 
-#[crate::sqlx_test]
-async fn test_add_expected_rack(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_add_expected_rack(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
@@ -115,13 +120,13 @@ async fn test_add_expected_rack(pool: sqlx::PgPool) {
         }),
     };
 
-    env.api
+    env.api()
         .add_expected_rack(tonic::Request::new(expected_rack.clone()))
         .await
         .expect("unable to add expected rack");
 
     let retrieved = env
-        .api
+        .api()
         .get_expected_rack(tonic::Request::new(ExpectedRackRequest {
             rack_id: rack_id.to_string(),
         }))
@@ -137,10 +142,9 @@ async fn test_add_expected_rack(pool: sqlx::PgPool) {
     assert_eq!(retrieved.metadata.as_ref().unwrap().name, "test-rack");
 }
 
-#[crate::sqlx_test]
-async fn test_add_expected_rack_invalid_type(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_add_expected_rack_invalid_type(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
@@ -150,7 +154,7 @@ async fn test_add_expected_rack_invalid_type(pool: sqlx::PgPool) {
     };
 
     let err = env
-        .api
+        .api()
         .add_expected_rack(tonic::Request::new(expected_rack))
         .await
         .unwrap_err();
@@ -162,10 +166,9 @@ async fn test_add_expected_rack_invalid_type(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_add_expected_rack_empty_type(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_add_expected_rack_empty_type(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
@@ -175,7 +178,7 @@ async fn test_add_expected_rack_empty_type(pool: sqlx::PgPool) {
     };
 
     let err = env
-        .api
+        .api()
         .add_expected_rack(tonic::Request::new(expected_rack))
         .await
         .unwrap_err();
@@ -187,10 +190,9 @@ async fn test_add_expected_rack_empty_type(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_add_expected_rack_missing_rack_id(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_add_expected_rack_missing_rack_id(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     let expected_rack = rpc::forge::ExpectedRack {
         rack_id: None,
@@ -199,7 +201,7 @@ async fn test_add_expected_rack_missing_rack_id(pool: sqlx::PgPool) {
     };
 
     let err = env
-        .api
+        .api()
         .add_expected_rack(tonic::Request::new(expected_rack))
         .await
         .unwrap_err();
@@ -211,13 +213,13 @@ async fn test_add_expected_rack_missing_rack_id(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_get_expected_rack_not_found(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_get_expected_rack_not_found(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let rack_id = new_rack_id();
     let err = env
-        .api
+        .api()
         .get_expected_rack(tonic::Request::new(ExpectedRackRequest {
             rack_id: rack_id.to_string(),
         }))
@@ -231,10 +233,9 @@ async fn test_get_expected_rack_not_found(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_delete_expected_rack(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_delete_expected_rack(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
@@ -243,12 +244,12 @@ async fn test_delete_expected_rack(pool: sqlx::PgPool) {
         metadata: None,
     };
 
-    env.api
+    env.api()
         .add_expected_rack(tonic::Request::new(expected_rack))
         .await
         .expect("unable to add expected rack");
 
-    env.api
+    env.api()
         .delete_expected_rack(tonic::Request::new(ExpectedRackRequest {
             rack_id: rack_id.to_string(),
         }))
@@ -256,7 +257,7 @@ async fn test_delete_expected_rack(pool: sqlx::PgPool) {
         .expect("unable to delete expected rack");
 
     let err = env
-        .api
+        .api()
         .get_expected_rack(tonic::Request::new(ExpectedRackRequest {
             rack_id: rack_id.to_string(),
         }))
@@ -266,13 +267,13 @@ async fn test_delete_expected_rack(pool: sqlx::PgPool) {
     assert!(err.message().contains("not found"));
 }
 
-#[crate::sqlx_test]
-async fn test_delete_expected_rack_not_found(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
+#[sqlx_test]
+async fn test_delete_expected_rack_not_found(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
 
     let rack_id = new_rack_id();
     let err = env
-        .api
+        .api()
         .delete_expected_rack(tonic::Request::new(ExpectedRackRequest {
             rack_id: rack_id.to_string(),
         }))
@@ -286,15 +287,14 @@ async fn test_delete_expected_rack_not_found(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_update_expected_rack(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_update_expected_rack(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     let rack_id = new_rack_id();
 
     // Add a rack first.
-    env.api
+    env.api()
         .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL72")),
@@ -307,7 +307,7 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
         .expect("unable to add expected rack");
 
     // Update it.
-    env.api
+    env.api()
         .update_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL36")),
@@ -321,7 +321,7 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
         .expect("unable to update expected rack");
 
     let retrieved = env
-        .api
+        .api()
         .get_expected_rack(tonic::Request::new(ExpectedRackRequest {
             rack_id: rack_id.to_string(),
         }))
@@ -340,14 +340,13 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_update_expected_rack_not_found(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_update_expected_rack_not_found(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     let rack_id = new_rack_id();
     let err = env
-        .api
+        .api()
         .update_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL72")),
@@ -363,14 +362,13 @@ async fn test_update_expected_rack_not_found(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_get_all_expected_racks(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     // Start with none.
     let all = env
-        .api
+        .api()
         .get_all_expected_racks(tonic::Request::new(()))
         .await
         .expect("unable to get all expected racks")
@@ -380,7 +378,7 @@ async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
     // Add two.
     for i in 0..2 {
         let rack_id = new_rack_id();
-        env.api
+        env.api()
             .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
                 rack_id: Some(rack_id),
                 rack_profile_id: Some(RackProfileId::new("NVL72")),
@@ -394,7 +392,7 @@ async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
     }
 
     let all = env
-        .api
+        .api()
         .get_all_expected_racks(tonic::Request::new(()))
         .await
         .expect("unable to get all expected racks")
@@ -402,10 +400,9 @@ async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
     assert_eq!(all.expected_racks.len(), 2);
 }
 
-#[crate::sqlx_test]
-async fn test_add_expected_rack_duplicate(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_add_expected_rack_duplicate(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
@@ -414,14 +411,14 @@ async fn test_add_expected_rack_duplicate(pool: sqlx::PgPool) {
         metadata: None,
     };
 
-    env.api
+    env.api()
         .add_expected_rack(tonic::Request::new(expected_rack.clone()))
         .await
         .expect("unable to add expected rack");
 
     // Adding the same rack again should fail.
     let err = env
-        .api
+        .api()
         .add_expected_rack(tonic::Request::new(expected_rack))
         .await
         .unwrap_err();
@@ -434,14 +431,13 @@ async fn test_add_expected_rack_duplicate(pool: sqlx::PgPool) {
     );
 }
 
-#[crate::sqlx_test]
-async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_replace_all_expected_racks(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     // Add one initial rack.
     let initial_rack_id = new_rack_id();
-    env.api
+    env.api()
         .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(initial_rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL72")),
@@ -474,13 +470,13 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
         ],
     };
 
-    env.api
+    env.api()
         .replace_all_expected_racks(tonic::Request::new(replacement))
         .await
         .expect("unable to replace all expected racks");
 
     let all = env
-        .api
+        .api()
         .get_all_expected_racks(tonic::Request::new(()))
         .await
         .expect("unable to get all expected racks")
@@ -489,7 +485,7 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
 
     // The initial rack should be gone.
     let err = env
-        .api
+        .api()
         .get_expected_rack(tonic::Request::new(ExpectedRackRequest {
             rack_id: initial_rack_id.to_string(),
         }))
@@ -498,15 +494,14 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
     assert!(err.message().contains("not found"));
 }
 
-#[crate::sqlx_test]
-async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_delete_all_expected_racks(pool: PgPool) {
+    let env = env_with_rack_profiles(pool).await;
 
     // Add two racks.
     for _ in 0..2 {
         let rack_id = new_rack_id();
-        env.api
+        env.api()
             .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
                 rack_id: Some(rack_id),
                 rack_profile_id: Some(RackProfileId::new("NVL72")),
@@ -517,7 +512,7 @@ async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
     }
 
     let all = env
-        .api
+        .api()
         .get_all_expected_racks(tonic::Request::new(()))
         .await
         .unwrap()
@@ -525,13 +520,13 @@ async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
     assert_eq!(all.expected_racks.len(), 2);
 
     // Delete all.
-    env.api
+    env.api()
         .delete_all_expected_racks(tonic::Request::new(()))
         .await
         .expect("unable to delete all expected racks");
 
     let all = env
-        .api
+        .api()
         .get_all_expected_racks(tonic::Request::new(()))
         .await
         .unwrap()
@@ -539,14 +534,12 @@ async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
     assert_eq!(all.expected_racks.len(), 0);
 }
 
-#[crate::sqlx_test]
-async fn test_add_expected_rack_creates_rack_entry(pool: sqlx::PgPool) {
-    let config = config_with_rack_profiles();
-    let env =
-        create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
+#[sqlx_test]
+async fn test_add_expected_rack_creates_rack_entry(pool: PgPool) {
+    let env = env_with_rack_profiles(pool.clone()).await;
 
     let rack_id = new_rack_id();
-    env.api
+    env.api()
         .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_profile_id: Some(RackProfileId::new("NVL72")),

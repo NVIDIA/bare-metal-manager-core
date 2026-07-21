@@ -31,7 +31,6 @@ mod dpu_reprovisioning;
 mod dynamic_config;
 mod expected_machine;
 mod expected_power_shelf;
-mod expected_rack;
 mod expected_switch;
 mod explored_endpoint_find;
 mod extension_service;
